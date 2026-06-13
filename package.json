@@ -13,6 +13,8 @@
   },
   "scripts": {
     "build": "node ./scripts/workspace-health.mjs run build",
+    "build:native:all": "yarn workspace octocode-security build:all && yarn workspace @octocodeai/octocode-minifier-utils build:all",
+    "build:publish": "yarn build:native:all && yarn workspace octocode-mcp build:publish",
     "docs:verify": "node ./scripts/docs-verify.mjs",
     "health:check": "node ./scripts/workspace-health.mjs check",
     "health:report": "node ./scripts/workspace-health.mjs report",

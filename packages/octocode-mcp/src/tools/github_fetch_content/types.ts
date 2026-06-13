@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 import type { FileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
-import type { MinifyMode } from '../../scheme/localSchemaOverlay.js';
+import type { MinifyMode } from '../../scheme/fields.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { PaginationInfo } from '../../utils/core/types.js';

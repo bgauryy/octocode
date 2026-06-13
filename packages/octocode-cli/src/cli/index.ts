@@ -156,7 +156,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     return true;
   }
 
-  if (args.command === 'instructions') {
+  if (args.command === 'context') {
     const toolModule = await tryLoadToolCommandModule();
     if (toolModule) {
       await toolModule.printToolsContext({

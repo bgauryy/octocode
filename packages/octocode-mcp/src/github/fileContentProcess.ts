@@ -9,7 +9,7 @@ import {
 import { applyPagination } from '../utils/pagination/core.js';
 import { extractMatchingLines } from '../tools/local_fetch_content/contentExtractor.js';
 import { OctokitWithThrottling } from './client.js';
-import type { MinifyMode } from '../scheme/localSchemaOverlay.js';
+import type { MinifyMode } from '../scheme/fields.js';
 
 function getDefaultContentPageSize(): number {
   return getOutputCharLimit();
@@ -112,7 +112,7 @@ export async function processFileContentAPI(
   matchString?: string,
   matchStringIsRegex?: boolean,
   matchStringCaseSensitive?: boolean,
-  minify: MinifyMode = 'standard'
+  minify: MinifyMode = 'none'
 ): Promise<GitHubFileContentApiResult> {
   const sourceChars = decodedContent.length;
   const sourceBytes = Buffer.byteLength(decodedContent, 'utf-8');
@@ -332,8 +332,8 @@ export async function processFileContentAPI(
     repo,
     path: filePath,
     content: finalContent,
-    // Omit contentView when 'standard' (default) — absence implies standard.
-    ...(fallbackContentView !== 'standard' && {
+    // Omit contentView when 'none' (default) — absence implies raw/none.
+    ...(fallbackContentView !== 'none' && {
       contentView: fallbackContentView,
     }),
     branch,

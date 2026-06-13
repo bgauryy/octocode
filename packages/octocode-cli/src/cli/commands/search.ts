@@ -180,7 +180,7 @@ export const searchCommand: CLICommand = {
   name: 'search',
   description: 'Search code — works for local paths and GitHub repositories',
   usage:
-    'octocode search <pattern> <path|github-ref> [--type <ext>] [--limit <n>] [--page <n>] [--page-size <n>] [--json]',
+    'octocode search <pattern> <path|github-ref> [--type <ext>] [--branch <ref>] [--limit <n>] [--page <n>] [--page-size <n>] [--json]',
   options: [
     {
       name: 'type',

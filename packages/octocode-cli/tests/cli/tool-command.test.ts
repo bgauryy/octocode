@@ -204,13 +204,13 @@ describe('toolCommand', () => {
     );
   });
 
-  it('shows schema help when --schema is provided', async () => {
+  it('shows schema help when --scheme is provided', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
       args: ['localSearchCode'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();

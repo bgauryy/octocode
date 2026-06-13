@@ -14,7 +14,16 @@ import type {
   WithOptionalMeta,
 } from '../../types/execution.js';
 
-type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery>;
+type RepositorySearchExtraFields = {
+  archived?: boolean;
+  visibility?: 'public' | 'private';
+  forks?: string;
+  license?: string;
+  goodFirstIssues?: string;
+};
+
+type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery> &
+  RepositorySearchExtraFields;
 
 // ── Verbose structured output (verbose=true) ─────────────────────────────────
 
@@ -207,7 +216,12 @@ function hasValidRepositorySearchParams(
     query.stars ||
     query.created ||
     query.updated ||
-    query.size
+    query.size ||
+    query.forks ||
+    query.license ||
+    query.goodFirstIssues ||
+    query.visibility ||
+    query.archived !== undefined
   );
 }
 

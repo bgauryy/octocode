@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  LOCAL_OVERLAY_MAX_LIMIT,
-  LOCAL_OVERLAY_MAX_DEPTH,
-} from '../../src/scheme/localSchemaOverlay.js';
+import { LOCAL_MAX_DEPTH, LOCAL_MAX_LIMIT } from '../../src/config.js';
+
+const LOCAL_OVERLAY_MAX_LIMIT = LOCAL_MAX_LIMIT;
+const LOCAL_OVERLAY_MAX_DEPTH = LOCAL_MAX_DEPTH;
 import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';

@@ -58,6 +58,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            packages/octocode-security
+            packages/octocode-minifier-utils
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -70,7 +79,12 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Build all packages
+      - name: Build native packages (current platform only)
+        run: |
+          yarn workspace octocode-security run build
+          yarn workspace @octocodeai/octocode-minifier-utils run build
+
+      - name: Build all packages (native platform)
         run: yarn build
 
       - name: Verify build outputs

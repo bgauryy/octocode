@@ -46,17 +46,19 @@ The installed command is **`octocode`** (not `octocode-cli`). Homebrew pulls in 
 ## Quick Start
 
 ```bash
-octocode instructions                                  # agent protocol + tool fields
+octocode context                                       # agent protocol + tool fields
 octocode tree .                                        # inspect local structure
+octocode files auth . --search both --ext ts           # discover files + content hits
 octocode search "TODO" . --type ts                     # search code
+octocode repo mcp agents --language TypeScript         # discover GitHub repos
 octocode pkg zod                                       # package metadata + source repo
 octocode symbols src/index.ts                          # semantic outline
 octocode lsp src/index.ts --type documentSymbols       # semantic outline
-octocode tools localSearchCode                         # inspect exact schema
+octocode tools localSearchCode --scheme                # inspect exact schema
 octocode tools localSearchCode --queries '{"path":".","keywords":"TODO"}'
 ```
 
-> **Agents:** run `octocode instructions` first. It prints the protocol, every tool, and input field specs in one shot.
+> **Agents:** run `octocode context` first. It prints the protocol, every tool, and input field specs in one shot.
 
 ---
 
@@ -81,10 +83,10 @@ Call any tool directly from the terminal. Great for scripts, pipelines, and one-
 
 ```bash
 # Discover
-octocode instructions                             # agent bootstrap: protocol + tools + input fields
-octocode instructions --full                      # …plus every tool's full JSON schema inline
+octocode context                                  # agent bootstrap: protocol + tools + input fields
+octocode context --full                           # …plus every tool's full JSON schema inline
 octocode tools                                    # list all tools
-octocode tools localSearchCode                    # show one tool's schema
+octocode tools localSearchCode --scheme           # show one tool's schema
 octocode tools localSearchCode githubSearchCode   # batch schemas
 
 # Run
@@ -96,7 +98,7 @@ octocode tools localSearchCode --queries '{"path":".","keywords":"TODO"}' --comp
 
 The shared metadata fields (`id`, `researchGoal`, `reasoning`, `mainResearchGoal`) are auto-filled. Provide only tool-specific fields.
 
-> **For agents:** run `octocode instructions` once for the full bootstrap (protocol + every tool + input fields + the mandatory "read the schema before calling" rule + the exit-code table). Then `octocode tools <name>` to confirm a tool's exact schema before calling it. This checklist is also printed at the top of `octocode --help`.
+> **For agents:** run `octocode context` once for the full bootstrap (protocol + every tool + input fields + the mandatory "read the schema before calling" rule + the exit-code table). Then `octocode tools <name> --scheme` to confirm a tool's exact schema before calling it. This checklist is also printed at the top of `octocode --help`.
 
 ---
 
@@ -122,13 +124,15 @@ octocode token --reveal           # print the full token on screen
 |---------|--------------|
 | `get <path\|github-ref>` | Fetch and minify file content |
 | `tree <path\|github-ref>` | View local or GitHub directory structure |
+| `files <query> [path\|github-ref]` | Find file paths and content matches |
 | `search <pattern> <path\|github-ref>` | Search local or GitHub code |
 | `pr <owner/repo[#N] \| PR-URL>` | Search or deep-dive pull requests |
+| `repo <keywords...>` | Discover GitHub repositories by keyword, topic, owner, and quality filters |
 | `pkg <package>` | Research npm package metadata and source repository |
 | `symbols <file\|path>` | Show semantic symbol outlines for local files or directories |
 | `lsp <file> --type <type>` | Run LSP semantic navigation for a local source file |
 | `tools [name...]` | List tools, show schema(s), or run with `--queries '<json>'` |
-| `instructions` | Print MCP instructions and every tool schema |
+| `context` | Print agent context and every tool schema |
 | `install --ide <ide>` | Configure octocode-mcp for an IDE |
 | `auth [login\|logout\|status\|token\|refresh]` | GitHub authentication |
 | `login` / `logout` | Top-level shortcuts for auth login/logout |

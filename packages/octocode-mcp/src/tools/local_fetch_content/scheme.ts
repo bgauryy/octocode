@@ -6,9 +6,13 @@ import {
   contextLinesField,
   createRelaxedBulkQuerySchema,
   lineNumberField,
-  minifyFieldWithSymbols,
   type MinifyMode,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
+
+const minifyField = z
+  .enum(['none', 'standard', 'symbols'])
+  .optional()
+  .default('none');
 import { validateFileContentExtractionMode } from '../../scheme/fileContentModeValidation.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
@@ -50,7 +54,7 @@ const FetchContentQueryShape = z.object({
   charLength: clampedInt(1, MAX_CHAR_LENGTH)
     .optional()
     .describe(QUERY_DESCRIPTIONS.charLength!),
-  minify: minifyFieldWithSymbols.describe(QUERY_DESCRIPTIONS.minify!),
+  minify: minifyField.describe(QUERY_DESCRIPTIONS.minify!),
 });
 
 export const LocalFetchContentQuerySchema = FetchContentQueryShape.superRefine(
@@ -62,7 +66,6 @@ export type FetchContentQuery = z.infer<typeof FetchContentQueryShape> & {
 };
 
 export const LocalFetchContentBulkQuerySchema = createRelaxedBulkQuerySchema(
-  STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
   FetchContentQueryShape,
   { maxQueries: 5 }
 );

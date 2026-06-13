@@ -166,6 +166,14 @@ function buildCodeEvidence(
   if (errors.length > 0) {
     reasons.push(`${errors.length} query result(s) failed.`);
   }
+  // Zero matches ≠ code does not exist — the repo may simply not be indexed
+  // (private, recently pushed, very large, archived, renamed). Mark incomplete
+  // so agents know this is an index miss, not a confirmed absence.
+  if (totalMatches === 0) {
+    reasons.push(
+      'GitHub code search returned no matches — the repo may not be indexed. Confirm via githubGetFileContent before concluding the code does not exist.'
+    );
+  }
 
   return buildEvidenceMetadata({
     kind: 'code',

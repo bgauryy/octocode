@@ -217,7 +217,11 @@ async function discoverSourceFiles(
     throw new Error(getDirectToolText(result));
   }
 
-  return filePathsFromFindResult(result.structuredContent).slice(0, limit);
+  return filePathsFromFindResult(result.structuredContent)
+    .map(filePath =>
+      path.isAbsolute(filePath) ? filePath : path.resolve(dirPath, filePath)
+    )
+    .slice(0, limit);
 }
 
 async function fetchDocumentSymbols(
@@ -266,7 +270,7 @@ export const symbolsCommand: CLICommand = {
   name: 'symbols',
   description: 'Show a semantic symbol outline for a local file or directory',
   usage:
-    'octocode symbols <file|path> [--ext <list>] [--kind <kind>] [--limit <n>] [--depth <n>] [--json]',
+    'octocode symbols <file|path> [--ext <list>] [--kind <kind>] [--limit <n>] [--depth <n>] [--page-size <n>] [--json]',
   options: [
     {
       name: 'ext',

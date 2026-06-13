@@ -21,8 +21,7 @@ import type { WithOptionalMeta } from '../../types/execution.js';
 import fs from 'fs';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { LOCAL_OVERLAY_MAX_LIMIT } from '../../scheme/localSchemaOverlay.js';
-import { LOCAL_DEFAULT_FILES_PER_PAGE } from '../../config.js';
+import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 
@@ -261,7 +260,7 @@ export async function findFiles(
       .filter(line => line.trim())
       .map(line => line.trim());
 
-    const maxFiles = query.limit ?? LOCAL_OVERLAY_MAX_LIMIT;
+    const maxFiles = query.limit ?? LOCAL_MAX_LIMIT;
     const discoveredFileCount = filePaths.length;
     const wasFileCapped = discoveredFileCount > maxFiles;
     filePaths = filePaths.slice(0, maxFiles);

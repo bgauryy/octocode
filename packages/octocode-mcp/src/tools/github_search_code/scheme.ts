@@ -5,7 +5,7 @@ import {
   clampedInt,
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
 import {
   EvidenceSchema,
   responseEnvelopeFields,
@@ -51,10 +51,7 @@ const GitHubCodeSearchQuerySchema = z.object({
 export const GitHubCodeSearchQueryLocalSchema = GitHubCodeSearchQuerySchema;
 
 export const GitHubCodeSearchBulkQueryLocalSchema =
-  createRelaxedBulkQuerySchema(
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
-    GitHubCodeSearchQuerySchema
-  );
+  createRelaxedBulkQuerySchema(GitHubCodeSearchQuerySchema);
 
 export const GitHubCodeSearchOutputLocalSchema = z.object({
   base: z.string().optional(),

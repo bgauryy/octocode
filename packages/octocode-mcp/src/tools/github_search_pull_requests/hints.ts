@@ -38,7 +38,7 @@ export const hints: ToolHintGenerators = {
     return [
       `0 PRs found in ${scope ?? 'this scope'} matching ${filters.join(' + ')} — result is confirmed empty.`,
       state === 'merged'
-        ? 'Zero merged PRs matched. If unexpected, verify the label spelling or date range; try omitting `state` to check all PR states.'
+        ? "GitHub's is:merged qualifier is not indexed for all repos (especially large or high-traffic ones like facebook/react). Fallback: use state:'closed' instead — merged PRs have mergedAt set in the results. Or narrow with merged-at:>2024-01-01 to confirm indexing."
         : author
           ? 'If unexpected, try removing one filter at a time: drop `author` first, then loosen `query` keywords.'
           : query
@@ -55,7 +55,9 @@ export const hints: ToolHintGenerators = {
             ]
           : []),
       'Tip: the `query` field supports GitHub search qualifiers — e.g. `label:bug`, `created:>2024-01-01`, `merged:>2024-06-01`, `involves:<user>` — to filter by date, label, or involvement.',
-      ...(scope
+      // Omit the "repo may have been renamed" hint for merged state — that is never
+      // the cause of zero merged results; the repo just may not be indexed for is:merged.
+      ...(scope && state !== 'merged'
         ? [
             `Zero PRs in ${scope} — the repo may have been renamed or transferred. Confirm the canonical name with githubSearchRepositories before concluding the PR does not exist.`,
           ]

@@ -18,8 +18,8 @@ function parseMinify(schema: z.ZodTypeAny, input: Record<string, unknown>) {
 }
 
 describe('minify enum — githubGetFileContent scheme', () => {
-  it("defaults to 'standard' when omitted (schema-level default)", () => {
-    expect(parseMinify(FileContentQueryLocalSchema, GH_BASE)).toBe('standard');
+  it("defaults to 'none' when omitted (schema-level default — raw content)", () => {
+    expect(parseMinify(FileContentQueryLocalSchema, GH_BASE)).toBe('none');
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
@@ -63,10 +63,8 @@ describe('minify enum — githubGetFileContent scheme', () => {
 });
 
 describe('minify enum — localGetFileContent scheme', () => {
-  it("defaults to 'standard' when omitted (schema-level default)", () => {
-    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe(
-      'standard'
-    );
+  it("defaults to 'none' when omitted (schema-level default — raw content)", () => {
+    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('none');
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {

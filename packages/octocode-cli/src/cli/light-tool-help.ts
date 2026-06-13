@@ -17,6 +17,20 @@ export function showLightAvailableTools(): void {
   console.log(
     `  ${dim('For full schemas and execution, the Octocode runtime must load successfully.')}`
   );
+  console.log();
+  console.log(`  ${bold('SCHEME')}`);
+  console.log(
+    `    ${c('yellow', 'octocode tools')}                                   ${dim('# list raw MCP tools')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode tools <name>')}                            ${dim('# show input fields for one tool')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode tools <name> --scheme')}                   ${dim('# show schema/help only')}`
+  );
+  console.log(
+    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}         ${dim('# run one tool when runtime loads')}`
+  );
 
   for (const category of HELP_TOOL_CATEGORIES) {
     const tools = HELP_TOOL_DEFINITIONS.filter(
@@ -62,23 +76,28 @@ export function printLightInstructions(options: { full?: boolean } = {}): void {
   console.log('Octocode CLI — Agent Protocol');
   console.log();
   console.log(
-    '1. Use smart commands first for common research: get, tree, search, pr, pkg, symbols, lsp.'
+    '1. Use smart commands first for common research: get, tree, files, search, pr, repo, pkg, symbols, lsp.'
   );
-  console.log('2. For raw tools, inspect the schema before calling:');
+  console.log('2. Show the full smart-command scheme with:');
+  console.log('   octocode <command> --help');
+  console.log('3. For raw tools, inspect the schema before calling:');
+  console.log('   octocode tools <name> --scheme');
   console.log('   octocode tools <name>');
   console.log("   octocode tools <name> --queries '<json>'");
   console.log(
-    '3. Read default YAML directly; use --json only when you need the envelope.'
+    '4. Read default YAML directly; use --json only when you need the envelope.'
   );
   console.log();
   console.log('Smart commands:');
   console.log('  octocode get <path|owner/repo/file>');
   console.log('  octocode tree <path|owner/repo>');
+  console.log('  octocode files <query> [path|repo]');
   console.log('  octocode search <pattern> <path|repo>');
   console.log('  octocode pr <owner/repo[#N] | PR-URL>');
+  console.log('  octocode repo <keywords...>');
   console.log('  octocode pkg <package>');
-  console.log('  octocode symbols <file|path>');
-  console.log('  octocode lsp <file> --type <type>');
+  console.log('  octocode symbols <file|path>       # outline first');
+  console.log('  octocode lsp <file> --type <type>  # nav after symbol+line');
   console.log();
   showLightAvailableTools();
   if (options.full) {

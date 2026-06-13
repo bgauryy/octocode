@@ -198,6 +198,10 @@ export async function searchRepos(
     language: query.language,
     match: query.match,
     archived: query.archived,
+    visibility: query.visibility,
+    forks: query.forks,
+    license: query.license,
+    goodFirstIssues: query.goodFirstIssues,
     sort:
       query.sort === 'best-match'
         ? undefined

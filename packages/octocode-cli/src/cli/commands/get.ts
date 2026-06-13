@@ -1,357 +1,286 @@
-import { readFileSync, existsSync } from 'node:fs';
-import path from 'node:path';
 import type { CLICommand } from '../types.js';
 import { getBool, getString } from '../options.js';
 import { resolveRef, isGithubRef, refLabel } from '../routing.js';
-import { c, bold, dim } from '../../utils/colors.js';
+import { c, dim } from '../../utils/colors.js';
+import { EXIT } from '../exit-codes.js';
 import {
-  minifyContent,
-  extractSignatures,
-  SIGNATURES_ONLY_HINT,
-  SUPPORTED_SIGNATURE_EXTENSIONS,
-} from '@octocodeai/octocode-minifier-utils';
-import { executeDirectTool, type ContentResult } from 'octocode-mcp/public';
+  markDirectToolFailure,
+  printDirectToolResult,
+} from './direct-tool-output.js';
 
 type MinifyMode = 'standard' | 'symbols' | 'none';
-const VALID_MODES: MinifyMode[] = ['standard', 'symbols', 'none'];
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+const VALID_MODES = new Set(['standard', 'symbols', 'none']);
+const CONTENT_TYPES = new Set(['file', 'directory']);
+const OPTION_NAMES = new Set([
+  'help',
+  'json',
+  'compact',
+  'no-color',
+  'mode',
+  'branch',
+  'match-string',
+  'match-regex',
+  'match-case-sensitive',
+  'start-line',
+  'end-line',
+  'context-lines',
+  'char-offset',
+  'char-length',
+  'page',
+  'page-size',
+  'full-content',
+  'force-refresh',
+  'content-type',
+]);
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)}MB`;
+function intOption(value: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function formatReduction(original: number, minified: number): string {
-  if (original === 0) return '0%';
-  return `${((1 - minified / original) * 100).toFixed(1)}%`;
+function positiveIntOption(value: string): number | undefined {
+  const parsed = intOption(value);
+  return parsed && parsed > 0 ? parsed : undefined;
 }
 
-interface FetchGithubOpts {
-  branch?: string;
-  matchString?: string;
-  startLine?: number;
-  endLine?: number;
-  charLength?: number;
+function reportUsage(message: string, jsonOutput: boolean): void {
+  if (jsonOutput) {
+    console.log(JSON.stringify({ success: false, error: message }));
+  } else {
+    console.error(`\n  ${c('red', 'x')} ${message}`);
+    console.error(
+      `\n  ${dim('Examples:')}\n` +
+        `    octocode get src/utils.ts --match-string createClient --mode none\n` +
+        `    octocode get bgauryy/octocode-mcp/README.md --match-string Octocode --mode none\n` +
+        `    octocode get src/index.ts --start-line 40 --end-line 90 --mode none\n`
+    );
+  }
+  process.exitCode = EXIT.USAGE;
+}
+
+function validateOptions(
+  options: Record<string, string | boolean>,
+  isGithub: boolean
+): string | undefined {
+  const unknown = Object.keys(options).find(
+    option => !OPTION_NAMES.has(option)
+  );
+  if (unknown) return `Unknown get option --${unknown}.`;
+
+  const mode = getString(options, 'mode') || 'standard';
+  if (!VALID_MODES.has(mode)) {
+    return 'Invalid --mode. Use none, standard, or symbols.';
+  }
+
+  const contentType = getString(options, 'content-type');
+  if (contentType && !CONTENT_TYPES.has(contentType)) {
+    return 'Invalid --content-type. Use file or directory.';
+  }
+  if (!isGithub && (getBool(options, 'force-refresh') || contentType)) {
+    return '--force-refresh and --content-type are GitHub-only.';
+  }
+
+  for (const key of [
+    'start-line',
+    'end-line',
+    'char-length',
+    'page',
+    'page-size',
+  ]) {
+    const value = getString(options, key);
+    if (value && positiveIntOption(value) === undefined) {
+      return `--${key} must be a positive integer.`;
+    }
+  }
+  for (const key of ['context-lines', 'char-offset']) {
+    const value = getString(options, key);
+    if (value && intOption(value) === undefined) {
+      return `--${key} must be a non-negative integer.`;
+    }
+  }
+
+  const startLine = positiveIntOption(getString(options, 'start-line'));
+  const endLine = positiveIntOption(getString(options, 'end-line'));
+  if (startLine && endLine && endLine < startLine) {
+    return '--end-line must be greater than or equal to --start-line.';
+  }
+
+  return undefined;
+}
+
+function buildContentPaging(options: Record<string, string | boolean>): {
   charOffset?: number;
-}
-
-async function fetchGithubContent(
-  owner: string,
-  repo: string,
-  subpath: string,
-  opts: FetchGithubOpts = {}
-): Promise<{ content: string; pagination?: Record<string, unknown> }> {
-  const result = await executeDirectTool('githubGetFileContent', {
-    queries: [
-      {
-        owner,
-        repo,
-        path: subpath || '.',
-        branch: opts.branch,
-        minify: 'none',
-        matchString: opts.matchString,
-        startLine: opts.startLine,
-        endLine: opts.endLine,
-        charLength: opts.charLength,
-        charOffset: opts.charOffset,
-        mainResearchGoal: 'Fetch file content',
-        researchGoal: 'Fetch raw content for get command',
-        reasoning: 'CLI get command',
-      },
-    ],
-  });
-
-  if (result.isError) {
-    const errText =
-      result.content[0]?.type === 'text' ? result.content[0].text : '';
-    if (/401|403|auth/i.test(errText)) {
-      throw new Error(
-        `GitHub auth error: ${errText}. Set GITHUB_TOKEN, OCTOCODE_TOKEN, or GH_TOKEN.`
-      );
-    }
-    if (/404|not found/i.test(errText)) {
-      throw new Error(`Not found on GitHub: ${owner}/${repo}/${subpath}`);
-    }
-    throw new Error(`GitHub API error: ${errText}`);
-  }
-
-  const structured = result.structuredContent as ContentResult | undefined;
-  const queryResult = structured?.results?.[0];
-  const fileResult = (queryResult as Record<string, unknown> | undefined)
-    ?.files as Array<Record<string, unknown>> | undefined;
-  const firstFile = fileResult?.[0];
-  const content = firstFile?.['content'] as string | undefined;
-  if (!content) {
-    throw new Error(`No content returned for ${owner}/${repo}/${subpath}`);
-  }
-  const pagination = firstFile?.['pagination'] as
-    | Record<string, unknown>
-    | undefined;
-  return { content, pagination };
-}
-
-async function applyMode(
-  raw: string,
-  mode: MinifyMode,
-  ext: string
-): Promise<{ content: string; strategy: string }> {
-  if (mode === 'none') return { content: raw, strategy: 'none' };
-
-  if (mode === 'symbols') {
-    // SUPPORTED_SIGNATURE_EXTENSIONS is an array in the compiled package
-    const exts = SUPPORTED_SIGNATURE_EXTENSIONS as unknown as string[];
-    const canExtract = Array.isArray(exts) ? exts.includes(ext) : false;
-    if (canExtract) {
-      const sig = extractSignatures(raw, ext);
-      if (sig !== null) return { content: sig, strategy: 'symbols' };
-    }
-    // Fall back to standard when extension not supported for symbols
-  }
-
-  const result = await minifyContent(raw, ext);
-  const minified = result as unknown as { content: string; strategy: string };
+  charLength?: number;
+} {
+  const pageSize =
+    positiveIntOption(getString(options, 'char-length')) ??
+    positiveIntOption(getString(options, 'page-size'));
+  const explicitOffset = intOption(getString(options, 'char-offset'));
+  const page = positiveIntOption(getString(options, 'page'));
   return {
-    content: minified.content,
-    strategy: minified.strategy ?? 'standard',
+    charLength: pageSize,
+    charOffset:
+      explicitOffset ??
+      (pageSize && page && page > 1 ? (page - 1) * pageSize : undefined),
   };
 }
 
-// ── command ───────────────────────────────────────────────────────────────────
+function buildSharedQuery(
+  path: string,
+  options: Record<string, string | boolean>
+): Record<string, unknown> {
+  const paging = buildContentPaging(options);
+  return {
+    path,
+    fullContent: getBool(options, 'full-content') || undefined,
+    matchString: getString(options, 'match-string') || undefined,
+    matchStringIsRegex: getBool(options, 'match-regex') || undefined,
+    matchStringCaseSensitive:
+      getBool(options, 'match-case-sensitive') || undefined,
+    startLine: positiveIntOption(getString(options, 'start-line')),
+    endLine: positiveIntOption(getString(options, 'end-line')),
+    contextLines: intOption(getString(options, 'context-lines')),
+    charOffset: paging.charOffset,
+    charLength: paging.charLength,
+    minify: (getString(options, 'mode') || 'standard') as MinifyMode,
+  };
+}
 
 export const getCommand: CLICommand = {
   name: 'get',
   description:
-    'Fetch and minify file content — works for local paths and GitHub references',
+    'Fetch file content from local paths and GitHub references with match, line, pagination, and minify controls',
   usage:
-    'octocode get <path|github-ref> [--mode none|standard|symbols] [--type <ext>] [--branch <ref>] [--match-string <s>] [--start-line <n>] [--end-line <n>] [--page-size <n>] [--page <n>] [--stats] [--json]',
+    'octocode get <path|github-ref> [--mode none|standard|symbols] [--branch <ref>] [--match-string <s>] [--match-regex] [--match-case-sensitive] [--start-line <n>] [--end-line <n>] [--context-lines <n>] [--page-size <n>] [--page <n>] [--char-offset <n>] [--char-length <n>] [--full-content] [--content-type file|directory] [--force-refresh] [--json]',
   options: [
     {
       name: 'mode',
       hasValue: true,
-      description: 'Minification mode: standard (default) · symbols · none',
-    },
-    {
-      name: 'type',
-      hasValue: true,
       description:
-        'Language hint — overrides auto-detection (e.g. ts, py, css)',
+        'Minification mode: standard for readable code, symbols for outline, none for exact text',
     },
     {
       name: 'branch',
       hasValue: true,
-      description: 'Branch / ref for GitHub paths (overrides inline branch)',
+      description: 'Branch or ref for GitHub paths',
     },
     {
       name: 'match-string',
       hasValue: true,
-      description:
-        'Return only sections matching this string — ALL occurrences returned',
+      description: 'Return slices matching this string',
     },
     {
-      name: 'start-line',
-      hasValue: true,
-      description: 'First line to return — 1-based (GitHub only)',
+      name: 'match-regex',
+      description: 'Treat --match-string as a regex',
     },
     {
-      name: 'end-line',
+      name: 'match-case-sensitive',
+      description: 'Match string case-sensitively',
+    },
+    { name: 'start-line', hasValue: true, description: 'First line to return' },
+    { name: 'end-line', hasValue: true, description: 'Last line to return' },
+    {
+      name: 'context-lines',
       hasValue: true,
-      description: 'Last line to return — 1-based (GitHub only)',
+      description: 'Context around match-string slices',
     },
     {
       name: 'page-size',
       hasValue: true,
-      description: 'Characters per page for GitHub file reads',
+      description: 'Characters per page',
     },
     {
       name: 'page',
       hasValue: true,
-      description: 'GitHub file page number when pagination is available',
+      description: 'Page number when using --page-size',
     },
     {
-      name: 'stats',
-      description: 'Print size-reduction statistics',
+      name: 'char-offset',
+      hasValue: true,
+      description: 'Character offset for content pagination',
     },
     {
-      name: 'json',
-      description:
-        'Output as JSON: { content, mode, strategy, pagination?, ... }',
+      name: 'char-length',
+      hasValue: true,
+      description: 'Character length for content pagination',
     },
+    {
+      name: 'full-content',
+      description: 'Return the whole file instead of a page or match slice',
+    },
+    {
+      name: 'content-type',
+      hasValue: true,
+      description: 'GitHub content type: file or directory',
+    },
+    { name: 'force-refresh', description: 'Bypass GitHub cache' },
+    { name: 'json', description: 'Output raw JSON results' },
   ],
   handler: async args => {
-    const { options } = args;
     const target = args.args[0] ?? '';
-    const typeHint = getString(options, 'type');
-    const branchOverride = getString(options, 'branch');
-    const rawMode = getString(options, 'mode') || 'standard';
-    const showStats = getBool(options, 'stats');
-    const jsonOutput = getBool(options, 'json');
-    const matchString = getString(options, 'match-string');
-    const rawStartLine = getString(options, 'start-line');
-    const rawEndLine = getString(options, 'end-line');
-    const rawPageSize = getString(options, 'page-size');
-    const rawPage = getString(options, 'page');
-    const startLine = rawStartLine ? parseInt(rawStartLine, 10) : undefined;
-    const endLine = rawEndLine ? parseInt(rawEndLine, 10) : undefined;
-    const pageSize = rawPageSize ? parseInt(rawPageSize, 10) : undefined;
-    const page = rawPage ? parseInt(rawPage, 10) : undefined;
-    const charOffset =
-      pageSize && page && page > 1 ? (page - 1) * pageSize : undefined;
+    const jsonOutput = getBool(args.options, 'json');
+    const branchOverride = getString(args.options, 'branch');
 
-    if (!VALID_MODES.includes(rawMode as MinifyMode)) {
-      const err = `Unknown mode "${rawMode}". Valid: ${VALID_MODES.join(', ')}`;
-      if (jsonOutput) {
-        console.log(JSON.stringify({ success: false, error: err }));
-      } else {
-        console.error(`\n  ${c('red', '✗')} ${err}\n`);
-      }
-      process.exitCode = 1;
+    if (!target) {
+      reportUsage('Provide a file path or GitHub reference.', jsonOutput);
       return;
     }
-    const mode = rawMode as MinifyMode;
 
-    // ── source resolution ────────────────────────────────────────────────────
-    let raw: string;
-    let resolvedExt: string;
-    let sourceLabel: string;
-    let githubMeta: { owner: string; repo: string; path: string } | undefined;
-    let paginationMeta: Record<string, unknown> | undefined;
+    const ref = resolveRef(target, branchOverride || undefined);
+    const optionError = validateOptions(args.options, isGithubRef(ref));
+    if (optionError) {
+      reportUsage(optionError, jsonOutput);
+      return;
+    }
 
-    if (target) {
-      const ref = resolveRef(target, branchOverride || undefined);
+    if (!jsonOutput) {
+      process.stderr.write(`  ${dim(`Fetching ${refLabel(ref)} ...`)}\n`);
+    }
 
-      if (isGithubRef(ref)) {
-        sourceLabel = refLabel(ref);
-        if (!jsonOutput) {
-          process.stderr.write(`  ${dim(`Fetching ${sourceLabel} ...`)}\n`);
-        }
-        const fetchResult = await fetchGithubContent(
-          ref.owner,
-          ref.repo,
-          ref.subpath,
-          {
+    try {
+      const toolName = isGithubRef(ref)
+        ? 'githubGetFileContent'
+        : 'localGetFileContent';
+      const query = isGithubRef(ref)
+        ? {
+            ...buildSharedQuery(ref.subpath || '.', args.options),
+            owner: ref.owner,
+            repo: ref.repo,
             branch: ref.branch,
-            matchString: matchString || undefined,
-            startLine,
-            endLine,
-            charLength: pageSize,
-            charOffset,
+            forceRefresh: getBool(args.options, 'force-refresh') || undefined,
+            type: getString(args.options, 'content-type') || undefined,
+            mainResearchGoal: 'Fetch GitHub file content',
+            researchGoal: `Read ${refLabel(ref)}`,
+            reasoning: 'CLI get command',
           }
-        ).catch((e: Error) => {
-          if (jsonOutput) {
-            console.log(JSON.stringify({ success: false, error: e.message }));
-          } else {
-            console.error(`\n  ${c('red', '✗')} ${e.message}\n`);
-          }
-          process.exitCode = 1;
-          return null;
-        });
-        if (fetchResult === null) return;
-        raw = fetchResult.content;
-        paginationMeta = fetchResult.pagination;
-        resolvedExt = typeHint || path.extname(ref.subpath).slice(1);
-        githubMeta = { owner: ref.owner, repo: ref.repo, path: ref.subpath };
-      } else {
-        if (!existsSync(ref.path)) {
-          const err = `File not found: ${ref.path}`;
-          if (jsonOutput) {
-            console.log(JSON.stringify({ success: false, error: err }));
-          } else {
-            console.error(`\n  ${c('red', '✗')} ${err}\n`);
-          }
-          process.exitCode = 1;
-          return;
-        }
-        const stat = await import('node:fs').then(m => m.statSync(ref.path));
-        if (stat.isDirectory()) {
-          const err = `${ref.path} is a directory — use "octocode tree" for directory structure`;
-          if (jsonOutput) {
-            console.log(JSON.stringify({ success: false, error: err }));
-          } else {
-            console.error(`\n  ${c('red', '✗')} ${err}\n`);
-          }
-          process.exitCode = 1;
-          return;
-        }
-        raw = readFileSync(ref.path, 'utf-8');
-        resolvedExt = typeHint || path.extname(ref.path).slice(1);
-        sourceLabel = ref.path;
-      }
-    } else {
-      const err = 'Provide a file path or GitHub reference.';
+        : {
+            ...buildSharedQuery(ref.path, args.options),
+            mainResearchGoal: 'Fetch local file content',
+            researchGoal: `Read ${ref.path}`,
+            reasoning: 'CLI get command',
+          };
+
+      const { executeDirectTool } = await import('octocode-mcp/public');
+      const result = await executeDirectTool(toolName, { queries: [query] });
+      printDirectToolResult(result, jsonOutput);
+      markDirectToolFailure(result);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
       if (jsonOutput) {
-        console.log(JSON.stringify({ success: false, error: err }));
+        console.log(
+          JSON.stringify({
+            success: false,
+            error: `Octocode tool runtime failed: ${message}`,
+          })
+        );
       } else {
-        console.error(`\n  ${c('red', '✗')} ${err}`);
         console.error(
-          `\n  ${dim('Examples:')}\n` +
-            `    octocode get src/utils.ts\n` +
-            `    octocode get bgauryy/octocode-mcp/README.md\n` +
-            `    octocode get "https://github.com/owner/repo/blob/main/file.ts"\n`
+          `\n  ${c('red', 'x')} Octocode tool runtime failed: ${message}\n`
         );
       }
-      process.exitCode = 1;
-      return;
-    }
-
-    // ── minify ───────────────────────────────────────────────────────────────
-    const originalSize = Buffer.byteLength(raw, 'utf-8');
-    const { content, strategy } = await applyMode(raw, mode, resolvedExt);
-    const minifiedSize = Buffer.byteLength(content, 'utf-8');
-
-    // ── output ───────────────────────────────────────────────────────────────
-    if (jsonOutput) {
-      const out: Record<string, unknown> = {
-        content,
-        mode,
-        strategy,
-        originalSize,
-        minifiedSize,
-        reduction: formatReduction(originalSize, minifiedSize),
-        failed: false,
-      };
-      if (githubMeta) out['github'] = githubMeta;
-      if (paginationMeta) out['pagination'] = paginationMeta;
-      console.log(JSON.stringify(out));
-      return;
-    }
-
-    if (showStats) {
-      const hint = mode === 'symbols' ? '' : ` (${strategy})`;
-      const sigHint =
-        mode === 'symbols' ? `\n  ${dim(SIGNATURES_ONLY_HINT)}` : '';
-      const tag =
-        minifiedSize < originalSize
-          ? `${c('green', '✓')} Mode: ${bold(mode)}${hint}  |  ${formatBytes(originalSize)} → ${formatBytes(minifiedSize)}  ${bold(formatReduction(originalSize, minifiedSize))} smaller`
-          : `${c('yellow', '·')} Mode: ${bold(mode)}${hint}  |  ${formatBytes(originalSize)} (no reduction)`;
-      console.error(`  ${tag}${sigHint}`);
-    }
-
-    const lines = content.split('\n');
-    const PREVIEW = 8;
-    if (lines.length > PREVIEW && !showStats) {
-      console.log(
-        lines
-          .slice(0, PREVIEW)
-          .map(l => `  ${c('cyan', '│')} ${l}`)
-          .join('\n')
-      );
-      console.error(`  ${dim(`│ … (${lines.length - PREVIEW} more lines)`)}`);
-    } else {
-      console.log(lines.map(l => `  ${c('cyan', '│')} ${l}`).join('\n'));
-    }
-
-    if (paginationMeta) {
-      const { page: curPage, totalPages } = paginationMeta as {
-        page?: number;
-        totalPages?: number;
-      };
-      if (totalPages && totalPages > 1) {
-        console.error(
-          `\n  ${dim(`Page ${curPage ?? 1}/${totalPages} — use --page <n> --page-size ${pageSize ?? 'N'} to navigate`)}`
-        );
-      }
+      process.exitCode = EXIT.TOOL;
     }
   },
 };

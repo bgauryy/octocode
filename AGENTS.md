@@ -82,6 +82,7 @@ Canonical command list lives in the [Development Guide](https://github.com/bgaur
 - **Developer Docs**: [docs/dev/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/dev) — tool/API references, workflows, architecture, contributing, skills
 - **Specs**: [docs/specs/](https://github.com/bgauryy/octocode-mcp/tree/main/docs/specs) — design specs and RFCs
 - **Development Guide**: [docs/dev/DEVELOPMENT_GUIDE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/DEVELOPMENT_GUIDE.md)
+- **Release Guide**: [docs/dev/RELEASE_GUIDE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/RELEASE_GUIDE.md)
 - **Configuration**: [docs/configuration/CONFIGURATION_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md)
 
 ### Octocode MCP

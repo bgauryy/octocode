@@ -82,7 +82,7 @@ export const tokenCommand: CLICommand = {
   name: 'token',
   description: 'Print the GitHub token (matches octocode-mcp priority)',
   usage:
-    'octocode token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--validate] [--json]',
+    'octocode token [--type <auto|octocode|gh>] [--hostname <host>] [--source] [--validate] [--reveal] [--json]',
   options: [
     {
       name: 'type',
@@ -123,7 +123,7 @@ export const tokenCommand: CLICommand = {
       'github.com';
     const showSource = Boolean(args.options['source']);
     const validateToken = Boolean(args.options['validate']);
-    const reveal = Boolean(args.options['reveal'] || args.options['raw']);
+    const reveal = Boolean(args.options['reveal']);
     const jsonOutput = Boolean(args.options['json']);
     const typeOpt = args.options['type'];
     const typeArg =

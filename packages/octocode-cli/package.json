@@ -47,7 +47,7 @@
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
     "postpack": "rm -rf ./skills",
-    "prepack": "cp -r ../../skills ./skills && find ./skills -name .env.example -delete",
+    "prepack": "node scripts/prepack.mjs",
     "start": "node ./out/octocode-cli.js",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run --reporter=dot --silent",

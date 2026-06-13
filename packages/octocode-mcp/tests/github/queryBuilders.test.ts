@@ -439,6 +439,21 @@ describe('Query Builders', () => {
       );
     });
 
+    it('should build query with repository discovery filters', () => {
+      const params = {
+        keywordsToSearch: ['agent'],
+        forks: '>100',
+        license: 'mit',
+        goodFirstIssues: '>5',
+        visibility: 'public',
+      } as Parameters<typeof buildRepoSearchQuery>[0];
+
+      const query = buildRepoSearchQuery(params);
+      expect(query).toBe(
+        'agent forks:>100 license:mit good-first-issues:>5 is:not-archived is:public'
+      );
+    });
+
     it('should build query with owner only (no keywords or topics)', () => {
       const params = {
         owner: 'facebook',

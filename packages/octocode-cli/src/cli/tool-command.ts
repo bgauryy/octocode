@@ -34,7 +34,7 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'help',
   'version',
   'list',
-  'schema',
+  'scheme',
   'compact',
   'format',
   'full',
@@ -44,10 +44,11 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
 const CANONICAL_TOOL_USAGE = [
   'octocode tools                                   # list all tools',
   'octocode tools <name>                            # show input schema',
+  'octocode tools <name> --scheme                   # show input/output schema explicitly',
   'octocode tools <n1> <n2> ...                     # batch input schemas',
   "octocode tools <name> --queries '<json>'         # run a tool",
   "octocode tools <name> --queries '<json>' --json  # run, raw JSON output",
-  'octocode instructions                            # MCP instructions + all schemas',
+  'octocode context                                 # agent context + all schemas',
 ].join('\n');
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
@@ -266,18 +267,29 @@ export async function showAvailableTools(): Promise<void> {
   console.log(
     `  ${c('red', bold('REQUIRED BEFORE CALLING ANY TOOL:'))} read its schema first`
   );
+  console.log();
+  console.log(`  ${bold('SCHEME')}`);
   console.log(
-    `    ${c('yellow', 'octocode tools <name>')}                       ${dim('# schema + required fields + examples')}`
+    `    ${c('yellow', 'octocode tools')}                                   ${dim('# list all raw MCP tools')}`
   );
   console.log(
-    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}    ${dim('# run tool')}`
+    `    ${c('yellow', 'octocode tools <name>')}                            ${dim('# show input schema/help for one tool')}`
   );
   console.log(
-    `    ${c('yellow', 'octocode tools <n1> <n2> ...')}               ${dim('# batch schemas')}`
+    `    ${c('yellow', 'octocode tools <name> --scheme')}                   ${dim('# show input/output schema, never runs')}`
+  );
+  console.log(
+    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}         ${dim('# run one tool')}`
+  );
+  console.log(
+    `    ${c('yellow', "octocode tools <name> --queries '<json>' --json")}  ${dim('# run with raw JSON envelope')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode tools <n1> <n2> ...')}                     ${dim('# batch-read schemas')}`
   );
   console.log();
   console.log(
-    `  ${bold('TIP')}  ${dim('For file / search / PR use smart commands — no schema needed:')}`
+    `  ${bold('TIP')}  ${dim('For common research use smart commands — no schema needed:')}`
   );
   console.log(
     `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--mode none|standard|symbols]')}`
@@ -286,10 +298,28 @@ export async function showAvailableTools(): Promise<void> {
     `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`
   );
   console.log(
+    `    ${c('cyan', 'octocode files')}  ${dim('<query> [path|repo]')}         ${dim('file discovery [--search path|content|both]')}`
+  );
+  console.log(
     `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path|repo>')}       ${dim('code search     [--type, --limit]')}`
   );
   console.log(
     `    ${c('cyan', 'octocode pr')}     ${dim('<owner/repo[#N] | URL>')}      ${dim('PR info         [--patches, --deep]')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode repo')}   ${dim('<keywords...>')}               ${dim('repo discovery  [--topic, --language, --stars]')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode pkg')}    ${dim('<package>')}                   ${dim('npm metadata + source repo')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode symbols')} ${dim('<file|path>')}                 ${dim('semantic outline before LSP')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode lsp')}    ${dim('<file> --type <type>')}        ${dim('semantic nav after symbol+line')}`
+  );
+  console.log(
+    `    ${dim('Full command scheme:')} ${c('yellow', 'octocode <command> --help')}`
   );
   console.log();
 
@@ -502,18 +532,25 @@ export async function getToolsContextString(
       '',
       '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY TOOL CALL ***',
       "  Always read a tool's schema before calling it:",
-      '    octocode tools <name>                    # schema: required fields, types, examples',
+      '    octocode tools <name> --scheme           # schema: required fields, types, examples',
+      '    octocode tools <name>                    # same schema/help shortcut',
       '    octocode tools <n1> <n2> ...             # batch: read multiple schemas at once',
       full
         ? '  (Full JSON schemas are included in this output below.)'
-        : '  Run `octocode instructions --full` to get all schemas as inline JSON in one shot.',
+        : '  Run `octocode context --full` to get all schemas as inline JSON in one shot.',
       '',
-      '  *** SMART COMMANDS — USE THESE FIRST for file / search / PR ***',
-      '  These auto-route local ↔ GitHub — no owner/repo wiring or schema needed:',
-      '    octocode get <path|owner/repo/file>      — fetch + minify (--mode none|standard|symbols, --match-string, --start-line, --end-line)',
+      '  *** SMART COMMANDS — USE THESE FIRST for file / search / repo / PR / package / LSP ***',
+      '  These cover common flows without raw schemas; file/search commands auto-route local ↔ GitHub:',
+      '    octocode get <path|owner/repo/file>      — fetch + minify (--mode none|standard|symbols, --match-string, --start-line, --end-line, --full-content)',
       '    octocode tree <path|owner/repo>          — directory structure (--depth <n>)',
-      '    octocode search <pattern> <path|repo>    — code search (--type, --limit, --page)',
+      '    octocode files <query> [path|repo]       — file path/content discovery (--search path|content|both, --source auto|local|github)',
+      '    octocode search <pattern> <path|repo>    — code search (--type, --branch, --limit, --page)',
       '    octocode pr <owner/repo[#N] | PR-URL>    — PR list/search OR deep-dive (--patches, --comments, --commits, --deep)',
+      '    octocode repo <keywords...>              — repository discovery (--topic, --language, --stars, --sort)',
+      '    octocode pkg <package>                   — npm metadata + source repository',
+      '    octocode symbols <file|path>              — semantic outline / documentSymbols before LSP navigation',
+      '    octocode lsp <file> --type <type>         — semantic nav after search/symbols gives --symbol + --line',
+      '  Full smart-command scheme: octocode <command> --help',
       '',
       '  *** TOOL CALLS ***',
       "  octocode tools <name> --queries '<json>'           # run tool, YAML output",
@@ -708,7 +745,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     return true;
   }
 
-  if (args.options.schema === true) {
+  if (args.options.scheme === true) {
     await showToolHelp(tool.name);
     return true;
   }
@@ -774,7 +811,7 @@ export const toolCommand: CLICommand = {
   name: 'tools',
   description:
     'Run an Octocode MCP tool directly using the same implementation under the hood',
-  usage: `octocode tools <toolName> --queries '<json-stringified-input>'`,
+  usage: `octocode tools <toolName> [--scheme] [--queries '<json-stringified-input>']`,
   options: [
     {
       name: 'queries',
@@ -786,7 +823,7 @@ export const toolCommand: CLICommand = {
       description: 'List available tools.',
     },
     {
-      name: 'schema',
+      name: 'scheme',
       description:
         'Show the selected tool schema summary instead of running it.',
     },

@@ -1,6 +1,6 @@
 # Benchmark Gap Fixes
 
-**Source:** [GitHub Benchmark — octocode vs gh](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github/README.md)  
+**Source:** [GitHub Benchmark — octocode vs gh](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/README.md)
 **Status:** Proposed  
 **Priority areas:** Q7 (oversized files), Q13 (inline PR comments), Q17 (org enumeration)
 
@@ -243,7 +243,7 @@ Also update the hint text in `prTransformation.ts` to name the types:
 
 **Schema update required:**
 
-Update `PRCommentItem` output schema in `tools/github_search_pull_requests/types.ts` and the JSON schema in `scheme/remoteSchemaOverlay.ts` / `scheme/localSchemaOverlay.ts` to document the new `comments_summary` shape.
+Update `PRCommentItem` output schema in `tools/github_search_pull_requests/types.ts` and the JSON schema helpers in `scheme/fields.ts` to document the new `comments_summary` shape.
 
 **Backward compatibility note:** The old `comment_details` / `comment_details_total` fields can be kept for one release with a deprecation note, or removed immediately since the schema is additive. The new split format is strictly more informative.
 

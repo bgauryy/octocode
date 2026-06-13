@@ -16,6 +16,30 @@ export function showCommandHelp(command: CLICommandSpec): void {
     lines.push('');
   }
 
+  if (command.scheme && command.scheme.length > 0) {
+    lines.push(`  ${bold('SCHEME')}`);
+    for (const item of command.scheme) {
+      lines.push(`    ${item}`);
+    }
+    lines.push('');
+  }
+
+  if (command.whenToUse && command.whenToUse.length > 0) {
+    lines.push(`  ${bold('WHEN TO USE')}`);
+    for (const item of command.whenToUse) {
+      lines.push(`    - ${item}`);
+    }
+    lines.push('');
+  }
+
+  if (command.examples && command.examples.length > 0) {
+    lines.push(`  ${bold('EXAMPLES')}`);
+    for (const example of command.examples) {
+      lines.push(`    ${c('yellow', example)}`);
+    }
+    lines.push('');
+  }
+
   if (command.options && command.options.length > 0) {
     lines.push(`  ${bold('OPTIONS')}`);
     for (const opt of command.options) {

@@ -81,6 +81,14 @@ export interface RepoSearchQuery extends BaseProviderQuery {
 
   archived?: boolean;
 
+  visibility?: 'public' | 'private';
+
+  forks?: string;
+
+  license?: string;
+
+  goodFirstIssues?: string;
+
   sort?: 'stars' | 'forks' | 'updated' | 'created' | 'best-match';
 
   order?: 'asc' | 'desc';

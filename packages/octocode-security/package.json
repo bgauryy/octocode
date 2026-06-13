@@ -98,6 +98,14 @@
     "README.md",
     "LICENSE"
   ],
+  "optionalDependencies": {
+    "octocode-security-darwin-arm64": "0.1.0",
+    "octocode-security-darwin-x64": "0.1.0",
+    "octocode-security-linux-x64-gnu": "0.1.0",
+    "octocode-security-linux-x64-musl": "0.1.0",
+    "octocode-security-linux-arm64-gnu": "0.1.0",
+    "octocode-security-win32-x64-msvc": "0.1.0"
+  },
   "napi": {
     "binaryName": "octocode-security",
     "targets": [
@@ -111,8 +119,16 @@
   },
   "scripts": {
     "build:rust": "node scripts/gen-patterns.mjs && napi build --platform --release",
+    "build:rust:darwin-arm64": "node scripts/gen-patterns.mjs && napi build --platform --release --target aarch64-apple-darwin",
+    "build:rust:darwin-x64": "node scripts/gen-patterns.mjs && napi build --platform --release --target x86_64-apple-darwin",
+    "build:rust:linux-x64-gnu": "node scripts/gen-patterns.mjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-gnu",
+    "build:rust:linux-x64-musl": "node scripts/gen-patterns.mjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-musl",
+    "build:rust:linux-arm64-gnu": "node scripts/gen-patterns.mjs && napi build --platform --release --cross-compile --target aarch64-unknown-linux-gnu",
+    "build:rust:windows-x64": "node scripts/gen-patterns.mjs && napi build --platform --release --cross-compile --target x86_64-pc-windows-msvc",
+    "build:rust:all": "yarn build:rust:darwin-arm64 && yarn build:rust:darwin-x64 && yarn build:rust:linux-x64-gnu && yarn build:rust:linux-x64-musl && yarn build:rust:linux-arm64-gnu && yarn build:rust:windows-x64",
     "build:ts": "node build.mjs && tsc --emitDeclarationOnly",
     "build": "yarn build:rust && yarn build:ts",
+    "build:all": "yarn build:rust:all && yarn build:ts",
     "build:dev": "node scripts/gen-patterns.mjs && napi build --platform && node build.mjs && tsc --emitDeclarationOnly",
     "gen": "node scripts/gen-patterns.mjs",
     "lint": "eslint src tests",

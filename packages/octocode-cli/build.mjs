@@ -1,8 +1,42 @@
 import * as esbuild from 'esbuild';
 import { builtinModules } from 'module';
-import { cpSync, existsSync, readFileSync } from 'fs';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { rm } from 'fs/promises';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
+
+/**
+ * Recursively copy a directory using hardlinks where possible.
+ * Hardlinked files share one inode → zero extra disk usage in the monorepo.
+ * Falls back to a regular copy on cross-device moves or other OS errors.
+ */
+function hardlinkDirSync(src, dest) {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const srcPath = join(src, entry.name);
+    const destPath = join(dest, entry.name);
+    if (entry.isDirectory()) {
+      hardlinkDirSync(srcPath, destPath);
+    } else {
+      try {
+        if (existsSync(destPath)) unlinkSync(destPath);
+        linkSync(srcPath, destPath);
+      } catch {
+        cpSync(srcPath, destPath);
+      }
+    }
+  }
+}
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,7 +58,6 @@ const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 const external = [...nodeExternals, ...runtimeExternals];
 
 const shimBanner = [
-  '#!/usr/bin/env node',
   "import { createRequire as __createRequire } from 'module';",
   "import { fileURLToPath as __fileURLToPath } from 'url';",
   "import { dirname as __dirname_fn } from 'path';",
@@ -57,6 +90,14 @@ await esbuild.build({
 
 console.log('✓ esbuild complete');
 
+const cliEntry = resolve(__dirname, 'out', 'octocode-cli.js');
+const cliSource = readFileSync(cliEntry, 'utf-8');
+writeFileSync(
+  cliEntry,
+  cliSource.startsWith('#!') ? cliSource : `#!/usr/bin/env node\n${cliSource}`
+);
+chmodSync(cliEntry, 0o755);
+
 // octocode-cli bundles octocode-mcp's JS, then copies MCP's runtime assets as a
 // single unit. The CLI should not know about octocode-security or rg internals.
 const mcpDist = resolve(__dirname, '..', 'octocode-mcp', 'dist');
@@ -68,9 +109,7 @@ if (!existsSync(mcpRuntime)) {
   );
 }
 
-cpSync(mcpRuntime, resolve(__dirname, 'out', 'runtime'), {
-  recursive: true,
-});
+hardlinkDirSync(mcpRuntime, resolve(__dirname, 'out', 'runtime'));
 
 const mcpRuntimeManifest = resolve(mcpDist, 'runtime-assets.json');
 if (existsSync(mcpRuntimeManifest)) {

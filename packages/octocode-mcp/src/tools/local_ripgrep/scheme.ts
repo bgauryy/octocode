@@ -6,7 +6,7 @@ import {
   contextLinesField,
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 const QUERY_DESCRIPTIONS = {
@@ -135,7 +135,6 @@ export type RipgrepQuery = z.infer<typeof RipgrepQueryShape>;
 // Bulk uses the base shape (no mutex superRefine) so one invalid query
 // does not reject the whole batch. Per-query mutex checks run at execution.
 export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
-  STATIC_TOOL_NAMES.LOCAL_RIPGREP,
   RipgrepQueryShape,
   { maxQueries: 5 }
 );

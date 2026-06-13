@@ -14,22 +14,24 @@ octocode <command> [options]
 octocode tools
 octocode tools <name>
 octocode tools <name> --queries '<json>'
+octocode repo <keywords...>
+octocode files <query> [path|owner/repo]
 octocode pkg <package>
 octocode symbols <file|path>
 octocode lsp <file> --type <type>
-octocode instructions
+octocode context
 ```
 
 ## Agent Flow
 
 Agents should use this order:
 
-1. `octocode instructions`
+1. `octocode context`
 2. `octocode tools`
-3. `octocode tools <name>`
+3. `octocode tools <name> --scheme`
 4. `octocode tools <name> --queries '<json>'`
 
-Use `octocode instructions --full` only when every inline JSON schema is needed.
+Use `octocode context --full` only when every inline JSON schema is needed.
 
 ## Global Options
 
@@ -74,6 +76,7 @@ Examples:
 
 ```bash
 octocode tools localSearchCode
+octocode tools localSearchCode --scheme
 octocode tools localSearchCode --queries '{"path":".","keywords":"runCLI"}'
 octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
 ```
@@ -84,13 +87,15 @@ octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"o
 |---------|---------|
 | `get` | Fetch and minify local or GitHub file content. |
 | `tree` | View local or GitHub directory structure. |
+| `files` | Find file paths and content matches locally or on GitHub. |
 | `search` | Search local or GitHub code. |
 | `pr` | Search or deep-dive pull requests. |
+| `repo` | Discover GitHub repositories by keyword, topic, owner, and quality filters. |
 | `pkg` | Research npm package metadata and source repositories. |
 | `symbols` | Show semantic symbol outlines for local files or directories. |
 | `lsp` | Run LSP semantic navigation for a local source file. |
 | `tools` | List tools, show schemas, or run tools. |
-| `instructions` | Print agent protocol and tool schemas. |
+| `context` | Print agent protocol and tool schemas. |
 | `install` | Configure `octocode-mcp` for an IDE/client. |
 | `auth` | Auth menu and auth subcommands. |
 | `login` | GitHub OAuth login. |
@@ -98,6 +103,61 @@ octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"o
 | `status` | Show health status. |
 | `token` | Print the resolved token. |
 | `skills` | Search, read, install, remove, list, or sync skills. |
+
+### files
+
+```bash
+octocode files <query> [path|owner/repo] [--owner <owner> --repo <repo>] [--source auto|local|github] [--search path|content|both] [--ext <list>] [--path <subpath>] [--limit <n>] [--page <n>] [--json]
+```
+
+Examples:
+
+```bash
+octocode files auth src --source local --search path --ext ts
+octocode files executeDirectTool . --source local --search content --ext ts
+octocode files auth bgauryy/octocode-mcp --source github --search path --ext ts
+octocode files auth --owner bgauryy --repo octocode-mcp --source github
+octocode files executeDirectTool bgauryy/octocode-mcp --source github --search content
+octocode files auth . --search both --limit 20
+```
+
+`--search path` uses metadata/path search (`localFindFiles` or `githubSearchCode match:path`).
+`--search content` uses content search (`localSearchCode` or `githubSearchCode match:file`).
+Local path filters include `--name`, `--path-pattern`, `--regex`, `--entry`, depth, size, time, permission, and metadata flags.
+Local content filters include ripgrep-style flags such as `--include`, `--exclude`, `--fixed-string`, `--perl-regex`, case, word, hidden, count, match, and sort controls.
+GitHub filters include `--owner`, `--repo`, `--filename`, `--path`, `--ext`, pagination, and `--verbose`.
+Use `octocode get <returned-path> --match-string <query> --mode none` to fetch exact evidence.
+
+### get
+
+```bash
+octocode get <path|github-ref> [--mode none|standard|symbols] [--branch <ref>] [--match-string <s>] [--match-regex] [--match-case-sensitive] [--start-line <n>] [--end-line <n>] [--context-lines <n>] [--page-size <n>] [--page <n>] [--char-offset <n>] [--char-length <n>] [--full-content] [--content-type file|directory] [--force-refresh] [--json]
+```
+
+Examples:
+
+```bash
+octocode get src/cli/commands/search.ts --match-string executeDirectTool --mode none
+octocode get bgauryy/octocode-mcp/packages/octocode-cli/src/cli/commands/search.ts --match-string executeDirectTool --mode none
+octocode get src/index.ts --start-line 40 --end-line 90 --mode none
+octocode get src/index.ts --mode symbols
+```
+
+### repo
+
+```bash
+octocode repo <keywords...> [--topic <list>] [--language <lang>] [--owner <owner>] [--stars <range>] [--forks <range>] [--good-first-issues <range>] [--license <spdx>] [--created <range>] [--updated <range>] [--size <range>] [--match name,description,readme] [--sort stars|forks|help-wanted-issues|updated|best-match] [--archived true|false] [--visibility public|private] [--limit <n>] [--page <n>] [--verbose] [--json]
+```
+
+Examples:
+
+```bash
+octocode repo react state --language TypeScript --stars '>1000'
+octocode repo --topic mcp,agents --sort stars --limit 10
+octocode repo --owner vercel --language TypeScript --verbose
+```
+
+Use results with `octocode tree <owner/repo>`, `octocode search <pattern> <owner/repo>`, or `octocode get <owner/repo/path>`.
 
 ### pkg
 
@@ -115,7 +175,7 @@ octocode pkg @modelcontextprotocol/sdk
 ### lsp
 
 ```bash
-octocode lsp <file> --type <type> [--symbol <name>] [--line <n>] [--page <n>] [--page-size <n>] [--json]
+octocode lsp <file> --type <type> [--symbol <name>] [--line <n>] [--workspace-root <path>] [--page <n>] [--page-size <n>] [--context-lines <n>] [--depth <n>] [--format structured|compact] [--json]
 ```
 
 Supported `--type` values: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`.
@@ -133,7 +193,7 @@ octocode lsp src/index.ts --type hover --symbol runCLI --line 42
 ### symbols
 
 ```bash
-octocode symbols <file|path> [--ext <list>] [--kind <kind>] [--limit <n>] [--depth <n>] [--json]
+octocode symbols <file|path> [--ext <list>] [--kind <kind>] [--limit <n>] [--depth <n>] [--page-size <n>] [--json]
 ```
 
 For a file, `symbols` runs `lspGetSemanticContent` with `type=documentSymbols`.
@@ -151,7 +211,7 @@ octocode symbols src/index.ts --kind function
 ### install
 
 ```bash
-octocode install --ide <client> [--method npx] [--force] [--check] [--rollback]
+octocode install --ide <client> [--method npx] [--force] [--check] [--rollback] [--backup-path <path>] [--json]
 ```
 
 Supported clients: `cursor`, `claude-desktop`, `claude-code`, `windsurf`, `zed`, `vscode-cline`, `vscode-roo`, `vscode-continue`, `opencode`, `trae`, `antigravity`, `codex`, `gemini-cli`, `goose`, `kiro`.
@@ -161,10 +221,10 @@ Only `npx` is supported as an install method.
 ### auth
 
 ```bash
-octocode auth [login|logout|status|token|refresh]
-octocode login [--hostname <host>] [--git-protocol ssh|https]
-octocode logout [--hostname <host>]
-octocode status [--hostname <host>]
+octocode auth [login|logout|status|token|refresh] [--hostname <host>] [--json]
+octocode login [--hostname <host>] [--git-protocol <ssh|https>] [--force] [--json]
+octocode logout [--hostname <host>] [--yes] [--json]
+octocode status [--hostname <host>] [--sync] [--json]
 octocode token [--type auto|octocode|gh] [--hostname <host>] [--source] [--validate] [--reveal] [--json]
 ```
 

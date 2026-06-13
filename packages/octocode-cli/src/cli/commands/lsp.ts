@@ -52,7 +52,7 @@ export const lspCommand: CLICommand = {
   name: 'lsp',
   description: 'Run LSP semantic research for a local source file',
   usage:
-    'octocode lsp <file> --type <type> [--symbol <name>] [--line <n>] [--page <n>] [--page-size <n>] [--json]',
+    'octocode lsp <file> --type <type> [--symbol <name>] [--line <n>] [--workspace-root <path>] [--page <n>] [--page-size <n>] [--context-lines <n>] [--depth <n>] [--format structured|compact] [--json]',
   options: [
     {
       name: 'type',

@@ -3,7 +3,7 @@ import { completeMetadata } from '@octocodeai/octocode-core';
 import {
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
@@ -30,7 +30,6 @@ const PackageSearchQueryShape = z.object({
 export const PackageSearchQueryLocalSchema = PackageSearchQueryShape;
 
 export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
-  STATIC_TOOL_NAMES.PACKAGE_SEARCH,
   PackageSearchQueryShape,
   { maxQueries: 5 }
 );

@@ -1,0 +1,23 @@
+{
+  "name": "octocode-security-linux-x64-gnu",
+  "version": "0.1.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "octocode-security.linux-x64-gnu.node",
+  "files": [
+    "octocode-security.linux-x64-gnu.node"
+  ],
+  "description": "Rust-backed secret detection for Node.js — replaces octocode-security-utils",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}

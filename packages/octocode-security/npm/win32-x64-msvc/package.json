@@ -1,0 +1,20 @@
+{
+  "name": "octocode-security-win32-x64-msvc",
+  "version": "0.1.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "octocode-security.win32-x64-msvc.node",
+  "files": [
+    "octocode-security.win32-x64-msvc.node"
+  ],
+  "description": "Rust-backed secret detection for Node.js — replaces octocode-security-utils",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "os": [
+    "win32"
+  ]
+}

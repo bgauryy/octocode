@@ -53,20 +53,20 @@ describe('runCLI', () => {
     consoleSpy.mockRestore();
   });
 
-  it('routes instructions to the tools context', async () => {
+  it('routes context to the tools context', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['instructions']);
+    const handled = await runCLI(['context']);
 
     expect(handled).toBe(true);
     expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: false });
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
-  it('passes --full to instructions', async () => {
+  it('passes --full to context', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['instructions', '--full']);
+    const handled = await runCLI(['context', '--full']);
 
     expect(handled).toBe(true);
     expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });

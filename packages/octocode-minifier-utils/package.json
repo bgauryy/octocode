@@ -5,7 +5,6 @@
   "main": "index.js",
   "types": "index.d.ts",
   "license": "MIT",
-  "private": true,
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "repository": {
     "type": "git",
@@ -34,6 +33,14 @@
     "index.d.ts",
     "README.md"
   ],
+  "optionalDependencies": {
+    "@octocodeai/octocode-minifier-utils-darwin-arm64": "0.1.0",
+    "@octocodeai/octocode-minifier-utils-darwin-x64": "0.1.0",
+    "@octocodeai/octocode-minifier-utils-linux-x64-gnu": "0.1.0",
+    "@octocodeai/octocode-minifier-utils-linux-x64-musl": "0.1.0",
+    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "0.1.0",
+    "@octocodeai/octocode-minifier-utils-win32-x64-msvc": "0.1.0"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
@@ -52,6 +59,13 @@
   },
   "scripts": {
     "build": "napi build --platform --release && node scripts/postbuild.cjs",
+    "build:darwin-arm64": "napi build --platform --release --target aarch64-apple-darwin",
+    "build:darwin-x64": "napi build --platform --release --target x86_64-apple-darwin",
+    "build:linux-x64-gnu": "napi build --platform --release --target x86_64-unknown-linux-gnu --zig",
+    "build:linux-x64-musl": "napi build --platform --release --target x86_64-unknown-linux-musl --zig",
+    "build:linux-arm64-gnu": "napi build --platform --release --target aarch64-unknown-linux-gnu --zig",
+    "build:windows-x64": "napi build --platform --release --target x86_64-pc-windows-msvc --zig",
+    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && node scripts/postbuild.cjs",
     "build:dev": "napi build --platform && node scripts/postbuild.cjs",
     "clean": "rm -f *.node",
     "test": "cargo test",

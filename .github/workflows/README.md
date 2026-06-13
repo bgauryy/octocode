@@ -1,13 +1,12 @@
 # GitHub Actions Workflows
 
-This directory contains the active CI/CD workflows for the Octocode monorepo.
+This directory contains the active GitHub Actions workflows for the Octocode monorepo.
 
 ## Overview
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Pull requests | Repo health, lint, typecheck, build, test |
-| `releases.yml` | GitHub Release published or manual dispatch | Build and upload `octocode-mcp` binaries |
 
 ## CI (`ci.yml`)
 
@@ -35,18 +34,10 @@ If you want the full repo contract in one command, run:
 yarn verify
 ```
 
-## Release Binaries (`releases.yml`)
+## Manual Releases
 
-`releases.yml` builds standalone `octocode-mcp` binaries for:
-
-- Linux x64 (glibc)
-- Linux ARM64 (glibc)
-- Linux x64 (musl)
-- macOS ARM64
-- macOS x64
-- Windows x64
-
-It also uploads the JS build artifact and SHA256 checksums to the release.
+npm publishing, Homebrew tap updates, and standalone binary uploads are manual.
+Use the Release Guide for the current release order and verification checklist.
 
 ## Maintenance Notes
 

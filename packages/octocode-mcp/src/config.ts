@@ -49,7 +49,7 @@ export const LOCAL_DEFAULT_FILES_PER_PAGE = 20;
 export const LOCAL_MAX_FILES_PER_PAGE = 50;
 
 // ---------------------------------------------------------------------------
-// Schema field bounds (used by localSchemaOverlay and individual schemes)
+// Schema field bounds (used by scheme/fields.ts and individual tool schemes)
 // ---------------------------------------------------------------------------
 
 /** Maximum value for `limit` fields on local listing tools (pre-pagination cap). */

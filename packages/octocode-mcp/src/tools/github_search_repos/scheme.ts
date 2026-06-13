@@ -5,7 +5,7 @@ import {
   clampedInt,
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
@@ -70,10 +70,7 @@ export const GitHubReposSearchSingleQueryLocalSchema =
   GitHubReposSearchQuerySchema;
 
 export const GitHubReposSearchBulkQueryLocalSchema =
-  createRelaxedBulkQuerySchema(
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-    GitHubReposSearchQuerySchema
-  );
+  createRelaxedBulkQuerySchema(GitHubReposSearchQuerySchema);
 
 const LocalRepositoryDetailSchema = z.object({
   owner: z.string(),

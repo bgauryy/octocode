@@ -359,6 +359,63 @@ describe('GitHub Search Repositories Coverage', () => {
 
       expect(result.isError).toBe(false);
     });
+
+    it('passes every repository filter through to the provider', async () => {
+      mockProvider.searchRepos.mockResolvedValue(okResponse([]));
+
+      const result = await call({
+        id: 'all_repo_filters',
+        keywordsToSearch: ['agent'],
+        forks: '>100',
+        license: 'mit',
+        goodFirstIssues: '>5',
+        visibility: 'public',
+        archived: false,
+        match: ['name', 'description'],
+        sort: 'stars',
+        limit: 10,
+        page: 2,
+      });
+
+      expect(result.isError).toBe(false);
+      const providerCall = mockProvider.searchRepos.mock.calls[0]?.[0] as {
+        forks?: string;
+        license?: string;
+        goodFirstIssues?: string;
+        visibility?: string;
+        archived?: boolean;
+        match?: string[];
+        sort?: string;
+        limit?: number;
+        page?: number;
+      };
+      expect(providerCall).toMatchObject({
+        forks: '>100',
+        license: 'mit',
+        goodFirstIssues: '>5',
+        visibility: 'public',
+        archived: false,
+        match: ['name', 'description'],
+        sort: 'stars',
+        limit: 10,
+        page: 2,
+      });
+    });
+
+    it('accepts repo filter-only searches supported by the schema', async () => {
+      mockProvider.searchRepos.mockResolvedValue(okResponse([]));
+
+      const result = await call({
+        id: 'license_only',
+        license: 'apache-2.0',
+        limit: 1,
+      });
+
+      expect(result.isError).toBe(false);
+      expect(mockProvider.searchRepos).toHaveBeenCalledWith(
+        expect.objectContaining({ license: 'apache-2.0', limit: 1 })
+      );
+    });
   });
 
   describe('noisy results hint — no owner/language/stars filter', () => {

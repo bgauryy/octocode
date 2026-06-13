@@ -51,8 +51,6 @@
   "files": [
     "dist/*.js",
     "dist/**/*.d.ts",
-    "dist/runtime/**",
-    "dist/runtime-assets.json",
     "manifest.json",
     "server.json",
     "LICENSE"
@@ -61,7 +59,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "yarn clean && OCTOCODE_RUNTIME_PLATFORMS=all node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build": "yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:publish": "yarn build",
     "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-rg.mjs darwin-arm64 dist && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-minifier.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
@@ -81,7 +80,7 @@
     "lint:fix": "eslint src tests --fix",
     "mcp:contracts": "yarn test:contracts",
     "mcp:package": "yarn lint && yarn typecheck && yarn test:contracts",
-    "prepack": "yarn build:ci",
+    "prepack": "node scripts/prepack.mjs",
     "test": "vitest run --coverage",
     "test:contracts": "OCTOCODE_ENFORCE_WARNING_FREE_TESTS=1 vitest run tests/index.test.ts tests/index.shutdown.test.ts tests/serverConfig*.test.ts tests/tools/providerExecution.test.ts tests/utils/bulkOperations.test.ts tests/flows/",
     "test:contracts:flows": "OCTOCODE_ENFORCE_WARNING_FREE_TESTS=1 vitest run tests/flows/",
@@ -99,11 +98,13 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/octocode-core": "^4.3.0",
+    "@octocodeai/octocode-minifier-utils": "^0.1.0",
+    "@vscode/ripgrep": "^1.18.0",
+    "octocode-security": "^0.1.0",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.3.0"
   },
   "devDependencies": {
-    "@octocodeai/octocode-minifier-utils": "workspace:*",
     "@octokit/core": "^7.0.6",
     "@octokit/openapi-types": "^27.0.0",
     "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
@@ -111,12 +112,10 @@
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.0.16",
     "@vitest/ui": "^4.0.16",
-    "@vscode/ripgrep": "^1.18.0",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "node-cache": "^5.1.2",
     "octocode-lsp": "workspace:^",
-    "octocode-security": "workspace:^",
     "octocode-shared": "workspace:^",
     "octokit": "^5.0.5",
     "vitest": "^4.0.16",

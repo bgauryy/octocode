@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
 import { GitHubCloneRepoOutputSchema as UpstreamCloneRepoOutput } from '@octocodeai/octocode-core/schemas/outputs';
-import { createRelaxedBulkQuerySchema } from '../../scheme/localSchemaOverlay.js';
+import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
@@ -33,10 +33,8 @@ const CloneRepoQuerySchema = z.object({
 
 export const CloneRepoQueryLocalSchema = CloneRepoQuerySchema;
 
-export const BulkCloneRepoLocalSchema = createRelaxedBulkQuerySchema(
-  STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
-  CloneRepoQuerySchema
-);
+export const BulkCloneRepoLocalSchema =
+  createRelaxedBulkQuerySchema(CloneRepoQuerySchema);
 
 export const GitHubCloneRepoOutputLocalSchema = UpstreamCloneRepoOutput.extend(
   responseEnvelopeFields

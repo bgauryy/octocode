@@ -22,9 +22,10 @@ export const nodeExternals = [
 // guarantees it can never drift when deps are added or removed.
 //
 //
-// Internal runtime packages are the exception: octocode-mcp owns its runtime
-// surface, so these are bundled together with any runtime assets they need.
-export const bundledRuntimeDependencies = new Set(['octocode-security']);
+// All runtime dependencies are external — installed via npm and loaded at runtime.
+// octocode-security and @octocodeai/octocode-minifier-utils ship their own
+// per-platform optionalDependencies; npm installs the right .node for each user.
+export const bundledRuntimeDependencies = new Set([]);
 
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
   (dependencyName) => !bundledRuntimeDependencies.has(dependencyName)

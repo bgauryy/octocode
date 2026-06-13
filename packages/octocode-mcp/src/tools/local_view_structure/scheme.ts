@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
-import { LOCAL_MAX_FILES_PER_PAGE } from '../../config.js';
+import {
+  LOCAL_MAX_DEPTH,
+  LOCAL_MAX_FILES_PER_PAGE,
+  LOCAL_MAX_LIMIT,
+} from '../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
-  depthField,
-  LOCAL_OVERLAY_MAX_LIMIT,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 const QUERY_DESCRIPTIONS = {
@@ -51,8 +53,10 @@ const ViewStructureQueryShape = z.object({
     .array(z.string())
     .optional()
     .describe(QUERY_DESCRIPTIONS.extensions!),
-  depth: depthField.describe(QUERY_DESCRIPTIONS.depth!),
-  limit: clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
+  depth: clampedInt(0, LOCAL_MAX_DEPTH)
+    .optional()
+    .describe(QUERY_DESCRIPTIONS.depth!),
+  limit: clampedInt(1, LOCAL_MAX_LIMIT)
     .optional()
     .describe(QUERY_DESCRIPTIONS.limit!),
   showFileLastModified: z
@@ -69,7 +73,6 @@ export const LocalViewStructureQuerySchema = ViewStructureQueryShape;
 export type ViewStructureQuery = z.infer<typeof ViewStructureQueryShape>;
 
 export const LocalViewStructureBulkQuerySchema = createRelaxedBulkQuerySchema(
-  STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
   ViewStructureQueryShape,
   { maxQueries: 5 }
 );

@@ -206,6 +206,18 @@ function loadNative(): NativeModule {
     candidates.push(process.env.OCTOCODE_SECURITY_NATIVE_PATH);
   }
 
+  // Preferred: load from the per-platform npm optionalDependency package.
+  // When installed via `npm install octocode-mcp`, npm resolves and installs
+  // exactly one platform package (e.g. octocode-security-darwin-arm64) whose
+  // `main` field points directly at the .node binary.
+  if (triple) {
+    try {
+      return _require(`octocode-security-${triple}`) as NativeModule;
+    } catch {
+      // not installed — fall through to file-based candidates
+    }
+  }
+
   // When octocode-security is bundled into octocode-mcp or octocode-cli, the
   // native asset is copied into the owning package's runtime directory.
   for (const binaryName of binaryNames) {

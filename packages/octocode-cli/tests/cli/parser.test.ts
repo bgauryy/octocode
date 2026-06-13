@@ -123,9 +123,12 @@ describe('CLI Parser', () => {
       });
     });
 
-    it('should parse instructions flags', () => {
-      expect(parseArgs(['instructions', '--full']).options.full).toBe(true);
+    it('should parse context and scheme flags', () => {
+      expect(parseArgs(['context', '--full']).options.full).toBe(true);
       expect(parseArgs(['tools', '--no-color']).options['no-color']).toBe(true);
+      expect(
+        parseArgs(['tools', 'localSearchCode', '--scheme']).options.scheme
+      ).toBe(true);
       expect(parseArgs(['token', '--reveal']).options.reveal).toBe(true);
     });
 
@@ -181,6 +184,138 @@ describe('CLI Parser', () => {
         kind: 'function',
         limit: '10',
       });
+    });
+
+    it('should parse repo command value options', () => {
+      const result = parseArgs([
+        'repo',
+        'agent',
+        'tools',
+        '--topic',
+        'mcp,agents',
+        '--language',
+        'TypeScript',
+        '--owner',
+        'openai',
+        '--stars',
+        '>1000',
+        '--forks',
+        '>100',
+        '--good-first-issues',
+        '>5',
+        '--license',
+        'mit',
+        '--created',
+        '>=2024-01-01',
+        '--updated',
+        '>2025-01-01',
+        '--size',
+        '<50000',
+        '--match',
+        'name,description',
+        '--sort',
+        'stars',
+        '--visibility',
+        'public',
+        '--archived',
+        'false',
+        '--verbose',
+        '--limit',
+        '10',
+      ]);
+
+      expect(result.command).toBe('repo');
+      expect(result.args).toEqual(['agent', 'tools']);
+      expect(result.options).toEqual({
+        topic: 'mcp,agents',
+        language: 'TypeScript',
+        owner: 'openai',
+        stars: '>1000',
+        forks: '>100',
+        'good-first-issues': '>5',
+        license: 'mit',
+        created: '>=2024-01-01',
+        updated: '>2025-01-01',
+        size: '<50000',
+        match: 'name,description',
+        sort: 'stars',
+        visibility: 'public',
+        archived: 'false',
+        verbose: true,
+        limit: '10',
+      });
+    });
+
+    it('should parse files command value and boolean options', () => {
+      const result = parseArgs([
+        'files',
+        'auth',
+        '.',
+        '--source',
+        'local',
+        '--search',
+        'both',
+        '--ext',
+        'ts,tsx',
+        '--path',
+        'src',
+        '--name',
+        '*auth*',
+        '--regex',
+        'auth.*config',
+        '--entry',
+        'f',
+        '--min-depth',
+        '1',
+        '--max-depth',
+        '4',
+        '--modified-within',
+        '7d',
+        '--include',
+        '*.ts',
+        '--exclude-dir',
+        'node_modules,dist',
+        '--context-lines',
+        '3',
+        '--max-matches-per-file',
+        '5',
+        '--match-page',
+        '2',
+        '--details',
+        '--fixed-string',
+        '--limit',
+        '20',
+      ]);
+
+      expect(result.command).toBe('files');
+      expect(result.args).toEqual(['auth', '.']);
+      expect(result.options).toEqual({
+        source: 'local',
+        search: 'both',
+        ext: 'ts,tsx',
+        path: 'src',
+        name: '*auth*',
+        regex: 'auth.*config',
+        entry: 'f',
+        'min-depth': '1',
+        'max-depth': '4',
+        'modified-within': '7d',
+        include: '*.ts',
+        'exclude-dir': 'node_modules,dist',
+        'context-lines': '3',
+        'max-matches-per-file': '5',
+        'match-page': '2',
+        details: true,
+        'fixed-string': true,
+        limit: '20',
+      });
+    });
+
+    it('keeps token --source boolean while files --source consumes a value', () => {
+      expect(parseArgs(['token', '--source']).options.source).toBe(true);
+      expect(
+        parseArgs(['files', 'x', '.', '--source', 'github']).options.source
+      ).toBe('github');
     });
 
     it('should parse unsupported top-level long options without rewriting them', () => {

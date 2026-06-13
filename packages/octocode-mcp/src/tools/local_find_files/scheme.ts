@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
-import { LOCAL_MAX_FILES_PER_PAGE } from '../../config.js';
+import { LOCAL_MAX_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
-  LOCAL_OVERLAY_MAX_LIMIT,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
 const QUERY_DESCRIPTIONS = {
@@ -62,7 +61,7 @@ const FindFilesQueryShape = z.object({
     .array(z.string())
     .optional()
     .describe(QUERY_DESCRIPTIONS.excludeDir!),
-  limit: clampedInt(1, LOCAL_OVERLAY_MAX_LIMIT)
+  limit: clampedInt(1, LOCAL_MAX_LIMIT)
     .optional()
     .describe(QUERY_DESCRIPTIONS.limit!),
   details: z.boolean().optional().describe(QUERY_DESCRIPTIONS.details!),
@@ -88,7 +87,6 @@ export const LocalFindFilesQuerySchema = FindFilesQueryShape;
 export type FindFilesQuery = z.infer<typeof FindFilesQueryShape>;
 
 export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
-  STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
   FindFilesQueryShape,
   { maxQueries: 5 }
 );

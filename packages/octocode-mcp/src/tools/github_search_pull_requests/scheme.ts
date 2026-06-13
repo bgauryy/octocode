@@ -9,9 +9,10 @@ import {
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
-  minifyFieldStandard,
   relaxedPageNumberField,
-} from '../../scheme/localSchemaOverlay.js';
+} from '../../scheme/fields.js';
+
+const minifyField = z.enum(['none', 'standard']).optional().default('standard');
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
@@ -200,17 +201,14 @@ const GitHubPullRequestSearchQuerySchema = z.object({
   charLength: clampedInt(1, MAX_CHAR_LENGTH)
     .optional()
     .describe(QUERY_DESCRIPTIONS.charLength!),
-  minify: minifyFieldStandard.describe(QUERY_DESCRIPTIONS.minify!),
+  minify: minifyField.describe(QUERY_DESCRIPTIONS.minify!),
 });
 
 export const GitHubPullRequestSearchQueryLocalSchema =
   GitHubPullRequestSearchQuerySchema;
 
 export const GitHubPullRequestSearchBulkQueryLocalSchema =
-  createRelaxedBulkQuerySchema(
-    STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-    GitHubPullRequestSearchQuerySchema
-  );
+  createRelaxedBulkQuerySchema(GitHubPullRequestSearchQuerySchema);
 
 export const GitHubSearchPullRequestsOutputLocalSchema =
   UpstreamPRsOutput.extend(responseEnvelopeFields);

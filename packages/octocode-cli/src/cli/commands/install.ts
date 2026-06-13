@@ -29,7 +29,8 @@ const SUPPORTED_INSTALL_CLIENTS_TEXT = formatSupportedMCPClients();
 export const installCommand: CLICommand = {
   name: 'install',
   description: 'Install octocode-mcp for an IDE',
-  usage: 'octocode install --ide <ide> [--method npx] [--force] [--json]',
+  usage:
+    'octocode install --ide <ide> [--method npx] [--force] [--check] [--rollback] [--backup-path <path>] [--json]',
   options: [
     {
       name: 'ide',

@@ -1,18 +1,15 @@
 #!/usr/bin/env node
 /**
- * Copies native runtime assets owned by octocode-mcp into dist/runtime.
+ * Bundles ripgrep binaries into dist/runtime/rg for each target platform.
  *
- * npm packages must be portable: a package published from macOS should still
- * work for Linux and Windows users. Set OCTOCODE_RUNTIME_PLATFORMS=all for the
- * publish build; use OCTOCODE_RUNTIME_PLATFORMS=native for fast local builds.
+ * octocode-security and @octocodeai/octocode-minifier-utils are no longer
+ * bundled here — they are npm runtime dependencies with per-platform
+ * optionalDependencies that npm installs automatically.
+ *
+ * Set OCTOCODE_RUNTIME_PLATFORMS=all for publish builds (all 6 rg binaries),
+ * or OCTOCODE_RUNTIME_PLATFORMS=native (default) for fast local builds.
  */
-import {
-  chmodSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  writeFileSync,
-} from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,36 +20,12 @@ const distDir = join(packageRoot, 'dist');
 const runtimeDir = join(distDir, 'runtime');
 
 const PLATFORM_CONFIGS = [
-  {
-    platform: 'darwin-arm64',
-    securityTriple: 'darwin-arm64',
-    minifierTriple: 'darwin-arm64',
-  },
-  {
-    platform: 'darwin-x64',
-    securityTriple: 'darwin-x64',
-    minifierTriple: 'darwin-x64',
-  },
-  {
-    platform: 'linux-arm64',
-    securityTriple: 'linux-arm64-gnu',
-    minifierTriple: 'linux-arm64-gnu',
-  },
-  {
-    platform: 'linux-x64',
-    securityTriple: 'linux-x64-gnu',
-    minifierTriple: 'linux-x64-gnu',
-  },
-  {
-    platform: 'linux-x64-musl',
-    securityTriple: 'linux-x64-musl',
-    minifierTriple: 'linux-x64-musl',
-  },
-  {
-    platform: 'windows-x64',
-    securityTriple: 'win32-x64-msvc',
-    minifierTriple: 'win32-x64-msvc',
-  },
+  { platform: 'darwin-arm64' },
+  { platform: 'darwin-x64' },
+  { platform: 'linux-arm64' },
+  { platform: 'linux-x64' },
+  { platform: 'linux-x64-musl' },
+  { platform: 'windows-x64' },
 ];
 
 const configByPlatform = new Map(
@@ -68,14 +41,10 @@ const copiedAssets = {
     arch: process.arch,
   },
   platforms: selectedConfigs.map(config => config.platform),
-  security: [],
-  minifier: [],
   rg: [],
 };
 
 for (const config of selectedConfigs) {
-  copiedAssets.security.push(copySecurityNative(config));
-  copiedAssets.minifier.push(copyMinifierNative(config));
   copiedAssets.rg.push(bundleRipgrep(config.platform));
 }
 
@@ -159,55 +128,6 @@ function isMusl() {
   } catch {
     return true;
   }
-}
-
-function copySecurityNative(config) {
-  return copyNativeAsset({
-    packageName: 'octocode-security',
-    binaryName: `octocode-security.${config.securityTriple}.node`,
-    runtimeSubdir: 'security',
-    platform: config.platform,
-    buildHint:
-      'Build packages/octocode-security for all publish targets before packages/octocode-mcp.',
-  });
-}
-
-function copyMinifierNative(config) {
-  return copyNativeAsset({
-    packageName: 'octocode-minifier-utils',
-    binaryName: `octocode-minifier-utils.${config.minifierTriple}.node`,
-    runtimeSubdir: 'minifier',
-    platform: config.platform,
-    buildHint:
-      'Build packages/octocode-minifier-utils for all publish targets before packages/octocode-mcp.',
-  });
-}
-
-function copyNativeAsset({
-  packageName,
-  binaryName,
-  runtimeSubdir,
-  platform,
-  buildHint,
-}) {
-  const source = join(packageRoot, '..', packageName, binaryName);
-  const destination = join(runtimeDir, runtimeSubdir, binaryName);
-
-  if (!existsSync(source)) {
-    throw new Error(
-      `Missing ${packageName} native binary for ${platform}: ${source}. ` +
-        buildHint
-    );
-  }
-
-  mkdirSync(dirname(destination), { recursive: true });
-  copyFileSync(source, destination);
-  chmodSync(destination, 0o755);
-
-  return {
-    platform,
-    file: relative(distDir, destination),
-  };
 }
 
 function bundleRipgrep(platform) {

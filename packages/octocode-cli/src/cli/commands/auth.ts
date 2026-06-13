@@ -309,7 +309,8 @@ export const logoutCommand: CLICommand = {
 export const authCommand: CLICommand = {
   name: 'auth',
   description: 'Manage GitHub authentication',
-  usage: 'octocode auth [login|logout|status|token|refresh] [--json]',
+  usage:
+    'octocode auth [login|logout|status|token|refresh] [--hostname <host>] [--json]',
   options: [
     {
       name: 'hostname',

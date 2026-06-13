@@ -10,7 +10,7 @@ import {
   createErrorResult,
 } from '../utils.js';
 import { FileContentQueryLocalSchema } from './scheme.js';
-import type { MinifyMode } from '../../scheme/localSchemaOverlay.js';
+import type { MinifyMode } from '../../scheme/fields.js';
 import { isCloneEnabled } from '../../serverConfig.js';
 import { fetchDirectoryContents } from '../../github/directoryFetch.js';
 import { resolveDefaultBranch } from '../../github/client.js';

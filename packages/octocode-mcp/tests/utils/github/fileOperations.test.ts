@@ -168,7 +168,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
-          contentView: 'standard',
           totalLines: 5,
           sourceBytes: 34,
           sourceChars: 34,
@@ -190,7 +189,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
-          contentView: 'standard',
           totalLines: 5,
           sourceBytes: 34,
           sourceChars: 34,
@@ -214,7 +212,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'master',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
-          contentView: 'standard',
           totalLines: 5,
           sourceBytes: 34,
           sourceChars: 34,
@@ -238,7 +235,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
-          contentView: 'standard',
           totalLines: 5,
           sourceBytes: 34,
           sourceChars: 34,
@@ -246,7 +242,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       });
     });
 
-    it("applies the schema-default 'standard' content view (content unchanged for plain text)", async () => {
+    it("applies the schema-default 'none' content view — raw content returned, no minification", async () => {
       const params = createTestParams();
 
       const result = await fetchGitHubFileContentAPI(params);
@@ -261,7 +257,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
-          contentView: 'standard',
           totalLines: 5,
           sourceBytes: 34,
           sourceChars: 34,
@@ -287,7 +282,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
           path: 'test.txt',
           branch: 'main',
           content: 'line 1\nline 2\nline 3\nline 4\nline 5',
-          contentView: 'standard',
           totalLines: 5,
           sourceBytes: 34,
           sourceChars: 34,

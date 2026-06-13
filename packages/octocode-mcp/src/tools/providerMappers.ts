@@ -22,7 +22,7 @@ import { FileContentQueryLocalSchema } from './github_fetch_content/scheme.js';
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 // `minify` defaults to 'standard' via the Zod schema; the mapper passes it through.
 type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema> & {
-  minify: import('../scheme/localSchemaOverlay.js').MinifyMode;
+  minify: import('../scheme/fields.js').MinifyMode;
 };
 type GitHubPullRequestSearchQuery = z.infer<
   typeof GitHubPullRequestSearchQueryLocalSchema
@@ -290,6 +290,7 @@ export function mapCodeSearchProviderResult(
 export function mapRepoSearchToolQuery(
   query: WithOptionalMeta<GitHubReposSearchSingleQuery>
 ) {
+  const extra = query as Record<string, unknown>;
   return {
     keywords: query.keywordsToSearch,
     topics: query.topicsToSearch,
@@ -299,9 +300,11 @@ export function mapRepoSearchToolQuery(
     created: query.created,
     updated: query.updated,
     language: query.language,
-    archived: (query as Record<string, unknown>).archived as
-      | boolean
-      | undefined,
+    archived: extra.archived as boolean | undefined,
+    visibility: extra.visibility as 'public' | 'private' | undefined,
+    forks: extra.forks as string | undefined,
+    license: extra.license as string | undefined,
+    goodFirstIssues: extra.goodFirstIssues as string | undefined,
     match: query.match,
     sort: query.sort as
       | 'stars'

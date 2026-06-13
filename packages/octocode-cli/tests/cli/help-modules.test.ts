@@ -27,8 +27,10 @@ describe('main-help', () => {
     expect(output).toContain('install');
     expect(output).toContain('SMART COMMANDS');
     expect(output).toContain('TOOLS');
-    expect(output).toContain('instructions');
+    expect(output).toContain('context');
     expect(output).toContain('tools');
+    expect(output).toContain('octocode files');
+    expect(output).toContain('octocode repo');
     expect(output).toContain('octocode pkg');
     expect(output).toContain('octocode symbols');
     expect(output).toContain('octocode lsp');
@@ -66,15 +68,75 @@ describe('command-help-specs', () => {
       'status',
       'get',
       'tree',
+      'files',
       'search',
       'pr',
+      'repo',
       'pkg',
       'symbols',
       'lsp',
+      'context',
     ];
     for (const name of names) {
       expect(findStaticCommandHelp(name)).toBeDefined();
     }
+  });
+
+  it('keeps static command help option lists documented and unique', async () => {
+    const { COMMAND_SPECS } = await import('../../src/cli/commands/specs.js');
+
+    const researchCommands = new Set([
+      'get',
+      'tree',
+      'files',
+      'search',
+      'pr',
+      'repo',
+      'pkg',
+      'symbols',
+      'lsp',
+    ]);
+
+    for (const command of COMMAND_SPECS) {
+      const seen = new Set<string>();
+      expect(command.description.trim().length).toBeGreaterThan(0);
+      expect(command.usage?.startsWith(`octocode ${command.name}`)).toBe(true);
+      expect(command.scheme?.length).toBeGreaterThan(0);
+
+      if (researchCommands.has(command.name)) {
+        expect(command.whenToUse?.length).toBeGreaterThan(0);
+        expect(command.examples?.length).toBeGreaterThan(0);
+      }
+
+      for (const option of command.options ?? []) {
+        expect(option.name.trim().length).toBeGreaterThan(0);
+        expect(option.description.trim().length).toBeGreaterThan(0);
+        expect(seen.has(option.name)).toBe(false);
+        seen.add(option.name);
+      }
+    }
+  });
+
+  it('documents full agent-critical usage flags', async () => {
+    const { findStaticCommandHelp } =
+      await import('../../src/cli/command-help-specs.js');
+
+    expect(findStaticCommandHelp('get')!.usage).toContain('--full-content');
+    expect(findStaticCommandHelp('search')!.usage).toContain('--branch <ref>');
+    expect(findStaticCommandHelp('lsp')!.usage).toContain(
+      '--workspace-root <path>'
+    );
+    expect(findStaticCommandHelp('lsp')!.usage).toContain(
+      '--format structured|compact'
+    );
+    expect(findStaticCommandHelp('symbols')!.usage).toContain(
+      '--page-size <n>'
+    );
+    expect(findStaticCommandHelp('install')!.usage).toContain(
+      '--backup-path <path>'
+    );
+    expect(findStaticCommandHelp('auth')!.usage).toContain('--hostname <host>');
+    expect(findStaticCommandHelp('token')!.usage).toContain('--reveal');
   });
 
   it('returns undefined for unknown commands', async () => {
@@ -99,10 +161,39 @@ describe('command-help-specs', () => {
       .join('');
     expect(output).toContain('install');
     expect(output).toContain('USAGE');
+    expect(output).toContain('SCHEME');
     expect(output).toContain('OPTIONS');
+    expect(output).toContain('required option: --ide supported client id');
     expect(output).toContain('--ide');
     expect(output).toContain('--method');
     expect(output).toContain('--force');
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('renders research command usage guidance and examples', async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+
+    const { findStaticCommandHelp } =
+      await import('../../src/cli/command-help-specs.js');
+    const { showCommandHelp } = await import('../../src/cli/help.js');
+    const cmd = findStaticCommandHelp('lsp')!;
+    showCommandHelp(cmd);
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('');
+    expect(output).toContain('WHEN TO USE');
+    expect(output).toContain('EXAMPLES');
+    expect(output).toContain('SCHEME');
+    expect(output).toContain(
+      'required option: --type enum(definition|references'
+    );
+    expect(output).toContain('runtime: lspGetSemanticContent');
+    expect(output).toContain('after search or symbols');
+    expect(output).toContain('octocode lsp src/index.ts --type references');
 
     stdoutSpy.mockRestore();
   });
@@ -169,5 +260,30 @@ describe('help (dynamic fallback)', () => {
     expect(output).toContain('OPTIONS');
     expect(output).toContain('--flag');
     expect(output).toContain('(default: yes)');
+  });
+});
+
+describe('agent protocol help', () => {
+  it('lists every smart research command and points to command help', async () => {
+    const stdoutSpy = vi
+      .spyOn(console, 'log')
+      .mockImplementation(() => undefined);
+
+    const { printLightInstructions } =
+      await import('../../src/cli/light-tool-help.js');
+    printLightInstructions();
+
+    const output = stdoutSpy.mock.calls
+      .map((c: unknown[]) => c.map(String).join(' '))
+      .join('\n');
+    expect(output).toContain(
+      'get, tree, files, search, pr, repo, pkg, symbols, lsp'
+    );
+    expect(output).toContain('octocode pkg <package>');
+    expect(output).toContain('octocode symbols <file|path>');
+    expect(output).toContain('octocode lsp <file> --type <type>');
+    expect(output).toContain('octocode <command> --help');
+
+    stdoutSpy.mockRestore();
   });
 });

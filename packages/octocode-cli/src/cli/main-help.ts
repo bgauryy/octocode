@@ -42,23 +42,26 @@ export function showHelp(): void {
 
     // ── How to use (agent protocol inline) ────────────────────────────────
     `  ${bold('HOW TO USE')}`,
-    `    ${c('red', bold('1.'))} Check schema BEFORE any tool call   ${c('yellow', 'octocode tools <name>')}`,
+    `    ${c('red', bold('1.'))} Check schema BEFORE any tool call   ${c('yellow', 'octocode tools <name> --scheme')}`,
     `    ${c('red', bold('2.'))} Run a tool                          ${c('yellow', "octocode tools <name> --queries '<json>'")}`,
     `    ${c('cyan', '3.')} For common research use smart cmds   ${dim('(no schema needed — see below)')}`,
-    `    ${dim('4.')} Full context + all schemas           ${c('yellow', 'octocode instructions')}`,
-    `    ${dim('5.')} All schemas as inline JSON           ${c('yellow', 'octocode instructions --full')}`,
+    `    ${dim('4.')} Show full command scheme       ${c('yellow', 'octocode <command> --help')}`,
+    `    ${dim('5.')} Full context + all schemas           ${c('yellow', 'octocode context')}`,
+    `    ${dim('6.')} All schemas as inline JSON           ${c('yellow', 'octocode context --full')}`,
     '',
 
     // ── Smart commands — preferred ─────────────────────────────────────────
     `  ${bold('SMART COMMANDS')}  ${dim('— prefer over raw tool calls for common research')}`,
-    `    ${dim('Auto-route local ↔ GitHub — no schema or owner/repo wiring needed')}`,
-    `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--mode none|standard|symbols]')}`,
+    `    ${dim('Common flows without raw schemas; file/search commands auto-route local ↔ GitHub')}`,
+    `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--match-string, --mode]')}`,
     `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`,
-    `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path | repo>')}     ${dim('code search     [--type, --limit, --page]')}`,
+    `    ${c('cyan', 'octocode files')}  ${dim('<query> [path | repo]')}       ${dim('file discovery [--search path|content|both]')}`,
+    `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path | repo>')}     ${dim('code search     [--type, --branch, --page]')}`,
     `    ${c('cyan', 'octocode pr')}     ${dim('<owner/repo[#N] | PR-URL>')}   ${dim('PR info         [--patches, --comments, --deep]')}`,
+    `    ${c('cyan', 'octocode repo')}   ${dim('<keywords...>')}               ${dim('repo discovery  [--topic, --language, --stars]')}`,
     `    ${c('cyan', 'octocode pkg')}    ${dim('<package>')}                   ${dim('npm metadata + source repo')}`,
-    `    ${c('cyan', 'octocode symbols')} ${dim('<file | path>')}               ${dim('semantic outline [--kind, --limit]')}`,
-    `    ${c('cyan', 'octocode lsp')}    ${dim('<file> --type <type>')}        ${dim('semantic nav     [--symbol, --line]')}`,
+    `    ${c('cyan', 'octocode symbols')} ${dim('<file | path>')}               ${dim('semantic outline before LSP')}`,
+    `    ${c('cyan', 'octocode lsp')}    ${dim('<file> --type <type>')}        ${dim('semantic nav after symbol+line')}`,
     '',
 
     // ── All tools ─────────────────────────────────────────────────────────
@@ -82,8 +85,8 @@ export function showHelp(): void {
 
     // ── Workflows ──────────────────────────────────────────────────────────
     `  ${bold('WORKFLOWS')}`,
-    `    ${dim('local  →')}  localViewStructure ${dim('→')} localSearchCode ${dim('→')} localGetFileContent ${dim('→')} lspGetSemanticContent`,
-    `    ${dim('github →')}  githubSearchRepositories ${dim('→')} githubViewRepoStructure ${dim('→')} githubGetFileContent`,
+    `    ${dim('local  →')}  octocode tree ${dim('→')} octocode files/search ${dim('→')} octocode get ${dim('→')} octocode symbols/lsp`,
+    `    ${dim('github →')}  octocode repo ${dim('→')} octocode tree ${dim('→')} octocode files ${dim('→')} octocode get`,
     `    ${dim('lsp    →')}  octocode symbols ${dim('<file|path>')} ${dim('→')} octocode lsp ${dim('--type references --symbol X --line N')}`,
     `    ${dim('pkg    →')}  octocode pkg ${dim('<package>')} ${dim('→')} githubGetFileContent${dim('(owner/repo from result)')}`,
     '',

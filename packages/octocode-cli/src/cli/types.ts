@@ -15,6 +15,9 @@ export interface CLICommandSpec {
   name: string;
   description: string;
   usage?: string;
+  scheme?: string[];
+  whenToUse?: string[];
+  examples?: string[];
   options?: CLIOption[];
 }
 

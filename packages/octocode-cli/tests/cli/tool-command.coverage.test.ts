@@ -270,7 +270,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: ['githubSearchCode'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -285,7 +285,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: ['localSearchCode'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -685,7 +685,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: ['packageSearch'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -703,7 +703,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: ['githubSearchRepositories'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -720,7 +720,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: ['githubCloneRepo'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -902,7 +902,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: ['lspGetSemanticContent'],
-      options: { schema: true },
+      options: { scheme: true },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');

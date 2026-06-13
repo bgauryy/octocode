@@ -1,0 +1,13 @@
+{
+  "name": "@octocodeai/octocode-minifier-utils-win32-x64-msvc",
+  "version": "0.1.0",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "main": "octocode-minifier-utils.win32-x64-msvc.node",
+  "files": ["octocode-minifier-utils.win32-x64-msvc.node"],
+  "description": "High-performance Rust minification for Octocode — win32-x64",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "engines": { "node": ">=20.0.0" },
+  "repository": { "type": "git", "url": "https://github.com/bgauryy/octocode-mcp.git", "directory": "packages/octocode-minifier-utils" }
+}

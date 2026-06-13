@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
+import { LOCAL_MAX_DEPTH } from '../../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
-  LOCAL_OVERLAY_MAX_DEPTH,
-  orderHintField,
   relaxedPageNumberField,
-  requiredLineHintField,
-} from '../../../scheme/localSchemaOverlay.js';
+} from '../../../scheme/fields.js';
+
+const requiredLineHintField = clampedInt(1, 1_000_000_000);
+const orderHintField = clampedInt(0, 100_000).optional();
 import {
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
   SEMANTIC_CONTENT_TYPES,
@@ -45,7 +46,7 @@ const SemanticContentQueryShape = z.object({
     .optional()
     .describe(QUERY_DESCRIPTIONS.lineHint!),
   orderHint: orderHintField.describe(QUERY_DESCRIPTIONS.orderHint!),
-  depth: clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH)
+  depth: clampedInt(0, LOCAL_MAX_DEPTH)
     .optional()
     .describe(QUERY_DESCRIPTIONS.depth!),
   includeDeclaration: z
@@ -100,8 +101,4 @@ export const LspGetSemanticContentQuerySchema =
 
 // Bulk uses the plain shape — superRefine runs per-query at execution.
 export const BulkLspGetSemanticContentQuerySchema =
-  createRelaxedBulkQuerySchema(
-    LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-    SemanticContentQueryShape,
-    { maxQueries: 5 }
-  );
+  createRelaxedBulkQuerySchema(SemanticContentQueryShape, { maxQueries: 5 });
