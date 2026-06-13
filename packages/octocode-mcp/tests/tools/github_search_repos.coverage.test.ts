@@ -253,7 +253,9 @@ describe('GitHub Search Repositories Coverage', () => {
       const repos = result.structuredContent as {
         results?: Array<{ data?: { repositories?: string[] } }>;
       };
-      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain('org/whale');
+      expect(repos.results?.[0]?.data?.repositories?.[0]).toContain(
+        'org/whale'
+      );
     });
   });
 

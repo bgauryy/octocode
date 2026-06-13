@@ -3,11 +3,11 @@ import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { RequestError } from 'octokit';
-import * as minifierModule from '@octocodeai/octocode-minifier';
+import * as minifierModule from '@octocodeai/octocode-minifier-utils';
 import {
   extractSignatures,
   applyContentViewMinification,
-} from '@octocodeai/octocode-minifier';
+} from '@octocodeai/octocode-minifier-utils';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 
@@ -29,9 +29,11 @@ function createRequestError(message: string, status: number) {
 }
 
 vi.mock('../../src/github/client.js');
-vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('@octocodeai/octocode-minifier')>();
+    await importOriginal<
+      typeof import('@octocodeai/octocode-minifier-utils')
+    >();
   return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
 });
 

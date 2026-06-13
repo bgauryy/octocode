@@ -26,7 +26,11 @@ describe('packageSearch schema', () => {
 
   it('unknown fields are stripped (mode, verbose)', () => {
     // Zod strips unknown fields — neither mode nor verbose is part of the schema
-    const q = parsedQuery({ packageName: 'lodash', mode: 'lean', verbose: true });
+    const q = parsedQuery({
+      packageName: 'lodash',
+      mode: 'lean',
+      verbose: true,
+    });
     expect('mode' in q).toBe(false);
     expect('verbose' in q).toBe(false);
   });

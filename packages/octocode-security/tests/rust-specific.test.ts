@@ -329,11 +329,35 @@ describe('RUST-06: Known secret detection', () => {
     { label: 'Databricks token', input: ' dapi' + 'a'.repeat(32) + ' ' }, // hex-only pattern: [a-f0-9]{32}
     { label: 'Supabase service key', input: 'sbp_' + 'a'.repeat(40) },
     {
+      label: 'Supabase secret key',
+      input: 'sb_secret_' + 'a'.repeat(22) + '_A1b2C3d4',
+    },
+    {
       label: 'Cloudflare API key',
       input: "cloudflare api key: '" + 'a'.repeat(40) + "'",
     },
+    {
+      label: 'Cloudflare prefixed credential',
+      input: 'cfut_' + 'a'.repeat(40) + 'deadBEEF',
+    },
     { label: 'Vercel token', input: 'vcp_' + 'a'.repeat(24) },
     { label: 'PostHog key', input: 'phc_' + 'a'.repeat(39) },
+    {
+      label: 'PostHog feature flags secure key',
+      input: 'phs_' + 'a'.repeat(39),
+    },
+    {
+      label: 'PostHog OAuth access token',
+      input: 'pha_' + 'a'.repeat(39),
+    },
+    {
+      label: 'PostHog OAuth refresh token',
+      input: 'phr_' + 'a'.repeat(39),
+    },
+    {
+      label: 'Bearer auth header',
+      input: 'Authorization: Bearer ' + 'a'.repeat(24),
+    },
     {
       label: 'AWS session token',
       input: 'AWS_SESSION_TOKEN=' + 'A'.repeat(200),

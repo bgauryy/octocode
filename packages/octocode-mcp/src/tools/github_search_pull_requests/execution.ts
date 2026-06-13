@@ -82,7 +82,11 @@ export async function searchMultipleGitHubPullRequests(
           !effectiveQuery.created &&
           (effectiveQuery.state === 'merged' ||
             (effectiveQuery as { merged?: boolean }).merged === true);
-        if (looksLikeArchaeology && !effectiveQuery.sort && !effectiveQuery.order) {
+        if (
+          looksLikeArchaeology &&
+          !effectiveQuery.sort &&
+          !effectiveQuery.order
+        ) {
           downgradeHints.push(
             'Archaeology tip: to find the PR that *introduced* a feature, add sort:"created" order:"asc" — this surfaces the oldest merged PRs first. ' +
               'Also: scope with match:["title"] to restrict keyword matching to the title field only, and use a double-quoted phrase in `query` (e.g. query:\'"Partial Prerendering"\') for exact-phrase matching.'

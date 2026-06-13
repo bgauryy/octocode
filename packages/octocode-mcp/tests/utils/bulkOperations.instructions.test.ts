@@ -18,7 +18,7 @@ describe('Bulk Response Envelope', () => {
     const text = getTextContent(result.content);
 
     expect(text).toContain('results:');
-    expect(text).toContain('id: "q1"');
+    expect(text).toContain('id: q1');
     expect(text).not.toContain('instructions:');
     expect(text).not.toContain('original query');
   });
@@ -44,9 +44,9 @@ describe('Bulk Response Envelope', () => {
     const result = await executeBulkOperation(queries, processor, { toolName });
     const text = getTextContent(result.content);
 
-    expect(text).toContain('id: "q1"');
-    expect(text).toContain('id: "q2"');
-    expect(text).toContain('id: "q3"');
+    expect(text).toContain('id: q1');
+    expect(text).toContain('id: q2');
+    expect(text).toContain('id: q3');
     expect(text).not.toContain('instructions:');
   });
 

@@ -75,7 +75,9 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
 
   it('flat repo → "name https://github.com/owner/repo"', async () => {
     mockSearchPackage.mockResolvedValue({
-      packages: [pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' })],
+      packages: [
+        pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' }),
+      ],
       totalFound: 1,
     });
     const t = text(await callTool('zod'));
@@ -95,7 +97,9 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
       totalFound: 1,
     });
     const t = text(await callTool('react'));
-    expect(t).toContain('react https://github.com/facebook/react packages/react');
+    expect(t).toContain(
+      'react https://github.com/facebook/react packages/react'
+    );
   });
 
   it('strips leading "./" from repositoryDirectory', async () => {
@@ -150,12 +154,19 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
     const t = text(await callTool('zustand'));
     expect(t).toContain('zustand https://github.com/pmndrs/zustand');
     expect(t).toContain('jotai https://github.com/pmndrs/jotai');
-    expect(t).toContain('@tanstack/query https://github.com/TanStack/query packages/query-core');
+    expect(t).toContain(
+      '@tanstack/query https://github.com/TanStack/query packages/query-core'
+    );
   });
 
   it('packages[] is a YAML sequence of strings, not objects', async () => {
     mockSearchPackage.mockResolvedValue({
-      packages: [pkg({ name: 'express', repoUrl: 'https://github.com/expressjs/express' })],
+      packages: [
+        pkg({
+          name: 'express',
+          repoUrl: 'https://github.com/expressjs/express',
+        }),
+      ],
       totalFound: 1,
     });
     const t = text(await callTool('express'));
@@ -197,7 +208,9 @@ describe('hints — exact / single result', () => {
 
   it('includes Install hint with package name', async () => {
     mockSearchPackage.mockResolvedValue({
-      packages: [pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' })],
+      packages: [
+        pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' }),
+      ],
       totalFound: 1,
     });
     const t = text(await callTool('zod'));
@@ -206,7 +219,9 @@ describe('hints — exact / single result', () => {
 
   it('includes Browse source hint with owner and repo for GitHub packages', async () => {
     mockSearchPackage.mockResolvedValue({
-      packages: [pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' })],
+      packages: [
+        pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' }),
+      ],
       totalFound: 1,
     });
     const t = text(await callTool('zod'));
@@ -250,7 +265,9 @@ describe('hints — exact / single result', () => {
 
   it('skips deprecation check for CDN fallback source', async () => {
     mockSearchPackage.mockResolvedValue({
-      packages: [pkg({ source: 'cdn', repoUrl: 'https://github.com/owner/pkg' })],
+      packages: [
+        pkg({ source: 'cdn', repoUrl: 'https://github.com/owner/pkg' }),
+      ],
       totalFound: 1,
     });
     await callTool('pkg');
@@ -259,7 +276,9 @@ describe('hints — exact / single result', () => {
 
   it('skips deprecation check for web fallback source', async () => {
     mockSearchPackage.mockResolvedValue({
-      packages: [pkg({ source: 'web', repoUrl: 'https://github.com/owner/pkg' })],
+      packages: [
+        pkg({ source: 'web', repoUrl: 'https://github.com/owner/pkg' }),
+      ],
       totalFound: 1,
     });
     await callTool('pkg');
@@ -375,7 +394,7 @@ describe('pagination — hasMore through searchPackages', () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
-        pkg({ name: 'jotai',   repoUrl: 'https://github.com/pmndrs/jotai' }),
+        pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' }),
       ],
       totalFound: 50, // API knows about 50, only 2 returned
     });
@@ -390,7 +409,7 @@ describe('pagination — hasMore through searchPackages', () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
-        pkg({ name: 'jotai',   repoUrl: 'https://github.com/pmndrs/jotai' }),
+        pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' }),
       ],
       totalFound: 2, // exactly what was returned
     });
@@ -409,11 +428,18 @@ describe('bulk queries', () => {
   it('processes multiple queries independently', async () => {
     mockSearchPackage
       .mockResolvedValueOnce({
-        packages: [pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' })],
+        packages: [
+          pkg({
+            name: 'zustand',
+            repoUrl: 'https://github.com/pmndrs/zustand',
+          }),
+        ],
         totalFound: 1,
       })
       .mockResolvedValueOnce({
-        packages: [pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' })],
+        packages: [
+          pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' }),
+        ],
         totalFound: 1,
       });
 

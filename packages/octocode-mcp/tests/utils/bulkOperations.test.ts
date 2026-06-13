@@ -270,10 +270,10 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('results:');
-      expect(responseText).toContain('id: "q1"');
+      expect(responseText).toContain('id: q1');
       expect(responseText).not.toContain('instructions:');
-      expect(responseText).not.toContain('status: "hasResults"');
-      expect(responseText).toContain('path: "test.ts"');
+      expect(responseText).not.toContain('status: hasResults');
+      expect(responseText).toContain('path: test.ts');
       expect(responseText).toContain('Test hint for hasResults');
     });
 
@@ -291,8 +291,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('status: "empty"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('status: empty');
       expect(responseText).toContain('Test hint for empty');
     });
 
@@ -310,9 +310,9 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('status: "error"');
-      expect(responseText).toContain('error: "Rate limit exceeded"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('status: error');
+      expect(responseText).toContain('error: Rate limit exceeded');
       expect(responseText).toContain('Test hint for error');
     });
 
@@ -332,7 +332,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "error"');
+      expect(responseText).toContain('status: error');
       expect(responseText).toContain('mutually exclusive');
     });
 
@@ -346,9 +346,9 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('status: "error"');
-      expect(responseText).toContain('error: "API error"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('status: error');
+      expect(responseText).toContain('error: API error');
     });
   });
 
@@ -424,13 +424,13 @@ describe('executeBulkOperation', () => {
       expect(processor).toHaveBeenCalledTimes(3);
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
       expect(responseText).not.toContain('empty');
       expect(responseText).not.toContain('failed');
-      expect(responseText).toContain('name: "react-repo"');
-      expect(responseText).toContain('name: "vue-repo"');
-      expect(responseText).toContain('name: "angular-repo"');
+      expect(responseText).toContain('name: react-repo');
+      expect(responseText).toContain('name: vue-repo');
+      expect(responseText).toContain('name: angular-repo');
     });
 
     it('should process multiple queries all with empty status', async () => {
@@ -450,8 +450,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q2"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q2');
       expect(responseText).not.toContain('failed');
       expect(responseText).toContain('Test hint for empty');
     });
@@ -470,8 +470,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
       expect(responseText).not.toContain('empty');
       expect(responseText).toContain('Test hint for error');
     });
@@ -486,9 +486,9 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q2"');
-      expect(responseText).toContain('error: "Network timeout"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q2');
+      expect(responseText).toContain('error: Network timeout');
     });
   });
 
@@ -601,11 +601,11 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText.indexOf('id: "q1"')).toBeLessThan(
-        responseText.indexOf('id: "q2"')
+      expect(responseText.indexOf('id: q1')).toBeLessThan(
+        responseText.indexOf('id: q2')
       );
-      expect(responseText.indexOf('id: "q2"')).toBeLessThan(
-        responseText.indexOf('id: "q3"')
+      expect(responseText.indexOf('id: q2')).toBeLessThan(
+        responseText.indexOf('id: q3')
       );
     });
 
@@ -632,8 +632,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
       expect(responseText).not.toContain('failed');
       expect(responseText).toContain('Test hint');
     });
@@ -666,8 +666,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
       expect(responseText).not.toContain(': 0 empty');
       expect(responseText).toContain('Test hint for success');
       expect(responseText).toContain('Test hint for error');
@@ -699,8 +699,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q4"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q4');
       expect(responseText).toContain('Test hint for empty');
     });
   });
@@ -739,8 +739,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q4"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q4');
       expect(responseText).toContain('Test hint');
     });
 
@@ -771,8 +771,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q6"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q6');
     });
   });
 
@@ -814,7 +814,7 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('actualData: "This should appear"');
+      expect(responseText).toContain('actualData: This should appear');
       expect(responseText).not.toContain('Result main goal');
       expect(responseText).not.toContain('Result goal');
       expect(responseText).not.toContain('Result reasoning');
@@ -844,11 +844,11 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('content: "# React"');
-      expect(responseText).toContain('owner: "facebook"');
-      expect(responseText).toContain('repo: "react"');
-      expect(responseText).toContain('path: "README.md"');
-      expect(responseText).toContain('branch: "main"');
+      expect(responseText).toContain('content: # React');
+      expect(responseText).toContain('owner: facebook');
+      expect(responseText).toContain('repo: react');
+      expect(responseText).toContain('path: README.md');
+      expect(responseText).toContain('branch: main');
     });
 
     it('should preserve structured error metadata from processor results', async () => {
@@ -870,8 +870,8 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('errorCode: "fileAccessFailed"');
-      expect(responseText).toContain('resolvedPath: "/repo/src/index.ts"');
+      expect(responseText).toContain('errorCode: fileAccessFailed');
+      expect(responseText).toContain('resolvedPath: /repo/src/index.ts');
     });
 
     it('should not echo query research metadata in thrown error responses', async () => {
@@ -890,8 +890,8 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "error"');
-      expect(responseText).toContain('error: "Failed"');
+      expect(responseText).toContain('status: error');
+      expect(responseText).toContain('error: Failed');
       expect(responseText).not.toContain('mainResearchGoal:');
       expect(responseText).not.toContain('researchGoal:');
       expect(responseText).not.toContain('reasoning:');
@@ -912,7 +912,7 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('error: "Custom error"');
+      expect(responseText).toContain('error: Custom error');
       expect(responseText).not.toContain('Result main goal');
       expect(responseText).not.toContain('Result goal');
       expect(responseText).not.toContain('Result reasoning');
@@ -1041,7 +1041,7 @@ describe('executeBulkOperation', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('pull_requests:');
       expect(responseText).toContain('number: 123');
-      expect(responseText).toContain('title: "Test PR"');
+      expect(responseText).toContain('title: Test PR');
       expect(responseText).toContain('total_count: 1');
       expect(responseText).toContain('incomplete_results: false');
     });
@@ -1065,7 +1065,7 @@ describe('executeBulkOperation', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).not.toContain('researchGoal:');
       expect(responseText).not.toContain('reasoning:');
-      expect(responseText).toContain('actualData: "This should appear"');
+      expect(responseText).toContain('actualData: This should appear');
       expect(responseText).toContain('data:');
     });
 
@@ -1092,11 +1092,11 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('path: "src/index.ts"');
+      expect(responseText).toContain('path: src/index.ts');
       expect(responseText).toContain('line: 10');
-      expect(responseText).toContain('content: "match1"');
+      expect(responseText).toContain('content: match1');
       expect(responseText).toContain('line: 20');
-      expect(responseText).toContain('content: "match2"');
+      expect(responseText).toContain('content: match2');
       expect(responseText).toContain('total: 2');
       expect(responseText).toContain('page: 1');
     });
@@ -1118,8 +1118,8 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('owner: "testowner"');
-      expect(responseText).toContain('repo: "testrepo"');
+      expect(responseText).toContain('owner: testowner');
+      expect(responseText).toContain('repo: testrepo');
       expect(responseText).toContain('files:');
     });
 
@@ -1144,7 +1144,7 @@ describe('executeBulkOperation', () => {
 
         expect(result.isError).toBe(false);
         const responseText = getTextContent(result.content);
-        expect(responseText).toContain('id: "q1"');
+        expect(responseText).toContain('id: q1');
       }
     });
 
@@ -1161,7 +1161,7 @@ describe('executeBulkOperation', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('files:');
-      expect(responseText).toContain('path: "test.ts"');
+      expect(responseText).toContain('path: test.ts');
     });
   });
 
@@ -1214,7 +1214,7 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain(
-        'error: "Specific error: Repository not found"'
+        'error: Specific error: Repository not found'
       );
     });
 
@@ -1230,7 +1230,7 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain(
-        'error: "Network error: Connection refused"'
+        'error: Network error: Connection refused'
       );
     });
 
@@ -1247,9 +1247,9 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('error: "Error for q1"');
-      expect(responseText).toContain('error: "Error for q2"');
-      expect(responseText).toContain('error: "Error for q3"');
+      expect(responseText).toContain('error: Error for q1');
+      expect(responseText).toContain('error: Error for q2');
+      expect(responseText).toContain('error: Error for q3');
     });
   });
 
@@ -1272,7 +1272,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).not.toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: hasResults');
       expect(responseText).not.toContain('researchGoal: 123');
     });
 
@@ -1294,7 +1294,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).not.toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: hasResults');
       expect(responseText).not.toContain('reasoning:');
     });
 
@@ -1316,7 +1316,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).not.toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: hasResults');
     });
   });
 
@@ -1338,7 +1338,7 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      const idIndex = responseText.indexOf('id: "q1"');
+      const idIndex = responseText.indexOf('id: q1');
       const statusIndex = responseText.indexOf('status:');
 
       expect(idIndex).toBeGreaterThan(-1);
@@ -1363,7 +1363,7 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "react_hooks_search"');
+      expect(responseText).toContain('id: react_hooks_search');
     });
 
     it('should generate qN ids when the caller omits query ids', async () => {
@@ -1380,8 +1380,8 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q2"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q2');
     });
 
     it('should output status before data in response', async () => {
@@ -1543,8 +1543,8 @@ describe('executeBulkOperation', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('Wait 60 seconds');
       expect(responseText).toContain('Use authentication token');
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q2"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q2');
     });
 
     it('should collect unique error hints from multiple error results', async () => {
@@ -1572,8 +1572,8 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
       const hintAMatches = (responseText.match(/Hint A/g) || []).length;
       const hintBMatches = (responseText.match(/Hint B/g) || []).length;
       expect(hintAMatches).toBe(2);
@@ -1593,7 +1593,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
+      expect(responseText).toContain('id: q1');
       expect(responseText).toContain('Simple error without hints');
     });
 
@@ -1631,8 +1631,8 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
       expect(responseText).toContain('Success hint from processor');
       expect(responseText).toContain('Empty hint from processor');
       expect(responseText).toContain('Error hint from processor');
@@ -1653,7 +1653,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
+      expect(responseText).toContain('id: q1');
       expect(responseText).toContain('error:');
     });
 
@@ -1676,11 +1676,11 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q3"');
-      expect(responseText).toContain('error: "Error processing q1"');
-      expect(responseText).toContain('error: "Error processing q2"');
-      expect(responseText).toContain('error: "Error processing q3"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q3');
+      expect(responseText).toContain('error: Error processing q1');
+      expect(responseText).toContain('error: Error processing q2');
+      expect(responseText).toContain('error: Error processing q3');
       expect(responseText).not.toContain('mainResearchGoal:');
     });
   });
@@ -1764,8 +1764,8 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
-      expect(responseText).toContain('id: "q2"');
+      expect(responseText).toContain('id: q1');
+      expect(responseText).toContain('id: q2');
       expect(responseText).toContain('Success hint');
       expect(responseText).toContain('Error recovery hint');
     });
@@ -1783,7 +1783,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
+      expect(responseText).toContain('id: q1');
       expect(responseText).toContain('Generic error');
     });
 
@@ -1801,7 +1801,7 @@ describe('executeBulkOperation', () => {
 
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "q1"');
+      expect(responseText).toContain('id: q1');
       expect(responseText).toContain('Error with empty hints');
     });
   });
@@ -1896,7 +1896,7 @@ describe('executeBulkOperation — uncovered branches', () => {
     });
 
     const text = getTextContent(result.content);
-    expect(text).toContain('id: "7"');
+    expect(text).toContain('id: 7');
   });
 
   it('adds string missingFields entries to the missing set (lines 337-338)', async () => {

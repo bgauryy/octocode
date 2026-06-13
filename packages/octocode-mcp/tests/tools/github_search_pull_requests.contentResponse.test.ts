@@ -465,7 +465,7 @@ describe('githubSearchPullRequests content response shaping', () => {
     const shaped = shapePullRequestForContent(
       { number: 56, title: 'no body PR', body: undefined },
       { prNumber: 56 },
-      baseRequest  // body: false
+      baseRequest // body: false
     );
     expect('body' in shaped).toBe(false);
   });
@@ -474,30 +474,36 @@ describe('githubSearchPullRequests content response shaping', () => {
     const patchWithComment = '@@ -1 +1 @@\n+const x = 1; // comment line';
     const prWithFiles = {
       ...pr,
-      fileChanges: [{
-        path: 'src/a.ts',
-        status: 'modified',
-        additions: 1,
-        deletions: 0,
-        patch: patchWithComment,
-      }],
+      fileChanges: [
+        {
+          path: 'src/a.ts',
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          patch: patchWithComment,
+        },
+      ],
     };
     // Without matchString: minify:standard strips the comment-only line
     const minified = shapePullRequestForContent(
       prWithFiles,
       { ...query, charLength: 5000 },
       { ...baseRequest, patches: { mode: 'all' } },
-      true  // shouldMinify
+      true // shouldMinify
     );
     // With matchString: minification skipped so matched comment line is visible
     const withMatch = shapePullRequestForContent(
       prWithFiles,
       { ...query, charLength: 5000, matchString: 'comment line' },
       { ...baseRequest, patches: { mode: 'all' } },
-      true  // shouldMinify (but overridden by needle)
+      true // shouldMinify (but overridden by needle)
     );
-    const minifiedPatch = (minified.changedFiles as Array<{patch?: string}>)[0]?.patch;
-    const matchedPatch = (withMatch.changedFiles as Array<{patch?: string}>)[0]?.patch;
+    const minifiedPatch = (
+      minified.changedFiles as Array<{ patch?: string }>
+    )[0]?.patch;
+    const matchedPatch = (
+      withMatch.changedFiles as Array<{ patch?: string }>
+    )[0]?.patch;
     // Standard minification strips the comment-only trailing comment
     expect(minifiedPatch).toBeDefined();
     // matchString overrides minification — full raw patch shown
@@ -531,13 +537,13 @@ describe('githubSearchPullRequests content response shaping', () => {
       prMd,
       { ...query, charLength: 1000 },
       { ...baseRequest, body: true },
-      true  // shouldMinify = true
+      true // shouldMinify = true
     );
     const raw = shapePullRequestForContent(
       prMd,
       { ...query, charLength: 1000 },
       { ...baseRequest, body: true },
-      false  // shouldMinify = false
+      false // shouldMinify = false
     );
     // minify:none → exact raw body returned
     expect(raw.body).toBe(rawBody);

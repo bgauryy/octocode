@@ -2323,10 +2323,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core::locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp":
   version: 4.3.0
-  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=6d4c5e&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
+  resolution: "@octocodeai/octocode-core@file:../../../octocode-mcp-host/packages/octocode-core#../../../octocode-mcp-host/packages/octocode-core::hash=7c199b&locator=octocode-mcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/4d85aa5156d163ca0e6a1d6420f285c0c1846a81002ef08a02b0eda21977c888d52c797f18bf30d4076eacd9b74f4d324202beed977ff29ef6ec2a05a4025c15
+  checksum: 10c0/3c1e82f37873d23ef565af08759d37efd0428136746551c99944333c922312c4c72ffd9572f5fffe7e20de00fb0797832ffdb4e84d359297ca622f8415c2b3ce
   languageName: node
   linkType: hard
 
@@ -8639,6 +8639,25 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"octocode-lsp@workspace:^, octocode-lsp@workspace:packages/octocode-lsp":
+  version: 0.0.0-use.local
+  resolution: "octocode-lsp@workspace:packages/octocode-lsp"
+  dependencies:
+    "@types/node": "npm:^25.9.3"
+    "@vitest/coverage-v8": "npm:^4.0.16"
+    eslint: "npm:^9.18.0"
+    octocode-security: "workspace:^"
+    octocode-shared: "workspace:^"
+    typescript: "npm:^5.9.3"
+    typescript-language-server: "npm:^5.3.0"
+    vitest: "npm:^4.0.16"
+    vscode-jsonrpc: "npm:^8.2.1"
+    vscode-languageserver-protocol: "npm:^3.17.5"
+    vscode-uri: "npm:^3.1.0"
+    zod: "npm:^4.3.6"
+  languageName: unknown
+  linkType: soft
+
 "octocode-mcp-vscode@workspace:packages/octocode-vscode":
   version: 0.0.0-use.local
   resolution: "octocode-mcp-vscode@workspace:packages/octocode-vscode"
@@ -8672,6 +8691,7 @@ __metadata:
     esbuild: "npm:^0.28.1"
     eslint: "npm:^9.18.0"
     node-cache: "npm:^5.1.2"
+    octocode-lsp: "workspace:^"
     octocode-security: "workspace:^"
     octocode-shared: "workspace:^"
     octokit: "npm:^5.0.5"
@@ -10951,6 +10971,15 @@ __metadata:
   bin:
     typescript-language-server: lib/cli.mjs
   checksum: 10c0/21f29145e306c63f933aebfd3be173729e40022f7b9c7bca47e82416a36730ded1b759a0db281cf82fd67c6bea2c734a3383ab16f6d90c068b131f3f69a8db63
+  languageName: node
+  linkType: hard
+
+"typescript-language-server@npm:^5.3.0":
+  version: 5.3.0
+  resolution: "typescript-language-server@npm:5.3.0"
+  bin:
+    typescript-language-server: lib/cli.mjs
+  checksum: 10c0/d37d795f20849f5788134c18b00ad724ba325536d7f9fd308fc7ee97ee10a4ca383b7e35791b4e526beaa6a286e8255e42c807c3f20e884d71f21d5fe19807d5
   languageName: node
   linkType: hard
 

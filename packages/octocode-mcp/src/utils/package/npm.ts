@@ -886,8 +886,10 @@ async function searchNpmPackageViaRegistrySearch(
 
     // Sort by npm's own combined score (higher = more relevant/popular) before slicing.
     const sortedObjects = [...validation.data.objects].sort((a, b) => {
-      const scoreA = (a.score as { final?: number } | null | undefined)?.final ?? 0;
-      const scoreB = (b.score as { final?: number } | null | undefined)?.final ?? 0;
+      const scoreA =
+        (a.score as { final?: number } | null | undefined)?.final ?? 0;
+      const scoreB =
+        (b.score as { final?: number } | null | undefined)?.final ?? 0;
       return scoreB - scoreA;
     });
 

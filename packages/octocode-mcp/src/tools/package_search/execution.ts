@@ -44,13 +44,18 @@ function getPackageRepo(pkg: PackageResult): string | null {
   return isNpm(pkg) ? pkg.repoUrl : pkg.repository;
 }
 
-function cleanRelativePath(path: string | null | undefined): string | undefined {
+function cleanRelativePath(
+  path: string | null | undefined
+): string | undefined {
   if (!path) return undefined;
   const clean = path.replace(/^\.\//, '').replace(/^\//, '');
   return clean.length > 0 ? clean : undefined;
 }
 
-function parseGitHubRepo(url: string | null | undefined): { owner?: string; repo?: string } {
+function parseGitHubRepo(url: string | null | undefined): {
+  owner?: string;
+  repo?: string;
+} {
   if (!url) return {};
   const m = url.match(/github\.com\/([^/]+)\/([^/]+)/);
   if (m?.[1] && m[2]) {
@@ -69,11 +74,12 @@ function formatPackageLine(pkg: PackageResult): string {
   const parts = [getPackageName(pkg)];
   const url = getPackageRepo(pkg);
   if (url) parts.push(url);
-  const root = cleanRelativePath(isNpm(pkg) ? pkg.repositoryDirectory : undefined);
+  const root = cleanRelativePath(
+    isNpm(pkg) ? pkg.repositoryDirectory : undefined
+  );
   if (root) parts.push(root);
   return parts.join(' ');
 }
-
 
 // ─── hints ───────────────────────────────────────────────────────────────────
 
@@ -82,19 +88,33 @@ function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
   const hints: string[] = [];
   const name = getPackageName(pkg);
 
-  if (dep?.deprecated) hints.push(`DEPRECATED: ${name} — ${dep.message ?? 'use an alternative'}`);
+  if (dep?.deprecated)
+    hints.push(`DEPRECATED: ${name} — ${dep.message ?? 'use an alternative'}`);
 
   const src = isNpm(pkg) ? pkg.source : undefined;
-  if (src === 'cdn') hints.push('Metadata from npm CDN fallback — registry was unavailable.');
-  else if (src === 'web') hints.push('Metadata from npms.io fallback — verify version when registry access is restored.');
+  if (src === 'cdn')
+    hints.push('Metadata from npm CDN fallback — registry was unavailable.');
+  else if (src === 'web')
+    hints.push(
+      'Metadata from npms.io fallback — verify version when registry access is restored.'
+    );
 
   hints.push(`Install: npm install ${name}`);
 
   const url = getPackageRepo(pkg);
   const { owner, repo } = parseGitHubRepo(url);
-  if (owner && repo) hints.push(`Browse source: use githubViewRepoStructure owner=${owner} repo=${repo}`);
-  else if (url)       hints.push(`Repository: ${url} — use githubSearchRepositories to find on GitHub.`);
-  else                hints.push(`No repository URL for "${name}" — use githubSearchRepositories to find the source repo.`);
+  if (owner && repo)
+    hints.push(
+      `Browse source: use githubViewRepoStructure owner=${owner} repo=${repo}`
+    );
+  else if (url)
+    hints.push(
+      `Repository: ${url} — use githubSearchRepositories to find on GitHub.`
+    );
+  else
+    hints.push(
+      `No repository URL for "${name}" — use githubSearchRepositories to find the source repo.`
+    );
 
   return hints;
 }
@@ -116,16 +136,20 @@ export async function searchPackages(
     async (query: PackageSearchQuery) => {
       try {
         if (!query.packageName) {
-          return createErrorResult('Package name is required for package search', query);
+          return createErrorResult(
+            'Package name is required for package search',
+            query
+          );
         }
 
         const apiResult = await searchPackage({
           name: query.packageName,
-          page:          (query as { page?: number }).page,
-          itemsPerPage:  (query as { itemsPerPage?: number }).itemsPerPage,
-          mainResearchGoal: (query as { mainResearchGoal?: string }).mainResearchGoal,
-          researchGoal:     (query as { researchGoal?: string }).researchGoal,
-          reasoning:        (query as { reasoning?: string }).reasoning,
+          page: (query as { page?: number }).page,
+          itemsPerPage: (query as { itemsPerPage?: number }).itemsPerPage,
+          mainResearchGoal: (query as { mainResearchGoal?: string })
+            .mainResearchGoal,
+          researchGoal: (query as { researchGoal?: string }).researchGoal,
+          reasoning: (query as { reasoning?: string }).reasoning,
         });
 
         if (isPackageSearchError(apiResult)) {
@@ -133,7 +157,9 @@ export async function searchPackages(
             rawResponse: apiResult,
             customHints: [
               ...(apiResult.hints ?? []),
-              ...getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', { originalError: apiResult.error }),
+              ...getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
+                originalError: apiResult.error,
+              }),
             ],
           });
         }
@@ -154,7 +180,9 @@ export async function searchPackages(
         }
 
         const extraHints = !hasContent
-          ? getHints(TOOL_NAMES.PACKAGE_SEARCH, 'empty', { name: query.packageName } as never)
+          ? getHints(TOOL_NAMES.PACKAGE_SEARCH, 'empty', {
+              name: query.packageName,
+            } as never)
           : isKeyword
             ? keywordHints(packages.length)
             : exactHints(raw[0]!, dep);
@@ -165,26 +193,48 @@ export async function searchPackages(
           ? { packages, totalFound: apiResult.totalFound, hasMore: true }
           : { packages, totalFound: apiResult.totalFound };
 
-        return createSuccessResult(query, data, hasContent, TOOL_NAMES.PACKAGE_SEARCH, {
-          extraHints,
-          evidence: {
-            kind: 'package',
-            answerReady: hasContent,
-            complete: !isPartial,
-            ...(!hasContent ? { reason: 'No package registry results matched the supplied query.' } : {}),
-            ...(isPartial ? { confidence: 'medium' as const, reason: `${packages.length} of ${apiResult.totalFound} results returned.` } : {}),
-          },
-          rawResponse: apiResult.rawResponseChars ?? apiResult,
-        });
+        return createSuccessResult(
+          query,
+          data,
+          hasContent,
+          TOOL_NAMES.PACKAGE_SEARCH,
+          {
+            extraHints,
+            evidence: {
+              kind: 'package',
+              answerReady: hasContent,
+              complete: !isPartial,
+              ...(!hasContent
+                ? {
+                    reason:
+                      'No package registry results matched the supplied query.',
+                  }
+                : {}),
+              ...(isPartial
+                ? {
+                    confidence: 'medium' as const,
+                    reason: `${packages.length} of ${apiResult.totalFound} results returned.`,
+                  }
+                : {}),
+            },
+            rawResponse: apiResult.rawResponseChars ?? apiResult,
+          }
+        );
       } catch (error) {
         return createErrorResult(error, query, {
           customHints: getHints(TOOL_NAMES.PACKAGE_SEARCH, 'error', {
-            originalError: error instanceof Error ? error.message : String(error),
+            originalError:
+              error instanceof Error ? error.message : String(error),
           }),
         });
       }
     },
-    { toolName: TOOL_NAMES.PACKAGE_SEARCH, keysPriority: ['packages', 'totalFound', 'error'], peerHints: true, peerEvidence: true },
+    {
+      toolName: TOOL_NAMES.PACKAGE_SEARCH,
+      keysPriority: ['packages', 'totalFound', 'error'],
+      peerHints: true,
+      peerEvidence: true,
+    },
     args
   );
 }

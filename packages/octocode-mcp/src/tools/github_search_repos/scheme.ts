@@ -100,7 +100,9 @@ export const GitHubSearchRepositoriesOutputLocalSchema = z
       .object({
         // Lean mode returns compact strings ("owner/repo ★stars …");
         // verbose=true returns full structured objects.
-        repositories: z.array(z.union([z.string(), LocalRepositoryDetailSchema])),
+        repositories: z.array(
+          z.union([z.string(), LocalRepositoryDetailSchema])
+        ),
         pagination: z
           .object({
             currentPage: z.number(),

@@ -567,7 +567,8 @@ export function mapPullRequestProviderResultData(
       ...(cappedFileChanges && includeFileChanges
         ? { fileChanges: cappedFileChanges }
         : {}),
-      ...(Array.isArray(pr.sanitizationWarnings) && pr.sanitizationWarnings.length > 0
+      ...(Array.isArray(pr.sanitizationWarnings) &&
+      pr.sanitizationWarnings.length > 0
         ? { sanitizationWarnings: pr.sanitizationWarnings }
         : {}),
     };

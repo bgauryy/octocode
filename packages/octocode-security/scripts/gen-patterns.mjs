@@ -3,7 +3,8 @@
  * gen-patterns.mjs
  *
  * Generates src/patterns.rs from the canonical allRegexPatterns order in
- * octocode-security-utils (ensures Rust pattern evaluation order == TS order).
+ * this package's TypeScript source (ensures Rust pattern evaluation order ==
+ * TS order).
  *
  * Previously this parsed TS source files directly (alphabetical file order).
  * That caused pattern-priority differences (e.g. credentialsInUrl firing before

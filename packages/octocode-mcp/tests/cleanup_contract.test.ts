@@ -85,7 +85,11 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
   it('LSP pool is the only client factory exported from manager.ts', async () => {
     const { readFile } = await import('fs/promises');
     const source = await readFile(`${ROOT}/src/lsp/manager.ts`, 'utf-8');
-    expect(source).toMatch(/acquirePooledClient/);
+    // manager.ts either defines acquirePooledClient directly or re-exports it from octocode-lsp
+    const hasDirectExport = /acquirePooledClient/.test(source);
+    const hasReexport =
+      /export\s*\*\s*from\s*['"]octocode-lsp\/manager['"]/.test(source);
+    expect(hasDirectExport || hasReexport).toBe(true);
     expect(source).not.toMatch(/^export\s+(async\s+)?function\s+createClient/m);
   });
 

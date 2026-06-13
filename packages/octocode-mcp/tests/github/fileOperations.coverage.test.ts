@@ -4,13 +4,13 @@ import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure
 import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
 import { clearAllCache } from '../../src/utils/http/cache.js';
 import { RequestError } from 'octokit';
-import * as minifierModule from '@octocodeai/octocode-minifier';
+import * as minifierModule from '@octocodeai/octocode-minifier-utils';
 
 vi.mock('../../src/github/client.js');
 vi.mock('../../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('@octocodeai/octocode-minifier', async importOriginal => {
+vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   const actual = await importOriginal();
   return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
 });

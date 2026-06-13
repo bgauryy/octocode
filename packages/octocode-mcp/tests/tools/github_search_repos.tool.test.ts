@@ -147,8 +147,8 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       };
       const repoLines = repos.results?.[0]?.data?.repositories ?? [];
       expect(repoLines[0]).toContain('facebook/react');
-      expect(repoLines[0]).toContain('★200000');
-      expect(repoLines[0]).toContain('⑂40000');
+      expect(repoLines[0]).toContain('200000 stars');
+      expect(repoLines[0]).toContain('40000 forks');
       expect(repoLines[1]).toContain('vercel/next.js');
       expect(responseText).not.toContain('https://github.com/facebook/react');
     });

@@ -54,7 +54,8 @@ type ContentComments = {
 function getCommentsConfig(
   params: GitHubPullRequestsSearchParams
 ): ContentComments | null {
-  if (params.reviewMode === 'full') return { discussion: true, reviewInline: true };
+  if (params.reviewMode === 'full')
+    return { discussion: true, reviewInline: true };
   const c = (params.content as { comments?: ContentComments } | undefined)
     ?.comments;
   return c ?? null;
@@ -170,7 +171,9 @@ async function fetchPRComments(
 
     const notes: string[] = [];
     if (botsDropped > 0) {
-      notes.push(`${botsDropped} bot comment(s) hidden (set content.comments.includeBots:true to include)`);
+      notes.push(
+        `${botsDropped} bot comment(s) hidden (set content.comments.includeBots:true to include)`
+      );
     }
 
     return {
@@ -392,7 +395,13 @@ export async function transformPullRequestItemFromSearch(
           ? fetchPRComments(octokit, owner, repo, item.number, includeBots)
           : empty(),
         wantInline
-          ? fetchPRInlineComments(octokit, owner, repo, item.number, includeBots)
+          ? fetchPRInlineComments(
+              octokit,
+              owner,
+              repo,
+              item.number,
+              includeBots
+            )
           : empty(),
       ]);
 
@@ -668,8 +677,10 @@ export async function transformPullRequestItemFromREST(
   const wantInlineRest = shouldFetchInlineComments(params);
   if (wantDiscussionRest || wantInlineRest) {
     const includeBots = shouldIncludeBotComments(params);
-    const emptyRest = (): Promise<{ comments: PRCommentItem[]; note?: string }> =>
-      Promise.resolve({ comments: attachRawResponseChars([], 0) });
+    const emptyRest = (): Promise<{
+      comments: PRCommentItem[];
+      note?: string;
+    }> => Promise.resolve({ comments: attachRawResponseChars([], 0) });
     const [
       { comments: discussionComments, note: discussionNote },
       { comments: inlineComments, note: inlineNote },

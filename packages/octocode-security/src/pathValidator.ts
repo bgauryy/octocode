@@ -63,8 +63,14 @@ export class PathValidator {
   addAllowedRoot(root: string): void {
     const expandedRoot = this.expandTilde(root);
     const resolvedRoot = path.resolve(expandedRoot);
-    if (!this.allowedRoots.includes(resolvedRoot)) {
-      this.allowedRoots.push(resolvedRoot);
+    let realRoot = resolvedRoot;
+    try {
+      realRoot = fs.realpathSync(resolvedRoot);
+    } catch {
+      // Path doesn't exist yet — use the unresolved path
+    }
+    if (!this.allowedRoots.includes(realRoot)) {
+      this.allowedRoots.push(realRoot);
     }
   }
 

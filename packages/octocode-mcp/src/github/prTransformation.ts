@@ -81,7 +81,9 @@ export function createBasePRTransformation(item: RawPRData): {
 // "body paginated" warnings for normal-sized PR descriptions.
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 const SEARCH_RESULT_BODY_CHAR_LENGTH = getOutputCharLimit();
-const SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH = Math.round(getOutputCharLimit() / 4);
+const SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH = Math.round(
+  getOutputCharLimit() / 4
+);
 const SEARCH_RESULT_MAX_COMMENT_DETAILS = 3;
 
 interface PRResponseFormatOptions {
@@ -142,7 +144,8 @@ export function formatPRForResponse(
   // Broad-search results are always minified (summary view, agent has no per-PR
   // minify control here). minify:"none" only takes effect in the detail path
   // via shapePullRequestForContent.
-  const rawBody = typeof pr.body === 'string' ? minifyMarkdownCore(pr.body) : pr.body;
+  const rawBody =
+    typeof pr.body === 'string' ? minifyMarkdownCore(pr.body) : pr.body;
   const body = paginateText(
     rawBody,
     charOffset,

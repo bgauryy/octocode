@@ -4,7 +4,7 @@ import {
   createResponseFormat,
   formatCallToolResultForOutput,
 } from '../../src/responses';
-import { jsonToYamlString } from '@octocodeai/octocode-minifier';
+import { jsonToYamlString } from '@octocodeai/octocode-minifier-utils';
 import { getTextContent } from './testHelpers.js';
 
 describe('Response Utilities', () => {

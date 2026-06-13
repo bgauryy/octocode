@@ -212,7 +212,8 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     // New filter qualifiers
     const p = params as Record<string, unknown>;
     if (typeof p.forks === 'string') this.queryParts.push(`forks:${p.forks}`);
-    if (typeof p.license === 'string') this.queryParts.push(`license:${p.license}`);
+    if (typeof p.license === 'string')
+      this.queryParts.push(`license:${p.license}`);
     if (typeof p.goodFirstIssues === 'string')
       this.queryParts.push(`good-first-issues:${p.goodFirstIssues}`);
 

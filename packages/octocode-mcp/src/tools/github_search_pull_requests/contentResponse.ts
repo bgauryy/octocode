@@ -1,6 +1,9 @@
 import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../config.js';
 import type { NormalizedPrContentRequest } from './contentRequest.js';
-import { applyContentViewMinification, minifyMarkdownCore } from '@octocodeai/octocode-minifier-utils';
+import {
+  applyContentViewMinification,
+  minifyMarkdownCore,
+} from '@octocodeai/octocode-minifier-utils';
 
 type QueryLike = {
   owner?: string;
@@ -485,7 +488,8 @@ export function shapePullRequestForContent(
     ...shapeCommits(pr, query, request),
     ...(pr.reviewSummary ? { reviewSummary: pr.reviewSummary } : {}),
     // Warnings from bot filtering, secret redaction — must reach agent output.
-    ...(Array.isArray(pr.sanitizationWarnings) && (pr.sanitizationWarnings as unknown[]).length > 0
+    ...(Array.isArray(pr.sanitizationWarnings) &&
+    (pr.sanitizationWarnings as unknown[]).length > 0
       ? { sanitizationWarnings: pr.sanitizationWarnings }
       : {}),
   };

@@ -37,7 +37,7 @@ const rustSanitize = (s) => pkg.ContentSanitizer.sanitizeContent(s);
 const rustMask     = (s) => pkg.maskSensitiveData(s);
 
 // ---------------------------------------------------------------------------
-// Pure-JS baseline — same 304 patterns applied in JavaScript, no Rust
+// Pure-JS baseline — same generated patterns applied in JavaScript, no Rust
 // This is the real comparison: V8 regex engine vs Rust regex crate
 // ---------------------------------------------------------------------------
 const { allRegexPatterns } = pkg;

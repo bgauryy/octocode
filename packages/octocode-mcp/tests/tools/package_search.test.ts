@@ -404,7 +404,10 @@ describe('searchPackage - NPM (CLI)', () => {
       name: 'pkg-b',
       version: '2.0.0',
       description: 'b',
-      repository: { url: 'https://github.com/octo/monorepo', directory: 'packages/pkg-b' },
+      repository: {
+        url: 'https://github.com/octo/monorepo',
+        directory: 'packages/pkg-b',
+      },
     });
     mockExecuteNpmCommand.mockImplementation(
       createNpmCommandMock({ stdout: searchItems, stderr: '', exitCode: 0 })
@@ -430,7 +433,9 @@ describe('searchPackage - NPM (CLI)', () => {
     );
     expect('packages' in result).toBe(true);
     if ('packages' in result) {
-      const pkgB = result.packages.find(p => p.name === 'pkg-b') as NpmPackageResult | undefined;
+      const pkgB = result.packages.find(p => p.name === 'pkg-b') as
+        | NpmPackageResult
+        | undefined;
       // repositoryDirectory populated from per-item fetch
       expect(pkgB?.repositoryDirectory).toBe('packages/pkg-b');
     }
@@ -1311,7 +1316,8 @@ describe('registerPackageSearchTool', () => {
             packageName: 'lodash',
             mainResearchGoal: 'Test string-list output',
             researchGoal: 'Test',
-            reasoning: 'Packages are formatted as string lines: name repoUrl sourceRoot',
+            reasoning:
+              'Packages are formatted as string lines: name repoUrl sourceRoot',
           },
         ],
       });
@@ -1339,7 +1345,8 @@ describe('registerPackageSearchTool', () => {
             packageName: 'my_package_name',
             mainResearchGoal: 'Test error hint',
             researchGoal: 'Test',
-            reasoning: 'Registry unreachable — should hint githubSearchRepositories',
+            reasoning:
+              'Registry unreachable — should hint githubSearchRepositories',
           },
         ],
       });

@@ -470,7 +470,7 @@ describe('Pull Request Search', () => {
       mockShouldUseSearchForPRs.mockReturnValue(true);
       mockBuildPullRequestSearchQuery.mockReturnValue('repo:test/repo is:pr');
 
-      const longBody = 'b'.repeat(8_000);
+      const longBody = 'b'.repeat(15_000);
       const longComment = 'human review comment '.repeat(700);
 
       mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
@@ -529,10 +529,10 @@ describe('Pull Request Search', () => {
       expect((pr.body as string).length).toBeLessThan(longBody.length);
       expect(pr.body_pagination).toMatchObject({
         charOffset: 0,
-        charLength: 2_000,
+        charLength: 12_000,
         totalChars: longBody.length,
         hasMore: true,
-        nextCharOffset: 2_000,
+        nextCharOffset: 12_000,
       });
       expect(pr.comments).toBe(6);
       expect(pr.comment_details_total).toBe(6);
@@ -800,22 +800,28 @@ describe('Pull Request Search', () => {
         data: {
           total_count: 1,
           incomplete_results: false,
-          items: [{
-            number: 901,
-            title: 'Selective fetch PR',
-            state: 'open',
-            user: { login: 'dev' },
-            labels: [],
-            created_at: '2023-01-01T00:00:00Z',
-            updated_at: '2023-01-02T00:00:00Z',
-            html_url: 'https://github.com/test/repo/pull/901',
-            pull_request: {},
-            body: 'body',
-          }],
+          items: [
+            {
+              number: 901,
+              title: 'Selective fetch PR',
+              state: 'open',
+              user: { login: 'dev' },
+              labels: [],
+              created_at: '2023-01-01T00:00:00Z',
+              updated_at: '2023-01-02T00:00:00Z',
+              html_url: 'https://github.com/test/repo/pull/901',
+              pull_request: {},
+              body: 'body',
+            },
+          ],
         },
       });
       mockOctokit.rest.pulls.get.mockResolvedValue({
-        data: { head: { ref: 'f', sha: 'x' }, base: { ref: 'main', sha: 'y' }, draft: false },
+        data: {
+          head: { ref: 'f', sha: 'x' },
+          base: { ref: 'main', sha: 'y' },
+          draft: false,
+        },
       });
       mockOctokit.rest.issues.listComments.mockResolvedValue({ data: [] });
       (mockOctokit.rest.pulls as Record<string, unknown>).listReviewComments =
@@ -924,7 +930,9 @@ describe('Pull Request Search', () => {
         content: { comments: { discussion: false, reviewInline: true } },
       });
 
-      const pr = result.pull_requests?.[0] as Record<string, unknown> | undefined;
+      const pr = result.pull_requests?.[0] as
+        | Record<string, unknown>
+        | undefined;
       expect(pr).toBeDefined();
       const comments = pr?.comment_details as Array<Record<string, unknown>>;
       expect(comments).toHaveLength(2);

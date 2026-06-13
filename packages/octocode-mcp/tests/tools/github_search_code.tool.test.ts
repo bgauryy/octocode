@@ -113,7 +113,7 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "test/repo"');
+      expect(responseText).toContain('id: test/repo');
       expect(responseText).toContain('src/index.ts');
       expect(responseText).toContain('src/utils.ts');
     });
@@ -150,10 +150,10 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('owner: "facebook"');
-      expect(responseText).toContain('repo: "react"');
-      expect(responseText).toContain('owner: "vercel"');
-      expect(responseText).toContain('repo: "next"');
+      expect(responseText).toContain('owner: facebook');
+      expect(responseText).toContain('repo: react');
+      expect(responseText).toContain('owner: vercel');
+      expect(responseText).toContain('repo: next');
     });
   });
 
@@ -509,7 +509,7 @@ describe('GitHub Search Code Tool - Tool Layer Integration', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('owner: "wix-private"');
+      expect(responseText).toContain('owner: wix-private');
       expect(responseText).toContain('src/refund.ts');
     });
   });

@@ -95,35 +95,31 @@ function formatRepoLine(repo: GitHubRepositoryOutput): string {
   const name = `${r.owner ? `${r.owner}/` : ''}${r.repo}`;
   const parts: string[] = [name];
 
-  if (typeof r.stars === 'number') parts.push(`★${r.stars}`);
+  if (typeof r.stars === 'number') parts.push(`${r.stars} stars`);
   if (typeof r.forksCount === 'number' && r.forksCount > 0)
-    parts.push(`⑂${r.forksCount}`);
+    parts.push(`${r.forksCount} forks`);
   if (typeof r.openIssuesCount === 'number' && r.openIssuesCount > 0)
-    parts.push(`${r.openIssuesCount}i`);
+    parts.push(`${r.openIssuesCount} issues`);
   if (r.language) parts.push(r.language);
   if (r.license) parts.push(r.license);
-
   if (r.pushedAt) parts.push(r.pushedAt.slice(0, 10));
-
   if (
     r.defaultBranch &&
     r.defaultBranch !== 'main' &&
     r.defaultBranch !== 'master'
   )
     parts.push(`@${r.defaultBranch}`);
-  if (r.visibility && r.visibility !== 'public') parts.push(`[${r.visibility}]`);
-
+  if (r.visibility && r.visibility !== 'public') parts.push(r.visibility);
   if (Array.isArray(r.topics) && r.topics.length > 0)
     parts.push(`#${r.topics.slice(0, 4).join(',')}`);
-
   // 'No description' is a placeholder injected by the API mapper when GitHub
   // returns null — suppress it; it carries no information.
   if (r.description && r.description !== 'No description') {
     const desc = r.description.replace(/\s+/g, ' ').trim();
-    parts.push(`— ${desc.length > 100 ? `${desc.slice(0, 99)}…` : desc}`);
+    parts.push(desc.length > 100 ? `${desc.slice(0, 99)}...` : desc);
   }
 
-  return parts.join(' ');
+  return parts.join(' | ');
 }
 
 // ── Output builder ────────────────────────────────────────────────────────────
@@ -312,9 +308,7 @@ function compareByRequestedSort(
       // Use openIssuesCount as the best available proxy when re-sorting
       // merged dual-variant results. The API already sorts correctly for
       // single-variant calls; this comparator only kicks in for merges.
-      return (
-        (right.openIssuesCount ?? 0) - (left.openIssuesCount ?? 0)
-      );
+      return (right.openIssuesCount ?? 0) - (left.openIssuesCount ?? 0);
     case 'updated':
       return compareIsoDateDescending(left.updatedAt, right.updatedAt);
     case 'best-match':
@@ -654,7 +648,12 @@ export async function searchMultipleGitHubRepos(
           0;
         const searchHints = pageExceedsTotal
           ? undefined
-          : generateSearchSpecificHints(query, hasContent, hasMore, totalMatchesForHint);
+          : generateSearchSpecificHints(
+              query,
+              hasContent,
+              hasMore,
+              totalMatchesForHint
+            );
         const partialFailureHints =
           variants.length > 1 && successfulVariants.length === 1
             ? [

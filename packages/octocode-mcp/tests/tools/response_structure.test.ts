@@ -119,7 +119,7 @@ describe('Response Structure Tests - All Tools', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "test/repo"');
+      expect(responseText).toContain('id: test/repo');
       expect(responseText).toContain('src/index.ts');
     });
 
@@ -256,9 +256,9 @@ describe('Response Structure Tests - All Tools', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).not.toContain('status: "hasResults"');
-      expect(responseText).not.toContain('status: "empty"');
-      expect(responseText).not.toContain('status: "error"');
+      expect(responseText).not.toContain('status: hasResults');
+      expect(responseText).not.toContain('status: empty');
+      expect(responseText).not.toContain('status: error');
     });
 
     it('should return empty for no matching repos', async () => {

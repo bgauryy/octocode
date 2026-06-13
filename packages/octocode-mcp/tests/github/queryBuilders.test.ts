@@ -849,9 +849,9 @@ describe('Query Builders', () => {
     });
 
     it('returns false when query is an empty string (REST list is fine)', () => {
-      expect(
-        shouldUseSearchForPRs({ owner: 'x', repo: 'y', query: '' })
-      ).toBe(false);
+      expect(shouldUseSearchForPRs({ owner: 'x', repo: 'y', query: '' })).toBe(
+        false
+      );
     });
 
     it('returns true when query is a non-empty string', () => {

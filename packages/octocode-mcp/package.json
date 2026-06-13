@@ -99,6 +99,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/octocode-core": "file:../../../octocode-mcp-host/packages/octocode-core",
+    "octocode-lsp": "workspace:^",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.1.3"
   },

@@ -96,14 +96,17 @@ function getJsonProperties(schema: z.ZodTypeAny): Record<string, unknown> {
  */
 const SCHEMA_EXCEPTIONS: Record<
   string,
-  { removedCoreFields?: string[]; addedLocalFields?: string[]; overriddenDescriptions?: string[] }
+  {
+    removedCoreFields?: string[];
+    addedLocalFields?: string[];
+    overriddenDescriptions?: string[];
+  }
 > = {
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: {
     // `mode` (smart/full/lean) is not exposed; the tool always returns a compact
     // string-list format so there is no output mode to select.
     removedCoreFields: ['mode'],
   },
-
 };
 
 function getCoreQueryDescriptions(toolName: string): Record<string, string> {
@@ -252,7 +255,8 @@ describe('all-tools schema contract', () => {
         const exceptions = SCHEMA_EXCEPTIONS[toolName] ?? {};
         const allowedMissing = exceptions.removedCoreFields ?? [];
         const allowedExtra = exceptions.addedLocalFields ?? [];
-        const allowedDescriptionOverrides = exceptions.overriddenDescriptions ?? [];
+        const allowedDescriptionOverrides =
+          exceptions.overriddenDescriptions ?? [];
 
         const missingFields = Object.keys(expectedDescriptions).filter(
           field => !(field in properties) && !allowedMissing.includes(field)

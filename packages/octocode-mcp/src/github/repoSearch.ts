@@ -35,9 +35,10 @@ const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
  * returned by the GitHub API and available at runtime via the `license` and
  * `homepage` properties on the raw response object.
  */
-function extractLicenseHomepage(
-  repo: Record<string, unknown>
-): { license?: string; homepage?: string } {
+function extractLicenseHomepage(repo: Record<string, unknown>): {
+  license?: string;
+  homepage?: string;
+} {
   const result: { license?: string; homepage?: string } = {};
   const license = repo.license as Record<string, string> | null | undefined;
   if (license?.spdx_id && license.spdx_id !== 'NOASSERTION') {
@@ -279,7 +280,12 @@ async function searchGitHubReposAPIInternal(
       page: currentPage,
     };
 
-    const API_SORTS = ['stars', 'forks', 'help-wanted-issues', 'updated'] as const;
+    const API_SORTS = [
+      'stars',
+      'forks',
+      'help-wanted-issues',
+      'updated',
+    ] as const;
     if (params.sort && (API_SORTS as readonly string[]).includes(params.sort)) {
       searchParams.sort = params.sort as SearchReposParameters['sort'];
     }

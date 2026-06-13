@@ -2,9 +2,15 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 
 function buildVariations(name: string): string[] {
   const v: string[] = [];
-  if (name.includes('-')) { v.push(name.replace(/-/g, '_')); v.push(name.replace(/-/g, '')); }
+  if (name.includes('-')) {
+    v.push(name.replace(/-/g, '_'));
+    v.push(name.replace(/-/g, ''));
+  }
   if (name.includes('_')) v.push(name.replace(/_/g, '-'));
-  if (name.startsWith('@')) { const u = name.split('/').pop(); if (u) v.push(u); }
+  if (name.startsWith('@')) {
+    const u = name.split('/').pop();
+    if (u) v.push(u);
+  }
   if (!name.endsWith('js')) v.push(name + 'js');
   return [...new Set(v)].filter(s => s !== name).slice(0, 3);
 }

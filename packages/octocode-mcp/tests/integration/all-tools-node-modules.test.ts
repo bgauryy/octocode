@@ -120,7 +120,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
       verifySmartData(result, 'localViewStructure');
 
       if (result.status === undefined) {
-        expect(result.structuredOutput).toBeDefined();
+        expect(
+          result.files ?? result.folders ?? result.entries ?? result.summary
+        ).toBeDefined();
       }
     });
 
@@ -137,7 +139,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
       verifySmartData(result, 'localViewStructure');
 
       if (result.status === undefined) {
-        expect(result.structuredOutput).toBeDefined();
+        expect(
+          result.files ?? result.folders ?? result.entries ?? result.summary
+        ).toBeDefined();
       }
     });
 
@@ -152,7 +156,9 @@ describe('Integration Tests: All Tools on node_modules', () => {
       verifySmartData(result, 'localViewStructure');
 
       if (result.status === undefined) {
-        expect(result.structuredOutput).toBeDefined();
+        expect(
+          result.files ?? result.folders ?? result.entries ?? result.summary
+        ).toBeDefined();
       }
     });
   });
