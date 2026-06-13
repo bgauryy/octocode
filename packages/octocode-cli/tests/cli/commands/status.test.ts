@@ -233,8 +233,8 @@ describe('statusCommand', () => {
     await cmd.handler({ command: 'status', args: [], options: { sync: true } });
     expect(out('Sync')).toBe(true);
     expect(out('5 fully synced')).toBe(true);
-    expect(out('3 can be auto-synced')).toBe(true);
-    expect(out('2 conflicts')).toBe(true);
+    expect(out('3 missing in some configs')).toBe(true);
+    expect(out('2 conflicts across MCP configs')).toBe(true);
   });
 
   it('--sync (pretty) omits optional lines when counts are zero', async () => {

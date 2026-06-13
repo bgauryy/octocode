@@ -70,6 +70,27 @@ export class PathValidator {
     }
   }
 
+  private isResolvedPathAllowed(
+    absolutePath: string,
+    resolvedPath: string
+  ): boolean {
+    return this.allowedRoots.some(root => {
+      if (resolvedPath === root || resolvedPath.startsWith(root + path.sep)) {
+        return true;
+      }
+
+      try {
+        const realRoot = fs.realpathSync(root);
+        if (absolutePath === root) {
+          return resolvedPath === realRoot;
+        }
+        return resolvedPath.startsWith(realRoot + path.sep);
+      } catch {
+        return false;
+      }
+    });
+  }
+
   validate(inputPath: string): PathValidationResult {
     if (!inputPath || inputPath.trim() === '') {
       return {
@@ -104,9 +125,10 @@ export class PathValidator {
 
     try {
       const realPath = fs.realpathSync(absolutePath);
-      const isRealPathAllowed = this.allowedRoots.some(root => {
-        return realPath === root || realPath.startsWith(root + path.sep);
-      });
+      const isRealPathAllowed = this.isResolvedPathAllowed(
+        absolutePath,
+        realPath
+      );
 
       if (!isRealPathAllowed) {
         return {
@@ -193,24 +215,7 @@ export class PathValidator {
     }
 
     const resolvedPath = path.join(resolvedAncestor, ...remainder);
-    const isAllowed = this.allowedRoots.some(allowedRoot => {
-      if (
-        resolvedPath === allowedRoot ||
-        resolvedPath.startsWith(allowedRoot + path.sep)
-      ) {
-        return true;
-      }
-      // allowedRoot may itself be a symlink (e.g. /tmp → /private/tmp on macOS)
-      try {
-        const realRoot = fs.realpathSync(allowedRoot);
-        return (
-          resolvedPath === realRoot ||
-          resolvedPath.startsWith(realRoot + path.sep)
-        );
-      } catch {
-        return false;
-      }
-    });
+    const isAllowed = this.isResolvedPathAllowed(absolutePath, resolvedPath);
 
     if (!isAllowed) {
       return {

@@ -65,7 +65,7 @@ export async function fetchGitHubFileContentAPI(
     params.matchString,
     params.matchStringIsRegex,
     params.matchStringCaseSensitive,
-    params.minify
+    params.minify ?? 'none'
   );
 
   if ('error' in processedResult) {

@@ -41,6 +41,8 @@ interface GithubCodeResult {
     }>;
   }>;
   pagination?: GithubPagination;
+  hints?: string[];
+  emptyQueries?: Array<{ id?: string }>;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -144,7 +146,12 @@ function renderLocalResults(sc: LocalSearchResult, limit: number): string {
   return lines.join('\n');
 }
 
-function renderGithubResults(sc: GithubCodeResult, limit: number): string {
+function renderGithubResults(
+  sc: GithubCodeResult,
+  limit: number,
+  owner?: string,
+  repo?: string
+): string {
   // Each result is one matching repo; its matches array holds per-file snippets
   const results = sc?.results ?? [];
   const total = sc?.pagination?.totalCount ?? results.length;
@@ -170,7 +177,34 @@ function renderGithubResults(sc: GithubCodeResult, limit: number): string {
       `\n  ${dim(`Page ${sc.pagination.page ?? 1}/${sc.pagination.totalPages} — use --page <n> to navigate`)}`
     );
   }
-  if (lines.length === 0) lines.push(`  ${dim('No matches found.')}`);
+
+  if (lines.length === 0) {
+    lines.push(`  ${dim('No matches found.')}`);
+
+    // Surface tool-level hints (e.g. "repo may not be indexed")
+    const toolHints = sc?.hints ?? [];
+    const indexingHint = toolHints.find(h =>
+      /not be indexed|may not be indexed|zero here isn't proof/i.test(h)
+    );
+    if (indexingHint) {
+      lines.push('');
+      lines.push(`  ${c('yellow', '→')} ${indexingHint}`);
+    }
+
+    // Always add actionable alternatives when GitHub search yields nothing
+    const repoRef = owner && repo ? `${owner}/${repo}` : '<owner>/<repo>';
+    lines.push('');
+    lines.push(
+      `  ${c('yellow', '→')} GitHub code search may not index this repo. Alternatives:`
+    );
+    lines.push(
+      `     ${bold('octocode tree ' + repoRef)}  — browse structure, then target a file`
+    );
+    lines.push(
+      `     ${bold('octocode get ' + repoRef + '/<file> --match-string <pattern> --mode symbols')}  — search inside a known file (efficient)`
+    );
+  }
+
   return lines.join('\n');
 }
 
@@ -267,7 +301,9 @@ export const searchCommand: CLICommand = {
           console.log(JSON.stringify(sc, null, 2));
           return;
         }
-        console.log('\n' + renderGithubResults(sc, limit) + '\n');
+        console.log(
+          '\n' + renderGithubResults(sc, limit, ref.owner, ref.repo) + '\n'
+        );
       } else {
         const sc = await searchLocal(
           pattern,

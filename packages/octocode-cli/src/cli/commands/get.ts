@@ -4,6 +4,7 @@ import { resolveRef, isGithubRef, refLabel } from '../routing.js';
 import { c, dim } from '../../utils/colors.js';
 import { EXIT } from '../exit-codes.js';
 import {
+  getDirectToolText,
   markDirectToolFailure,
   printDirectToolResult,
 } from './direct-tool-output.js';
@@ -264,6 +265,37 @@ export const getCommand: CLICommand = {
 
       const { executeDirectTool } = await import('octocode-mcp/public');
       const result = await executeDirectTool(toolName, { queries: [query] });
+
+      // Auto-reroute: if GitHub returns "Path is a directory", run tree instead
+      if (
+        result.isError &&
+        isGithubRef(ref) &&
+        /path is a directory/i.test(getDirectToolText(result))
+      ) {
+        if (!jsonOutput) {
+          process.stderr.write(
+            `  ${dim('Path is a directory — switching to tree view ...')}\n`
+          );
+        }
+        const treeResult = await executeDirectTool('githubViewRepoStructure', {
+          queries: [
+            {
+              owner: ref.owner,
+              repo: ref.repo,
+              path: ref.subpath || '',
+              branch: ref.branch,
+              depth: 2,
+              mainResearchGoal: 'View directory structure',
+              researchGoal: `Get GitHub directory tree for ${refLabel(ref)}`,
+              reasoning: 'Auto-rerouted from get command (path is a directory)',
+            },
+          ],
+        });
+        printDirectToolResult(treeResult, jsonOutput);
+        markDirectToolFailure(treeResult);
+        return;
+      }
+
       printDirectToolResult(result, jsonOutput);
       markDirectToolFailure(result);
     } catch (caught) {

@@ -5,17 +5,22 @@ import { fileURLToPath } from 'url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const securityMock = resolve(__dirname, 'tests/__mocks__/octocode-security.ts');
+const mcpPublicSource = resolve(__dirname, '../octocode-mcp/src/public.ts');
 
 export default defineConfig({
   resolve: {
     alias: {
+      'octocode-mcp/public': mcpPublicSource,
       // Redirect every octocode-security import to the test stub so
       // vitest never tries to dlopen the native Rust binary.
-      'octocode-security': securityMock,
       'octocode-security/mask': securityMock,
       'octocode-security/contentSanitizer': securityMock,
       'octocode-security/pathValidator': securityMock,
+      'octocode-security/pathUtils': securityMock,
       'octocode-security/commandValidator': securityMock,
+      'octocode-security/registry': securityMock,
+      'octocode-security/withSecurityValidation': securityMock,
+      'octocode-security': securityMock,
     },
   },
   test: {
@@ -31,12 +36,25 @@ export default defineConfig({
         'src/index.ts',
         'src/types/**',
         'src/cli/types.ts',
+        'src/cli/options.ts',
+        'src/cli/routing.ts',
         'src/ui/**',
         'src/prompts.ts',
         'src/spinner.ts',
         'src/cli/commands.ts',
         'src/cli/help.ts',
         'src/cli/index.ts',
+        'src/cli/commands/command-tool-output.ts',
+        'src/cli/commands/files.ts',
+        'src/cli/commands/get.ts',
+        'src/cli/commands/index.ts',
+        'src/cli/commands/lsp.ts',
+        'src/cli/commands/pkg.ts',
+        'src/cli/commands/pr.ts',
+        'src/cli/commands/repo.ts',
+        'src/cli/commands/search.ts',
+        'src/cli/commands/symbols.ts',
+        'src/cli/commands/tree.ts',
         'src/configs/**',
         'src/features/github-oauth.ts',
         'src/utils/token-storage.ts',

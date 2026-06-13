@@ -396,7 +396,7 @@ describe('CLI Commands', () => {
         expect(process.exitCode).toBe(1);
       });
 
-      it('should work with -j shorthand', async () => {
+      it('does not treat removed -j alias as JSON mode', async () => {
         const { getToken } = await import('../../src/features/github-oauth.js');
         vi.mocked(getToken).mockResolvedValue({
           token: 'shorthand_token',
@@ -412,14 +412,9 @@ describe('CLI Commands', () => {
           options: { j: true },
         });
 
-        const output = consoleSpy.mock.calls.find(
-          (call: unknown[]) =>
-            typeof call[0] === 'string' && call[0].includes('"token"')
-        );
-        expect(output).toBeDefined();
-        const parsed = JSON.parse(output![0]);
-        expect(parsed.token).toBe('shorthand_token');
-        expect(parsed.type).toBe('gh-cli');
+        const output = consoleSpy.mock.calls.flat().join('\n');
+        expect(output).not.toContain('"token"');
+        expect(output).toContain('shorthand_token');
       });
 
       it('should output JSON error for invalid type in json mode', async () => {

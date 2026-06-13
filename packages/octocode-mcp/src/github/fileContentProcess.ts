@@ -16,12 +16,7 @@ function getDefaultContentPageSize(): number {
 }
 
 function sourceSizeFields(sourceChars: number, sourceBytes: number) {
-  // Omit sourceBytes when it equals sourceChars (pure ASCII) or the diff is
-  // negligible (< 2% and < 50 bytes). Only meaningful for files with heavy
-  // Unicode where byte-length diverges from char-length.
-  const bytesDiff = Math.abs(sourceBytes - sourceChars);
-  const significant = bytesDiff >= 50 && bytesDiff / sourceChars >= 0.02;
-  return significant ? { sourceChars, sourceBytes } : { sourceChars };
+  return { sourceChars, sourceBytes };
 }
 
 interface FileTimestampInfo {
@@ -112,7 +107,7 @@ export async function processFileContentAPI(
   matchString?: string,
   matchStringIsRegex?: boolean,
   matchStringCaseSensitive?: boolean,
-  minify: MinifyMode = 'none'
+  minify: MinifyMode = 'standard'
 ): Promise<GitHubFileContentApiResult> {
   const sourceChars = decodedContent.length;
   const sourceBytes = Buffer.byteLength(decodedContent, 'utf-8');
@@ -345,6 +340,9 @@ export async function processFileContentAPI(
       isPartial,
     }),
     ...(matchRanges && { matchRanges }),
+    ...(matchLocations.length > 0 && {
+      matchLocations,
+    }),
     ...((matchLocations.length > 0 || signaturesSkippedWarning) && {
       warnings: [
         ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),

@@ -9,12 +9,23 @@ export const nativeMaskSensitiveData = (text: string) => text;
 export const nativeSanitizeContent = (content: string) => ({
   content,
   warnings: [],
+  hasSecrets: false,
+  secretsDetected: [],
 });
 export const nativePatternCount = () => 0;
 
 export class ContentSanitizer {
+  static sanitizeContent(content: string) {
+    return {
+      content,
+      warnings: [],
+      hasSecrets: false,
+      secretsDetected: [],
+    };
+  }
+
   sanitizeContent(content: string) {
-    return { content, warnings: [] };
+    return ContentSanitizer.sanitizeContent(content);
   }
 }
 
@@ -22,8 +33,8 @@ export class PathValidator {
   isAllowed(_path: string) {
     return true;
   }
-  validate(_path: string) {
-    return { valid: true };
+  validate(path: string) {
+    return { valid: true, isValid: true, sanitizedPath: path };
   }
 }
 

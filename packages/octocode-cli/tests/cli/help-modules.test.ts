@@ -213,7 +213,7 @@ describe('command-help-specs', () => {
       .map((c: unknown[]) => String(c[0]))
       .join('');
     expect(output).toContain('--type <auto|octocode|gh>');
-    expect(output).toContain('env→octocode→gh');
+    expect(output).toContain('env -> Octocode encrypted storage -> gh CLI');
     expect(output).not.toContain('auto|octocode-cli|gh');
 
     stdoutSpy.mockRestore();

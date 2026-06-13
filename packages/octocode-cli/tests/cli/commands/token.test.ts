@@ -526,7 +526,7 @@ describe('tokenCommand', () => {
     await cmd.handler({
       command: 'token',
       args: [],
-      options: { s: true },
+      options: { source: true },
     });
     expect(out('Token found')).toBe(true);
     expect(out('@')).toBe(false);

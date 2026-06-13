@@ -85,6 +85,36 @@ function getJsonProperties(schema: z.ZodTypeAny): Record<string, unknown> {
     : {};
 }
 
+function flattenJsonProperties(
+  properties: Record<string, unknown>,
+  prefix = ''
+): Record<string, unknown> {
+  const flattened: Record<string, unknown> = {};
+  for (const [field, property] of Object.entries(properties)) {
+    const fieldPath = prefix ? `${prefix}.${field}` : field;
+    flattened[fieldPath] = property;
+
+    const nestedProperties =
+      property && typeof property === 'object'
+        ? (property as { properties?: unknown }).properties
+        : undefined;
+    if (
+      nestedProperties &&
+      typeof nestedProperties === 'object' &&
+      !Array.isArray(nestedProperties)
+    ) {
+      Object.assign(
+        flattened,
+        flattenJsonProperties(
+          nestedProperties as Record<string, unknown>,
+          fieldPath
+        )
+      );
+    }
+  }
+  return flattened;
+}
+
 /**
  * Per-tool intentional deviations from the octocode-core schema contract.
  * - removedCoreFields: core-described fields intentionally omitted from the local schema
@@ -256,7 +286,9 @@ describe('all-tools schema contract', () => {
       });
 
       it('uses octocode-core descriptions for every query parameter', () => {
-        const properties = getJsonProperties(querySchema);
+        const properties = flattenJsonProperties(
+          getJsonProperties(querySchema)
+        );
         const expectedDescriptions = getCoreQueryDescriptions(toolName);
         const actualFields = Object.keys(properties);
         const exceptions = SCHEMA_EXCEPTIONS[toolName] ?? {};
