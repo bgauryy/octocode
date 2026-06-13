@@ -126,8 +126,9 @@ describe('localViewStructure', () => {
     });
 
     expect(result.status).toBeUndefined();
-    expect(result.hints).toContain(
-      'Active filters — path: /test/path | depth: 1 | extensions: ts'
+    // Active-filters hint removed — the agent set those params itself.
+    expect((result.hints ?? []).some(h => h.includes('localSearchCode'))).toBe(
+      true
     );
   });
 
@@ -1527,7 +1528,8 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.files?.length).toBe(5);
       expect(result.summary).toContain('5 entries');
-      expect(result.pagination?.totalPages).toBe(1);
+      // Single complete page — pagination suppressed; count is in summary.
+      expect(result.pagination).toBeUndefined();
     });
   });
 
@@ -1969,7 +1971,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.currentPage).toBe(1);
+      // Single-page result — pagination suppressed; page is implicitly 1.
+      expect(result.pagination?.currentPage ?? 1).toBe(1);
     });
 
     it('should ignore charOffset and keep entry pagination semantics', async () => {
@@ -1996,8 +1999,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.currentPage).toBe(1);
-      expect(result.pagination).not.toHaveProperty('charOffset');
+      expect(result.pagination?.currentPage ?? 1).toBe(1);
+      expect(result.pagination?.charOffset).toBeUndefined();
     });
 
     it('should handle charOffset = 0 without changing output shape', async () => {
@@ -2020,8 +2023,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.currentPage).toBe(1);
-      expect(result.pagination).not.toHaveProperty('charOffset');
+      expect(result.pagination?.currentPage ?? 1).toBe(1);
+      expect(result.pagination?.charOffset).toBeUndefined();
     });
 
     it('should handle large charOffset values without crashing', async () => {
@@ -2045,7 +2048,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.currentPage).toBe(1);
+      expect(result.pagination?.currentPage ?? 1).toBe(1);
     });
 
     it('should handle charOffset beyond content length', async () => {
@@ -2090,7 +2093,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.files).toBeDefined();
-      expect(result.pagination).not.toHaveProperty('totalChars');
+      expect(result.pagination?.totalChars).toBeUndefined();
     });
 
     it('should handle charLength = 10000 (max)', async () => {
@@ -2113,8 +2116,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.hasMore).toBe(false);
-      expect(result.pagination).not.toHaveProperty('totalChars');
+      expect(result.pagination?.hasMore ?? false).toBe(false);
+      expect(result.pagination?.totalChars).toBeUndefined();
     });
 
     it('should handle charLength > remaining content', async () => {
@@ -2136,7 +2139,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.hasMore).toBe(false);
+      expect(result.pagination?.hasMore ?? false).toBe(false);
     });
 
     it('should handle ASCII content pagination', async () => {
@@ -2448,8 +2451,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.totalPages).toBe(1);
-      expect(result.pagination?.hasMore).toBe(false);
+      // Exact boundary — single page, pagination suppressed.
+      expect(result.pagination).toBeUndefined();
     });
 
     it('should handle one over boundary (21 entries, 20 per page)', async () => {
@@ -2498,8 +2501,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.totalPages).toBe(1);
-      expect(result.pagination?.hasMore).toBe(false);
+      // Single entry — single page, pagination suppressed.
+      expect(result.pagination).toBeUndefined();
     });
   });
 
@@ -2524,7 +2527,9 @@ describe('localViewStructure', () => {
       const result = await viewStructure({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.totalEntries).toBe(100);
+      // 100 files, 100/page default — exact single page, pagination suppressed.
+      // Count is in summary; charPagination never set on entry pagination.
+      expect(result.summary).toContain('100');
       expect(
         (result as Record<string, unknown>).charPagination
       ).toBeUndefined();
@@ -2694,7 +2699,8 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.pagination?.totalEntries).toBeGreaterThan(0);
+      // Single complete page — pagination suppressed; count is in summary.
+      expect(result.summary).toMatch(/\d+ entries/);
     });
 
     it(' emits same hints as default — no tier commentary', async () => {

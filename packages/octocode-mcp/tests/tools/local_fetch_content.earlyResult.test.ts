@@ -73,7 +73,7 @@ describe('fetchContent — earlyResult minification path', () => {
   });
 
   it('minify:"standard" strips inline comments from the earlyResult slice', async () => {
-    const content = buildHugeCommentedContent(400);
+    const content = buildHugeCommentedContent();
     mockReadFile.mockResolvedValue(content);
 
     const result = await fetchContent({

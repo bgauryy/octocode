@@ -130,7 +130,7 @@ describe('commandAvailability', () => {
       const error = getMissingCommandError('rg');
 
       expect(error).toContain('ripgrep');
-      expect(error).toContain('@vscode/ripgrep');
+      expect(error).toContain('dist/runtime/rg');
     });
 
     it('should return install instructions for find', () => {

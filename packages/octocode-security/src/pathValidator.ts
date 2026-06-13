@@ -65,18 +65,8 @@ export class PathValidator {
   addAllowedRoot(root: string): void {
     const expandedRoot = this.expandTilde(root);
     const resolvedRoot = path.resolve(expandedRoot);
-    this.addAllowedRootVariant(resolvedRoot);
-
-    try {
-      this.addAllowedRootVariant(fs.realpathSync(resolvedRoot));
-    } catch {
-      // Path doesn't exist yet — use the unresolved path
-    }
-  }
-
-  private addAllowedRootVariant(root: string): void {
-    if (!this.allowedRoots.includes(root)) {
-      this.allowedRoots.push(root);
+    if (!this.allowedRoots.includes(resolvedRoot)) {
+      this.allowedRoots.push(resolvedRoot);
     }
   }
 
@@ -204,10 +194,16 @@ export class PathValidator {
 
     const resolvedPath = path.join(resolvedAncestor, ...remainder);
     const isAllowed = this.allowedRoots.some(allowedRoot => {
-      return (
-        resolvedPath === allowedRoot ||
-        resolvedPath.startsWith(allowedRoot + path.sep)
-      );
+      if (resolvedPath === allowedRoot || resolvedPath.startsWith(allowedRoot + path.sep)) {
+        return true;
+      }
+      // allowedRoot may itself be a symlink (e.g. /tmp → /private/tmp on macOS)
+      try {
+        const realRoot = fs.realpathSync(allowedRoot);
+        return resolvedPath === realRoot || resolvedPath.startsWith(realRoot + path.sep);
+      } catch {
+        return false;
+      }
     });
 
     if (!isAllowed) {
@@ -217,7 +213,11 @@ export class PathValidator {
       };
     }
 
-    if (shouldIgnore(resolvedPath)) {
+    // Use the original absolutePath for the ignore check — the resolved form may
+    // land in a system directory that is itself a symlink target (e.g. /tmp →
+    // /private/tmp on macOS), but the user-visible path was already verified as
+    // non-ignored in validate() before this function was called.
+    if (shouldIgnore(absolutePath)) {
       return {
         isValid: false,
         error: `Path '${redactPath(inputPath)}' is in an ignored directory or matches an ignored pattern`,

@@ -696,7 +696,7 @@ describe('GitHub API Utils', () => {
         await searchGitHubReposAPI(params);
 
         const expectedQuery =
-          'machine learning user:google topic:ml topic:ai stars:>100 size:<1000 created:>2020-01-01 pushed:<2023-12-31 in:name in:description is:not-archived';
+          'machine learning user:google topic:ml topic:ai stars:>100 size:<1000 created:>2020-01-01 pushed:<2023-12-31 forks:10..50 in:name in:description is:not-archived';
 
         expect(mockOctokit.rest.search.repos).toHaveBeenCalledWith({
           q: expectedQuery,

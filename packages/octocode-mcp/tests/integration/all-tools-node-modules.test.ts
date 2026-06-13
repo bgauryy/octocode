@@ -51,9 +51,19 @@ function verifySmartData<T extends ToolResult>(result: T, toolName: string): T {
       typeof result.structuredOutput === 'string' &&
       result.structuredOutput.length > 0;
     const hasPagination = Boolean(result.pagination);
+    const hasFolders =
+      'folders' in result &&
+      Array.isArray(result.folders) &&
+      result.folders.length > 0;
+    const hasSummary = 'summary' in result && Boolean(result.summary);
 
     expect(
-      hasFiles || hasContent || hasStructuredOutput || hasPagination,
+      hasFiles ||
+        hasContent ||
+        hasStructuredOutput ||
+        hasPagination ||
+        hasFolders ||
+        hasSummary,
       `${toolName} should have data when status indicates success`
     ).toBe(true);
   }

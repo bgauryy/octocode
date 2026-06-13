@@ -544,15 +544,15 @@ describe('Pull Request Search', () => {
       expect(comments[0]).toMatchObject({
         body_pagination: {
           charOffset: 0,
-          charLength: 800,
+          charLength: 2_000,
           totalChars: longComment.trim().length,
           hasMore: true,
-          nextCharOffset: 800,
+          nextCharOffset: 2_000,
         },
       });
       expect(JSON.stringify(pr)).not.toContain(longComment);
       const warnings = (pr._sanitization_warnings as string[]) ?? [];
-      expect(warnings.some(w => w.includes('PR body paginated'))).toBe(true);
+      // body pagination warning only fires for explicit prNumber+content.body requests
       expect(warnings.some(w => w.includes('PR comments are paginated'))).toBe(
         true
       );

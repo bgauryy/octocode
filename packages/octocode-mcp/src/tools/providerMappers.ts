@@ -721,7 +721,11 @@ export function mapRepoStructureProviderResult(
   //     YAML keys that share names with response fields.
   const structureArray = Object.entries(filteredStructure)
     .sort(([a], [b]) => (a === '.' ? -1 : b === '.' ? 1 : a.localeCompare(b)))
-    .map(([dir, entry]) => ({ dir, files: entry.files, folders: entry.folders }));
+    .map(([dir, entry]) => ({
+      dir,
+      files: entry.files,
+      folders: entry.folders,
+    }));
 
   const resultData: Record<string, unknown> = {
     structure: structureArray,
@@ -751,7 +755,10 @@ export function mapRepoStructureProviderResult(
 
   // Only emit pagination when there are actually multiple pages — a single complete
   // page adds no information beyond summary.totalFiles / totalFolders.
-  if (data.pagination && (data.pagination.hasMore || data.pagination.totalPages > 1)) {
+  if (
+    data.pagination &&
+    (data.pagination.hasMore || data.pagination.totalPages > 1)
+  ) {
     resultData.pagination = data.pagination;
   }
 

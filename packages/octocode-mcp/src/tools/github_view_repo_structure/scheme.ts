@@ -37,6 +37,7 @@ const GitHubViewRepoStructureQuerySchema = z.object({
   itemsPerPage: clampedInt(1, GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE)
     .optional()
     .describe(QUERY_DESCRIPTIONS.itemsPerPage!),
+  verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
 });
 
 export const GitHubViewRepoStructureQueryLocalSchema =

@@ -22,12 +22,11 @@ describe('formatRepoLine — compact one-liner', () => {
   it('packs path, stars, forks, issues, language, dates, description', () => {
     const line = formatRepoLine(base);
     expect(line).toContain('punkpeye/awesome-mcp-servers');
-    expect(line).toContain('★88688');
-    expect(line).toContain('⑂6829');
-    expect(line).toContain('496i');
+    expect(line).toContain('88688 stars');
+    expect(line).toContain('6829 forks');
+    expect(line).toContain('496 issues');
     expect(line).toContain('TypeScript');
-    expect(line).toContain('pushed 2026-06-07');
-    expect(line).toContain('created 2024-11-30');
+    expect(line).toContain('2026-06-07');
     expect(line).toContain('A collection of MCP servers.');
   });
 
@@ -45,12 +44,12 @@ describe('formatRepoLine — compact one-liner', () => {
       ...base,
       defaultBranch: 'develop',
       visibility: 'private',
-      topics: ['mcp', 'ai', 'agents', 'extra'],
+      topics: ['mcp', 'ai', 'agents', 'extra', 'fifth'],
     } as typeof base);
     expect(line).toContain('@develop');
     expect(line).toContain('private');
-    expect(line).toContain('#mcp,ai,agents'); // capped at 3
-    expect(line).not.toContain('extra');
+    expect(line).toContain('#mcp,ai,agents,extra'); // capped at 4
+    expect(line).not.toContain('fifth');
   });
 
   it('truncates long descriptions and collapses whitespace', () => {
@@ -58,8 +57,8 @@ describe('formatRepoLine — compact one-liner', () => {
       ...base,
       description: 'x'.repeat(200) + '\n\nmore',
     } as typeof base);
-    const desc = line.split(' · ').pop()!;
-    expect(desc.length).toBeLessThanOrEqual(101);
+    const desc = line.split(' | ').pop()!;
+    expect(desc.length).toBeLessThanOrEqual(102);
     expect(desc).not.toContain('\n');
   });
 });

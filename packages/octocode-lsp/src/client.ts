@@ -162,6 +162,9 @@ export class LSPClient {
     if (typeof this.process.stderr?.setEncoding === 'function') {
       this.process.stderr.setEncoding('utf8');
     }
+    // Prevent unhandled-error crashes after startup — errors post-init are logged
+    // via the close handler or surfaced in the next request attempt.
+    this.process.on('error', () => void 0);
     this.process.stderr?.on('data', (chunk: string | Buffer) => {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
       const lines = text.split(/\r?\n/);

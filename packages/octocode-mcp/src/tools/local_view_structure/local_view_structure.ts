@@ -41,19 +41,6 @@ function sanitizeLsStderr(
   return sanitized || undefined;
 }
 
-function buildActiveViewStructureFilters(query: ViewStructureQuery): string[] {
-  const activeFilters: string[] = [`path: ${query.path}`];
-  if (query.depth !== undefined) activeFilters.push(`depth: ${query.depth}`);
-  if (query.extensions?.length) {
-    activeFilters.push(`extensions: ${query.extensions.join(', ')}`);
-  }
-  if (query.pattern) activeFilters.push(`pattern: ${query.pattern}`);
-  if (query.filesOnly) activeFilters.push('filesOnly');
-  if (query.directoriesOnly) activeFilters.push('directoriesOnly');
-  if (query.hidden) activeFilters.push('hidden');
-  return [`Active filters — ${activeFilters.join(' | ')}`];
-}
-
 import { ToolErrors } from '../../errors/errorFactories.js';
 import { redactPath } from '../../errors/pathUtils.js';
 import {
@@ -190,10 +177,14 @@ export async function viewStructure(
           ...(isEmpty ? { status: 'empty' as const } : {}),
           ...entryPayload,
           summary,
-          pagination,
+          // Suppress the pagination block on a single complete page — the
+          // summary string already encodes the total count.
+          ...(pagination.hasMore || pagination.totalPages > 1
+            ? { pagination }
+            : {}),
           ...(warnings.length > 0 && { warnings }),
           hints: [
-            ...buildActiveViewStructureFilters(query),
+            // Active-filters hint dropped — the agent set those params itself.
             ...(isEmpty
               ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
                   entryCount: totalEntries,
@@ -361,10 +352,14 @@ async function viewStructureRecursive(
         ...(isEmpty ? { status: 'empty' as const } : {}),
         ...entryPayload,
         summary,
-        pagination,
+        // Suppress the pagination block on a single complete page — the
+        // summary string already encodes the total count.
+        ...(pagination.hasMore || pagination.totalPages > 1
+          ? { pagination }
+          : {}),
         ...(warnings.length > 0 && { warnings }),
         hints: [
-          ...buildActiveViewStructureFilters(query),
+          // Active-filters hint dropped — the agent set those params itself.
           ...baseHints,
           ...entryPaginationHints,
         ],
