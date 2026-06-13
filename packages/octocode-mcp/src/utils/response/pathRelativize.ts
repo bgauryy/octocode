@@ -49,12 +49,58 @@ export function relativizeResultPaths(
   const base = commonDirPrefix(holders.map(h => h.obj[h.key] as string));
   if (base.length <= 1) return undefined;
 
-  const cut = base.length + 1;
+  const prefix = base + '/';
+  const cut = prefix.length;
   for (const { obj, key } of holders) {
     const p = obj[key] as string;
-    if (p.startsWith(base + '/')) obj[key] = p.slice(cut);
+    if (p.startsWith(prefix)) obj[key] = p.slice(cut);
   }
+
+  // Also strip the base from absolute paths embedded in compact string rows
+  // (arrays of formatted strings produced by compact-format tools). Structured
+  // fields are handled above; string elements are handled here so both
+  // representations use the same relative paths.
+  stripBaseFromStringElements(results, prefix);
+
   return base;
+}
+
+function stripBaseFromStringElements(
+  results: ReadonlyArray<{ data?: unknown } | null | undefined>,
+  prefix: string
+): void {
+  function walk(node: unknown, depth: number): void {
+    if (depth > 8 || !node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const v = node[i];
+        if (typeof v === 'string') {
+          if (v.includes(prefix))
+            (node as unknown[])[i] = v.replaceAll(prefix, '');
+        } else {
+          walk(v, depth + 1);
+        }
+      }
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    for (const key of Object.keys(obj)) {
+      const v = obj[key];
+      if (typeof v === 'string') {
+        // Strip embedded absolute paths from compact string fields (e.g. `root`)
+        // Skip the known structured path keys — those are handled by collectPathHolders.
+        if (
+          !PATH_LIKE_KEYS.includes(key as (typeof PATH_LIKE_KEYS)[number]) &&
+          v.includes(prefix)
+        ) {
+          obj[key] = v.replaceAll(prefix, '');
+        }
+      } else {
+        walk(v, depth + 1);
+      }
+    }
+  }
+  for (const r of results) walk(r?.data, 0);
 }
 
 function collectLeaves(

@@ -5,7 +5,8 @@
  *
  * Fast path (native build): copies directly from the locally installed
  *   @vscode/ripgrep-<platform> optional package.
- * Slow path (cross-compile): downloads the tarball from the npm registry.
+ * Slow path (cross-compile): downloads the tarball from the npm registry,
+ *   verifies SHA-512 integrity against npm metadata, then extracts the binary.
  *
  * Usage:
  *   node scripts/bundle-rg.mjs <platform> <outDir> [--runtime-only]
@@ -26,13 +27,15 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readFileSync,
 } from 'node:fs';
 import { rm, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { get } from 'node:https';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 
 const require = createRequire(import.meta.url);
 
@@ -46,13 +49,19 @@ if (!ripgrepVersion) {
 }
 const RG_VERSION = ripgrepVersion.replace(/^[~^]/, '');
 
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+const MAX_REDIRECT_DEPTH = 5;
+
 /** @type {Record<string, { vscodeArch: string; binary: string }>} */
 const PLATFORM_MAP = {
   'darwin-arm64': { vscodeArch: 'darwin-arm64', binary: 'rg' },
   'darwin-x64': { vscodeArch: 'darwin-x64', binary: 'rg' },
   'linux-arm64': { vscodeArch: 'linux-arm64', binary: 'rg' },
   'linux-x64': { vscodeArch: 'linux-x64', binary: 'rg' },
-  'linux-x64-musl': { vscodeArch: 'linux-x64', binary: 'rg' }, // @vscode/ripgrep's linux-x64 rg is static-pie linked (no glibc/musl interpreter), so it runs on Alpine/musl too
+  // @vscode/ripgrep's linux-x64 rg is static-PIE linked (no glibc/musl
+  // interpreter), so it runs on Alpine/musl too. verifyStaticBinary() confirms
+  // this at build time so a future linkage change is caught immediately.
+  'linux-x64-musl': { vscodeArch: 'linux-x64', binary: 'rg' },
   'windows-x64': { vscodeArch: 'win32-x64', binary: 'rg.exe' },
 };
 
@@ -84,12 +93,14 @@ async function main() {
   await mkdir(dirname(outFile), { recursive: true });
 
   // Fast path: use locally installed optional package (native platform build).
+  // npm/yarn already verified its integrity during install — no re-check needed.
   const localPkgName = `@vscode/ripgrep-${config.vscodeArch}`;
   const localPath = tryLocalPackage(localPkgName, config.binary);
   if (localPath) {
     console.log(`bundle-rg: copying from local ${localPkgName}`);
     copyFileSync(localPath, outFile);
     if (!isWindows) chmodSync(outFile, 0o755);
+    verifyStaticBinary(outFile, platform);
     if (!runtimeOnly) {
       copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
     }
@@ -101,14 +112,29 @@ async function main() {
   console.log(
     `bundle-rg: downloading ${localPkgName}@${RG_VERSION} from npm registry`
   );
+
+  // Prefetch integrity from registry metadata so we can verify the tarball.
+  const integrity = await fetchPackageIntegrity(config.vscodeArch, RG_VERSION);
+  if (integrity) {
+    console.log(`bundle-rg: fetched integrity for ${localPkgName}@${RG_VERSION}`);
+  } else {
+    console.warn(
+      `bundle-rg: ⚠ Could not fetch integrity metadata for ${localPkgName}@${RG_VERSION} — skipping checksum verification`
+    );
+  }
+
   const tmpDir = join(tmpdir(), `bundle-rg-${platform}-${Date.now()}`);
   try {
     await mkdir(tmpDir, { recursive: true });
     const tgz = join(tmpDir, 'pkg.tgz');
     const tgzUrl = npmTarballUrl(config.vscodeArch, RG_VERSION);
     await download(tgzUrl, tgz);
+    if (integrity) {
+      verifyIntegrity(tgz, integrity);
+    }
     extractBinaryFromTgz(tgz, `package/bin/${config.binary}`, outFile, tmpDir);
     if (!isWindows) chmodSync(outFile, 0o755);
+    verifyStaticBinary(outFile, platform);
     if (!runtimeOnly) {
       copyToRuntimeBundle(outFile, outDir, platform, outExt, isWindows);
     }
@@ -146,14 +172,134 @@ function npmTarballUrl(vscodeArch, version) {
   return `https://registry.npmjs.org/@vscode/ripgrep-${vscodeArch}/-/ripgrep-${vscodeArch}-${version}.tgz`;
 }
 
-/** Download a URL to a local file. */
-function download(url, dest) {
+/**
+ * Fetch the SRI integrity string (sha512-<base64>) for a specific version of
+ * @vscode/ripgrep-<arch> from the npm registry. Returns null on any failure so
+ * callers can treat integrity verification as best-effort rather than fatal.
+ */
+function fetchPackageIntegrity(vscodeArch, version) {
+  const url = `https://registry.npmjs.org/@vscode/ripgrep-${vscodeArch}/${version}`;
+  return new Promise(resolve => {
+    const req = get(url, res => {
+      if (res.statusCode !== 200) {
+        resolve(null);
+        return;
+      }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const meta = JSON.parse(data);
+          resolve(meta.dist?.integrity ?? null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.on('error', () => resolve(null));
+  });
+}
+
+/**
+ * Verify a downloaded file against an SRI integrity string (e.g. "sha512-abc…").
+ * Throws if the digest does not match — never silently accepts a bad binary.
+ */
+function verifyIntegrity(filePath, integrity) {
+  const dashIdx = integrity.indexOf('-');
+  if (dashIdx === -1) {
+    throw new Error(`Unsupported integrity format: ${integrity}`);
+  }
+  const algo = integrity.slice(0, dashIdx);
+  const expectedB64 = integrity.slice(dashIdx + 1);
+  const hash = createHash(algo);
+  hash.update(readFileSync(filePath));
+  const actualB64 = hash.digest('base64');
+  if (actualB64 !== expectedB64) {
+    throw new Error(
+      `Integrity check FAILED for downloaded ripgrep tarball.\n` +
+        `  Expected: ${algo}-${expectedB64}\n` +
+        `  Got:      ${algo}-${actualB64}\n` +
+        `Refusing to use a binary that did not pass integrity verification.`
+    );
+  }
+  console.log(`bundle-rg: ✓ integrity verified (${algo})`);
+}
+
+/**
+ * Verify the linux-x64-musl binary is statically linked at build time using
+ * the system `file` command. Fails hard if the binary is dynamically linked —
+ * a dynamic binary would segfault on Alpine and produce a silent runtime failure.
+ *
+ * This check is skipped on platforms where `file` is unavailable (non-fatal)
+ * and on all non-musl targets (they can tolerate dynamic linking).
+ */
+function verifyStaticBinary(binaryPath, platform) {
+  if (platform !== 'linux-x64-musl') return;
+
+  const result = spawnSync('file', [binaryPath], {
+    encoding: 'utf8',
+    timeout: 5_000,
+  });
+
+  if (result.status !== 0 || !result.stdout) {
+    console.warn(
+      `bundle-rg: ⚠ Could not verify static linkage for ${platform} (file command unavailable)`
+    );
+    return;
+  }
+
+  const output = result.stdout.toLowerCase();
+  const isStatic =
+    output.includes('statically linked') || output.includes('static-pie');
+
+  if (!isStatic) {
+    throw new Error(
+      `linux-x64-musl rg binary is NOT statically linked.\n` +
+        `  file output: ${result.stdout.trim()}\n` +
+        `This binary will NOT work on Alpine/musl Linux. ` +
+        `Check whether @vscode/ripgrep changed its linkage and update the build accordingly.`
+    );
+  }
+
+  console.log(`bundle-rg: ✓ ${platform} binary is statically linked`);
+}
+
+/**
+ * Download a URL to a local file with timeout and redirect-depth protection.
+ * Throws on HTTP errors, timeout, or too many redirects.
+ */
+function download(url, dest, depth = 0) {
+  if (depth > MAX_REDIRECT_DEPTH) {
+    return Promise.reject(
+      new Error(
+        `Too many redirects (>${MAX_REDIRECT_DEPTH}) fetching ${url} — aborting`
+      )
+    );
+  }
+
   return new Promise((resolve, reject) => {
     const file = createWriteStream(dest);
+
     const req = get(url, res => {
       if (res.statusCode === 301 || res.statusCode === 302) {
         file.close();
-        download(res.headers.location, dest).then(resolve).catch(reject);
+        const location = res.headers.location;
+        if (!location) {
+          reject(new Error(`Redirect with no Location header from ${url}`));
+          return;
+        }
+        // Clean up the partial file before retrying at the new location.
+        rm(dest, { force: true })
+          .then(() => download(location, dest, depth + 1))
+          .then(resolve)
+          .catch(reject);
         return;
       }
       if (res.statusCode !== 200) {
@@ -164,6 +310,17 @@ function download(url, dest) {
       res.pipe(file);
       file.on('finish', () => file.close(resolve));
     });
+
+    req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+      req.destroy();
+      file.close();
+      reject(
+        new Error(
+          `Download timed out after ${DOWNLOAD_TIMEOUT_MS / 1000}s: ${url}`
+        )
+      );
+    });
+
     req.on('error', reject);
   });
 }

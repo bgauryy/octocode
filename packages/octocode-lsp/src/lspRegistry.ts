@@ -13,6 +13,18 @@ export const LANGUAGE_SERVER_COMMANDS: Record<string, LanguageServerCommand> = {
     languageId: 'typescriptreact',
     envVar: 'OCTOCODE_TS_SERVER_PATH',
   },
+  '.mts': {
+    command: 'typescript-language-server',
+    args: ['--stdio'],
+    languageId: 'typescript',
+    envVar: 'OCTOCODE_TS_SERVER_PATH',
+  },
+  '.cts': {
+    command: 'typescript-language-server',
+    args: ['--stdio'],
+    languageId: 'typescript',
+    envVar: 'OCTOCODE_TS_SERVER_PATH',
+  },
   '.js': {
     command: 'typescript-language-server',
     args: ['--stdio'],

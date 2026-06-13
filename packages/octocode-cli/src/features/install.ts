@@ -20,12 +20,8 @@ import { DETECTABLE_MCP_CLIENTS } from '../utils/mcp-paths.js';
 import { fileExists } from '../utils/fs.js';
 import { isWindows } from '../utils/platform.js';
 
-function ideToMCPClient(ide: string): MCPClient {
-  if (ide === 'claude') {
-    return 'claude-desktop';
-  }
-
-  return ide as MCPClient;
+function ideToMCPClient(ide: IDE): MCPClient {
+  return ide;
 }
 
 interface InstallOptions {
@@ -58,7 +54,7 @@ export function detectAvailableIDEs(): IDE[] {
     available.push('cursor');
   }
   if (clientConfigExists('claude-desktop')) {
-    available.push('claude');
+    available.push('claude-desktop');
   }
 
   return available;

@@ -102,17 +102,14 @@ const skillsUtilsMocks = vi.hoisted(() => {
     getSkillsSourceDir: vi.fn().mockReturnValue('/fake/skills/src'),
     getSkillsDestDir: vi.fn().mockReturnValue('/fake/skills/dest'),
     normalizeSkillTarget: vi.fn((target: string) => {
-      const aliases: Record<string, string> = {
-        claude: 'claude-code',
+      const targets: Record<string, string> = {
         'claude-code': 'claude-code',
-        claudecode: 'claude-code',
         'claude-desktop': 'claude-desktop',
-        claudedesktop: 'claude-desktop',
         cursor: 'cursor',
         codex: 'codex',
         opencode: 'opencode',
       };
-      return aliases[target.trim().toLowerCase()] ?? null;
+      return targets[target.trim().toLowerCase()] ?? null;
     }),
     getSkillsDirForTarget: vi.fn((target: string, defaultDestDir?: string) => {
       const base = defaultDestDir ?? '/fake/skills/dest';

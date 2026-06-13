@@ -230,13 +230,8 @@ describe('CLI Commands', () => {
       expect(consoleSpy).toHaveBeenCalledWith('gho_gh_cli_token');
     });
 
-    it('should accept octocode-cli as a compatibility alias for octocode token source', async () => {
+    it('should reject unsupported token source names', async () => {
       const { getToken } = await import('../../src/features/github-oauth.js');
-      vi.mocked(getToken).mockResolvedValue({
-        token: 'gho_octocode_cli_alias',
-        source: 'octocode',
-        username: 'octouser',
-      });
 
       const { findCommand } = await import('../../src/cli/commands/index.js');
       const tokenCmd = findCommand('token');
@@ -247,8 +242,11 @@ describe('CLI Commands', () => {
         options: { type: 'octocode-cli' },
       });
 
-      expect(getToken).toHaveBeenCalledWith('github.com', 'octocode');
-      expect(consoleSpy).toHaveBeenCalledWith('gho_octocode_cli_alias');
+      expect(getToken).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid token type: octocode-cli')
+      );
+      expect(process.exitCode).toBe(1);
     });
 
     it('should use auto type when --type=auto is provided', async () => {

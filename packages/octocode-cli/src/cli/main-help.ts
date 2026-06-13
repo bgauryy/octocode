@@ -1,10 +1,8 @@
 import { c, bold, dim } from '../utils/colors.js';
 import {
-  TOOL_CATEGORIES,
-  TOOL_DEFINITIONS,
-  getToolCategory,
-  formatRequiredFields,
-} from './tool-command.js';
+  HELP_TOOL_CATEGORIES,
+  HELP_TOOL_DEFINITIONS,
+} from './tool-help-data.js';
 
 const LSP_TYPES =
   'definition | references | callers | callees | callHierarchy | hover | documentSymbols | typeDefinition | implementation';
@@ -12,17 +10,14 @@ const LSP_TYPES =
 function buildToolBlock(): string[] {
   const lines: string[] = [];
 
-  for (const category of TOOL_CATEGORIES) {
-    const tools = TOOL_DEFINITIONS.filter(
-      t => getToolCategory(t.name) === category
-    );
+  for (const category of HELP_TOOL_CATEGORIES) {
+    const tools = HELP_TOOL_DEFINITIONS.filter(t => t.category === category);
     if (tools.length === 0) continue;
 
     lines.push(`    ${dim(category)}`);
     for (const tool of tools) {
-      const fields = formatRequiredFields(tool.name);
       const namePad = tool.name.padEnd(28);
-      lines.push(`      ${c('cyan', namePad)} ${dim(fields)}`);
+      lines.push(`      ${c('cyan', namePad)} ${dim(tool.fields)}`);
       if (tool.name === 'lspGetSemanticContent') {
         const indent = ''.padEnd(28 + 6);
         lines.push(`      ${dim(indent)} ${dim('type: ' + LSP_TYPES)}`);
@@ -37,7 +32,7 @@ function buildToolBlock(): string[] {
 }
 
 export function showHelp(): void {
-  const toolCount = TOOL_DEFINITIONS.length;
+  const toolCount = HELP_TOOL_DEFINITIONS.length;
   const toolLines = buildToolBlock();
 
   const lines = [
@@ -49,18 +44,21 @@ export function showHelp(): void {
     `  ${bold('HOW TO USE')}`,
     `    ${c('red', bold('1.'))} Check schema BEFORE any tool call   ${c('yellow', 'octocode tools <name>')}`,
     `    ${c('red', bold('2.'))} Run a tool                          ${c('yellow', "octocode tools <name> --queries '<json>'")}`,
-    `    ${c('cyan', '3.')} For file/search/PR use smart cmds   ${dim('(no schema needed — see below)')}`,
+    `    ${c('cyan', '3.')} For common research use smart cmds   ${dim('(no schema needed — see below)')}`,
     `    ${dim('4.')} Full context + all schemas           ${c('yellow', 'octocode instructions')}`,
     `    ${dim('5.')} All schemas as inline JSON           ${c('yellow', 'octocode instructions --full')}`,
     '',
 
     // ── Smart commands — preferred ─────────────────────────────────────────
-    `  ${bold('SMART COMMANDS')}  ${dim('— prefer over raw tool calls for file / search / PR')}`,
+    `  ${bold('SMART COMMANDS')}  ${dim('— prefer over raw tool calls for common research')}`,
     `    ${dim('Auto-route local ↔ GitHub — no schema or owner/repo wiring needed')}`,
     `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--mode none|standard|symbols]')}`,
     `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`,
     `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path | repo>')}     ${dim('code search     [--type, --limit, --page]')}`,
     `    ${c('cyan', 'octocode pr')}     ${dim('<owner/repo[#N] | PR-URL>')}   ${dim('PR info         [--patches, --comments, --deep]')}`,
+    `    ${c('cyan', 'octocode pkg')}    ${dim('<package>')}                   ${dim('npm metadata + source repo')}`,
+    `    ${c('cyan', 'octocode symbols')} ${dim('<file | path>')}               ${dim('semantic outline [--kind, --limit]')}`,
+    `    ${c('cyan', 'octocode lsp')}    ${dim('<file> --type <type>')}        ${dim('semantic nav     [--symbol, --line]')}`,
     '',
 
     // ── All tools ─────────────────────────────────────────────────────────
@@ -86,8 +84,8 @@ export function showHelp(): void {
     `  ${bold('WORKFLOWS')}`,
     `    ${dim('local  →')}  localViewStructure ${dim('→')} localSearchCode ${dim('→')} localGetFileContent ${dim('→')} lspGetSemanticContent`,
     `    ${dim('github →')}  githubSearchRepositories ${dim('→')} githubViewRepoStructure ${dim('→')} githubGetFileContent`,
-    `    ${dim('lsp    →')}  localSearchCode ${dim('(uri+lineHint)')} ${dim('→')} lspGetSemanticContent${dim('(uri, symbolName, lineHint, type)')}`,
-    `    ${dim('pkg    →')}  packageSearch ${dim('→')} githubGetFileContent${dim('(owner/repo from result)')}`,
+    `    ${dim('lsp    →')}  octocode symbols ${dim('<file|path>')} ${dim('→')} octocode lsp ${dim('--type references --symbol X --line N')}`,
+    `    ${dim('pkg    →')}  octocode pkg ${dim('<package>')} ${dim('→')} githubGetFileContent${dim('(owner/repo from result)')}`,
     '',
 
     // ── Output flags ───────────────────────────────────────────────────────
@@ -98,10 +96,9 @@ export function showHelp(): void {
     // ── Management ─────────────────────────────────────────────────────────
     `  ${bold('MANAGEMENT')}`,
     `    ${c('cyan', 'install')} ${dim('--ide <cursor|claude-desktop|windsurf|vscode-cline|...>')}  ${dim('configure IDE')}`,
-    `    ${c('cyan', 'auth')} ${dim('/ login / logout / status / token')}    ${dim('GitHub authentication')}`,
-    `    ${c('cyan', 'skills')} ${dim('search|install|remove|list')}         ${dim('agent skills marketplace')}`,
-    `    ${c('cyan', 'mcp')}    ${dim('list|install|remove|status')}         ${dim('MCP server registry (70+ servers)')}`,
-    `    ${c('cyan', 'cache')} ${dim('status|clean')}                        ${dim('cache management')}`,
+    `    ${c('cyan', 'auth')} ${dim('<login|logout|status|token|refresh>')} ${dim('GitHub authentication')}`,
+    `    ${c('cyan', 'skills')} ${dim('<search|read|install|remove|list|sync>')} ${dim('skills marketplace')}`,
+    `    ${c('cyan', 'status')} ${dim('[--sync]')}                           ${dim('auth, MCP clients, cache')}`,
     '',
 
     // ── Exit codes ─────────────────────────────────────────────────────────

@@ -98,30 +98,6 @@ describe('semanticTypes — compactLocation branch coverage', () => {
   });
 });
 
-// ─── lsp/initConstants.ts ─────────────────────────────────────────────────────
-// Uncovered line 10: the `catch` branch of resolveClientVersion() — returns
-// '0.0.0-dev' when require('../../package.json') throws.
-
-describe('lsp/initConstants — resolveClientVersion catch branch (line 10)', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('returns 0.0.0-dev when package.json cannot be required', async () => {
-    // Stub require so the package.json read throws — exercises the catch path.
-    const origRequire = require;
-    vi.stubGlobal('require', (id: string) => {
-      if (String(id).includes('package.json')) throw new Error('ENOENT');
-      return origRequire(id);
-    });
-
-    vi.resetModules();
-    const { CLIENT_VERSION } = await import('../src/lsp/initConstants.js');
-    // If the catch branch is taken, version falls back to '0.0.0-dev'.
-    expect(typeof CLIENT_VERSION).toBe('string');
-    // Either a real semver or the fallback — both are valid strings.
-    expect(CLIENT_VERSION.length).toBeGreaterThan(0);
-  });
-});
-
 // ─── hints/dynamic.ts ─────────────────────────────────────────────────────────
 // Uncovered line 46: `hintGenerator(context || {})` — the truthy branch where
 // a real context object is passed (context is not undefined/falsy).

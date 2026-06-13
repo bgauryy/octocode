@@ -149,11 +149,10 @@ describe('tokenCommand', () => {
   it('exports the expected command metadata', async () => {
     const cmd = await loadCommand();
     expect(cmd.name).toBe('token');
-    expect(cmd.aliases).toBeUndefined();
     expect(cmd.options?.length).toBeGreaterThan(0);
   });
 
-  it.each([['octocode'], ['octocode-cli'], ['o']])(
+  it.each([['octocode']])(
     'maps type "%s" to octocode source',
     async typeArg => {
       vi.mocked(getToken).mockResolvedValue({
@@ -170,24 +169,21 @@ describe('tokenCommand', () => {
     }
   );
 
-  it.each([['gh'], ['gh-cli'], ['g']])(
-    'maps type "%s" to gh source',
-    async typeArg => {
-      vi.mocked(getToken).mockResolvedValue({
-        token: 'tok-gh',
-        source: 'gh-cli',
-      } as never);
-      const cmd = await loadCommand();
-      await cmd.handler({
-        command: 'token',
-        args: [],
-        options: { type: typeArg },
-      });
-      expect(getToken).toHaveBeenCalledWith('github.com', 'gh');
-    }
-  );
+  it.each([['gh']])('maps type "%s" to gh source', async typeArg => {
+    vi.mocked(getToken).mockResolvedValue({
+      token: 'tok-gh',
+      source: 'gh-cli',
+    } as never);
+    const cmd = await loadCommand();
+    await cmd.handler({
+      command: 'token',
+      args: [],
+      options: { type: typeArg },
+    });
+    expect(getToken).toHaveBeenCalledWith('github.com', 'gh');
+  });
 
-  it.each([['auto'], ['a']])('maps type "%s" to auto source', async typeArg => {
+  it.each([['auto']])('maps type "%s" to auto source', async typeArg => {
     vi.mocked(getToken).mockResolvedValue({
       token: 'tok-auto',
       source: 'octocode',
@@ -201,7 +197,7 @@ describe('tokenCommand', () => {
     expect(getToken).toHaveBeenCalledWith('github.com', 'auto');
   });
 
-  it('uses -t alias for type and -H alias for hostname', async () => {
+  it('uses canonical type and hostname options', async () => {
     vi.mocked(getToken).mockResolvedValue({
       token: 'tok',
       source: 'gh-cli',
@@ -210,7 +206,7 @@ describe('tokenCommand', () => {
     await cmd.handler({
       command: 'token',
       args: [],
-      options: { t: 'gh', H: 'ghe.example.com' },
+      options: { type: 'gh', hostname: 'ghe.example.com' },
     });
     expect(getToken).toHaveBeenCalledWith('ghe.example.com', 'gh');
   });
@@ -270,7 +266,7 @@ describe('tokenCommand', () => {
     expect(out('"type":"octocode"')).toBe(true);
   });
 
-  it('--json -j alias is honored', async () => {
+  it('--json emits token in machine-readable mode', async () => {
     vi.mocked(getToken).mockResolvedValue({
       token: 'abc123',
       source: 'octocode',
@@ -279,7 +275,7 @@ describe('tokenCommand', () => {
     await cmd.handler({
       command: 'token',
       args: [],
-      options: { j: true },
+      options: { json: true },
     });
     expect(out('"token":"abc123"')).toBe(true);
   });

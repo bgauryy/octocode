@@ -28,9 +28,12 @@ describe('aggregatePeerEvidence — pagination completeness gate', () => {
     expect(out?.reason).toBeUndefined();
   });
 
-  it('flags incomplete via result pagination when pagination hasMore=true', () => {
+  it('preserves complete=true from tool evidence when pagination hasMore=true (display pagination is not data incompleteness)', () => {
+    // data.pagination is display-side pagination — the tool returned all its
+    // data and chose to surface it across pages. The tool's evidence.complete
+    // already reflects LSP data availability and must not be overridden here.
     const out = aggregatePeerEvidence([queryResultWithPagination()]);
-    expect(out?.complete).toBe(false);
-    expect(out?.reason).toContain('Result pagination has more results.');
+    expect(out?.complete).toBe(true);
+    expect(out?.reason).toBeUndefined();
   });
 });

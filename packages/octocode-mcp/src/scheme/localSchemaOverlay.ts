@@ -47,13 +47,11 @@ const responsePaginationFields = {
   responseCharOffset: clampedInt(0, 100_000_000)
     .optional()
     .describe(
-      'Top-level response character offset. Use when the entire formatted tool response is larger than the responseCharLength window.'
+      'Full-response char offset; re-call with returned value when hasMore.'
     ),
   responseCharLength: clampedInt(1, 50_000)
     .optional()
-    .describe(
-      'Top-level response character page size. Works for every tool as a final formatted-response window; content-specific tools also expose per-query charOffset/charLength.'
-    ),
+    .describe('Full-response char window (max 50k).'),
 } as const;
 
 export const depthField = clampedInt(0, LOCAL_OVERLAY_MAX_DEPTH).optional();
@@ -83,7 +81,7 @@ export type WithQueryMeta<T> = T & {
 export type WithLocalOverlay<T> = WithQueryMeta<T>;
 
 export function createRelaxedBulkQuerySchema(
-  toolName: string,
+  _toolName: string,
   querySchema: z.ZodTypeAny,
   options: { maxQueries?: number } = {}
 ) {
@@ -94,10 +92,7 @@ export function createRelaxedBulkQuerySchema(
         .array(querySchema)
         .min(1)
         .max(maxQueries)
-        .describe(
-          `Array of queries for ${toolName}. Maximum is ${maxQueries} queries per call. ` +
-            'Multiple queries run in parallel. Use the per-query `page` field to navigate through result lists and responseCharOffset/responseCharLength to page the final formatted response.'
-        ),
+        .describe(`1–${maxQueries} parallel queries.`),
       ...responsePaginationFields,
     })
     .superRefine((data, ctx) => {

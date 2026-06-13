@@ -1,4 +1,5 @@
-import { promises as fs } from 'fs';
+import { spawnSync } from 'child_process';
+import { accessSync, constants, promises as fs } from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
 import { getConfigSync, getOctocodeDir } from 'octocode-shared';
@@ -28,6 +29,7 @@ type PackagedLanguageServer = {
 };
 
 const TYPESCRIPT_LSP_PROVIDER_ENV = 'OCTOCODE_TS_LSP_PROVIDER';
+const DEFAULT_TYPESCRIPT_LSP_PROVIDER: TypeScriptLspProvider = 'tsgo';
 
 const TYPESCRIPT_LSP_PROVIDER_CONFIG: Record<
   TypeScriptLspProvider,
@@ -47,7 +49,7 @@ const TYPESCRIPT_LSP_PROVIDER_CONFIG: Record<
   },
   tsgo: {
     command: 'tsgo',
-    args: ['lsp', '--stdio'],
+    args: ['--lsp', '--stdio'],
     packageName: '@typescript/native-preview',
     binName: 'tsgo',
   },
@@ -138,28 +140,76 @@ export function resolveLanguageServer(config: {
   packageName?: string;
   binName?: string;
 }): { command: string; args: string[] } {
+  if (isTypeScriptServerConfig(config)) {
+    return resolveTypeScriptLanguageServer(config);
+  }
+
   if (process.env[config.envVar]) {
     return { command: process.env[config.envVar]!, args: config.args };
   }
 
-  const effectiveConfig = isTypeScriptServerConfig(config)
-    ? TYPESCRIPT_LSP_PROVIDER_CONFIG[resolveTypeScriptLspProvider()]
-    : config;
-
-  const packagedServer = resolvePackagedLanguageServer(effectiveConfig);
+  const packagedServer = resolvePackagedLanguageServer(config);
   if (packagedServer) {
     return packagedServer;
   }
 
-  return { command: effectiveConfig.command, args: effectiveConfig.args };
+  return { command: config.command, args: config.args };
 }
 
 export function resolveTypeScriptLspProvider(): TypeScriptLspProvider {
-  const requested = process.env[TYPESCRIPT_LSP_PROVIDER_ENV];
-  if (isTypeScriptLspProvider(requested)) {
-    return requested;
+  return getExplicitTypeScriptLspProvider() ?? DEFAULT_TYPESCRIPT_LSP_PROVIDER;
+}
+
+function resolveTypeScriptLanguageServer(config: {
+  command: string;
+  args: string[];
+  envVar: string;
+}): { command: string; args: string[] } {
+  const explicitProvider = getExplicitTypeScriptLspProvider();
+  const provider = explicitProvider ?? DEFAULT_TYPESCRIPT_LSP_PROVIDER;
+  const providerConfig = TYPESCRIPT_LSP_PROVIDER_CONFIG[provider];
+
+  if (process.env[config.envVar]) {
+    return { command: process.env[config.envVar]!, args: providerConfig.args };
   }
-  return 'typescript-language-server';
+
+  const resolvedProvider = resolveLanguageServerCommand(providerConfig);
+  if (resolvedProvider) {
+    return resolvedProvider;
+  }
+
+  if (explicitProvider) {
+    return { command: providerConfig.command, args: providerConfig.args };
+  }
+
+  const fallbackConfig =
+    TYPESCRIPT_LSP_PROVIDER_CONFIG['typescript-language-server'];
+  return (
+    resolveLanguageServerCommand(fallbackConfig) ?? {
+      command: fallbackConfig.command,
+      args: fallbackConfig.args,
+    }
+  );
+}
+
+function resolveLanguageServerCommand(
+  config: PackagedLanguageServer
+): { command: string; args: string[] } | null {
+  const packagedServer = resolvePackagedLanguageServer(config);
+  if (packagedServer) {
+    return packagedServer;
+  }
+
+  if (commandExistsSync(config.command)) {
+    return { command: config.command, args: config.args };
+  }
+
+  return null;
+}
+
+function getExplicitTypeScriptLspProvider(): TypeScriptLspProvider | undefined {
+  const requested = process.env[TYPESCRIPT_LSP_PROVIDER_ENV];
+  return isTypeScriptLspProvider(requested) ? requested : undefined;
 }
 
 function isTypeScriptLspProvider(
@@ -213,6 +263,25 @@ function resolvePackagedLanguageServer(
   }
 }
 
+function commandExistsSync(command: string): boolean {
+  if (path.isAbsolute(command)) {
+    try {
+      accessSync(command, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const checkCommand = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(checkCommand, [command], {
+    stdio: 'ignore',
+    timeout: 1_000,
+    shell: process.platform === 'win32',
+  });
+  return result.status === 0;
+}
+
 export function detectLanguageId(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   return LANGUAGE_SERVER_COMMANDS[ext]?.languageId ?? 'plaintext';
@@ -232,6 +301,9 @@ export async function getLanguageServerForFile(
       args: userServer.args ?? [],
       workspaceRoot,
       languageId: userServer.languageId,
+      ...(userServer.initializationOptions && {
+        initializationOptions: userServer.initializationOptions,
+      }),
     };
   }
 

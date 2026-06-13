@@ -3,12 +3,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-vi.mock('../../src/lsp/manager.js', () => ({
+vi.mock('octocode-lsp/manager', () => ({
   acquirePooledClient: vi.fn(),
   isLanguageServerAvailable: vi.fn(),
 }));
 
-vi.mock('../../src/lsp/workspaceRoot.js', () => ({
+vi.mock('octocode-lsp/workspaceRoot', () => ({
   resolveWorkspaceRootForFile: vi.fn().mockResolvedValue('/workspace'),
 }));
 
@@ -25,7 +25,7 @@ vi.mock('../../src/tools/lsp/shared/callHierarchyTraversal.js', () => ({
 import {
   acquirePooledClient,
   isLanguageServerAvailable,
-} from '../../src/lsp/manager.js';
+} from 'octocode-lsp/manager';
 import { executeLspGetSemanticContent } from '../../src/tools/lsp/semantic_content/execution.js';
 import { hints as semanticToolHints } from '../../src/tools/lsp/semantic_content/hints.js';
 import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
@@ -163,6 +163,32 @@ describe('new public LSP tool execution', () => {
       parsed.success,
       parsed.success ? '' : JSON.stringify(parsed.error.issues, null, 2)
     ).toBe(true);
+  });
+
+  it('evidence.complete stays true when documentSymbols pagination hasMore=true (display pagination ≠ data incompleteness)', async () => {
+    const manySymbols = Array.from({ length: 50 }, (_, i) => ({
+      name: `sym${i}`,
+      kind: 12,
+      range: {
+        start: { line: i, character: 0 },
+        end: { line: i, character: 5 },
+      },
+    }));
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        documentSymbols: vi.fn().mockResolvedValue(manySymbols),
+      }) as never
+    );
+    const result = await executeLspGetSemanticContent({
+      queries: [
+        { uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 },
+      ],
+    } as never);
+    const text = textOf(result);
+    // hasMore is present (display pagination), but evidence must remain complete
+    expect(text).toContain('hasMore: true');
+    expect(text).toContain('complete: true');
+    expect(text).not.toContain('Result pagination has more results');
   });
 
   it('marks evidence.complete=true even when references or calls return zero results', async () => {
@@ -373,6 +399,43 @@ describe('new public LSP tool execution', () => {
     const text = textOf(result);
     expect(text).toContain('hasMore: true');
     expect(text).toContain('nextPage: 2');
+  });
+
+  it('summary.kinds reflects total symbol count across all pages, not only the current page slice', async () => {
+    // 30 functions (kind=12) + 5 classes (kind=5) = 35 total; page shows 10
+    const symbols = [
+      ...Array.from({ length: 30 }, (_, i) => ({
+        name: `fn${i}`,
+        kind: 12,
+        range: {
+          start: { line: i, character: 0 },
+          end: { line: i, character: 5 },
+        },
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        name: `Cls${i}`,
+        kind: 5,
+        range: {
+          start: { line: 30 + i, character: 0 },
+          end: { line: 30 + i, character: 5 },
+        },
+      })),
+    ];
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        documentSymbols: vi.fn().mockResolvedValue(symbols),
+      }) as never
+    );
+    const result = await executeLspGetSemanticContent({
+      queries: [
+        { uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 },
+      ],
+    } as never);
+    const text = textOf(result);
+    // Counts must reflect ALL 35 symbols, not just the 10 on this page
+    expect(text).toContain('function: 30');
+    expect(text).toContain('class: 5');
+    expect(text).toContain('totalSymbols: 35');
   });
 
   it('paginates call results and includes compact hint when contextLines=0', async () => {

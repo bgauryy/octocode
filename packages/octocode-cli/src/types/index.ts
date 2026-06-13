@@ -47,7 +47,7 @@ export type MCPClient =
   | 'kiro'
   | 'custom';
 
-export type IDE = Exclude<MCPClient, 'custom'> | 'claude';
+export type IDE = Exclude<MCPClient, 'custom'>;
 
 export type MCPClientCategory = 'ide' | 'desktop' | 'extension' | 'cli';
 

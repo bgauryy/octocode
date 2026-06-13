@@ -6,7 +6,7 @@ import {
   gatherIncomingCallsRecursive,
   gatherOutgoingCallsRecursive,
 } from '../../src/tools/lsp/shared/callHierarchyTraversal.js';
-import type { CallHierarchyItem } from '../../src/lsp/types.js';
+import type { CallHierarchyItem } from 'octocode-lsp/types';
 
 const makeItem = (name: string, uri: string, line = 0): CallHierarchyItem => ({
   name,
@@ -195,6 +195,37 @@ describe('gatherIncomingCallsRecursive with contextLines', () => {
     expect(
       (result.calls[0] as { from: CallHierarchyItem }).from.content
     ).toContain('line');
+  });
+
+  it('anchors content preview on the call-site line from fromRanges, not the function start', async () => {
+    // File: line0 … line4. Caller function starts at line 0.
+    // The actual call happens at line 3 (fromRanges[0].start.line = 3).
+    // With contextLines=1, preview should be centered on line 3, not line 0.
+    const caller = makeItem('callerFn', filePath, 0); // function starts at line 0
+    const callSiteRange = {
+      start: { line: 3, character: 0 },
+      end: { line: 3, character: 5 },
+    };
+    const call = { from: caller, fromRanges: [callSiteRange] };
+    mockClient.getIncomingCalls.mockResolvedValue([call]);
+
+    const item = makeItem('fn', filePath);
+    const result = await gatherIncomingCallsRecursive(
+      mockClient as never,
+      item,
+      1,
+      new Set(),
+      1 // contextLines
+    );
+
+    expect(result.calls).toHaveLength(1);
+    const preview =
+      (result.calls[0] as { from: CallHierarchyItem }).from.content ?? '';
+    // line3 (0-based) is "line3" — must appear, and must be marked as target (">")
+    expect(preview).toContain('line3');
+    expect(preview).toMatch(/>\s+4\| line3/); // 1-based line 4 = 0-based line 3
+    // line0 (function start) must NOT appear (it's outside the context window)
+    expect(preview).not.toContain('line0');
   });
 
   it('returns item unchanged when file cannot be read (missing file)', async () => {

@@ -117,32 +117,27 @@ export const tokenCommand: CLICommand = {
     },
   ],
   handler: async (args: ParsedArgs) => {
-    const hostnameOpt = args.options['hostname'] ?? args.options['H'];
+    const hostnameOpt = args.options['hostname'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
-    const showSource = Boolean(args.options['source'] || args.options['s']);
+    const showSource = Boolean(args.options['source']);
     const validateToken = Boolean(args.options['validate']);
     const reveal = Boolean(args.options['reveal'] || args.options['raw']);
-    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
-    const typeOpt = args.options['type'] ?? args.options['t'];
+    const jsonOutput = Boolean(args.options['json']);
+    const typeOpt = args.options['type'];
     const typeArg =
       (typeof typeOpt === 'string' ? typeOpt : undefined) || 'auto';
 
     let tokenSource: GetTokenSource;
     switch (typeArg.toLowerCase()) {
       case 'octocode':
-      case 'octocode-cli':
-      case 'o':
         tokenSource = 'octocode';
         break;
       case 'gh':
-      case 'gh-cli':
-      case 'g':
         tokenSource = 'gh';
         break;
       case 'auto':
-      case 'a':
         tokenSource = 'auto';
         break;
       default:

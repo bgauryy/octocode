@@ -4,7 +4,7 @@ vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
-vi.mock('../../src/lsp/manager.js', () => ({
+vi.mock('octocode-lsp/manager', () => ({
   LSP_UNAVAILABLE_HINT: 'LSP unavailable test',
   acquirePooledClient: vi.fn(),
 }));

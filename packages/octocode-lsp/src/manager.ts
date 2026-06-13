@@ -38,6 +38,46 @@ async function commandExists(command: string): Promise<boolean> {
   });
 }
 
+async function commandExitsZero(
+  command: string,
+  args: string[],
+  timeoutMs: number
+): Promise<boolean> {
+  return new Promise(resolve => {
+    const proc = spawn(command, args, {
+      stdio: 'ignore',
+      shell: false,
+    });
+
+    const timeout = setTimeout(() => {
+      proc.kill();
+      resolve(false);
+    }, timeoutMs);
+
+    proc.on('close', code => {
+      clearTimeout(timeout);
+      resolve(code === 0);
+    });
+
+    proc.on('error', () => {
+      clearTimeout(timeout);
+      resolve(false);
+    });
+  });
+}
+
+async function commandPassesHealthCheck(command: string): Promise<boolean> {
+  const executable = path.basename(command).toLowerCase();
+  if (executable !== 'rust-analyzer') {
+    return true;
+  }
+
+  // rustup may install a rust-analyzer shim even when the component is missing.
+  // `which rust-analyzer` succeeds in that state, but starting the LSP exits
+  // immediately. A version probe reliably separates a usable server from a shim.
+  return commandExitsZero(command, ['--version'], 5_000);
+}
+
 export async function isLanguageServerAvailable(
   filePath: string,
   workspaceRoot?: string
@@ -66,19 +106,23 @@ export async function isLanguageServerAvailable(
   if (path.isAbsolute(command)) {
     try {
       await fs.access(command);
-      return true;
+      return commandPassesHealthCheck(command);
     } catch {
       return false;
     }
   }
 
-  return commandExists(command);
+  if (!(await commandExists(command))) {
+    return false;
+  }
+
+  return commandPassesHealthCheck(command);
 }
 
 export const LSP_UNAVAILABLE_HINT =
   'No language server is available for this file, so no semantic results were returned. ' +
-  'Install typescript-language-server (`npm i -g typescript-language-server typescript`) ' +
-  'or set OCTOCODE_TS_LSP_PROVIDER=tsgo|vtsls with the matching server installed. ' +
+  'Install @typescript/native-preview for the default tsgo provider, ' +
+  'or set OCTOCODE_TS_LSP_PROVIDER=typescript-language-server|vtsls with the matching server installed. ' +
   'For a custom binary, set OCTOCODE_TS_SERVER_PATH. For a text-based search meanwhile, use localSearchCode.';
 
 const POOL_IDLE_TIMEOUT_MS = parseInt(
@@ -205,6 +249,7 @@ function languageIdForFile(filePath: string): string | null {
 
 function synthesizeFilePathForKey(key: PoolKey): string {
   const ext =
+    key.extension ??
     Object.entries(LANGUAGE_SERVER_COMMANDS).find(
       ([, cfg]) => serverIdentityForRegistryCommand(cfg) === key.serverId
     )?.[0] ??
@@ -229,6 +274,7 @@ async function poolKeyForFile(
         userServer.command,
         userServer.args ?? []
       ),
+      extension: ext,
     };
   }
 

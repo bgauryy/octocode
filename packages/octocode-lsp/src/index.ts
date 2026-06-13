@@ -28,6 +28,7 @@ export type {
   ExactPosition,
   FuzzyPosition,
   IncomingCall,
+  InitializationOptions,
   LanguageServerCommand,
   LanguageServerConfig,
   LSPPaginationInfo,

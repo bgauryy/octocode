@@ -33,8 +33,11 @@ function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
 
   // matchString reads return every occurrence as a slice — intentionally
   // partial, so they don't reduce evidence completeness.
+  // matchRanges is omitted for a single-slice result (mirrors GitHub), so also
+  // treat any result that carries a match-summary warning as a match slice.
   const isMatchSlice =
-    Array.isArray(data.matchRanges) && data.matchRanges.length > 0;
+    (Array.isArray(data.matchRanges) && data.matchRanges.length > 0) ||
+    (Array.isArray(data.warnings) && data.warnings.length > 0);
   const isSkeleton = data.isSkeleton === true || data.contentView === 'symbols';
   if (data.isPartial === true && !isMatchSlice && !isSkeleton) {
     reasons.push('File content is partial.');

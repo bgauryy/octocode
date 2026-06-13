@@ -12,6 +12,16 @@ export function normalizeCommandName(command: string): string {
   return base.replace(/\.exe$/i, '');
 }
 
+// Matches plain `rg` and platform-suffixed names like `rg-darwin-arm64`
+// produced by the build:bin:* scripts and bundled in dist/runtime/rg/.
+// normalizeCommandName() strips the path prefix and `.exe` suffix before
+// we reach this check, so we only need to handle the base name.
+const RG_COMMAND_PATTERN = /^rg(-[a-z0-9-]+)?$/i;
+
+function isRgCommand(command: string): boolean {
+  return RG_COMMAND_PATTERN.test(command);
+}
+
 const RG_ALLOWED_FLAGS = new Set([
   '-F',
   '-P',
@@ -215,7 +225,7 @@ function validateCommandArgs(
   command: string,
   args: string[]
 ): CommandValidationResult {
-  if (command === 'rg') {
+  if (isRgCommand(command)) {
     const disallowedFlag = findDisallowedRgFlag(args);
     if (disallowedFlag) {
       return {
@@ -336,12 +346,12 @@ function getFindPatternPositions(args: string[]): Set<number> {
 }
 
 function getPatternArgPositions(command: string, args: string[]): Set<number> {
-  switch (command) {
-    case 'rg':
+  switch (true) {
+    case isRgCommand(command):
       return getRgPatternPositions(args);
-    case 'grep':
+    case command === 'grep':
       return getGrepPatternPositions(args);
-    case 'find':
+    case command === 'find':
       return getFindPatternPositions(args);
     default:
       return new Set();

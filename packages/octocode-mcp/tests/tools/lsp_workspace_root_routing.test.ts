@@ -34,7 +34,7 @@ describe('LSP workspace root routing', () => {
   it.each([['definition'], ['references'], ['callers']] as const)(
     'passes the inferred root to lspGetSemanticContent type=%s',
     async type => {
-      const managerModule = await import('../../src/lsp/manager.js');
+      const managerModule = await import('octocode-lsp/manager');
 
       vi.spyOn(managerModule, 'isLanguageServerAvailable').mockResolvedValue(
         true

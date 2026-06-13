@@ -29,9 +29,10 @@ export class LsCommandBuilder extends BaseCommandBuilder {
       this.addFlag('-A');
     }
 
-    if (query.humanReadable) {
-      this.addFlag('-h');
-    }
+    // humanReadable removed from MCP schema — default path (no -h, raw bytes
+    // parsed by formatFileSize) produces more precise output than double-
+    // formatting ls -h strings. The humanReadable() chain method is kept for
+    // programmatic builder use.
 
     if (query.recursive) {
       this.addFlag('-R');

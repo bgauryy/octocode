@@ -2,6 +2,7 @@ export interface PoolKey {
   workspaceRoot: string;
   languageId: string;
   serverId?: string;
+  extension?: string;
 }
 
 interface PooledClient {

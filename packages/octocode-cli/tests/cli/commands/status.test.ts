@@ -121,7 +121,6 @@ describe('statusCommand', () => {
   it('exports expected command metadata', async () => {
     const cmd = await loadCommand();
     expect(cmd.name).toBe('status');
-    expect(cmd.aliases).toBeUndefined();
   });
 
   it('prints full status with no MCP configs found', async () => {
@@ -186,13 +185,13 @@ describe('statusCommand', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('--json -j alias works and sets exitCode 1 when not authenticated', async () => {
+  it('--json sets exitCode 1 when not authenticated', async () => {
     vi.mocked(formatAuthStatusAsJson).mockReturnValue({
       authenticated: false,
       hostname: 'github.com',
     });
     const cmd = await loadCommand();
-    await cmd.handler({ command: 'status', args: [], options: { j: true } });
+    await cmd.handler({ command: 'status', args: [], options: { json: true } });
     expect(out('"auth"')).toBe(true);
     expect(process.exitCode).toBe(1);
   });
@@ -257,7 +256,7 @@ describe('statusCommand', () => {
     expect(out('conflicts')).toBe(false);
   });
 
-  it('uses --hostname and -H alias', async () => {
+  it('uses --hostname', async () => {
     const cmd = await loadCommand();
     await cmd.handler({
       command: 'status',
@@ -265,19 +264,6 @@ describe('statusCommand', () => {
       options: { hostname: 'ghe.corp.com' },
     });
     expect(formatAuthStatusAsJson).toHaveBeenCalledWith('ghe.corp.com');
-
-    vi.clearAllMocks();
-    vi.mocked(formatAuthStatusAsJson).mockReturnValue({
-      authenticated: true,
-      hostname: 'h',
-    });
-    const cmd2 = await loadCommand();
-    await cmd2.handler({
-      command: 'status',
-      args: [],
-      options: { H: 'alias.corp.com' },
-    });
-    expect(formatAuthStatusAsJson).toHaveBeenCalledWith('alias.corp.com');
   });
 
   it('falls back to OCTOCODE_HOME when paths.home falsy', async () => {

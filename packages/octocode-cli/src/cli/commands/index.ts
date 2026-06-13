@@ -4,38 +4,53 @@ import { authCommand, loginCommand, logoutCommand } from './auth.js';
 import { tokenCommand } from './token.js';
 import { skillsCommand } from './skills.js';
 import { statusCommand } from './status.js';
-import { getCommand } from './get.js';
-import { treeCommand } from './tree.js';
-import { searchCommand } from './search.js';
-import { prCommand } from './pr.js';
-import { toolCommand } from '../tool-command.js';
 
-const commands: CLICommand[] = [
-  // Agent-friendly unified commands
-  getCommand,
-  treeCommand,
-  searchCommand,
-  prCommand,
-  // Management commands
+type CommandLoader = () => Promise<CLICommand>;
+
+const lightweightCommands: readonly CLICommand[] = [
   installCommand,
   authCommand,
   loginCommand,
   logoutCommand,
   skillsCommand,
-  toolCommand,
   tokenCommand,
   statusCommand,
 ];
 
+const commandLoaders: Record<string, CommandLoader> = {
+  get: async () => (await import('./get.js')).getCommand,
+  tree: async () => (await import('./tree.js')).treeCommand,
+  search: async () => (await import('./search.js')).searchCommand,
+  pr: async () => (await import('./pr.js')).prCommand,
+  pkg: async () => (await import('./pkg.js')).pkgCommand,
+  lsp: async () => (await import('./lsp.js')).lspCommand,
+  symbols: async () => (await import('./symbols.js')).symbolsCommand,
+  install: async () => (await import('./install.js')).installCommand,
+  auth: async () => (await import('./auth.js')).authCommand,
+  login: async () => (await import('./auth.js')).loginCommand,
+  logout: async () => (await import('./auth.js')).logoutCommand,
+  skills: async () => (await import('./skills.js')).skillsCommand,
+  token: async () => (await import('./token.js')).tokenCommand,
+  status: async () => (await import('./status.js')).statusCommand,
+};
+
 export function findCommand(name: string): CLICommand | undefined {
-  return commands.find(cmd => cmd.name === name || cmd.aliases?.includes(name));
+  return lightweightCommands.find(command => command.name === name);
+}
+
+export async function loadCommand(
+  name: string
+): Promise<CLICommand | undefined> {
+  const lightweightCommand = findCommand(name);
+  if (lightweightCommand) {
+    return lightweightCommand;
+  }
+
+  const loader = commandLoaders[name];
+  return loader ? loader() : undefined;
 }
 
 export {
-  getCommand,
-  treeCommand,
-  searchCommand,
-  prCommand,
   installCommand,
   authCommand,
   loginCommand,

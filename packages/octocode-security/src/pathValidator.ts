@@ -194,13 +194,19 @@ export class PathValidator {
 
     const resolvedPath = path.join(resolvedAncestor, ...remainder);
     const isAllowed = this.allowedRoots.some(allowedRoot => {
-      if (resolvedPath === allowedRoot || resolvedPath.startsWith(allowedRoot + path.sep)) {
+      if (
+        resolvedPath === allowedRoot ||
+        resolvedPath.startsWith(allowedRoot + path.sep)
+      ) {
         return true;
       }
       // allowedRoot may itself be a symlink (e.g. /tmp → /private/tmp on macOS)
       try {
         const realRoot = fs.realpathSync(allowedRoot);
-        return resolvedPath === realRoot || resolvedPath.startsWith(realRoot + path.sep);
+        return (
+          resolvedPath === realRoot ||
+          resolvedPath.startsWith(realRoot + path.sep)
+        );
       } catch {
         return false;
       }

@@ -51,7 +51,7 @@ describe('Install Feature', () => {
       const result = detectAvailableIDEs();
 
       expect(result).toContain('cursor');
-      expect(result).not.toContain('claude');
+      expect(result).not.toContain('claude-desktop');
     });
 
     it('should return both when both are available', async () => {
@@ -64,7 +64,7 @@ describe('Install Feature', () => {
       const result = detectAvailableIDEs();
 
       expect(result).toContain('cursor');
-      expect(result).toContain('claude');
+      expect(result).toContain('claude-desktop');
     });
   });
 
@@ -288,11 +288,14 @@ describe('Install Feature', () => {
 
       const { installOctocodeMultiple } =
         await import('../../src/features/install.js');
-      const results = installOctocodeMultiple(['cursor', 'claude'], 'npx');
+      const results = installOctocodeMultiple(
+        ['cursor', 'claude-desktop'],
+        'npx'
+      );
 
       expect(results.size).toBe(2);
       expect(results.get('cursor')?.success).toBe(true);
-      expect(results.get('claude')?.success).toBe(true);
+      expect(results.get('claude-desktop')?.success).toBe(true);
     });
 
     it('should handle mixed success/failure', async () => {
@@ -320,10 +323,13 @@ describe('Install Feature', () => {
 
       const { installOctocodeMultiple } =
         await import('../../src/features/install.js');
-      const results = installOctocodeMultiple(['cursor', 'claude'], 'npx');
+      const results = installOctocodeMultiple(
+        ['cursor', 'claude-desktop'],
+        'npx'
+      );
 
       expect(results.get('cursor')?.success).toBe(true);
-      expect(results.get('claude')?.success).toBe(false);
+      expect(results.get('claude-desktop')?.success).toBe(false);
     });
   });
 

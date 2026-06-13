@@ -384,9 +384,9 @@ function queryPaginationReasons(data: Record<string, unknown>): string[] {
   if (hasMorePagination(data.outputPagination)) {
     reasons.push('One or more query-level output pages have more data.');
   }
-  if (hasMorePagination(data.pagination)) {
-    reasons.push('Result pagination has more results.');
-  }
+  // data.pagination is display pagination — the tool has all its data and
+  // chooses to surface it across pages. It does not affect data completeness;
+  // the tool's own evidence.complete already reflects LSP data availability.
   return reasons;
 }
 

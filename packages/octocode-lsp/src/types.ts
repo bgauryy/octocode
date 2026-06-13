@@ -1,3 +1,5 @@
+export type InitializationOptions = Record<string, unknown>;
+
 export interface LanguageServerConfig {
   command: string;
 
@@ -6,6 +8,8 @@ export interface LanguageServerConfig {
   workspaceRoot: string;
 
   languageId?: string;
+
+  initializationOptions?: InitializationOptions;
 }
 
 export interface UserLanguageServerConfig {
@@ -14,6 +18,8 @@ export interface UserLanguageServerConfig {
   args?: string[];
 
   languageId: string;
+
+  initializationOptions?: InitializationOptions;
 }
 
 export interface LanguageServerCommand {

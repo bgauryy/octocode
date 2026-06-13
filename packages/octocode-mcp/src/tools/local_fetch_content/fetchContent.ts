@@ -40,7 +40,12 @@ interface ExtractionState {
 }
 
 function sourceSizeFields(sourceChars: number, sourceBytes: number) {
-  return { sourceChars, sourceBytes };
+  // Omit sourceBytes when it equals sourceChars (pure ASCII) or the diff is
+  // negligible (< 2% and < 50 bytes). Only meaningful for files with heavy
+  // Unicode where byte-length diverges from char-length.
+  const bytesDiff = Math.abs(sourceBytes - sourceChars);
+  const significant = bytesDiff >= 50 && bytesDiff / sourceChars >= 0.02;
+  return significant ? { sourceChars, sourceBytes } : { sourceChars };
 }
 
 function withSourceSize(
@@ -360,7 +365,12 @@ function buildMatchExtractionState(
     if (firstRange && lastRange) {
       actualStartLine = firstRange.start;
       actualEndLine = lastRange.end;
-      matchRanges = result.matchRanges;
+      // Omit matchRanges for a single slice — startLine/endLine already carry
+      // the range, and the field only adds value when navigating multiple hits.
+      // Mirrors githubGetFileContent behaviour.
+      if (result.matchRanges.length > 1) {
+        matchRanges = result.matchRanges;
+      }
     }
   }
 
@@ -602,8 +612,10 @@ function buildSuccessResult(
   return {
     path: queryPath,
     content: pagination.paginatedContent,
-    contentView,
-    isPartial,
+    // Omit contentView when 'standard' (default) — absence implies standard.
+    ...(contentView !== 'standard' && { contentView }),
+    // Omit isPartial when false — absence implies complete.
+    ...(isPartial && { isPartial }),
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
       extraction.actualEndLine !== undefined && {
@@ -727,19 +739,22 @@ export async function fetchContent(
         // intentionally ignored for minify:"symbols", mirroring the GitHub path.
         // isSkeleton carries the lossy "bodies omitted" signal; isPartial stays
         // false so agents do not try to paginate a complete skeleton index.
+        const symbolsHints: string[] = [SIGNATURES_ONLY_HINT];
+        if (query.matchString) {
+          symbolsHints.push(
+            `matchString was ignored — minify:"symbols" returns the full skeleton index. Use startLine/endLine from the gutter to read the matching body.`
+          );
+        }
+        if (secretWarning) symbolsHints.push(secretWarning);
         return attachRawResponseChars(
           {
             path: query.path,
             content: sigsProcessed,
             contentView: 'symbols',
             isSkeleton: true,
-            isPartial: false,
             totalLines: totalLinesOrig,
             ...sourceSizeFields(sourceChars, sourceBytes),
-            hints: [
-              SIGNATURES_ONLY_HINT,
-              ...(secretWarning ? [secretWarning] : []),
-            ],
+            hints: symbolsHints,
           },
           sourceChars
         );

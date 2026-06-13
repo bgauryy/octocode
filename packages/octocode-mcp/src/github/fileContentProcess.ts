@@ -15,6 +15,15 @@ function getDefaultContentPageSize(): number {
   return getOutputCharLimit();
 }
 
+function sourceSizeFields(sourceChars: number, sourceBytes: number) {
+  // Omit sourceBytes when it equals sourceChars (pure ASCII) or the diff is
+  // negligible (< 2% and < 50 bytes). Only meaningful for files with heavy
+  // Unicode where byte-length diverges from char-length.
+  const bytesDiff = Math.abs(sourceBytes - sourceChars);
+  const significant = bytesDiff >= 50 && bytesDiff / sourceChars >= 0.02;
+  return significant ? { sourceChars, sourceBytes } : { sourceChars };
+}
+
 interface FileTimestampInfo {
   lastModified: string;
   lastModifiedBy: string;
@@ -127,6 +136,17 @@ export async function processFileContentAPI(
         sanitized.content,
         filePath
       );
+      const hints: string[] = [SIGNATURES_ONLY_HINT];
+      if (matchString) {
+        hints.push(
+          `matchString was ignored — minify:"symbols" returns the full skeleton index. Use startLine/endLine from the gutter to read the matching body.`
+        );
+      }
+      if (sanitized.hasSecrets) {
+        hints.push(
+          `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
+        );
+      }
       return {
         owner,
         repo,
@@ -136,19 +156,13 @@ export async function processFileContentAPI(
         isSkeleton: true,
         branch,
         totalLines: decodedContent.split('\n').length,
-        sourceChars,
-        sourceBytes,
+        ...sourceSizeFields(sourceChars, sourceBytes),
         // Skeletons bypass applyContentPagination — returned whole. isSkeleton
         // carries the lossy "bodies omitted" signal, while isPartial remains
         // false so agents do not try to paginate a complete skeleton index.
         isPartial: false,
         signaturesExtracted: true,
-        hints: sanitized.hasSecrets
-          ? [
-              SIGNATURES_ONLY_HINT,
-              `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`,
-            ]
-          : [SIGNATURES_ONLY_HINT],
+        hints,
       };
     }
   }
@@ -189,8 +203,7 @@ export async function processFileContentAPI(
         content: '',
         branch,
         totalLines,
-        sourceChars,
-        sourceBytes,
+        ...sourceSizeFields(sourceChars, sourceBytes),
         matchNotFound: true,
         searchedFor: matchString,
         hints: [
@@ -214,8 +227,7 @@ export async function processFileContentAPI(
         content: '',
         branch,
         totalLines,
-        sourceChars,
-        sourceBytes,
+        ...sourceSizeFields(sourceChars, sourceBytes),
         matchNotFound: true,
         searchedFor: matchString,
         hints: notFoundHints,
@@ -320,11 +332,13 @@ export async function processFileContentAPI(
     repo,
     path: filePath,
     content: finalContent,
-    contentView: fallbackContentView,
+    // Omit contentView when 'standard' (default) — absence implies standard.
+    ...(fallbackContentView !== 'standard' && {
+      contentView: fallbackContentView,
+    }),
     branch,
     totalLines,
-    sourceChars,
-    sourceBytes,
+    ...sourceSizeFields(sourceChars, sourceBytes),
     ...(isPartial && {
       startLine: actualStartLine,
       endLine: actualEndLine,
@@ -332,7 +346,6 @@ export async function processFileContentAPI(
     }),
     ...(matchRanges && { matchRanges }),
     ...((matchLocations.length > 0 || signaturesSkippedWarning) && {
-      ...(matchLocations.length > 0 && { matchLocations }),
       warnings: [
         ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
         ...matchLocations,

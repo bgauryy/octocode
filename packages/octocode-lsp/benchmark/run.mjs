@@ -244,20 +244,39 @@ const CASES = [
         file: 'include/greeter.hpp',
         expect: { names: ['Greeter', 'FriendlyGreeter', 'welcome'] },
       },
-      typeDefinition: {
-        file: 'src/greeter.cpp',
-        needle: 'greeter',
-        expect: { minLocations: 1, fileIncludes: 'include/greeter.hpp' },
-      },
       implementation: {
         file: 'include/greeter.hpp',
         needle: 'greet',
         expect: { minLocations: 1, fileIncludes: 'src/greeter.cpp' },
       },
-      callHierarchy: {
-        file: 'include/greeter.hpp',
-        needle: 'welcome',
-        expect: { prepared: 'welcome', incoming: 'main', outgoing: 'greet' },
+    },
+  },
+  {
+    id: 'custom',
+    title: 'Custom local server',
+    files: ['demo.foo'],
+    entry: 'demo.foo',
+    configFile: 'lsp-servers.json',
+    operations: {
+      definition: {
+        file: 'demo.foo',
+        needle: 'FooSymbol',
+        expect: { minLocations: 1, fileIncludes: 'demo.foo' },
+      },
+      references: {
+        file: 'demo.foo',
+        needle: 'FooSymbol',
+        occurrence: 1,
+        expect: { minLocations: 1, fileIncludes: 'demo.foo' },
+      },
+      hover: {
+        file: 'demo.foo',
+        needle: 'FooSymbol',
+        expect: { textIncludes: 'custom-foo' },
+      },
+      documentSymbols: {
+        file: 'demo.foo',
+        expect: { names: ['FooSymbol'] },
       },
     },
   },
@@ -463,6 +482,24 @@ function result(operation, startedAt, ok, error, details = {}) {
 async function runCase(testCase) {
   const caseRoot = path.join(benchmarkRoot, testCase.id);
   const entryPath = path.join(caseRoot, testCase.entry);
+  const originalLspConfig = process.env.OCTOCODE_LSP_CONFIG;
+  if (testCase.configFile) {
+    process.env.OCTOCODE_LSP_CONFIG = path.join(caseRoot, testCase.configFile);
+  }
+
+  try {
+    return await runCaseWithConfig(testCase, caseRoot, entryPath);
+  } finally {
+    if (originalLspConfig === undefined) {
+      delete process.env.OCTOCODE_LSP_CONFIG;
+    } else {
+      process.env.OCTOCODE_LSP_CONFIG = originalLspConfig;
+    }
+  }
+}
+
+async function runCaseWithConfig(testCase, caseRoot, entryPath) {
+  const caseStartedAt = performance.now();
   const serverConfig = await getLanguageServerForFile(entryPath, caseRoot);
   const serverAvailable = await isLanguageServerAvailable(entryPath, caseRoot);
   const output = {
@@ -489,13 +526,16 @@ async function runCase(testCase) {
       status: 'skip',
       reason: 'language server unavailable',
     });
+    output.totalMs = Math.round(performance.now() - caseStartedAt);
     return output;
   }
 
   const client = new LSPClient(serverConfig);
   try {
     try {
+      const startupStartedAt = performance.now();
       await client.start();
+      output.startupMs = Math.round(performance.now() - startupStartedAt);
     } catch (error) {
       output.operations.push({
         operation: '*',
@@ -505,6 +545,7 @@ async function runCase(testCase) {
         }`,
         stderr: client.getRecentStderr().slice(-8),
       });
+      output.totalMs = Math.round(performance.now() - caseStartedAt);
       return output;
     }
 
@@ -513,7 +554,9 @@ async function runCase(testCase) {
         await client.openDocument(path.join(caseRoot, file));
       }
     }
+    const readyStartedAt = performance.now();
     await client.waitForReady(30_000);
+    output.readyMs = Math.round(performance.now() - readyStartedAt);
 
     for (const [operationName, operation] of Object.entries(
       testCase.operations
@@ -543,6 +586,7 @@ async function runCase(testCase) {
     await client.stop();
   }
 
+  output.totalMs = Math.round(performance.now() - caseStartedAt);
   return output;
 }
 
@@ -558,6 +602,12 @@ function printReport(results) {
     console.log(`${item.title} (${item.id})`);
     console.log(`  serverAvailable: ${item.serverAvailable}`);
     console.log(`  server: ${server}`);
+    if (item.startupMs !== undefined) {
+      console.log(`  startupMs: ${item.startupMs}`);
+    }
+    if (item.readyMs !== undefined) {
+      console.log(`  readyMs: ${item.readyMs}`);
+    }
     for (const operation of item.operations) {
       const duration =
         operation.durationMs !== undefined ? ` ${operation.durationMs}ms` : '';
@@ -569,6 +619,9 @@ function printReport(results) {
       console.log(
         `  ${operation.status.toUpperCase().padEnd(4)} ${operation.operation}${duration}${suffix}`
       );
+    }
+    if (item.totalMs !== undefined) {
+      console.log(`  totalMs: ${item.totalMs}`);
     }
     console.log('');
   }

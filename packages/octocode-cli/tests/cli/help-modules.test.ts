@@ -25,14 +25,14 @@ describe('main-help', () => {
     expect(output).toContain('lspGetSemanticContent');
     expect(output).toContain('packageSearch');
     expect(output).toContain('install');
-    expect(output).toContain('COMMANDS');
+    expect(output).toContain('SMART COMMANDS');
     expect(output).toContain('TOOLS');
-    expect(output).toContain('OPTIONS');
-    expect(output).toContain('EXAMPLES');
     expect(output).toContain('instructions');
     expect(output).toContain('tools');
+    expect(output).toContain('octocode pkg');
+    expect(output).toContain('octocode symbols');
+    expect(output).toContain('octocode lsp');
     expect(output).toContain('--queries');
-    expect(output).toContain('same Octocode MCP tool implementations');
   });
 });
 
@@ -67,6 +67,10 @@ describe('command-help-specs', () => {
       'get',
       'tree',
       'search',
+      'pr',
+      'pkg',
+      'symbols',
+      'lsp',
     ];
     for (const name of names) {
       expect(findStaticCommandHelp(name)).toBeDefined();
@@ -147,7 +151,6 @@ describe('help (dynamic fallback)', () => {
       options: [
         {
           name: 'flag',
-          short: 'f',
           description: 'A flag',
           hasValue: true,
           default: 'yes',
@@ -164,7 +167,7 @@ describe('help (dynamic fallback)', () => {
     expect(output).toContain('USAGE');
     expect(output).toContain('octocode test-cmd --flag');
     expect(output).toContain('OPTIONS');
-    expect(output).toContain('-f, --flag');
+    expect(output).toContain('--flag');
     expect(output).toContain('(default: yes)');
   });
 });

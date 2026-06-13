@@ -1,10 +1,11 @@
-import type { LSPClient } from '../../../lsp/client.js';
+import type { LSPClient } from 'octocode-lsp/client';
 import type {
   CallHierarchyItem,
   IncomingCall,
+  LSPRange,
   OutgoingCall,
-} from '../../../lsp/types.js';
-import { safeReadFile } from '../../../lsp/validation.js';
+} from 'octocode-lsp/types';
+import { safeReadFile } from 'octocode-lsp/validation';
 
 export type TraversalResult<T> = {
   calls: T[];
@@ -25,7 +26,8 @@ export function createCallItemKey(item: CallHierarchyItem): string {
 
 async function enhanceCallItem(
   item: CallHierarchyItem,
-  contextLines: number
+  contextLines: number,
+  callSiteRanges?: readonly LSPRange[]
 ): Promise<CallHierarchyItem> {
   if (contextLines <= 0) return item;
 
@@ -33,18 +35,19 @@ async function enhanceCallItem(
   if (!content) return item;
 
   const lines = content.split(/\r?\n/);
-  const startLine = Math.max(0, item.range.start.line - contextLines);
-  const endLine = Math.min(
-    lines.length - 1,
-    item.range.end.line + contextLines
-  );
+
+  // When call-site ranges are provided (incoming call), anchor the preview on
+  // the first actual call site rather than the function's start, so the
+  // snippet shows WHERE the call happens, not the beginning of the caller.
+  const anchorLine = callSiteRanges?.[0]?.start.line ?? item.range.start.line;
+  const startLine = Math.max(0, anchorLine - contextLines);
+  const endLine = Math.min(lines.length - 1, anchorLine + contextLines);
+
   const snippet = lines
     .slice(startLine, endLine + 1)
     .map((line, index) => {
       const lineNumber = startLine + index + 1;
-      const isTarget =
-        lineNumber > item.range.start.line &&
-        lineNumber <= item.range.end.line + 1;
+      const isTarget = lineNumber === anchorLine + 1;
       return `${isTarget ? '>' : ' '}${String(lineNumber).padStart(4, ' ')}| ${line}`;
     })
     .join('\n');
@@ -66,7 +69,7 @@ async function enhanceIncomingCalls(
   return Promise.all(
     calls.map(async call => ({
       ...call,
-      from: await enhanceCallItem(call.from, contextLines),
+      from: await enhanceCallItem(call.from, contextLines, call.fromRanges),
     }))
   );
 }

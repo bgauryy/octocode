@@ -50,7 +50,7 @@ export async function runToolTerminalFlow(): Promise<void> {
   console.log();
   console.log(`  ${c('magenta', bold('Tool Terminal'))}`);
   console.log(
-    `  ${dim('Type')} ${c('cyan', 'list')} ${dim('for tools,')} ${c('cyan', '<toolName> {"path":".","pattern":"runCLI"}')} ${dim('to run, or')} ${c('cyan', 'exit')} ${dim('to return.')}`
+    `  ${dim('Type')} ${c('cyan', 'list')} ${dim('for tools,')} ${c('cyan', '<toolName> {"path":".","keywords":"runCLI"}')} ${dim('to run, or')} ${c('cyan', 'exit')} ${dim('to return.')}`
   );
 
   await showAvailableTools();

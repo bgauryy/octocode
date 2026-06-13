@@ -74,12 +74,6 @@ function buildRepositoryDetail(repo: GitHubRepositoryOutput): RepositoryDetail {
   ) as RepositoryDetail;
 }
 
-// ── Lean compact-string output (default) ─────────────────────────────────────
-//
-// Format: "owner/repo ★stars [⑂forks] [language] [YYYY-MM-DD] [#t1,t2,t3] [— desc]"
-// Example: "vitejs/vite ★ 81442 ⑂ 8294 TypeScript 2026-06-13 #build-tool,vite — Next generation frontend tooling"
-// Saves ~40% tokens vs the YAML-object format (1 line vs 10-12 lines per repo).
-
 export function formatRepoLine(repo: GitHubRepositoryOutput): string {
   const r = repo as GitHubRepositoryOutput & {
     pushedAt?: string;

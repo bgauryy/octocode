@@ -27,12 +27,12 @@ vi.mock('../../src/tools/local_fetch_content/fetchContent.js', () => ({
   fetchContent: (...args: unknown[]) => mockFetchContent(...args),
 }));
 
-vi.mock('../../src/lsp/manager.js', () => ({
+vi.mock('octocode-lsp/manager', () => ({
   acquirePooledClient: vi.fn(),
   isLanguageServerAvailable: vi.fn().mockResolvedValue(false),
 }));
 
-vi.mock('../../src/lsp/workspaceRoot.js', () => ({
+vi.mock('octocode-lsp/workspaceRoot', () => ({
   resolveWorkspaceRootForFile: vi.fn().mockResolvedValue(process.cwd()),
 }));
 

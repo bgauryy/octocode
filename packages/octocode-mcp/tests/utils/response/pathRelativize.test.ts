@@ -218,6 +218,52 @@ describe('commonDirPrefix', () => {
   });
 });
 
+describe('relativizeResultPaths — compact string element stripping', () => {
+  it('strips the base prefix from absolute paths embedded in string array elements', () => {
+    const results = [
+      {
+        data: {
+          uri: '/w/src/a.ts',
+          payload: {
+            // compact call rows: strings with embedded absolute paths
+            calls: [
+              'incoming fn function /w/src/b.ts:10-20 sel=10 ranges=15:4',
+              'outgoing bar function /w/src/c.ts:5-8 sel=5',
+            ],
+          },
+        },
+      },
+    ];
+    const base = relativizeResultPaths(results);
+    expect(base).toBe('/w/src');
+    // Structured field stripped as before
+    expect(results[0]!.data.uri).toBe('a.ts');
+    // Embedded paths in compact strings also stripped to relative
+    expect(results[0]!.data.payload.calls[0]).toBe(
+      'incoming fn function b.ts:10-20 sel=10 ranges=15:4'
+    );
+    expect(results[0]!.data.payload.calls[1]).toBe(
+      'outgoing bar function c.ts:5-8 sel=5'
+    );
+  });
+
+  it('handles string elements with no embedded absolute paths without modification', () => {
+    const results = [
+      {
+        data: {
+          uri: '/w/src/a.ts',
+          payload: { symbols: ['10:0 function doThing children=2'] },
+        },
+      },
+    ];
+    const base = relativizeResultPaths(results);
+    expect(base).toBe('/w/src');
+    expect(results[0]!.data.payload.symbols[0]).toBe(
+      '10:0 function doThing children=2'
+    );
+  });
+});
+
 describe('relativizeResultPaths — branch coverage extras', () => {
   it('handles paths where computed base does not expand to all holders', () => {
     // When base is shorter than any holder path, all valid absolute paths starting with /

@@ -103,14 +103,12 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"runCLI","fixedString":true,"include":["ts","tsx"],"maxFiles":5,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: {
-        tool: 'localSearchCode',
-      },
+      options: {},
     });
 
     expect(publicMocks.initialize).not.toHaveBeenCalled();
@@ -138,12 +136,12 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'githubSearchCode',
         '{"queries":[{"keywordsToSearch":["tool"],"owner":"bgauryy","repo":"octocode-mcp"}],"responseCharLength":1200}',
       ],
-      options: { tool: 'githubSearchCode' },
+      options: {},
     });
 
     expect(publicMocks.initialize).toHaveBeenCalledTimes(1);
@@ -169,14 +167,13 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
       options: {
-        tool: 'localSearchCode',
-        output: 'json',
+        json: true,
       },
     });
 
@@ -190,9 +187,9 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();
@@ -211,9 +208,9 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
-      options: { tool: 'localSearchCode', schema: true },
+      options: { schema: true },
     });
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();
@@ -224,10 +221,9 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
       options: {
-        tool: 'localSearchCode',
         input:
           '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       },
@@ -244,10 +240,9 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
       options: {
-        tool: 'localSearchCode',
         path: '.',
         keywords: 'runCLI',
       },
@@ -264,11 +259,9 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode', '{"path":".","keywords":"runCLI"'],
-      options: {
-        tool: 'localSearchCode',
-      },
+      options: {},
     });
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();
@@ -282,14 +275,12 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: {
-        tool: 'localSearchCode',
-      },
+      options: {},
     });
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();
@@ -310,14 +301,12 @@ describe('toolCommand', () => {
       await import('../../src/cli/tool-command.js');
 
     const ok = await executeToolCommand({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: {
-        tool: 'localSearchCode',
-      },
+      options: {},
     });
 
     expect(ok).toBe(false);
@@ -331,14 +320,12 @@ describe('toolCommand', () => {
     publicMocks.localSearchCode.mockRejectedValueOnce(err);
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"runCLI","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: {
-        tool: 'localSearchCode',
-      },
+      options: {},
     });
 
     expect(consoleSpy).toHaveBeenCalledWith(
@@ -355,7 +342,7 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode', 'localFindFiles'],
       options: {},
     });
@@ -369,7 +356,7 @@ describe('toolCommand', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
       options: { queries: 'null' },
     });

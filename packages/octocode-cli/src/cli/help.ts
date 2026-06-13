@@ -19,14 +19,11 @@ export function showCommandHelp(command: CLICommandSpec): void {
   if (command.options && command.options.length > 0) {
     lines.push(`  ${bold('OPTIONS')}`);
     for (const opt of command.options) {
-      const shortFlag = opt.short ? `-${opt.short}, ` : '    ';
       const longFlag = `--${opt.name}`;
       const valueHint = opt.hasValue ? ` <value>` : '';
       const defaultHint =
         opt.default !== undefined ? dim(` (default: ${opt.default})`) : '';
-      lines.push(
-        `    ${c('cyan', shortFlag + longFlag + valueHint)}${defaultHint}`
-      );
+      lines.push(`    ${c('cyan', longFlag + valueHint)}${defaultHint}`);
       lines.push(`        ${opt.description}`);
     }
     lines.push('');

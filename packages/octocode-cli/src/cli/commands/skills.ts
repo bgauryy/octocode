@@ -168,7 +168,7 @@ export const skillsCommand: CLICommand = {
   usage:
     'octocode skills [search|read|install|remove|list|sync] [--skill <name>] [--targets <list>] [--mode <copy|symlink>] [--json]',
   options: [
-    { name: 'force', short: 'f', description: 'Overwrite existing skills' },
+    { name: 'force', description: 'Overwrite existing skills' },
     {
       name: 'skill',
       description: 'Skill folder name (install/remove from bundled)',
@@ -226,19 +226,17 @@ export const skillsCommand: CLICommand = {
   ],
   handler: async (args: ParsedArgs) => {
     const subcommand = args.args[0] || 'list';
-    const force = Boolean(args.options['force'] || args.options['f']);
-    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
+    const force = Boolean(args.options['force']);
+    const jsonOutput = Boolean(args.options['json']);
     const fullOutput = Boolean(args.options['full']);
-    const dryRun = Boolean(args.options['dry-run'] || args.options['n']);
-    const installTopResult = Boolean(
-      args.options['install'] || args.options['i']
-    );
+    const dryRun = Boolean(args.options['dry-run']);
+    const installTopResult = Boolean(args.options['install']);
     const rawTargetFilter = args.options['target'];
     const targetFilter =
       typeof rawTargetFilter === 'string' && rawTargetFilter.length > 0
         ? rawTargetFilter.trim().toLowerCase()
         : undefined;
-    const rawSkill = args.options['skill'] ?? args.options['k'];
+    const rawSkill = args.options['skill'];
     const specificSkill =
       typeof rawSkill === 'string' && rawSkill.length > 0
         ? rawSkill
@@ -248,11 +246,8 @@ export const skillsCommand: CLICommand = {
       typeof rawLocalPath === 'string' && rawLocalPath.length > 0
         ? rawLocalPath
         : undefined;
-    const rawTargets = args.options['targets'] ?? args.options['t'];
-    const rawMode =
-      subcommand === 'remove'
-        ? undefined
-        : (args.options['mode'] ?? args.options['m']);
+    const rawTargets = args.options['targets'];
+    const rawMode = subcommand === 'remove' ? undefined : args.options['mode'];
 
     let installMode: SkillInstallMode = 'copy';
     if (typeof rawMode === 'string' && rawMode.trim().length > 0) {
@@ -495,13 +490,10 @@ export const skillsCommand: CLICommand = {
     }
 
     if (subcommand === 'search') {
-      const query =
-        args.args[1] ||
-        (args.options['query'] as string) ||
-        (args.options['q'] as string);
+      const query = args.args[1] || (args.options['query'] as string);
       const isHumanTTY = process.stdout.isTTY === true;
       const directMode = Boolean(args.options['direct']) || isHumanTTY;
-      const rawLimit = args.options['limit'] ?? args.options['l'];
+      const rawLimit = args.options['limit'];
       const limit =
         typeof rawLimit === 'string' && /^\d+$/.test(rawLimit)
           ? Math.max(1, Math.min(100, parseInt(rawLimit, 10)))

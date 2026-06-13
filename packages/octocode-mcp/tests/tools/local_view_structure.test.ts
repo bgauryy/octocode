@@ -334,10 +334,10 @@ describe('localViewStructure', () => {
         stderr: '',
       });
 
+      // humanReadable removed from schema — formatFileSize always applies.
       const result = await viewStructure({
         path: '/test/path',
         details: true,
-        humanReadable: true,
       });
 
       expect(result.status).toBeUndefined();

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +77,27 @@ function resolveRuntimeRg(): string | null {
   const key = platformKey();
   if (!key) return null;
 
+  // Fast path: baked manifest written at build time by bundle-runtime-assets.mjs.
+  // Avoids probing multiple parent directories — the manifest stores the exact
+  // relative path from the dist root, so one existsSync check is enough.
+  const manifestPath = findRuntimeAssetsManifest();
+  if (manifestPath) {
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+        rg?: Array<{ platform: string; file: string }>;
+      };
+      const entry = manifest.rg?.find(r => r.platform === key);
+      if (entry) {
+        const resolved = join(dirname(manifestPath), entry.file);
+        if (existsSync(resolved)) return resolved;
+      }
+    } catch {
+      // Corrupted or missing manifest — fall through to directory probe.
+    }
+  }
+
+  // Fallback: scan well-known relative positions for the rg runtime directory.
+  // Covers unusual bundle layouts or stripped manifest files.
   const ext = process.platform === 'win32' ? '.exe' : '';
   const names = [`rg-${key}${ext}`, `rg${ext}`];
   const dirs = [
@@ -92,6 +113,18 @@ function resolveRuntimeRg(): string | null {
     }
   }
 
+  return null;
+}
+
+/** Locate the runtime-assets.json manifest written by bundle-runtime-assets.mjs. */
+function findRuntimeAssetsManifest(): string | null {
+  const candidates = [
+    join(moduleDir, 'runtime-assets.json'),
+    join(moduleDir, '..', 'runtime-assets.json'),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
   return null;
 }
 

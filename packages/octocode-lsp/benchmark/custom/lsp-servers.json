@@ -1,0 +1,12 @@
+{
+  "languageServers": {
+    ".foo": {
+      "command": "node",
+      "args": ["server.mjs"],
+      "languageId": "foo",
+      "initializationOptions": {
+        "fixtureName": "custom-foo"
+      }
+    }
+  }
+}

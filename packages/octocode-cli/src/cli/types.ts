@@ -6,7 +6,6 @@ export interface ParsedArgs {
 
 interface CLIOption {
   name: string;
-  short?: string;
   description: string;
   hasValue?: boolean;
   default?: string | boolean;
@@ -14,7 +13,6 @@ interface CLIOption {
 
 export interface CLICommandSpec {
   name: string;
-  aliases?: string[];
   description: string;
   usage?: string;
   options?: CLIOption[];

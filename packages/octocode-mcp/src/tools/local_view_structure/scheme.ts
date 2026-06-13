@@ -31,10 +31,10 @@ const ViewStructureQueryShape = z.object({
   path: z.string().describe(QUERY_DESCRIPTIONS.path!),
   details: z.boolean().optional().describe(QUERY_DESCRIPTIONS.details!),
   hidden: z.boolean().optional().describe(QUERY_DESCRIPTIONS.hidden!),
-  humanReadable: z
-    .boolean()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.humanReadable!),
+  // humanReadable removed: in recursive/walk mode formatFileSize always runs
+  // (flag is silently ignored); in ls+details mode it double-formats the
+  // already-formatted ls -h string, reducing precision (24.3KB → 24.0KB).
+  // The default behaviour (no -h flag → raw bytes → formatFileSize) is best.
   sortBy: z
     .enum(LOCAL_VIEW_SORT_FIELDS)
     .optional()

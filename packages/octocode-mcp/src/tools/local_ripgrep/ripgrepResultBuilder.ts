@@ -192,6 +192,10 @@ export async function buildSearchResult(
   });
 }
 
+// Extension hook — called as the last step of buildSearchResult so callers
+// can post-process the final payload (e.g. inject extra metadata, strip
+// fields, or override pagination) without modifying the core builder logic.
+// Currently a transparent pass-through; override in tests or subclasses.
 export function finalizeRipgrepResult(
   result: LocalSearchCodeToolResult,
   _query: RipgrepQuery,

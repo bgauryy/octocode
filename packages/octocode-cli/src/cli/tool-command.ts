@@ -29,18 +29,12 @@ export type ToolDefinition = DirectToolDefinition;
 export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
 
 const TOOL_RUNTIME_OPTION_KEYS = new Set([
-  'tool',
   'queries',
-  'output',
-  'o',
   'json',
   'help',
-  'h',
   'version',
-  'v',
   'list',
   'schema',
-  'tools-context',
   'compact',
   'format',
   'full',
@@ -512,7 +506,7 @@ export async function getToolsContextString(
       '    octocode tools <n1> <n2> ...             # batch: read multiple schemas at once',
       full
         ? '  (Full JSON schemas are included in this output below.)'
-        : '  Run `octocode --agent --full` to get all schemas as inline JSON in one shot.',
+        : '  Run `octocode instructions --full` to get all schemas as inline JSON in one shot.',
       '',
       '  *** SMART COMMANDS — USE THESE FIRST for file / search / PR ***',
       '  These auto-route local ↔ GitHub — no owner/repo wiring or schema needed:',
@@ -603,11 +597,6 @@ function getOutputMode(args: ParsedArgs): OutputMode {
     return 'json';
   }
 
-  const output = args.options.output ?? args.options.o;
-  if (typeof output === 'string' && output.toLowerCase() === 'json') {
-    return 'json';
-  }
-
   return 'text';
 }
 
@@ -677,11 +666,7 @@ function getErrorDetails(error: unknown): string[] {
 export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   const maybeToolName = args.args[0];
   const toolName =
-    typeof maybeToolName === 'string'
-      ? maybeToolName
-      : typeof args.options.tool === 'string'
-        ? args.options.tool
-        : undefined;
+    typeof maybeToolName === 'string' ? maybeToolName : undefined;
 
   if (!toolName || toolName === 'list' || args.options.list === true) {
     await showAvailableTools();
@@ -786,27 +771,15 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 }
 
 export const toolCommand: CLICommand = {
-  name: 'tool',
+  name: 'tools',
   description:
     'Run an Octocode MCP tool directly using the same implementation under the hood',
-  usage: `octocode --tool <toolName> --queries '<json-stringified-input>'`,
+  usage: `octocode tools <toolName> --queries '<json-stringified-input>'`,
   options: [
-    {
-      name: 'tool',
-      description: 'Tool name to execute.',
-      hasValue: true,
-    },
     {
       name: 'queries',
       description: 'JSON-stringified tool input (query object or array).',
       hasValue: true,
-    },
-    {
-      name: 'output',
-      short: 'o',
-      description: 'Output format: text (default) or json.',
-      hasValue: true,
-      default: 'text',
     },
     {
       name: 'list',

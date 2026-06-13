@@ -27,6 +27,7 @@ import { buildInitializeParams } from './initParams.js';
 import { toUri } from './uri.js';
 
 const STDERR_RETENTION_LINES = 200;
+const SHUTDOWN_TIMEOUT_MS = 1_000;
 
 async function raceWithTimeout<T>(
   promise: Promise<T>,
@@ -65,7 +66,8 @@ export class LSPClient {
   // so the fallback is armed there — not at initialize. A request sent before
   // project load finishes gets file-scoped (partial) results, e.g. references
   // confined to the opened file.
-  private static readonly READY_SETTLE_MS = 2_500;
+  private static readonly READY_NO_PROGRESS_SETTLE_MS = 200;
+  private static readonly READY_PROGRESS_SETTLE_MS = 2_500;
   private static readonly READY_MAX_WAIT_MS = 15_000;
   private readyPromise: Promise<void>;
   private readyResolve!: () => void;
@@ -93,21 +95,29 @@ export class LSPClient {
     this.hasOpenedDocument = true;
     if (this.readyResolved) return;
     const armedAt = Date.now();
-    const settle = (): void => {
-      this.readyFallbackTimer = null;
-      if (this.readyResolved) return;
-      if (
-        this.activeProgressTokens.size === 0 ||
-        Date.now() - armedAt >= LSPClient.READY_MAX_WAIT_MS
-      ) {
-        this.resolveReady();
-        return;
-      }
-      // Indexing still in flight — the $/progress end handler resolves
-      // readiness; re-arm so a token that never ends cannot block forever.
-      this.readyFallbackTimer = setTimeout(settle, LSPClient.READY_SETTLE_MS);
-    };
-    this.readyFallbackTimer = setTimeout(settle, LSPClient.READY_SETTLE_MS);
+    this.armReadyFallback(armedAt, LSPClient.READY_NO_PROGRESS_SETTLE_MS);
+  }
+
+  private armReadyFallback(armedAt: number, delayMs: number): void {
+    this.readyFallbackTimer = setTimeout(
+      () => this.settleReadyFallback(armedAt),
+      delayMs
+    );
+  }
+
+  private settleReadyFallback(armedAt: number): void {
+    this.readyFallbackTimer = null;
+    if (this.readyResolved) return;
+    if (
+      this.activeProgressTokens.size === 0 ||
+      Date.now() - armedAt >= LSPClient.READY_MAX_WAIT_MS
+    ) {
+      this.resolveReady();
+      return;
+    }
+    // Indexing still in flight — the $/progress end handler resolves
+    // readiness; re-arm so a token that never ends cannot block forever.
+    this.armReadyFallback(armedAt, LSPClient.READY_PROGRESS_SETTLE_MS);
   }
 
   private resolveReady(): void {
@@ -132,10 +142,17 @@ export class LSPClient {
     // Project load only starts on the first didOpen — before that there is
     // nothing to wait for (and no fallback timer armed yet).
     if (!this.hasOpenedDocument) return;
-    await Promise.race([
-      this.readyPromise,
-      new Promise<void>(resolve => setTimeout(resolve, timeoutMs)),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<void>(resolve => {
+      timeoutId = setTimeout(resolve, timeoutMs);
+    });
+    try {
+      await Promise.race([this.readyPromise, timeoutPromise]);
+    } finally {
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   async start(): Promise<void> {
@@ -408,8 +425,8 @@ export class LSPClient {
 
         await raceWithTimeout(
           this.connection.sendRequest('shutdown'),
-          5_000,
-          'LSP shutdown timed out'
+          SHUTDOWN_TIMEOUT_MS,
+          `LSP shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms`
         );
 
         await this.connection.sendNotification('exit');
@@ -424,16 +441,62 @@ export class LSPClient {
       }
       this.connection = null;
 
-      try {
-        this.process?.kill();
-      } catch {
-        void 0;
-      }
+      await this.terminateProcess();
       this.process = null;
       this.initialized = false;
 
       this.documentManager.setConnection(null, false);
       this.operations.setConnection(null, false);
+    }
+  }
+
+  private async terminateProcess(): Promise<void> {
+    const processToStop = this.process;
+    if (!processToStop) return;
+
+    const closed = new Promise<void>(resolve => {
+      if (
+        processToStop.exitCode !== null ||
+        processToStop.signalCode !== null
+      ) {
+        resolve();
+        return;
+      }
+      processToStop.once('close', () => resolve());
+    });
+
+    try {
+      processToStop.stdin?.end();
+    } catch {
+      void 0;
+    }
+
+    try {
+      processToStop.kill();
+    } catch {
+      void 0;
+    }
+
+    await Promise.race([
+      closed,
+      new Promise<void>(resolve => setTimeout(resolve, 1_000)),
+    ]);
+
+    if (processToStop.exitCode === null && processToStop.signalCode === null) {
+      try {
+        processToStop.kill('SIGKILL');
+      } catch {
+        void 0;
+      }
+    }
+
+    try {
+      processToStop.stdin?.destroy();
+      processToStop.stdout?.destroy();
+      processToStop.stderr?.destroy();
+      processToStop.unref();
+    } catch {
+      void 0;
     }
   }
 }

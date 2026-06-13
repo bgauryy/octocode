@@ -409,7 +409,7 @@ describe('cli/commands/install', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('uses short -m method alias with npx', async () => {
+  it('uses --method with npx', async () => {
     const {
       installCommand,
       installOctocodeForClient,
@@ -439,7 +439,7 @@ describe('cli/commands/install', () => {
     await installCommand.handler!({
       command: 'install',
       args: [],
-      options: { ide: 'cursor', m: 'npx' },
+      options: { ide: 'cursor', method: 'npx' },
     });
 
     expect(getInstallPreviewForClient).toHaveBeenCalledWith('cursor', 'npx');

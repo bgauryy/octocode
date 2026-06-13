@@ -13,7 +13,7 @@ interface PRLabel {
 interface PRFileChange {
   // API returns `path`, not `filename`
   path?: string;
-  filename?: string; // fallback alias
+  filename?: string; // fallback field name
   additions?: number;
   deletions?: number;
   patch?: string;
@@ -24,7 +24,7 @@ interface PRComment {
   author?: string | { login?: string };
   body?: string;
   createdAt?: string;
-  created_at?: string; // fallback alias
+  created_at?: string; // fallback field name
   path?: string;
   line?: number;
 }
@@ -46,7 +46,7 @@ interface PRPagination {
   totalPages?: number;
   totalMatches?: number;
   hasMore?: boolean;
-  // snake_case aliases
+  // snake_case fallback field names
   page?: number;
 }
 
@@ -73,18 +73,18 @@ interface PRItem {
   // Refs
   targetBranch?: string; // base branch
   sourceBranch?: string; // head branch (may be absent)
-  base?: string | { ref?: string }; // fallback alias
-  head?: string | { ref?: string }; // fallback alias
+  base?: string | { ref?: string }; // fallback field name
+  head?: string | { ref?: string }; // fallback field name
   // Counts
   changedFilesCount?: number;
-  changed_files?: number; // fallback alias
+  changed_files?: number; // fallback field name
   additions?: number;
   deletions?: number;
   // Labels
   labels?: Array<string | PRLabel>;
   // Detail content fields
   changedFiles?: PRFileChange[];
-  file_changes?: PRFileChange[]; // fallback alias
+  file_changes?: PRFileChange[]; // fallback field name
   filePagination?: PRPagination;
   comment_details?: PRComment[];
   commit_details?: PRCommit[];

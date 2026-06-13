@@ -101,7 +101,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [],
       options: {},
     });
@@ -120,7 +120,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [],
       options: { list: true },
     });
@@ -134,7 +134,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['list'],
       options: {},
     });
@@ -185,10 +185,9 @@ describe('tool-command coverage', () => {
     });
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
       options: {
-        tool: 'localSearchCode',
         queries: '{"path":".","keywords":"x"}',
         compact: true,
       },
@@ -208,9 +207,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
-      options: { tool: 'localSearchCode', format: 'tool' },
+      options: { format: 'tool' },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -225,9 +224,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['doesNotExist'],
-      options: { tool: 'doesNotExist' },
+      options: {},
     });
 
     expect(process.exitCode).toBe(3);
@@ -248,9 +247,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['doesNotExist'],
-      options: { tool: 'doesNotExist' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -269,9 +268,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['githubSearchCode'],
-      options: { tool: 'githubSearchCode', schema: true },
+      options: { schema: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -284,9 +283,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
-      options: { tool: 'localSearchCode', schema: true },
+      options: { schema: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -300,9 +299,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['githubCloneRepo', '{"owner":"bgauryy","repo":"octocode-mcp"}'],
-      options: { tool: 'githubCloneRepo' },
+      options: {},
     });
 
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
@@ -325,12 +324,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'githubCloneRepo',
         '{"owner":"bgauryy","repo":"octocode-mcp","branch":"main"}',
       ],
-      options: { tool: 'githubCloneRepo' },
+      options: {},
     });
 
     expect(mocks.cloneRepo).toHaveBeenCalledWith(
@@ -350,12 +349,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '[{"path":".","keywords":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":"src","keywords":"bar","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     expect(mocks.localSearchCode).toHaveBeenCalledWith(
@@ -372,12 +371,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"queries":[{"path":".","keywords":"foo","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}],"responseCharOffset":500}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const callArg = mocks.localSearchCode.mock.calls[0]?.[0];
@@ -393,13 +392,13 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         'extra',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -411,9 +410,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode', '42'],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -425,9 +424,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode', '{"queries":[]}'],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -443,12 +442,12 @@ describe('tool-command coverage', () => {
 
     try {
       await toolCommand.handler!({
-        command: 'tool',
+        command: 'tools',
         args: [
           'localSearchCode',
           '{"path":".","keywords":"x","fixedString":true,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
         ],
-        options: { tool: 'localSearchCode' },
+        options: {},
       });
 
       expect(mocks.localSearchCode).toHaveBeenCalledWith(
@@ -478,12 +477,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const allArgs = consoleSpy.mock.calls.flat().join('\n');
@@ -498,12 +497,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const allArgs = consoleSpy.mock.calls.flat().join('\n');
@@ -520,12 +519,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode', json: true },
+      options: { json: true },
     });
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
@@ -550,12 +549,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode', json: true },
+      options: { json: true },
     });
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
@@ -567,7 +566,7 @@ describe('tool-command coverage', () => {
     ]);
   });
 
-  it('printToolResult: -o json flag also selects JSON mode', async () => {
+  it('printToolResult: --json selects JSON mode for structured output', async () => {
     mocks.localSearchCode.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'out' }],
       structuredContent: { answer: 42 },
@@ -576,12 +575,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode', o: 'json' },
+      options: { json: true },
     });
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
@@ -599,12 +598,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     expect(process.exitCode).toBe(5);
@@ -616,12 +615,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -635,12 +634,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -684,9 +683,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['packageSearch'],
-      options: { tool: 'packageSearch', schema: true },
+      options: { schema: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -702,9 +701,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['githubSearchRepositories'],
-      options: { tool: 'githubSearchRepositories', schema: true },
+      options: { schema: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -719,9 +718,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['githubCloneRepo'],
-      options: { tool: 'githubCloneRepo', schema: true },
+      options: { schema: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -733,13 +732,13 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
 
       args: [
         'localSearchCode',
         '[{"path":".","keywords":"ok","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1},{"path":".","keywords":999,"matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}]',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
@@ -765,7 +764,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'githubSearchCode',
         JSON.stringify({
@@ -776,7 +775,7 @@ describe('tool-command coverage', () => {
           keywordsToSearch: ['test'],
         }),
       ],
-      options: { tool: 'githubSearchCode' },
+      options: {},
     });
 
     expect(mocks.noop).toHaveBeenCalledWith(
@@ -816,12 +815,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
@@ -840,12 +839,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode' },
+      options: {},
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
@@ -862,12 +861,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode', json: true },
+      options: { json: true },
     });
 
     const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
@@ -884,12 +883,12 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: [
         'localSearchCode',
         '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
       ],
-      options: { tool: 'localSearchCode', json: true },
+      options: { json: true },
     });
 
     const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
@@ -901,9 +900,9 @@ describe('tool-command coverage', () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
-      command: 'tool',
+      command: 'tools',
       args: ['lspGetSemanticContent'],
-      options: { tool: 'lspGetSemanticContent', schema: true },
+      options: { schema: true },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
@@ -912,30 +911,12 @@ describe('tool-command coverage', () => {
     expect(out).toContain('definition');
   });
 
-  it('resolves tool name from --tool option when no positional arg given', async () => {
+  it('shows the tool list when no positional tool name is given', async () => {
     const { executeToolCommand } =
       await import('../../src/cli/tool-command.js');
 
     const ok = await executeToolCommand({
-      command: 'tool',
-      args: [],
-      options: {
-        tool: 'localSearchCode',
-        queries:
-          '{"path":".","keywords":"x","matchContentLength":200,"itemsPerPage":1,"page":1,"maxMatchesPerFile":1}',
-      },
-    });
-
-    expect(ok).toBe(true);
-    expect(mocks.localSearchCode).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows the tool list when neither positional arg nor --tool option present', async () => {
-    const { executeToolCommand } =
-      await import('../../src/cli/tool-command.js');
-
-    const ok = await executeToolCommand({
-      command: 'tool',
+      command: 'tools',
       args: [],
       options: {},
     });

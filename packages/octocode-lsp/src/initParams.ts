@@ -82,11 +82,24 @@ export function buildInitializeParams(
 }
 
 export function buildInitializationOptions(
-  config: Pick<LanguageServerConfig, 'languageId'>
+  config: Pick<LanguageServerConfig, 'languageId' | 'initializationOptions'>
 ): Record<string, unknown> | undefined {
   const languageId = config.languageId;
-  if (languageId && TSSERVER_LANGUAGE_IDS.has(languageId)) {
-    return { ...TSSERVER_DEFAULT_OPTIONS };
+  const baseOptions =
+    languageId && TSSERVER_LANGUAGE_IDS.has(languageId)
+      ? { ...TSSERVER_DEFAULT_OPTIONS }
+      : undefined;
+
+  if (!config.initializationOptions) {
+    return baseOptions;
   }
-  return undefined;
+
+  if (!baseOptions) {
+    return { ...config.initializationOptions };
+  }
+
+  return {
+    ...baseOptions,
+    ...config.initializationOptions,
+  };
 }

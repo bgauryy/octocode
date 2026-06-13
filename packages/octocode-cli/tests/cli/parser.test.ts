@@ -35,16 +35,6 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ force: true });
     });
 
-    it('should parse short boolean options', () => {
-      const result = parseArgs(['-f']);
-      expect(result.options).toEqual({ f: true });
-    });
-
-    it('should parse combined short options', () => {
-      const result = parseArgs(['-fv']);
-      expect(result.options).toEqual({ f: true, v: true });
-    });
-
     it('should parse command with options', () => {
       const result = parseArgs(['install', '--ide', 'cursor', '--force']);
       expect(result.command).toBe('install');
@@ -80,29 +70,17 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ hostname: 'github.enterprise.com' });
     });
 
-    it('should parse -H as a boolean flag (no value consumption)', () => {
+    it('should keep single-dash tokens positional', () => {
       const result = parseArgs(['token', '-H', 'github.enterprise.com']);
       expect(result.command).toBe('token');
-      expect(result.options).toEqual({ H: true });
-      expect(result.args).toContain('github.enterprise.com');
-    });
-
-    it('should parse -h as help flag (boolean), not hostname', () => {
-      const result = parseArgs(['-h']);
-      expect(result.options).toEqual({ h: true });
+      expect(result.options).toEqual({});
+      expect(result.args).toEqual(['-H', 'github.enterprise.com']);
     });
 
     it('should parse --type option with value', () => {
       const result = parseArgs(['token', '--type', 'gh']);
       expect(result.command).toBe('token');
       expect(result.options).toEqual({ type: 'gh' });
-    });
-
-    it('should parse -t as a boolean flag (no value consumption)', () => {
-      const result = parseArgs(['token', '-t', 'octocode']);
-      expect(result.command).toBe('token');
-      expect(result.options).toEqual({ t: true });
-      expect(result.args).toContain('octocode');
     });
 
     it('should parse --git-protocol option', () => {
@@ -123,86 +101,30 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ skill: 'octocode-plan' });
     });
 
-    it('should parse skills install -k as boolean flag (no value consumption)', () => {
+    it('should keep single-dash skill tokens positional', () => {
       const result = parseArgs(['skills', 'install', '-k', 'octocode-roast']);
       expect(result.command).toBe('skills');
-      expect(result.args).toEqual(['install', 'octocode-roast']);
-      expect(result.options).toEqual({ k: true });
+      expect(result.args).toEqual(['install', '-k', 'octocode-roast']);
+      expect(result.options).toEqual({});
     });
 
-    it('should synthesize the tool command from top-level --tool usage', () => {
+    it('should parse canonical tools command with --queries', () => {
       const result = parseArgs([
-        '--tool',
-        'localSearchCode',
-        '{"path":".","pattern":"runCLI"}',
-      ]);
-
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual([
-        'localSearchCode',
-        '{"path":".","pattern":"runCLI"}',
-      ]);
-      expect(result.options).toEqual({
-        tool: 'localSearchCode',
-      });
-    });
-
-    it('should keep legacy --input available for migration errors', () => {
-      const result = parseArgs([
-        '--tool',
-        'localSearchCode',
-        '--input',
-        '{"path":".","pattern":"runCLI"}',
-      ]);
-
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options).toEqual({
-        tool: 'localSearchCode',
-        input: '{"path":".","pattern":"runCLI"}',
-      });
-    });
-
-    it('should parse --tool with --queries flag', () => {
-      const result = parseArgs([
-        '--tool',
+        'tools',
         'localSearchCode',
         '--queries',
-        '{"path":".","pattern":"runCLI"}',
+        '{"path":".","keywords":"runCLI"}',
       ]);
 
-      expect(result.command).toBe('tool');
+      expect(result.command).toBe('tools');
       expect(result.args).toEqual(['localSearchCode']);
       expect(result.options).toEqual({
-        tool: 'localSearchCode',
-        queries: '{"path":".","pattern":"runCLI"}',
+        queries: '{"path":".","keywords":"runCLI"}',
       });
     });
 
-    it('should parse --tools-context as a top-level boolean flag', () => {
-      const result = parseArgs(['--tools-context']);
-
-      expect(result.command).toBeNull();
-      expect(result.options).toEqual({ 'tools-context': true });
-    });
-
-    it('should parse --agent as a top-level boolean flag', () => {
-      const result = parseArgs(['--agent']);
-
-      expect(result.command).toBeNull();
-      expect(result.options).toEqual({ agent: true });
-    });
-
-    it('should not let --agent swallow a following argument', () => {
-      const result = parseArgs(['--agent', 'somecommand']);
-
-      expect(result.options.agent).toBe(true);
-      expect(result.command).toBe('somecommand');
-    });
-
-    it('should parse new agent/output boolean flags', () => {
-      expect(parseArgs(['tools', 'x', '--compact']).options.compact).toBe(true);
-      expect(parseArgs(['--agent', '--full']).options.full).toBe(true);
+    it('should parse instructions flags', () => {
+      expect(parseArgs(['instructions', '--full']).options.full).toBe(true);
       expect(parseArgs(['tools', '--no-color']).options['no-color']).toBe(true);
       expect(parseArgs(['token', '--reveal']).options.reveal).toBe(true);
     });
@@ -216,60 +138,65 @@ describe('CLI Parser', () => {
       );
     });
 
-    it('should parse single-dash multi-char as individual boolean flags', () => {
-      const result = parseArgs(['-tf']);
-      expect(result.options.t).toBe(true);
-      expect(result.options.f).toBe(true);
-    });
-
-    it('should parse single-dash -t as boolean, not consume next arg', () => {
-      const result = parseArgs(['-t', 'myTool']);
-      expect(result.options.t).toBe(true);
-      // myTool is a positional, not consumed as value
-      expect(result.command).toBe('myTool');
-    });
-
-    it('should parse single-dash -f as boolean flag', () => {
-      const result = parseArgs(['-f']);
-      expect(result.command).toBeNull();
-      expect(result.options.f).toBe(true);
-    });
-
-    it('should parse --tool with -j as individual char flags (no value consumed)', () => {
-      const result = parseArgs(['--tool', 'localSearchCode', '-j']);
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options.tool).toBe('localSearchCode');
-      expect(result.options.j).toBe(true);
-    });
-
-    it('should parse --tool and --queries (double-dash) with = value', () => {
+    it('should parse lsp command value options', () => {
       const result = parseArgs([
-        '--tool=localSearchCode',
-        '--queries={"path":".","pattern":"x"}',
+        'lsp',
+        'src/index.ts',
+        '--type',
+        'references',
+        '--symbol',
+        'runCLI',
+        '--line',
+        '42',
+        '--workspace-root',
+        '.',
       ]);
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options.tool).toBe('localSearchCode');
-      expect(result.options.queries).toBe('{"path":".","pattern":"x"}');
+
+      expect(result.command).toBe('lsp');
+      expect(result.args).toEqual(['src/index.ts']);
+      expect(result.options).toEqual({
+        type: 'references',
+        symbol: 'runCLI',
+        line: '42',
+        'workspace-root': '.',
+      });
     });
 
-    it('should parse --tool and --queries consuming next arg', () => {
+    it('should parse symbols command value options', () => {
       const result = parseArgs([
-        '--tool',
-        'localSearchCode',
-        '--queries',
-        '{"path":".","pattern":"next"}',
+        'symbols',
+        'src',
+        '--ext',
+        'ts,tsx',
+        '--kind',
+        'function',
+        '--limit',
+        '10',
       ]);
-      expect(result.command).toBe('tool');
-      expect(result.args).toEqual(['localSearchCode']);
-      expect(result.options.tool).toBe('localSearchCode');
-      expect(result.options.queries).toBe('{"path":".","pattern":"next"}');
+
+      expect(result.command).toBe('symbols');
+      expect(result.args).toEqual(['src']);
+      expect(result.options).toEqual({
+        ext: 'ts,tsx',
+        kind: 'function',
+        limit: '10',
+      });
     });
 
-    it('should consume values for unknown long flags after the tool command', () => {
-      const result = parseArgs(['tool', '--extra', 'payload']);
-      expect(result.command).toBe('tool');
+    it('should parse unsupported top-level long options without rewriting them', () => {
+      expect(parseArgs(['--not-real']).options['not-real']).toBe(true);
+      expect(parseArgs(['--unknown=value']).options.unknown).toBe('value');
+    });
+
+    it('should keep unsupported top-level option values positional when space-separated', () => {
+      const result = parseArgs(['--not-real', 'next-command']);
+      expect(result.command).toBe('next-command');
+      expect(result.options).toEqual({ 'not-real': true });
+    });
+
+    it('should consume values for unknown long flags after the tools command', () => {
+      const result = parseArgs(['tools', '--extra', 'payload']);
+      expect(result.command).toBe('tools');
       expect(result.args).toEqual([]);
       expect(result.options).toEqual({ extra: 'payload' });
     });
@@ -281,9 +208,9 @@ describe('CLI Parser', () => {
       expect(hasHelpFlag(args)).toBe(true);
     });
 
-    it('should detect -h', () => {
+    it('should ignore single-dash help spelling', () => {
       const args = parseArgs(['-h']);
-      expect(hasHelpFlag(args)).toBe(true);
+      expect(hasHelpFlag(args)).toBe(false);
     });
 
     it('should return false when no help flag', () => {
@@ -298,9 +225,9 @@ describe('CLI Parser', () => {
       expect(hasVersionFlag(args)).toBe(true);
     });
 
-    it('should detect -v', () => {
+    it('should ignore single-dash version spelling', () => {
       const args = parseArgs(['-v']);
-      expect(hasVersionFlag(args)).toBe(true);
+      expect(hasVersionFlag(args)).toBe(false);
     });
 
     it('should return false when no version flag', () => {

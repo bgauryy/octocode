@@ -9,8 +9,8 @@ import { executeWithToolBoundary } from '../../executionGuard.js';
 import {
   acquirePooledClient,
   isLanguageServerAvailable,
-} from '../../../lsp/manager.js';
-import { resolveWorkspaceRootForFile } from '../../../lsp/workspaceRoot.js';
+} from 'octocode-lsp/manager';
+import { resolveWorkspaceRootForFile } from 'octocode-lsp/workspaceRoot';
 import type {
   CallHierarchyItem,
   CodeSnippet,
@@ -19,7 +19,7 @@ import type {
   OutgoingCall,
   ReferenceLocation,
   ReferencesByFile,
-} from '../../../lsp/types.js';
+} from 'octocode-lsp/types';
 import {
   gatherIncomingCallsRecursive,
   gatherOutgoingCallsRecursive,
@@ -495,12 +495,18 @@ async function getDocumentSymbols(
     : [];
   const complete = Boolean(client?.hasCapability('documentSymbolProvider'));
   const compactSymbols = flattenDocumentSymbols(symbols);
+  const topLevelSymbols = countTopLevelDocumentSymbols(symbols);
   const { pageItems, pagination } = paginateItems(
     compactSymbols,
     query.page ?? 1,
     query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
   );
-  const kindCounts = countBy(pageItems, symbol => symbol.kind);
+  const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
+  const incompleteReason = complete
+    ? undefined
+    : serverAvailable
+      ? 'documentSymbolProvider unsupported'
+      : 'Language server unavailable';
 
   return {
     type: 'documentSymbols',
@@ -512,32 +518,19 @@ async function getDocumentSymbols(
     evidence: {
       confidence: complete ? 'high' : 'low',
       complete,
-      reason: complete
-        ? undefined
-        : serverAvailable
-          ? 'documentSymbolProvider unsupported'
-          : 'Language server unavailable',
+      reason: incompleteReason,
     },
     summary: {
       totalSymbols: compactSymbols.length,
       returnedSymbols: pageItems.length,
-      topLevelSymbols: countTopLevelDocumentSymbols(symbols),
+      topLevelSymbols,
       kinds: kindCounts,
     },
     payload: {
       kind: 'documentSymbols',
       symbols: pageItems,
-      totalSymbols: compactSymbols.length,
-      topLevelSymbols: countTopLevelDocumentSymbols(symbols),
     },
     pagination,
-    warnings: complete
-      ? undefined
-      : [
-          serverAvailable
-            ? 'documentSymbolProvider unsupported'
-            : 'Language server unavailable',
-        ],
     hints: semanticHints('documentSymbols', complete),
   };
 }
@@ -1056,6 +1049,8 @@ function emptyEnvelope(
   reason: string,
   serverAvailable = false
 ): LspSemanticEnvelope {
+  // reason lives in evidence.reason (aggregated signal) and payload.reason
+  // (inline result); a separate warnings array would be a third copy.
   return {
     type,
     uri: anchor.uri,
@@ -1063,7 +1058,6 @@ function emptyEnvelope(
     lsp: { serverAvailable },
     evidence: { confidence: 'low', complete: false, reason },
     payload: { kind: 'empty', reason },
-    warnings: [reason],
     hints: semanticHints(type, false),
   };
 }

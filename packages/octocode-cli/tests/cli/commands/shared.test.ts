@@ -91,18 +91,20 @@ describe('cli/commands/shared', () => {
     });
   });
 
-  describe('MCP_CLIENT_ALIASES / normalizeMCPClient', () => {
-    it('maps every alias to its canonical MCP client (case-insensitive, trimmed)', async () => {
-      const { MCP_CLIENT_ALIASES, normalizeMCPClient } =
+  describe('MCP_CLIENT_IDS / normalizeMCPClient', () => {
+    it('maps every canonical id to itself (case-insensitive, trimmed)', async () => {
+      const { MCP_CLIENT_IDS, normalizeMCPClient } =
         await import('../../../src/cli/commands/shared.js');
 
-      for (const [alias, expected] of Object.entries(MCP_CLIENT_ALIASES)) {
-        expect(normalizeMCPClient(alias)).toBe(expected);
-        expect(normalizeMCPClient(`  ${alias.toUpperCase()}  `)).toBe(expected);
+      for (const [clientId, expected] of Object.entries(MCP_CLIENT_IDS)) {
+        expect(normalizeMCPClient(clientId)).toBe(expected);
+        expect(normalizeMCPClient(`  ${clientId.toUpperCase()}  `)).toBe(
+          expected
+        );
       }
     });
 
-    it('returns null for unknown aliases', async () => {
+    it('returns null for unknown ids', async () => {
       const { normalizeMCPClient } =
         await import('../../../src/cli/commands/shared.js');
       expect(normalizeMCPClient('unknown-ide')).toBeNull();
@@ -140,13 +142,11 @@ describe('cli/commands/shared', () => {
       expect(formatSupportedMCPClients()).not.toContain('custom');
     });
 
-    it('can include install aliases', async () => {
+    it('does not add install shortcuts', async () => {
       const { formatSupportedMCPClients } =
         await import('../../../src/cli/commands/shared.js');
 
-      expect(formatSupportedMCPClients({ includeInstallAlias: true })).toMatch(
-        /^claude,/
-      );
+      expect(formatSupportedMCPClients().split(', ')).not.toContain('claude');
     });
   });
 
@@ -276,15 +276,12 @@ describe('cli/commands/shared', () => {
   });
 
   describe('normalizeSkillTarget', () => {
-    it('maps all supported aliases', async () => {
+    it('maps all supported canonical targets', async () => {
       const { normalizeSkillTarget } =
         await import('../../../src/cli/commands/shared.js');
       const cases: [string, string][] = [
-        ['claude', 'claude-code'],
         ['claude-code', 'claude-code'],
-        ['claudecode', 'claude-code'],
         ['claude-desktop', 'claude-desktop'],
-        ['claudedesktop', 'claude-desktop'],
         ['cursor', 'cursor'],
         ['codex', 'codex'],
         ['opencode', 'opencode'],

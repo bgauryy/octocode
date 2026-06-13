@@ -34,6 +34,7 @@ interface FetchGithubOpts {
   startLine?: number;
   endLine?: number;
   charLength?: number;
+  charOffset?: number;
 }
 
 async function fetchGithubContent(
@@ -54,6 +55,7 @@ async function fetchGithubContent(
         startLine: opts.startLine,
         endLine: opts.endLine,
         charLength: opts.charLength,
+        charOffset: opts.charOffset,
         mainResearchGoal: 'Fetch file content',
         researchGoal: 'Fetch raw content for get command',
         reasoning: 'CLI get command',
@@ -123,7 +125,7 @@ export const getCommand: CLICommand = {
   description:
     'Fetch and minify file content — works for local paths and GitHub references',
   usage:
-    'octocode get <path|github-ref> [--mode none|standard|symbols] [--type <ext>] [--branch <ref>] [--match-string <s>] [--start-line <n>] [--end-line <n>] [--page-size <n>] [--stats] [--json]',
+    'octocode get <path|github-ref> [--mode none|standard|symbols] [--type <ext>] [--branch <ref>] [--match-string <s>] [--start-line <n>] [--end-line <n>] [--page-size <n>] [--page <n>] [--stats] [--json]',
   options: [
     {
       name: 'mode',
@@ -160,8 +162,12 @@ export const getCommand: CLICommand = {
     {
       name: 'page-size',
       hasValue: true,
-      description:
-        'Characters per page (charLength); use with repeated --page-size calls stepping charOffset',
+      description: 'Characters per page for GitHub file reads',
+    },
+    {
+      name: 'page',
+      hasValue: true,
+      description: 'GitHub file page number when pagination is available',
     },
     {
       name: 'stats',
@@ -185,10 +191,13 @@ export const getCommand: CLICommand = {
     const rawStartLine = getString(options, 'start-line');
     const rawEndLine = getString(options, 'end-line');
     const rawPageSize = getString(options, 'page-size');
+    const rawPage = getString(options, 'page');
     const startLine = rawStartLine ? parseInt(rawStartLine, 10) : undefined;
     const endLine = rawEndLine ? parseInt(rawEndLine, 10) : undefined;
     const pageSize = rawPageSize ? parseInt(rawPageSize, 10) : undefined;
-    // Note: charOffset-based pagination is handled server-side; use page-size to control chunk size
+    const page = rawPage ? parseInt(rawPage, 10) : undefined;
+    const charOffset =
+      pageSize && page && page > 1 ? (page - 1) * pageSize : undefined;
 
     if (!VALID_MODES.includes(rawMode as MinifyMode)) {
       const err = `Unknown mode "${rawMode}". Valid: ${VALID_MODES.join(', ')}`;
@@ -227,6 +236,7 @@ export const getCommand: CLICommand = {
             startLine,
             endLine,
             charLength: pageSize,
+            charOffset,
           }
         ).catch((e: Error) => {
           if (jsonOutput) {
@@ -339,7 +349,7 @@ export const getCommand: CLICommand = {
       };
       if (totalPages && totalPages > 1) {
         console.error(
-          `\n  ${dim(`Page ${curPage ?? 1}/${totalPages} — use --page <n> to navigate`)}`
+          `\n  ${dim(`Page ${curPage ?? 1}/${totalPages} — use --page <n> --page-size ${pageSize ?? 'N'} to navigate`)}`
         );
       }
     }

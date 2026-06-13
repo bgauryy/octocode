@@ -72,7 +72,8 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBe(testContent);
-      expect(result.isPartial).toBe(false);
+      // isPartial is omitted when false — absence implies complete
+      expect(result.isPartial).toBeUndefined();
       expect(result.totalLines).toBe(3);
       expect(result.hints?.join('\n')).toContain('lspGetSemanticContent');
     });
@@ -125,7 +126,8 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('MATCH');
       expect(result.content).toContain('line 4');
       expect(result.isPartial).toBe(true);
-      expect(result.hints?.join('\n')).toContain('lineHint anchors');
+      // Single-slice matchString: matchRanges omitted; hint guidance changed to LSP.
+      expect(result.hints?.join('\n')).toContain('lspGetSemanticContent');
     });
 
     it('strips inline comments from JS files in the matchString slice with minify:"standard"', async () => {
@@ -195,7 +197,8 @@ describe('localGetFileContent', () => {
         sourceBytes?: number;
       };
       expect(sourceSize.sourceChars).toBe(SOURCE.length);
-      expect(sourceSize.sourceBytes).toBe(Buffer.byteLength(SOURCE, 'utf-8'));
+      // sourceBytes is omitted for pure-ASCII files where byteLength == charLength
+      expect(sourceSize.sourceBytes).toBeUndefined();
     });
 
     it('returns a large minify:"symbols" skeleton WHOLE — never paginated', async () => {
@@ -217,7 +220,8 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('fn0(');
       expect(result.content).toContain('fn799(');
       expect(result.content).not.toContain('doStuff');
-      expect(result.isPartial).toBe(false);
+      // isPartial is omitted when false — absence implies complete
+      expect(result.isPartial).toBeUndefined();
       expect(result.contentView).toBe('symbols');
       expect(result.isSkeleton).toBe(true);
       expect(result.totalLines).toBe(src.split('\n').length);
@@ -256,7 +260,8 @@ describe('localGetFileContent', () => {
       } as Parameters<typeof fetchContentImpl>[0]);
 
       expect(result.status).toBeUndefined();
-      expect(result.contentView).toBe('standard');
+      // contentView is omitted when 'standard' — absence implies standard
+      expect(result.contentView).toBeUndefined();
       expect(result.isSkeleton).toBeUndefined();
       expect(result.content).toContain('name=octocode');
       expect(result.content).toContain('keep=true');
@@ -1108,7 +1113,8 @@ describe('localGetFileContent', () => {
       // MATCH is on line 3, with contextLines=1, should return lines 2-4
       expect(result.startLine).toBe(2);
       expect(result.endLine).toBe(4);
-      expect(result.matchRanges).toEqual([{ start: 2, end: 4 }]);
+      // matchRanges omitted for single-slice results (startLine/endLine carry the range).
+      expect(result.matchRanges).toBeUndefined();
     });
 
     it('should return line numbers for multiple match ranges', async () => {

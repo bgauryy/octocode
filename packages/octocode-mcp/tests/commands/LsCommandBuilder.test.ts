@@ -89,13 +89,14 @@ describe('LsCommandBuilder', () => {
       expect(args).toContain('-A');
     });
 
-    it('should handle humanReadable flag', () => {
+    it('fromQuery does not add -h (humanReadable removed from schema)', () => {
+      // humanReadable was removed from the MCP schema — fromQuery never emits
+      // -h. The humanReadable() chain method is still available for programmatic
+      // builder use (tested separately in the chain methods section).
       const builder = new LsCommandBuilder();
-      const { args } = builder
-        .fromQuery({ path: '/test', humanReadable: true })
-        .build();
+      const { args } = builder.fromQuery({ path: '/test' }).build();
 
-      expect(args).toContain('-h');
+      expect(args).not.toContain('-h');
     });
 
     it('should handle recursive flag', () => {
@@ -305,7 +306,6 @@ describe('LsCommandBuilder', () => {
           path: '/home/user/project',
           details: true,
           hidden: true,
-          humanReadable: true,
           recursive: true,
           reverse: true,
           sortBy: 'time',
@@ -318,7 +318,6 @@ describe('LsCommandBuilder', () => {
       expect(args).toContain('-l');
       expect(args).toContain('--time-style=long-iso');
       expect(args).toContain('-A');
-      expect(args).toContain('-h');
       expect(args).toContain('-R');
       expect(args).toContain('-r');
       expect(args).toContain('-t');

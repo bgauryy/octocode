@@ -135,6 +135,7 @@
     "build": "tsc -p tsconfig.build.json",
     "build:dev": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist/",
+    "benchmark": "node benchmark/run.mjs",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
     "test": "vitest run --coverage",
@@ -146,8 +147,6 @@
   "dependencies": {
     "octocode-security": "workspace:^",
     "octocode-shared": "workspace:^",
-    "typescript": "^5.9.3",
-    "typescript-language-server": "^5.3.0",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.17.5",
     "vscode-uri": "^3.1.0",
@@ -158,6 +157,10 @@
     "@vitest/coverage-v8": "^4.0.16",
     "eslint": "^9.18.0",
     "typescript": "^5.9.3",
+    "typescript-language-server": "^5.3.0",
     "vitest": "^4.0.16"
+  },
+  "optionalDependencies": {
+    "@typescript/native-preview": "7.0.0-dev.20260613.1"
   }
 }

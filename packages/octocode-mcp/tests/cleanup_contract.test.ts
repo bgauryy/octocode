@@ -38,6 +38,8 @@ const FILES_THAT_MUST_BE_GONE = [
   'src/tools/lsp_call_hierarchy/callHierarchy.ts',
   'src/tools/lsp_call_hierarchy/callHierarchyLsp.ts',
   'src/tools/lsp_call_hierarchy/register.ts',
+  'src/lsp',
+  'tests/lsp',
 ];
 
 const SOURCE_FILES_THAT_MUST_NOT_REFERENCE: Array<{
@@ -82,15 +84,9 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     });
   }
 
-  it('LSP pool is the only client factory exported from manager.ts', async () => {
-    const { readFile } = await import('fs/promises');
-    const source = await readFile(`${ROOT}/src/lsp/manager.ts`, 'utf-8');
-    // manager.ts either defines acquirePooledClient directly or re-exports it from octocode-lsp
-    const hasDirectExport = /acquirePooledClient/.test(source);
-    const hasReexport =
-      /export\s*\*\s*from\s*['"]octocode-lsp\/manager['"]/.test(source);
-    expect(hasDirectExport || hasReexport).toBe(true);
-    expect(source).not.toMatch(/^export\s+(async\s+)?function\s+createClient/m);
+  it('MCP no longer owns an LSP runtime shim', async () => {
+    expect(await fileExists('src/lsp')).toBe(false);
+    expect(await fileExists('tests/lsp')).toBe(false);
   });
 
   it("REQUIRED_COMMANDS no longer includes 'grep'", async () => {

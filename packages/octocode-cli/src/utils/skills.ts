@@ -61,12 +61,9 @@ export const CLAUDE_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
 ];
 export type SkillInstallResult = 'installed' | 'skipped' | 'failed';
 
-const SKILL_TARGET_ALIASES: Record<string, SkillInstallTarget> = {
-  claude: 'claude-code',
+const SKILL_TARGET_IDS: Record<string, SkillInstallTarget> = {
   'claude-code': 'claude-code',
-  claudecode: 'claude-code',
   'claude-desktop': 'claude-desktop',
-  claudedesktop: 'claude-desktop',
   cursor: 'cursor',
   codex: 'codex',
   opencode: 'opencode',
@@ -123,7 +120,7 @@ export function getDefaultSkillsDestDir(): string {
 export function normalizeSkillTarget(
   target: string
 ): SkillInstallTarget | null {
-  return SKILL_TARGET_ALIASES[target.trim().toLowerCase()] ?? null;
+  return SKILL_TARGET_IDS[target.trim().toLowerCase()] ?? null;
 }
 
 export function formatSkillInstallTargets(): string {

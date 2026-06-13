@@ -44,12 +44,12 @@ export const loginCommand: CLICommand = {
     },
   ],
   handler: async (args: ParsedArgs) => {
-    const hostnameOpt = args.options['hostname'] ?? args.options['H'];
+    const hostnameOpt = args.options['hostname'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
-    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
-    const forceLogin = Boolean(args.options['force'] || args.options['f']);
+    const jsonOutput = Boolean(args.options['json']);
+    const forceLogin = Boolean(args.options['force']);
     const status = getAuthStatus(hostname);
 
     if (status.authenticated && !forceLogin) {
@@ -109,7 +109,7 @@ export const loginCommand: CLICommand = {
       return;
     }
 
-    const gitProtocolOpt = args.options['git-protocol'] ?? args.options['p'];
+    const gitProtocolOpt = args.options['git-protocol'];
     const gitProtocol =
       typeof gitProtocolOpt === 'string' ? gitProtocolOpt : 'https';
 
@@ -228,12 +228,12 @@ export const logoutCommand: CLICommand = {
     },
   ],
   handler: async (args: ParsedArgs) => {
-    const hostnameOpt = args.options['hostname'] ?? args.options['H'];
+    const hostnameOpt = args.options['hostname'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
-    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
-    const skipConfirm = Boolean(args.options['yes'] || args.options['y']);
+    const jsonOutput = Boolean(args.options['json']);
+    const skipConfirm = Boolean(args.options['yes']);
     const status = getAuthStatus(hostname);
 
     if (!status.authenticated) {
@@ -323,11 +323,11 @@ export const authCommand: CLICommand = {
   ],
   handler: async (args: ParsedArgs) => {
     const subcommand = args.args[0];
-    const hostnameOpt = args.options['hostname'] ?? args.options['H'];
+    const hostnameOpt = args.options['hostname'];
     const hostname =
       (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) ||
       'github.com';
-    const jsonOutput = Boolean(args.options['json'] || args.options['j']);
+    const jsonOutput = Boolean(args.options['json']);
 
     if (subcommand === 'login') {
       return loginCommand.handler(args);

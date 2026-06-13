@@ -175,7 +175,7 @@ describe('cli/commands/auth', () => {
       expect(process.exitCode).toBeUndefined();
     });
 
-    it('uses short -p git protocol alias', async () => {
+    it('uses --git-protocol', async () => {
       const { login, loginCommand, getAuthStatus } = await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
@@ -189,7 +189,7 @@ describe('cli/commands/auth', () => {
       await loginCommand.handler!({
         command: 'login',
         args: [],
-        options: { p: 'ssh' },
+        options: { 'git-protocol': 'ssh' },
       });
 
       expect(login).toHaveBeenCalledWith(
@@ -207,7 +207,7 @@ describe('cli/commands/auth', () => {
       await loginCommand.handler!({
         command: 'login',
         args: [],
-        options: { p: 'ftp' },
+        options: { 'git-protocol': 'ftp' },
       });
 
       expect(login).not.toHaveBeenCalled();
@@ -780,7 +780,7 @@ describe('cli/commands/auth', () => {
       expect(process.exitCode).toBe(1);
     });
 
-    it('passes hostname alias through auth status', async () => {
+    it('passes hostname through auth status', async () => {
       const { authCommand, getAuthStatus } = await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: true,
@@ -792,7 +792,7 @@ describe('cli/commands/auth', () => {
       await authCommand.handler!({
         command: 'auth',
         args: ['status'],
-        options: { H: 'github.enterprise.test' },
+        options: { hostname: 'github.enterprise.test' },
       });
 
       expect(getAuthStatus).toHaveBeenCalledWith('github.enterprise.test');
@@ -835,7 +835,7 @@ describe('cli/commands/auth', () => {
       expect(consoleSpy).toHaveBeenCalledWith('gho_****qrst');
     });
 
-    it('subcommand token uses short hostname alias', async () => {
+    it('subcommand token uses hostname', async () => {
       const { authCommand, getToken } = await loadAuthModule();
       vi.mocked(getToken).mockResolvedValue({
         token: 'gho_1234567890abcdefghijklmnopqrst',
@@ -845,7 +845,7 @@ describe('cli/commands/auth', () => {
       await authCommand.handler!({
         command: 'auth',
         args: ['token'],
-        options: { H: 'github.enterprise.test' },
+        options: { hostname: 'github.enterprise.test' },
       });
 
       expect(getToken).toHaveBeenCalledWith('github.enterprise.test', 'auto');

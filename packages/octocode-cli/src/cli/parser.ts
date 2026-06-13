@@ -21,7 +21,6 @@ const OPTIONS_WITH_VALUES = new Set([
   'id',
   'content',
   'search',
-  'tool',
   'queries',
   'format',
   'input',
@@ -39,6 +38,12 @@ const OPTIONS_WITH_VALUES = new Set([
   'pr',
   'page',
   'page-size',
+  'symbol',
+  'line',
+  'workspace-root',
+  'context-lines',
+  'ext',
+  'kind',
   'match-string',
   'start-line',
   'end-line',
@@ -58,8 +63,6 @@ const BOOLEAN_OPTIONS = new Set([
   'direct',
   'list',
   'schema',
-  'tools-context',
-  'agent',
   'compact',
   'no-color',
   'reveal',
@@ -80,7 +83,7 @@ function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {
     return true;
   }
 
-  return args.command === 'tool' || typeof args.options['tool'] === 'string';
+  return args.command === 'tools';
 }
 
 export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
@@ -108,18 +111,8 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
       } else {
         result.options[key] = true;
       }
-    } else if (arg.startsWith('-') && arg.length > 1) {
-      // Single-char flags (e.g. -v, -h, -j, -f)
-      const flags = arg.slice(1);
-      for (const flag of flags) {
-        result.options[flag] = true;
-      }
     } else if (!result.command) {
-      if (typeof result.options['tool'] === 'string') {
-        result.args.push(arg);
-      } else {
-        result.command = arg;
-      }
+      result.command = arg;
     } else {
       result.args.push(arg);
     }
@@ -127,18 +120,13 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
     i++;
   }
 
-  if (!result.command && typeof result.options['tool'] === 'string') {
-    result.command = 'tool';
-    result.args = [result.options['tool'], ...result.args];
-  }
-
   return result;
 }
 
 export function hasHelpFlag(args: ParsedArgs): boolean {
-  return Boolean(args.options['help'] || args.options['h']);
+  return Boolean(args.options['help']);
 }
 
 export function hasVersionFlag(args: ParsedArgs): boolean {
-  return Boolean(args.options['version'] || args.options['v']);
+  return Boolean(args.options['version']);
 }

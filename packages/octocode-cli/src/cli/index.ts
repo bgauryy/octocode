@@ -5,7 +5,7 @@ import type { CLICommand, CLICommandSpec, ParsedArgs } from './types.js';
 declare const __APP_VERSION__: string;
 
 async function loadCommandsModule(): Promise<{
-  findCommand(name: string): CLICommand | undefined;
+  loadCommand(name: string): Promise<CLICommand | undefined>;
 }> {
   return import('./commands/index.js');
 }
@@ -26,6 +26,25 @@ async function loadToolCommandModule(): Promise<{
   return import('./tool-command.js');
 }
 
+async function loadLightToolHelpModule(): Promise<{
+  printLightInstructions(options?: { full?: boolean }): void;
+  printToolRuntimeUnavailable(): void;
+  showLightAvailableTools(): void;
+  showLightToolHelp(toolName: string): boolean;
+}> {
+  return import('./light-tool-help.js');
+}
+
+async function tryLoadToolCommandModule(): Promise<Awaited<
+  ReturnType<typeof loadToolCommandModule>
+> | null> {
+  try {
+    return await loadToolCommandModule();
+  } catch {
+    return null;
+  }
+}
+
 async function loadMainHelpModule(): Promise<{
   showHelp(): void;
 }> {
@@ -36,17 +55,6 @@ async function loadHelpModule(): Promise<{
   showCommandHelp(command: CLICommandSpec): void;
 }> {
   return import('./help.js');
-}
-
-function printLegacyToolCommandError(): void {
-  console.log();
-  console.log(
-    "  Use octocode --tool <toolName> --queries '<json-stringified-input>'."
-  );
-  console.log(
-    '  Example: octocode --tool localSearchCode --queries \'{"path":".","pattern":"runCLI"}\''
-  );
-  console.log();
 }
 
 function showVersion(): void {
@@ -62,42 +70,23 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     process.env.NO_COLOR = '1';
   }
 
-  if (
-    args.options['tools-context'] === true ||
-    args.options['agent'] === true
-  ) {
-    const { printToolsContext } = await loadToolCommandModule();
-    await printToolsContext({ full: args.options['full'] === true });
-    return true;
-  }
-
   if (hasHelpFlag(args)) {
-    if (
-      args.command === 'tool' &&
-      typeof args.options.tool === 'string' &&
-      typeof args.args[0] === 'string'
-    ) {
-      const { showToolHelp } = await loadToolCommandModule();
-      if (await showToolHelp(args.args[0])) {
-        return true;
-      }
-    }
-
-    if (args.command === 'tool') {
-      const { showHelp } = await loadMainHelpModule();
-      showHelp();
-      return true;
-    }
-
     if (args.command === 'tools') {
       if (typeof args.args[0] === 'string') {
-        const { showToolHelp } = await loadToolCommandModule();
-        if (await showToolHelp(args.args[0])) {
+        const toolModule = await tryLoadToolCommandModule();
+        if (toolModule && (await toolModule.showToolHelp(args.args[0]))) {
           return true;
         }
+        const { showLightToolHelp } = await loadLightToolHelpModule();
+        if (showLightToolHelp(args.args[0])) return true;
       }
-      const { showAvailableTools } = await loadToolCommandModule();
-      await showAvailableTools();
+      const toolModule = await tryLoadToolCommandModule();
+      if (toolModule) {
+        await toolModule.showAvailableTools();
+        return true;
+      }
+      const { showLightAvailableTools } = await loadLightToolHelpModule();
+      showLightAvailableTools();
       return true;
     }
 
@@ -111,15 +100,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
         return true;
       }
 
-      const [{ findCommand }, { showHelp }] = await Promise.all([
-        loadCommandsModule(),
-        loadMainHelpModule(),
-      ]);
-      const cmd = findCommand(args.command);
-      if (cmd) {
-        showCommandHelp(cmd);
-        return true;
-      }
+      const { showHelp } = await loadMainHelpModule();
       showHelp();
       return true;
     }
@@ -135,42 +116,61 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   }
 
   if (!args.command) {
+    const optionKeys = Object.keys(args.options);
+    if (optionKeys.length > 0) {
+      const optionName = optionKeys[0];
+      console.log();
+      console.log(`  Unknown option: --${optionName}`);
+      console.log(`  Run 'octocode --help' to see available commands.`);
+      console.log();
+      process.exitCode = EXIT.NOT_FOUND;
+      return true;
+    }
     return false;
   }
 
-  if (args.command === 'tool') {
-    if (typeof args.options.tool !== 'string') {
-      printLegacyToolCommandError();
-      process.exitCode = EXIT.USAGE;
+  if (args.command === 'tools') {
+    const toolModule = await tryLoadToolCommandModule();
+    if (!toolModule) {
+      const {
+        printToolRuntimeUnavailable,
+        showLightAvailableTools,
+        showLightToolHelp,
+      } = await loadLightToolHelpModule();
+      if (!args.args[0] || args.args[0] === 'list' || args.options.list) {
+        showLightAvailableTools();
+        return true;
+      }
+      if (!args.options.queries && showLightToolHelp(args.args[0])) {
+        return true;
+      }
+      printToolRuntimeUnavailable();
+      process.exitCode = EXIT.TOOL;
       return true;
     }
 
-    const success = await (
-      await loadToolCommandModule()
-    ).executeToolCommand(args);
+    const success = await toolModule.executeToolCommand(args);
     if (!success && !process.exitCode) {
       process.exitCode = EXIT.GENERAL;
     }
     return true;
   }
 
-  if (args.command === 'tools') {
-    const { executeToolCommand } = await loadToolCommandModule();
-    const success = await executeToolCommand(args);
-    if (!success && !process.exitCode) {
-      process.exitCode = EXIT.GENERAL;
+  if (args.command === 'instructions') {
+    const toolModule = await tryLoadToolCommandModule();
+    if (toolModule) {
+      await toolModule.printToolsContext({
+        full: args.options['full'] === true,
+      });
+      return true;
     }
+    const { printLightInstructions } = await loadLightToolHelpModule();
+    printLightInstructions({ full: args.options['full'] === true });
     return true;
   }
 
-  if (args.command === 'instructions' || args.command === 'agent') {
-    const { printToolsContext } = await loadToolCommandModule();
-    await printToolsContext({ full: args.options['full'] === true });
-    return true;
-  }
-
-  const { findCommand } = await loadCommandsModule();
-  const command = findCommand(args.command);
+  const { loadCommand } = await loadCommandsModule();
+  const command = await loadCommand(args.command);
 
   if (!command) {
     console.log();

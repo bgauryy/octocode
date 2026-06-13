@@ -14,43 +14,31 @@ export {
 
 export type GetTokenSource = 'octocode' | 'gh' | 'auto';
 
-export const MCP_CLIENT_ALIASES: Record<string, MCPClient> = {
-  claude: 'claude-desktop',
+export const MCP_CLIENT_IDS: Record<string, MCPClient> = {
   'claude-desktop': 'claude-desktop',
-  claudedesktop: 'claude-desktop',
   'claude-code': 'claude-code',
-  claudecode: 'claude-code',
   cursor: 'cursor',
   windsurf: 'windsurf',
   trae: 'trae',
   antigravity: 'antigravity',
   zed: 'zed',
   'vscode-cline': 'vscode-cline',
-  cline: 'vscode-cline',
   'vscode-roo': 'vscode-roo',
-  roo: 'vscode-roo',
-  'roo-cline': 'vscode-roo',
   'vscode-continue': 'vscode-continue',
-  continue: 'vscode-continue',
   opencode: 'opencode',
   codex: 'codex',
-  gemini: 'gemini-cli',
   'gemini-cli': 'gemini-cli',
-  geminicli: 'gemini-cli',
   goose: 'goose',
   kiro: 'kiro',
   custom: 'custom',
 };
 
 export function normalizeMCPClient(value: string): MCPClient | null {
-  return MCP_CLIENT_ALIASES[value.trim().toLowerCase()] ?? null;
+  return MCP_CLIENT_IDS[value.trim().toLowerCase()] ?? null;
 }
 
-export function formatSupportedMCPClients(options?: {
-  includeInstallAlias?: boolean;
-}): string {
-  const aliases = options?.includeInstallAlias ? ['claude'] : [];
-  return [...aliases, ...DETECTABLE_MCP_CLIENTS].join(', ');
+export function formatSupportedMCPClients(): string {
+  return DETECTABLE_MCP_CLIENTS.join(', ');
 }
 
 export function getIDEDisplayName(ide: string): string {

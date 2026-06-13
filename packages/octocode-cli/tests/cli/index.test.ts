@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  findCommand: vi.fn(),
+  loadCommand: vi.fn(),
   showHelp: vi.fn(),
   showCommandHelp: vi.fn(),
   showToolHelp: vi.fn(),
+  showAvailableTools: vi.fn().mockResolvedValue(undefined),
+  showMultipleToolSchemas: vi.fn().mockResolvedValue(undefined),
   findStaticCommandHelp: vi.fn(),
   executeToolCommand: vi.fn().mockResolvedValue(true),
   printToolsContext: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/cli/commands/index.js', () => ({
-  findCommand: mocks.findCommand,
+  loadCommand: mocks.loadCommand,
 }));
 
 vi.mock('../../src/cli/help.js', () => ({
@@ -28,9 +30,10 @@ vi.mock('../../src/cli/command-help-specs.js', () => ({
 
 vi.mock('../../src/cli/tool-command.js', () => ({
   showToolHelp: mocks.showToolHelp,
+  showAvailableTools: mocks.showAvailableTools,
+  showMultipleToolSchemas: mocks.showMultipleToolSchemas,
   executeToolCommand: mocks.executeToolCommand,
   printToolsContext: mocks.printToolsContext,
-  toolCommand: { name: 'tool', handler: vi.fn() },
 }));
 
 describe('runCLI', () => {
@@ -50,41 +53,30 @@ describe('runCLI', () => {
     consoleSpy.mockRestore();
   });
 
-  it('handles --tools-context before command dispatch', async () => {
+  it('routes instructions to the tools context', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['--tools-context']);
+    const handled = await runCLI(['instructions']);
 
     expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledTimes(1);
-    expect(mocks.findCommand).not.toHaveBeenCalled();
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: false });
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
-  it('handles --agent before command dispatch', async () => {
+  it('passes --full to instructions', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['--agent']);
+    const handled = await runCLI(['instructions', '--full']);
 
     expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledTimes(1);
-    expect(mocks.findCommand).not.toHaveBeenCalled();
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
   });
 
-  it('routes the agent command to the tools context', async () => {
-    const { runCLI } = await import('../../src/cli/index.js');
-
-    const handled = await runCLI(['agent']);
-
-    expect(handled).toBe(true);
-    expect(mocks.printToolsContext).toHaveBeenCalledTimes(1);
-    expect(mocks.findCommand).not.toHaveBeenCalled();
-  });
-
-  it('routes --tool usage through the unified tool executor', async () => {
+  it('routes tools usage through the unified tool executor', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI([
-      '--tool',
+      'tools',
       'localSearchCode',
       '--queries',
       '{"path":".","keywords":"runCLI"}',
@@ -93,21 +85,20 @@ describe('runCLI', () => {
     expect(handled).toBe(true);
     expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
     expect(mocks.executeToolCommand).toHaveBeenCalledWith({
-      command: 'tool',
+      command: 'tools',
       args: ['localSearchCode'],
       options: {
-        tool: 'localSearchCode',
         queries: '{"path":".","keywords":"runCLI"}',
       },
     });
-    expect(mocks.findCommand).not.toHaveBeenCalled();
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
-  it('routes github --tool usage through the unified tool executor', async () => {
+  it('routes GitHub tools through the unified tool executor', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI([
-      '--tool',
+      'tools',
       'githubSearchCode',
       '--queries',
       '{"owner":"bgauryy","repo":"octocode-mcp","keywordsToSearch":["tool"]}',
@@ -118,46 +109,33 @@ describe('runCLI', () => {
     expect(handled).toBe(true);
     expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
     expect(mocks.executeToolCommand).toHaveBeenCalledWith({
-      command: 'tool',
+      command: 'tools',
       args: ['githubSearchCode'],
       options: {
-        tool: 'githubSearchCode',
         queries:
           '{"owner":"bgauryy","repo":"octocode-mcp","keywordsToSearch":["tool"]}',
         output: 'json',
       },
     });
-    expect(mocks.findCommand).not.toHaveBeenCalled();
   });
 
-  it('shows dynamic tool help for --tool --help usage', async () => {
+  it('shows dynamic tool help for tools <name> --help', async () => {
     mocks.showToolHelp.mockResolvedValue(true);
 
     const { runCLI } = await import('../../src/cli/index.js');
 
-    const handled = await runCLI(['--tool', 'localSearchCode', '--help']);
+    const handled = await runCLI(['tools', 'localSearchCode', '--help']);
 
     expect(handled).toBe(true);
     expect(mocks.showToolHelp).toHaveBeenCalledTimes(1);
     expect(mocks.showToolHelp).toHaveBeenCalledWith('localSearchCode');
     expect(mocks.executeToolCommand).not.toHaveBeenCalled();
-    expect(mocks.findCommand).not.toHaveBeenCalled();
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
-  it('shows dynamic tool help for any tool --help', async () => {
-    mocks.showToolHelp.mockResolvedValue(true);
+  it('rejects the removed singular tool command', async () => {
+    mocks.loadCommand.mockResolvedValue(undefined);
 
-    const { runCLI } = await import('../../src/cli/index.js');
-
-    const handled = await runCLI(['--tool', 'lspGetSemanticContent', '--help']);
-
-    expect(handled).toBe(true);
-    expect(mocks.showToolHelp).toHaveBeenCalledTimes(1);
-    expect(mocks.showToolHelp).toHaveBeenCalledWith('lspGetSemanticContent');
-    expect(mocks.executeToolCommand).not.toHaveBeenCalled();
-  });
-
-  it('rejects the legacy tool command and points users to --tool', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI([
@@ -168,11 +146,10 @@ describe('runCLI', () => {
 
     expect(handled).toBe(true);
     expect(mocks.executeToolCommand).not.toHaveBeenCalled();
-    expect(mocks.findCommand).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Use octocode --tool')
+      expect.stringContaining('Unknown command: tool')
     );
-    expect(process.exitCode).toBe(2);
+    expect(process.exitCode).toBe(3);
   });
 
   it('shows main help when --help is passed without a command', async () => {
@@ -185,19 +162,8 @@ describe('runCLI', () => {
     expect(mocks.showCommandHelp).not.toHaveBeenCalled();
   });
 
-  it('shows main help for "tool --help" (from main-help, not help module)', async () => {
-    const { runCLI } = await import('../../src/cli/index.js');
-
-    const handled = await runCLI(['tool', '--help']);
-
-    expect(handled).toBe(true);
-    expect(mocks.showHelp).toHaveBeenCalledTimes(1);
-    expect(mocks.showCommandHelp).not.toHaveBeenCalled();
-  });
-
-  it('falls through to main help for unknown command --help', async () => {
+  it('shows main help for unknown command --help', async () => {
     mocks.findStaticCommandHelp.mockReturnValue(undefined);
-    mocks.findCommand.mockReturnValue(undefined);
 
     const { runCLI } = await import('../../src/cli/index.js');
 
@@ -218,21 +184,7 @@ describe('runCLI', () => {
     expect(handled).toBe(true);
     expect(mocks.findStaticCommandHelp).toHaveBeenCalledWith('install');
     expect(mocks.showCommandHelp).toHaveBeenCalledWith(fakeCmd);
-    expect(mocks.findCommand).not.toHaveBeenCalled();
-  });
-
-  it('shows dynamic command help when static lookup misses but findCommand hits', async () => {
-    const fakeCmd = { name: 'cache', description: 'Manage cache' };
-    mocks.findStaticCommandHelp.mockReturnValue(undefined);
-    mocks.findCommand.mockReturnValue(fakeCmd);
-
-    const { runCLI } = await import('../../src/cli/index.js');
-
-    const handled = await runCLI(['cache', '--help']);
-
-    expect(handled).toBe(true);
-    expect(mocks.showCommandHelp).toHaveBeenCalledWith(fakeCmd);
-    expect(mocks.showHelp).not.toHaveBeenCalled();
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
   it('prints version for --version flag', async () => {
@@ -244,32 +196,47 @@ describe('runCLI', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('octocode v')
     );
-    expect(mocks.findCommand).not.toHaveBeenCalled();
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
-  it('prints version for -v flag', async () => {
+  it('treats single-dash version spelling as an unknown command', async () => {
+    mocks.loadCommand.mockResolvedValue(undefined);
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI(['-v']);
 
     expect(handled).toBe(true);
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('octocode v')
+      expect.stringContaining('Unknown command: -v')
     );
+    expect(process.exitCode).toBe(3);
   });
 
-  it('returns false when no command is given (triggers interactive mode)', async () => {
+  it('returns false when no command is given', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI([]);
 
     expect(handled).toBe(false);
-    expect(mocks.findCommand).not.toHaveBeenCalled();
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
     expect(mocks.showHelp).not.toHaveBeenCalled();
   });
 
-  it('prints error for unknown command and sets exitCode 1', async () => {
-    mocks.findCommand.mockReturnValue(undefined);
+  it('prints error for unknown top-level options', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['--not-real']);
+
+    expect(handled).toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown option: --not-real')
+    );
+    expect(process.exitCode).toBe(3);
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
+  });
+
+  it('prints error for unknown command and sets exitCode 3', async () => {
+    mocks.loadCommand.mockResolvedValue(undefined);
 
     const { runCLI } = await import('../../src/cli/index.js');
 
@@ -282,13 +249,13 @@ describe('runCLI', () => {
     expect(process.exitCode).toBe(3);
   });
 
-  it('sets exitCode 1 when --tool execution fails', async () => {
+  it('sets exitCode 1 when tool execution fails without a specific code', async () => {
     mocks.executeToolCommand.mockResolvedValueOnce(false);
 
     const { runCLI } = await import('../../src/cli/index.js');
 
     const handled = await runCLI([
-      '--tool',
+      'tools',
       'localSearchCode',
       '--queries',
       '{"bad":"input"}',
@@ -298,23 +265,7 @@ describe('runCLI', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('sets exitCode 1 when github --tool execution fails', async () => {
-    mocks.executeToolCommand.mockResolvedValueOnce(false);
-
-    const { runCLI } = await import('../../src/cli/index.js');
-
-    const handled = await runCLI([
-      '--tool',
-      'githubSearchCode',
-      '--queries',
-      '{"bad":"input"}',
-    ]);
-
-    expect(handled).toBe(true);
-    expect(process.exitCode).toBe(1);
-  });
-
-  it('does not print deprecation warning when using --tool', async () => {
+  it('does not print warnings for canonical tool usage', async () => {
     const consoleErrorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
@@ -322,7 +273,7 @@ describe('runCLI', () => {
     const { runCLI } = await import('../../src/cli/index.js');
 
     await runCLI([
-      '--tool',
+      'tools',
       'githubSearchCode',
       '--queries',
       '{"owner":"x","repo":"y","keywordsToSearch":["a"]}',

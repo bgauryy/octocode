@@ -107,6 +107,13 @@ const SCHEMA_EXCEPTIONS: Record<
     // string-list format so there is no output mode to select.
     removedCoreFields: ['mode'],
   },
+  [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: {
+    // `humanReadable` removed: in recursive/walk mode formatFileSize always
+    // runs so the flag is silently ignored; in ls+details mode it double-
+    // formats the already-formatted ls -h string, reducing precision.
+    // The default path (no -h → raw bytes → formatFileSize) is the best.
+    removedCoreFields: ['humanReadable'],
+  },
 };
 
 function getCoreQueryDescriptions(toolName: string): Record<string, string> {

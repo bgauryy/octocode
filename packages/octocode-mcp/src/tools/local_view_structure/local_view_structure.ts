@@ -155,6 +155,9 @@ export async function viewStructure(
       query.details === true || query.showFileLastModified === true;
     const entryPayload = richEntries
       ? {
+          // Mirror flat mode: always emit base path so the agent knows which
+          // directory was scanned, regardless of output mode.
+          path: sanitizedBasePath,
           entries: paginatedEntries.map(entry => ({
             ...toEntryObject(entry),
             path: `${sanitizedBasePath}/${entry.name}`,
@@ -163,6 +166,16 @@ export async function viewStructure(
       : { path: sanitizedBasePath, ...toGroupedLists(paginatedEntries) };
     const warnings: string[] = [];
     const isEmpty = totalEntries === 0;
+    // Detect when a filter (extensions/pattern) was active but returned zero
+    // files — folders may still be present, but the intended match failed.
+    const queryPattern =
+      typeof (query as { pattern?: unknown }).pattern === 'string'
+        ? (query as { pattern?: string }).pattern
+        : undefined;
+    const hasFilter =
+      (query.extensions?.length ?? 0) > 0 || Boolean(queryPattern);
+    const fileCount = filteredEntries.filter(e => e.type === 'file').length;
+    const extensionMiss = hasFilter && fileCount === 0 && !isEmpty;
     const entryPaginationHints = buildEntryPaginationHints(
       filteredEntries,
       paginatedEntries.length,
@@ -170,6 +183,12 @@ export async function viewStructure(
       endIdx
     );
     const summary = summarizeEntries(filteredEntries);
+    const emptyHintCtx = {
+      entryCount: totalEntries,
+      path: query.path,
+      extensions: query.extensions,
+      pattern: queryPattern,
+    } as Record<string, unknown>;
 
     return attachRawResponseChars(
       finalizeViewStructureResult(
@@ -185,16 +204,8 @@ export async function viewStructure(
           ...(warnings.length > 0 && { warnings }),
           hints: [
             // Active-filters hint dropped — the agent set those params itself.
-            ...(isEmpty
-              ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
-                  entryCount: totalEntries,
-                  path: query.path,
-                  extensions: query.extensions,
-                  pattern:
-                    typeof (query as { pattern?: unknown }).pattern === 'string'
-                      ? (query as { pattern?: string }).pattern
-                      : undefined,
-                } as Record<string, unknown>)
+            ...(isEmpty || extensionMiss
+              ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', emptyHintCtx)
               : [
                   'Use localSearchCode to search or localGetFileContent to read discovered files.',
                 ]),
@@ -310,6 +321,9 @@ async function viewStructureRecursive(
     query.details === true || query.showFileLastModified === true;
   const entryPayload = richEntries
     ? {
+        // Mirror flat mode: always emit base path so the agent knows which
+        // directory was scanned, regardless of output mode.
+        path: basePath,
         entries: paginatedEntries.map(entry => ({
           ...toEntryObject(entry),
           path: `${basePath}/${entry.name}`,
@@ -325,19 +339,28 @@ async function viewStructureRecursive(
       : []),
   ];
   const isEmpty = totalEntries === 0;
-  const baseHints = isEmpty
-    ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', {
-        entryCount: totalEntries,
-        path: query.path,
-        extensions: query.extensions,
-        pattern:
-          typeof (query as { pattern?: unknown }).pattern === 'string'
-            ? (query as { pattern?: string }).pattern
-            : undefined,
-      } as Record<string, unknown>)
-    : [
-        'Use localSearchCode to search or localGetFileContent to read discovered files.',
-      ];
+  // Detect when a filter (extensions/pattern) was active but returned zero
+  // files — folders may still be present, but the intended match failed.
+  const queryPattern =
+    typeof (query as { pattern?: unknown }).pattern === 'string'
+      ? (query as { pattern?: string }).pattern
+      : undefined;
+  const hasFilter =
+    (query.extensions?.length ?? 0) > 0 || Boolean(queryPattern);
+  const fileCount = filteredEntries.filter(e => e.type === 'file').length;
+  const extensionMiss = hasFilter && fileCount === 0 && !isEmpty;
+  const emptyHintCtx = {
+    entryCount: totalEntries,
+    path: query.path,
+    extensions: query.extensions,
+    pattern: queryPattern,
+  } as Record<string, unknown>;
+  const baseHints =
+    isEmpty || extensionMiss
+      ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', emptyHintCtx)
+      : [
+          'Use localSearchCode to search or localGetFileContent to read discovered files.',
+        ];
   const entryPaginationHints = buildEntryPaginationHints(
     filteredEntries,
     paginatedEntries.length,
