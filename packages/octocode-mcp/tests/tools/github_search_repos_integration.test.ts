@@ -106,8 +106,8 @@ describe('GitHub Search Repositories Response Structure Test', () => {
 
     expect(result.isError).toBe(false);
     expect(responseText).toContain('results:');
-    expect(responseText).toContain('id: "repos_response_structure"');
-    expect(responseText).not.toContain('status: "hasResults"');
+    expect(responseText).toContain('id: repos_response_structure');
+    expect(responseText).not.toContain('status: hasResults');
     expect(responseText).toContain('repositories:');
     expect(responseText).toContain('facebook');
     expect(responseText).toContain('react');

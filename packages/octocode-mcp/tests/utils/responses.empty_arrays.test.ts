@@ -151,7 +151,7 @@ describe('Empty Arrays Removal in Responses', () => {
       const responseText = getTextContent(result.content);
 
       expect(responseText).toContain('test.js');
-      expect(responseText).toContain('repo: "test-repo"');
+      expect(responseText).toContain('repo: test-repo');
     });
   });
 

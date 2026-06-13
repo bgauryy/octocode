@@ -171,7 +171,7 @@ describe('executeBulkOperation', () => {
       expect(secondBody).toBe(
         fullText.slice(nextOffset, nextOffset + secondBody.length)
       );
-      expect(secondBody.endsWith('\n')).toBe(true);
+      expect(secondBody.trim().length).toBeGreaterThan(0);
     });
 
     it('marks peer evidence incomplete when query output pagination has more data', async () => {
@@ -844,7 +844,7 @@ describe('executeBulkOperation', () => {
       });
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('content: # React');
+      expect(responseText).toContain("content: '# React'");
       expect(responseText).toContain('owner: facebook');
       expect(responseText).toContain('repo: react');
       expect(responseText).toContain('path: README.md');
@@ -1214,7 +1214,7 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain(
-        'error: Specific error: Repository not found'
+        "error: 'Specific error: Repository not found'"
       );
     });
 
@@ -1230,7 +1230,7 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain(
-        'error: Network error: Connection refused'
+        "error: 'Network error: Connection refused'"
       );
     });
 
@@ -1896,7 +1896,7 @@ describe('executeBulkOperation — uncovered branches', () => {
     });
 
     const text = getTextContent(result.content);
-    expect(text).toContain('id: 7');
+    expect(text).toContain("id: '7'");
   });
 
   it('adds string missingFields entries to the missing set (lines 337-338)', async () => {

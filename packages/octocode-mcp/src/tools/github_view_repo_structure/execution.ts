@@ -64,7 +64,7 @@ function buildStructureNavigationHint(input: {
       ? 'Structure page is partial'
       : 'Structure complete';
 
-  return `${prefix} — use githubSearchCode(owner="${input.owner}", repo="${input.repo}") to find patterns, or githubGetFileContent to read specific files.`;
+  return `${prefix} - use githubSearchCode(owner="${input.owner}", repo="${input.repo}") to find patterns, or githubGetFileContent to read specific files.`;
 }
 
 function buildNextPathHints(
@@ -168,6 +168,10 @@ export async function exploreMultipleRepositoryStructures(
           providerResult.response.data.structure
         );
         const hasContent = Object.keys(filteredStructure).length > 0;
+        // Extract truncation flag from raw provider data before mapping strips it.
+        const wasTruncated = Boolean(
+          providerResult.response.data.summary?.truncated
+        );
         const resultData = mapRepoStructureProviderResult(
           providerResult.response.data,
           query,
@@ -190,13 +194,6 @@ export async function exploreMultipleRepositoryStructures(
           0
         );
 
-        const summary = (
-          resultData as {
-            summary?: { truncated?: boolean; filtered?: boolean };
-          }
-        ).summary;
-        const wasTruncated = Boolean(summary?.truncated);
-        const wasFiltered = Boolean(summary?.filtered);
         const pagination = (
           resultData as {
             pagination?: {
@@ -207,17 +204,25 @@ export async function exploreMultipleRepositoryStructures(
           }
         ).pagination;
         const hasMorePages = Boolean(pagination?.hasMore);
-        const navigationHint = hasContent
-          ? buildStructureNavigationHint({
-              owner: query.owner,
-              repo: query.repo,
-              truncated: wasTruncated,
-              hasMore: hasMorePages,
-            })
-          : undefined;
+
+        // When paginating, evidence.reason already carries "use page=N" -
+        // the provider apiHints and navigation hint would just duplicate it.
+        const navigationHint =
+          hasContent && !hasMorePages
+            ? buildStructureNavigationHint({
+                owner: query.owner,
+                repo: query.repo,
+                truncated: wasTruncated,
+                hasMore: false,
+              })
+            : undefined;
+        const extraHintsForOutput = hasMorePages
+          ? []
+          : [...apiHints, ...(navigationHint ? [navigationHint] : [])];
+
         const truncatedReasons: string[] = [];
         if (hasMorePages) {
-          // Page-driven truncation: the next page completes the tree — a
+          // Page-driven truncation: the next page completes the tree - a
           // "deeper depth" suggestion would mislead the agent.
           const currentPage = pagination?.currentPage ?? 1;
           const totalPages = pagination?.totalPages;
@@ -229,21 +234,13 @@ export async function exploreMultipleRepositoryStructures(
             `Tree truncated at depth=${query.depth ?? 'default'}; re-query with a deeper depth or a more specific path to see the rest.`
           );
         }
-        if (wasFiltered) {
-          truncatedReasons.push(
-            'Some entries were filtered (e.g. ignored paths); re-query with a narrower path to inspect them directly.'
-          );
-        }
 
         const shaped = buildRepoStructureOutput(
           {
             data: resultData as Record<string, unknown>,
             entryCount,
-            summary,
-            extraHints: [
-              ...apiHints,
-              ...(navigationHint ? [navigationHint] : []),
-            ],
+            wasTruncated,
+            extraHints: extraHintsForOutput,
           },
           query
         );
@@ -288,9 +285,13 @@ export async function exploreMultipleRepositoryStructures(
     },
     {
       toolName: TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+      // Hoist summary + pagination before structure so the agent sees
+      // counts and hasMore/page info before reading the full file list.
       keysPriority: [
         'resolvedBranch',
         'branchFallback',
+        'summary',
+        'pagination',
         'structure',
         'error',
       ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
@@ -305,7 +306,7 @@ export function buildRepoStructureOutput(
   input: {
     data: Record<string, unknown>;
     entryCount: number;
-    summary: { truncated?: boolean; filtered?: boolean } | undefined;
+    wasTruncated: boolean;
     extraHints: string[];
   },
   _query: PartialRepoStructureQuery
@@ -313,7 +314,7 @@ export function buildRepoStructureOutput(
   const nextPathHints = buildNextPathHints(
     (input.data as { structure?: unknown }).structure,
     input.entryCount,
-    Boolean(input.summary?.truncated)
+    input.wasTruncated
   );
 
   return {

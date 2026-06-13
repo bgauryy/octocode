@@ -10,7 +10,7 @@ describe('githubViewRepoStructure pass-through contract — data is preserved', 
       },
     },
     entryCount: 20,
-    summary: { truncated: true },
+    wasTruncated: true,
     extraHints: [],
   };
 
@@ -37,7 +37,7 @@ describe('githubViewRepoStructure entries — data structure preserved', () => {
   const input = {
     data: { path: '.', structure },
     entryCount: 9,
-    summary: { truncated: false },
+    wasTruncated: false,
     extraHints: [],
   };
 

@@ -46,7 +46,9 @@ export function shouldIgnorePath(pathToCheck: string): boolean {
     return true;
   }
 
-  const normalizedPath = pathToCheck.replace(/\\/g, '/');
+  const normalizedPath = normalizePathForIgnoreMatching(
+    pathToCheck.replace(/\\/g, '/')
+  );
   const regex = getCompiledPathRegex();
 
   const pathParts = normalizedPath.split('/');
@@ -55,6 +57,16 @@ export function shouldIgnorePath(pathToCheck: string): boolean {
   }
 
   return regex.test(normalizedPath);
+}
+
+function normalizePathForIgnoreMatching(normalizedPath: string): string {
+  // macOS canonicalizes /var/... to /private/var/..., but "private" here is a
+  // system path prefix, not a user secret directory named "private".
+  if (normalizedPath === '/private/var') return '/var';
+  if (normalizedPath.startsWith('/private/var/')) {
+    return normalizedPath.slice('/private'.length);
+  }
+  return normalizedPath;
 }
 
 export function shouldIgnoreFile(fileName: string): boolean {

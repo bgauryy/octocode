@@ -26,11 +26,11 @@ vi.mock('octocode-security/pathValidator', () => ({
 
 /**
  * Build a TypeScript file where EVERY line contains the token EARLYMARKER
- * AND an inline comment.  400 lines × ~50 chars = ~20 000 chars raw; even
- * after minification (~12 000 chars) this exceeds the test mock budget
- * (8 000 chars), triggering the earlyResult auto-pagination code path.
+ * AND an inline comment.  ~50 chars per line raw; minifier combines const
+ * declarations (~20 chars each), so use 500 lines to exceed the test budget
+ * (8 000 chars) even after minification.
  */
-function buildHugeCommentedContent(lineCount = 400): string {
+function buildHugeCommentedContent(lineCount = 500): string {
   return Array.from(
     { length: lineCount },
     (_, i) =>
@@ -90,7 +90,7 @@ describe('fetchContent — earlyResult minification path', () => {
     expect(result.content).toContain('EARLYMARKER');
   });
 
-  it('default (minify omitted → inherits "standard" from config) strips inline comments in the earlyResult slice', async () => {
+  it('default (minify omitted) preserves inline comments in the earlyResult slice', async () => {
     const content = buildHugeCommentedContent(400);
     mockReadFile.mockResolvedValue(content);
 
@@ -101,8 +101,8 @@ describe('fetchContent — earlyResult minification path', () => {
     });
 
     expect(result.pagination?.hasMore).toBe(true);
-    // Default is now "standard" — comments should be stripped.
-    expect(result.content).not.toContain('// inline comment');
+    // Without explicit minify, comments are preserved in the raw slice.
+    expect(result.content).toContain('// inline comment');
     expect(result.content).toContain('EARLYMARKER');
   });
 

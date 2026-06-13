@@ -20,9 +20,11 @@ export class PathValidator {
   constructor(options?: PathValidatorOptions) {
     const opts = options || {};
 
-    this.allowedRoots = opts.workspaceRoot
-      ? [path.resolve(this.expandTilde(opts.workspaceRoot))]
-      : [];
+    this.allowedRoots = [];
+
+    if (opts.workspaceRoot) {
+      this.addAllowedRoot(opts.workspaceRoot);
+    }
 
     if (opts.includeHomeDir !== false) {
       const homeDir = os.homedir();
@@ -63,14 +65,18 @@ export class PathValidator {
   addAllowedRoot(root: string): void {
     const expandedRoot = this.expandTilde(root);
     const resolvedRoot = path.resolve(expandedRoot);
-    let realRoot = resolvedRoot;
+    this.addAllowedRootVariant(resolvedRoot);
+
     try {
-      realRoot = fs.realpathSync(resolvedRoot);
+      this.addAllowedRootVariant(fs.realpathSync(resolvedRoot));
     } catch {
       // Path doesn't exist yet — use the unresolved path
     }
-    if (!this.allowedRoots.includes(realRoot)) {
-      this.allowedRoots.push(realRoot);
+  }
+
+  private addAllowedRootVariant(root: string): void {
+    if (!this.allowedRoots.includes(root)) {
+      this.allowedRoots.push(root);
     }
   }
 

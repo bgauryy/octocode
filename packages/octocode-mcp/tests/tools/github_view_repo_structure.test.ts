@@ -149,7 +149,10 @@ describe('GitHub View Repository Structure Tool', () => {
     );
 
     const responseText = getTextContent(result.content);
-    expect(responseText).toContain('Structure page is partial');
+    // Pagination info now surfaces in evidence.reason rather than a hint string.
+    // The old "Structure page is partial" navigation hint is skipped when
+    // hasMorePages=true to avoid duplicating evidence.reason.
+    expect(responseText).toContain('Tree paginated');
     expect(responseText).not.toContain('Structure complete');
   });
 
@@ -359,9 +362,9 @@ describe('GitHub View Repository Structure Tool', () => {
 
     expect(result.isError).toBe(true);
     const responseText = getTextContent(result.content);
-    expect(responseText).toContain('error: "Repository not found"');
+    expect(responseText).toContain('error: Repository not found');
     expect(responseText).toContain('statusCode: 404');
-    expect(responseText).toContain('owner: "nonexistent"');
+    expect(responseText).toContain('owner: nonexistent');
     expect(responseText).not.toContain('error:\n        status: 404');
   });
 
@@ -606,9 +609,7 @@ describe('GitHub View Repository Structure Tool', () => {
       expect(responseText).toContain('nonexistent-branch');
       expect(responseText).toContain('main');
       expect(responseText).toContain('defaultBranch');
-      expect(responseText).toContain(
-        "WARNING: Branch 'nonexistent-branch' not found"
-      );
+      expect(responseText).toContain("Branch 'nonexistent-branch' not found");
       expect(responseText).not.toContain('⚠️ IMPORTANT');
     });
   });

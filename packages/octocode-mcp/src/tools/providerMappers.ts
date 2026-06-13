@@ -715,9 +715,21 @@ export function mapRepoStructureProviderResult(
     requestedBranch !== actualBranch &&
     requestedBranch !== 'HEAD';
 
+  // Convert the directory map to a sorted array so that:
+  // (a) '.' (root) is always first,
+  // (b) directory names (e.g. 'hints') can never collide with top-level
+  //     YAML keys that share names with response fields.
+  const structureArray = Object.entries(filteredStructure)
+    .sort(([a], [b]) => (a === '.' ? -1 : b === '.' ? 1 : a.localeCompare(b)))
+    .map(([dir, entry]) => ({ dir, files: entry.files, folders: entry.folders }));
+
   const resultData: Record<string, unknown> = {
-    structure: filteredStructure,
-    summary: data.summary,
+    structure: structureArray,
+    // Emit only the counts — truncated/filtered are surfaced via evidence, not here
+    summary: {
+      totalFiles: data.summary.totalFiles,
+      totalFolders: data.summary.totalFolders,
+    },
   };
 
   // Echo the served ref consistently — also when the caller passed an
@@ -737,7 +749,9 @@ export function mapRepoStructureProviderResult(
     };
   }
 
-  if (data.pagination) {
+  // Only emit pagination when there are actually multiple pages — a single complete
+  // page adds no information beyond summary.totalFiles / totalFolders.
+  if (data.pagination && (data.pagination.hasMore || data.pagination.totalPages > 1)) {
     resultData.pagination = data.pagination;
   }
 

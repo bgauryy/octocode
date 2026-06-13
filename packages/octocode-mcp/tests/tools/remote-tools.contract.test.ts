@@ -66,7 +66,7 @@ describe('Verbosity: githubViewRepoStructure', () => {
           },
         },
         entryCount: 3,
-        summary: { truncated: true },
+        wasTruncated: true,
         extraHints: [],
       },
       {}

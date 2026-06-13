@@ -83,11 +83,11 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
 
-    expect(text).toContain('kind: "definition"');
-    expect(text).toContain('kind: "references"');
-    expect(text).toContain('kind: "hover"');
-    expect(text).toContain('kind: "typeDefinition"');
-    expect(text).toContain('kind: "implementation"');
+    expect(text).toContain('kind: definition');
+    expect(text).toContain('kind: references');
+    expect(text).toContain('kind: hover');
+    expect(text).toContain('kind: typeDefinition');
+    expect(text).toContain('kind: implementation');
     expect(text).toContain('**target**');
   });
 
@@ -115,9 +115,9 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
 
-    expect(text).toContain('kind: "documentSymbols"');
-    expect(text).toContain('direction: "incoming"');
-    expect(text).toContain('direction: "outgoing"');
+    expect(text).toContain('kind: documentSymbols');
+    expect(text).toContain('direction: incoming');
+    expect(text).toContain('direction: outgoing');
     expect(text).toContain('dynamicCallsExcluded: true');
     expect(text).toContain('truncatedByDepth: true');
     expect(text).toContain('cycleCount: 1');
@@ -151,8 +151,8 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
 
-    expect(text).toContain('format: "compact"');
-    expect(text).toContain('- "1:16');
+    expect(text).toContain('format: compact');
+    expect(text).toContain('- 1:16');
     expect(text).toContain('count=2 lines=');
     expect(text).toContain('incoming callerFn');
     expect(text).not.toContain('childCount:');
@@ -190,10 +190,10 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
 
-    expect(text).not.toContain('status: "error"');
+    expect(text).not.toContain('status: error');
     expect(text).not.toContain('Semantic evidence is incomplete');
-    expect(text).toContain('kind: "references"');
-    expect(text).toContain('kind: "callers"');
+    expect(text).toContain('kind: references');
+    expect(text).toContain('kind: callers');
   });
 
   it('reports unsupported semantic capabilities explicitly', async () => {
@@ -348,7 +348,7 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
     expect(text).toContain('Language server unavailable');
-    expect(text).toContain('kind: "documentSymbols"');
+    expect(text).toContain('kind: documentSymbols');
   });
 
   it('paginates document symbols across pages', async () => {
@@ -467,7 +467,7 @@ describe('new public LSP tool execution', () => {
     const text = textOf(result);
     expect(text).toContain('MyClass');
     expect(text).toContain('myMethod');
-    expect(text).toContain('containerName: "MyClass"');
+    expect(text).toContain('containerName: MyClass');
   });
 
   it('renders various symbolKindName values covering all switch cases', async () => {

@@ -755,9 +755,9 @@ describe('GitHub Search Pull Requests Tool', () => {
       );
 
       const text = getTextContent(result.content);
-      expect(text).toContain('body: "Body text"');
-      expect(text).toContain('path: "src/a.ts"');
-      expect(text).toContain('patch: "patch-a"');
+      expect(text).toContain('body: Body text');
+      expect(text).toContain('path: src/a.ts');
+      expect(text).toContain('patch: patch-a');
       expect(text).not.toContain('patch-b');
       // patches.files narrows 2 changes to 1 and the single comment fits one
       // page — both pagination blocks are exhausted, so render drops them.

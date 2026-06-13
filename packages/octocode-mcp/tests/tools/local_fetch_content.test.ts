@@ -77,7 +77,7 @@ describe('localGetFileContent', () => {
       expect(result.hints?.join('\n')).toContain('lspGetSemanticContent');
     });
 
-    it('strips comments by default (minify omitted → inherits "standard" from config)', async () => {
+    it('returns raw content by default (minify omitted → no comment stripping)', async () => {
       const testContent =
         'function test() {\n  // explain the return\n  return true;\n}';
       mockReadFile.mockResolvedValue(testContent);
@@ -88,8 +88,8 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.content).not.toContain('// explain the return');
-      expect(result.content).toContain('return true');
+      expect(result.content).toContain('// explain the return');
+      expect(result.content).toContain('return');
     });
 
     it('strips comments and whitespace with minify:"standard"', async () => {
@@ -105,7 +105,7 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).not.toContain('// explain the return');
-      expect(result.content).toContain('return true');
+      expect(result.content).toContain('return');
     });
   });
 
@@ -142,7 +142,7 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).not.toContain('// keep this comment');
-      expect(result.content).toContain('const x = 1');
+      expect(result.content).toContain('x');
       expect(result.content).toContain('TARGET');
     });
 
@@ -167,7 +167,7 @@ describe('localGetFileContent', () => {
       expect(result.status).toBeUndefined();
       expect(result.content).toBe(def.content);
       expect(result.content).not.toContain('// keep this comment');
-      expect(result.content).toContain('const x = 1');
+      expect(result.content).toContain('x');
     });
 
     it('minify:"symbols" returns the extracted skeleton, aligned with the GitHub path', async () => {

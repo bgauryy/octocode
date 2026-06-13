@@ -182,9 +182,9 @@ describe('GitHub Search Repositories Query Splitting', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "dedup_merged_result"');
+      expect(responseText).toContain('id: dedup_merged_result');
       expect(
-        (responseText.match(/id: "dedup_merged_result"/g) || []).length
+        (responseText.match(/id: dedup_merged_result/g) || []).length
       ).toBe(1);
       expect(responseText).toContain('duplicate/repo');
     });
@@ -423,9 +423,9 @@ describe('GitHub Search Repositories Query Splitting', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('id: "partial_failure_query"');
+      expect(responseText).toContain('id: partial_failure_query');
       expect(
-        (responseText.match(/id: "partial_failure_query"/g) || []).length
+        (responseText.match(/id: partial_failure_query/g) || []).length
       ).toBe(1);
       expect(responseText).toContain('success/repo');
       expect(responseText).toContain(
@@ -466,7 +466,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
       );
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('status: "error"');
+      expect(responseText).toContain('status: error');
       expect(responseText).toContain('Rate limit exceeded');
       expect(responseText).not.toContain('Secondary failure');
     });

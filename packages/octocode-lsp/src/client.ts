@@ -159,8 +159,6 @@ export class LSPClient {
       throw new Error('Failed to create language server process pipes');
     }
 
-    this.process.on('error', () => {});
-
     if (typeof this.process.stderr?.setEncoding === 'function') {
       this.process.stderr.setEncoding('utf8');
     }
@@ -176,6 +174,35 @@ export class LSPClient {
       }
     });
 
+    let onEarlyError: ((error: Error) => void) | undefined;
+    let onEarlyClose:
+      | ((code: number | null, signal: NodeJS.Signals | null) => void)
+      | undefined;
+    const earlyExitPromise = new Promise<never>((_, reject) => {
+      onEarlyError = (error: Error) => {
+        if (!this.initialized) {
+          reject(
+            new Error(
+              this.formatServerStartupFailure(`process error: ${error.message}`)
+            )
+          );
+        }
+      };
+      onEarlyClose = (code, signal) => {
+        if (!this.initialized) {
+          reject(
+            new Error(
+              this.formatServerStartupFailure(
+                `process exited before initialize (code=${code ?? 'null'}, signal=${signal ?? 'null'})`
+              )
+            )
+          );
+        }
+      };
+      this.process!.once('error', onEarlyError);
+      this.process!.once('close', onEarlyClose);
+    });
+
     try {
       this.connection = createMessageConnection(
         new StreamMessageReader(this.process.stdout),
@@ -185,11 +212,21 @@ export class LSPClient {
       this.registerServerInitiatedHandlers(this.connection);
       this.connection.listen();
 
-      await this.initialize();
+      await Promise.race([this.initialize(), earlyExitPromise]);
     } catch (error) {
       await this.stop();
       throw error;
+    } finally {
+      if (onEarlyError) this.process?.off('error', onEarlyError);
+      if (onEarlyClose) this.process?.off('close', onEarlyClose);
     }
+  }
+
+  private formatServerStartupFailure(reason: string): string {
+    const stderr = this.getRecentStderr();
+    const stderrSuffix =
+      stderr.length > 0 ? `; stderr: ${stderr.slice(-8).join('\n')}` : '';
+    return `Language server startup failed: ${reason}${stderrSuffix}`;
   }
 
   private registerServerInitiatedHandlers(connection: MessageConnection): void {

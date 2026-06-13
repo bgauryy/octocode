@@ -529,10 +529,10 @@ describe('Pull Request Search', () => {
       expect((pr.body as string).length).toBeLessThan(longBody.length);
       expect(pr.body_pagination).toMatchObject({
         charOffset: 0,
-        charLength: 12_000,
+        charLength: 8_000,
         totalChars: longBody.length,
         hasMore: true,
-        nextCharOffset: 12_000,
+        nextCharOffset: 8_000,
       });
       expect(pr.comments).toBe(6);
       expect(pr.comment_details_total).toBe(6);

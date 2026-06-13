@@ -6,6 +6,7 @@ import {
 } from '../src/pathValidator.js';
 import os from 'os';
 import fs from 'fs';
+import path from 'path';
 
 interface ErrnoException extends Error {
   code?: string;
@@ -129,6 +130,27 @@ describe('PathValidator', () => {
       const result = validator.validate(`${testWorkspace}/package.json`);
       expect(result.isValid).toBe(true);
       expect(result.sanitizedPath).toBeDefined();
+    });
+
+    it('should accept files when workspace root realpath differs from its lexical path', () => {
+      const tmpWorkspace = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'octocode-path-validator-')
+      );
+      try {
+        const filePath = path.join(tmpWorkspace, 'fixture.ts');
+        fs.writeFileSync(filePath, 'export const ok = true;\n');
+
+        const strictValidator = new PathValidator({
+          workspaceRoot: tmpWorkspace,
+          includeHomeDir: false,
+        });
+        const result = strictValidator.validate(filePath);
+
+        expect(result.isValid).toBe(true);
+        expect(result.sanitizedPath).toBe(fs.realpathSync(filePath));
+      } finally {
+        fs.rmSync(tmpWorkspace, { recursive: true, force: true });
+      }
     });
 
     it('should accept workspace root itself', () => {

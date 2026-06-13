@@ -119,9 +119,9 @@ describe('GitHub Fetch Content Tool', () => {
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('results:');
-      expect(responseText).toContain('owner: "test"');
-      expect(responseText).toContain('repo: "repo"');
-      expect(responseText).toContain('path: "README.md"');
+      expect(responseText).toContain('owner: test');
+      expect(responseText).toContain('repo: repo');
+      expect(responseText).toContain('path: README.md');
       expect(responseText).toContain('content:');
       expect(responseText).not.toContain('status:');
     });
@@ -297,8 +297,8 @@ describe('GitHub Fetch Content Tool', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('content1');
       expect(responseText).toContain('content2');
-      expect(responseText).toContain('path: "file1.js"');
-      expect(responseText).toContain('path: "file2.js"');
+      expect(responseText).toContain('path: file1.js');
+      expect(responseText).toContain('path: file2.js');
     });
   });
 
@@ -739,8 +739,8 @@ describe('GitHub Fetch Content Tool', () => {
 
       expect(result.isError).toBe(false);
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('content: "good"');
-      expect(responseText).toContain('path: "good.js"');
+      expect(responseText).toContain('content: good');
+      expect(responseText).toContain('path: good.js');
       expect(responseText).toContain('errors:');
     });
   });
@@ -908,7 +908,7 @@ describe('GitHub Fetch Content Tool', () => {
       );
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('contentView: "symbols"');
+      expect(responseText).toContain('contentView: symbols');
       expect(responseText).toContain('isSkeleton: true');
     });
 
@@ -943,7 +943,7 @@ describe('GitHub Fetch Content Tool', () => {
       );
 
       const responseText = getTextContent(result.content);
-      expect(responseText).toContain('contentView: "none"');
+      expect(responseText).toContain('contentView: none');
       expect(responseText).not.toContain('isSkeleton');
     });
   });

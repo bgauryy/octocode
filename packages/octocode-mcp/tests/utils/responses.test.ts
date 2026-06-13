@@ -56,7 +56,7 @@ describe('Response Utilities', () => {
 
       const yaml = getTextContent(result.content);
       // Empty hints array is removed
-      const expectedYaml = `data:\n  message: "Hello"\n`;
+      const expectedYaml = `data:\n  message: Hello\n`;
 
       expect(yaml).toEqual(expectedYaml);
 
@@ -80,7 +80,7 @@ describe('Response Utilities', () => {
 
       const yaml = getTextContent(result.content);
       // Empty hints array is removed
-      const expectedYaml = `data:\n  error: "Something went wrong"\n`;
+      const expectedYaml = `data:\n  error: Something went wrong\n`;
 
       expect(yaml).toEqual(expectedYaml);
 
@@ -103,7 +103,7 @@ describe('Response Utilities', () => {
 
       const yaml = getTextContent(result.content);
       // Empty hints array is removed
-      const expectedYaml = `data:\n  error: "Not found"\n`;
+      const expectedYaml = `data:\n  error: Not found\n`;
 
       expect(yaml).toEqual(expectedYaml);
 
@@ -127,7 +127,7 @@ describe('Response Utilities', () => {
 
       const yaml = getTextContent(result.content);
       // Empty hints array is removed
-      const expectedYaml = `data:\n  error: "Test error"\n`;
+      const expectedYaml = `data:\n  error: Test error\n`;
 
       expect(yaml).toEqual(expectedYaml);
 
@@ -148,7 +148,7 @@ describe('Response Utilities', () => {
 
       const yaml = getTextContent(result.content);
       // Empty hints array is removed
-      const expectedYaml = `data:\n  test: "value"\n`;
+      const expectedYaml = `data:\n  test: value\n`;
       expect(yaml).toEqual(expectedYaml);
 
       expect(result).toEqual({
@@ -229,7 +229,7 @@ describe('Response Utilities', () => {
       // Empty arrays are now removed during cleaning
       // Keys are in original insertion order (not alphabetical)
       const expectedYaml =
-        'data:\n  validString: "hello"\n  validNumber: 42\n  validBoolean: true\n  validArray:\n    - 1\n    - 2\n    - 3\n  nestedObject:\n    validProp: "test"\n    nestedArray:\n      - 1\n      - 2\n    deepNested:\n      valid: "keep"\n  arrayWithMixed:\n    - "valid"\n    - valid: "keep"\n';
+        'data:\n  validString: hello\n  validNumber: 42\n  validBoolean: true\n  validArray:\n    - 1\n    - 2\n    - 3\n  nestedObject:\n    validProp: test\n    nestedArray:\n      - 1\n      - 2\n    deepNested:\n      valid: keep\n  arrayWithMixed:\n    - "valid"\n    - valid: keep\n';
 
       expect(yaml).toEqual(expectedYaml);
     });
@@ -245,7 +245,7 @@ describe('Response Utilities', () => {
       const yaml = getTextContent(result.content);
 
       // Empty arrays are now removed (including hints and results)
-      const expectedYaml = `data:\n  validData: "test"\n`;
+      const expectedYaml = `data:\n  validData: test\n`;
       expect(yaml).toEqual(expectedYaml);
     });
 
@@ -268,7 +268,7 @@ describe('Response Utilities', () => {
       const yaml = getTextContent(result.content);
 
       // Empty hints array is removed
-      const expectedYaml = `data:\n  level1:\n    level2:\n      level3:\n        valid: "keep"\n`;
+      const expectedYaml = `data:\n  level1:\n    level2:\n      level3:\n        valid: keep\n`;
       expect(yaml).toEqual(expectedYaml);
     });
   });
@@ -346,7 +346,7 @@ describe('Response Utilities', () => {
           ],
         });
 
-        const expectedYaml = `data:\n  - queryId: "react_hooks_repos"\n    reasoning: "Find popular React repositories that demonstrate useState usage patterns"\n    repositories:\n      - repository: "getify/TNG-Hooks"\n        description: "Provides React-inspired hooks like useState(..) for stand-alone functions"\n        url: "https://github.com/getify/TNG-Hooks"\n        stars: 1010\n        updatedAt: "31/08/2025"\n      - repository: "the-road-to-learn-react/use-state-with-callback"\n        description: "Custom hook to include a callback function for useState."\n        url: "https://github.com/the-road-to-learn-react/use-state-with-callback"\n        stars: 277\n        updatedAt: "18/04/2025"\nhints:\n  - "Chain tools strategically: start broad with repository search, then structure view, code search, and content fetch for deep analysis"\n  - "Use github_view_repo_structure first to understand project layout, then target specific files"\n`;
+        const expectedYaml = `data:\n  - queryId: react_hooks_repos\n    reasoning: Find popular React repositories that demonstrate useState usage patterns\n    repositories:\n      - repository: getify/TNG-Hooks\n        description: Provides React-inspired hooks like useState(..) for stand-alone functions\n        url: https://github.com/getify/TNG-Hooks\n        stars: 1010\n        updatedAt: 31/08/2025\n      - repository: the-road-to-learn-react/use-state-with-callback\n        description: Custom hook to include a callback function for useState.\n        url: https://github.com/the-road-to-learn-react/use-state-with-callback\n        stars: 277\n        updatedAt: 18/04/2025\nhints:\n  - "Chain tools strategically: start broad with repository search, then structure view, code search, and content fetch for deep analysis"\n  - "Use github_view_repo_structure first to understand project layout, then target specific files"\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -403,7 +403,7 @@ describe('Response Utilities', () => {
           keysPriority: ['queryId', 'reasoning', 'repository', 'files'],
         });
 
-        const expectedYaml = `data:\n  - queryId: "usestate_examples"\n    reasoning: "Find diverse code examples showing useState implementation patterns"\n    repository: "yyl134934/react-mini"\n    files:\n      - path: "App.js"\n        text_matches:\n          - "function useState(initial) {\\n  const oldHook = wipFiber?.alternate?.hooks?.shift();"\n          - "function Counter() {\\n  const [targetCount, setTargetCount] = React.useState(1);"\n      - path: "static/examples/7.x/auth-flow.js"\n        text_matches:\n          - "function SignInScreen() {\\n  const [username, setUsername] = React.useState('');"\nhints:\n  - "Chain tools strategically: start broad with repository search, then structure view, code search, and content fetch for deep analysis"\n  - "Use github_fetch_content with matchString from search results for precise context extraction"\n`;
+        const expectedYaml = `data:\n  - queryId: usestate_examples\n    reasoning: Find diverse code examples showing useState implementation patterns\n    repository: yyl134934/react-mini\n    files:\n      - path: App.js\n        text_matches:\n          - "function useState(initial) {\\n  const oldHook = wipFiber?.alternate?.hooks?.shift();"\n          - "function Counter() {\\n  const [targetCount, setTargetCount] = React.useState(1);"\n      - path: static/examples/7.x/auth-flow.js\n        text_matches:\n          - "function SignInScreen() {\\n  const [username, setUsername] = React.useState('');"\nhints:\n  - "Chain tools strategically: start broad with repository search, then structure view, code search, and content fetch for deep analysis"\n  - "Use github_fetch_content with matchString from search results for precise context extraction"\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -441,7 +441,7 @@ describe('Response Utilities', () => {
           ],
         });
 
-        const expectedYaml = `data:\n  - queryId: "tng_hooks_readme"\n    reasoning: "Get documentation for TNG-Hooks which provides React-inspired useState for standalone functions"\n    repository: "getify/TNG-Hooks"\n    path: "README.md"\n    contentLength: 126\n    content: |-\n      # TNG-Hooks\n    \n      [![Build Status](https://travis-ci.org/getify/TNG-Hooks.svg?branch=master)](https://travis-ci.org/getify/TNG-Hooks)\nhints:\n  - "Rich dataset available - analyze patterns, compare implementations, identify best practices"\n  - "Compare implementations across 3-5 repositories to identify best practices"\n`;
+        const expectedYaml = `data:\n  - queryId: tng_hooks_readme\n    reasoning: Get documentation for TNG-Hooks which provides React-inspired useState for standalone functions\n    repository: getify/TNG-Hooks\n    path: README.md\n    contentLength: 126\n    content: |-\n      # TNG-Hooks\n    \n      [![Build Status](https://travis-ci.org/getify/TNG-Hooks.svg?branch=master)](https://travis-ci.org/getify/TNG-Hooks)\nhints:\n  - "Rich dataset available - analyze patterns, compare implementations, identify best practices"\n  - "Compare implementations across 3-5 repositories to identify best practices"\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -473,7 +473,7 @@ describe('Response Utilities', () => {
 
         // Keys preserve original insertion order (repositories before pagination)
         // Nested objects have priority keys first (id, name, owner, url)
-        const expectedYaml = `data:\n  repositories:\n    - id: "repo-123"\n      name: "test-repo"\n      owner: "testuser"\n      url: "https://github.com/testuser/test-repo"\n  pagination:\n    page: 1\n    total: 50\nhints:\n  - "Use pagination for large result sets"\n`;
+        const expectedYaml = `data:\n  repositories:\n    - id: repo-123\n      name: test-repo\n      owner: testuser\n      url: https://github.com/testuser/test-repo\n  pagination:\n    page: 1\n    total: 50\nhints:\n  - "Use pagination for large result sets"\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -497,7 +497,7 @@ describe('Response Utilities', () => {
         });
 
         // Keys preserve original insertion order
-        const expectedYaml = `data:\n  validField: "test"\n  nullField: null\n  emptyObject: {}\n  emptyArray: []\nhints: []\n`;
+        const expectedYaml = `data:\n  validField: test\n  nullField: null\n  emptyObject: {}\n  emptyArray: []\nhints: []\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -518,7 +518,7 @@ describe('Response Utilities', () => {
 
         // 'path' is a priority key so it goes first, then original order for rest
         const expectedYaml =
-          'data:\n  path: "src/components/Button.tsx"\n  message: |-\n    Hello "world" with \'quotes\' and\n    newlines\n  code: "const [state, setState] = useState(\\"initial\\");"\nhints:\n  - "Handle special characters properly"\n';
+          'data:\n  path: src/components/Button.tsx\n  message: |-\n    Hello "world" with \'quotes\' and\n    newlines\n  code: const [state, setState] = useState(\\initial\\");"\nhints:\n  - "Handle special characters properly"\n';
 
         expect(yamlResult).toEqual(expectedYaml);
       });
@@ -591,9 +591,9 @@ describe('Response Utilities', () => {
         });
 
         // Should still produce valid YAML with original insertion order
-        expect(yamlResult).toEqual(`zebra: "value1"
-apple: "value2"
-banana: "value3"
+        expect(yamlResult).toEqual(`zebra: value1
+apple: value2
+banana: value3
 `);
       });
     });
@@ -684,9 +684,9 @@ banana: "value3"
       expect(yamlResult).toContain(
         'researchGoal: "Explore React repository structure'
       );
-      expect(yamlResult).toContain('owner: "facebook"');
-      expect(yamlResult).toContain('repo: "react"');
-      expect(yamlResult).toContain('path: "/"');
+      expect(yamlResult).toContain('owner: facebook');
+      expect(yamlResult).toContain('repo: react');
+      expect(yamlResult).toContain('path: /');
       expect(yamlResult).toContain('folders:');
       expect(yamlResult).toContain('hints:');
       expect(yamlResult).toContain('successful:');
@@ -768,15 +768,15 @@ banana: "value3"
         'reasoning: "The dispatcher and hook implementations'
       );
       expect(yamlResult).toContain('researchSuggestions:');
-      expect(yamlResult).toContain('owner: "facebook"');
-      expect(yamlResult).toContain('repo: "react"');
+      expect(yamlResult).toContain('owner: facebook');
+      expect(yamlResult).toContain('repo: react');
       expect(yamlResult).toContain(
-        'path: "packages/react-reconciler/src/ReactFiberHooks.js"'
+        'path: packages/react-reconciler/src/ReactFiberHooks.js'
       );
       expect(yamlResult).toContain('contentLength: 3309');
       expect(yamlResult).toContain('content: |-');
       expect(yamlResult).toContain(
-        'branch: "66a390ebb815065b1e5ac7ae504dadb22989f0d4"'
+        'branch: 66a390ebb815065b1e5ac7ae504dadb22989f0d4'
       );
       expect(yamlResult).toContain('startLine: 3800');
       expect(yamlResult).toContain('endLine: 3900');
@@ -864,15 +864,15 @@ banana: "value3"
         'reasoning: "The mountState function should be'
       );
       expect(yamlResult).toContain('researchSuggestions:');
-      expect(yamlResult).toContain('owner: "facebook"');
-      expect(yamlResult).toContain('repo: "react"');
+      expect(yamlResult).toContain('owner: facebook');
+      expect(yamlResult).toContain('repo: react');
       expect(yamlResult).toContain(
-        'path: "packages/react-reconciler/src/ReactFiberHooks.js"'
+        'path: packages/react-reconciler/src/ReactFiberHooks.js'
       );
       expect(yamlResult).toContain('contentLength: 1211');
       expect(yamlResult).toContain('content: |-');
       expect(yamlResult).toContain(
-        'branch: "66a390ebb815065b1e5ac7ae504dadb22989f0d4"'
+        'branch: 66a390ebb815065b1e5ac7ae504dadb22989f0d4'
       );
       expect(yamlResult).toContain('startLine: 1870');
       expect(yamlResult).toContain('endLine: 1910');

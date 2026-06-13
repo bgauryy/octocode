@@ -136,7 +136,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const responseText = getTextContent(result.content);
 
       expect(result.isError).toBe(false);
-      expect(responseText).not.toContain('status: "hasResults"');
+      expect(responseText).not.toContain('status: hasResults');
       expect(responseText).toContain('facebook');
       expect(responseText).toContain('react');
       expect(responseText).toContain('vercel');
