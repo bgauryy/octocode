@@ -139,6 +139,33 @@ function getInputText(toolName: string, args: ParsedArgs): string | undefined {
     : args.args[1];
 }
 
+export function truncateDescription(desc: string, maxLen: number): string {
+  if (desc.length <= maxLen) return desc;
+  const cut = desc.lastIndexOf(' ', maxLen - 1);
+  return cut > maxLen * 0.6 ? desc.slice(0, cut) + '…' : desc.slice(0, maxLen - 1) + '…';
+}
+
+export function formatRequiredFields(toolName: string): string {
+  // lspGetSemanticContent validates required fields via superRefine, not Zod required markers
+  if (toolName === LSP_TOOL_NAME) {
+    return '[uri*, type, symbolName?, lineHint?]';
+  }
+
+  const tool = findToolDefinition(toolName);
+  if (!tool) return '';
+  const fields = getDirectToolDisplayFields(tool.name);
+  const required = fields.filter(f => f.required).map(f => `${f.name}*`);
+  const optional = fields.filter(f => !f.required);
+  if (required.length > 0) {
+    // Show all required + first 2 optional as hint
+    const optHint = optional.slice(0, 2).map(f => `${f.name}?`);
+    const parts = optHint.length > 0 ? [...required, ...optHint] : required;
+    return `[${parts.join(', ')}]`;
+  }
+  // No required fields — show first 3 optional as guidance
+  return `[${optional.slice(0, 3).map(f => `${f.name}?`).join(', ')}]`;
+}
+
 function extractShortDescription(fullDescription: string): string {
   return fullDescription
     .split('\n')[0]
@@ -146,14 +173,64 @@ function extractShortDescription(fullDescription: string): string {
     .replace(/^##\s*/, '');
 }
 
+function formatFullDescription(fullDescription: string): string {
+  const short = extractShortDescription(fullDescription);
+  const rest = fullDescription.slice(short.length).trim();
+  if (!rest) return '';
+
+  // Strip XML-like section tags (<types>, <format>, <next>, etc.) while
+  // preserving their inner content — callers see clean readable lines.
+  return rest.replace(/<\/?[a-z][a-z0-9]*>/gi, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const LSP_TOOL_NAME = 'lspGetSemanticContent';
+
+const LSP_TYPE_EXAMPLES: Array<[string, Record<string, unknown>]> = [
+  ['definition — jump to declaration', { uri: '/path/to/file.ts', type: 'definition', symbolName: 'myFunction', lineHint: 42 }],
+  ['references — all usages', { uri: '/path/to/file.ts', type: 'references', symbolName: 'MyClass', lineHint: 10 }],
+  ['callers — who calls this function', { uri: '/path/to/file.ts', type: 'callers', symbolName: 'handleRequest', lineHint: 55 }],
+  ['callees — what this function calls', { uri: '/path/to/file.ts', type: 'callees', symbolName: 'handleRequest', lineHint: 55 }],
+  ['hover — type signature + docs', { uri: '/path/to/file.ts', type: 'hover', symbolName: 'myVar', lineHint: 20 }],
+  ['documentSymbols — file outline (no symbolName/lineHint needed)', { uri: '/path/to/file.ts', type: 'documentSymbols' }],
+  ['typeDefinition — where the type was declared', { uri: '/path/to/file.ts', type: 'typeDefinition', symbolName: 'myVar', lineHint: 20 }],
+  ['implementation — concrete impl of interface member', { uri: '/path/to/file.ts', type: 'implementation', symbolName: 'render', lineHint: 88 }],
+];
+
 export async function showAvailableTools(): Promise<void> {
   const metadata = await getOptionalToolMetadata();
 
   console.log();
-  console.log(`  ${c('magenta', bold('Octocode Tools'))}`);
+  console.log(`  ${c('magenta', bold('Octocode Tools'))}  ${dim('(* = required field)')}`);
+  console.log();
   console.log(
-    `  ${dim('tools <name>')} ${dim('→ schema')}   ${dim("tools <name> --queries '<json>'")} ${dim('→ run')}`
+    `  ${c('red', bold('REQUIRED BEFORE CALLING ANY TOOL:'))} read its schema first`
   );
+  console.log(
+    `    ${c('yellow', 'octocode tools <name>')}                       ${dim('# schema + required fields + examples')}`
+  );
+  console.log(
+    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}    ${dim('# run tool')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode tools <n1> <n2> ...')}               ${dim('# batch schemas')}`
+  );
+  console.log();
+  console.log(
+    `  ${bold('TIP')}  ${dim('For file / search / PR use smart commands — no schema needed:')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--mode none|standard|symbols]')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path|repo>')}       ${dim('code search     [--type, --limit]')}`
+  );
+  console.log(
+    `    ${c('cyan', 'octocode pr')}     ${dim('<owner/repo[#N] | URL>')}      ${dim('PR info         [--patches, --deep]')}`
+  );
+  console.log();
 
   const toolNames = sortDirectToolNames(
     TOOL_DEFINITIONS.map(tool => tool.name)
@@ -170,11 +247,25 @@ export async function showAvailableTools(): Promise<void> {
     console.log();
     console.log(`  ${bold(category)}`);
     for (const toolName of toolsInCategory) {
-      const shortDesc = extractShortDescription(
-        getDirectToolDescription(toolName, metadata)
+      const shortDesc = truncateDescription(
+        extractShortDescription(getDirectToolDescription(toolName, metadata)),
+        68
       );
-      const padded = toolName.padEnd(32);
-      console.log(`    ${c('cyan', padded)} ${dim(shortDesc)}`);
+      const fields = formatRequiredFields(toolName);
+      const namePadded = toolName.padEnd(26);
+      const fieldsPadded = fields.padEnd(28);
+      console.log(
+        `    ${c('cyan', namePadded)} ${dim(fieldsPadded)} ${dim(shortDesc)}`
+      );
+      if (toolName === LSP_TOOL_NAME) {
+        const indent = ''.padEnd(26 + 4);
+        console.log(
+          `    ${dim(indent)} ${dim('type: definition|references|callers|callees|callHierarchy')}`
+        );
+        console.log(
+          `    ${dim(indent)} ${dim('      hover|documentSymbols|typeDefinition|implementation')}`
+        );
+      }
     }
   }
 
@@ -190,9 +281,9 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   const metadata = await getOptionalToolMetadata();
   const fields = getDirectToolDisplayFields(tool.name);
   const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
-  const shortDesc = extractShortDescription(
-    getDirectToolDescription(tool.name, metadata)
-  );
+  const fullDescription = getDirectToolDescription(tool.name, metadata);
+  const shortDesc = extractShortDescription(fullDescription);
+  const extendedDesc = formatFullDescription(fullDescription);
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
@@ -200,6 +291,14 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
     `  ${dim('Runtime: same Octocode MCP tool implementation under the hood.')}`
   );
   console.log();
+
+  if (extendedDesc) {
+    console.log(`  ${bold('Description')}`);
+    for (const line of extendedDesc.split('\n')) {
+      console.log(`  ${dim(line)}`);
+    }
+    console.log();
+  }
 
   console.log(`  ${bold('Input Schema')}`);
   for (const field of fields) {
@@ -214,24 +313,45 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   console.log();
 
   console.log(`  ${bold('Output Schema')}`);
-  for (const field of getDirectToolOutputFields()) {
-    const optional = field.optional ? ' (optional)' : '';
-    console.log(`    ${dim(field.name)}: ${field.type}${optional}`);
-  }
+  console.log(`    ${dim('Default (YAML):')}`);
+  console.log(`      ${dim('Clean YAML — read directly. Trust hints[] for next steps.')}`);
+  console.log(`    ${dim('--json envelope:')}`);
+  console.log(`      ${c('cyan', 'isError')}                          ${dim('true = tool failed')}`);
+  console.log(`      ${c('cyan', 'content[].text')}                   ${dim('YAML string (same as default output)')}`);
+  console.log(`      ${c('cyan', 'structuredContent.results[]')}      ${dim('tool result objects  (id + data)')}`);
+  console.log(`      ${c('cyan', 'structuredContent.base')}           ${dim('cwd / workspace root used for the query')}`);
+  console.log(`      ${c('cyan', 'structuredContent.hints[]')}        ${dim('next-step suggestions — follow them')}`);
+  console.log(`      ${c('cyan', 'structuredContent.evidence')}       ${dim('{ answerReady, complete, kind }')}`);
+  console.log(`      ${dim('Trust evidence.answerReady — true = answer complete, stop calling')}`);
   console.log();
 
   console.log(`  ${bold('Flags')}`);
-  console.log(
-    `    ${c('cyan', '--json')}   ${dim('Output raw JSON (structuredContent + content + isError)')}`
-  );
+  console.log(`    ${c('cyan', '--json')}     ${dim('raw JSON envelope (structuredContent + content + isError)')}`);
+  console.log(`    ${c('cyan', '--compact')}  ${dim('leanest output — fewer tokens')}`);
+
   console.log();
 
-  console.log(`  ${bold('Example')}`);
-  console.log(`    ${c('yellow', formatToolExampleCommand(tool.name))}`);
-  console.log(
-    `    ${c('yellow', formatToolExampleCommand(tool.name) + ' --json')}`
-  );
-  console.log();
+  if (tool.name === LSP_TOOL_NAME) {
+    console.log(`  ${bold('Examples by type')}`);
+    console.log(
+      `  ${dim('Run localSearchCode first to get the exact uri + lineHint, then:')}`
+    );
+    console.log();
+    for (const [label, query] of LSP_TYPE_EXAMPLES) {
+      console.log(`    ${dim('#')} ${label}`);
+      console.log(
+        `    ${c('yellow', `octocode tools ${LSP_TOOL_NAME} --queries '${JSON.stringify(query)}'`)}`
+      );
+      console.log();
+    }
+  } else {
+    console.log(`  ${bold('Example')}`);
+    console.log(`    ${c('yellow', formatToolExampleCommand(tool.name))}`);
+    console.log(
+      `    ${c('yellow', formatToolExampleCommand(tool.name) + ' --json')}`
+    );
+    console.log();
+  }
 
   return true;
 }
@@ -298,23 +418,33 @@ export async function getToolsContextString(
     [
       'Tool runtime: `octocode tools` runs the same Octocode MCP tool implementations under the hood.',
       'You are an agent driving the octocode CLI. Follow this protocol:',
-      '  1. This output lists every tool with its name, description, and key input fields below' +
-        (full ? ' (full JSON schemas included).' : '.'),
-      '  2. REQUIRED before calling any tool: read its exact schema with `octocode tools <name>`' +
-        (full
-          ? '.'
-          : ' (or run `octocode --agent --full` for all schemas inline).'),
-      "  3. Run a tool: `octocode tools <name> --queries '<json>'`.",
-      '     Output contract: clean YAML by default (read it directly); add --json for the full',
-      '     MCP envelope (structuredContent + content + isError); add --compact for the leanest output.',
-      '     Trust evidence.answerReady / hints in each result — they signal whether the answer is complete.',
-      '  4. Exit codes: 0 ok, 2 bad input, 3 unknown tool, 4 auth, 5 tool error, 7 rate-limited.',
-      '  5. Unified file/repo commands (smart-route local OR GitHub automatically):',
-      '     octocode get <path|owner/repo/file>        — fetch + minify (--mode none|standard|symbols, --match-string, --start-line, --end-line, --page, --page-size)',
-      '     octocode tree <path|owner/repo>             — directory structure (--depth <n>, default 2 for GitHub)',
-      '     octocode search <pattern> <path|repo>       — code search (--type, --limit, --page, --page-size)',
-      '     octocode pr <owner/repo[#N] | PR-URL>       — PR list/search (--state, --query, --author, --label) OR deep-dive (--patches, --comments, --commits, --deep, --match-string)',
-      '  6. See all management commands (install, auth, skills): `octocode --help`.',
+      '',
+      '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY TOOL CALL ***',
+      '  Always read a tool\'s schema before calling it:',
+      '    octocode tools <name>                    # schema: required fields, types, examples',
+      '    octocode tools <n1> <n2> ...             # batch: read multiple schemas at once',
+      full
+        ? '  (Full JSON schemas are included in this output below.)'
+        : '  Run `octocode --agent --full` to get all schemas as inline JSON in one shot.',
+      '',
+      '  *** SMART COMMANDS — USE THESE FIRST for file / search / PR ***',
+      '  These auto-route local ↔ GitHub — no owner/repo wiring or schema needed:',
+      '    octocode get <path|owner/repo/file>      — fetch + minify (--mode none|standard|symbols, --match-string, --start-line, --end-line)',
+      '    octocode tree <path|owner/repo>          — directory structure (--depth <n>)',
+      '    octocode search <pattern> <path|repo>    — code search (--type, --limit, --page)',
+      '    octocode pr <owner/repo[#N] | PR-URL>    — PR list/search OR deep-dive (--patches, --comments, --commits, --deep)',
+      '',
+      '  *** TOOL CALLS ***',
+      "  octocode tools <name> --queries '<json>'           # run tool, YAML output",
+      "  octocode tools <name> --queries '<json>' --json    # run tool, raw JSON envelope",
+      "  octocode tools <name> --queries '<json>' --compact # run tool, leanest output",
+      '',
+      '  Output contract: clean YAML by default — read it directly.',
+      '  Trust evidence.answerReady / hints in each result — they signal whether the answer is complete.',
+      '',
+      '  Exit codes: 0=ok  2=bad-input  3=not-found  4=auth  5=tool-error  7=rate-limited',
+      '',
+      '  Tool list: `octocode tools`   All commands: `octocode --help`',
     ].join('\n'),
     '',
     'CLI Usage:',
@@ -323,8 +453,20 @@ export async function getToolsContextString(
     'Octocode MCP Instructions:',
     metadata.instructions.trim(),
     '',
-    'Output schema (all tools):',
-    formatDirectToolOutputSchemaText(),
+    'Output contract (all tools):',
+    [
+      '  Default output: clean YAML — read it directly. No parsing needed.',
+      '  Add --compact for leanest output. Add --json for the full envelope below.',
+      '',
+      '  --json envelope:',
+      '    isError: boolean                       true = tool failed',
+      '    content[].text: string                 YAML string (same as default output)',
+      '    structuredContent.results[]: array     tool result objects (id + data)',
+      '    structuredContent.base: string         cwd / workspace root used for the query',
+      '    structuredContent.hints[]: string[]    next-step suggestions — follow them',
+      '    structuredContent.evidence: object     { answerReady: boolean, complete: boolean, kind: string }',
+      '  Trust evidence.answerReady — when true, the answer is complete; stop calling.',
+    ].join('\n'),
     '',
     'Tools:',
   ];

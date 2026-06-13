@@ -3,9 +3,13 @@ import {
   TOOL_CATEGORIES,
   TOOL_DEFINITIONS,
   getToolCategory,
+  formatRequiredFields,
 } from './tool-command.js';
 
-function buildToolLines(): string[] {
+const LSP_TYPES =
+  'definition | references | callers | callees | callHierarchy | hover | documentSymbols | typeDefinition | implementation';
+
+function buildToolBlock(): string[] {
   const lines: string[] = [];
 
   for (const category of TOOL_CATEGORIES) {
@@ -16,7 +20,16 @@ function buildToolLines(): string[] {
 
     lines.push(`    ${dim(category)}`);
     for (const tool of tools) {
-      lines.push(`    ${c('cyan', tool.name)}`);
+      const fields = formatRequiredFields(tool.name);
+      const namePad = tool.name.padEnd(28);
+      lines.push(`      ${c('cyan', namePad)} ${dim(fields)}`);
+      if (tool.name === 'lspGetSemanticContent') {
+        const indent = ''.padEnd(28 + 6);
+        lines.push(`      ${dim(indent)} ${dim('type: ' + LSP_TYPES)}`);
+        lines.push(
+          `      ${dim(indent)} ${dim('! run localSearchCode first → get uri + lineHint')}`
+        );
+      }
     }
   }
 
@@ -24,79 +37,78 @@ function buildToolLines(): string[] {
 }
 
 export function showHelp(): void {
-  const toolLines = buildToolLines();
   const toolCount = TOOL_DEFINITIONS.length;
+  const toolLines = buildToolBlock();
 
   const lines = [
     '',
-    `  ${c('magenta', bold('🔍🐙 Octocode CLI'))}`,
+    `  ${c('magenta', bold('🔍🐙 Octocode'))}  ${dim('Code research CLI — GitHub · Local · LSP · Package')}`,
     '',
-    `  ${bold('INSTRUCTIONS FOR AGENTS')}  ${dim('(do this before making any tool request)')}`,
-    `    ${dim('0.')} Load agent context (protocol + tools + fields)    ${c('yellow', 'octocode --agent')}`,
-    `    ${dim('1.')} List all available tools                          ${c('yellow', 'octocode tools')}`,
-    `    ${dim('2.')} Read a tool's input schema                        ${c('yellow', 'octocode tools <name>')}`,
-    `    ${dim('3.')} Full context with every JSON schema inline        ${c('yellow', 'octocode --agent --full')}`,
+
+    // ── How to use (agent protocol inline) ────────────────────────────────
+    `  ${bold('HOW TO USE')}`,
+    `    ${c('red', bold('1.'))} Check schema BEFORE any tool call   ${c('yellow', 'octocode tools <name>')}`,
+    `    ${c('red', bold('2.'))} Run a tool                          ${c('yellow', "octocode tools <name> --queries '<json>'")}`,
+    `    ${c('cyan',    '3.')} For file/search/PR use smart cmds   ${dim('(no schema needed — see below)')}`,
+    `    ${dim(         '4.')} Full context + all schemas           ${c('yellow', 'octocode instructions')}`,
+    `    ${dim(         '5.')} All schemas as inline JSON           ${c('yellow', 'octocode instructions --full')}`,
     '',
-    `  ${bold('USAGE')}`,
-    `    ${c('magenta', 'octocode')} <command> [options]                    ${dim('manage Octocode')}`,
-    `    ${c('magenta', 'octocode')} tools                                  ${dim('list all tools')}`,
-    `    ${c('magenta', 'octocode')} tools <name>                           ${dim('show input schema')}`,
-    `    ${c('magenta', 'octocode')} tools <n1> <n2> ...                    ${dim('batch input schemas')}`,
-    `    ${c('magenta', 'octocode')} tools <name> --queries '<json>'        ${dim('run a tool')}`,
-    `    ${c('magenta', 'octocode')} instructions                           ${dim('MCP instructions + all schemas')}`,
+
+    // ── Smart commands — preferred ─────────────────────────────────────────
+    `  ${bold('SMART COMMANDS')}  ${dim('— prefer over raw tool calls for file / search / PR')}`,
+    `    ${dim('Auto-route local ↔ GitHub — no schema or owner/repo wiring needed')}`,
+    `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--mode none|standard|symbols]')}`,
+    `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`,
+    `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path | repo>')}     ${dim('code search     [--type, --limit, --page]')}`,
+    `    ${c('cyan', 'octocode pr')}     ${dim('<owner/repo[#N] | PR-URL>')}   ${dim('PR info         [--patches, --comments, --deep]')}`,
     '',
-    `  ${bold('TOOL RUNTIME')}  ${dim('`octocode tools` runs the same Octocode MCP tool implementations under the hood')}`,
-    '',
-    `  ${bold('RESEARCH COMMANDS')}  ${dim('(smart-route local ↔ GitHub automatically)')}`,
-    `    ${c('magenta', 'get')} ${dim('<path|owner/repo/file>')}    Fetch + minify file content ${dim('(--mode, --match-string, --start-line, --end-line, --page)')}`,
-    `    ${c('magenta', 'tree')} ${dim('<path|owner/repo>')}        Directory structure ${dim('(--depth, default 2 for GitHub)')}`,
-    `    ${c('magenta', 'search')} ${dim('<pattern> <path|repo>')}  Code search ${dim('(--type, --limit, --page)')}`,
-    `    ${c('magenta', 'pr')} ${dim('<owner/repo[#N]|URL>')}       PR list/search or deep-dive ${dim('(--state, --patches, --comments, --commits, --deep)')}`,
-    '',
-    `  ${bold('MANAGEMENT COMMANDS')}`,
-    `    ${c('magenta', 'install')}          Configure octocode-mcp for an IDE`,
-    `    ${c('magenta', 'auth')}             Manage GitHub authentication`,
-    `    ${c('magenta', 'login / logout')}   Sign in or out of GitHub`,
-    `    ${c('magenta', 'status / token')}   Show auth status or print token`,
-    `    ${c('magenta', 'skills')}           Search, install & manage Octocode skills`,
-    '',
-    `  ${bold('SKILLS')}  ${dim('(octocode skills <subcommand>)')}`,
-    `    ${c('magenta', 'search')} ${dim('<query>')}    Find skills ${dim('(agent protocol; --direct for skills.sh results)')}`,
-    `    ${c('magenta', 'read')} ${dim('<path|url>')}   Print a SKILL.md ${dim('(local path, owner/repo/path, or GitHub URL)')}`,
-    `    ${c('magenta', 'list')}              List skills installed across all AI clients`,
-    `    ${c('magenta', 'install')}           Install skills ${dim('(--skill <name>, --local <path>, --targets <list>)')}`,
-    `    ${c('magenta', 'remove')}            Remove a skill ${dim('(--skill <name> or --local <path>)')}`,
-    `    ${c('magenta', 'sync')} ${dim('<from> <to>')}  Copy skills from one client target to another`,
-    '',
-    `  ${bold('TOOLS')}  ${dim(`(${toolCount} tools — run directly from terminal)`)}`,
+
+    // ── All tools ─────────────────────────────────────────────────────────
+    `  ${bold(`TOOLS (${toolCount})`)}  ${dim('* = required   ? = optional   |  octocode tools <name> → full schema + examples')}`,
     ...toolLines,
     '',
-    `  ${bold('OPTIONS')}`,
-    `    ${c('cyan', '--json')}            Raw JSON (full MCP envelope) for tool runs`,
-    `    ${c('cyan', '--compact')}         Leanest tool output (concise verbosity, fewer tokens)`,
-    `    ${c('cyan', '--no-color')}        Disable ANSI colors (also via NO_COLOR=1)`,
-    `    ${c('cyan', '-h, --help')}        Show this help`,
-    `    ${c('cyan', '-v, --version')}     Show version`,
+
+    // ── Output contract ───────────────────────────────────────────────────
+    `  ${bold('OUTPUT CONTRACT')}  ${dim('(add --json to get the full envelope)')}`,
+    `    ${dim('Default output:')}  clean YAML — read directly`,
+    `    ${dim('--compact:    ')}   leanest YAML (fewer tokens)`,
+    `    ${dim('--json envelope:')}`,
+    `      ${c('cyan', 'isError')}                           ${dim('true = tool failed')}`,
+    `      ${c('cyan', 'content[].text')}                    ${dim('YAML string (same as default output)')}`,
+    `      ${c('cyan', 'structuredContent.results[]')}       ${dim('tool result objects  (id + data)')}`,
+    `      ${c('cyan', 'structuredContent.base')}            ${dim('cwd / workspace root used for the query')}`,
+    `      ${c('cyan', 'structuredContent.hints[]')}         ${dim('next-step suggestions — follow them')}`,
+    `      ${c('cyan', 'structuredContent.evidence')}        ${dim('{ answerReady, complete, kind }')}`,
+    `      ${dim('Trust evidence.answerReady — true = answer is complete, stop calling')}`,
     '',
-    `  ${bold('EXAMPLES')}`,
-    `    ${c('yellow', 'octocode tools')}                                                          ${dim('# list')}`,
-    `    ${c('yellow', 'octocode tools localSearchCode')}                                          ${dim('# schema')}`,
-    `    ${c('yellow', 'octocode tools localSearchCode githubSearchCode')}                         ${dim('# batch schemas')}`,
-    `    ${c('yellow', `octocode tools localSearchCode --queries '{"path":".","pattern":"fn"}'`)}  ${dim('# run')}`,
-    `    ${c('yellow', 'octocode instructions')}                                                   ${dim('# full context')}`,
+
+    // ── Workflows ──────────────────────────────────────────────────────────
+    `  ${bold('WORKFLOWS')}`,
+    `    ${dim('local  →')}  localViewStructure ${dim('→')} localSearchCode ${dim('→')} localGetFileContent ${dim('→')} lspGetSemanticContent`,
+    `    ${dim('github →')}  githubSearchRepositories ${dim('→')} githubViewRepoStructure ${dim('→')} githubGetFileContent`,
+    `    ${dim('lsp    →')}  localSearchCode ${dim('(uri+lineHint)')} ${dim('→')} lspGetSemanticContent${dim('(uri, symbolName, lineHint, type)')}`,
+    `    ${dim('pkg    →')}  packageSearch ${dim('→')} githubGetFileContent${dim('(owner/repo from result)')}`,
     '',
-    `    ${c('yellow', 'octocode get bgauryy/octocode-mcp/src/index.ts')}                            ${dim('# fetch file')}`,
-    `    ${c('yellow', 'octocode tree bgauryy/octocode-mcp --depth 2')}                             ${dim('# structure')}`,
-    `    ${c('yellow', 'octocode search "executeDirectTool" bgauryy/octocode-mcp')}                 ${dim('# code search')}`,
-    `    ${c('yellow', 'octocode pr bgauryy/octocode-mcp --state merged --limit 5')}                ${dim('# PR list')}`,
-    `    ${c('yellow', 'octocode pr bgauryy/octocode-mcp#142 --patches')}                           ${dim('# PR diff')}`,
-    `    ${c('yellow', 'octocode pr bgauryy/octocode-mcp#142 --deep')}                              ${dim('# full PR')}`,
+
+    // ── Output flags ───────────────────────────────────────────────────────
+    `  ${bold('FLAGS')}`,
+    `    ${c('cyan', '--json')}         raw JSON envelope   ${c('cyan', '--compact')}   leanest output   ${c('cyan', '--no-color')}  no ANSI`,
     '',
-    `    ${c('yellow', 'octocode install --ide cursor')}`,
-    `    ${c('yellow', 'octocode skills search "code review"')}                                     ${dim('# find skills')}`,
-    `    ${c('yellow', 'octocode skills search "code review" --direct')}                            ${dim('# skills.sh results')}`,
-    `    ${c('yellow', 'octocode skills install --targets claude-code,cursor')}`,
+
+    // ── Management ─────────────────────────────────────────────────────────
+    `  ${bold('MANAGEMENT')}`,
+    `    ${c('cyan', 'install')} ${dim('--ide <cursor|claude-desktop|windsurf|vscode-cline|...>')}  ${dim('configure IDE')}`,
+    `    ${c('cyan', 'auth')} ${dim('/ login / logout / status / token')}    ${dim('GitHub authentication')}`,
+    `    ${c('cyan', 'skills')} ${dim('search|install|remove|list')}         ${dim('agent skills marketplace')}`,
+    `    ${c('cyan', 'mcp')}    ${dim('list|install|remove|status')}         ${dim('MCP server registry (70+ servers)')}`,
+    `    ${c('cyan', 'cache')} ${dim('status|clean')}                        ${dim('cache management')}`,
     '',
+
+    // ── Exit codes ─────────────────────────────────────────────────────────
+    `  ${bold('EXIT CODES')}`,
+    `    ${c('cyan', '0')} ok   ${c('cyan', '2')} bad-input   ${c('cyan', '3')} not-found   ${c('cyan', '4')} auth-error   ${c('cyan', '5')} tool-error   ${c('cyan', '7')} rate-limited`,
+    '',
+
     c('magenta', `  ─── 🔍🐙 ${bold('https://octocode.ai')} ───`),
     '',
   ];
