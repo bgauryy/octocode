@@ -1,6 +1,6 @@
 {
   "name": "octocode-lsp",
-  "version": "0.1.0",
+  "version": "16.0.0",
   "description": "Reusable LSP client, server registry, and semantic navigation runtime for Octocode",
   "keywords": [
     "code-intelligence",

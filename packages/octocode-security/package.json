@@ -1,6 +1,6 @@
 {
   "name": "octocode-security",
-  "version": "0.1.0",
+  "version": "16.0.0",
   "description": "Rust-backed secret detection for Node.js — replaces octocode-security-utils",
   "type": "module",
   "main": "dist/index.js",
@@ -99,12 +99,12 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "octocode-security-darwin-arm64": "0.1.0",
-    "octocode-security-darwin-x64": "0.1.0",
-    "octocode-security-linux-x64-gnu": "0.1.0",
-    "octocode-security-linux-x64-musl": "0.1.0",
-    "octocode-security-linux-arm64-gnu": "0.1.0",
-    "octocode-security-win32-x64-msvc": "0.1.0"
+    "octocode-security-darwin-arm64": "16.0.0",
+    "octocode-security-darwin-x64": "16.0.0",
+    "octocode-security-linux-x64-gnu": "16.0.0",
+    "octocode-security-linux-x64-musl": "16.0.0",
+    "octocode-security-linux-arm64-gnu": "16.0.0",
+    "octocode-security-win32-x64-msvc": "16.0.0"
   },
   "napi": {
     "binaryName": "octocode-security",

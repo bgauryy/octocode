@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-minifier-utils",
-  "version": "0.1.0",
+  "version": "16.0.0",
   "description": "High-performance Rust minification, signature extraction (tree-sitter), and YAML serialization for Octocode",
   "main": "index.js",
   "types": "index.d.ts",
@@ -34,12 +34,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@octocodeai/octocode-minifier-utils-darwin-arm64": "0.1.0",
-    "@octocodeai/octocode-minifier-utils-darwin-x64": "0.1.0",
-    "@octocodeai/octocode-minifier-utils-linux-x64-gnu": "0.1.0",
-    "@octocodeai/octocode-minifier-utils-linux-x64-musl": "0.1.0",
-    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "0.1.0",
-    "@octocodeai/octocode-minifier-utils-win32-x64-msvc": "0.1.0"
+    "@octocodeai/octocode-minifier-utils-darwin-arm64": "16.0.0",
+    "@octocodeai/octocode-minifier-utils-darwin-x64": "16.0.0",
+    "@octocodeai/octocode-minifier-utils-linux-x64-gnu": "16.0.0",
+    "@octocodeai/octocode-minifier-utils-linux-x64-musl": "16.0.0",
+    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "16.0.0",
+    "@octocodeai/octocode-minifier-utils-win32-x64-msvc": "16.0.0"
   },
   "engines": {
     "node": ">=20.0.0"
