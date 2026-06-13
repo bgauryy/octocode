@@ -15,9 +15,6 @@ target/
 *.node
 # Benchmark results (local timing data, machine-specific)
 **/bench/results/
-# Cargo.lock for cdylib (library crate, lock file is not meaningful for consumers)
-# If you add a binary crate, remove this line
-packages/octocode-security/Cargo.lock
 out
 coverage
 .octocode
