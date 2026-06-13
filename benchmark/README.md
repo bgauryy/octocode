@@ -55,7 +55,8 @@ Researchers must stay blind: do not read another agent's output or
 From the repository root:
 
 ```bash
-# Optional for local development builds.
+# Required: point to the local build of the Octocode CLI.
+# Always use the built binary — never rely on the globally installed octocode.
 export OCTOCODE_CLI_BIN="/Users/guybary/Documents/octocode-mcp/packages/octocode-cli/out/octocode-cli.js"
 
 # Required for local-tool questions in the default Next.js benchmark.

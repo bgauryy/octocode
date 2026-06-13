@@ -1,1 +1,0 @@
-{"calls":1,"in_chars":222,"out_chars":577,"elapsed_ms":589,"calls_detail":[{"cmd":"localGetFileContent","in_chars":222,"out_chars":577,"elapsed_ms":589,"exit":5}],"tool_elapsed_ms":589,"q_elapsed_ms":669}
