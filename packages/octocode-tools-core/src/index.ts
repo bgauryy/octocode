@@ -147,6 +147,7 @@ export * from './utils/package/common.js';
 export * from './utils/package/npm.js';
 export * from './utils/package/schemas.js';
 export * from './utils/package/types.js';
+export * from './utils/pagination/boundary.js';
 export * from './utils/pagination/charLimit.js';
 export * from './utils/pagination/core.js';
 export * from './utils/pagination/hints.js';

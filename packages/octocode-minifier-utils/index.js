@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { SIGNATURES_ONLY_HINT, getExtension, minifyContentSync, minifyContentResult, applyMinification, applyContentViewMinification, removeComments, minifyConservativeCore, minifyAggressiveCore, minifyJsonCore, minifyJsonReadable, minifyCodeCore, minifyGeneralCore, minifyMarkdownCore, minifyCSSCore, minifyHTMLCore, minifyJavaScriptCore, minifyCSSQuality, minifyHTMLQuality, stripPythonDocstrings, extractSignatures, getSupportedSignatureExtensions, jsonToYamlString, getMINIFY_CONFIG } = nativeBinding
+const { SIGNATURES_ONLY_HINT, getExtension, minifyContentSync, minifyContentResult, applyMinification, applyContentViewMinification, removeComments, minifyConservativeCore, minifyAggressiveCore, minifyJsonCore, minifyJsonReadable, minifyCodeCore, minifyGeneralCore, minifyMarkdownCore, minifyCSSCore, minifyHTMLCore, minifyJavaScriptCore, minifyCSSQuality, minifyHTMLQuality, stripPythonDocstrings, extractSignatures, getSemanticBoundaryOffsets, getSupportedSignatureExtensions, jsonToYamlString, getMINIFY_CONFIG } = nativeBinding
 
 module.exports.SIGNATURES_ONLY_HINT = SIGNATURES_ONLY_HINT
 module.exports.getExtension = getExtension
@@ -333,6 +333,7 @@ module.exports.minifyCSSQuality = minifyCSSQuality
 module.exports.minifyHTMLQuality = minifyHTMLQuality
 module.exports.stripPythonDocstrings = stripPythonDocstrings
 module.exports.extractSignatures = extractSignatures
+module.exports.getSemanticBoundaryOffsets = getSemanticBoundaryOffsets
 module.exports.getSupportedSignatureExtensions = getSupportedSignatureExtensions
 module.exports.jsonToYamlString = jsonToYamlString
 module.exports.getMINIFY_CONFIG = getMINIFY_CONFIG

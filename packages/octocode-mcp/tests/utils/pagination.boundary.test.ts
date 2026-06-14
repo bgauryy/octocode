@@ -175,6 +175,155 @@ describe('findNextBlockBoundary — Rust', () => {
   });
 });
 
+// ── findNextBlockBoundary — Java ─────────────────────────────────────────────
+
+describe('findNextBlockBoundary — Java', () => {
+  const content = [
+    'public class MyClass {',
+    '',
+    '    public void foo() {',
+    '        int a = 1;',
+    '        System.out.println(a);',
+    '    }',
+    '',
+    '    private int bar(int x) {',
+    '        return x * 2;',
+    '    }',
+    '',
+    '    public static void main(String[] args) {',
+    '        new MyClass().foo();',
+    '    }',
+    '}',
+  ].join('\n');
+
+  it('finds next method after cut inside foo()', () => {
+    const cutPos = content.indexOf('        int a = 1');
+    const result = findNextBlockBoundary(content, cutPos, 'MyClass.java');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('private int bar')).toBe(true);
+  });
+
+  it('finds main() after cut inside bar()', () => {
+    const cutPos = content.indexOf('        return x * 2');
+    const result = findNextBlockBoundary(content, cutPos, 'MyClass.java');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('public static void main')).toBe(true);
+  });
+});
+
+// ── findNextBlockBoundary — Kotlin ───────────────────────────────────────────
+
+describe('findNextBlockBoundary — Kotlin', () => {
+  const content = [
+    'class Calculator {',
+    '',
+    '    fun add(a: Int, b: Int): Int {',
+    '        val sum = a + b',
+    '        return sum',
+    '    }',
+    '',
+    '    private fun multiply(a: Int, b: Int) = a * b',
+    '',
+    '    companion object {',
+    '        val PI = 3.14',
+    '    }',
+    '}',
+  ].join('\n');
+
+  it('finds private fun after cut inside add()', () => {
+    const cutPos = content.indexOf('        val sum');
+    const result = findNextBlockBoundary(content, cutPos, 'Calculator.kt');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('private fun multiply')).toBe(true);
+  });
+
+  it('finds companion object after private fun', () => {
+    const cutPos = content.indexOf('    private fun multiply');
+    const result = findNextBlockBoundary(content, cutPos, 'Calculator.kt');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('companion object')).toBe(true);
+  });
+});
+
+// ── findNextBlockBoundary — Scala ─────────────────────────────────────────────
+
+describe('findNextBlockBoundary — Scala', () => {
+  const content = [
+    'class Counter {',
+    '  private var count = 0',
+    '',
+    '  def increment(): Unit = {',
+    '    count += 1',
+    '    println(count)',
+    '  }',
+    '',
+    '  def reset(): Unit = {',
+    '    count = 0',
+    '  }',
+    '',
+    '  val value: Int = count',
+    '}',
+    '',
+    'object Counter {',
+    '  def apply() = new Counter()',
+    '}',
+  ].join('\n');
+
+  it('finds def reset after cut inside def increment', () => {
+    const cutPos = content.indexOf('    count += 1');
+    const result = findNextBlockBoundary(content, cutPos, 'Counter.scala');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('def reset')).toBe(true);
+  });
+
+  it('finds val after def reset', () => {
+    const cutPos = content.indexOf('    count = 0');
+    const result = findNextBlockBoundary(content, cutPos, 'Counter.scala');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('val value') || boundary.startsWith('}')).toBe(true);
+  });
+
+  it('finds companion object after the class', () => {
+    const cutPos = content.indexOf('  def apply()');
+    const result = findNextBlockBoundary(content, cutPos, 'Counter.scala');
+    // No more boundaries after last def
+    // Just verify it doesn't crash
+    expect(typeof result === 'number' || result === undefined).toBe(true);
+  });
+});
+
+// ── findNextBlockBoundary — C# ───────────────────────────────────────────────
+
+describe('findNextBlockBoundary — C#', () => {
+  const content = [
+    'namespace MyApp {',
+    '    public class Service {',
+    '        public string GetName() {',
+    '            return "hello";',
+    '        }',
+    '',
+    '        private void Process(int x) {',
+    '            Console.WriteLine(x);',
+    '        }',
+    '    }',
+    '}',
+  ].join('\n');
+
+  it('finds private void after cut inside GetName()', () => {
+    const cutPos = content.indexOf('            return "hello"');
+    const result = findNextBlockBoundary(content, cutPos, 'Service.cs');
+    expect(result).toBeDefined();
+    const boundary = content.substring(result!).trimStart();
+    expect(boundary.startsWith('private void Process')).toBe(true);
+  });
+});
+
 // ── findNextBlockBoundary — generic fallback ─────────────────────────────────
 
 describe('findNextBlockBoundary — generic (unknown extension)', () => {

@@ -21,6 +21,12 @@ export interface PaginationInfo {
   charOffset?: number;
   charLength?: number;
   totalChars?: number;
+  /** How the page boundary was chosen: snapped to a semantic block boundary
+   *  (`'semantic'`) or fixed by char count (`'char-limit'`). */
+  chunkMode?: 'semantic' | 'char-limit';
+  /** Set when `chunkMode` is `'char-limit'` and the cut is mid-block.
+   *  Char offset of the next top-level block start; extend charLength to it. */
+  nextBlockChar?: number;
 
   perPage?: number;
   itemsPerPage?: number;

@@ -121,6 +121,20 @@ export declare function stripPythonDocstrings(content: string): string
  */
 export declare function extractSignatures(content: string, filePath: string): string | null
 /**
+ * Returns a sorted list of JS char offsets (UTF-16 code units) where
+ * top-level semantic blocks begin in `content`.
+ *
+ * **Tree-sitter** (exact AST): `ts tsx js jsx mjs cjs py go rs java c h sh bash zsh`
+ * **Heuristic** (pattern-based): `cpp hpp cc cxx cs kt kotlin scala rb php swift
+ *   css scss less html htm sql vue svelte ex exs hs lhs md lua` + 10 more
+ * **Returns `[]`** for data/config files (`json yaml toml ini csv xml …`),
+ *   plain text, and files above the 1 MB guard.
+ *
+ * Char offsets match JavaScript `string.substring()` — pass them directly to
+ * the TypeScript pagination layer without conversion.
+ */
+export declare function getSemanticBoundaryOffsets(content: string, filePath: string): Array<number>
+/**
  * Returns all extensions that have signature extraction support
  * (tree-sitter languages + heuristic-covered languages).
  */

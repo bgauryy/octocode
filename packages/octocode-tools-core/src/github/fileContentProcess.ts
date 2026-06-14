@@ -9,6 +9,7 @@ import {
 } from '@octocodeai/octocode-minifier-utils';
 import { applyPagination } from '../utils/pagination/core.js';
 import {
+  snapToSemanticBoundary,
   isMidBlockCut,
   findNextBlockBoundary,
 } from '../utils/pagination/boundary.js';
@@ -46,17 +47,27 @@ export function applyContentPagination(
     return data;
   }
 
-  const paginationMeta = applyPagination(content, charOffset, maxChars);
+  // Proactive semantic chunking: snap the page end to the next tree-sitter /
+  // heuristic block boundary so the response is never cut mid-function.
+  // Falls back to char-limit when the file has no semantic structure (data
+  // files, giant functions) — reactive nextBlockChar hint covers that case.
+  const filePath = data.path ?? undefined;
+  const { length: snappedLength, chunkMode } = snapToSemanticBoundary(
+    content,
+    charOffset,
+    maxChars,
+    filePath
+  );
 
-  // Detect mid-block cuts: if the page ends inside an indented block (the last
-  // non-empty line has leading whitespace), find the next top-level semantic
-  // boundary so the finalizer can emit a targeted "extend charLength" hint.
-  // Language is derived from data.path (e.g. "src/react.ts" → ext "ts").
+  const paginationMeta = applyPagination(content, charOffset, snappedLength);
+
+  // Reactive fallback: when char-limit mode was used and the cut is mid-block,
+  // surface nextBlockChar so the agent can extend charLength in one step.
   let nextBlockChar: number | undefined;
-  if (paginationMeta.hasMore) {
+  if (paginationMeta.hasMore && chunkMode === 'char-limit') {
     if (isMidBlockCut(paginationMeta.paginatedContent)) {
       const cutPos = paginationMeta.charOffset + paginationMeta.charLength;
-      nextBlockChar = findNextBlockBoundary(content, cutPos, data.path ?? undefined);
+      nextBlockChar = findNextBlockBoundary(content, cutPos, filePath);
     }
   }
 
@@ -77,6 +88,7 @@ export function applyContentPagination(
       charOffset: paginationMeta.charOffset,
       charLength: paginationMeta.charLength,
       totalChars: paginationMeta.totalChars,
+      chunkMode,
       ...(nextBlockChar !== undefined && { nextBlockChar }),
     },
   };

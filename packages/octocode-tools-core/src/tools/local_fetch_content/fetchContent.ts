@@ -13,6 +13,7 @@ import {
 } from '../../utils/pagination/core.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import {
+  snapToSemanticBoundary,
   isMidBlockCut,
   findNextBlockBoundary,
 } from '../../utils/pagination/boundary.js';
@@ -554,16 +555,30 @@ function buildSuccessResult(
   ) {
     effectiveCharLength = defaultOutputCharLength;
     autoPaginated = true;
-    // charOffset already holds the explicit content cursor (query.charOffset).
     warnings.push(
       `Auto-paginated: Content (${outputContent.length} chars) exceeds ${defaultOutputCharLength} char limit`
     );
   }
 
+  // Proactive semantic chunking: snap the page end to the nearest block
+  // boundary before serving, so the agent gets a complete semantic unit.
+  let chunkMode: 'semantic' | 'char-limit' = 'char-limit';
+  let resolvedCharLength = effectiveCharLength;
+  if (effectiveCharLength !== undefined) {
+    const snap = snapToSemanticBoundary(
+      outputContent,
+      charOffset,
+      effectiveCharLength,
+      queryPath
+    );
+    chunkMode = snap.chunkMode;
+    resolvedCharLength = snap.length;
+  }
+
   const pagination = applyPagination(
     outputContent,
     charOffset,
-    effectiveCharLength
+    resolvedCharLength
   );
 
   const isPartial = extraction.isPartial || pagination.hasMore;
@@ -584,12 +599,11 @@ function buildSuccessResult(
         })
       : [];
 
-  // Detect mid-block cuts: when the page ends inside an indented block, scan
-  // forward for the next top-level definition so the agent can extend
-  // charLength to a semantic boundary rather than paginating blindly.
+  // Reactive fallback: only needed when semantic snapping wasn't possible
+  // (char-limit mode) and the cut landed mid-block.
   let nextBlockChar: number | undefined;
   const midBlockHints: string[] = [];
-  if (pagination.hasMore && isMidBlockCut(pagination.paginatedContent)) {
+  if (pagination.hasMore && chunkMode === 'char-limit' && isMidBlockCut(pagination.paginatedContent)) {
     const cutPos = pagination.charOffset + pagination.charLength;
     nextBlockChar = findNextBlockBoundary(outputContent, cutPos, queryPath);
     if (nextBlockChar !== undefined) {
@@ -597,7 +611,7 @@ function buildSuccessResult(
       midBlockHints.push(
         `Page cut mid-block at char ${cutPos}. ` +
           `Next top-level definition at char ${nextBlockChar}. ` +
-          `Re-request with charLength=${(effectiveCharLength ?? pagination.charLength) + extendBy} to extend this page to the next boundary, ` +
+          `Re-request with charLength=${(resolvedCharLength ?? pagination.charLength) + extendBy} to extend this page to the next boundary, ` +
           `or use charOffset=${cutPos} to continue page-by-page.`
       );
     }
@@ -654,6 +668,7 @@ function buildSuccessResult(
       autoPaginated) && {
       pagination: {
         ...createPaginationInfo(pagination),
+        chunkMode,
         ...(nextBlockChar !== undefined && { nextBlockChar }),
       },
     }),

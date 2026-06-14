@@ -1,24 +1,35 @@
 /**
- * Language-aware semantic block boundary detection for pagination.
+ * Semantic block boundary detection for proactive pagination chunking.
  *
- * When a page cut lands inside an indented block (mid-function/class body),
- * `findNextBlockBoundary` scans forward to the next top-level definition so
- * the agent can re-request with a larger charLength and get a semantically
- * complete page in one call rather than paginating blindly through a body.
+ * ## Primary path — Rust/tree-sitter (`snapToSemanticBoundary`)
+ * Calls `getSemanticBoundaryOffsets` from octocode-minifier-utils, which uses
+ * tree-sitter for TS/JS/Py/Go/Rust/Java/C/Bash and heuristic patterns for
+ * 30+ other languages. When a page cut falls mid-block, automatically extends
+ * the page to the next semantic boundary — no hint-and-follow-up needed.
+ * Falls back to `'char-limit'` mode when:
+ *   • the file type has no semantic structure (JSON, YAML, plain text)
+ *   • the next boundary is > MAX_SEMANTIC_EXTENSION chars beyond the budget
+ *   • the Rust call throws (panic, OOM, unsupported extension)
  *
- * Language coverage matches octocode-minifier-utils heuristic.rs patterns:
- *   tree-sitter: ts tsx js jsx mjs cjs py go rs java c h sh bash zsh
- *   heuristic:   cpp hpp cc cxx cs kt scala rb php swift ex exs hs lhs
- *                css scss less html htm sql vue svelte lua md
- *   generic:     everything else (brace-depth fallback)
+ * ## Fallback path — TypeScript heuristics (`findNextBlockBoundary`)
+ * Reactive: runs AFTER a char-limit cut, surfaces `nextBlockChar` in the
+ * pagination metadata so the agent can extend charLength in a follow-up
+ * request (still saves one request over pure blind pagination).
  *
- * Architecture note: this module intentionally mirrors the per-language logic
- * from packages/octocode-minifier-utils/src/signatures/heuristic.rs so it can
- * be replaced by a single Rust NAPI call (`findNextBlockBoundary`) once the
- * addon exposes it — the TypeScript caller site is identical.
+ * Language coverage — both paths:
+ *   tree-sitter (Rust): ts tsx js jsx mjs cjs py go rs java c h sh bash zsh
+ *   heuristic (Rust+TS): cpp hpp cc cxx cs kt kotlin scala rb php swift
+ *                         ex exs hs lhs css scss less html htm sql vue svelte
+ *                         lua md erl hrl + generic brace-depth fallback
  */
 
+import { getSemanticBoundaryOffsets } from '@octocodeai/octocode-minifier-utils';
+
 const LONE_CLOSE = /^[}\])][;,]?\s*$/;
+
+// When the next semantic boundary is farther than this from the ideal cut,
+// fall back to char-limit chunking (giant function) rather than over-extending.
+const MAX_SEMANTIC_EXTENSION = 8_000;
 
 function getExtension(filePath: string | undefined): string {
   if (!filePath) return '';
@@ -57,6 +68,50 @@ function isTopLevelLine(line: string, ext: string): boolean {
     return ch !== ' ' && ch !== '\t' && !line.startsWith('--') && !line.startsWith('{-');
   }
 
+  // ── Java / Kotlin / C# / Scala ───────────────────────────────────────────────
+  // These languages use class-scoped members that are ALWAYS indented, so the
+  // column-0 gate must NOT apply. Patterns mirror heuristic.rs java_cs_patterns()
+  // and scala_patterns() which use ^\s* (any indentation).
+  if (
+    ext === 'java' ||
+    ext === 'kt' ||
+    ext === 'kotlin' ||
+    ext === 'cs' ||
+    ext === 'scala'
+  ) {
+    const t = line.trimStart();
+    if (!t || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*')) return false;
+    if (LONE_CLOSE.test(t)) return false;
+
+    if (ext === 'scala') {
+      // scala_patterns(): package/import, class/object/trait/enum, def/val/var/type
+      return (
+        /^(?:package|import)\s/.test(t) ||
+        /^(?:sealed\s+|abstract\s+|final\s+|case\s+)*(?:class|object|trait|enum)\s+\w/.test(t) ||
+        /^(?:override\s+|private\s+|protected\s+|implicit\s+|given\s+)*(?:def|val|var|type)\s+\w/.test(t)
+      );
+    }
+
+    if (ext === 'kt' || ext === 'kotlin') {
+      // java_cs_patterns() + Kotlin-specific keywords.
+      // companion object / object can appear without a name (e.g. `companion object {`),
+      // so use \b rather than requiring \s+\w after the keyword.
+      return (
+        /^(?:public|private|protected|internal|open|abstract|override|sealed|final|inline|suspend|actual|expect)\s/.test(t) ||
+        /^(?:class|interface|enum\s+class|data\s+class|sealed\s+class|abstract\s+class|companion\s+object|object)\b/.test(t) ||
+        /^(?:import|package)\s/.test(t) ||
+        /^(?:fun|val|var|const\s+val|typealias)\s+\w/.test(t)
+      );
+    }
+
+    // Java and C# — java_cs_patterns(): visibility/modifier prefix OR class/interface/enum OR import/using/package/namespace
+    return (
+      /^(?:public|private|protected|static|abstract|final|override|sealed|internal)\s/.test(t) ||
+      /^(?:class|interface|enum|record|object)\s+\w/.test(t) ||
+      /^(?:import|using|package|namespace)\s/.test(t)
+    );
+  }
+
   // ── All remaining languages require the line to be at column 0 ────────────
 
   const ch0 = line[0];
@@ -93,19 +148,6 @@ function isTopLevelLine(line: string, ext: string): boolean {
   if (ext === 'sh' || ext === 'bash' || ext === 'zsh') {
     // named function or `name()` at column 0
     return /^(?:(?:export\s+)?function\s+\w+|\w+\s*\(\s*\))/.test(line);
-  }
-
-  // ── Java / Kotlin / C# / Scala ───────────────────────────────────────────────
-  if (
-    ext === 'java' ||
-    ext === 'kt' ||
-    ext === 'kotlin' ||
-    ext === 'cs' ||
-    ext === 'scala'
-  ) {
-    return /^(?:public|private|protected|static|abstract|final|override|sealed|internal|class|interface|enum|object)\b/.test(
-      line
-    );
   }
 
   // ── C / C++ ─────────────────────────────────────────────────────────────────
@@ -246,4 +288,69 @@ export function buildBlockBoundaryHint(
     `or use charOffset=${cutPos} to continue page-by-page.`;
 
   return { nextBlockChar, hint };
+}
+
+/** Discriminator for how a page boundary was chosen. */
+export type ChunkMode = 'semantic' | 'char-limit';
+
+/**
+ * **Proactive** semantic chunking — the primary pagination path.
+ *
+ * Calls `getSemanticBoundaryOffsets` (Rust/tree-sitter) to get a sorted list
+ * of semantic block starts, then snaps the page end to the next boundary after
+ * `charOffset + charLength`.  Returns `chunkMode: 'semantic'` on success or
+ * `'char-limit'` when falling back to the original fixed-size cut.
+ *
+ * Default is always char-limit — snapping is a best-effort improvement.
+ *
+ * @param content      The content being paginated (already minified if applicable)
+ * @param charOffset   Start of the current page (JS char index)
+ * @param charLength   Requested page size in JS chars
+ * @param filePath     File path used to derive the language for tree-sitter/heuristic
+ * @returns `{ length, chunkMode }` — `length` is the actual page size to use
+ */
+export function snapToSemanticBoundary(
+  content: string,
+  charOffset: number,
+  charLength: number,
+  filePath?: string
+): { length: number; chunkMode: ChunkMode } {
+  const idealEnd = charOffset + charLength;
+
+  // Nothing to snap — content fits entirely
+  if (idealEnd >= content.length) {
+    return { length: content.length - charOffset, chunkMode: 'char-limit' };
+  }
+
+  // Get tree-sitter / heuristic boundaries from Rust
+  let boundaries: number[];
+  try {
+    boundaries = getSemanticBoundaryOffsets(content, filePath ?? '');
+  } catch {
+    boundaries = [];
+  }
+
+  if (boundaries.length === 0) {
+    // Data file, plain text, oversized, or unsupported — use fixed char-limit
+    return { length: charLength, chunkMode: 'char-limit' };
+  }
+
+  // Find the first boundary strictly past the ideal cut point
+  const nextBoundary = boundaries.find(b => b > idealEnd);
+
+  if (nextBoundary === undefined) {
+    // No boundary after idealEnd — we're already in the last semantic chunk
+    return { length: charLength, chunkMode: 'char-limit' };
+  }
+
+  const extension = nextBoundary - idealEnd;
+
+  // Only snap when the extension is within budget.
+  // Giant functions (> MAX_SEMANTIC_EXTENSION) stay char-limited — the reactive
+  // `nextBlockChar` hint handles those as a fallback.
+  if (extension <= MAX_SEMANTIC_EXTENSION) {
+    return { length: nextBoundary - charOffset, chunkMode: 'semantic' };
+  }
+
+  return { length: charLength, chunkMode: 'char-limit' };
 }
