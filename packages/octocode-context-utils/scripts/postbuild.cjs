@@ -5,7 +5,7 @@
  */
 'use strict'
 
-const { readFileSync, writeFileSync } = require('fs')
+const { copyFileSync, existsSync, readFileSync, writeFileSync } = require('fs')
 const { join } = require('path')
 
 const PATCH_MARKER = '// ── postbuild additions ──'
@@ -59,3 +59,26 @@ export declare const MINIFY_CONFIG: {
 export declare const SUPPORTED_SIGNATURE_EXTENSIONS: readonly string[]
 `
 )
+
+const PLATFORM_PACKAGES = {
+  'darwin-arm64': 'darwin-arm64',
+  'darwin-x64': 'darwin-x64',
+  'linux-arm64-gnu': 'linux-arm64-gnu',
+  'linux-x64-gnu': 'linux-x64-gnu',
+  'linux-x64-musl': 'linux-x64-musl',
+  'win32-x64-msvc': 'win32-x64-msvc',
+}
+
+for (const [triple, dirName] of Object.entries(PLATFORM_PACKAGES)) {
+  const binaryName = `octocode-context-utils.${triple}.node`
+  const sourcePath = join(__dirname, '..', binaryName)
+  const packageDir = join(__dirname, '..', 'npm', dirName)
+  const destinationPath = join(packageDir, binaryName)
+
+  if (!existsSync(sourcePath) || !existsSync(packageDir)) {
+    continue
+  }
+
+  copyFileSync(sourcePath, destinationPath)
+  console.log(`${binaryName} copied to npm/${dirName}`)
+}
