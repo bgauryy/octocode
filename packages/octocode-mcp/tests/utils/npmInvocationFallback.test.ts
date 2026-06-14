@@ -37,7 +37,7 @@ describe('executeNpmCommand npm invocation fallback', () => {
         }),
       }));
 
-      const { executeNpmCommand } = await import('../../src/utils/exec/npm.js');
+      const { executeNpmCommand } = await import('@octocodeai/octocode-tools-core');
 
       const mockProcess = new MockChildProcess();
       vi.mocked(spawn).mockReturnValue(

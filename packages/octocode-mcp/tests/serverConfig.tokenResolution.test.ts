@@ -7,7 +7,7 @@ import {
   getTokenSource,
   _setTokenResolvers,
   _resetTokenResolvers,
-} from '../src/serverConfig.js';
+} from '@octocodeai/octocode-tools-core';
 import type { FullTokenResolution } from 'octocode-shared';
 
 describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {

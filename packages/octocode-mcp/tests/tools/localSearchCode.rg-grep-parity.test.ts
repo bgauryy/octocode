@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../src/utils/exec/safe.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   safeExec: vi.fn(),
 }));
 
-vi.mock('../../src/utils/exec/ripgrepBinary.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   resolveRipgrepBinary: vi.fn().mockReturnValue('rg'),
 }));
 
@@ -25,7 +25,7 @@ vi.mock('fs', () => ({
   },
 }));
 
-vi.mock('../../src/hints/index.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getHints: vi.fn().mockReturnValue(['empty hint']),
 }));
 
@@ -44,9 +44,9 @@ vi.mock('@octocodeai/octocode-core/schemas/runtime', async importOriginal => {
   };
 });
 
-import { safeExec } from '../../src/utils/exec/safe.js';
-import { executeRipgrepSearchInternal } from '../../src/tools/local_ripgrep/ripgrepExecutor.js';
-import { executeGrepFallbackSearch } from '../../src/tools/local_ripgrep/grepFallbackExecutor.js';
+import { safeExec } from '@octocodeai/octocode-tools-core';
+import { executeRipgrepSearchInternal } from '@octocodeai/octocode-tools-core';
+import { executeGrepFallbackSearch } from '@octocodeai/octocode-tools-core';
 
 const mockSafeExec = vi.mocked(safeExec);
 

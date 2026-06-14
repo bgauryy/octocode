@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
-import { initialize, cleanup } from '../../src/serverConfig.js';
+import { initialize, cleanup } from '@octocodeai/octocode-tools-core';
 import {
   _setTokenResolvers,
   _resetTokenResolvers,
-} from '../../src/serverConfig.js';
+} from '@octocodeai/octocode-tools-core';
 
 const createTestTool = (name: string): ToolConfig => ({
   name,

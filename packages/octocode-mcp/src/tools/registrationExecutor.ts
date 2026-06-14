@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ToolInvocationCallback } from '../types/toolResults.js';
-import type { ToolConfig } from './toolConfig.js';
+import type { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
+import type { McpToolConfig } from './toolConfig.js';
 
 type ToolRegistrationOutcome =
   | { status: 'success' }
@@ -8,10 +8,10 @@ type ToolRegistrationOutcome =
   | { status: 'skipped' };
 
 export async function registerSingleTool(
-  tool: ToolConfig,
+  tool: McpToolConfig,
   server: McpServer,
   callback: ToolInvocationCallback | undefined,
-  metadataValidator: (tool: ToolConfig) => boolean
+  metadataValidator: (tool: McpToolConfig) => boolean
 ): Promise<ToolRegistrationOutcome> {
   if (!metadataValidator(tool)) {
     return { status: 'skipped' };
@@ -30,10 +30,10 @@ export async function registerSingleTool(
 }
 
 export async function registerToolsBatch(
-  tools: ToolConfig[],
+  tools: McpToolConfig[],
   server: McpServer,
   callback: ToolInvocationCallback | undefined,
-  metadataValidator: (tool: ToolConfig) => boolean
+  metadataValidator: (tool: McpToolConfig) => boolean
 ): Promise<ToolRegistrationOutcome[]> {
   return Promise.all(
     tools.map(tool =>

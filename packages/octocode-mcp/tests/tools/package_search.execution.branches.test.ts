@@ -10,10 +10,10 @@
  * Format contract: packages[] is a list of strings "name url[ sourceRoot]"
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { searchPackages } from '../../src/tools/package_search/execution.js';
-import * as packageCommon from '../../src/utils/package/common.js';
+import { searchPackages } from '@octocodeai/octocode-tools-core';
+import * as packageCommon from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/utils/package/common.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchPackage: vi.fn(),
   checkNpmDeprecation: vi.fn().mockResolvedValue(null),
 }));

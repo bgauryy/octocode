@@ -10,15 +10,15 @@ import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_sea
 import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view_repo_structure/github_view_repo_structure.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   isLoggingEnabled: vi.fn(() => false),
   isCloneEnabled: vi.fn(() => true),
   getActiveProvider: vi.fn(() => 'github'),

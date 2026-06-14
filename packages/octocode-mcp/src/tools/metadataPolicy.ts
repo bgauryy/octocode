@@ -1,4 +1,4 @@
-import { TOOL_METADATA_ERRORS } from '../errors/domainErrors.js';
+import { TOOL_METADATA_ERRORS } from '@octocodeai/octocode-tools-core';
 import type { ToolConfig } from './toolConfig.js';
 
 interface MetadataPolicyDeps {

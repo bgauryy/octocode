@@ -15,7 +15,7 @@ describe('T3.3 — resolveRipgrepBinary (live)', () => {
   it('returns a non-empty string (never undefined)', async () => {
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const path = resolveRipgrepBinary();
     expect(typeof path).toBe('string');
     expect(path.length).toBeGreaterThan(0);
@@ -24,7 +24,7 @@ describe('T3.3 — resolveRipgrepBinary (live)', () => {
   it('returns an absolute path, never a bare rg name', async () => {
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const path = resolveRipgrepBinary();
     expect(path).not.toBe('rg');
     expect(path.startsWith('/') || /^[A-Z]:\\/.test(path)).toBe(true);
@@ -48,7 +48,7 @@ describe('T3.3 — resolveRipgrepBinary sibling probe', () => {
     const { existsSync: mockExists } = await import('node:fs');
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     resolveRipgrepBinary();
     const siblingCalls = vi
       .mocked(mockExists)
@@ -74,7 +74,7 @@ describe('T3.3 — resolveRipgrepBinary sibling probe', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = resolveRipgrepBinary();
     expect(result).toBe(expectedSibling);
   });
@@ -97,7 +97,7 @@ describe('T3.3 — resolveRipgrepBinary sibling probe', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = resolveRipgrepBinary();
     expect(result).toBe(expectedSibling);
   });
@@ -115,7 +115,7 @@ describe('T3.3 — resolveRipgrepBinary sibling probe', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     // Should not throw — falls through to @vscode/ripgrep in node_modules.
     expect(() => resolveRipgrepBinary()).not.toThrow();
     const result = resolveRipgrepBinary();
@@ -150,7 +150,7 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
 
     vi.resetModules();
     const { resolveRgFromPath } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = resolveRgFromPath();
     expect(result).toBe(fakeRgPath);
   });
@@ -170,7 +170,7 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
 
     vi.resetModules();
     const { resolveRgFromPath } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = resolveRgFromPath();
     expect(result).toBeNull();
   });
@@ -195,7 +195,7 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
 
     vi.resetModules();
     const { resolveRgFromPath } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = resolveRgFromPath();
     expect(result).toBe(fakeRgPath);
     const spawnCalls = vi.mocked(mockSpawn).mock.calls;
@@ -219,7 +219,7 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     // Sibling probe finds /opt/homebrew/bin/rg — no PATH probe needed.
     const result = resolveRipgrepBinary();
     expect(result).toBe(expectedRg);
@@ -251,7 +251,7 @@ describe('T3.4 — resolved binary passes command allowlist', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const { validateCommand } =
       await import('octocode-security/commandValidator');
 
@@ -273,7 +273,7 @@ describe('T3.4 — resolved binary passes command allowlist', () => {
   it('never registers a basename that is not shaped like an rg binary', async () => {
     vi.resetModules();
     const { allowRipgrepCommandName } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const { validateCommand } =
       await import('octocode-security/commandValidator');
 
@@ -288,7 +288,7 @@ describe('T3.4 — resolved binary passes command allowlist', () => {
   it('registers rg flavors for every delivery channel basename', async () => {
     vi.resetModules();
     const { allowRipgrepCommandName } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const { validateCommand } =
       await import('octocode-security/commandValidator');
 
@@ -325,7 +325,7 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     // Falls through sibling probe (key=null, plain rg absent) to bundled/@vscode or PATH.
     // Should not throw in a normal environment with rg on PATH.
     expect(() => resolveRipgrepBinary()).not.toThrow();
@@ -358,7 +358,7 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     expect(() => resolveRipgrepBinary()).toThrow(
       /ripgrep \(rg\) is unavailable/
     );
@@ -383,7 +383,7 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
 
     vi.resetModules();
     const { resolveRgFromPath } =
-      await import('../../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = resolveRgFromPath();
     expect(result).toBeNull();
   });

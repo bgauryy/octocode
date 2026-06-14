@@ -8,23 +8,23 @@ const mockOctokit = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: vi.fn(() => mockOctokit),
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
   withDataCache: vi.fn(async (_key: string, fn: () => unknown) => {
     return await fn();
   }),
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getGitHubToken: vi.fn(() => Promise.resolve('test-token')),
   isLoggingEnabled: vi.fn(() => false),
 }));
 
-import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
+import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
 
 describe('Quality Boosting and Research Goals', () => {
   beforeEach(() => {

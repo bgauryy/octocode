@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { executeBulkOperation } from '../../src/utils/response/bulk.js';
-import { createErrorResult } from '../../src/utils/response/error.js';
-import { buildSearchResult } from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
-import { validateToolPath } from '../../src/utils/file/toolHelpers.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { executeBulkOperation } from '@octocodeai/octocode-tools-core';
+import { createErrorResult } from '@octocodeai/octocode-tools-core';
+import { buildSearchResult } from '@octocodeai/octocode-tools-core';
+import { validateToolPath } from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 import { getTextContent } from '../utils/testHelpers.js';
 
 beforeAll(async () => {});

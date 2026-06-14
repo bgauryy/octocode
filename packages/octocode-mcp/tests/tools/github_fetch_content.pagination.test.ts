@@ -8,7 +8,7 @@ const mockGetServerConfig = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   initialize: vi.fn(),
   getServerConfig: mockGetServerConfig,
   isLoggingEnabled: vi.fn(() => false),
@@ -21,12 +21,12 @@ vi.mock('../../src/serverConfig.js', () => ({
   isCloneEnabled: vi.fn(() => false),
 }));
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 type Warning = { kind: string; [key: string]: unknown };
 

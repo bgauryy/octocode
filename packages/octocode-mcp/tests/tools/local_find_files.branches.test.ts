@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { findFiles as findFilesImpl } from '../../src/tools/local_find_files/findFiles.js';
-import { safeExec } from '../../src/utils/exec/safe.js';
+import { findFiles as findFilesImpl } from '@octocodeai/octocode-tools-core';
+import { safeExec } from '@octocodeai/octocode-tools-core';
 import * as pathValidator from 'octocode-security/pathValidator';
 
 // The MCP overlay schema (scheme.ts) layers `page`/`itemsPerPage` on top of
@@ -13,11 +13,11 @@ type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
 
 const findFiles = (query: FindFilesInput) => findFilesImpl(query);
 
-vi.mock('../../src/utils/exec/safe.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   safeExec: vi.fn(),
 }));
 
-vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   checkCommandAvailability: vi
     .fn()
     .mockResolvedValue({ available: true, command: 'find' }),

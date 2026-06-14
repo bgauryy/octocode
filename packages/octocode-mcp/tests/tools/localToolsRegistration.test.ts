@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
-import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
+import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 type MockServer = {
   registerTool: (name: string, options: unknown, handler: unknown) => unknown;
 };
 
-vi.mock('../../src/tools/toolConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   ALL_TOOLS: [
     {
       name: 'localSearchCode',
@@ -64,9 +64,9 @@ vi.mock('../../src/tools/toolConfig.js', () => ({
   ],
 }));
 
-vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
+vi.mock('@octocodeai/octocode-tools-core', async () => {
   const actual = await vi.importActual<
-    typeof import('../../src/tools/toolMetadata/proxies.js')
+    typeof import('@octocodeai/octocode-tools-core')
   >('../../src/tools/toolMetadata/proxies.js');
   return {
     ...actual,
@@ -74,7 +74,7 @@ vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
   };
 });
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getServerConfig: vi.fn().mockReturnValue({
     version: '1.0.0',
     githubApiUrl: 'https://api.github.com',
@@ -88,23 +88,23 @@ vi.mock('../../src/serverConfig.js', () => ({
   isCloneEnabled: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: vi.fn(),
 }));
 
-vi.mock('../../src/tools/local_ripgrep/register.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchContentRipgrep: vi.fn().mockResolvedValue({ status: 'hasResults' }),
 }));
-vi.mock('../../src/tools/local_view_structure/register.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   viewStructure: vi.fn().mockResolvedValue({ status: 'hasResults' }),
 }));
-vi.mock('../../src/tools/local_find_files/register.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   findFiles: vi.fn().mockResolvedValue({ status: 'hasResults' }),
 }));
-vi.mock('../../src/tools/local_fetch_content/register.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchContent: vi.fn().mockResolvedValue({ status: 'hasResults' }),
 }));
-vi.mock('../../src/utils/bulkOperations.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'test' }],
   }),

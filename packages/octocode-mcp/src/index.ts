@@ -2,36 +2,33 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Implementation } from '@modelcontextprotocol/sdk/types.js';
 
-import { clearAllCache } from './utils/http/cache.js';
-import { clearOctokitInstances } from './github/client.js';
 import {
+  clearAllCache,
+  clearOctokitInstances,
   initialize,
   cleanup,
   getGitHubToken,
   isCloneEnabled,
   getActiveProvider,
   isLoggingEnabled,
-} from './serverConfig.js';
-import {
   initializeProviders,
   clearProviderCache,
-} from './providers/factory.js';
-import { createLogger, LoggerFactory, Logger } from './utils/core/logger.js';
-import {
   initializeSession,
   logSessionInit,
   logSessionError,
   logToolCall,
-} from './session.js';
-import { loadToolContent } from './tools/toolMetadata/state.js';
+  loadToolContent,
+  STARTUP_ERRORS,
+  startCacheGC,
+  stopCacheGC,
+  isLocalTool,
+} from '@octocodeai/octocode-tools-core';
+import { createLogger, LoggerFactory, Logger } from './utils/core/logger.js';
 import { completeMetadata } from '@octocodeai/octocode-core';
 import { version, name } from '../package.json';
-import { STARTUP_ERRORS } from './errors/domainErrors.js';
-import { startCacheGC, stopCacheGC } from './tools/github_clone_repo/cache.js';
 import { getOctocodeDir } from 'octocode-shared';
 import { configureSecurity } from 'octocode-security/withSecurityValidation';
 import { securityRegistry } from 'octocode-security';
-import { isLocalTool } from './tools/toolNames.js';
 
 interface ShutdownState {
   inProgress: boolean;

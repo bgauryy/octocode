@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
-import { getOctokit } from '../../src/github/client.js';
-import { clearAllCache } from '../../src/utils/http/cache.js';
+import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { getOctokit } from '@octocodeai/octocode-tools-core';
+import { clearAllCache } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/github/client.js');
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 

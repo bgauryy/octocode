@@ -25,7 +25,7 @@ import {
   getMaxCloneCount,
   startCacheGC,
   stopCacheGC,
-} from '../../src/tools/github_clone_repo/cache.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('github_clone_repo cache', () => {
   const testBaseDir = join(tmpdir(), `octocode-cache-test-${Date.now()}`);
@@ -506,7 +506,7 @@ const mockSpawnWithTimeout = vi.hoisted(() => vi.fn());
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockGetOctocodeDir = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/utils/exec/spawn.js', async importOriginal => {
+vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
@@ -516,7 +516,7 @@ vi.mock('../../src/utils/exec/spawn.js', async importOriginal => {
 
 const mockResolveDefaultBranch = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: mockGetOctokit,
   resolveDefaultBranch: mockResolveDefaultBranch,
 }));
@@ -529,7 +529,7 @@ vi.mock('octocode-shared', async importOriginal => {
   };
 });
 
-import { cloneRepo } from '../../src/tools/github_clone_repo/cloneRepo.js';
+import { cloneRepo } from '@octocodeai/octocode-tools-core';
 
 describe('cloneRepo', () => {
   let testDir: string;
@@ -1279,17 +1279,17 @@ const mockGetActiveProvider = vi.hoisted(() => vi.fn());
 const mockGetActiveProviderConfig = vi.hoisted(() => vi.fn());
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getActiveProvider: mockGetActiveProvider,
   getActiveProviderConfig: mockGetActiveProviderConfig,
   isLoggingEnabled: vi.fn(() => false),
 }));
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
-import { executeCloneRepo } from '../../src/tools/github_clone_repo/execution.js';
+import { executeCloneRepo } from '@octocodeai/octocode-tools-core';
 import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 

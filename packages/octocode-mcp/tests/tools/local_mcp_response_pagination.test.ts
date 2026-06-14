@@ -11,7 +11,7 @@ import {
   LocalSearchCodeOutputSchema as UpstreamLocalSearchCodeOutputSchema,
   LocalViewStructureOutputSchema as UpstreamLocalViewStructureOutputSchema,
 } from '@octocodeai/octocode-core/schemas/outputs';
-import { withResponseEnvelope } from '../../src/scheme/responseEnvelope.js';
+import { withResponseEnvelope } from '@octocodeai/octocode-tools-core';
 
 // Bulk MCP responses wrap each per-query payload as {id, status?, data}.
 // `status` is omitted on success, which the assertion helpers treat as
@@ -58,27 +58,27 @@ import { registerLocalRipgrepTool } from '../../src/tools/local_ripgrep/register
 import { registerLocalViewStructureTool } from '../../src/tools/local_view_structure/register.js';
 import { registerLocalFindFilesTool } from '../../src/tools/local_find_files/register.js';
 import { registerLocalFetchContentTool } from '../../src/tools/local_fetch_content/register.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 const mockSearchContentRipgrep = vi.hoisted(() => vi.fn());
 const mockViewStructure = vi.hoisted(() => vi.fn());
 const mockFindFiles = vi.hoisted(() => vi.fn());
 const mockFetchContent = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchContentRipgrep: (...args: unknown[]) =>
     mockSearchContentRipgrep(...args),
 }));
 
-vi.mock('../../src/tools/local_view_structure/local_view_structure.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   viewStructure: (...args: unknown[]) => mockViewStructure(...args),
 }));
 
-vi.mock('../../src/tools/local_find_files/findFiles.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   findFiles: (...args: unknown[]) => mockFindFiles(...args),
 }));
 
-vi.mock('../../src/tools/local_fetch_content/fetchContent.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchContent: (...args: unknown[]) => mockFetchContent(...args),
 }));
 

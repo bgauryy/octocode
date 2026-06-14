@@ -6,7 +6,7 @@ import {
   type ProviderType,
   type CodeSearchResult,
   type FileContentResult,
-} from '../../src/providers/types.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('Provider Types', () => {
   describe('isProviderSuccess', () => {

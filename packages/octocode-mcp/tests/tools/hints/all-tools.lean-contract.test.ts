@@ -1,23 +1,23 @@
 import { describe, it, expect } from 'vitest';
 
-import { hints as ripgrepHints } from '../../../src/tools/local_ripgrep/hints.js';
-import { hints as findFilesHints } from '../../../src/tools/local_find_files/hints.js';
-import { hints as viewStructureHints } from '../../../src/tools/local_view_structure/hints.js';
-import { hints as fetchContentHints } from '../../../src/tools/local_fetch_content/hints.js';
-import { hints as ghCodeHints } from '../../../src/tools/github_search_code/hints.js';
-import { hints as ghFetchHints } from '../../../src/tools/github_fetch_content/hints.js';
-import { hints as ghPrHints } from '../../../src/tools/github_search_pull_requests/hints.js';
-import { hints as ghReposHints } from '../../../src/tools/github_search_repos/hints.js';
-import { hints as ghViewHints } from '../../../src/tools/github_view_repo_structure/hints.js';
-import { hints as cloneHints } from '../../../src/tools/github_clone_repo/hints.js';
-import { hints as pkgHints } from '../../../src/tools/package_search/hints.js';
-import { hints as semanticContentHints } from '../../../src/tools/lsp/semantic_content/hints.js';
+import { hints as ripgrepHints } from '@octocodeai/octocode-tools-core';
+import { hints as findFilesHints } from '@octocodeai/octocode-tools-core';
+import { hints as viewStructureHints } from '@octocodeai/octocode-tools-core';
+import { hints as fetchContentHints } from '@octocodeai/octocode-tools-core';
+import { hints as ghCodeHints } from '@octocodeai/octocode-tools-core';
+import { hints as ghFetchHints } from '@octocodeai/octocode-tools-core';
+import { hints as ghPrHints } from '@octocodeai/octocode-tools-core';
+import { hints as ghReposHints } from '@octocodeai/octocode-tools-core';
+import { hints as ghViewHints } from '@octocodeai/octocode-tools-core';
+import { hints as cloneHints } from '@octocodeai/octocode-tools-core';
+import { hints as pkgHints } from '@octocodeai/octocode-tools-core';
+import { hints as semanticContentHints } from '@octocodeai/octocode-tools-core';
 
-import { buildPaginationHints } from '../../../src/tools/providerMappers.js';
+import { buildPaginationHints } from '@octocodeai/octocode-tools-core';
 import {
   generatePaginationHints,
   generateStructurePaginationHints,
-} from '../../../src/utils/pagination/hints.js';
+} from '@octocodeai/octocode-tools-core';
 
 const ALL_HINTS = {
   localSearchCode: ripgrepHints,

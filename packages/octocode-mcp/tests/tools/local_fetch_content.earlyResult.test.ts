@@ -8,7 +8,7 @@
  * paginated slice (minify:false).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
+import { fetchContent } from '@octocodeai/octocode-tools-core';
 import * as fs from 'fs/promises';
 import * as pathValidator from 'octocode-security/pathValidator';
 

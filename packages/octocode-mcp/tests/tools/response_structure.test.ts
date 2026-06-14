@@ -9,18 +9,18 @@ const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockGetServerConfig = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
   withDataCache: vi.fn(async (_key: string, fn: () => unknown) => {
     return await fn();
   }),
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   initialize: vi.fn(),
   getServerConfig: mockGetServerConfig,
   isLoggingEnabled: vi.fn(() => false),
@@ -33,7 +33,7 @@ vi.mock('../../src/serverConfig.js', () => ({
 }));
 
 const mockLogToolCall = vi.hoisted(() => vi.fn());
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logToolCall: mockLogToolCall,
   getSessionManager: vi.fn(() => null),
   SessionManager: vi.fn(),
@@ -48,7 +48,7 @@ import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view_repo_structure/github_view_repo_structure.js';
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 describe('Response Structure Tests - All Tools', () => {
   let mockServer: MockMcpServer;

@@ -6,7 +6,7 @@ import { EventEmitter } from 'events';
 import {
   executeNpmCommand,
   checkNpmAvailability,
-} from '../../src/utils/exec/npm.js';
+} from '@octocodeai/octocode-tools-core';
 
 class MockChildProcess extends EventEmitter {
   stdout = new EventEmitter();

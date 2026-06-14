@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import {
   executeNpmCommand,
   checkNpmAvailability,
-} from '../../src/utils/exec/npm.js';
+} from '@octocodeai/octocode-tools-core';
 
 function expectNpmSpawnCall(expectedArgs: string[], timeout: number): void {
   const spawnCall = vi.mocked(spawn).mock.calls[0];

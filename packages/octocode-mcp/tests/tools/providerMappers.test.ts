@@ -8,7 +8,7 @@ import {
   mapPullRequestToolQuery,
   mapRepoSearchProviderRepositories,
   mapRepoStructureProviderResult,
-} from '../../src/tools/providerMappers.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('providerMappers', () => {
   it('forwards minify:"symbols" through the file-content tool→provider mapper', () => {

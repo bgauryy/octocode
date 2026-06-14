@@ -1,44 +1,44 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GitHubProvider } from '../../../src/providers/github/GitHubProvider.js';
+import { GitHubProvider } from '@octocodeai/octocode-tools-core';
 import type {
   CodeSearchQuery,
   FileContentQuery,
   RepoSearchQuery,
   PullRequestQuery,
   RepoStructureQuery,
-} from '../../../src/providers/types.js';
+} from '@octocodeai/octocode-tools-core';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 
-vi.mock('../../../src/github/codeSearch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchGitHubCodeAPI: vi.fn(),
 }));
 
-vi.mock('../../../src/github/fileContent.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchGitHubFileContentAPI: vi.fn(),
 }));
 
-vi.mock('../../../src/github/repoSearch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchGitHubReposAPI: vi.fn(),
 }));
 
-vi.mock('../../../src/github/pullRequestSearch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchGitHubPullRequestsAPI: vi.fn(),
 }));
 
-vi.mock('../../../src/github/repoStructure.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   viewGitHubRepositoryStructureAPI: vi.fn(),
 }));
 
-vi.mock('../../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   resolveDefaultBranch: vi.fn(),
 }));
 
-import { searchGitHubCodeAPI } from '../../../src/github/codeSearch.js';
-import { fetchGitHubFileContentAPI } from '../../../src/github/fileContent.js';
-import { searchGitHubReposAPI } from '../../../src/github/repoSearch.js';
-import { searchGitHubPullRequestsAPI } from '../../../src/github/pullRequestSearch.js';
-import { viewGitHubRepositoryStructureAPI } from '../../../src/github/repoStructure.js';
-import { resolveDefaultBranch as resolveGitHubDefaultBranch } from '../../../src/github/client.js';
+import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
+import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
+import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
+import { resolveDefaultBranch as resolveGitHubDefaultBranch } from '@octocodeai/octocode-tools-core';
 
 const mockSearchGitHubCodeAPI = vi.mocked(searchGitHubCodeAPI);
 const mockResolveDefaultBranch = vi.mocked(resolveGitHubDefaultBranch);

@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 describe('lspGetSemanticContent — call-flow schema', () => {
   it('accepts callers and callees as explicit semantic content types', async () => {
     const { LspGetSemanticContentQuerySchema } =
-      await import('../../../src/tools/lsp/semantic_content/scheme.js');
+      await import('@octocodeai/octocode-tools-core');
 
     for (const type of ['callers', 'callees'] as const) {
       const parsed = LspGetSemanticContentQuerySchema.safeParse({
@@ -20,7 +20,7 @@ describe('lspGetSemanticContent — call-flow schema', () => {
 describe('localViewStructure — success hint', () => {
   it('emits localSearchCode hint when directory has entries', async () => {
     const { viewStructure } =
-      await import('../../../src/tools/local_view_structure/local_view_structure.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = (await viewStructure({
       path: '.',
       depth: 1,
@@ -52,7 +52,7 @@ describe('localSearchCode — LSP lineHint success hint', () => {
 describe('lspGetSemanticContent — success-path handoff hints', () => {
   it('successful results return concise next-step hints', async () => {
     const { semanticHints } =
-      await import('../../../src/tools/lsp/semantic_content/hints.js');
+      await import('@octocodeai/octocode-tools-core');
 
     for (const type of [
       'definition',
@@ -71,7 +71,7 @@ describe('lspGetSemanticContent — success-path handoff hints', () => {
 
   it('incomplete results still return targeted recovery guidance', async () => {
     const { semanticHints } =
-      await import('../../../src/tools/lsp/semantic_content/hints.js');
+      await import('@octocodeai/octocode-tools-core');
     const result = semanticHints('definition', false);
 
     // Type-specific recovery only — the vague generic preamble was removed.
@@ -107,7 +107,7 @@ describe('githubSearchCode — chain hint', () => {
 describe('lspGetSemanticContent — success handoff hints', () => {
   it('semanticHints returns concrete next steps on successful definition', async () => {
     const { semanticHints } =
-      await import('../../../src/tools/lsp/semantic_content/hints.js');
+      await import('@octocodeai/octocode-tools-core');
     const hints = semanticHints('definition', true);
     expect(hints.join('\n')).toContain('localGetFileContent');
     expect(hints.join('\n')).toContain('references');
@@ -115,7 +115,7 @@ describe('lspGetSemanticContent — success handoff hints', () => {
 
   it('semanticHints returns lineHint guidance on successful documentSymbols', async () => {
     const { semanticHints } =
-      await import('../../../src/tools/lsp/semantic_content/hints.js');
+      await import('@octocodeai/octocode-tools-core');
     const hints = semanticHints('documentSymbols', true);
     expect(hints.join('\n')).toContain('lineHint');
   });

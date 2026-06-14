@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { executeWithErrorIsolation } from '../../src/utils/core/promise.js';
+import { executeWithErrorIsolation } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 

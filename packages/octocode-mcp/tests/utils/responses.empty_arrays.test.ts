@@ -8,7 +8,7 @@ import { getTextContent } from './testHelpers.js';
 const mockGetServerConfig = vi.hoisted(() => vi.fn());
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   initialize: vi.fn(),
   getServerConfig: mockGetServerConfig,
   getGitHubToken: vi.fn(() => Promise.resolve('mock-token')),
@@ -20,12 +20,12 @@ vi.mock('../../src/serverConfig.js', () => ({
   })),
 }));
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 describe('Empty Arrays Removal in Responses', () => {
   let mockServer: MockMcpServer;

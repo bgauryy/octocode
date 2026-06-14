@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch';
-import * as client from '../../src/github/client';
-import * as queryBuilders from '../../src/github/queryBuilders';
+import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
+import * as client from '@octocodeai/octocode-tools-core';
+import * as queryBuilders from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/github/client');
-vi.mock('../../src/session');
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   withDataCache: vi.fn((_key, fn) => fn()),
   generateCacheKey: vi.fn(() => 'cache-key'),
 }));

@@ -70,7 +70,7 @@ describe('safeExec', () => {
 
   describe('stderr handling', () => {
     it('should collect stderr output', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], { cwd: process.cwd() });
 
       setTimeout(() => {
@@ -87,7 +87,7 @@ describe('safeExec', () => {
     });
 
     it('should accumulate stderr from multiple data events', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], { cwd: process.cwd() });
 
       setTimeout(() => {
@@ -105,7 +105,7 @@ describe('safeExec', () => {
     it('should ignore stderr data after process is killed', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 100,
@@ -127,7 +127,7 @@ describe('safeExec', () => {
 
   describe('output size limit via stdout', () => {
     it('should reject when stdout exceeds maxOutputSize', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 100;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -144,7 +144,7 @@ describe('safeExec', () => {
     });
 
     it('should handle multiple stdout chunks that cumulatively exceed limit', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 100;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -164,7 +164,7 @@ describe('safeExec', () => {
     it('should ignore stdout data after process is killed', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 100,
@@ -186,7 +186,7 @@ describe('safeExec', () => {
 
   describe('output size limit via stderr', () => {
     it('should reject when stderr exceeds maxOutputSize', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 100;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -203,7 +203,7 @@ describe('safeExec', () => {
     });
 
     it('should reject when combined stdout and stderr exceeds maxOutputSize', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 100;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -220,7 +220,7 @@ describe('safeExec', () => {
     });
 
     it('should not reject when stderr is under maxOutputSize', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 100;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -239,7 +239,7 @@ describe('safeExec', () => {
     });
 
     it('should handle multiple stderr chunks that cumulatively exceed limit', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 100;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -259,7 +259,7 @@ describe('safeExec', () => {
 
   describe('spawn error handling', () => {
     it('should reject on spawn error event', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], { cwd: process.cwd() });
 
       mockProcess.simulateError(new Error('ENOENT: command not found'));
@@ -270,7 +270,7 @@ describe('safeExec', () => {
     it('should ignore error event after process is already killed', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 100,
@@ -294,7 +294,7 @@ describe('safeExec', () => {
         throw new Error('Failed to spawn process');
       });
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
 
       await expect(safeExec('ls', [], { cwd: process.cwd() })).rejects.toThrow(
         'Failed to spawn process'
@@ -306,7 +306,7 @@ describe('safeExec', () => {
         throw 'some string error';
       });
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
 
       await expect(safeExec('ls', [], { cwd: process.cwd() })).rejects.toThrow(
         "Failed to spawn command 'ls'"
@@ -318,7 +318,7 @@ describe('safeExec', () => {
     it('should reject on timeout', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 500,
@@ -339,7 +339,7 @@ describe('safeExec', () => {
     it('should use default timeout of 30 seconds', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], { cwd: process.cwd() });
 
       const resultPromise = promise.catch(e => e);
@@ -357,7 +357,7 @@ describe('safeExec', () => {
     it('should not reject twice when timeout fires after output size exceeded', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const maxSize = 50;
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -377,7 +377,7 @@ describe('safeExec', () => {
 
   describe('successful execution', () => {
     it('should resolve with success on exit code 0', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], { cwd: process.cwd() });
 
       mockProcess.simulateSuccess('file1\nfile2\n', '');
@@ -390,7 +390,7 @@ describe('safeExec', () => {
     });
 
     it('should resolve with failure on non-zero exit code', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['nonexistent'], { cwd: process.cwd() });
 
       mockProcess.simulateFailure(1, 'No such file or directory');
@@ -405,7 +405,7 @@ describe('safeExec', () => {
 
   describe('validation', () => {
     it('should reject invalid command', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
 
       await expect(
         safeExec('rm', ['-rf', '/'], { cwd: process.cwd() })
@@ -421,7 +421,7 @@ describe('safeExec', () => {
       );
       validateCommandSpy.mockReturnValueOnce({ isValid: false });
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
 
       await expect(safeExec('ls', [], { cwd: process.cwd() })).rejects.toThrow(
         'Command validation failed: Command not allowed'
@@ -431,7 +431,7 @@ describe('safeExec', () => {
     });
 
     it('should reject arguments containing null bytes', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
 
       await expect(
         safeExec('ls', ['-la', 'path\0injected'], { cwd: process.cwd() })
@@ -439,7 +439,7 @@ describe('safeExec', () => {
     });
 
     it('should reject arguments exceeding max length', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const longArg = 'a'.repeat(1001);
 
       await expect(
@@ -448,7 +448,7 @@ describe('safeExec', () => {
     });
 
     it('should not forward non-allowlisted env overrides to child processes', async () => {
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
 
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
@@ -471,7 +471,7 @@ describe('safeExec', () => {
     it('should ignore close event when process was already killed', async () => {
       vi.useFakeTimers();
 
-      const { safeExec } = await import('../../../src/utils/exec/safe.js');
+      const { safeExec } = await import('@octocodeai/octocode-tools-core');
       const promise = safeExec('ls', ['-la'], {
         cwd: process.cwd(),
         timeout: 100,

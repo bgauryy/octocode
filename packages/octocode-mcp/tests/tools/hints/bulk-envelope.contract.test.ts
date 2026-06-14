@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 
-import { executeBulkOperation } from '../../../src/utils/response/bulk.js';
+import { executeBulkOperation } from '@octocodeai/octocode-tools-core';
 import type {
   ProcessedBulkResult,
   ToolSuccessResult,
-} from '../../../src/types/toolResults.js';
-import { sanitizeStructuredContent } from '../../../src/responses.js';
-import { STATIC_TOOL_NAMES } from '../../../src/tools/toolNames.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../src/tools/lsp/shared/semanticTypes.js';
+} from '@octocodeai/octocode-tools-core';
+import { sanitizeStructuredContent } from '@octocodeai/octocode-tools-core';
+import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
 
 function payload(
   result: import('@modelcontextprotocol/sdk/types').CallToolResult

@@ -1,9 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
-import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
-import { LocalFindFilesBulkQuerySchema } from './scheme.js';
-import { executeFindFiles } from './execution.js';
+import {
+  TOOL_NAMES,
+  DESCRIPTIONS,
+  LocalFindFilesBulkQuerySchema,
+  executeFindFiles,
+  withResponseEnvelope,
+} from '@octocodeai/octocode-tools-core';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LocalFindFilesOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 

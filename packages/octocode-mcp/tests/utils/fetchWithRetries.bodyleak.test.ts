@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { fetchWithRetries } from '../../src/utils/http/fetch.js';
+import { fetchWithRetries } from '@octocodeai/octocode-tools-core';
 
 describe('fetchWithRetries - Response body cleanup', () => {
   beforeEach(() => {

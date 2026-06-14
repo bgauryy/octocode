@@ -4,12 +4,12 @@ import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-co
 type GitHubPullRequestSearchQuery = z.infer<
   typeof GitHubPullRequestSearchQuerySchema
 >;
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
+  TOOL_NAMES,
   GitHubPullRequestSearchBulkQueryLocalSchema,
   GitHubSearchPullRequestsOutputLocalSchema,
-} from './scheme.js';
-import { searchMultipleGitHubPullRequests } from './execution.js';
+  searchMultipleGitHubPullRequests,
+} from '@octocodeai/octocode-tools-core';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
 export const registerSearchGitHubPullRequestsTool =

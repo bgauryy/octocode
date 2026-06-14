@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   buildSearchResult,
   finalizeRipgrepResult,
-} from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
+} from '@octocodeai/octocode-tools-core';
 import { promises as fs } from 'fs';
 
 vi.mock('fs', () => ({

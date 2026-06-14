@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { createSuccessResult } from '../../../src/tools/utils.js';
-import { createErrorResult } from '../../../src/utils/response/error.js';
-import { STATIC_TOOL_NAMES } from '../../../src/tools/toolNames.js';
-import { getHints } from '../../../src/hints/index.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../src/tools/lsp/shared/semanticTypes.js';
+import { createSuccessResult } from '@octocodeai/octocode-tools-core';
+import { createErrorResult } from '@octocodeai/octocode-tools-core';
+import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { getHints } from '@octocodeai/octocode-tools-core';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
 
 describe('createSuccessResult — hasResults path', () => {
   it('does not inject per-tool registry hints on hasResults', () => {

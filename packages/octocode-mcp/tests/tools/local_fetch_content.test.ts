@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
-import { fetchContent as fetchContentImpl } from '../../src/tools/local_fetch_content/fetchContent.js';
+import { LOCAL_TOOL_ERROR_CODES } from '@octocodeai/octocode-tools-core';
+import { fetchContent as fetchContentImpl } from '@octocodeai/octocode-tools-core';
 import {
   extractSignatures,
   applyContentViewMinification,

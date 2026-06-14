@@ -4,7 +4,7 @@ import {
   cleanup,
   _setTokenResolvers,
   _resetTokenResolvers,
-} from '../src/serverConfig.js';
+} from '@octocodeai/octocode-tools-core';
 import type { FullTokenResolution } from 'octocode-shared';
 
 type ResolveTokenFullMock = Mock<

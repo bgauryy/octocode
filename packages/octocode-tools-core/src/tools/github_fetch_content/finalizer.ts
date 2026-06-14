@@ -164,6 +164,7 @@ const OPTIONAL_PAGINATION_NUMERIC_FIELDS = [
   'charOffset',
   'charLength',
   'totalChars',
+  'nextBlockChar',
   'filesPerPage',
   'totalFiles',
   'entriesPerPage',
@@ -311,9 +312,24 @@ function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
         typeof file.pagination.charOffset === 'number'
       ) {
         const currentLength = file.pagination.charLength ?? 0;
-        hints.push(
-          `Use charOffset=${file.pagination.charOffset + currentLength} for ${group.id}:${file.path} to continue this file.`
-        );
+        const nextOffset = file.pagination.charOffset + currentLength;
+        const nextBlockChar = file.pagination.nextBlockChar;
+
+        if (typeof nextBlockChar === 'number') {
+          // Page cut landed mid-block — give the agent a precise boundary hint
+          // so it can extend charLength rather than paging blindly.
+          const extendBy = nextBlockChar - nextOffset;
+          hints.push(
+            `Page cut mid-block for ${group.id}:${file.path} at char ${nextOffset}. ` +
+              `Next top-level definition starts at char ${nextBlockChar}. ` +
+              `Re-request with charLength=${currentLength + extendBy} to extend this page to the next boundary, ` +
+              `or use charOffset=${nextOffset} to continue page-by-page.`
+          );
+        } else {
+          hints.push(
+            `Use charOffset=${nextOffset} for ${group.id}:${file.path} to continue this file.`
+          );
+        }
       }
       if (
         file.isPartial &&

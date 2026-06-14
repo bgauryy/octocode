@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildSearchResult } from '../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
+import { buildSearchResult } from '@octocodeai/octocode-tools-core';
 import { promises as fs } from 'fs';
 
 vi.mock('fs', () => ({

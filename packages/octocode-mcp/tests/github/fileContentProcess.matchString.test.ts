@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { processFileContentAPI } from '../../src/github/fileContentProcess.js';
+import { processFileContentAPI } from '@octocodeai/octocode-tools-core';
 
 const SAMPLE = [
   'import React from "react";',

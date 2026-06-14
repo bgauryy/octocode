@@ -30,6 +30,49 @@ interface FileTimestampInfo {
   lastModifiedBy: string;
 }
 
+/**
+ * Scans `content` forward from `fromChar` to find the start of the next
+ * top-level semantic block — a line that begins at column 0 with a
+ * non-whitespace, non-closing-delimiter character.  This works across
+ * languages: JS/TS (`function`, `export`, `class`, `const`, …),
+ * Python (`def`, `class`, `@`), Rust (`fn`, `impl`, `pub`), Go (`func`), etc.
+ *
+ * Skips lone closing delimiters (`}`, `};`, `});`, `)`) that are still part
+ * of the preceding block.  Returns `undefined` when no boundary is found
+ * before end-of-content.
+ */
+function findNextBlockBoundary(
+  content: string,
+  fromChar: number
+): number | undefined {
+  // Move past the partial line at the cut point (seek to next newline)
+  let pos = content.indexOf('\n', fromChar);
+  if (pos === -1) return undefined;
+  pos += 1;
+
+  const LONE_CLOSE = /^[}\])][;,]?\s*$/;
+
+  while (pos < content.length) {
+    const lineEnd = content.indexOf('\n', pos);
+    const lineEndActual = lineEnd === -1 ? content.length : lineEnd;
+    const line = content.substring(pos, lineEndActual);
+
+    if (
+      line.length > 0 &&
+      line[0] !== ' ' &&
+      line[0] !== '\t' &&
+      !LONE_CLOSE.test(line)
+    ) {
+      return pos;
+    }
+
+    if (lineEnd === -1) break;
+    pos = lineEnd + 1;
+  }
+
+  return undefined;
+}
+
 export function applyContentPagination(
   data: GitHubFileContentApiResult,
   charOffset: number,
@@ -43,6 +86,23 @@ export function applyContentPagination(
   }
 
   const paginationMeta = applyPagination(content, charOffset, maxChars);
+
+  // Detect mid-block cuts: if the page ends inside an indented block (the last
+  // non-empty line has leading whitespace), find the next top-level semantic
+  // boundary so the finalizer can emit a targeted "extend charLength" hint.
+  let nextBlockChar: number | undefined;
+  if (paginationMeta.hasMore) {
+    const paginated = paginationMeta.paginatedContent;
+    const lastMeaningfulLine = paginated.trimEnd().split('\n').at(-1) ?? '';
+    const isMidBlock =
+      lastMeaningfulLine.length > 0 &&
+      (lastMeaningfulLine[0] === ' ' || lastMeaningfulLine[0] === '\t');
+
+    if (isMidBlock) {
+      const cutPos = paginationMeta.charOffset + paginationMeta.charLength;
+      nextBlockChar = findNextBlockBoundary(content, cutPos);
+    }
+  }
 
   // Tool-level pagination hints are emitted by the github_fetch_content
   // finalizer (buildRuntimeHints) from `pagination`; the provider boundary
@@ -61,6 +121,7 @@ export function applyContentPagination(
       charOffset: paginationMeta.charOffset,
       charLength: paginationMeta.charLength,
       totalChars: paginationMeta.totalChars,
+      ...(nextBlockChar !== undefined && { nextBlockChar }),
     },
   };
 }

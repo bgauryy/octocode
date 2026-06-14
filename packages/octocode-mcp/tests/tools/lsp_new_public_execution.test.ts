@@ -12,7 +12,7 @@ vi.mock('octocode-lsp/workspaceRoot', () => ({
   resolveWorkspaceRootForFile: vi.fn().mockResolvedValue('/workspace'),
 }));
 
-vi.mock('../../src/tools/lsp/shared/callHierarchyTraversal.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   gatherIncomingCallsRecursive: vi.fn(),
   gatherOutgoingCallsRecursive: vi.fn(),
   createCallItemKey: (item: {
@@ -26,14 +26,14 @@ import {
   acquirePooledClient,
   isLanguageServerAvailable,
 } from 'octocode-lsp/manager';
-import { executeLspGetSemanticContent } from '../../src/tools/lsp/semantic_content/execution.js';
-import { hints as semanticToolHints } from '../../src/tools/lsp/semantic_content/hints.js';
-import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
-import { LspGetSemanticContentOutputSchema } from '../../src/tools/lsp/semantic_content/outputSchema.js';
+import { executeLspGetSemanticContent } from '@octocodeai/octocode-tools-core';
+import { hints as semanticToolHints } from '@octocodeai/octocode-tools-core';
+import { LspGetSemanticContentQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LspGetSemanticContentOutputSchema } from '@octocodeai/octocode-tools-core';
 import {
   gatherIncomingCallsRecursive,
   gatherOutgoingCallsRecursive,
-} from '../../src/tools/lsp/shared/callHierarchyTraversal.js';
+} from '@octocodeai/octocode-tools-core';
 
 const range = {
   start: { line: 0, character: 16 },

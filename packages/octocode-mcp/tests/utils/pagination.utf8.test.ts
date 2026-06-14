@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   applyPagination,
   createPaginationInfo,
-} from '../../src/utils/pagination/core.js';
-import { generatePaginationHints } from '../../src/utils/pagination/hints.js';
+} from '@octocodeai/octocode-tools-core';
+import { generatePaginationHints } from '@octocodeai/octocode-tools-core';
 
 describe('UTF-8 Pagination - Byte/Character Separation', () => {
   const TEST_CONTENT = {

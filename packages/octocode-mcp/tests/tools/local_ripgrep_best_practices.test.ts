@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   preflightValidateRipgrepPattern,
   type RipgrepPatternValidation,
-} from '../../src/tools/local_ripgrep/patternValidation.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('T1.6 — Ripgrep regex is validated pre-launch (cheap fail-fast)', () => {
   it('accepts a plain literal pattern (smartCase mode)', () => {
@@ -85,7 +85,7 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
 
     vi.doMock('../../src/utils/file/toolHelpers.js', async () => {
       const real = await vi.importActual<
-        typeof import('../../src/utils/file/toolHelpers.js')
+        typeof import('@octocodeai/octocode-tools-core')
       >('../../src/utils/file/toolHelpers.js');
       return {
         ...real,
@@ -102,7 +102,7 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
     }));
 
     const { searchContentRipgrep } =
-      await import('../../src/tools/local_ripgrep/searchContentRipgrep.js');
+      await import('@octocodeai/octocode-tools-core');
 
     await searchContentRipgrep({
       id: 'q1',

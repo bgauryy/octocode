@@ -71,13 +71,13 @@ vi.mock('@octokit/plugin-throttling', () => ({
   throttling: vi.fn(),
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withCache: mockWithCache,
   withDataCache: mockWithDataCache,
 }));
 
-vi.mock('../../src/mcp/responses.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   createResult: mockCreateResult,
   optimizeTextMatch: mockOptimizeTextMatch,
 }));
@@ -94,18 +94,18 @@ vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   return { ...actual, minifyContent: mockminifyContent };
 });
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: vi.fn(() => Promise.resolve(mockOctokit)),
   clearOctokitInstances: vi.fn(),
 }));
 
-import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
-import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
-import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
-import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
-import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch.js';
+import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
+import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
 import type { GitHubCodeSearchQuery } from '../../src/public.js';
-import { initialize, cleanup } from '../../src/serverConfig.js';
+import { initialize, cleanup } from '@octocodeai/octocode-tools-core';
 
 describe('GitHub API Utils', () => {
   beforeEach(async () => {

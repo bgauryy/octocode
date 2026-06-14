@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { executeWithErrorIsolation } from '../../src/utils/core/promise.js';
+import { executeWithErrorIsolation } from '@octocodeai/octocode-tools-core';
 
 describe('promiseUtils - Concurrency and Timeout Coverage', () => {
   beforeEach(() => {

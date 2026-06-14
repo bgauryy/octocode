@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateCacheKey } from '../../src/utils/http/cache.js';
+import { generateCacheKey } from '@octocodeai/octocode-tools-core';
 
 describe('Session-scoped Caching', () => {
   beforeEach(() => {

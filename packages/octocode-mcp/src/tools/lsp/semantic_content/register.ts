@@ -1,12 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../../types/toolTypes.js';
-import { withResponseEnvelope } from '../../../scheme/responseEnvelope.js';
 import { withBasicSecurityValidation } from '../../../utils/securityBridge.js';
-import { BulkLspGetSemanticContentQuerySchema } from './scheme.js';
-import { LspGetSemanticContentOutputSchema } from './outputSchema.js';
-import { executeLspGetSemanticContent } from './execution.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../shared/semanticTypes.js';
-import { DESCRIPTIONS } from '../../toolMetadata/proxies.js';
+import {
+  DESCRIPTIONS,
+  BulkLspGetSemanticContentQuerySchema,
+  LspGetSemanticContentOutputSchema,
+  executeLspGetSemanticContent,
+  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  withResponseEnvelope,
+} from '@octocodeai/octocode-tools-core';
 
 export function registerLspGetSemanticContentTool(server: McpServer) {
   return server.registerTool(

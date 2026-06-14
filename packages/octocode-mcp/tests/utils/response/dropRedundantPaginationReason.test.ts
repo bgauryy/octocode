@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dropRedundantPaginationReason } from '../../../src/utils/response/bulk.js';
+import { dropRedundantPaginationReason } from '@octocodeai/octocode-tools-core';
 
 describe('dropRedundantPaginationReason (#B2)', () => {
   it('drops the generic reason when a "Next: page=" cursor hint exists', () => {

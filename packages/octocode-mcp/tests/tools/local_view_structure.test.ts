@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { LOCAL_TOOL_ERROR_CODES } from '../../src/errors/localToolErrors.js';
-import { viewStructure as viewStructureImpl } from '../../src/tools/local_view_structure/local_view_structure.js';
-import { safeExec } from '../../src/utils/exec/safe.js';
-import { checkCommandAvailability } from '../../src/utils/exec/commandAvailability.js';
+import { LOCAL_TOOL_ERROR_CODES } from '@octocodeai/octocode-tools-core';
+import { viewStructure as viewStructureImpl } from '@octocodeai/octocode-tools-core';
+import { safeExec } from '@octocodeai/octocode-tools-core';
+import { checkCommandAvailability } from '@octocodeai/octocode-tools-core';
 import * as pathValidator from 'octocode-security/pathValidator';
 import type { Stats } from 'fs';
 
@@ -31,11 +31,11 @@ const flatNames = (result: {
   ...(result.links ?? []),
 ];
 
-vi.mock('../../src/utils/exec/safe.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   safeExec: vi.fn(),
 }));
 
-vi.mock('../../src/utils/exec/commandAvailability.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   checkCommandAvailability: vi
     .fn()
     .mockResolvedValue({ available: true, command: 'ls' }),

@@ -8,12 +8,12 @@ import {
   beforeEach,
   afterEach,
 } from 'vitest';
-import type { ToolInvocationCallback } from '../../src/types/toolResults.js';
+import type { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
 import {
   createMockMcpServer,
   MockMcpServer,
 } from '../fixtures/mcp-fixtures.js';
-import { clearAllCache } from '../../src/utils/http/cache.js';
+import { clearAllCache } from '@octocodeai/octocode-tools-core';
 
 function fetchUrlString(url: string | URL | Request): string {
   if (typeof url === 'string') return url;
@@ -176,9 +176,9 @@ function createNpmCommandMock(searchResult: {
 
 const mockExecuteNpmCommand = vi.fn();
 const mockCheckNpmAvailability = vi.fn();
-vi.mock('../../src/utils/exec/npm.js', async importOriginal => {
+vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('../../src/utils/exec/npm.js')>();
+    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
   return {
     ...actual,
     executeNpmCommand: (...args: unknown[]) => mockExecuteNpmCommand(...args),
@@ -187,7 +187,7 @@ vi.mock('../../src/utils/exec/npm.js', async importOriginal => {
   };
 });
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
   withDataCache: vi.fn(async (_key: string, fn: () => unknown) => {
     return await fn();
@@ -263,9 +263,9 @@ function setupDefaultFetchMock(): void {
   );
 }
 
-vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
+vi.mock('@octocodeai/octocode-tools-core', async () => {
   const actual = await vi.importActual<
-    typeof import('../../src/tools/toolMetadata/proxies.js')
+    typeof import('@octocodeai/octocode-tools-core')
   >('../../src/tools/toolMetadata/proxies.js');
   return {
     ...actual,
@@ -290,9 +290,9 @@ import {
   searchPackage,
   type PackageSearchInput,
   type NpmPackageResult,
-} from '../../src/utils/package/common.js';
+} from '@octocodeai/octocode-tools-core';
 import { registerPackageSearchTool } from '../../src/tools/package_search/package_search.js';
-import { _resetNpmRegistryUrlCache } from '../../src/utils/package/npm.js';
+import { _resetNpmRegistryUrlCache } from '@octocodeai/octocode-tools-core';
 
 describe('searchPackage - NPM (CLI)', () => {
   beforeEach(() => {

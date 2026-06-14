@@ -1,0 +1,58 @@
+{
+  "name": "@octocodeai/octocode-tools-core",
+  "version": "16.0.0",
+  "description": "Core tool implementations for Octocode: GitHub, local filesystem, LSP, and package search tools.",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:dev": "node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "clean": "rm -rf dist/",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "test": "vitest run --coverage",
+    "test:quiet": "vitest run --reporter=dot --silent",
+    "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@octocodeai/octocode-core": "^4.3.0",
+    "@octocodeai/octocode-minifier-utils": "workspace:^",
+    "@vscode/ripgrep": "^1.18.0",
+    "octocode-security": "workspace:^",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "^5.3.0"
+  },
+  "devDependencies": {
+    "@octokit/core": "^7.0.6",
+    "@octokit/openapi-types": "^27.0.0",
+    "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
+    "@octokit/plugin-throttling": "^11.0.3",
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.0.16",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.18.0",
+    "node-cache": "^5.1.2",
+    "octocode-lsp": "workspace:^",
+    "octocode-shared": "workspace:^",
+    "octokit": "^5.0.5",
+    "vitest": "^4.0.16",
+    "zod": "^4.3.6"
+  }
+}

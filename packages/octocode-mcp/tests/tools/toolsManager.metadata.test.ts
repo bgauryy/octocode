@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
-vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
+vi.mock('@octocodeai/octocode-tools-core', async () => {
   const actual = await vi.importActual<
-    typeof import('../../src/tools/toolMetadata/proxies.js')
+    typeof import('@octocodeai/octocode-tools-core')
   >('../../src/tools/toolMetadata/proxies.js');
   return {
     ...actual,
@@ -27,7 +27,7 @@ vi.mock('../../src/tools/toolMetadata/proxies.js', async () => {
   };
 });
 
-vi.mock('../../src/tools/toolConfig.js', () => {
+vi.mock('@octocodeai/octocode-tools-core', () => {
   const mockGitHubTools = [
     { name: 'githubSearchCode', isDefault: true, isLocal: false, fn: vi.fn() },
     {
@@ -60,21 +60,21 @@ vi.mock('../../src/tools/toolConfig.js', () => {
   };
 });
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getServerConfig: vi.fn(),
   isLocalEnabled: vi.fn().mockReturnValue(false),
   isCloneEnabled: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: vi.fn(),
 }));
 
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { getServerConfig } from '../../src/serverConfig.js';
-import { isToolInMetadata } from '../../src/tools/toolMetadata/proxies.js';
-import { logSessionError } from '../../src/session.js';
-import { TOOL_METADATA_ERRORS } from '../../src/errors/domainErrors.js';
+import { getServerConfig } from '@octocodeai/octocode-tools-core';
+import { isToolInMetadata } from '@octocodeai/octocode-tools-core';
+import { logSessionError } from '@octocodeai/octocode-tools-core';
+import { TOOL_METADATA_ERRORS } from '@octocodeai/octocode-tools-core';
 
 const mockGetServerConfig = vi.mocked(getServerConfig);
 const mockIsToolAvailableSync = vi.mocked(isToolInMetadata);

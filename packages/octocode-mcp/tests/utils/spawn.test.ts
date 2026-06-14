@@ -8,7 +8,7 @@ import {
   spawnCollectStdout,
   spawnWithTimeout,
   validateArgs,
-} from '../../src/utils/exec/spawn.js';
+} from '@octocodeai/octocode-tools-core';
 
 class MockChildProcess extends EventEmitter {
   stdout = new EventEmitter();

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { searchContentRipgrep } from '../../src/tools/local_ripgrep/searchContentRipgrep.js';
-import { viewStructure } from '../../src/tools/local_view_structure/local_view_structure.js';
-import { findFiles } from '../../src/tools/local_find_files/findFiles.js';
-import { fetchContent } from '../../src/tools/local_fetch_content/fetchContent.js';
+import { searchContentRipgrep } from '@octocodeai/octocode-tools-core';
+import { viewStructure } from '@octocodeai/octocode-tools-core';
+import { findFiles } from '@octocodeai/octocode-tools-core';
+import { fetchContent } from '@octocodeai/octocode-tools-core';
 import type {
   SearchContentResult,
   ViewStructureResult,

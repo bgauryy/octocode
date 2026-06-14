@@ -16,8 +16,8 @@ import {
   createResponseFormat,
   sanitizeStructuredContent,
   createRoleBasedResult,
-} from '../../src/responses.js';
-import { executeBulkOperation } from '../../src/utils/response/bulk.js';
+} from '@octocodeai/octocode-tools-core';
+import { executeBulkOperation } from '@octocodeai/octocode-tools-core';
 import { sanitizeCallToolResult } from '../../src/utils/secureServer.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 

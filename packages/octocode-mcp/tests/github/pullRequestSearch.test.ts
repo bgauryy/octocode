@@ -11,26 +11,26 @@ const mockContentSanitizer = vi.hoisted(() => ({
 }));
 const mockLogSessionError = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: mockLogSessionError,
 }));
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: mockGetOctokit,
   OctokitWithThrottling: class MockOctokit {},
 }));
 
-vi.mock('../../src/github/errors.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   handleGitHubAPIError: mockHandleGitHubAPIError,
   isNoResultsSearchError: vi.fn(() => false),
 }));
 
-vi.mock('../../src/github/queryBuilders.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   buildPullRequestSearchQuery: mockBuildPullRequestSearchQuery,
   shouldUseSearchForPRs: mockShouldUseSearchForPRs,
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withDataCache: mockWithDataCache,
 }));
@@ -39,11 +39,11 @@ vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
-import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch.js';
-import { fetchGitHubPullRequestByNumberAPI } from '../../src/github/prByNumber.js';
-import { transformPullRequestItemFromREST } from '../../src/github/prContentFetcher.js';
-import type { PullRequestSimple } from '../../src/github/githubAPI.js';
-import { countSerializedChars } from '../../src/utils/response/charSavings.js';
+import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
+import { fetchGitHubPullRequestByNumberAPI } from '@octocodeai/octocode-tools-core';
+import { transformPullRequestItemFromREST } from '@octocodeai/octocode-tools-core';
+import type { PullRequestSimple } from '@octocodeai/octocode-tools-core';
+import { countSerializedChars } from '@octocodeai/octocode-tools-core';
 
 type MockPRItem = Partial<PullRequestSimple>;
 

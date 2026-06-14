@@ -5,11 +5,15 @@ import {
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toMCPSchema } from '../types/toolTypes.js';
 import { withSecurityValidation } from '../utils/securityBridge.js';
-import type { ToolInvocationCallback } from '../types/toolResults.js';
-import { DESCRIPTIONS } from './toolMetadata/proxies.js';
-import { invokeCallbackSafely } from './utils.js';
-import type { ToolExecutionArgs } from '../types/execution.js';
-import { logSessionError } from '../session.js';
+import {
+  DESCRIPTIONS,
+  invokeCallbackSafely,
+  logSessionError,
+} from '@octocodeai/octocode-tools-core';
+import type {
+  ToolInvocationCallback,
+  ToolExecutionArgs,
+} from '@octocodeai/octocode-tools-core';
 
 interface RemoteToolConfig<TQuery> {
   name: string;

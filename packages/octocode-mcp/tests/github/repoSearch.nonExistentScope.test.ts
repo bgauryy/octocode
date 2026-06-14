@@ -8,26 +8,26 @@ const mockWithDataCache = vi.hoisted(() => vi.fn());
 const mockLogSessionError = vi.hoisted(() => vi.fn());
 const mockLogRateLimit = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: mockLogSessionError,
   logRateLimit: mockLogRateLimit,
 }));
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: mockGetOctokit,
   OctokitWithThrottling: class MockOctokit {},
 }));
 
-vi.mock('../../src/github/queryBuilders.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   buildRepoSearchQuery: mockBuildRepoSearchQuery,
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withDataCache: mockWithDataCache,
 }));
 
-import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
+import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
 
 function makeSearch422(
   errorEntries: Array<Record<string, unknown>>

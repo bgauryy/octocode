@@ -5,12 +5,12 @@ import {
   handleProviderError,
   handleCatchError,
   invokeCallbackSafely,
-} from '../../src/tools/utils.js';
-import type { GitHubAPIError } from '../../src/github/githubAPI.js';
-import type { ToolInvocationCallback } from '../../src/types/toolResults.js';
-import { logSessionError } from '../../src/session.js';
+} from '@octocodeai/octocode-tools-core';
+import type { GitHubAPIError } from '@octocodeai/octocode-tools-core';
+import type { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
+import { logSessionError } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: vi.fn().mockResolvedValue(undefined),
 }));
 

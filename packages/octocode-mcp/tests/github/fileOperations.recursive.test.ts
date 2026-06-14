@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
-import { fetchDirectoryContentsRecursivelyAPI } from '../../src/github/repoStructureRecursive.js';
-import { getOctokit } from '../../src/github/client.js';
-import { clearAllCache } from '../../src/utils/http/cache.js';
-import { countSerializedChars } from '../../src/utils/response/charSavings.js';
+import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
+import { fetchDirectoryContentsRecursivelyAPI } from '@octocodeai/octocode-tools-core';
+import { getOctokit } from '@octocodeai/octocode-tools-core';
+import { clearAllCache } from '@octocodeai/octocode-tools-core';
+import { countSerializedChars } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/github/client.js');
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 

@@ -3,14 +3,14 @@ import {
   applyEntryFilters,
   formatEntryString,
   type DirectoryEntry,
-} from '../../../src/tools/local_view_structure/structureFilters.js';
-import { checkRegexSafety } from '../../../src/utils/core/safeRegex.js';
+} from '@octocodeai/octocode-tools-core';
+import { checkRegexSafety } from '@octocodeai/octocode-tools-core';
 import type { z } from 'zod';
 import type { ViewStructureQuerySchema } from '@octocodeai/octocode-core/schemas';
 
 type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 
-vi.mock('../../../src/utils/core/safeRegex.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   checkRegexSafety: vi.fn(),
 }));
 

@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalRipgrepBulkQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
-import { LocalFindFilesBulkQuerySchema } from '../../src/tools/local_find_files/scheme.js';
-import { LocalFetchContentBulkQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
-import { LocalViewStructureBulkQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
-import { FileContentBulkQueryLocalSchema } from '../../src/tools/github_fetch_content/scheme.js';
-import { GitHubCodeSearchBulkQueryLocalSchema } from '../../src/tools/github_search_code/scheme.js';
-import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../src/tools/github_view_repo_structure/scheme.js';
-import { GitHubReposSearchBulkQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';
-import { GitHubPullRequestSearchBulkQueryLocalSchema } from '../../src/tools/github_search_pull_requests/scheme.js';
-import { PackageSearchBulkQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
-import { BulkCloneRepoLocalSchema } from '../../src/tools/github_clone_repo/scheme.js';
-import { BulkLspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
+import { LocalRipgrepBulkQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalFindFilesBulkQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalFetchContentBulkQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalViewStructureBulkQuerySchema } from '@octocodeai/octocode-tools-core';
+import { FileContentBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubCodeSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubViewRepoStructureBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubReposSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubPullRequestSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { PackageSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { BulkCloneRepoLocalSchema } from '@octocodeai/octocode-tools-core';
+import { BulkLspGetSemanticContentQuerySchema } from '@octocodeai/octocode-tools-core';
 
 const ALL_BULK_SCHEMAS = [
   ['LocalRipgrepBulkQuerySchema', LocalRipgrepBulkQuerySchema],

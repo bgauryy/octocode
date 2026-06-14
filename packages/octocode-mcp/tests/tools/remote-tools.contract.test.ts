@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { getHints } from '../../src/hints/index.js';
-import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
-import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
-import { buildRepoStructureOutput } from '../../src/tools/github_view_repo_structure/execution.js';
+import { getHints } from '@octocodeai/octocode-tools-core';
+import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { buildGithubFetchContentFinalizer } from '@octocodeai/octocode-tools-core';
+import { buildRepoStructureOutput } from '@octocodeai/octocode-tools-core';
 
 beforeAll(async () => {});
 

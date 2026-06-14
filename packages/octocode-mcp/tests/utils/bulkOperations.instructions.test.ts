@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { executeBulkOperation } from '../../src/utils/response/bulk.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { executeBulkOperation } from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {});

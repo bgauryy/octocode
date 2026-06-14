@@ -12,7 +12,7 @@ vi.mock('octocode-security/pathValidator', () => {
   };
 });
 
-vi.mock('../../src/errors/errorFactories.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   ToolErrors: {
     pathValidationFailed: vi.fn(
       (p: string, msg: string) => new Error(`${p}: ${msg}`)
@@ -20,7 +20,7 @@ vi.mock('../../src/errors/errorFactories.js', () => ({
   },
 }));
 
-vi.mock('../../src/utils/response/error.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   createErrorResult: vi.fn((_err: Error, _query: unknown, _opts: unknown) => ({
     status: 'error',
     data: { error: 'mocked error' },
@@ -28,7 +28,7 @@ vi.mock('../../src/utils/response/error.js', () => ({
 }));
 
 const { validateToolPath } =
-  await import('../../src/utils/file/toolHelpers.js');
+  await import('@octocodeai/octocode-tools-core');
 const { pathValidator } = await import('octocode-security/pathValidator');
 
 afterEach(() => {

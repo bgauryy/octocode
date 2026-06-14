@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getOctokit, clearOctokitInstances } from '../../src/github/client.js';
+import { getOctokit, clearOctokitInstances } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getGitHubToken: vi.fn(function () {}),
   getServerConfig: vi.fn(function () {
     return {
@@ -38,7 +38,7 @@ vi.mock('@octokit/plugin-throttling', () => ({
   throttling: {},
 }));
 
-import { getGitHubToken } from '../../src/serverConfig.js';
+import { getGitHubToken } from '@octocodeai/octocode-tools-core';
 import { Octokit } from 'octokit';
 
 const mockGetGitHubToken = vi.mocked(getGitHubToken);

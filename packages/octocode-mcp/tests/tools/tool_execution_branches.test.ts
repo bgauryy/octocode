@@ -9,11 +9,11 @@ vi.mock('octocode-lsp/manager', () => ({
   acquirePooledClient: vi.fn(),
 }));
 
-vi.mock('../../src/hints/index.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getHints: vi.fn(() => []),
 }));
 
-vi.mock('../../src/utils/response/bulk.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
     isError: false,
@@ -25,26 +25,26 @@ vi.mock('octocode-security/withSecurityValidation', () => ({
   withBasicSecurityValidation: vi.fn(handler => handler),
 }));
 
-vi.mock('../../src/tools/utils.js', async importOriginal => ({
+vi.mock('@octocodeai/octocode-tools-core', async importOriginal => ({
   ...(await importOriginal<object>()),
   invokeCallbackSafely: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../src/tools/github_search_code/execution.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchMultipleGitHubCode: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
     isError: false,
   }),
 }));
 
-vi.mock('../../src/tools/github_search_repos/execution.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchMultipleGitHubRepos: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
     isError: false,
   }),
 }));
 
-vi.mock('../../src/tools/github_view_repo_structure/execution.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   exploreMultipleRepositoryStructures: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
     isError: false,
@@ -54,9 +54,9 @@ vi.mock('../../src/tools/github_view_repo_structure/execution.js', () => ({
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view_repo_structure/github_view_repo_structure.js';
-import { searchMultipleGitHubCode } from '../../src/tools/github_search_code/execution.js';
-import { searchMultipleGitHubRepos } from '../../src/tools/github_search_repos/execution.js';
-import { exploreMultipleRepositoryStructures } from '../../src/tools/github_view_repo_structure/execution.js';
+import { searchMultipleGitHubCode } from '@octocodeai/octocode-tools-core';
+import { searchMultipleGitHubRepos } from '@octocodeai/octocode-tools-core';
+import { exploreMultipleRepositoryStructures } from '@octocodeai/octocode-tools-core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 describe('Tool Execution Branch Coverage Tests', () => {

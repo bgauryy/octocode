@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { clearAllCache } from '../../src/utils/http/cache.js';
+import { clearAllCache } from '@octocodeai/octocode-tools-core';
 import {
   resetCircuitBreaker,
   recordCircuitFailure,
   DEFAULT_CIRCUIT_FAILURE_THRESHOLD,
-} from '../../src/utils/http/circuitBreaker.js';
-import type { NpmPackageResult } from '../../src/utils/package/common.js';
+} from '@octocodeai/octocode-tools-core';
+import type { NpmPackageResult } from '@octocodeai/octocode-tools-core';
 
 const mockFetchWithRetries = vi.fn();
-vi.mock('../../src/utils/http/fetch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchWithRetries: (...args: unknown[]) => mockFetchWithRetries(...args),
 }));
 
 const mockExecuteNpmCommand = vi.fn();
-vi.mock('../../src/utils/exec/npm.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   executeNpmCommand: (...args: unknown[]) => mockExecuteNpmCommand(...args),
 }));
 
@@ -24,7 +24,7 @@ import {
   checkNpmRegistryReachable,
   _resetNpmRegistryUrlCache,
   _packageNameToSearchKeywords,
-} from '../../src/utils/package/npm.js';
+} from '@octocodeai/octocode-tools-core';
 
 function makeSearchResult(
   items: Array<{

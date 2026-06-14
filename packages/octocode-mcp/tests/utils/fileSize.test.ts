@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatFileSize, parseFileSize } from '../../src/utils/file/size.js';
+import { formatFileSize, parseFileSize } from '@octocodeai/octocode-tools-core';
 
 describe('fileSize utils', () => {
   describe('formatFileSize', () => {

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
-import { getOctokit } from '../../src/github/client.js';
+import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { getOctokit } from '@octocodeai/octocode-tools-core';
 import * as minifierModule from '@octocodeai/octocode-minifier-utils';
 
-vi.mock('../../src/github/client.js');
+vi.mock('@octocodeai/octocode-tools-core');
 vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   const actual = await importOriginal();
   return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };

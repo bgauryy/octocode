@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
-import { FileContentQueryBaseLocalSchema } from '../../src/tools/github_fetch_content/scheme.js';
-import { GitHubCodeSearchQueryLocalSchema } from '../../src/tools/github_search_code/scheme.js';
-import { GitHubReposSearchSingleQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';
-import { GitHubPullRequestSearchQueryLocalSchema } from '../../src/tools/github_search_pull_requests/scheme.js';
-import { GitHubViewRepoStructureQueryLocalSchema } from '../../src/tools/github_view_repo_structure/scheme.js';
-import { PackageSearchQueryLocalSchema } from '../../src/tools/package_search/scheme.js';
-import { LocalFetchContentQuerySchema } from '../../src/tools/local_fetch_content/scheme.js';
-import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
-import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
-import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
-import { LspGetSemanticContentQuerySchema } from '../../src/tools/lsp/semantic_content/scheme.js';
+import { FileContentQueryBaseLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { PackageSearchQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { LocalFetchContentQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalFindFilesQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalViewStructureQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LspGetSemanticContentQuerySchema } from '@octocodeai/octocode-tools-core';
 
 const SENTINEL = 9007199254740991;
 

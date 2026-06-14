@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { applyBulkResponsePagination } from '../../../src/utils/response/structuredPagination.js';
+import { applyBulkResponsePagination } from '@octocodeai/octocode-tools-core';
 import {
   getOutputCharLimit,
   getBulkDefaultCharLength,
-} from '../../../src/utils/pagination/charLimit.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('getBulkDefaultCharLength — per-query reserve', () => {
   it('returns the single base for one query', () => {

@@ -3,7 +3,7 @@ import {
   commonDirPrefix,
   relativizeResultPaths,
   hoistSharedFields,
-} from '../../../src/utils/response/pathRelativize.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('relativizeResultPaths (structuredContent leanness)', () => {
   it('relativizes absolute path fields across results and returns base', () => {

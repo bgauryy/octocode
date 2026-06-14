@@ -8,10 +8,10 @@ import {
   logSessionError,
   logRateLimit,
   resetSessionManager,
-} from '../src/session.js';
-import { TOOL_NAMES } from '../src/tools/toolMetadata/proxies.js';
-import { initialize, cleanup } from '../src/serverConfig.js';
-import type { RateLimitData } from '../src/types/session.js';
+} from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { initialize, cleanup } from '@octocodeai/octocode-tools-core';
+import type { RateLimitData } from '@octocodeai/octocode-tools-core';
 
 describe('Session Logging Control', () => {
   beforeEach(() => {

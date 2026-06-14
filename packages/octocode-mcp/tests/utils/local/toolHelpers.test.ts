@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   checkLargeOutputSafety,
   validateToolPath,
-} from '../../../src/utils/file/toolHelpers.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../src/tools/lsp/shared/semanticTypes.js';
+} from '@octocodeai/octocode-tools-core';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
 
 describe('toolHelpers', () => {
   describe('validateToolPath', () => {

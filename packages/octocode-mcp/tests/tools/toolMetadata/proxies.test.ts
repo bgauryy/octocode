@@ -58,9 +58,9 @@ describe('toolMetadata/proxies', () => {
   describe('TOOL_NAMES proxy', () => {
     it('should return tool names from metadata', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_NAMES } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -69,9 +69,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should fallback to static names when not initialized', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_NAMES } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       expect(typeof TOOL_NAMES.GITHUB_SEARCH_CODE).toBe('string');
@@ -79,9 +79,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should support Object.keys enumeration', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_NAMES } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -91,9 +91,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should support getOwnPropertyDescriptor', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_NAMES } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -107,9 +107,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return undefined for unknown tools', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_NAMES } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -124,9 +124,9 @@ describe('toolMetadata/proxies', () => {
   describe('BASE_SCHEMA proxy', () => {
     it('should return schema fields after init', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { BASE_SCHEMA } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -136,9 +136,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should provide bulkQuery function', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { BASE_SCHEMA } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -148,9 +148,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should provide fallback bulkQuery when not initialized', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { BASE_SCHEMA } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       const result = BASE_SCHEMA.bulkQuery('testTool');
@@ -159,9 +159,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should read base schema from completeMetadata when state is reset', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { BASE_SCHEMA } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       expect(BASE_SCHEMA.mainResearchGoal).toBe('Main goal');
@@ -171,9 +171,9 @@ describe('toolMetadata/proxies', () => {
   describe('GENERIC_ERROR_HINTS proxy', () => {
     it('should return error hints after init', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { GENERIC_ERROR_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -184,9 +184,9 @@ describe('toolMetadata/proxies', () => {
   describe('DESCRIPTIONS proxy', () => {
     it('should return tool description', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { DESCRIPTIONS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -195,9 +195,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return empty string for unknown tool', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { DESCRIPTIONS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -208,9 +208,9 @@ describe('toolMetadata/proxies', () => {
   describe('TOOL_HINTS proxy', () => {
     it('should return tool hints', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -220,9 +220,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return base hints', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -232,9 +232,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return empty hints for unknown tool', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -245,9 +245,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should support Object.keys', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -258,9 +258,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should support Object.keys when metadata is null (ownKeys)', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       const keys = Object.keys(TOOL_HINTS);
@@ -271,9 +271,9 @@ describe('toolMetadata/proxies', () => {
       // Covers the final `return undefined` branch in the TOOL_HINTS
       // getOwnPropertyDescriptor trap (prop !== 'base' and not in tools).
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { TOOL_HINTS } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -288,9 +288,9 @@ describe('toolMetadata/proxies', () => {
   describe('isToolInMetadata', () => {
     it('should return true for existing tool', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { isToolInMetadata } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -299,9 +299,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return false for non-existent tool', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { isToolInMetadata } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -310,9 +310,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should use completeMetadata.tools when state is reset', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { isToolInMetadata } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       expect(isToolInMetadata('githubSearchCode')).toBe(true);
@@ -322,9 +322,9 @@ describe('toolMetadata/proxies', () => {
   describe('getToolHintsSync', () => {
     it('should return tool hints only (base hints in server.instructions)', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getToolHintsSync } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -334,9 +334,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return tool hints only for local tools', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getToolHintsSync } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -346,9 +346,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return empty array for unknown tool', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getToolHintsSync } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -360,9 +360,9 @@ describe('toolMetadata/proxies', () => {
   describe('getGenericErrorHintsSync', () => {
     it('should return error hints', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getGenericErrorHintsSync } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -372,9 +372,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return generic hints from completeMetadata when state is reset', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getGenericErrorHintsSync } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       const hints = getGenericErrorHintsSync();
@@ -385,9 +385,9 @@ describe('toolMetadata/proxies', () => {
   describe('getDynamicHints', () => {
     it('should return dynamic hints', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getDynamicHints } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -397,9 +397,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return empty for missing hint type', async () => {
       const { initializeToolMetadata, _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getDynamicHints } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
       await initializeToolMetadata();
 
@@ -409,9 +409,9 @@ describe('toolMetadata/proxies', () => {
 
     it('should return dynamic hints from completeMetadata when state is reset', async () => {
       const { _resetMetadataState } =
-        await import('../../../src/tools/toolMetadata/state.js');
+        await import('@octocodeai/octocode-tools-core');
       const { getDynamicHints } =
-        await import('../../../src/tools/toolMetadata/proxies.js');
+        await import('@octocodeai/octocode-tools-core');
       _resetMetadataState();
 
       const hints = getDynamicHints('githubSearchCode', 'topicsHasResults');

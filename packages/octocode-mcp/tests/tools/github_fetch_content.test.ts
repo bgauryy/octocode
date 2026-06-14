@@ -10,7 +10,7 @@ const mockGetServerConfig = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   initialize: mockInitialize,
   getServerConfig: mockGetServerConfig,
   isLoggingEnabled: vi.fn(() => false),
@@ -22,14 +22,14 @@ vi.mock('../../src/serverConfig.js', () => ({
   })),
 }));
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
 const mockPerformSampling = vi.hoisted(() => vi.fn());
 const mockCreateQASamplingRequest = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/sampling.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   SamplingUtils: {
     createQASamplingRequest: mockCreateQASamplingRequest,
   },
@@ -37,7 +37,7 @@ vi.mock('../../src/sampling.js', () => ({
 }));
 
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 describe('GitHub Fetch Content Tool', () => {
   let mockServer: MockMcpServer;

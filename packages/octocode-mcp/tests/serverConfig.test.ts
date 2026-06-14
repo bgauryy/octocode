@@ -10,7 +10,7 @@ import {
   getTokenSource,
   _setTokenResolvers,
   _resetTokenResolvers,
-} from '../src/serverConfig.js';
+} from '../../octocode-tools-core/src/serverConfig.js';
 import type { FullTokenResolution } from 'octocode-shared';
 
 type ResolveTokenFullMock = Mock<
@@ -1041,11 +1041,11 @@ describe('ServerConfig - Simplified Version', () => {
   });
 
   describe('Active Provider Configuration', () => {
-    let getActiveProvider: typeof import('../src/serverConfig.js').getActiveProvider;
-    let getActiveProviderConfig: typeof import('../src/serverConfig.js').getActiveProviderConfig;
+    let getActiveProvider: typeof import('../../octocode-tools-core/src/serverConfig.js').getActiveProvider;
+    let getActiveProviderConfig: typeof import('../../octocode-tools-core/src/serverConfig.js').getActiveProviderConfig;
 
     beforeEach(async () => {
-      const serverConfig = await import('../src/serverConfig.js');
+      const serverConfig = await import('../../octocode-tools-core/src/serverConfig.js');
       getActiveProvider = serverConfig.getActiveProvider;
       getActiveProviderConfig = serverConfig.getActiveProviderConfig;
     });

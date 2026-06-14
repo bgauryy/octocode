@@ -3,7 +3,7 @@ import { RequestError } from 'octokit';
 import {
   handleGitHubAPIError,
   isNoResultsSearchError,
-} from '../../src/github/errors.js';
+} from '@octocodeai/octocode-tools-core';
 
 function makeSearch422(
   errorEntries: Array<Record<string, unknown>>,

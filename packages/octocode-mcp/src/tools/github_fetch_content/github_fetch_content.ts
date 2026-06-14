@@ -1,9 +1,9 @@
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
+  TOOL_NAMES,
   FileContentBulkQueryLocalSchema,
   GitHubFetchContentOutputLocalSchema,
-} from './scheme.js';
-import { fetchMultipleGitHubFileContents } from './execution.js';
+  fetchMultipleGitHubFileContents,
+} from '@octocodeai/octocode-tools-core';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
 export const registerFetchGitHubFileContentTool = createRemoteToolRegistration({

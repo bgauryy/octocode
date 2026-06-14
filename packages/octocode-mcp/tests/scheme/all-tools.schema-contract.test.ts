@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
 import { readFileSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
+import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
 
 const SHARED_FIELDS = [
   'id',

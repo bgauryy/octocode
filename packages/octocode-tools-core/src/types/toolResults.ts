@@ -24,6 +24,14 @@ export interface PaginationInfo {
   charOffset?: number;
   charLength?: number;
   totalChars?: number;
+  /**
+   * When a page cut lands mid-block (inside an indented function/class body),
+   * this is the char offset of the next top-level semantic boundary — the start
+   * of the next unindented definition after the cut. The finalizer uses this to
+   * emit a targeted hint so the agent can extend charLength to the boundary
+   * instead of paginating blindly.
+   */
+  nextBlockChar?: number;
   perPage?: number;
   itemsPerPage?: number;
   filesPerPage?: number;

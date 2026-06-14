@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { FindCommandBuilder } from '../../src/commands/FindCommandBuilder.js';
+import { FindCommandBuilder } from '@octocodeai/octocode-tools-core';
 
 describe('FindCommandBuilder', () => {
   const originalPlatform = process.platform;

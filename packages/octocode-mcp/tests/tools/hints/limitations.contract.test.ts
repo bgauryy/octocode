@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { hints as ripgrepHints } from '../../../src/tools/local_ripgrep/hints.js';
-import { hints as fetchContentHints } from '../../../src/tools/local_fetch_content/hints.js';
-import { hints as viewStructureHints } from '../../../src/tools/local_view_structure/hints.js';
-import { hints as ghFetchHints } from '../../../src/tools/github_fetch_content/hints.js';
-import { hints as cloneHints } from '../../../src/tools/github_clone_repo/hints.js';
+import { hints as ripgrepHints } from '@octocodeai/octocode-tools-core';
+import { hints as fetchContentHints } from '@octocodeai/octocode-tools-core';
+import { hints as viewStructureHints } from '@octocodeai/octocode-tools-core';
+import { hints as ghFetchHints } from '@octocodeai/octocode-tools-core';
+import { hints as cloneHints } from '@octocodeai/octocode-tools-core';
 
 const BANNED_WORKFLOW_PHRASES = [
   'Best approach',

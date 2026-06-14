@@ -1,17 +1,17 @@
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { z } from 'zod';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
+import {
+  TOOL_NAMES,
+  PackageSearchBulkQueryLocalSchema,
+  PackageSearchOutputLocalSchema,
+  searchPackages,
+} from '@octocodeai/octocode-tools-core';
+import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
 type NpmPackageQuery = z.infer<typeof NpmPackageQuerySchema>;
 type PackageSearchQuery = Omit<NpmPackageQuery, 'ecosystem'> & {
   ecosystem?: 'npm';
 };
-import {
-  PackageSearchBulkQueryLocalSchema,
-  PackageSearchOutputLocalSchema,
-} from './scheme.js';
-import { searchPackages } from './execution.js';
-import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
 export const registerPackageSearchTool =
   createRemoteToolRegistration<PackageSearchQuery>({

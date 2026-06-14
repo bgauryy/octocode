@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { ToolInvocationCallback } from '../../src/types/toolResults.js';
+import { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
@@ -9,13 +9,13 @@ import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view
 import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
-vi.mock('../../src/github/codeSearch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchGitHubCodeAPI: vi.fn().mockResolvedValue({
     data: { items: [], repository: { name: 'test-repo' } },
   }),
 }));
 
-vi.mock('../../src/github/fileOperations.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchGitHubFileContentAPI: vi.fn().mockResolvedValue({
     data: { content: 'test content', path: 'test.ts' },
   }),
@@ -24,19 +24,19 @@ vi.mock('../../src/github/fileOperations.js', () => ({
     .mockResolvedValue({ files: [], folders: { folders: [] } }),
 }));
 
-vi.mock('../../src/github/repoSearch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchGitHubReposAPI: vi
     .fn()
     .mockResolvedValue({ data: { repositories: [] } }),
 }));
 
-vi.mock('../../src/github/pullRequestSearch.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchGitHubPullRequestsAPI: vi
     .fn()
     .mockResolvedValue({ pull_requests: [], total_count: 0 }),
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getServerConfig: vi.fn().mockReturnValue({
     version: '1.0.0',
     timeout: 30000,

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
-import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
-import { getOctokit, resolveDefaultBranch } from '../../src/github/client.js';
+import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
+import { getOctokit, resolveDefaultBranch } from '@octocodeai/octocode-tools-core';
 import { RequestError } from 'octokit';
 import * as minifierModule from '@octocodeai/octocode-minifier-utils';
 import {
@@ -9,7 +9,7 @@ import {
   applyContentViewMinification,
 } from '@octocodeai/octocode-minifier-utils';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
-import { clearAllCache } from '../../src/utils/http/cache.js';
+import { clearAllCache } from '@octocodeai/octocode-tools-core';
 
 function createRequestError(message: string, status: number) {
   return new RequestError(message, status, {
@@ -28,7 +28,7 @@ function createRequestError(message: string, status: number) {
   });
 }
 
-vi.mock('../../src/github/client.js');
+vi.mock('@octocodeai/octocode-tools-core');
 vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   const actual =
     await importOriginal<

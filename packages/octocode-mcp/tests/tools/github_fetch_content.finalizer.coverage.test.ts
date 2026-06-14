@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
-import type { FlatQueryResult } from '../../src/types/toolResults.js';
+import { buildGithubFetchContentFinalizer } from '@octocodeai/octocode-tools-core';
+import type { FlatQueryResult } from '@octocodeai/octocode-tools-core';
 
 type Query = Record<string, unknown>;
 

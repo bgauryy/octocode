@@ -19,9 +19,13 @@
 
 export { registerTools } from './tools/toolsManager.js';
 export { ALL_TOOLS, type ToolConfig } from './tools/toolConfig.js';
-export { initialize, getGitHubToken, getTokenSource } from './serverConfig.js';
-export { initializeProviders } from './providers/factory.js';
-export type { TokenSourceType } from './types/server.js';
+export {
+  initialize,
+  getGitHubToken,
+  getTokenSource,
+  initializeProviders,
+} from '@octocodeai/octocode-tools-core';
+export type { TokenSourceType } from '@octocodeai/octocode-tools-core';
 
 import type { z } from 'zod';
 import type {
@@ -60,7 +64,7 @@ export type {
   LspSemanticEnvelope,
   ResolvedSymbol,
   SemanticContentType,
-} from './tools/lsp/shared/semanticTypes.js';
+} from '@octocodeai/octocode-tools-core';
 
 export type {
   GitHubFileContentData as ContentResultData,
@@ -98,18 +102,20 @@ export type {
   LspExactPosition as ExactPosition,
 } from '@octocodeai/octocode-core/extra-types';
 
-export { fetchMultipleGitHubFileContents } from './tools/github_fetch_content/execution.js';
-export { searchMultipleGitHubCode } from './tools/github_search_code/execution.js';
-export { searchMultipleGitHubPullRequests } from './tools/github_search_pull_requests/execution.js';
-export { searchMultipleGitHubRepos } from './tools/github_search_repos/execution.js';
-export { exploreMultipleRepositoryStructures } from './tools/github_view_repo_structure/execution.js';
-export { executeFetchContent } from './tools/local_fetch_content/execution.js';
-export { executeFindFiles } from './tools/local_find_files/execution.js';
-export { executeRipgrepSearch } from './tools/local_ripgrep/execution.js';
-export { executeViewStructure } from './tools/local_view_structure/execution.js';
-export { executeLspGetSemanticContent } from './tools/lsp/semantic_content/execution.js';
-export { searchPackages } from './tools/package_search/execution.js';
-export { executeCloneRepo } from './tools/github_clone_repo/execution.js';
+export {
+  fetchMultipleGitHubFileContents,
+  searchMultipleGitHubCode,
+  searchMultipleGitHubPullRequests,
+  searchMultipleGitHubRepos,
+  exploreMultipleRepositoryStructures,
+  executeFetchContent,
+  executeFindFiles,
+  executeRipgrepSearch,
+  executeViewStructure,
+  executeLspGetSemanticContent,
+  searchPackages,
+  executeCloneRepo,
+} from '@octocodeai/octocode-tools-core';
 export {
   buildDirectToolExampleQuery,
   DIRECT_TOOL_CATEGORIES,
@@ -138,6 +144,7 @@ export {
 
 export { withBasicSecurityValidation } from './utils/securityBridge.js';
 
+
 export {
   GitHubCodeSearchQuerySchema,
   GitHubViewRepoStructureQuerySchema,
@@ -155,12 +162,8 @@ export {
 export {
   BulkLspGetSemanticContentQuerySchema,
   LspGetSemanticContentQuerySchema,
-} from './tools/lsp/semantic_content/scheme.js';
-export { LspGetSemanticContentOutputSchema } from './tools/lsp/semantic_content/outputSchema.js';
-
-export { loadToolContent } from './tools/toolMetadata/state.js';
-
-export {
+  LspGetSemanticContentOutputSchema,
+  loadToolContent,
   createResult,
   createResponseFormat,
   createRoleBasedResult,
@@ -169,26 +172,21 @@ export {
   QuickResult,
   StatusEmoji,
   StatusEmojis,
-} from './responses.js';
-export type {
-  ContentRole,
-  RoleContentBlock,
-  RoleBasedResultOptions,
-  RoleAnnotations,
-  CallToolResultOutputMode,
-} from './responses.js';
-
-export {
   initializeSession,
   logSessionInit,
   logToolCall,
   logPromptCall,
   logSessionError,
   logRateLimit,
-} from './session.js';
+} from '@octocodeai/octocode-tools-core';
 export type {
+  ContentRole,
+  RoleContentBlock,
+  RoleBasedResultOptions,
+  RoleAnnotations,
+  CallToolResultOutputMode,
   SessionData,
   ToolCallData,
   ErrorData,
   RateLimitData,
-} from './types/session.js';
+} from '@octocodeai/octocode-tools-core';

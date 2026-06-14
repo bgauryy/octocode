@@ -1,10 +1,16 @@
 import { defineConfig } from 'vitest/config';
 import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
 export default defineConfig({
   esbuild: { sourcemap: false },
   build: { sourcemap: false },
   server: { sourcemapIgnoreList: () => true },
+  resolve: {
+    alias: {
+      '@octocodeai/octocode-tools-core': resolve(__dirname, '../octocode-tools-core/src/index.ts'),
+    },
+  },
   test: {
     environment: 'node',
     globals: true,

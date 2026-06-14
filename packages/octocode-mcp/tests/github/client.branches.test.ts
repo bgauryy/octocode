@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getOctokit, clearOctokitInstances } from '../../src/github/client.js';
+import { getOctokit, clearOctokitInstances } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getGitHubToken: vi.fn(() => Promise.resolve('test-token')),
   getServerConfig: vi.fn(() => ({
     timeout: 30000,
@@ -39,7 +39,7 @@ vi.mock('@octokit/plugin-throttling', () => ({
   throttling: {},
 }));
 
-import { getServerConfig } from '../../src/serverConfig.js';
+import { getServerConfig } from '@octocodeai/octocode-tools-core';
 import { Octokit } from 'octokit';
 
 const mockGetServerConfig = vi.mocked(getServerConfig);
@@ -236,7 +236,7 @@ describe('GitHub Client Branch Coverage', () => {
 
     it('should not include auth in options when token is empty string', async () => {
       vi.mocked(
-        await import('../../src/serverConfig.js')
+        await import('@octocodeai/octocode-tools-core')
       ).getGitHubToken.mockResolvedValue('');
 
       await getOctokit();

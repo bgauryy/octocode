@@ -1,14 +1,14 @@
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { z } from 'zod';
 import type { CloneRepoQuerySchema } from '@octocodeai/octocode-core/schemas';
-
-type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 import {
+  TOOL_NAMES,
   BulkCloneRepoLocalSchema,
   GitHubCloneRepoOutputLocalSchema,
-} from './scheme.js';
-import { executeCloneRepo } from './execution.js';
+  executeCloneRepo,
+} from '@octocodeai/octocode-tools-core';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
+
+type CloneRepoQuery = z.infer<typeof CloneRepoQuerySchema>;
 
 export const registerGitHubCloneRepoTool =
   createRemoteToolRegistration<CloneRepoQuery>({

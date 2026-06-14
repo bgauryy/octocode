@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RipgrepCommandBuilder } from '../../src/commands/RipgrepCommandBuilder.js';
+import { RipgrepCommandBuilder } from '@octocodeai/octocode-tools-core';
 
 function buildArgs(query: Record<string, unknown>): string[] {
   return new RipgrepCommandBuilder()

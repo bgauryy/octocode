@@ -40,7 +40,7 @@ import {
   logSessionInit,
   logSessionError,
   resetSessionManager,
-} from '../src/session.js';
+} from '@octocodeai/octocode-tools-core';
 
 global.fetch = vi.fn();
 

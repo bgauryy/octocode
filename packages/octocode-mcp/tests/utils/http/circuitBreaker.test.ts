@@ -8,7 +8,7 @@ import {
   isCircuitOpen,
   CircuitOpenError,
   DEFAULT_CIRCUIT_FAILURE_THRESHOLD,
-} from '../../../src/utils/http/circuitBreaker.js';
+} from '@octocodeai/octocode-tools-core';
 
 const URL_A = 'https://api.github.com/repos/x';
 const URL_B = 'https://registry.npmjs.org/x';

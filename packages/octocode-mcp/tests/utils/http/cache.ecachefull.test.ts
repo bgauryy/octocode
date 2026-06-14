@@ -17,7 +17,7 @@ vi.mock('node-cache', () => ({
 }));
 
 const { withDataCache, clearAllCache, generateCacheKey } =
-  await import('../../../src/utils/http/cache.js');
+  await import('@octocodeai/octocode-tools-core');
 
 describe('cache ECACHEFULL handling', () => {
   beforeEach(() => {

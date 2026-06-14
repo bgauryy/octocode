@@ -5,8 +5,8 @@ import {
   resetSessionManager,
   logSessionError,
   logRateLimit,
-} from '../src/session.js';
-import { initialize, cleanup } from '../src/serverConfig.js';
+} from '@octocodeai/octocode-tools-core';
+import { initialize, cleanup } from '@octocodeai/octocode-tools-core';
 
 describe('session.branches', () => {
   beforeEach(() => {
@@ -280,7 +280,7 @@ describe('session.branches', () => {
       cleanup();
       await initialize();
 
-      const { isLoggingEnabled } = await import('../src/serverConfig.js');
+      const { isLoggingEnabled } = await import('@octocodeai/octocode-tools-core');
       expect(isLoggingEnabled()).toBe(true);
     });
 
@@ -289,7 +289,7 @@ describe('session.branches', () => {
       cleanup();
       await initialize();
 
-      const { isLoggingEnabled } = await import('../src/serverConfig.js');
+      const { isLoggingEnabled } = await import('@octocodeai/octocode-tools-core');
       expect(isLoggingEnabled()).toBe(false);
     });
 
@@ -298,7 +298,7 @@ describe('session.branches', () => {
       cleanup();
       await initialize();
 
-      const { isLoggingEnabled } = await import('../src/serverConfig.js');
+      const { isLoggingEnabled } = await import('@octocodeai/octocode-tools-core');
       expect(typeof isLoggingEnabled()).toBe('boolean');
     });
   });

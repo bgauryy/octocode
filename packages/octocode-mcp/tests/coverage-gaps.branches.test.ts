@@ -12,7 +12,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   compactResolvedSymbol,
   compactLocation,
-} from '../src/tools/lsp/shared/semanticTypes.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('semanticTypes — compactResolvedSymbol branch coverage', () => {
   it('omits orderHint when undefined (falsy spread branch at line 77)', () => {
@@ -102,18 +102,18 @@ describe('semanticTypes — compactLocation branch coverage', () => {
 // Uncovered line 46: `hintGenerator(context || {})` — the truthy branch where
 // a real context object is passed (context is not undefined/falsy).
 
-vi.mock('../src/hints/dynamic.js', async importOriginal => {
+vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   // Use real implementation so coverage is tracked.
   return importOriginal();
 });
 
 describe('hints/dynamic — getDynamicHints with explicit context (line 46)', () => {
   it('passes provided context through to the hint generator', async () => {
-    const { getDynamicHints } = await import('../src/hints/dynamic.js');
+    const { getDynamicToolHints: getDynamicHints } = await import('@octocodeai/octocode-tools-core');
 
     // localSearchCode has a real hints generator registered in HINTS.
     // Passing a non-empty context object exercises the left-side of `context || {}`.
-    const hints = getDynamicHints('localSearchCode', 'hasResults', {
+    const hints = getDynamicHints('localSearchCode', 'empty', {
       hasResults: true,
       resultCount: 3,
     });
@@ -121,8 +121,8 @@ describe('hints/dynamic — getDynamicHints with explicit context (line 46)', ()
   });
 
   it('returns [] for an unknown toolName regardless of context', async () => {
-    const { getDynamicHints } = await import('../src/hints/dynamic.js');
-    const hints = getDynamicHints('nonExistentTool_xyz', 'hasResults', {
+    const { getDynamicToolHints: getDynamicHints } = await import('@octocodeai/octocode-tools-core');
+    const hints = getDynamicHints('nonExistentTool_xyz', 'empty', {
       hasResults: true,
     });
     expect(hints).toEqual([]);
@@ -137,7 +137,7 @@ describe('toolMetadata/gateway — getDescription unknown tool (line 19)', () =>
   it('returns empty string for a tool not in DESCRIPTIONS', async () => {
     vi.resetModules();
     const { DEFAULT_TOOL_METADATA_GATEWAY } =
-      await import('../src/tools/toolMetadata/gateway.js');
+      await import('@octocodeai/octocode-tools-core');
     const desc = DEFAULT_TOOL_METADATA_GATEWAY.getDescription(
       '__completely_unknown__'
     );
@@ -147,7 +147,7 @@ describe('toolMetadata/gateway — getDescription unknown tool (line 19)', () =>
   it('hasTool returns false for unknown tool', async () => {
     vi.resetModules();
     const { DEFAULT_TOOL_METADATA_GATEWAY } =
-      await import('../src/tools/toolMetadata/gateway.js');
+      await import('@octocodeai/octocode-tools-core');
     expect(
       DEFAULT_TOOL_METADATA_GATEWAY.hasTool('__completely_unknown__')
     ).toBe(false);

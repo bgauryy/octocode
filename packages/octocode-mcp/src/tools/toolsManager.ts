@@ -1,14 +1,17 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ToolConfig } from './toolConfig.js';
+import type { McpToolConfig } from './toolConfig.js';
 import {
   getServerConfig,
   isLocalEnabled,
   isCloneEnabled,
-} from '../serverConfig.js';
-import type { ToolInvocationCallback } from '../types/toolResults.js';
-import { logSessionError } from '../session.js';
-import { ignoreBestEffortFailure } from '../utils/core/bestEffort.js';
-import { withOutputSanitization } from '../utils/secureServer.js';
+  logSessionError,
+  ignoreBestEffortFailure,
+  DEFAULT_TOOL_METADATA_GATEWAY,
+} from '@octocodeai/octocode-tools-core';
+import type {
+  ToolInvocationCallback,
+  ToolMetadataGateway,
+} from '@octocodeai/octocode-tools-core';
 import {
   getToolFilterConfigSafe,
   hasToolFilterConflict,
@@ -16,20 +19,17 @@ import {
   TOOL_FILTER_CONFLICT_WARNING,
 } from './toolFilters.js';
 import { hasValidMetadata } from './metadataPolicy.js';
+import { withOutputSanitization } from '../utils/secureServer.js';
 import {
   registerToolsBatch,
   summarizeOutcomes,
 } from './registrationExecutor.js';
-import {
-  DEFAULT_TOOL_METADATA_GATEWAY,
-  type ToolMetadataGateway,
-} from './toolMetadata/gateway.js';
 
 export async function registerTools(
   server: McpServer,
   callback?: ToolInvocationCallback,
   options: {
-    toolLoader?: () => Promise<ToolConfig[]> | ToolConfig[];
+    toolLoader?: () => Promise<McpToolConfig[]> | McpToolConfig[];
     metadataGateway?: Pick<ToolMetadataGateway, 'hasTool'>;
   } = {}
 ): Promise<{
@@ -81,8 +81,8 @@ function logSessionErrorSafe(toolName: string, errorCode: string): void {
 }
 
 async function loadTools(
-  injectedLoader?: () => Promise<ToolConfig[]> | ToolConfig[]
-): Promise<ToolConfig[]> {
+  injectedLoader?: () => Promise<McpToolConfig[]> | McpToolConfig[]
+): Promise<McpToolConfig[]> {
   if (injectedLoader) {
     return Promise.resolve(injectedLoader());
   }

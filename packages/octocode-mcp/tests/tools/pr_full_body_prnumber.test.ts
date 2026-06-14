@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapPullRequestProviderResultData } from '../../src/tools/providerMappers.js';
+import { mapPullRequestProviderResultData } from '@octocodeai/octocode-tools-core';
 
 const longBody = 'x'.repeat(1200);
 

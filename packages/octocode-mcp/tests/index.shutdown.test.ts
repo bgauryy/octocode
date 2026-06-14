@@ -27,14 +27,14 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: vi.fn(() => mockTransport),
 }));
 
-vi.mock('../src/serverConfig.js', () => ({
+vi.mock('../../octocode-tools-core/src/serverConfig.js', () => ({
   initialize: vi.fn(() => Promise.resolve()),
   cleanup: vi.fn(),
   getGitHubToken: vi.fn(() => Promise.resolve('test-token')),
   getActiveProvider: vi.fn(() => 'github'),
 }));
 
-vi.mock('../src/session.js', () => ({
+vi.mock('../../octocode-tools-core/src/session.js', () => ({
   initializeSession: vi.fn(() => ({
     getSessionId: () => 'test-session-id',
   })),
@@ -42,7 +42,7 @@ vi.mock('../src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../src/tools/toolMetadata/state.js', () => ({
+vi.mock('../../octocode-tools-core/src/tools/toolMetadata/state.js', () => ({
   loadToolContent: vi.fn(() =>
     Promise.resolve({
       instructions: 'Test instructions',
@@ -72,7 +72,7 @@ vi.mock('../src/tools/toolsManager.js', () => ({
   ),
 }));
 
-vi.mock('../src/utils/http/cache.js', () => ({
+vi.mock('../../octocode-tools-core/src/utils/http/cache.js', () => ({
   clearAllCache: vi.fn(),
 }));
 
@@ -112,7 +112,7 @@ describe('index.ts - Server Lifecycle', () => {
 
   describe('registerAllTools', () => {
     it('should register tools successfully with GitHub token', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       vi.mocked(getGitHubToken).mockResolvedValueOnce('test-token');
 
       const { registerTools } = await import('../src/tools/toolsManager.js');
@@ -127,7 +127,7 @@ describe('index.ts - Server Lifecycle', () => {
     });
 
     it('should log warning when no GitHub token available', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       const { LoggerFactory } = await import('../src/utils/core/logger.js');
 
       vi.mocked(getGitHubToken).mockResolvedValueOnce(null);
@@ -162,7 +162,7 @@ describe('index.ts - Server Lifecycle', () => {
     });
 
     it('should throw error when no tools are registered', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       vi.mocked(getGitHubToken).mockResolvedValueOnce('test-token');
 
       const { registerTools } = await import('../src/tools/toolsManager.js');
@@ -177,7 +177,7 @@ describe('index.ts - Server Lifecycle', () => {
     });
 
     it('should log session error when no tools registered', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       vi.mocked(getGitHubToken).mockResolvedValueOnce('test-token');
 
       const { registerTools } = await import('../src/tools/toolsManager.js');
@@ -186,7 +186,7 @@ describe('index.ts - Server Lifecycle', () => {
         failedTools: [],
       });
 
-      const { logSessionError } = await import('../src/session.js');
+      const { logSessionError } = await import('../../octocode-tools-core/src/session.js');
 
       try {
         await registerAllTools(mockServer as never);
@@ -199,7 +199,7 @@ describe('index.ts - Server Lifecycle', () => {
     });
 
     it('should write to stderr when no GitHub token', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       vi.mocked(getGitHubToken).mockResolvedValueOnce(null);
 
       const { registerTools } = await import('../src/tools/toolsManager.js');
@@ -225,7 +225,7 @@ describe('index.ts - Server Lifecycle', () => {
     });
 
     it('should log info when GitHub token is ready', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       const { LoggerFactory } = await import('../src/utils/core/logger.js');
 
       vi.mocked(getGitHubToken).mockResolvedValueOnce('test-token');
@@ -257,7 +257,7 @@ describe('index.ts - Server Lifecycle', () => {
     });
 
     it('should log error when tool registration throws', async () => {
-      const { getGitHubToken } = await import('../src/serverConfig.js');
+      const { getGitHubToken } = await import('../../octocode-tools-core/src/serverConfig.js');
       const { LoggerFactory } = await import('../src/utils/core/logger.js');
 
       vi.mocked(getGitHubToken).mockResolvedValueOnce('test-token');

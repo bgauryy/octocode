@@ -8,20 +8,20 @@ import { getTextContent } from '../utils/testHelpers.js';
 const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: vi.fn(),
   withCache: vi.fn(),
 }));
 
-vi.mock('../../src/tools/utils/tokenManager.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getGitHubToken: mockGetGitHubToken,
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
@@ -38,9 +38,9 @@ vi.mock('../../src/serverConfig.js', () => ({
 }));
 
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { buildPRSearchOutput } from '../../src/tools/github_search_pull_requests/execution.js';
-import { mapPullRequestProviderResultData } from '../../src/tools/providerMappers.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { buildPRSearchOutput } from '@octocodeai/octocode-tools-core';
+import { mapPullRequestProviderResultData } from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 function basePR(overrides: Record<string, unknown> = {}) {
   return {
@@ -441,7 +441,7 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
 
     vi.doMock('../../src/tools/providerMappers.js', async () => {
       const actual = await vi.importActual<
-        typeof import('../../src/tools/providerMappers.js')
+        typeof import('@octocodeai/octocode-tools-core')
       >('../../src/tools/providerMappers.js');
       return {
         ...actual,
@@ -457,7 +457,7 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
     });
 
     const { searchMultipleGitHubPullRequests } =
-      await import('../../src/tools/github_search_pull_requests/execution.js');
+      await import('@octocodeai/octocode-tools-core');
 
     const result = await searchMultipleGitHubPullRequests({
       queries: [

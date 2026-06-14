@@ -1,9 +1,9 @@
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import {
+  TOOL_NAMES,
   GitHubReposSearchBulkQueryLocalSchema,
   GitHubSearchRepositoriesOutputLocalSchema,
-} from './scheme.js';
-import { searchMultipleGitHubRepos } from './execution.js';
+  searchMultipleGitHubRepos,
+} from '@octocodeai/octocode-tools-core';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
 export const registerSearchGitHubReposTool = createRemoteToolRegistration({

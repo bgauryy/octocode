@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   paginationTotal,
   buildEvidenceMetadata,
-} from '../../src/tools/evidence.js';
-import { buildFindFilesEvidence } from '../../src/tools/local_find_files/execution.js';
-import { buildViewStructureEvidence } from '../../src/tools/local_view_structure/execution.js';
-import { buildRipgrepEvidence } from '../../src/tools/local_ripgrep/execution.js';
+} from '@octocodeai/octocode-tools-core';
+import { buildFindFilesEvidence } from '@octocodeai/octocode-tools-core';
+import { buildViewStructureEvidence } from '@octocodeai/octocode-tools-core';
+import { buildRipgrepEvidence } from '@octocodeai/octocode-tools-core';
 
 describe('buildEvidenceMetadata — complete=false always has reason', () => {
   it('evidence complete=false result always has at least one reason string', () => {

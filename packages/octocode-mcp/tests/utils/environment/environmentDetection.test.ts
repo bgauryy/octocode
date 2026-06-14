@@ -3,7 +3,7 @@ import {
   detectEnvironment,
   shouldUseMCPLsp,
   getLspEnvironmentHint,
-} from '../../../src/utils/environment/environmentDetection.js';
+} from '@octocodeai/octocode-tools-core';
 import { _resetConfigCache } from 'octocode-shared';
 
 describe('Environment Detection', () => {
@@ -99,7 +99,7 @@ describe('Environment Detection', () => {
       });
 
       const { shouldUseMCPLsp: freshShouldUseMCPLsp } =
-        await import('../../../src/utils/environment/environmentDetection.js');
+        await import('@octocodeai/octocode-tools-core');
       expect(freshShouldUseMCPLsp()).toBe(false);
       spy.mockRestore();
     });

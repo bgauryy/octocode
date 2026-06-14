@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRepoStructureOutput } from '../../src/tools/github_view_repo_structure/execution.js';
+import { buildRepoStructureOutput } from '@octocodeai/octocode-tools-core';
 
 describe('githubViewRepoStructure pass-through contract — data is preserved', () => {
   const input = {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import path from 'path';
 import { spawn } from 'child_process';
-import type { ExecResult } from '../../src/utils/core/types.js';
+import type { ExecResult } from '@octocodeai/octocode-tools-core';
 
 let safeExec: (
   command: string,
@@ -14,7 +14,7 @@ beforeAll(async () => {
     await vi.importActual<typeof import('child_process')>('child_process');
   vi.mocked(spawn).mockImplementation(childProcess.spawn);
 
-  const safeModule = await import('../../src/utils/exec/safe.js');
+  const safeModule = await import('@octocodeai/octocode-tools-core');
   safeExec = safeModule.safeExec;
 });
 

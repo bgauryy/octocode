@@ -3,7 +3,7 @@ import {
   countSerializedChars,
   attachRawResponseChars,
   getRawResponseChars,
-} from '../../src/utils/response/charSavings.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('countSerializedChars', () => {
   it('returns length for string values', () => {

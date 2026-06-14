@@ -6,9 +6,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ContentSanitizer } from 'octocode-security';
 import { maskSensitiveData } from 'octocode-security/mask';
-import { sanitizeStructuredContent } from '../responses.js';
-import { logSessionError } from '../session.js';
-import { ignoreBestEffortFailure } from './core/bestEffort.js';
+import {
+  sanitizeStructuredContent,
+  logSessionError,
+  ignoreBestEffortFailure,
+} from '@octocodeai/octocode-tools-core';
 
 export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
   let sanitized = result;

@@ -1,29 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { incrementToolCharSavings } from 'octocode-shared';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import { attachRawResponseChars } from '../../src/utils/response/charSavings.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { attachRawResponseChars } from '@octocodeai/octocode-tools-core';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
 
 const mockSearchContentRipgrep = vi.hoisted(() => vi.fn());
 const mockViewStructure = vi.hoisted(() => vi.fn());
 const mockFindFiles = vi.hoisted(() => vi.fn());
 const mockFetchContent = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchContentRipgrep: (...args: unknown[]) =>
     mockSearchContentRipgrep(...args),
 }));
 
-vi.mock('../../src/tools/local_view_structure/local_view_structure.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   viewStructure: (...args: unknown[]) => mockViewStructure(...args),
 }));
 
-vi.mock('../../src/tools/local_find_files/findFiles.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   findFiles: (...args: unknown[]) => mockFindFiles(...args),
 }));
 
-vi.mock('../../src/tools/local_fetch_content/fetchContent.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchContent: (...args: unknown[]) => mockFetchContent(...args),
 }));
 

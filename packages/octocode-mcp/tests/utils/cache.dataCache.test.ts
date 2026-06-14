@@ -5,7 +5,7 @@ import {
   withDataCache,
   clearAllCache,
   getCacheStats,
-} from '../../src/utils/http/cache.js';
+} from '@octocodeai/octocode-tools-core';
 
 describe('withDataCache typed data cache', () => {
   beforeEach(() => {

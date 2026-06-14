@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyExactMatchRanking } from '../../src/tools/github_search_code/finalizer.js';
+import { applyExactMatchRanking } from '@octocodeai/octocode-tools-core';
 
 const g = (id: string, matches: Array<{ path: string; value?: string }>) => ({
   id,

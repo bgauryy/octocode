@@ -99,6 +99,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/octocode-core": "^4.3.0",
     "@octocodeai/octocode-minifier-utils": "workspace:^",
+    "@octocodeai/octocode-tools-core": "workspace:^",
     "@vscode/ripgrep": "^1.18.0",
     "octocode-security": "workspace:^",
     "typescript": "^5.9.3",

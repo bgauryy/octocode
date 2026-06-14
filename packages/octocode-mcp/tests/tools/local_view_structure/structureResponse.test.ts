@@ -4,9 +4,9 @@ import {
   paginateEntries,
   buildEntryPaginationHints,
   buildWalkWarnings,
-} from '../../../src/tools/local_view_structure/structureResponse.js';
-import type { DirectoryEntry } from '../../../src/tools/local_view_structure/structureFilters.js';
-import type { WalkStats } from '../../../src/tools/local_view_structure/structureWalker.js';
+} from '@octocodeai/octocode-tools-core';
+import type { DirectoryEntry } from '@octocodeai/octocode-tools-core';
+import type { WalkStats } from '@octocodeai/octocode-tools-core';
 
 function makeFile(name: string, size: string): DirectoryEntry {
   return { name, type: 'file', size };

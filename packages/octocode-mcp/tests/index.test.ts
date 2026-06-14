@@ -7,7 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js');
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js');
-vi.mock('../src/utils/http/cache.js');
+vi.mock('../../octocode-tools-core/src/utils/http/cache.js');
 vi.mock('../src/tools/github_search_code/github_search_code.js');
 vi.mock('../src/tools/github_fetch_content/github_fetch_content.js');
 vi.mock('../src/tools/github_search_repos/github_search_repos.js');
@@ -17,17 +17,17 @@ vi.mock(
 vi.mock(
   '../src/tools/github_view_repo_structure/github_view_repo_structure.js'
 );
-vi.mock('../src/utils/exec/npm.js');
-vi.mock('../src/serverConfig.js');
+vi.mock('../../octocode-tools-core/src/utils/exec/npm.js');
+vi.mock('../../octocode-tools-core/src/serverConfig.js');
 vi.mock('../src/tools/toolsManager.js');
-vi.mock('../src/providers/factory.js', () => ({
+vi.mock('../../octocode-tools-core/src/providers/factory.js', () => ({
   initializeProviders: vi.fn().mockResolvedValue(undefined),
   clearProviderCache: vi.fn(),
 }));
-vi.mock('../src/github/client.js', () => ({
+vi.mock('../../octocode-tools-core/src/github/client.js', () => ({
   clearOctokitInstances: vi.fn(),
 }));
-vi.mock('../src/session.js', () => ({
+vi.mock('../../octocode-tools-core/src/session.js', () => ({
   initializeSession: vi
     .fn()
     .mockReturnValue({ getSessionId: () => 'test-session-id' }),
@@ -38,13 +38,13 @@ vi.mock('../src/session.js', () => ({
 vi.mock('octocode-security/withSecurityValidation', () => ({
   configureSecurity: vi.fn(),
 }));
-vi.mock('../src/tools/toolMetadata/proxies.js', async importOriginal => ({
+vi.mock('../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async importOriginal => ({
   ...(await importOriginal<object>()),
   loadToolContent: vi
     .fn()
     .mockResolvedValue({ instructions: 'Test instructions' }),
 }));
-vi.mock('../src/tools/github_clone_repo/cache.js', () => ({
+vi.mock('../../octocode-tools-core/src/tools/github_clone_repo/cache.js', () => ({
   startCacheGC: vi.fn(),
   stopCacheGC: vi.fn(),
 }));
@@ -73,9 +73,9 @@ import {
   getGitHubToken,
   isCloneEnabled,
   getActiveProvider,
-} from '../src/serverConfig.js';
+} from '../../octocode-tools-core/src/serverConfig.js';
 import { registerTools } from '../src/tools/toolsManager.js';
-import { TOOL_NAMES } from '../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import {
   allowExpectedStderrWarning,
   allowUnexpectedWarningFailureForCurrentTest,

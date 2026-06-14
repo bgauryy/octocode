@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
-import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
-import { isLocalTool } from '../../src/tools/toolNames.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { isLocalTool } from '@octocodeai/octocode-tools-core';
 
 describe('TOOL_NAMES proxy (TDD for local tools registration)', () => {
   describe('before metadata initialization', () => {

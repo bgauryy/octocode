@@ -45,7 +45,7 @@ describe('toolMetadata - TOOL_NAMES static fallback (lines 236-243)', () => {
     vi.resetModules();
 
     const { TOOL_NAMES } =
-      await import('../../src/tools/toolMetadata/proxies.js');
+      await import('@octocodeai/octocode-tools-core');
 
     const desc1 = Object.getOwnPropertyDescriptor(
       TOOL_NAMES,
@@ -83,7 +83,7 @@ describe('toolMetadata - TOOL_NAMES static fallback (lines 236-243)', () => {
     vi.resetModules();
 
     const { TOOL_NAMES } =
-      await import('../../src/tools/toolMetadata/proxies.js');
+      await import('@octocodeai/octocode-tools-core');
 
     const desc = Object.getOwnPropertyDescriptor(
       TOOL_NAMES,
@@ -97,7 +97,7 @@ describe('toolMetadata - TOOL_NAMES static fallback (lines 236-243)', () => {
     vi.resetModules();
 
     const { TOOL_NAMES } =
-      await import('../../src/tools/toolMetadata/proxies.js');
+      await import('@octocodeai/octocode-tools-core');
 
     const keys = Object.keys(TOOL_NAMES);
 
@@ -111,7 +111,7 @@ describe('toolMetadata - TOOL_NAMES static fallback (lines 236-243)', () => {
     vi.resetModules();
 
     const { TOOL_NAMES } =
-      await import('../../src/tools/toolMetadata/proxies.js');
+      await import('@octocodeai/octocode-tools-core');
 
     const entries = Object.entries(TOOL_NAMES);
 

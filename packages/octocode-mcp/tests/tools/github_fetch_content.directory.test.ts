@@ -17,7 +17,7 @@ const mockResolveDefaultBranch = vi.hoisted(() =>
   vi.fn().mockResolvedValue('main')
 );
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: mockGetOctokit,
   resolveDefaultBranch: mockResolveDefaultBranch,
 }));
@@ -47,7 +47,7 @@ const mockGetActiveProvider = vi.hoisted(() =>
 );
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getActiveProviderConfig: vi.fn(() => ({
     provider: mockGetActiveProvider(),
     baseUrl: undefined,
@@ -58,14 +58,14 @@ vi.mock('../../src/serverConfig.js', () => ({
   isCloneEnabled: mockIsCloneEnabled,
 }));
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { fetchMultipleGitHubFileContents } from '../../src/tools/github_fetch_content/execution.js';
+import { fetchMultipleGitHubFileContents } from '@octocodeai/octocode-tools-core';
 
 let testDir: string;
 

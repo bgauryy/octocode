@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 const mockLogToolCall = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-vi.mock('../../src/session.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   logToolCall: mockLogToolCall,
   initializeSession: vi.fn(() => ({
     getSessionId: () => 'test-session-id',
@@ -15,7 +15,7 @@ vi.mock('../../src/session.js', () => ({
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
@@ -36,7 +36,7 @@ vi.mock('octocode-security/contentSanitizer', () => ({
   },
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getGitHubToken: vi.fn(async () => 'test-token'),
   isLoggingEnabled: vi.fn(() => true),
   getActiveProviderConfig: vi.fn(() => ({

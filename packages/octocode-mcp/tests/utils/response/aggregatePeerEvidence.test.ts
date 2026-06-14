@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregatePeerEvidence } from '../../../src/utils/response/bulk.js';
+import { aggregatePeerEvidence } from '@octocodeai/octocode-tools-core';
 
 function queryResultWithPagination() {
   return {

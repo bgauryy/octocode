@@ -6,14 +6,14 @@ const mocks = vi.hoisted(() => ({
   cloneRepo: vi.fn(),
 }));
 
-vi.mock('../../src/utils/response/bulk.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
     isError: false,
   }),
 }));
 
-vi.mock('../../src/tools/local_fetch_content/fetchContent.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   fetchContent: mocks.fetchContent,
 }));
 
@@ -41,39 +41,39 @@ vi.mock('@octocodeai/octocode-core', () => ({
   },
 }));
 
-vi.mock('../../src/tools/local_ripgrep/scheme.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   LocalRipgrepQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('../../src/tools/local_find_files/scheme.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   LocalFindFilesQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('../../src/tools/local_view_structure/scheme.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   LocalViewStructureQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('../../src/tools/local_fetch_content/scheme.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   LocalFetchContentQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('../../src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   searchContentRipgrep: mocks.searchContentRipgrep,
 }));
 
-vi.mock('../../src/tools/github_clone_repo/cloneRepo.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   cloneRepo: mocks.cloneRepo,
 }));
 
-vi.mock('../../src/tools/providerExecution.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   createProviderExecutionContext: vi.fn().mockReturnValue({
     providerType: 'github',
     token: 'test-token',
@@ -94,9 +94,9 @@ describe('Execution boundary guards in target RFC flows', () => {
 
   it('returns structured error when local_fetch_content callback throws', async () => {
     const { executeBulkOperation } =
-      await import('../../src/utils/response/bulk.js');
+      await import('@octocodeai/octocode-tools-core');
     const { executeFetchContent } =
-      await import('../../src/tools/local_fetch_content/execution.js');
+      await import('@octocodeai/octocode-tools-core');
 
     mocks.fetchContent.mockRejectedValueOnce(new Error('fetch failed'));
 
@@ -113,9 +113,9 @@ describe('Execution boundary guards in target RFC flows', () => {
 
   it('returns structured error when local_ripgrep callback throws', async () => {
     const { executeBulkOperation } =
-      await import('../../src/utils/response/bulk.js');
+      await import('@octocodeai/octocode-tools-core');
     const { executeRipgrepSearch } =
-      await import('../../src/tools/local_ripgrep/execution.js');
+      await import('@octocodeai/octocode-tools-core');
 
     mocks.searchContentRipgrep.mockRejectedValueOnce(
       new Error('ripgrep failed')
@@ -136,9 +136,9 @@ describe('Execution boundary guards in target RFC flows', () => {
 
   it('returns structured error when github_clone_repo callback throws', async () => {
     const { executeBulkOperation } =
-      await import('../../src/utils/response/bulk.js');
+      await import('@octocodeai/octocode-tools-core');
     const { executeCloneRepo } =
-      await import('../../src/tools/github_clone_repo/execution.js');
+      await import('@octocodeai/octocode-tools-core');
 
     mocks.cloneRepo.mockRejectedValueOnce(new Error('clone failed'));
 

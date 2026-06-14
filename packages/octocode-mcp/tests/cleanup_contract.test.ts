@@ -91,7 +91,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
 
   it("REQUIRED_COMMANDS no longer includes 'grep'", async () => {
     const { REQUIRED_COMMANDS } =
-      await import('../src/utils/exec/commandAvailability.js');
+      await import('@octocodeai/octocode-tools-core');
     expect(
       Object.prototype.hasOwnProperty.call(REQUIRED_COMMANDS, 'grep')
     ).toBe(false);
@@ -154,7 +154,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     const { validateCommand } =
       await import('octocode-security/commandValidator');
     const { resolveRipgrepBinary } =
-      await import('../src/utils/exec/ripgrepBinary.js');
+      await import('@octocodeai/octocode-tools-core');
     const binary = resolveRipgrepBinary();
     const validation = validateCommand(binary, [
       '-n',

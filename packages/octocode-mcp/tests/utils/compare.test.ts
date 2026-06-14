@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareIsoDateDescending } from '../../src/utils/core/compare.js';
+import { compareIsoDateDescending } from '@octocodeai/octocode-tools-core';
 
 describe('compareIsoDateDescending', () => {
   it('returns 0 for two valid equal dates', () => {

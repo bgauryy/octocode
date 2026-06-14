@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { clearAllCache, getCacheStats } from '../../src/utils/http/cache.js';
-import { getOctokit } from '../../src/github/client';
-import { searchGitHubCodeAPI } from '../../src/github/codeSearch';
-import { searchGitHubReposAPI } from '../../src/github/repoSearch';
-import { searchGitHubPullRequestsAPI } from '../../src/github/pullRequestSearch';
-import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
-import { viewGitHubRepositoryStructureAPI } from '../../src/github/repoStructure.js';
+import { clearAllCache, getCacheStats } from '@octocodeai/octocode-tools-core';
+import { getOctokit } from '@octocodeai/octocode-tools-core';
+import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
+import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
 
-vi.mock('../../src/github/client');
+vi.mock('@octocodeai/octocode-tools-core');
 
 const mockOctokit = {
   rest: {

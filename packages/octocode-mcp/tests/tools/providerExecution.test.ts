@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { PROVIDER_CAPABILITIES } from '../../src/providers/capabilities.js';
+import { PROVIDER_CAPABILITIES } from '../../../octocode-tools-core/src/providers/capabilities.js';
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockGetActiveProvider = vi.hoisted(() => vi.fn(() => 'github'));
@@ -11,11 +11,11 @@ const mockGetActiveProviderConfig = vi.hoisted(() =>
   }))
 );
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getActiveProvider: mockGetActiveProvider,
   getActiveProviderConfig: mockGetActiveProviderConfig,
 }));
@@ -25,7 +25,7 @@ import {
   executeProviderOperation,
   executeProviderOperations,
   ProviderInitializationError,
-} from '../../src/tools/providerExecution.js';
+} from '../../../octocode-tools-core/src/tools/providerExecution.js';
 
 describe('providerExecution', () => {
   beforeEach(() => {

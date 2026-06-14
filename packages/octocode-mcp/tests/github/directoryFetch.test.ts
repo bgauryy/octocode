@@ -19,7 +19,7 @@ const mockGetOctokit = vi.hoisted(() =>
   })
 );
 
-vi.mock('../../src/github/client.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getOctokit: mockGetOctokit,
 }));
 
@@ -39,7 +39,7 @@ import {
   fetchDirectoryContents,
   MAX_DIRECTORY_FILES,
   MAX_TOTAL_SIZE,
-} from '../../src/github/directoryFetch.js';
+} from '@octocodeai/octocode-tools-core';
 
 let testDir: string;
 

@@ -7,11 +7,11 @@ import { describe, it, expect } from 'vitest';
 // ── github_view_repo_structure/hints.ts (was 60.52%) ────────────────────────
 
 describe('github_view_repo_structure hints — uncovered branches', () => {
-  let hints: (typeof import('../../src/tools/github_view_repo_structure/hints.js'))['hints'];
+  let hints: (typeof import('@octocodeai/octocode-tools-core'))['githubViewRepoStructureHints'];
 
   beforeAll(async () => {
-    ({ hints } =
-      await import('../../src/tools/github_view_repo_structure/hints.js'));
+    ({ githubViewRepoStructureHints: hints } =
+      await import('@octocodeai/octocode-tools-core'));
   });
 
   it('empty() returns [] when no path and no branch', () => {
@@ -75,10 +75,10 @@ describe('github_view_repo_structure hints — uncovered branches', () => {
 // ── local_fetch_content/hints.ts (was 70.83%) ───────────────────────────────
 
 describe('local_fetch_content hints — uncovered branches', () => {
-  let hints: (typeof import('../../src/tools/local_fetch_content/hints.js'))['hints'];
+  let hints: (typeof import('@octocodeai/octocode-tools-core'))['localFetchContentHints'];
 
   beforeAll(async () => {
-    ({ hints } = await import('../../src/tools/local_fetch_content/hints.js'));
+    ({ localFetchContentHints: hints } = await import('@octocodeai/octocode-tools-core'));
   });
 
   it('empty() returns [] when path is not a string', () => {
@@ -128,10 +128,10 @@ describe('local_fetch_content hints — uncovered branches', () => {
 // ── local_find_files/hints.ts (was 78.12%) ──────────────────────────────────
 
 describe('local_find_files hints — uncovered branches', () => {
-  let hints: (typeof import('../../src/tools/local_find_files/hints.js'))['hints'];
+  let hints: (typeof import('@octocodeai/octocode-tools-core'))['localFindFilesHints'];
 
   beforeAll(async () => {
-    ({ hints } = await import('../../src/tools/local_find_files/hints.js'));
+    ({ localFindFilesHints: hints } = await import('@octocodeai/octocode-tools-core'));
   });
 
   it('empty() with sizeLess filter', () => {
@@ -172,11 +172,11 @@ describe('local_find_files hints — uncovered branches', () => {
 // ── local_view_structure/hints.ts (was 82.14%) ──────────────────────────────
 
 describe('local_view_structure hints — uncovered branches', () => {
-  let lvsHints: (typeof import('../../src/tools/local_view_structure/hints.js'))['hints'];
+  let lvsHints: (typeof import('@octocodeai/octocode-tools-core'))['localViewStructureHints'];
 
   beforeAll(async () => {
     ({ hints: lvsHints } =
-      await import('../../src/tools/local_view_structure/hints.js'));
+      await import('@octocodeai/octocode-tools-core'));
   });
 
   it('error() not_found — with path', () => {
@@ -211,11 +211,11 @@ describe('local_view_structure hints — uncovered branches', () => {
 // ── github_search_code/hints.ts line 27 — looksLikeTestInfrastructureQuery ─
 
 describe('github_search_code hints — test infrastructure query detection', () => {
-  let scHints: (typeof import('../../src/tools/github_search_code/hints.js'))['hints'];
+  let scHints: (typeof import('@octocodeai/octocode-tools-core'))['githubSearchCodeHints'];
 
   beforeAll(async () => {
     ({ hints: scHints } =
-      await import('../../src/tools/github_search_code/hints.js'));
+      await import('@octocodeai/octocode-tools-core'));
   });
 
   it('empty() flags test-infrastructure keywords (jest/vitest) in the suggestion', () => {

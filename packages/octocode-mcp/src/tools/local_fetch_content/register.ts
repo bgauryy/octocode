@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../types/toolTypes.js';
-import { withResponseEnvelope } from '../../scheme/responseEnvelope.js';
-import { TOOL_NAMES, DESCRIPTIONS } from '../toolMetadata/proxies.js';
-import { LocalFetchContentBulkQuerySchema } from './scheme.js';
-import { executeFetchContent } from './execution.js';
+import {
+  TOOL_NAMES,
+  DESCRIPTIONS,
+  LocalFetchContentBulkQuerySchema,
+  executeFetchContent,
+  withResponseEnvelope,
+} from '@octocodeai/octocode-tools-core';
 import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
 import { LocalGetFileContentOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 

@@ -12,9 +12,9 @@ import {
   STARTUP_ERRORS,
   PROMISE_ERRORS,
   TOOL_ERRORS,
-} from '../src/errors/domainErrors.js';
-import { ALL_ERROR_CODES } from '../src/errors/domainErrors.js';
-import { redactPath } from '../src/errors/pathUtils.js';
+} from '@octocodeai/octocode-tools-core';
+import { ALL_ERROR_CODES } from '@octocodeai/octocode-tools-core';
+import { redactPath } from '@octocodeai/octocode-tools-core';
 
 describe('errorCodes', () => {
   describe('Error Constants', () => {

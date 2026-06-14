@@ -8,22 +8,22 @@ import { getTextContent } from '../utils/testHelpers.js';
 const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/providers/factory.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   generateCacheKey: vi.fn(),
   withCache: vi.fn(),
 }));
 
-vi.mock('../../src/tools/utils/tokenManager.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   getGitHubToken: mockGetGitHubToken,
 }));
 
 const mockGetActiveProviderConfig = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/serverConfig.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core', () => ({
   isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: mockGetActiveProviderConfig,
@@ -36,7 +36,7 @@ vi.mock('../../src/serverConfig.js', () => ({
 }));
 
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { TOOL_NAMES } from '../../src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
 
 function createMockPRProviderResponse(overrides: Record<string, unknown> = {}) {
   return {
@@ -498,7 +498,7 @@ describe('GitHub Search Pull Requests Tool', () => {
   describe('No valid params (execution branch)', () => {
     it('should return error when query has no valid search params', async () => {
       const { searchMultipleGitHubPullRequests } =
-        await import('../../src/tools/github_search_pull_requests/execution.js');
+        await import('@octocodeai/octocode-tools-core');
 
       const result = await searchMultipleGitHubPullRequests({
         queries: [

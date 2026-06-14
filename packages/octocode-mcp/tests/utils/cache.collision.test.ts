@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { generateCacheKey, clearAllCache } from '../../src/utils/http/cache.js';
+import { generateCacheKey, clearAllCache } from '@octocodeai/octocode-tools-core';
 
 function extractHash(cacheKey: string): string {
   const parts = cacheKey.split(':');
