@@ -285,7 +285,14 @@ export class PathValidator {
 
 export const pathValidator = new PathValidator();
 
-export function reinitializePathValidator(
+/**
+ * Resets the shared `pathValidator` singleton's allowed roots to those derived
+ * from `options` and returns the (mutated) singleton.
+ *
+ * Named `resetPathValidator` to make clear this mutates the singleton in-place
+ * rather than creating a new instance.
+ */
+export function resetPathValidator(
   options?: PathValidatorOptions
 ): PathValidator {
   const newValidator = new PathValidator(options);

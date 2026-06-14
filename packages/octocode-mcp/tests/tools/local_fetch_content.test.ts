@@ -4,7 +4,7 @@ import { fetchContent as fetchContentImpl } from '../../../octocode-tools-core/s
 import {
   extractSignatures,
   applyContentViewMinification,
-} from '@octocodeai/octocode-minifier-utils';
+} from '@octocodeai/octocode-context-utils';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
 import * as pathValidator from 'octocode-security/pathValidator';
 import * as fs from 'fs/promises';

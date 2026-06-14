@@ -86,11 +86,9 @@ vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
-vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
+vi.mock('@octocodeai/octocode-context-utils', async importOriginal => {
   const actual =
-    await importOriginal<
-      typeof import('@octocodeai/octocode-minifier-utils')
-    >();
+    await importOriginal<typeof import('@octocodeai/octocode-context-utils')>();
   return { ...actual, minifyContent: mockminifyContent };
 });
 
@@ -105,7 +103,10 @@ import { fetchGitHubFileContentAPI } from '../../../octocode-tools-core/src/gith
 import { viewGitHubRepositoryStructureAPI } from '../../../octocode-tools-core/src/github/repoStructure.js';
 import { searchGitHubPullRequestsAPI } from '../../../octocode-tools-core/src/github/pullRequestSearch.js';
 import type { GitHubCodeSearchQuery } from '../../src/public.js';
-import { initialize, cleanup } from '../../../octocode-tools-core/src/serverConfig.js';
+import {
+  initialize,
+  cleanup,
+} from '../../../octocode-tools-core/src/serverConfig.js';
 
 describe('GitHub API Utils', () => {
   beforeEach(async () => {

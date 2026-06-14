@@ -1,0 +1,89 @@
+{
+  "name": "@octocodeai/octocode-context-utils",
+  "version": "16.0.0",
+  "description": "High-performance Rust minification, signature extraction (tree-sitter), and YAML serialization for Octocode",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-context-utils"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.js",
+      "default": "./index.mjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "*.node",
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@octocodeai/octocode-context-utils-darwin-arm64": "16.0.0",
+    "@octocodeai/octocode-context-utils-darwin-x64": "16.0.0",
+    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "16.0.0",
+    "@octocodeai/octocode-context-utils-linux-x64-gnu": "16.0.0",
+    "@octocodeai/octocode-context-utils-linux-x64-musl": "16.0.0",
+    "@octocodeai/octocode-context-utils-win32-x64-msvc": "16.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "napi": {
+    "name": "octocode-context-utils",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "napi build --platform --release && node scripts/postbuild.cjs",
+    "build:darwin-arm64": "napi build --platform --release --target aarch64-apple-darwin",
+    "build:darwin-x64": "napi build --platform --release --target x86_64-apple-darwin",
+    "build:linux-x64-gnu": "napi build --platform --release --target x86_64-unknown-linux-gnu --zig",
+    "build:linux-x64-musl": "napi build --platform --release --target x86_64-unknown-linux-musl --zig",
+    "build:linux-arm64-gnu": "napi build --platform --release --target aarch64-unknown-linux-gnu --zig",
+    "build:windows-x64": "napi build --platform --release --target x86_64-pc-windows-msvc --zig",
+    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && node scripts/postbuild.cjs",
+    "build:dev": "napi build --platform && node scripts/postbuild.cjs",
+    "clean": "rm -f *.node",
+    "test": "cargo test",
+    "test:node": "vitest run",
+    "test:node:coverage": "vitest run --coverage",
+    "test:watch": "vitest watch",
+    "test:quiet": "vitest run",
+    "lint": "echo 'No TS source files to lint'",
+    "lint:rust": "cargo clippy --all-targets -- -D warnings",
+    "typecheck": "tsc --noEmit",
+    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn test:node && yarn audit",
+    "audit": "cargo audit -D unmaintained -D unsound -D yanked"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2",
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.0.16",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

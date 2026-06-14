@@ -1,0 +1,56 @@
+/*
+ * Copyright 2010-2023 JetBrains s.r.o. and Kotlin Programming Language contributors.
+ * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
+ */
+
+@file:kotlin.js.JsFileName("CollectionsKt")
+@file:kotlin.jvm.JvmMultifileClass
+@file:kotlin.jvm.JvmName("CollectionsKt")
+@file:OptIn(kotlin.experimental.ExperimentalTypeInference::class, kotlin.js.ExperimentalJsFileName::class)
+
+package kotlin.collections
+
+import kotlin.contracts.*
+import kotlin.random.Random
+
+internal object EmptyIterator : ListIterator<Nothing> {
+    override fun hasNext(): Boolean = false
+    override fun hasPrevious(): Boolean = false
+    override fun nextIndex(): Int = 0
+    override fun previousIndex(): Int = -1
+    override fun next(): Nothing = throw NoSuchElementException()
+    override fun previous(): Nothing = throw NoSuchElementException()
+}
+
+internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
+    private const val serialVersionUID: Long = -7390468764508069838L
+
+    override fun equals(other: Any?): Boolean = other is List<*> && other.isEmpty()
+    override fun hashCode(): Int = 1
+    override fun toString(): String = "[]"
+
+    override val size: Int
+
+... [truncated 18759 chars] ...
+
+n.size)
+    } else {
+        array
+    }
+
+    val iterator = collection.iterator()
+    var index = 0
+    while (iterator.hasNext()) {
+        @Suppress("UNCHECKED_CAST")
+        destination[index++] = iterator.next() as T
+    }
+
+    return terminateCollectionToArray(collection.size, destination)
+}
+
+/**
+ * In JVM if the size of [array] is bigger than [collectionSize], sets `array[collectionSize] = null`.
+ * In other platforms does nothing.
+ * Returns the given [array].
+ */
+internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>

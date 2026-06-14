@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 5419,
+      "cutPercent": 35.6,
+      "durationMs": 0.254
+    },
+    "content": "SELECT * FROM onek\n   WHERE onek.unique1 < 10\n   ORDER BY onek.unique1;\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >;\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY stringu1 using <;\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using <, unique1 using >;\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using >, unique1 using <;\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >, string4 using <;\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using <, string4 using >;\n\nANALYZE onek2;\n\nSET enable_seqscan TO off;\nSET enable_bitmapscan TO off;\nSET enable_sort TO off;\n\nSELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10;\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n    WHERE onek2.unique1 < 20\n    ORDER BY unique1 using >;\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n   WHERE onek2.unique1 > 980;\n\nRESET enable_seqscan;\nRESET enable_bitmapscan;\nRESET enable_sort;\n\nSELECT p.name, p.age FROM person* p;\n\nSELECT p.name, p.age FROM pe\n\n... [truncated 3619 chars] ...\n\nAS x ORDER BY x;\n\ncreate function sillysrf(int) returns setof int as\n  'values (1),(10),(2),($1)' language sql immutable;\n\nselect sillysrf(42);\nselect sillysrf(-1) order by 1;\n\ndrop function sillysrf(int);\n\nselect * from (values (2),(null),(1)) v(k) where k = k order by k;\nselect * from (values (2),(null),(1)) v(k) where k = k;\n\ncreate table list_parted_tbl (a int,b int) partition by list (a);\ncreate table list_parted_tbl1 partition of list_parted_tbl\n  for values in (1) partition by list(b);\nexplain (costs off) select * from list_parted_tbl;\ndrop table list_parted_tbl;",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 5447,
+      "cutPercent": 35.3,
+      "durationMs": 0.234
+    },
+    "content": "\n\nSELECT * FROM onek\n   WHERE onek.unique1 < 10\n   ORDER BY onek.unique1;\n\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >;\n\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY stringu1 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using <, unique1 using >;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using >, unique1 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >, string4 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using <, string4 using >;\n\n\nANALYZE onek2;\n\nSET enable_seqscan TO off;\nSET enable_bitmapscan TO off;\nSET enable_sort TO off;\n\n\nSELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10;\n\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n    WHERE onek2.unique1 < 20\n    ORDER BY unique1 using >;\n\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n   WHERE onek2.unique1 > 980;\n\nRESET enable_seqscan;\nRESET enable_bitmapscan;\nRESET enable_sort;\n\n\nSELECT p.name, p.age FROM person* p;\n\n\nSELECT p.name,\n\n... [truncated 3647 chars] ...\n\nx ORDER BY x;\n\n\ncreate function sillysrf(int) returns setof int as\n  'values (1),(10),(2),($1)' language sql immutable;\n\nselect sillysrf(42);\nselect sillysrf(-1) order by 1;\n\ndrop function sillysrf(int);\n\n\nselect * from (values (2),(null),(1)) v(k) where k = k order by k;\nselect * from (values (2),(null),(1)) v(k) where k = k;\n\n\ncreate table list_parted_tbl (a int,b int) partition by list (a);\ncreate table list_parted_tbl1 partition of list_parted_tbl\n  for values in (1) partition by list(b);\nexplain (costs off) select * from list_parted_tbl;\ndrop table list_parted_tbl;",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 5447,
+      "cutPercent": 35.3,
+      "durationMs": 0.242
+    },
+    "content": "\n\nSELECT * FROM onek\n   WHERE onek.unique1 < 10\n   ORDER BY onek.unique1;\n\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >;\n\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY stringu1 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using <, unique1 using >;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using >, unique1 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >, string4 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using <, string4 using >;\n\n\nANALYZE onek2;\n\nSET enable_seqscan TO off;\nSET enable_bitmapscan TO off;\nSET enable_sort TO off;\n\n\nSELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10;\n\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n    WHERE onek2.unique1 < 20\n    ORDER BY unique1 using >;\n\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n   WHERE onek2.unique1 > 980;\n\nRESET enable_seqscan;\nRESET enable_bitmapscan;\nRESET enable_sort;\n\n\nSELECT p.name, p.age FROM person* p;\n\n\nSELECT p.name,\n\n... [truncated 3647 chars] ...\n\nx ORDER BY x;\n\n\ncreate function sillysrf(int) returns setof int as\n  'values (1),(10),(2),($1)' language sql immutable;\n\nselect sillysrf(42);\nselect sillysrf(-1) order by 1;\n\ndrop function sillysrf(int);\n\n\nselect * from (values (2),(null),(1)) v(k) where k = k order by k;\nselect * from (values (2),(null),(1)) v(k) where k = k;\n\n\ncreate table list_parted_tbl (a int,b int) partition by list (a);\ncreate table list_parted_tbl1 partition of list_parted_tbl\n  for values in (1) partition by list(b);\nexplain (costs off) select * from list_parted_tbl;\ndrop table list_parted_tbl;",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 5447,
+      "cutPercent": 35.3,
+      "durationMs": 0.243,
+      "failed": false,
+      "type": "conservative",
+      "reason": null
+    },
+    "content": "\n\nSELECT * FROM onek\n   WHERE onek.unique1 < 10\n   ORDER BY onek.unique1;\n\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >;\n\n\nSELECT onek.unique1, onek.stringu1 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY stringu1 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using <, unique1 using >;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 > 980\n   ORDER BY string4 using >, unique1 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using >, string4 using <;\n\n\nSELECT onek.unique1, onek.string4 FROM onek\n   WHERE onek.unique1 < 20\n   ORDER BY unique1 using <, string4 using >;\n\n\nANALYZE onek2;\n\nSET enable_seqscan TO off;\nSET enable_bitmapscan TO off;\nSET enable_sort TO off;\n\n\nSELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10;\n\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n    WHERE onek2.unique1 < 20\n    ORDER BY unique1 using >;\n\n\nSELECT onek2.unique1, onek2.stringu1 FROM onek2\n   WHERE onek2.unique1 > 980;\n\nRESET enable_seqscan;\nRESET enable_bitmapscan;\nRESET enable_sort;\n\n\nSELECT p.name, p.age FROM person* p;\n\n\nSELECT p.name,\n\n... [truncated 3647 chars] ...\n\nx ORDER BY x;\n\n\ncreate function sillysrf(int) returns setof int as\n  'values (1),(10),(2),($1)' language sql immutable;\n\nselect sillysrf(42);\nselect sillysrf(-1) order by 1;\n\ndrop function sillysrf(int);\n\n\nselect * from (values (2),(null),(1)) v(k) where k = k order by k;\nselect * from (values (2),(null),(1)) v(k) where k = k;\n\n\ncreate table list_parted_tbl (a int,b int) partition by list (a);\ncreate table list_parted_tbl1 partition of list_parted_tbl\n  for values in (1) partition by list(b);\nexplain (costs off) select * from list_parted_tbl;\ndrop table list_parted_tbl;",
+    "api": "minifyContent"
+  }
+}

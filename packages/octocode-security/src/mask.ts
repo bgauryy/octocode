@@ -1,15 +1,7 @@
 import { nativeMaskSensitiveData } from './native.js';
 import type { SensitiveDataPattern } from './types.js';
 import { securityRegistry } from './registry.js';
-
-// Mask every even-indexed character with '*' — matches TS behaviour
-function maskEveryTwoChars(text: string): string {
-  let result = '';
-  for (let i = 0; i < text.length; i++) {
-    result += i % 2 === 0 ? '*' : text[i];
-  }
-  return result;
-}
+import { maskEveryOtherChar } from './maskUtils.js';
 
 // JS masking for extra/custom patterns (fileContext-free only)
 function applyJsMask(
@@ -49,7 +41,7 @@ function applyJsMask(
     const { start, end } = deduped[i]!;
     result =
       result.slice(0, start) +
-      maskEveryTwoChars(text.slice(start, end)) +
+      maskEveryOtherChar(text.slice(start, end)) +
       result.slice(end);
   }
   return result;

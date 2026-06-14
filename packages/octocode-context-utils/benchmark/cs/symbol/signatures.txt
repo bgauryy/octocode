@@ -1,0 +1,58 @@
+  4| using System.ComponentModel;
+  5| using System.Diagnostics.CodeAnalysis;
+  6| using System.Runtime.CompilerServices;
+  7| using System.Runtime.Serialization;
+  9| namespace System
+ 10| {
+ 14|     [Serializable]
+ 15|     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+ 16|     public class ArgumentException : SystemException
+ 17|     {
+ 18|         private readonly string? _paramName;
+ 22|         public ArgumentException()
+ 23|             : base(SR.Arg_ArgumentException)
+ 24|         {
+ 31|         public ArgumentException(string? message)
+ 32|             : base(message)
+ 33|         {
+ 37|         public ArgumentException(string? message, Exception? innerException)
+ 38|             : base(message, innerException)
+ 39|         {
+ 43|         public ArgumentException(string? message, string? paramName, Exception? innerException)
+ 44|             : base(message, innerException)
+ 45|         {
+ 50|         public ArgumentException(string? message, string? paramName)
+ 51|             : base(message)
+ 52|         {
+ 57|         [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+ 58|         [EditorBrowsable(EditorBrowsableState.Never)]
+ 59|         protected ArgumentException(SerializationInfo info, StreamingContext context)
+ 60|             : base(info, context)
+ 61|         {
+ 65|         [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+ 66|         [EditorBrowsable(EditorBrowsableState.Never)]
+ 67|         public override void GetObjectData(SerializationInfo info, StreamingContext context)
+ 68|
+
+... [truncated 49 chars] ...
+
+sage
+ 74|         {
+ 75|             get
+ 76|             {
+ 87|         }
+ 89|         private void SetMessageField()
+ 90|         {
+ 97|         public virtual string? ParamName => _paramName;
+104|         public static void ThrowIfNullOrEmpty([NotNull] string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+105|         {
+117|         public static void ThrowIfNullOrWhiteSpace([NotNull] string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+118|         {
+125|         [DoesNotReturn]
+126|         private static void ThrowNullOrEmptyException(string? argument, string? paramName)
+127|         {
+132|         [DoesNotReturn]
+133|         private static void ThrowNullOrWhiteSpaceException(string? argument, string? paramName)
+134|         {
+138|     }
+139| }

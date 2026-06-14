@@ -2,7 +2,7 @@
 /**
  * Verifies that all ripgrep binaries are present in dist/runtime/rg.
  *
- * octocode-security and @octocodeai/octocode-minifier-utils are no longer
+ * octocode-security and @octocodeai/octocode-context-utils are no longer
  * verified here — they are installed as npm runtime dependencies with
  * per-platform optionalDependencies.
  */

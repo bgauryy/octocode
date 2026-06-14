@@ -1,0 +1,22 @@
+import React,{useState}from"react";import{formatDate}from"@fullcalendar/core";import FullCalendar from"@fullcalendar/react";import dayGridPlugin from"@fullcalendar/daygrid";import timeGridPlugin from"@fullcalendar/timegrid";import interactionPlugin from"@fullcalendar/interaction";import{INITIAL_EVENTS,createEventId}from"./event-utils";export default function DemoApp(){let[weekendsVisible,setWeekendsVisible]=useState(!0),[currentEvents,setCurrentEvents]=useState([]);function handleWeekendsToggle(){setWeekendsVisible(!weekendsVisible)}function handleDateSelect(selectInfo){let title=prompt(`Please enter a new title for your event`),calendarApi=selectInfo.view.calendar;calendarApi.unselect(),title&&calendarApi.addEvent({id:createEventId(),title,start:selectInfo.startStr,end:selectInfo.endStr,allDay:selectInfo.allDay})}function handleEventClick(clickInfo){confirm(`Are you sure you want to delete the event '${clickInfo.event.title}'`)&&clickInfo.event.remove()}function handleEvents(events){setCurrentEvents(events)}return<div className="demo-app">
+      <Sidebar weekendsVisible={weekendsVisible} handleWeekendsToggle={handleWeekendsToggle} currentEvents={currentEvents}/>
+      <div className="demo-app-main">
+
+
+... [truncated 1063 chars] ...
+
+abel>
+          <input type="checkbox" checked={weekendsVisible} onChange={handleWeekendsToggle}></input>
+          toggle weekends
+        </label>
+      </div>
+      <div className="demo-app-sidebar-section">
+        <h2>All Events ({currentEvents.length})</h2>
+        <ul>
+          {currentEvents.map(event=><SidebarEvent key={event.id} event={event}/>)}
+        </ul>
+      </div>
+    </div>}function SidebarEvent({event}){return<li key={event.id}>
+      <b>{formatDate(event.start,{year:`numeric`,month:`short`,day:`numeric`})}</b>
+      <i>{event.title}</i>
+    </li>}

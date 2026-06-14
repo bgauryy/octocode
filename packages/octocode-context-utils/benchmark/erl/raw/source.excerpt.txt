@@ -1,0 +1,59 @@
+%%
+%% %CopyrightBegin%
+%%
+%% SPDX-License-Identifier: Apache-2.0
+%%
+%% Copyright Ericsson AB 1996-2026. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
+%% %CopyrightEnd%
+%%
+-module(lists).
+-moduledoc """
+List processing functions.
+
+This module contains functions for list processing.
+
+Unless otherwise stated, all functions assume that position numbering starts
+at 1. That is, the first element of a list is at position 1.
+
+Two terms `T1` and `T2` compare equal if `T1 == T2` evaluates to `true`. They
+match if `T1 =:= T2` evaluates to `true`.
+
+Whenever an _ordering function_{: #ordering_function } `F` is expected as
+argument, it is assumed that the following properties hold of `F` for a
+
+... [truncated 121508 chars] ...
+
+| M], H2);
+        false ->
+            case Fun(H2M, H1) of
+                true -> % H2M equal to H1
+                    rufmerge2_1(T1, H2, Fun, T2, [H1 | M]);
+                false ->
+                    rufmerge2_1(T1, H2, Fun, T2, [H1, H2M | M])
+            end
+    end;
+rufmerge2_2(H1, T1, Fun, [], M, H2M) ->
+    case Fun(H2M, H1) of
+        true ->
+            lists:reverse(T1, [H1 | M]);
+        false ->
+            lists:reverse(T1, [H1, H2M | M])
+    end.
+
+%%%
+%%% Don't place new functions here; place them before the
+%%% implementation of sort functions.
+%%%

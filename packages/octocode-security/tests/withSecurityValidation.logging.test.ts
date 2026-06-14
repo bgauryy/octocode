@@ -33,7 +33,6 @@ describe('withSecurityValidation logging', () => {
     configureSecurity({
       logToolCall: mockLogToolCall,
       isLoggingEnabled: mockIsLoggingEnabled,
-      isLocalTool: () => false,
     });
   });
 
@@ -42,7 +41,6 @@ describe('withSecurityValidation logging', () => {
       logToolCall: undefined,
       logSessionError: undefined,
       isLoggingEnabled: undefined,
-      isLocalTool: undefined,
     });
   });
 

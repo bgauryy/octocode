@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchGitHubFileContentAPI } from '../../../octocode-tools-core/src/github/fileContent.js';
 import { viewGitHubRepositoryStructureAPI } from '../../../octocode-tools-core/src/github/repoStructure.js';
-import { getOctokit, resolveDefaultBranch } from '../../../octocode-tools-core/src/github/client.js';
+import {
+  getOctokit,
+  resolveDefaultBranch,
+} from '../../../octocode-tools-core/src/github/client.js';
 import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache.js';
 import { RequestError } from 'octokit';
-import * as minifierModule from '@octocodeai/octocode-minifier-utils';
+import * as minifierModule from '@octocodeai/octocode-context-utils';
 
 vi.mock('../../../octocode-tools-core/src/github/client.js');
 vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
-vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
+vi.mock('@octocodeai/octocode-context-utils', async importOriginal => {
   const actual = await importOriginal();
   return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
 });

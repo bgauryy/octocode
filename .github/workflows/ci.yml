@@ -65,7 +65,7 @@ jobs:
         with:
           workspaces: |
             packages/octocode-security
-            packages/octocode-minifier-utils
+            packages/octocode-context-utils
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -82,7 +82,7 @@ jobs:
       - name: Build native packages (current platform only)
         run: |
           yarn workspace octocode-security run build
-          yarn workspace @octocodeai/octocode-minifier-utils run build
+          yarn workspace @octocodeai/octocode-context-utils run build
 
       - name: Build all packages (native platform)
         run: yarn build
@@ -118,8 +118,8 @@ jobs:
         working-directory: packages/octocode-security
         run: cargo audit -D unmaintained -D unsound -D yanked
 
-      - name: Audit octocode-minifier-utils crates
-        working-directory: packages/octocode-minifier-utils
+      - name: Audit octocode-context-utils crates
+        working-directory: packages/octocode-context-utils
         run: cargo audit -D unmaintained -D unsound -D yanked
 
   pr-validation-complete:

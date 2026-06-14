@@ -6,7 +6,7 @@ import {
   applyContentViewMinification,
   extractSignatures,
   SIGNATURES_ONLY_HINT,
-} from '@octocodeai/octocode-minifier-utils';
+} from '@octocodeai/octocode-context-utils';
 import { applyPagination } from '../utils/pagination/core.js';
 import {
   snapToSemanticBoundary,

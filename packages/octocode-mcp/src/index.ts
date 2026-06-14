@@ -21,7 +21,6 @@ import {
   STARTUP_ERRORS,
   startCacheGC,
   stopCacheGC,
-  isLocalTool,
 } from '@octocodeai/octocode-tools-core';
 import { createLogger, LoggerFactory, Logger } from './utils/core/logger.js';
 import { completeMetadata } from '@octocodeai/octocode-core';
@@ -185,7 +184,6 @@ async function startServer() {
       logToolCall,
       logSessionError,
       isLoggingEnabled,
-      isLocalTool,
     });
     securityRegistry.addAllowedRoots([getOctocodeDir()]);
     await initializeProviders();

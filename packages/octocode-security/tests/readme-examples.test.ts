@@ -5,7 +5,7 @@ import os from 'os';
 import {
   PathValidator,
   pathValidator,
-  reinitializePathValidator,
+  resetPathValidator,
   ContentSanitizer,
   maskSensitiveData,
   validateCommand,
@@ -189,7 +189,7 @@ describe('README: PathValidator', () => {
 
   describe('global instance', () => {
     afterEach(() => {
-      reinitializePathValidator();
+      resetPathValidator();
     });
 
     it('pathValidator singleton validates workspace paths', () => {
@@ -199,8 +199,8 @@ describe('README: PathValidator', () => {
       expect(result.isValid).toBe(true);
     });
 
-    it('reinitializePathValidator reconfigures singleton', () => {
-      reinitializePathValidator({
+    it('resetPathValidator reconfigures singleton', () => {
+      resetPathValidator({
         workspaceRoot: '/tmp',
         includeHomeDir: false,
       });
@@ -463,7 +463,6 @@ describe('README: configureSecurity', () => {
         logToolCall: async () => {},
         logSessionError: async () => {},
         isLoggingEnabled: () => false,
-        isLocalTool: name => name.startsWith('local'),
       });
     }).not.toThrow();
   });
@@ -675,11 +674,8 @@ describe('README: Types', () => {
       logToolCall: async () => {},
       logSessionError: async () => {},
       isLoggingEnabled: () => true,
-      isLocalTool: name => name.startsWith('local'),
     };
     expect(deps.isLoggingEnabled!()).toBe(true);
-    expect(deps.isLocalTool!('localSearch')).toBe(true);
-    expect(deps.isLocalTool!('githubSearch')).toBe(false);
   });
 
   it('SensitiveDataPattern has documented shape', () => {

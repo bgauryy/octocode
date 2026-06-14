@@ -1,0 +1,45 @@
+ 11| package kotlin.collections
+ 13| import kotlin.contracts.*
+ 14| import kotlin.random.Random
+ 16| internal object EmptyIterator : ListIterator<Nothing> {
+ 17|     override fun hasNext(): Boolean = false
+ 18|     override fun hasPrevious(): Boolean = false
+ 19|     override fun nextIndex(): Int = 0
+ 20|     override fun previousIndex(): Int = -1
+ 21|     override fun next(): Nothing = throw NoSuchElementException()
+ 22|     override fun previous(): Nothing = throw NoSuchElementException()
+ 25| internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
+ 26|     private const val serialVersionUID: Long = -7390468764508069838L
+ 28|     override fun equals(other: Any?): Boolean = other is List<*> && other.isEmpty()
+ 29|     override fun hashCode(): Int = 1
+ 30|     override fun toString(): String = "[]"
+ 32|     override val size: Int get() = 0
+ 33|     override fun isEmpty(): Boolean = true
+ 34|     override fun contains(element: Nothing): Boolean = false
+ 35|     override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
+ 37|     override fun get(index: Int): Nothing = throw IndexOutOfBoundsException("Empty list doesn't contain element at index $index.")
+ 38|     override fun indexOf(element: Nothing): Int = -1
+ 39|     override fun lastIndexOf(element: Nothing): Int = -1
+ 41|     override fun iterator(): Iterator<Nothing> = EmptyIterator
+ 42|     override fun listIterator(): ListIterator<Nothing> = EmptyIterator
+ 43|     override fun listIterator(index: Int): ListIterator<Nothing> {
+ 48|     override fun subList(fromIndex: Int, toIndex: Int): List<Nothing> {
+ 53|     private fun readResolve(): Any = EmptyList
+ 57| internal expect inline fun <T> Array<out T>.asArrayList(): ArrayList<T>
+ 59| internal
+
+... [truncated 4307 chars] ...
+
+nt): Int
+478| internal expect fun checkCountOverflow(count: Int): Int
+483| internal fun throwIndexOverflow() { throw ArithmeticException("Index overflow has happened.") }
+487| internal fun throwCountOverflow() { throw ArithmeticException("Count overflow has happened.") }
+490| internal fun collectionToArrayCommonImpl(collection: Collection<*>): Array<Any?> {
+493|     val destination = arrayOfNulls<Any>(collection.size)
+495|     val iterator = collection.iterator()
+496|     var index = 0
+504| internal fun <T> collectionToArrayCommonImpl(collection: Collection<*>, array: Array<T>): Array<T> {
+507|     val destination = if (array.size < collection.size) {
+513|     val iterator = collection.iterator()
+514|     var index = 0
+528| internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>

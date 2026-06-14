@@ -160,13 +160,15 @@ describe('tool stats emission contract', () => {
       '../octocode-security/src/withSecurityValidation.ts'
     );
 
+    // Both wrappers now log uniformly when isLoggingEnabled() — no isLocalTool gate.
     expect(indexSource).toMatch(/configureSecurity\(\{[\s\S]*logToolCall/);
-    expect(indexSource).toMatch(/configureSecurity\(\{[\s\S]*isLocalTool/);
+    expect(indexSource).not.toMatch(/configureSecurity\(\{[\s\S]*isLocalTool/);
     expect(securitySource).toMatch(
       /withSecurityValidation[\s\S]*handleBulk\(toolName, sanitizedParams\)/
     );
+    // withBasicSecurityValidation now logs the same way — no isLocalTool gate.
     expect(securitySource).toMatch(
-      /withBasicSecurityValidation[\s\S]*_deps\.isLocalTool\?\.\(toolName\)[\s\S]*handleBulk\(/
+      /withBasicSecurityValidation[\s\S]*!rawResult\.isError[\s\S]*handleBulk\(/
     );
   });
 });

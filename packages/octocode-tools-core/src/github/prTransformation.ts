@@ -6,7 +6,7 @@ import {
 } from './githubAPI.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import { filterPatch, trimDiffContext } from '../utils/parsers/diff.js';
-import { minifyMarkdownCore } from '@octocodeai/octocode-minifier-utils';
+import { minifyMarkdownCore } from '@octocodeai/octocode-context-utils';
 
 interface RawPRData {
   number: number;

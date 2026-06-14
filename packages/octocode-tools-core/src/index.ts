@@ -163,25 +163,74 @@ export * from './utils/response/groupedFinalizer.js';
 export * from './utils/response/pathRelativize.js';
 export * from './utils/response/structuredPagination.js';
 
-
 // github/githubAPI — explicit exports excluding PullRequestItem (conflicts with providers/providerResults.ts)
 export type { GitHubPullRequestItem, Repository } from './github/githubAPI.js';
-export { isGitHubAPIError, isGitHubAPISuccess, isRepository } from './github/githubAPI.js';
+export {
+  isGitHubAPIError,
+  isGitHubAPISuccess,
+  isRepository,
+} from './github/githubAPI.js';
 
 // providers/types — explicit exports excluding DirectoryEntry/PullRequestItem (conflicts with structureFilters.ts)
-export type { ProviderType, ProviderConfig, ProviderCapabilities, ProviderResponse, ICodeHostProvider } from './providers/types.js';
-export type { CodeSearchQuery, FileContentQuery, RepoSearchQuery, PullRequestQuery, RepoStructureQuery } from './providers/types.js';
-export type { UnifiedRepository, CodeSearchItem, CodeSearchResult, FileContentResult, RepoSearchResult, PullRequestSearchResult, RepoStructureResult } from './providers/types.js';
+export type {
+  ProviderType,
+  ProviderConfig,
+  ProviderCapabilities,
+  ProviderResponse,
+  ICodeHostProvider,
+} from './providers/types.js';
+export type {
+  CodeSearchQuery,
+  FileContentQuery,
+  RepoSearchQuery,
+  PullRequestQuery,
+  RepoStructureQuery,
+} from './providers/types.js';
+export type {
+  UnifiedRepository,
+  CodeSearchItem,
+  CodeSearchResult,
+  FileContentResult,
+  RepoSearchResult,
+  PullRequestSearchResult,
+  RepoStructureResult,
+} from './providers/types.js';
 export { isProviderSuccess, isProviderError } from './providers/types.js';
 
 // github/githubAPI — remaining types not in the explicit block above
-export type { GitHubAPIError, GitHubAPISuccess, OptimizedCodeSearchResult, DiffEntry, PullRequestSimple, GitHubPullRequestsSearchParams, ContentDirectoryEntry, CodeSearchResultItem, RepoSearchResultItem, IssueSearchResultItem, IssueComment, PRReviewInfo, CommitFileInfo, CommitInfo, PRCommentItem, GetContentParameters, SearchCodeParameters, SearchCodeResponse, SearchReposParameters, GitHubAPIResponse } from './github/githubAPI.js';
+export type {
+  GitHubAPIError,
+  GitHubAPISuccess,
+  OptimizedCodeSearchResult,
+  DiffEntry,
+  PullRequestSimple,
+  GitHubPullRequestsSearchParams,
+  ContentDirectoryEntry,
+  CodeSearchResultItem,
+  RepoSearchResultItem,
+  IssueSearchResultItem,
+  IssueComment,
+  PRReviewInfo,
+  CommitFileInfo,
+  CommitInfo,
+  PRCommentItem,
+  GetContentParameters,
+  SearchCodeParameters,
+  SearchCodeResponse,
+  SearchReposParameters,
+  GitHubAPIResponse,
+} from './github/githubAPI.js';
 
 // hints/dynamic — HINTS constant (getDynamicHints is re-exported via proxies.ts)
 export { HINTS, hasDynamicHints } from './hints/dynamic.js';
 
 // structureResponse — all exports (DirectoryEntry is already canonical from structureFilters.ts)
-export { summarizeEntries, paginateEntries, buildEntryPaginationHints, buildWalkWarnings } from './tools/local_view_structure/structureResponse.js';
+export {
+  summarizeEntries,
+  paginateEntries,
+  buildEntryPaginationHints,
+  buildWalkWarnings,
+} from './tools/local_view_structure/structureResponse.js';
 
 // utils/core/types — ExecResult (PaginationInfo excluded to avoid conflict with types/toolResults.ts)
 export type { ExecResult } from './utils/core/types.js';

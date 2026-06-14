@@ -1,0 +1,74 @@
+[tox]
+requires =
+    tox >= 4
+envlist =
+    linting
+    py310
+    py311
+    py312
+    py313
+    py314
+    py315
+    pypy3
+    py310-{pexpect,xdist,twisted24,twisted25,asynctest,numpy,pluggymain,pylib}
+    doctesting
+    doctesting-coverage
+    plugins
+    py310-freeze
+    docs
+    docs-checklinks
+
+    # checks that 3.11 native ExceptionGroup works with exceptiongroup
+    # not included in CI.
+    py311-exceptiongroup
+
+
+
+[pkgenv]
+# NOTE: This section tweaks how Tox manages the PEP 517 build
+# NOTE: environment where it assembles wheels (editable and regular)
+# NOTE: for further installing them into regular testenvs.
+#
+# NOTE: `[testenv:.pkg]` does not work due to a regression in tox v4.14.1
+# NOTE: so `[pkgenv]` is being used in place of it.
+# Refs:
+# * https://github.com/tox-dev/tox/pull/3237
+# * https://github.com/tox-dev/tox/issues/3238
+# * https://github.com/tox-dev/tox/issues/3292
+# * https://hynek.me/articles/turbo-charge-tox/
+#
+# NOTE: The `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST` environment
+# NOTE: variable allows enforcing a pre-determined version for use in
+# NOTE: the wheel being installed into usual testenvs.
+pass_env =
+  SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYTEST
+
+
+[testenv]
+description =
+
+
+... [truncated 5718 chars] ...
+
+lease]passenv}
+deps = {[testenv:release]deps}
+commands = python scripts/prepare-release-pr.py {posargs}
+
+[testenv:generate-gh-release-notes]
+description = generate release notes that can be published as GitHub Release
+usedevelop = True
+deps =
+    pypandoc_binary
+commands = python scripts/generate-gh-release-notes.py {posargs}
+
+[testenv:update-plugin-list]
+description = update the plugin list
+skip_install = True
+deps =
+    packaging
+    requests
+    tabulate[widechars]
+    tqdm
+    requests-cache
+    platformdirs
+commands = python scripts/update-plugin-list.py {posargs}

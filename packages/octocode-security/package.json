@@ -126,7 +126,7 @@
     "build:rust:linux-arm64-gnu": "node scripts/gen-patterns.mjs && napi build --platform --release --cross-compile --target aarch64-unknown-linux-gnu",
     "build:rust:windows-x64": "node scripts/gen-patterns.mjs && napi build --platform --release --cross-compile --target x86_64-pc-windows-msvc",
     "build:rust:all": "yarn build:rust:darwin-arm64 && yarn build:rust:darwin-x64 && yarn build:rust:linux-x64-gnu && yarn build:rust:linux-x64-musl && yarn build:rust:linux-arm64-gnu && yarn build:rust:windows-x64",
-    "build:ts": "node build.mjs && tsc --emitDeclarationOnly",
+    "build:ts": "node scripts/gen-patterns.mjs && node build.mjs && tsc --emitDeclarationOnly",
     "build": "yarn build:rust && yarn build:ts",
     "build:all": "yarn build:rust:all && yarn build:ts",
     "build:dev": "node scripts/gen-patterns.mjs && napi build --platform && node build.mjs && tsc --emitDeclarationOnly",

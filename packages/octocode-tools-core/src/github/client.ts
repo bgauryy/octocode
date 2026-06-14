@@ -125,7 +125,6 @@ function createOctokitInstance(
     debug: () => {},
     info: () => {},
     warn: () => {},
-    // eslint-disable-next-line no-console
     error: (...args: unknown[]) => console.error(...args),
   };
 

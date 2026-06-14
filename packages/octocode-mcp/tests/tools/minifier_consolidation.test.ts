@@ -9,7 +9,7 @@ const readSrc = (p: string): string =>
 
 describe('minifier consolidation (#4)', () => {
   it('applyMinification is exported from the shared minifier util', async () => {
-    const mod = await import('@octocodeai/octocode-minifier-utils');
+    const mod = await import('@octocodeai/octocode-context-utils');
     expect(typeof mod.applyMinification).toBe('function');
     expect(mod.applyMinification('x', 'f.txt')).toBe('x');
   });
@@ -20,7 +20,7 @@ describe('minifier consolidation (#4)', () => {
   });
 
   it('applyMinification shared util is available and functional', async () => {
-    const mod = await import('@octocodeai/octocode-minifier-utils');
+    const mod = await import('@octocodeai/octocode-context-utils');
     expect(typeof mod.applyMinification).toBe('function');
   });
 });

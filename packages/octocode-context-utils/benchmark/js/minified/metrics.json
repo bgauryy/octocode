@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 6205,
+      "cutPercent": 9.6,
+      "durationMs": 0.321
+    },
+    "content": "import type {Dispatcher} from 'react-reconciler/src/ReactInternalTypes';\nimport type {\n  ReactContext,\n  StartTransitionOptions,\n  Usable,\n  Awaited,\n} from 'shared/ReactTypes';\nimport {REACT_CONSUMER_TYPE} from 'shared/ReactSymbols';\n\nimport ReactSharedInternals from 'shared/ReactSharedInternals';\n\ntype BasicStateAction<S> = (S => S) | S;\ntype Dispatch<A> = A => void;\n\nfunction resolveDispatcher() {\n  const dispatcher = ReactSharedInternals.H;\n  if (__DEV__) {\n    if (dispatcher === null) {\n      console.error(\n        'Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for' +\n          ' one of the following reasons:\\n' +\n          '1. You might have mismatching versions of React and the renderer (such as React DOM)\\n' +\n          '2. You might be breaking the Rules of Hooks\\n' +\n          '3. You might have more than one copy of React in the same app\\n' +\n          'See https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.',\n      );\n    }\n  }\n\n  return dispatcher as any as Dispatcher;\n}\n\nexport function getCacheForType<T>(resourceType: () => T): T {\n  const dispatcher = ReactSharedInternals.A;\n  if (!dispatcher\n\n... [truncated 4405 chars] ...\n\n\n): F {\n  const dispatcher = resolveDispatcher();\n\n  return dispatcher.useEffectEvent(callback);\n}\n\nexport function useOptimistic<S, A>(\n  passthrough: S,\n  reducer: ?(S, A) => S,\n): [S, (A) => void] {\n  const dispatcher = resolveDispatcher();\n  return dispatcher.useOptimistic(passthrough, reducer);\n}\n\nexport function useActionState<S, P>(\n  action: (Awaited<S>, P) => S,\n  initialState: Awaited<S>,\n  permalink?: string,\n): [Awaited<S>, (P) => void, boolean] {\n  const dispatcher = resolveDispatcher();\n  return dispatcher.useActionState(action, initialState, permalink);\n}",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 5431,
+      "cutPercent": 20.9,
+      "durationMs": 0.249
+    },
+    "content": "import type{Dispatcher}from 'react-reconciler/src/ReactInternalTypes';import type{ReactContext,StartTransitionOptions,Usable,Awaited,}from 'shared/ReactTypes';import{REACT_CONSUMER_TYPE}from 'shared/ReactSymbols';import ReactSharedInternals from 'shared/ReactSharedInternals';type BasicStateAction<S> =(S => S)| S;type Dispatch<A> = A => void;function resolveDispatcher(){const dispatcher = ReactSharedInternals.H;if(__DEV__){if(dispatcher === null){console.error('Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for' + ' one of the following reasons:\\n' + '1. You might have mismatching versions of React and the renderer(such as React DOM)\\n' + '2. You might be breaking the Rules of Hooks\\n' + '3. You might have more than one copy of React in the same app\\n' + 'See https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.',);}}return dispatcher as any as Dispatcher;}export function getCacheForType<T>(resourceType:()=> T): T{const dispatcher = ReactSharedInternals.A;if(!dispatcher){return resourceType();}return dispatcher.getCacheForType(resourceType);}export function useContext<T>(Context: ReactContext<T>): T{const dispat\n\n... [truncated 3631 chars] ...\n\nn useEffectEvent<Args,F:(...Array<Args>)=> mixed>(callback: F,): F{const dispatcher = resolveDispatcher();return dispatcher.useEffectEvent(callback);}export function useOptimistic<S,A>(passthrough: S,reducer: ?(S,A)=> S,): [S,(A)=> void]{const dispatcher = resolveDispatcher();return dispatcher.useOptimistic(passthrough,reducer);}export function useActionState<S,P>(action:(Awaited<S>,P)=> S,initialState: Awaited<S>,permalink?: string,): [Awaited<S>,(P)=> void,boolean]{const dispatcher = resolveDispatcher();return dispatcher.useActionState(action,initialState,permalink);}",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 5431,
+      "cutPercent": 20.9,
+      "durationMs": 0.245
+    },
+    "content": "import type{Dispatcher}from 'react-reconciler/src/ReactInternalTypes';import type{ReactContext,StartTransitionOptions,Usable,Awaited,}from 'shared/ReactTypes';import{REACT_CONSUMER_TYPE}from 'shared/ReactSymbols';import ReactSharedInternals from 'shared/ReactSharedInternals';type BasicStateAction<S> =(S => S)| S;type Dispatch<A> = A => void;function resolveDispatcher(){const dispatcher = ReactSharedInternals.H;if(__DEV__){if(dispatcher === null){console.error('Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for' + ' one of the following reasons:\\n' + '1. You might have mismatching versions of React and the renderer(such as React DOM)\\n' + '2. You might be breaking the Rules of Hooks\\n' + '3. You might have more than one copy of React in the same app\\n' + 'See https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.',);}}return dispatcher as any as Dispatcher;}export function getCacheForType<T>(resourceType:()=> T): T{const dispatcher = ReactSharedInternals.A;if(!dispatcher){return resourceType();}return dispatcher.getCacheForType(resourceType);}export function useContext<T>(Context: ReactContext<T>): T{const dispat\n\n... [truncated 3631 chars] ...\n\nn useEffectEvent<Args,F:(...Array<Args>)=> mixed>(callback: F,): F{const dispatcher = resolveDispatcher();return dispatcher.useEffectEvent(callback);}export function useOptimistic<S,A>(passthrough: S,reducer: ?(S,A)=> S,): [S,(A)=> void]{const dispatcher = resolveDispatcher();return dispatcher.useOptimistic(passthrough,reducer);}export function useActionState<S,P>(action:(Awaited<S>,P)=> S,initialState: Awaited<S>,permalink?: string,): [Awaited<S>,(P)=> void,boolean]{const dispatcher = resolveDispatcher();return dispatcher.useActionState(action,initialState,permalink);}",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 5431,
+      "cutPercent": 20.9,
+      "durationMs": 0.24,
+      "failed": false,
+      "type": "terser",
+      "reason": null
+    },
+    "content": "import type{Dispatcher}from 'react-reconciler/src/ReactInternalTypes';import type{ReactContext,StartTransitionOptions,Usable,Awaited,}from 'shared/ReactTypes';import{REACT_CONSUMER_TYPE}from 'shared/ReactSymbols';import ReactSharedInternals from 'shared/ReactSharedInternals';type BasicStateAction<S> =(S => S)| S;type Dispatch<A> = A => void;function resolveDispatcher(){const dispatcher = ReactSharedInternals.H;if(__DEV__){if(dispatcher === null){console.error('Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for' + ' one of the following reasons:\\n' + '1. You might have mismatching versions of React and the renderer(such as React DOM)\\n' + '2. You might be breaking the Rules of Hooks\\n' + '3. You might have more than one copy of React in the same app\\n' + 'See https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.',);}}return dispatcher as any as Dispatcher;}export function getCacheForType<T>(resourceType:()=> T): T{const dispatcher = ReactSharedInternals.A;if(!dispatcher){return resourceType();}return dispatcher.getCacheForType(resourceType);}export function useContext<T>(Context: ReactContext<T>): T{const dispat\n\n... [truncated 3631 chars] ...\n\nn useEffectEvent<Args,F:(...Array<Args>)=> mixed>(callback: F,): F{const dispatcher = resolveDispatcher();return dispatcher.useEffectEvent(callback);}export function useOptimistic<S,A>(passthrough: S,reducer: ?(S,A)=> S,): [S,(A)=> void]{const dispatcher = resolveDispatcher();return dispatcher.useOptimistic(passthrough,reducer);}export function useActionState<S,P>(action:(Awaited<S>,P)=> S,initialState: Awaited<S>,permalink?: string,): [Awaited<S>,(P)=> void,boolean]{const dispatcher = resolveDispatcher();return dispatcher.useActionState(action,initialState,permalink);}",
+    "api": "minifyContent"
+  }
+}

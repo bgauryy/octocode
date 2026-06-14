@@ -1,0 +1,58 @@
+
+
+@file:kotlin.js.JsFileName("CollectionsKt")
+@file:kotlin.jvm.JvmMultifileClass
+@file:kotlin.jvm.JvmName("CollectionsKt")
+@file:OptIn(kotlin.experimental.ExperimentalTypeInference::class, kotlin.js.ExperimentalJsFileName::class)
+
+package kotlin.collections
+
+import kotlin.contracts.*
+import kotlin.random.Random
+
+internal object EmptyIterator : ListIterator<Nothing> {
+    override fun hasNext(): Boolean = false
+    override fun hasPrevious(): Boolean = false
+    override fun nextIndex(): Int = 0
+    override fun previousIndex(): Int = -1
+    override fun next(): Nothing = throw NoSuchElementException()
+    override fun previous(): Nothing = throw NoSuchElementException()
+}
+
+internal object EmptyList : List<Nothing>, Serializable, RandomAccess {
+    private const val serialVersionUID: Long = -7390468764508069838L
+
+    override fun equals(other: Any?): Boolean = other is List<*> && other.isEmpty()
+    override fun hashCode(): Int = 1
+    override fun toString(): String = "[]"
+
+    override val size: Int get() = 0
+    override fun isEmpty(): Boolean = true
+    override fun contains(element: Nothing): Boolean = false
+    override fun containsAll(elements: Collection<Nothing>): Boolean = elements.isEmpty()
+
+
+
+... [truncated 8692 chars] ...
+
+y<T> {
+    if (collection.isEmpty()) return terminateCollectionToArray(0, array)
+
+    val destination = if (array.size < collection.size) {
+        arrayOfNulls(array, collection.size)
+    } else {
+        array
+    }
+
+    val iterator = collection.iterator()
+    var index = 0
+    while (iterator.hasNext()) {
+        @Suppress("UNCHECKED_CAST")
+        destination[index++] = iterator.next() as T
+    }
+
+    return terminateCollectionToArray(collection.size, destination)
+}
+
+
+internal expect fun <T> terminateCollectionToArray(collectionSize: Int, array: Array<T>): Array<T>

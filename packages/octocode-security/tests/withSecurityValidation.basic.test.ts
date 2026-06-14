@@ -22,8 +22,6 @@ vi.mock('../src/contentSanitizer.js', () => ({
 const mockLogToolCall = vi.fn().mockResolvedValue(undefined);
 const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 const mockIsLoggingEnabled = vi.fn().mockReturnValue(false);
-const mockIsLocalTool = vi.fn().mockReturnValue(false);
-
 const GITHUB_SEARCH_CODE = 'githubSearchCode';
 const GITHUB_SEARCH_REPOSITORIES = 'githubSearchRepositories';
 
@@ -35,7 +33,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
       logToolCall: mockLogToolCall,
       logSessionError: mockLogSessionError,
       isLoggingEnabled: mockIsLoggingEnabled,
-      isLocalTool: mockIsLocalTool,
     });
   });
 
@@ -44,7 +41,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
       logToolCall: undefined,
       logSessionError: undefined,
       isLoggingEnabled: undefined,
-      isLocalTool: undefined,
     });
   });
 

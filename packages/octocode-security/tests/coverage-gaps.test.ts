@@ -796,15 +796,13 @@ describe('withSecurityValidation — coverage gaps', () => {
     expect(result.content[0]?.text).toContain('timed out');
   });
 
-  it('should log local tool calls via withBasicSecurityValidation when conditions met', async () => {
+  it('should log tool calls via withBasicSecurityValidation when logging is enabled', async () => {
     const mockLogToolCall = vi.fn().mockResolvedValue(undefined);
     const mockIsLoggingEnabled = vi.fn().mockReturnValue(true);
-    const mockIsLocalTool = vi.fn().mockReturnValue(true);
 
     configureSecurity({
       logToolCall: mockLogToolCall,
       isLoggingEnabled: mockIsLoggingEnabled,
-      isLocalTool: mockIsLocalTool,
     });
 
     const { ContentSanitizer } = await import('../src/contentSanitizer.js');
@@ -822,7 +820,6 @@ describe('withSecurityValidation — coverage gaps', () => {
     const wrapped = withBasicSecurityValidation(handler, 'local_read_file');
     await wrapped({ path: '/some/file' });
 
-    expect(mockIsLocalTool).toHaveBeenCalledWith('local_read_file');
     expect(mockLogToolCall).toHaveBeenCalled();
   });
 

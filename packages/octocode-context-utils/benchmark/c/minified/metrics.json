@@ -1,0 +1,45 @@
+{
+  "content-view": {
+    "fileName": "content-view.excerpt.txt",
+    "metric": {
+      "bytes": 17413,
+      "cutPercent": 3.8,
+      "durationMs": 1.505
+    },
+    "content": "#include \"builtin.h\"\n#include \"advice.h\"\n#include \"config.h\"\n#include \"environment.h\"\n#include \"lockfile.h\"\n#include \"editor.h\"\n#include \"dir.h\"\n#include \"gettext.h\"\n#include \"pathspec.h\"\n#include \"run-command.h\"\n#include \"object-file.h\"\n#include \"odb.h\"\n#include \"odb/transaction.h\"\n#include \"parse-options.h\"\n#include \"path.h\"\n#include \"preload-index.h\"\n#include \"diff.h\"\n#include \"read-cache.h\"\n#include \"revision.h\"\n#include \"strvec.h\"\n#include \"submodule.h\"\n#include \"add-interactive.h\"\n\nstatic const char * const builtin_add_usage[] = {\n\tN_(\"git add [<options>] [--] <pathspec>...\"),\n\tNULL\n};\nstatic int patch_interactive, add_interactive, edit_interactive;\nstatic struct interactive_options interactive_opts = INTERACTIVE_OPTIONS_INIT;\nstatic int take_worktree_changes;\nstatic int add_renormalize;\nstatic int pathspec_file_nul;\nstatic int include_sparse;\nstatic const char *pathspec_from_file;\n\nstatic int chmod_pathspec(struct repository *repo,\n\t\t\t  struct pathspec *pathspec,\n\t\t\t  char flip,\n\t\t\t  int show_only)\n{\n\tint ret = 0;\n\n\tfor (size_t i = 0; i < repo->index->cache_nr; i++) {\n\t\tstruct cache_entry *ce = repo->index->cache[i];\n\t\tint err;\n\n\t\tif (!include_sparse &&\n\t\t    (ce_skip_worktree(ce) ||\n\t\t     !path_i\n\n... [truncated 15613 chars] ...\n\n (take_worktree_changes && !add_renormalize && !ignore_add_errors &&\n\t    report_path_error(ps_matched, &pathspec))\n\t\texit(128);\n\n\tif (add_new_files)\n\t\texit_status |= add_files(repo, &dir, flags);\n\n\tif (chmod_arg && pathspec.nr)\n\t\texit_status |= chmod_pathspec(repo, &pathspec, chmod_arg[0], show_only);\n\todb_transaction_commit(transaction);\n\nfinish:\n\tif (write_locked_index(repo->index, &lock_file,\n\t\t\t       COMMIT_LOCK | SKIP_IF_UNCHANGED))\n\t\tdie(_(\"unable to write new index file\"));\n\n\tfree(ps_matched);\n\tdir_clear(&dir);\n\tclear_pathspec(&pathspec);\n\treturn exit_status;\n}",
+    "api": "applyContentViewMinification"
+  },
+  "apply-minification": {
+    "fileName": "apply-minification.excerpt.txt",
+    "metric": {
+      "bytes": 17423,
+      "cutPercent": 3.8,
+      "durationMs": 0.601
+    },
+    "content": "\n\n#include \"builtin.h\"\n#include \"advice.h\"\n#include \"config.h\"\n#include \"environment.h\"\n#include \"lockfile.h\"\n#include \"editor.h\"\n#include \"dir.h\"\n#include \"gettext.h\"\n#include \"pathspec.h\"\n#include \"run-command.h\"\n#include \"object-file.h\"\n#include \"odb.h\"\n#include \"odb/transaction.h\"\n#include \"parse-options.h\"\n#include \"path.h\"\n#include \"preload-index.h\"\n#include \"diff.h\"\n#include \"read-cache.h\"\n#include \"revision.h\"\n#include \"strvec.h\"\n#include \"submodule.h\"\n#include \"add-interactive.h\"\n\nstatic const char * const builtin_add_usage[] = {\n\tN_(\"git add [<options>] [--] <pathspec>...\"),\n\tNULL\n};\nstatic int patch_interactive, add_interactive, edit_interactive;\nstatic struct interactive_options interactive_opts = INTERACTIVE_OPTIONS_INIT;\nstatic int take_worktree_changes;\nstatic int add_renormalize;\nstatic int pathspec_file_nul;\nstatic int include_sparse;\nstatic const char *pathspec_from_file;\n\nstatic int chmod_pathspec(struct repository *repo,\n\t\t\t  struct pathspec *pathspec,\n\t\t\t  char flip,\n\t\t\t  int show_only)\n{\n\tint ret = 0;\n\n\tfor (size_t i = 0; i < repo->index->cache_nr; i++) {\n\t\tstruct cache_entry *ce = repo->index->cache[i];\n\t\tint err;\n\n\t\tif (!include_sparse &&\n\t\t    (ce_skip_worktree(ce) ||\n\t\t     !path\n\n... [truncated 15623 chars] ...\n\n (take_worktree_changes && !add_renormalize && !ignore_add_errors &&\n\t    report_path_error(ps_matched, &pathspec))\n\t\texit(128);\n\n\tif (add_new_files)\n\t\texit_status |= add_files(repo, &dir, flags);\n\n\tif (chmod_arg && pathspec.nr)\n\t\texit_status |= chmod_pathspec(repo, &pathspec, chmod_arg[0], show_only);\n\todb_transaction_commit(transaction);\n\nfinish:\n\tif (write_locked_index(repo->index, &lock_file,\n\t\t\t       COMMIT_LOCK | SKIP_IF_UNCHANGED))\n\t\tdie(_(\"unable to write new index file\"));\n\n\tfree(ps_matched);\n\tdir_clear(&dir);\n\tclear_pathspec(&pathspec);\n\treturn exit_status;\n}",
+    "api": "applyMinification"
+  },
+  "minify-content-sync": {
+    "fileName": "minify-content-sync.excerpt.txt",
+    "metric": {
+      "bytes": 17423,
+      "cutPercent": 3.8,
+      "durationMs": 0.6
+    },
+    "content": "\n\n#include \"builtin.h\"\n#include \"advice.h\"\n#include \"config.h\"\n#include \"environment.h\"\n#include \"lockfile.h\"\n#include \"editor.h\"\n#include \"dir.h\"\n#include \"gettext.h\"\n#include \"pathspec.h\"\n#include \"run-command.h\"\n#include \"object-file.h\"\n#include \"odb.h\"\n#include \"odb/transaction.h\"\n#include \"parse-options.h\"\n#include \"path.h\"\n#include \"preload-index.h\"\n#include \"diff.h\"\n#include \"read-cache.h\"\n#include \"revision.h\"\n#include \"strvec.h\"\n#include \"submodule.h\"\n#include \"add-interactive.h\"\n\nstatic const char * const builtin_add_usage[] = {\n\tN_(\"git add [<options>] [--] <pathspec>...\"),\n\tNULL\n};\nstatic int patch_interactive, add_interactive, edit_interactive;\nstatic struct interactive_options interactive_opts = INTERACTIVE_OPTIONS_INIT;\nstatic int take_worktree_changes;\nstatic int add_renormalize;\nstatic int pathspec_file_nul;\nstatic int include_sparse;\nstatic const char *pathspec_from_file;\n\nstatic int chmod_pathspec(struct repository *repo,\n\t\t\t  struct pathspec *pathspec,\n\t\t\t  char flip,\n\t\t\t  int show_only)\n{\n\tint ret = 0;\n\n\tfor (size_t i = 0; i < repo->index->cache_nr; i++) {\n\t\tstruct cache_entry *ce = repo->index->cache[i];\n\t\tint err;\n\n\t\tif (!include_sparse &&\n\t\t    (ce_skip_worktree(ce) ||\n\t\t     !path\n\n... [truncated 15623 chars] ...\n\n (take_worktree_changes && !add_renormalize && !ignore_add_errors &&\n\t    report_path_error(ps_matched, &pathspec))\n\t\texit(128);\n\n\tif (add_new_files)\n\t\texit_status |= add_files(repo, &dir, flags);\n\n\tif (chmod_arg && pathspec.nr)\n\t\texit_status |= chmod_pathspec(repo, &pathspec, chmod_arg[0], show_only);\n\todb_transaction_commit(transaction);\n\nfinish:\n\tif (write_locked_index(repo->index, &lock_file,\n\t\t\t       COMMIT_LOCK | SKIP_IF_UNCHANGED))\n\t\tdie(_(\"unable to write new index file\"));\n\n\tfree(ps_matched);\n\tdir_clear(&dir);\n\tclear_pathspec(&pathspec);\n\treturn exit_status;\n}",
+    "api": "minifyContentSync"
+  },
+  "minify-content-async": {
+    "fileName": "minify-content-async.excerpt.txt",
+    "metric": {
+      "bytes": 17423,
+      "cutPercent": 3.8,
+      "durationMs": 0.782,
+      "failed": false,
+      "type": "conservative",
+      "reason": null
+    },
+    "content": "\n\n#include \"builtin.h\"\n#include \"advice.h\"\n#include \"config.h\"\n#include \"environment.h\"\n#include \"lockfile.h\"\n#include \"editor.h\"\n#include \"dir.h\"\n#include \"gettext.h\"\n#include \"pathspec.h\"\n#include \"run-command.h\"\n#include \"object-file.h\"\n#include \"odb.h\"\n#include \"odb/transaction.h\"\n#include \"parse-options.h\"\n#include \"path.h\"\n#include \"preload-index.h\"\n#include \"diff.h\"\n#include \"read-cache.h\"\n#include \"revision.h\"\n#include \"strvec.h\"\n#include \"submodule.h\"\n#include \"add-interactive.h\"\n\nstatic const char * const builtin_add_usage[] = {\n\tN_(\"git add [<options>] [--] <pathspec>...\"),\n\tNULL\n};\nstatic int patch_interactive, add_interactive, edit_interactive;\nstatic struct interactive_options interactive_opts = INTERACTIVE_OPTIONS_INIT;\nstatic int take_worktree_changes;\nstatic int add_renormalize;\nstatic int pathspec_file_nul;\nstatic int include_sparse;\nstatic const char *pathspec_from_file;\n\nstatic int chmod_pathspec(struct repository *repo,\n\t\t\t  struct pathspec *pathspec,\n\t\t\t  char flip,\n\t\t\t  int show_only)\n{\n\tint ret = 0;\n\n\tfor (size_t i = 0; i < repo->index->cache_nr; i++) {\n\t\tstruct cache_entry *ce = repo->index->cache[i];\n\t\tint err;\n\n\t\tif (!include_sparse &&\n\t\t    (ce_skip_worktree(ce) ||\n\t\t     !path\n\n... [truncated 15623 chars] ...\n\n (take_worktree_changes && !add_renormalize && !ignore_add_errors &&\n\t    report_path_error(ps_matched, &pathspec))\n\t\texit(128);\n\n\tif (add_new_files)\n\t\texit_status |= add_files(repo, &dir, flags);\n\n\tif (chmod_arg && pathspec.nr)\n\t\texit_status |= chmod_pathspec(repo, &pathspec, chmod_arg[0], show_only);\n\todb_transaction_commit(transaction);\n\nfinish:\n\tif (write_locked_index(repo->index, &lock_file,\n\t\t\t       COMMIT_LOCK | SKIP_IF_UNCHANGED))\n\t\tdie(_(\"unable to write new index file\"));\n\n\tfree(ps_matched);\n\tdir_clear(&dir);\n\tclear_pathspec(&pathspec);\n\treturn exit_status;\n}",
+    "api": "minifyContent"
+  }
+}

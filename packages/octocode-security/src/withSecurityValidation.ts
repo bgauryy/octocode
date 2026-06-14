@@ -22,7 +22,6 @@ export interface SecurityDepsConfig {
   ) => Promise<void>;
   logSessionError?: (toolName: string, errorCode: string) => Promise<void>;
   isLoggingEnabled?: () => boolean;
-  isLocalTool?: (name: string) => boolean;
 }
 
 let _deps: SecurityDepsConfig = {};
@@ -75,6 +74,17 @@ function withToolTimeout(
 
     signal?.addEventListener('abort', onAbort, { once: true });
 
+    // Re-check after listener registration to close the race window between
+    // the pre-check above and the addEventListener call.
+    if (signal?.aborted) {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      resolve(
+        createErrorResult(`Tool '${toolName}' was cancelled before execution.`)
+      );
+      return;
+    }
+
     promise
       .then(result => {
         clearTimeout(timer);
@@ -93,6 +103,69 @@ function withToolTimeout(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Shared core — both public wrappers delegate here.
+// ---------------------------------------------------------------------------
+
+interface RunSecureOptions<T extends Record<string, unknown>, TAuth> {
+  toolName: string;
+  handler: (
+    sanitizedArgs: T,
+    authInfo?: TAuth,
+    sessionId?: string
+  ) => Promise<ToolResult>;
+  args: unknown;
+  authInfo?: TAuth;
+  sessionId?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+async function runSecure<T extends Record<string, unknown>, TAuth>(
+  opts: RunSecureOptions<T, TAuth>
+): Promise<ToolResult> {
+  const { toolName, handler, args, authInfo, sessionId, signal, timeoutMs } =
+    opts;
+  try {
+    const sanitizer = getSanitizer();
+    const validation = sanitizer.validateInputParameters(
+      args as Record<string, unknown>
+    );
+    if (!validation.isValid) {
+      return createErrorResult(
+        `Security validation failed: ${validation.warnings.join('; ')}`
+      );
+    }
+    const sanitizedParams = validation.sanitizedParams as Record<
+      string,
+      unknown
+    >;
+    const rawResult = await withToolTimeout(
+      toolName,
+      handler(sanitizedParams as T, authInfo, sessionId),
+      signal,
+      timeoutMs
+    );
+    if (!rawResult.isError && _deps.isLoggingEnabled?.()) {
+      handleBulk(toolName, sanitizedParams);
+    }
+    return rawResult;
+  } catch (error) {
+    _deps
+      .logSessionError?.(toolName, SECURITY_VALIDATION_FAILED_CODE)
+      .catch(() => {});
+    return createErrorResult(
+      `Security validation error: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export function withSecurityValidation<
   T extends Record<string, unknown>,
   TAuth = unknown,
@@ -108,49 +181,23 @@ export function withSecurityValidation<
   args: unknown,
   extra: { authInfo?: TAuth; sessionId?: string; signal?: AbortSignal }
 ) => Promise<ToolResult> {
-  const toolTimeoutMs = options?.timeoutMs;
-  return async (
+  return (
     args: unknown,
     {
       authInfo,
       sessionId,
       signal,
     }: { authInfo?: TAuth; sessionId?: string; signal?: AbortSignal } = {}
-  ): Promise<ToolResult> => {
-    try {
-      const sanitizer = getSanitizer();
-      const validation = sanitizer.validateInputParameters(
-        args as Record<string, unknown>
-      );
-      if (!validation.isValid) {
-        return createErrorResult(
-          `Security validation failed: ${validation.warnings.join('; ')}`
-        );
-      }
-      const sanitizedParams = validation.sanitizedParams as Record<
-        string,
-        unknown
-      >;
-      const rawResult = await withToolTimeout(
-        toolName,
-        toolHandler(validation.sanitizedParams as T, authInfo, sessionId),
-        signal,
-        toolTimeoutMs
-      );
-      if (_deps.isLoggingEnabled?.()) {
-        handleBulk(toolName, sanitizedParams);
-      }
-      return rawResult;
-    } catch (error) {
-      _deps
-        .logSessionError?.(toolName, SECURITY_VALIDATION_FAILED_CODE)
-        .catch(() => {});
-
-      return createErrorResult(
-        `Security validation error: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
-  };
+  ) =>
+    runSecure<T, TAuth>({
+      toolName,
+      handler: toolHandler,
+      args,
+      authInfo,
+      sessionId,
+      signal,
+      timeoutMs: options?.timeoutMs,
+    });
 }
 
 export function withBasicSecurityValidation<T extends object>(
@@ -158,56 +205,18 @@ export function withBasicSecurityValidation<T extends object>(
   toolName?: string,
   options?: { timeoutMs?: number }
 ): (args: unknown, extra?: { signal?: AbortSignal }) => Promise<ToolResult> {
-  const toolTimeoutMs = options?.timeoutMs;
-  return async (
-    args: unknown,
-    extra?: { signal?: AbortSignal }
-  ): Promise<ToolResult> => {
-    const signal = extra?.signal;
-    try {
-      const sanitizer = getSanitizer();
-      const validation = sanitizer.validateInputParameters(
-        args as Record<string, unknown>
-      );
-
-      if (!validation.isValid) {
-        return createErrorResult(
-          `Security validation failed: ${validation.warnings.join('; ')}`
-        );
-      }
-
-      const rawResult = await withToolTimeout(
-        toolName || 'tool',
-        toolHandler(validation.sanitizedParams as T),
-        signal,
-        toolTimeoutMs
-      );
-      if (
-        toolName &&
-        _deps.isLocalTool?.(toolName) &&
-        _deps.isLoggingEnabled?.() &&
-        validation.sanitizedParams &&
-        typeof validation.sanitizedParams === 'object'
-      ) {
-        handleBulk(
-          toolName,
-          validation.sanitizedParams as Record<string, unknown>
-        );
-      }
-      return rawResult;
-    } catch (error) {
-      _deps
-        .logSessionError?.(
-          toolName || 'basic_security_validation',
-          SECURITY_VALIDATION_FAILED_CODE
-        )
-        .catch(() => {});
-
-      return createErrorResult(
-        `Security validation error: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
-  };
+  // Adapt the no-auth handler to the generic signature expected by runSecure.
+  const handler = (sanitizedArgs: Record<string, unknown>) =>
+    toolHandler(sanitizedArgs as T);
+  const effectiveName = toolName ?? 'tool';
+  return (args: unknown, extra?: { signal?: AbortSignal }) =>
+    runSecure({
+      toolName: effectiveName,
+      handler,
+      args,
+      signal: extra?.signal,
+      timeoutMs: options?.timeoutMs,
+    });
 }
 
 function handleBulk(toolName: string, params: Record<string, unknown>): void {

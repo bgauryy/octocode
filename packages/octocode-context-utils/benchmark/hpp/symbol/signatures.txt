@@ -1,0 +1,53 @@
+  8| #ifndef FMT_COLOR_H_
+  9| #define FMT_COLOR_H_
+ 11| #include "format.h"
+ 13| FMT_BEGIN_NAMESPACE
+ 14| FMT_BEGIN_EXPORT
+ 16| enum class color : uint32_t {
+ 17|   alice_blue = 0xF0F8FF,               // rgb(240,248,255)
+ 18|   antique_white = 0xFAEBD7,            // rgb(250,235,215)
+ 19|   aqua = 0x00FFFF,                     // rgb(0,255,255)
+ 20|   aquamarine = 0x7FFFD4,               // rgb(127,255,212)
+ 21|   azure = 0xF0FFFF,                    // rgb(240,255,255)
+ 22|   beige = 0xF5F5DC,                    // rgb(245,245,220)
+ 23|   bisque = 0xFFE4C4,                   // rgb(255,228,196)
+ 24|   black = 0x000000,                    // rgb(0,0,0)
+ 25|   blanched_almond = 0xFFEBCD,          // rgb(255,235,205)
+ 26|   blue = 0x0000FF,                     // rgb(0,0,255)
+ 27|   blue_violet = 0x8A2BE2,              // rgb(138,43,226)
+ 28|   brown = 0xA52A2A,                    // rgb(165,42,42)
+ 29|   burly_wood = 0xDEB887,               // rgb(222,184,135)
+ 30|   cadet_blue = 0x5F9EA0,               // rgb(95,158,160)
+ 31|   chartreuse = 0x7FFF00,               // rgb(127,255,0)
+ 32|   chocolate = 0xD2691E,                // rgb(210,105,30)
+ 33|   coral = 0xFF7F50,                    // rgb(255,127,80)
+ 34|   cornflower_blue = 0x6495ED,          // rgb(100,149,237)
+ 35|   cornsilk = 0xFFF8DC,                 // rgb(255,248,220)
+ 36|   crimson = 0xDC143C,                  // rgb(220,20,60)
+ 37|   cyan = 0x00FFFF,                     // rgb(0,255,255)
+ 38|   dark_blue = 0x00008B,                // rgb(0,0,139)
+ 39|   dark_cyan = 0x008B8B,                // rgb(0,139,139)
+ 40|   dark_golden_rod = 0xB8860B,          // rgb(184,134,11)
+ 41|   dark_gray = 0xA9A9A9,                // rgb(169,169,169)
+ 42|   dark_green = 0x006400,
+
+... [truncated 12759 chars] ...
+
+rmat_args args)
+596|     -> OutputIt {
+612| template <typename OutputIt, typename... T,
+613|           FMT_ENABLE_IF(detail::is_output_iterator<OutputIt, char>::value)>
+614| inline auto format_to(OutputIt out, text_style ts, format_string<T...> fmt,
+615|                       T&&... args) -> OutputIt {
+619| template <typename T, typename Char>
+620| struct formatter<detail::styled_arg<T>, Char> : formatter<T, Char> {
+621|   template <typename FormatContext>
+622|   FMT_CONSTEXPR auto format(const detail::styled_arg<T>& arg,
+623|                             FormatContext& ctx) const -> decltype(ctx.out()) {
+652| };
+664| template <typename T>
+665| FMT_CONSTEXPR auto styled(const T& value, text_style ts)
+666|     -> detail::styled_arg<remove_cvref_t<T>> {
+670| FMT_END_EXPORT
+671| FMT_END_NAMESPACE
+673| #endif  // FMT_COLOR_H_

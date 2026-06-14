@@ -2,7 +2,7 @@
 /**
  * Bundles ripgrep binaries into dist/runtime/rg for each target platform.
  *
- * octocode-security and @octocodeai/octocode-minifier-utils are no longer
+ * octocode-security and @octocodeai/octocode-context-utils are no longer
  * bundled here — they are npm runtime dependencies with per-platform
  * optionalDependencies that npm installs automatically.
  *

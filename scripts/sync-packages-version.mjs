@@ -53,13 +53,13 @@ const MAIN_PACKAGES = [
   'packages/octocode-security',
   'packages/octocode-shared',
   'packages/octocode-vscode',
-  'packages/octocode-minifier-utils',
+  'packages/octocode-context-utils',
 ];
 
 /** npm sub-package roots — discovered automatically */
 function findNpmSubPackages() {
   const results = [];
-  for (const pkg of ['packages/octocode-minifier-utils', 'packages/octocode-security']) {
+  for (const pkg of ['packages/octocode-context-utils', 'packages/octocode-security']) {
     const npmDir = join(ROOT, pkg, 'npm');
     try {
       for (const entry of readdirSync(npmDir)) {

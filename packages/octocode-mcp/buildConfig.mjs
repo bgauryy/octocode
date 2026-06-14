@@ -23,7 +23,7 @@ export const nodeExternals = [
 //
 //
 // All runtime dependencies are external — installed via npm and loaded at runtime.
-// octocode-security and @octocodeai/octocode-minifier-utils ship their own
+// octocode-security and @octocodeai/octocode-context-utils ship their own
 // per-platform optionalDependencies; npm installs the right .node for each user.
 export const bundledRuntimeDependencies = new Set([]);
 

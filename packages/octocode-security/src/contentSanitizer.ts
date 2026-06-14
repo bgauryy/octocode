@@ -1,6 +1,6 @@
 import { nativeSanitizeContent } from './native.js';
 import type { SensitiveDataPattern } from './types.js';
-import type { SanitizationResult, ValidationResult } from './types.js';
+import type { ISanitizer, SanitizationResult, ValidationResult } from './types.js';
 import { securityRegistry } from './registry.js';
 
 const MAX_STRING_LENGTH = 10_000;
@@ -118,8 +118,8 @@ function jsDetectSecrets(
   }
 }
 
-export class ContentSanitizer {
-  static sanitizeContent(
+export const ContentSanitizer: ISanitizer = {
+  sanitizeContent(
     content: string,
     filePath?: string,
     patterns?: SensitiveDataPattern[]
@@ -174,14 +174,14 @@ export class ContentSanitizer {
       secretsDetected: rustResult.secretsDetected,
       warnings: rustResult.warnings,
     };
-  }
+  },
 
-  static validateInputParameters(
+  validateInputParameters(
     params: Record<string, unknown>
   ): ValidationResult {
     return validateRecursive(params, 0, new WeakSet<object>());
-  }
-}
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Pure-TS recursive validation (identical logic to former octocode-security-utils)
@@ -189,7 +189,7 @@ export class ContentSanitizer {
 function validateRecursive(
   params: Record<string, unknown>,
   depth: number,
-  visited: WeakSet<object>
+  ancestorStack: WeakSet<object>
 ): ValidationResult {
   if (!params || typeof params !== 'object') {
     return {
@@ -207,10 +207,10 @@ function validateRecursive(
       warnings: ['Maximum nesting depth exceeded'],
     };
   }
-  // `visited` tracks the CURRENT recursion path only (entries are removed on
-  // exit) so a DAG — the same object under two sibling keys — is legal while
-  // a true cycle is still caught.
-  if (visited.has(params)) {
+  // `ancestorStack` tracks only the CURRENT recursion path (entries removed on
+  // exit), so a DAG — the same object appearing under two sibling keys — is
+  // legal while a true cycle is still caught.
+  if (ancestorStack.has(params)) {
     return {
       sanitizedParams: {},
       isValid: false,
@@ -218,7 +218,7 @@ function validateRecursive(
       warnings: ['Circular reference detected'],
     };
   }
-  visited.add(params);
+  ancestorStack.add(params);
 
   const sanitizedParams: Record<string, unknown> = {};
   const warnings = new Set<string>();
@@ -245,10 +245,10 @@ function validateRecursive(
         );
         v = v.substring(0, MAX_STRING_LENGTH);
       }
-      const r = ContentSanitizer.sanitizeContent(v);
+      const r = ContentSanitizer.sanitizeContent(v, undefined);
       if (r.hasSecrets) {
         hasSecrets = true;
-        r.secretsDetected.forEach(s =>
+        r.secretsDetected.forEach((s: string) =>
           warnings.add(`Secrets detected in ${key}: ${s}`)
         );
       }
@@ -268,7 +268,7 @@ function validateRecursive(
       let arrHasErrors = false;
       const sanitizedArr = truncated.map(item => {
         if (typeof item === 'string') {
-          const r = ContentSanitizer.sanitizeContent(item);
+          const r = ContentSanitizer.sanitizeContent(item, undefined);
           if (r.hasSecrets) {
             arrHasSecrets = true;
           }
@@ -278,7 +278,7 @@ function validateRecursive(
           const r = validateRecursive(
             item as Record<string, unknown>,
             depth + 1,
-            visited
+            ancestorStack
           );
           if (r.hasSecrets) arrHasSecrets = true;
           if (!r.isValid) {
@@ -296,7 +296,7 @@ function validateRecursive(
       const r = validateRecursive(
         value as Record<string, unknown>,
         depth + 1,
-        visited
+        ancestorStack
       );
       if (r.hasSecrets) hasSecrets = true;
       if (!r.isValid) {
@@ -312,7 +312,7 @@ function validateRecursive(
     }
   }
 
-  visited.delete(params);
+  ancestorStack.delete(params);
 
   return {
     sanitizedParams,

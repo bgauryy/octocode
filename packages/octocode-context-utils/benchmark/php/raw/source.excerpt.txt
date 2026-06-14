@@ -1,0 +1,76 @@
+<?php
+
+namespace Illuminate\Support;
+
+use ArgumentCountError;
+use ArrayAccess;
+use Closure;
+use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Contracts\Support\Jsonable;
+use Illuminate\Support\Traits\Macroable;
+use InvalidArgumentException;
+use JsonSerializable;
+use Random\Randomizer;
+use Traversable;
+use WeakMap;
+
+class Arr
+{
+    use Macroable;
+
+    /**
+     * Determine whether the given value is array accessible.
+     *
+     * @param  mixed  $value
+     * @return bool
+     */
+    public static function accessible($value)
+    {
+        return is_array($value) || $value instanceof ArrayAccess;
+    }
+
+    /**
+     * Determine whether the given value is arrayable.
+     *
+     * @param  mixed  $value
+     * @return ($value is array
+     *     ? true
+     *     : ($value is \Illuminate\Contracts\Support\Arrayable
+     *         ? true
+     *         : ($value is \Traversable
+     *             ? true
+     *             : ($value is \Illuminate\Contracts\Support\Jsonable
+     *                 ? true
+     *                 : ($value is \JsonSerializable ? true : false)
+     *             )
+     *         )
+     *     )
+     * )
+     */
+    public static function arrayable($value)
+    {
+        return
+
+... [truncated 33669 chars] ...
+
+     return static::where($array, fn ($value) => ! is_null($value));
+    }
+
+    /**
+     * If the given value is not an array and not null, wrap it in one.
+     *
+     * @template TKey of array-key = array-key
+     * @template TValue
+     *
+     * @param  array<TKey, TValue>|TValue|null  $value
+     * @return ($value is null ? array{} : ($value is array ? array<TKey, TValue> : array{TValue}))
+     */
+    public static function wrap($value)
+    {
+        if (is_null($value)) {
+            return [];
+        }
+
+        return is_array($value) ? $value : [$value];
+    }
+}

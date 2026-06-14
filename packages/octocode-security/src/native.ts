@@ -6,6 +6,7 @@ import { createRequire } from 'module';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { allRegexPatterns } from './regexes/index.js';
+import { maskEveryOtherChar } from './maskUtils.js';
 
 const _require = createRequire(import.meta.url);
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -105,14 +106,6 @@ function sanitizeContentJsFallback(
   }
 }
 
-function maskEveryOtherCharacter(text: string): string {
-  let result = '';
-  for (let i = 0; i < text.length; i++) {
-    result += i % 2 === 0 ? '*' : text[i];
-  }
-  return result;
-}
-
 function maskSensitiveDataJsFallback(text: string): string {
   if (!text) return text;
 
@@ -148,7 +141,7 @@ function maskSensitiveDataJsFallback(text: string): string {
     const { start, end } = nonOverlapping[i]!;
     result =
       result.slice(0, start) +
-      maskEveryOtherCharacter(text.slice(start, end)) +
+      maskEveryOtherChar(text.slice(start, end)) +
       result.slice(end);
   }
   return result;

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   PathValidator,
   pathValidator,
-  reinitializePathValidator,
+  resetPathValidator,
 } from '../src/pathValidator.js';
 import os from 'os';
 import fs from 'fs';
@@ -332,14 +332,14 @@ describe('PathValidator', () => {
     });
   });
 
-  describe('reinitializePathValidator', () => {
+  describe('resetPathValidator', () => {
     afterEach(() => {
-      reinitializePathValidator();
+      resetPathValidator();
     });
 
     it('should reinitialize the global validator', () => {
       const customRoot = '/tmp';
-      reinitializePathValidator({
+      resetPathValidator({
         workspaceRoot: customRoot,
         includeHomeDir: false,
       });
@@ -349,7 +349,7 @@ describe('PathValidator', () => {
     });
 
     it('should return the pathValidator singleton', () => {
-      const result = reinitializePathValidator();
+      const result = resetPathValidator();
       expect(result).toBe(pathValidator);
     });
 
@@ -360,7 +360,7 @@ describe('PathValidator', () => {
         includeHomeDir: false,
       });
 
-      reinitializePathValidator({
+      resetPathValidator({
         workspaceRoot: '/tmp',
         additionalRoots: ['/var'],
         includeHomeDir: false,

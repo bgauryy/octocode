@@ -5,7 +5,7 @@ import {
   applyContentViewMinification,
   extractSignatures,
   SIGNATURES_ONLY_HINT,
-} from '@octocodeai/octocode-minifier-utils';
+} from '@octocodeai/octocode-context-utils';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyPagination,
@@ -603,7 +603,11 @@ function buildSuccessResult(
   // (char-limit mode) and the cut landed mid-block.
   let nextBlockChar: number | undefined;
   const midBlockHints: string[] = [];
-  if (pagination.hasMore && chunkMode === 'char-limit' && isMidBlockCut(pagination.paginatedContent)) {
+  if (
+    pagination.hasMore &&
+    chunkMode === 'char-limit' &&
+    isMidBlockCut(pagination.paginatedContent)
+  ) {
     const cutPos = pagination.charOffset + pagination.charLength;
     nextBlockChar = findNextBlockBoundary(outputContent, cutPos, queryPath);
     if (nextBlockChar !== undefined) {

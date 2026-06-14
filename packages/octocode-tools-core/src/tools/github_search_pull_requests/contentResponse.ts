@@ -3,7 +3,7 @@ import type { NormalizedPrContentRequest } from './contentRequest.js';
 import {
   applyContentViewMinification,
   minifyMarkdownCore,
-} from '@octocodeai/octocode-minifier-utils';
+} from '@octocodeai/octocode-context-utils';
 
 type QueryLike = {
   owner?: string;

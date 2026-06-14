@@ -1,0 +1,62 @@
+import {
+    CharacterCodes,
+    Comparer,
+    Comparison,
+    Debug,
+    EqualityComparer,
+    MapLike,
+    Queue,
+    SortedArray,
+    SortedReadonlyArray,
+    TextSpan,
+} from "./_namespaces/ts.js";
+
+/* eslint-disable @typescript-eslint/prefer-for-of */
+
+/** @internal */
+export const emptyArray: never[] = [] as never[];
+/** @internal */
+export const emptyMap: ReadonlyMap<never, never> = new Map<never, never>();
+
+/** @internal */
+export function length(array: readonly any[] | undefined): number {
+    return array !== undefined ? array.length : 0;
+}
+
+/**
+ * Iterates through 'array' by index and performs the callback on each element of array until the callback
+ * returns a truthy value, then returns that value.
+ * If no such value is found, the callback is applied to each element of array and undefined is returned.
+ *
+ * @internal
+ */
+export function forEach<T, U>(array: readonly T[] | undefined, callback: (element: T, index: number) => U | undefined): U | undefined {
+    if (array !== undefined) {
+        for (let i = 0; i < array.length; i++) {
+            const result = callback(array[i], i);
+            if (result) {
+                return result;
+            }
+
+
+... [truncated 90615 chars] ...
+
+ay !== undefined) {
+        const len = array.length;
+        let index = 0;
+        while (index < len && predicate(array[index])) {
+            index++;
+        }
+        return array.slice(index) as Exclude<T, U>[];
+    }
+}
+
+/** @internal */
+export function isNodeLikeSystem(): boolean {
+    // This is defined here rather than in sys.ts to prevent a cycle from its
+    // use in performanceCore.ts.
+    return typeof process !== "undefined"
+        && !!process.nextTick
+        && !(process as any).browser
+        && typeof require !== "undefined";
+}

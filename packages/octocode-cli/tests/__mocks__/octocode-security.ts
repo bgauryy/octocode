@@ -14,20 +14,22 @@ export const nativeSanitizeContent = (content: string) => ({
 });
 export const nativePatternCount = () => 0;
 
-export class ContentSanitizer {
-  static sanitizeContent(content: string) {
-    return {
-      content,
-      warnings: [],
-      hasSecrets: false,
-      secretsDetected: [],
-    };
-  }
+const _sanitizeContentNoop = (content: string) => ({
+  content,
+  warnings: [],
+  hasSecrets: false,
+  secretsDetected: [],
+});
 
-  sanitizeContent(content: string) {
-    return ContentSanitizer.sanitizeContent(content);
-  }
-}
+export const ContentSanitizer = {
+  sanitizeContent: _sanitizeContentNoop,
+  validateInputParameters: (params: Record<string, unknown>) => ({
+    sanitizedParams: params,
+    isValid: true,
+    hasSecrets: false,
+    warnings: [],
+  }),
+};
 
 export class PathValidator {
   isAllowed(_path: string) {
@@ -39,7 +41,7 @@ export class PathValidator {
 }
 
 export const pathValidator = new PathValidator();
-export const reinitializePathValidator = () => pathValidator;
+export const resetPathValidator = () => pathValidator;
 
 export const validateCommand = (_cmd: string) => ({ valid: true });
 export const normalizeCommandName = (cmd: string) => cmd;

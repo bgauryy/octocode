@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   findNextBlockBoundary,
   isMidBlockCut,
+  snapToSemanticBoundary,
 } from '@octocodeai/octocode-tools-core';
 
 // ── isMidBlockCut ─────────────────────────────────────────────────────────────
@@ -29,6 +30,94 @@ describe('isMidBlockCut', () => {
 
   it('returns false for empty content', () => {
     expect(isMidBlockCut('')).toBe(false);
+  });
+});
+
+// ── snapToSemanticBoundary ───────────────────────────────────────────────────
+
+describe('snapToSemanticBoundary', () => {
+  it('extends supported code pages to the next semantic boundary', () => {
+    const content = [
+      'export function first() {',
+      '  const value = 1;',
+      '  return value;',
+      '}',
+      '',
+      'export function second() {',
+      '  return 2;',
+      '}',
+    ].join('\n');
+
+    const requestedLength = content.indexOf('  const value');
+    const secondFunction = content.indexOf('export function second');
+
+    expect(
+      snapToSemanticBoundary(content, 0, requestedLength, 'sample.ts')
+    ).toEqual({
+      length: secondFunction,
+      chunkMode: 'semantic',
+    });
+  });
+
+  it('keeps unsupported prose/data formats on exact char-limit pages', () => {
+    const content = [
+      'plain line one with no semantic meaning',
+      'plain line two with no semantic meaning',
+      'plain line three with no semantic meaning',
+      'plain line four with no semantic meaning',
+    ].join('\n');
+
+    for (const filePath of [
+      'notes.txt',
+      'runtime.log',
+      'data.json',
+      'config.yml',
+      'Cargo.toml',
+      'settings.ini',
+      'feed.xml',
+      'image.svg',
+      'README.rst',
+    ]) {
+      const requestedLength = 42;
+      expect(
+        snapToSemanticBoundary(content, 0, requestedLength, filePath)
+      ).toEqual({
+        length: requestedLength,
+        chunkMode: 'char-limit',
+      });
+      expect(
+        findNextBlockBoundary(content, requestedLength, filePath)
+      ).toBeUndefined();
+    }
+  });
+
+  it('uses char-limit for giant blocks and leaves a next boundary for hints', () => {
+    const hugeBody = '  const value = 1;\n'.repeat(600);
+    const content = [
+      'export function first() {',
+      hugeBody,
+      '}',
+      '',
+      'export function second() {',
+      '  return 2;',
+      '}',
+    ].join('\n');
+
+    const requestedLength = 120;
+    const snap = snapToSemanticBoundary(
+      content,
+      0,
+      requestedLength,
+      'sample.ts'
+    );
+
+    expect(snap).toEqual({
+      length: requestedLength,
+      chunkMode: 'char-limit',
+    });
+    expect(findNextBlockBoundary(content, requestedLength, 'sample.ts')).toBe(
+      content.indexOf('export function second')
+    );
   });
 });
 
@@ -67,7 +156,11 @@ describe('findNextBlockBoundary — TS/JS', () => {
 
   it('returns undefined when no boundary exists after cut', () => {
     // Cut at the very end — no more top-level definitions
-    const result = findNextBlockBoundary(content, content.length - 2, 'file.ts');
+    const result = findNextBlockBoundary(
+      content,
+      content.length - 2,
+      'file.ts'
+    );
     expect(result).toBeUndefined();
   });
 });
@@ -135,7 +228,9 @@ describe('findNextBlockBoundary — Go', () => {
     const result = findNextBlockBoundary(content, cutPos, 'main.go');
     expect(result).toBeDefined();
     const boundary = content.substring(result!);
-    expect(boundary.startsWith('func Bar()') || boundary.startsWith('type MyStruct')).toBe(true);
+    expect(
+      boundary.startsWith('func Bar()') || boundary.startsWith('type MyStruct')
+    ).toBe(true);
   });
 });
 
@@ -171,7 +266,9 @@ describe('findNextBlockBoundary — Rust', () => {
     const result = findNextBlockBoundary(content, cutPos, 'lib.rs');
     expect(result).toBeDefined();
     const boundary = content.substring(result!);
-    expect(boundary.startsWith('pub struct Baz') || boundary.startsWith('}')).toBe(true);
+    expect(
+      boundary.startsWith('pub struct Baz') || boundary.startsWith('}')
+    ).toBe(true);
   });
 });
 
@@ -286,7 +383,9 @@ describe('findNextBlockBoundary — Scala', () => {
     const result = findNextBlockBoundary(content, cutPos, 'Counter.scala');
     expect(result).toBeDefined();
     const boundary = content.substring(result!).trimStart();
-    expect(boundary.startsWith('val value') || boundary.startsWith('}')).toBe(true);
+    expect(boundary.startsWith('val value') || boundary.startsWith('}')).toBe(
+      true
+    );
   });
 
   it('finds companion object after the class', () => {

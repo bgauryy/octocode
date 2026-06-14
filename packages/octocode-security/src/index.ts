@@ -16,7 +16,7 @@ export { maskSensitiveData } from './mask.js';
 export {
   PathValidator,
   pathValidator,
-  reinitializePathValidator,
+  resetPathValidator,
 } from './pathValidator.js';
 
 // Command validation

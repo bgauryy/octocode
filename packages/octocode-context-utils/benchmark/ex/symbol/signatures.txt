@@ -1,0 +1,50 @@
+   5| defprotocol Enumerable do
+  19|       def map(enumerable, fun) do
+  51|         def count(struct), do: {:ok, length(struct.items)}
+  52|         def member?(struct, value), do: {:ok, value in struct.items}
+  53|         def slice(struct), do: {:error, __MODULE__}
+  54|         def reduce(struct, acc, fun), do: Enumerable.List.reduce(struct.items, acc, fun)
+  67|       def integers_to_strings(integers) do
+ 177|       def reduce(_list, {:halt, acc}, _fun), do: {:halted, acc}
+ 178|       def reduce(list, {:suspend, acc}, fun), do: {:suspended, acc, &reduce(list, &1, fun)}
+ 179|       def reduce([], {:cont, acc}, _fun), do: {:done, acc}
+ 180|       def reduce([head | tail], {:cont, acc}, fun), do: reduce(tail, fun.(head, acc), fun)
+ 184|   def reduce(enumerable, acc, fun)
+ 196|   def count(enumerable)
+ 212|   def member?(enumerable, element)
+ 248|   def slice(enumerable)
+ 251| defmodule Enum do
+ 355|   def all?(enumerable) when is_list(enumerable) do
+ 359|   def all?(enumerable) do
+ 391|   def all?(enumerable, fun) when is_list(enumerable) do
+ 395|   def all?(first..last//step, fun) do
+ 399|   def all?(enumerable, fun) do
+ 425|   def any?(enumerable) when is_list(enumerable) do
+ 429|   def any?(enumerable) do
+ 456|   def any?(enumerable, fun) when is_list(enumerable) do
+ 460|   def any?(first..last//step, fun) do
+ 464|   def any?(enumerable, fun) do
+ 496|   def at(enumerable, index, default \\ nil) when is_integer(index) do
+ 505|   def chunk(enumerable, count), do: chunk(enumerable, count, count, nil)
+ 509|   def chunk(enum, n, step) do
+ 515|   def chunk(enumerable, count, step, leftover) do
+ 524|   def chunk_every(enumerable, count), do: chunk_every(enumerable, count, count, [])
+ 568|   def chunk_every(enumerable, count, step, leftover
+
+... [truncated 26391 chars] ...
+
+5161|   def reduce(first..last//step, acc, fun) do
+5175|   def unquote(reduce) do
+5180|   defp reduce(_first, _last, {:halt, acc}, _fun, _step) do
+5184|   defp reduce(first, last, {:suspend, acc}, fun, step) do
+5188|   defp reduce(first, last, {:cont, acc}, fun, step)
+5194|   defp reduce(_, _, {:cont, acc}, _fun, _up) do
+5198|   def member?(first..last//step, value) when is_integer(value) and step > 0 do
+5202|   def member?(first..last//step, value) when is_integer(value) and step < 0 do
+5207|   def member?(%{__struct__: Range, first: first, last: last} = range, value)
+5213|   def member?(_, _value) do
+5217|   def count(range) do
+5221|   def slice(first.._//step = range) do
+5232|   def unquote(slice) do
+5237|   defp slice(current, _step, 1), do: [current]
+5239|   defp slice(current, step, remaining) when remaining > 1 do

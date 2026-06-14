@@ -65,7 +65,7 @@
   },
   "devDependencies": {
     "@inquirer/prompts": "^8.1.0",
-    "@octocodeai/octocode-minifier-utils": "workspace:*",
+    "@octocodeai/octocode-context-utils": "workspace:*",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/request": "^10.0.7",

@@ -6,6 +6,14 @@ let _compiledPathRegex: RegExp | null = null;
 let _compiledFileRegex: RegExp | null = null;
 let _cachedVersion = -1;
 
+// Named capture groups (e.g. `(?<name>...)`) cannot be combined with `|` when
+// two or more patterns share the same group name — JavaScript throws a
+// SyntaxError at construction time.  Strip named captures to anonymous groups
+// before joining so the mega-regex is always safe to construct.
+function stripNamedGroups(source: string): string {
+  return source.replace(/\(\?<[^>]+>/g, '(?:');
+}
+
 function invalidateIfNeeded(): void {
   const ver = securityRegistry.version;
   if (ver !== _cachedVersion) {
@@ -23,7 +31,7 @@ function getCompiledPathRegex(): RegExp {
       extra.length > 0
         ? [...IGNORED_PATH_PATTERNS, ...extra]
         : IGNORED_PATH_PATTERNS;
-    _compiledPathRegex = new RegExp(all.map(r => r.source).join('|'));
+    _compiledPathRegex = new RegExp(all.map(r => stripNamedGroups(r.source)).join('|'));
   }
   return _compiledPathRegex;
 }
@@ -36,7 +44,7 @@ function getCompiledFileRegex(): RegExp {
       extra.length > 0
         ? [...IGNORED_FILE_PATTERNS, ...extra]
         : IGNORED_FILE_PATTERNS;
-    _compiledFileRegex = new RegExp(all.map(r => r.source).join('|'));
+    _compiledFileRegex = new RegExp(all.map(r => stripNamedGroups(r.source)).join('|'));
   }
   return _compiledFileRegex;
 }

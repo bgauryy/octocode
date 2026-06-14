@@ -57,8 +57,8 @@ Every published package change needs a version bump for that package. If another
 |---|---|---|
 | `octocode-security` Rust/native code | 6 `octocode-security-*` platform packages, then `octocode-security` | Main package `optionalDependencies`; `octocode-mcp` only if its range changes |
 | `octocode-security` TS/JS only | `octocode-security` | `octocode-mcp` only if its range changes |
-| `@octocodeai/octocode-minifier-utils` Rust/native code | 6 `@octocodeai/octocode-minifier-utils-*` platform packages, then `@octocodeai/octocode-minifier-utils` | Main package `optionalDependencies`; `octocode-mcp` only if its range changes |
-| `@octocodeai/octocode-minifier-utils` JS/package metadata only | `@octocodeai/octocode-minifier-utils` | `octocode-mcp` only if its range changes |
+| `@octocodeai/octocode-context-utils` Rust/native code | 6 `@octocodeai/octocode-context-utils-*` platform packages, then `@octocodeai/octocode-context-utils` | Main package `optionalDependencies`; `octocode-mcp` only if its range changes |
+| `@octocodeai/octocode-context-utils` JS/package metadata only | `@octocodeai/octocode-context-utils` | `octocode-mcp` only if its range changes |
 | `octocode-mcp` | `octocode-mcp` | Nothing else |
 | `octocode-cli` | `octocode-cli` | Homebrew tap formula after npm publish |
 
@@ -67,8 +67,8 @@ Version bump locations:
 ```text
 packages/octocode-security/package.json
 packages/octocode-security/npm/*/package.json
-packages/octocode-minifier-utils/package.json
-packages/octocode-minifier-utils/npm/*/package.json
+packages/octocode-context-utils/package.json
+packages/octocode-context-utils/npm/*/package.json
 packages/octocode-mcp/package.json
 packages/octocode-cli/package.json
 ```
@@ -89,8 +89,8 @@ Publish order is fixed because npm must resolve platform `optionalDependencies` 
 ```text
 1. 6 octocode-security platform packages
 2. octocode-security
-3. 6 @octocodeai/octocode-minifier-utils platform packages
-4. @octocodeai/octocode-minifier-utils
+3. 6 @octocodeai/octocode-context-utils platform packages
+4. @octocodeai/octocode-context-utils
 5. octocode-mcp
 ```
 
@@ -105,7 +105,7 @@ If `octocode-cli` changed, publish it after the MCP runtime assets are built and
 | Runtime asset | npm resolution | Approx platform size |
 |---|---|---|
 | Secret detection | `octocode-security-{platform}` | 1.5 MB |
-| Code minification | `@octocodeai/octocode-minifier-utils-{platform}` | 34 MB |
+| Code minification | `@octocodeai/octocode-context-utils-{platform}` | 34 MB |
 | Ripgrep | `@vscode/ripgrep-{platform}` | 5 MB |
 
 The optional-dependency model keeps the npm tarball near 562 KB and reduces a typical user install from roughly 245 MB to 40-42 MB.
@@ -144,7 +144,7 @@ Triggered by pull requests.
 |---|---|
 | `checks` | `yarn health:check`, `yarn docs:verify`, `yarn lint`, package type builds, `yarn typecheck` |
 | `build-and-test` | Current-platform native build, `yarn build`, output verification, `yarn test` with coverage |
-| `rust-audit` | `cargo audit` for `octocode-security` and `octocode-minifier-utils` |
+| `rust-audit` | `cargo audit` for `octocode-security` and `octocode-context-utils` |
 | `pr-validation-complete` | Fails if any required CI job failed |
 
 PR CI builds only the current runner's native `.node` files. Manual release builds must cover the full six-platform matrix.
@@ -155,12 +155,12 @@ Matrix build targets:
 
 | Platform package target | Build command |
 |---|---|
-| `darwin-arm64` | `yarn workspace octocode-security run build:rust:darwin-arm64` and `yarn workspace @octocodeai/octocode-minifier-utils run build:darwin-arm64` |
-| `darwin-x64` | `yarn workspace octocode-security run build:rust:darwin-x64` and `yarn workspace @octocodeai/octocode-minifier-utils run build:darwin-x64` |
-| `linux-x64-gnu` | `yarn workspace octocode-security run build:rust:linux-x64-gnu` and `yarn workspace @octocodeai/octocode-minifier-utils run build:linux-x64-gnu` |
-| `linux-arm64-gnu` | `yarn workspace octocode-security run build:rust:linux-arm64-gnu` and `yarn workspace @octocodeai/octocode-minifier-utils run build:linux-arm64-gnu` |
-| `linux-x64-musl` | `yarn workspace octocode-security run build:rust:linux-x64-musl` and `yarn workspace @octocodeai/octocode-minifier-utils run build:linux-x64-musl` |
-| `win32-x64-msvc` | `yarn workspace octocode-security run build:rust:windows-x64` and `yarn workspace @octocodeai/octocode-minifier-utils run build:windows-x64` |
+| `darwin-arm64` | `yarn workspace octocode-security run build:rust:darwin-arm64` and `yarn workspace @octocodeai/octocode-context-utils run build:darwin-arm64` |
+| `darwin-x64` | `yarn workspace octocode-security run build:rust:darwin-x64` and `yarn workspace @octocodeai/octocode-context-utils run build:darwin-x64` |
+| `linux-x64-gnu` | `yarn workspace octocode-security run build:rust:linux-x64-gnu` and `yarn workspace @octocodeai/octocode-context-utils run build:linux-x64-gnu` |
+| `linux-arm64-gnu` | `yarn workspace octocode-security run build:rust:linux-arm64-gnu` and `yarn workspace @octocodeai/octocode-context-utils run build:linux-arm64-gnu` |
+| `linux-x64-musl` | `yarn workspace octocode-security run build:rust:linux-x64-musl` and `yarn workspace @octocodeai/octocode-context-utils run build:linux-x64-musl` |
+| `win32-x64-msvc` | `yarn workspace octocode-security run build:rust:windows-x64` and `yarn workspace @octocodeai/octocode-context-utils run build:windows-x64` |
 
 Manual publish flow:
 
@@ -178,16 +178,16 @@ cp packages/octocode-security/octocode-security.linux-x64-musl.node packages/oct
 cp packages/octocode-security/octocode-security.linux-arm64-gnu.node packages/octocode-security/npm/linux-arm64-gnu/
 cp packages/octocode-security/octocode-security.win32-x64-msvc.node packages/octocode-security/npm/win32-x64-msvc/
 
-cp packages/octocode-minifier-utils/octocode-minifier-utils.darwin-arm64.node packages/octocode-minifier-utils/npm/darwin-arm64/
-cp packages/octocode-minifier-utils/octocode-minifier-utils.darwin-x64.node packages/octocode-minifier-utils/npm/darwin-x64/
-cp packages/octocode-minifier-utils/octocode-minifier-utils.linux-x64-gnu.node packages/octocode-minifier-utils/npm/linux-x64-gnu/
-cp packages/octocode-minifier-utils/octocode-minifier-utils.linux-x64-musl.node packages/octocode-minifier-utils/npm/linux-x64-musl/
-cp packages/octocode-minifier-utils/octocode-minifier-utils.linux-arm64-gnu.node packages/octocode-minifier-utils/npm/linux-arm64-gnu/
-cp packages/octocode-minifier-utils/octocode-minifier-utils.win32-x64-msvc.node packages/octocode-minifier-utils/npm/win32-x64-msvc/
+cp packages/octocode-context-utils/octocode-context-utils.darwin-arm64.node packages/octocode-context-utils/npm/darwin-arm64/
+cp packages/octocode-context-utils/octocode-context-utils.darwin-x64.node packages/octocode-context-utils/npm/darwin-x64/
+cp packages/octocode-context-utils/octocode-context-utils.linux-x64-gnu.node packages/octocode-context-utils/npm/linux-x64-gnu/
+cp packages/octocode-context-utils/octocode-context-utils.linux-x64-musl.node packages/octocode-context-utils/npm/linux-x64-musl/
+cp packages/octocode-context-utils/octocode-context-utils.linux-arm64-gnu.node packages/octocode-context-utils/npm/linux-arm64-gnu/
+cp packages/octocode-context-utils/octocode-context-utils.win32-x64-msvc.node packages/octocode-context-utils/npm/win32-x64-msvc/
 
 # Dry-run each platform package before publishing.
 npm publish packages/octocode-security/npm/darwin-arm64 --access public --provenance --dry-run
-npm publish packages/octocode-minifier-utils/npm/darwin-arm64 --access public --provenance --dry-run
+npm publish packages/octocode-context-utils/npm/darwin-arm64 --access public --provenance --dry-run
 
 # Publish platform packages first, then main native packages, then octocode-mcp.
 npm publish packages/octocode-security/npm/darwin-arm64 --access public --provenance
@@ -198,13 +198,13 @@ npm publish packages/octocode-security/npm/linux-arm64-gnu --access public --pro
 npm publish packages/octocode-security/npm/win32-x64-msvc --access public --provenance
 npm publish packages/octocode-security --access public --provenance --ignore-scripts
 
-npm publish packages/octocode-minifier-utils/npm/darwin-arm64 --access public --provenance
-npm publish packages/octocode-minifier-utils/npm/darwin-x64 --access public --provenance
-npm publish packages/octocode-minifier-utils/npm/linux-x64-gnu --access public --provenance
-npm publish packages/octocode-minifier-utils/npm/linux-x64-musl --access public --provenance
-npm publish packages/octocode-minifier-utils/npm/linux-arm64-gnu --access public --provenance
-npm publish packages/octocode-minifier-utils/npm/win32-x64-msvc --access public --provenance
-npm publish packages/octocode-minifier-utils --access public --provenance --ignore-scripts
+npm publish packages/octocode-context-utils/npm/darwin-arm64 --access public --provenance
+npm publish packages/octocode-context-utils/npm/darwin-x64 --access public --provenance
+npm publish packages/octocode-context-utils/npm/linux-x64-gnu --access public --provenance
+npm publish packages/octocode-context-utils/npm/linux-x64-musl --access public --provenance
+npm publish packages/octocode-context-utils/npm/linux-arm64-gnu --access public --provenance
+npm publish packages/octocode-context-utils/npm/win32-x64-msvc --access public --provenance
+npm publish packages/octocode-context-utils --access public --provenance --ignore-scripts
 
 OCTOCODE_RUNTIME_PLATFORMS=all yarn workspace octocode-mcp build:publish
 npm publish packages/octocode-mcp --access public --provenance --ignore-scripts --dry-run
@@ -345,7 +345,7 @@ Current platform:
 
 ```bash
 yarn workspace octocode-security run build
-yarn workspace @octocodeai/octocode-minifier-utils run build
+yarn workspace @octocodeai/octocode-context-utils run build
 ```
 
 Specific release target:
@@ -354,8 +354,8 @@ Specific release target:
 yarn workspace octocode-security run build:rust:darwin-arm64
 yarn workspace octocode-security run build:rust:linux-x64-gnu
 
-yarn workspace @octocodeai/octocode-minifier-utils run build:darwin-arm64
-yarn workspace @octocodeai/octocode-minifier-utils run build:linux-x64-gnu
+yarn workspace @octocodeai/octocode-context-utils run build:darwin-arm64
+yarn workspace @octocodeai/octocode-context-utils run build:linux-x64-gnu
 ```
 
 ## Local Development Build
@@ -371,7 +371,7 @@ Full current-platform build:
 
 ```bash
 yarn workspace octocode-security run build
-yarn workspace @octocodeai/octocode-minifier-utils run build
+yarn workspace @octocodeai/octocode-context-utils run build
 cd packages/octocode-mcp
 yarn build
 ```

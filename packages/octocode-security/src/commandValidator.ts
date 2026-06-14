@@ -4,13 +4,8 @@ import {
   PATTERN_DANGEROUS_PATTERNS,
 } from './securityConstants.js';
 import { securityRegistry } from './registry.js';
-
-export function normalizeCommandName(command: string): string {
-  if (!command || typeof command !== 'string') return command;
-  const lastSep = Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\'));
-  const base = lastSep >= 0 ? command.slice(lastSep + 1) : command;
-  return base.replace(/\.exe$/i, '');
-}
+import { normalizeCommandName } from './commandUtils.js';
+export { normalizeCommandName };
 
 // Matches plain `rg` and platform-suffixed names like `rg-darwin-arm64`
 // produced by the build:bin:* scripts and bundled in dist/runtime/rg/.

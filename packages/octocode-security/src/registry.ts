@@ -1,4 +1,5 @@
 import type { SensitiveDataPattern } from './types.js';
+import { normalizeCommandName } from './commandUtils.js';
 
 export interface ISecurityRegistry {
   readonly extraSecretPatterns: readonly SensitiveDataPattern[];
@@ -124,8 +125,9 @@ export class SecurityRegistry implements ISecurityRegistry {
       if (typeof cmd !== 'string' || cmd.trim() === '') {
         throw new Error('Each command must be a non-empty string');
       }
-      if (!this._extraAllowedCommands.includes(cmd)) {
-        this._extraAllowedCommands.push(cmd);
+      const normalized = normalizeCommandName(cmd);
+      if (!this._extraAllowedCommands.includes(normalized)) {
+        this._extraAllowedCommands.push(normalized);
       }
     }
     this._invalidateFrozenCaches();

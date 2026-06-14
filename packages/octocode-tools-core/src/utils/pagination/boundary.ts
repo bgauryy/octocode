@@ -2,31 +2,26 @@
  * Semantic block boundary detection for proactive pagination chunking.
  *
  * ## Primary path — Rust/tree-sitter (`snapToSemanticBoundary`)
- * Calls `getSemanticBoundaryOffsets` from octocode-minifier-utils, which uses
- * tree-sitter for TS/JS/Py/Go/Rust/Java/C/Bash and heuristic patterns for
- * 30+ other languages. When a page cut falls mid-block, automatically extends
- * the page to the next semantic boundary — no hint-and-follow-up needed.
- * Falls back to `'char-limit'` mode when:
+ * Calls `getSemanticBoundaryOffsets` from octocode-context-utils, which uses
+ * the centralized Rust tree-sitter/heuristic extractor. When a page cut falls
+ * mid-block, automatically extends the page to the next semantic boundary —
+ * no hint-and-follow-up needed.
+ * Uses `'char-limit'` mode when:
  *   • the file type has no semantic structure (JSON, YAML, plain text)
  *   • the next boundary is > MAX_SEMANTIC_EXTENSION chars beyond the budget
- *   • the Rust call throws (panic, OOM, unsupported extension)
  *
- * ## Fallback path — Rust semantic offsets (`findNextBlockBoundary`)
+ * ## Reactive path — Rust semantic offsets (`findNextBlockBoundary`)
  * Reactive: runs AFTER a char-limit cut, surfaces `nextBlockChar` in the
  * pagination metadata so the agent can extend charLength in a follow-up
  * request (still saves one request over pure blind pagination).
  *
- * Language coverage is owned by octocode-minifier-utils:
- *   tree-sitter (Rust): ts tsx js jsx mjs cjs py go rs java c h sh bash zsh
- *   heuristic (Rust): cpp hpp cc cxx cs kt kotlin scala rb php swift
- *                     ex exs hs lhs css scss less html htm sql vue svelte
- *                     lua md erl hrl + generic brace-depth fallback
+ * Language coverage is owned by octocode-context-utils and tested there.
  */
 
-import { getSemanticBoundaryOffsets } from '@octocodeai/octocode-minifier-utils';
+import { getSemanticBoundaryOffsets } from '@octocodeai/octocode-context-utils';
 
 // When the next semantic boundary is farther than this from the ideal cut,
-// fall back to char-limit chunking (giant function) rather than over-extending.
+// use char-limit chunking for giant functions rather than over-extending.
 const MAX_SEMANTIC_EXTENSION = 8_000;
 const GENERIC_BOUNDARY_FILE = '__octocode_generic__.unknown';
 
@@ -37,17 +32,13 @@ function resolveBoundaryFilePath(filePath: string | undefined): string {
 }
 
 function getSemanticBoundaries(content: string, filePath?: string): number[] {
-  try {
-    return getSemanticBoundaryOffsets(
-      content,
-      resolveBoundaryFilePath(filePath)
-    ).filter(
-      (offset): offset is number =>
-        Number.isInteger(offset) && offset >= 0 && offset <= content.length
-    );
-  } catch {
-    return [];
-  }
+  return getSemanticBoundaryOffsets(
+    content,
+    resolveBoundaryFilePath(filePath)
+  ).filter(
+    (offset): offset is number =>
+      Number.isInteger(offset) && offset >= 0 && offset <= content.length
+  );
 }
 
 function nextLineStart(content: string, fromChar: number): number | undefined {
@@ -60,7 +51,8 @@ function nextLineStart(content: string, fromChar: number): number | undefined {
  * (mid-function/class body). Used as a gate before calling findNextBlockBoundary.
  */
 export function isMidBlockCut(paginatedContent: string): boolean {
-  const lastMeaningfulLine = paginatedContent.trimEnd().split('\n').at(-1) ?? '';
+  const lastMeaningfulLine =
+    paginatedContent.trimEnd().split('\n').at(-1) ?? '';
   return (
     lastMeaningfulLine.length > 0 &&
     (lastMeaningfulLine[0] === ' ' || lastMeaningfulLine[0] === '\t')
@@ -127,7 +119,7 @@ export type ChunkMode = 'semantic' | 'char-limit';
  * Calls `getSemanticBoundaryOffsets` (Rust/tree-sitter) to get a sorted list
  * of semantic block starts, then snaps the page end to the next boundary after
  * `charOffset + charLength`.  Returns `chunkMode: 'semantic'` on success or
- * `'char-limit'` when falling back to the original fixed-size cut.
+ * `'char-limit'` when the original fixed-size cut is used.
  *
  * Default is always char-limit — snapping is a best-effort improvement.
  *
@@ -163,14 +155,14 @@ export function snapToSemanticBoundary(
 
   if (nextBoundary === undefined) {
     // No boundary after idealEnd — we're already in the last semantic chunk
-    return { length: charLength, chunkMode: 'char-limit' };
+    return { length: safeLength, chunkMode: 'char-limit' };
   }
 
   const extension = nextBoundary - idealEnd;
 
   // Only snap when the extension is within budget.
   // Giant functions (> MAX_SEMANTIC_EXTENSION) stay char-limited — the reactive
-  // `nextBlockChar` hint handles those as a fallback.
+  // `nextBlockChar` hint handles those as a reactive continuation.
   if (extension <= MAX_SEMANTIC_EXTENSION) {
     return { length: nextBoundary - safeOffset, chunkMode: 'semantic' };
   }

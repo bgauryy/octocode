@@ -78,14 +78,35 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
 /// avoid loading the entire string into the regex engine at once.
 /// Mirrors the TypeScript chunked implementation.
 ///
+/// Uses `REGEX_SET` on the original content to pre-filter candidate patterns
+/// (same optimisation as `detect_single`), then runs the chunk loop only for
+/// those candidates.  `REGEX_SET` has no false negatives — a pattern excluded
+/// here cannot match any chunk of the original content, and replacements
+/// produce `[REDACTED-*]` strings that do not re-trigger other patterns.
+///
 /// After each replacement the string length may change; `effective_end` tracks
 /// the real end of the new chunk so the overlap window is computed correctly.
 pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectResult {
+    // Pre-filter: collect pattern indices that appear anywhere in the original
+    // content.  Patterns absent here are skipped in the per-pattern loop below.
+    let candidate_indices: std::collections::HashSet<usize> =
+        REGEX_SET.matches(content).into_iter().collect();
+
+    if candidate_indices.is_empty() {
+        return DetectResult {
+            sanitized: content.to_string(),
+            secrets_detected: vec![],
+        };
+    }
+
     let mut sanitized = content.to_string();
     let mut secrets_detected_set: std::collections::HashSet<String> =
         std::collections::HashSet::new();
 
     for (idx, pattern) in PATTERNS.iter().enumerate() {
+        if !candidate_indices.contains(&idx) {
+            continue; // not in original content — skip all chunks
+        }
         if !should_apply(idx, file_path) {
             continue;
         }
@@ -272,6 +293,45 @@ mod tests {
     fn find_char_boundary_at_end_returns_len() {
         let s = "hello";
         assert_eq!(find_char_boundary(s, 10), s.len());
+    }
+
+    #[test]
+    fn detect_chunked_no_match_returns_input_unchanged() {
+        // Content with no secrets but length > CHUNK_SIZE to exercise the
+        // pre-filter early-return path.
+        let padding = "a".repeat(CHUNK_SIZE + 1);
+        let result = detect_chunked(&padding, None);
+        assert_eq!(result.sanitized, padding);
+        assert!(result.secrets_detected.is_empty());
+    }
+
+    #[test]
+    fn detect_chunked_redacts_token_spanning_chunk_boundary() {
+        // Place a GitHub PAT near the CHUNK_SIZE boundary so it straddles the
+        // overlap window and must still be redacted by the chunked path.
+        let prefix = "a".repeat(CHUNK_SIZE - 10);
+        let token = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let input = format!("{prefix} token={token}");
+        let result = detect_chunked(&input, None);
+        assert!(
+            result.sanitized.contains("[REDACTED-"),
+            "chunked path must redact token near chunk boundary"
+        );
+        assert!(!result.secrets_detected.is_empty());
+    }
+
+    #[test]
+    fn detect_chunked_matches_detect_single_on_same_input() {
+        // Both paths must produce the same redacted output for content that
+        // fits in a single chunk (use a small string so both paths are tested).
+        let input = "token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let single = detect_single(input, None);
+        let chunked = detect_chunked(input, None);
+        assert_eq!(single.sanitized, chunked.sanitized);
+        assert_eq!(
+            single.secrets_detected.iter().collect::<std::collections::HashSet<_>>(),
+            chunked.secrets_detected.iter().collect::<std::collections::HashSet<_>>(),
+        );
     }
 
     #[test]
