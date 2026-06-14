@@ -11,204 +11,48 @@
  *   • the next boundary is > MAX_SEMANTIC_EXTENSION chars beyond the budget
  *   • the Rust call throws (panic, OOM, unsupported extension)
  *
- * ## Fallback path — TypeScript heuristics (`findNextBlockBoundary`)
+ * ## Fallback path — Rust semantic offsets (`findNextBlockBoundary`)
  * Reactive: runs AFTER a char-limit cut, surfaces `nextBlockChar` in the
  * pagination metadata so the agent can extend charLength in a follow-up
  * request (still saves one request over pure blind pagination).
  *
- * Language coverage — both paths:
+ * Language coverage is owned by octocode-minifier-utils:
  *   tree-sitter (Rust): ts tsx js jsx mjs cjs py go rs java c h sh bash zsh
- *   heuristic (Rust+TS): cpp hpp cc cxx cs kt kotlin scala rb php swift
- *                         ex exs hs lhs css scss less html htm sql vue svelte
- *                         lua md erl hrl + generic brace-depth fallback
+ *   heuristic (Rust): cpp hpp cc cxx cs kt kotlin scala rb php swift
+ *                     ex exs hs lhs css scss less html htm sql vue svelte
+ *                     lua md erl hrl + generic brace-depth fallback
  */
 
 import { getSemanticBoundaryOffsets } from '@octocodeai/octocode-minifier-utils';
 
-const LONE_CLOSE = /^[}\])][;,]?\s*$/;
-
 // When the next semantic boundary is farther than this from the ideal cut,
 // fall back to char-limit chunking (giant function) rather than over-extending.
 const MAX_SEMANTIC_EXTENSION = 8_000;
+const GENERIC_BOUNDARY_FILE = '__octocode_generic__.unknown';
 
-function getExtension(filePath: string | undefined): string {
-  if (!filePath) return '';
-  const dot = filePath.lastIndexOf('.');
-  return dot >= 0 ? filePath.slice(dot + 1).toLowerCase() : '';
+function resolveBoundaryFilePath(filePath: string | undefined): string {
+  return filePath && filePath.trim().length > 0
+    ? filePath
+    : GENERIC_BOUNDARY_FILE;
 }
 
-/**
- * Per-language predicate: true when `line` starts a new top-level definition.
- * Each branch mirrors the heuristic.rs pattern set for that language.
- */
-function isTopLevelLine(line: string, ext: string): boolean {
-  if (!line.length) return false;
-
-  // ── Indent-based languages (Python, Ruby, Elixir, CoffeeScript) ─────────────
-  // Top-level = specific keywords at column 0, regardless of indent context.
-
-  if (ext === 'py') {
-    // def / async def / class / decorator at column 0
-    return /^(?:async\s+)?def\s+\w|^class\s+\w|^@\w/.test(line);
-  }
-
-  if (ext === 'rb') {
-    // def, class, module at column 0; `end` is not a start but marks a boundary
-    return /^(?:def|class|module)\s+\S/.test(line);
-  }
-
-  if (ext === 'ex' || ext === 'exs') {
-    // Elixir: def / defp / defmodule / defmacro at column 0
-    return /^(?:def|defp|defmodule|defmacro)\s/.test(line);
-  }
-
-  if (ext === 'hs' || ext === 'lhs') {
-    // Haskell: any non-comment, non-blank, non-indented line is a top-level binding
-    const ch = line[0];
-    return ch !== ' ' && ch !== '\t' && !line.startsWith('--') && !line.startsWith('{-');
-  }
-
-  // ── Java / Kotlin / C# / Scala ───────────────────────────────────────────────
-  // These languages use class-scoped members that are ALWAYS indented, so the
-  // column-0 gate must NOT apply. Patterns mirror heuristic.rs java_cs_patterns()
-  // and scala_patterns() which use ^\s* (any indentation).
-  if (
-    ext === 'java' ||
-    ext === 'kt' ||
-    ext === 'kotlin' ||
-    ext === 'cs' ||
-    ext === 'scala'
-  ) {
-    const t = line.trimStart();
-    if (!t || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*')) return false;
-    if (LONE_CLOSE.test(t)) return false;
-
-    if (ext === 'scala') {
-      // scala_patterns(): package/import, class/object/trait/enum, def/val/var/type
-      return (
-        /^(?:package|import)\s/.test(t) ||
-        /^(?:sealed\s+|abstract\s+|final\s+|case\s+)*(?:class|object|trait|enum)\s+\w/.test(t) ||
-        /^(?:override\s+|private\s+|protected\s+|implicit\s+|given\s+)*(?:def|val|var|type)\s+\w/.test(t)
-      );
-    }
-
-    if (ext === 'kt' || ext === 'kotlin') {
-      // java_cs_patterns() + Kotlin-specific keywords.
-      // companion object / object can appear without a name (e.g. `companion object {`),
-      // so use \b rather than requiring \s+\w after the keyword.
-      return (
-        /^(?:public|private|protected|internal|open|abstract|override|sealed|final|inline|suspend|actual|expect)\s/.test(t) ||
-        /^(?:class|interface|enum\s+class|data\s+class|sealed\s+class|abstract\s+class|companion\s+object|object)\b/.test(t) ||
-        /^(?:import|package)\s/.test(t) ||
-        /^(?:fun|val|var|const\s+val|typealias)\s+\w/.test(t)
-      );
-    }
-
-    // Java and C# — java_cs_patterns(): visibility/modifier prefix OR class/interface/enum OR import/using/package/namespace
-    return (
-      /^(?:public|private|protected|static|abstract|final|override|sealed|internal)\s/.test(t) ||
-      /^(?:class|interface|enum|record|object)\s+\w/.test(t) ||
-      /^(?:import|using|package|namespace)\s/.test(t)
+function getSemanticBoundaries(content: string, filePath?: string): number[] {
+  try {
+    return getSemanticBoundaryOffsets(
+      content,
+      resolveBoundaryFilePath(filePath)
+    ).filter(
+      (offset): offset is number =>
+        Number.isInteger(offset) && offset >= 0 && offset <= content.length
     );
+  } catch {
+    return [];
   }
+}
 
-  // ── All remaining languages require the line to be at column 0 ────────────
-
-  const ch0 = line[0];
-  if (ch0 === ' ' || ch0 === '\t') return false;
-  if (LONE_CLOSE.test(line)) return false;
-
-  // ── TypeScript / JavaScript family ────────────────────────────────────────
-  if (
-    ext === 'ts' ||
-    ext === 'tsx' ||
-    ext === 'js' ||
-    ext === 'jsx' ||
-    ext === 'mjs' ||
-    ext === 'cjs'
-  ) {
-    return /^(?:export|import|function|class|const|let|var|async|type|interface|enum|abstract|declare|@)/.test(
-      line
-    );
-  }
-
-  // ── Go ──────────────────────────────────────────────────────────────────────
-  if (ext === 'go') {
-    return /^(?:func|type|var|const|package|import)\b/.test(line);
-  }
-
-  // ── Rust ─────────────────────────────────────────────────────────────────────
-  if (ext === 'rs') {
-    return /^(?:pub\b|fn\b|impl\b|struct\b|enum\b|trait\b|mod\b|use\b|const\b|static\b|type\b|#\[)/.test(
-      line
-    );
-  }
-
-  // ── Shell ────────────────────────────────────────────────────────────────────
-  if (ext === 'sh' || ext === 'bash' || ext === 'zsh') {
-    // named function or `name()` at column 0
-    return /^(?:(?:export\s+)?function\s+\w+|\w+\s*\(\s*\))/.test(line);
-  }
-
-  // ── C / C++ ─────────────────────────────────────────────────────────────────
-  if (
-    ext === 'c' ||
-    ext === 'h' ||
-    ext === 'cpp' ||
-    ext === 'hpp' ||
-    ext === 'cc' ||
-    ext === 'cxx'
-  ) {
-    // Preprocessor directives or identifier-starting lines that aren't comments
-    return (
-      /^[A-Za-z_#]/.test(line) &&
-      !line.startsWith('//') &&
-      !line.startsWith('/*')
-    );
-  }
-
-  // ── PHP ─────────────────────────────────────────────────────────────────────
-  if (ext === 'php') {
-    return (
-      /^(?:function|class|interface|trait|abstract|final|namespace|use)\s/.test(
-        line
-      ) || line.startsWith('<?')
-    );
-  }
-
-  // ── Swift ────────────────────────────────────────────────────────────────────
-  if (ext === 'swift') {
-    return /^(?:func|class|struct|protocol|enum|extension|import|var|let|typealias)\b/.test(
-      line
-    );
-  }
-
-  // ── CSS / SCSS / LESS ────────────────────────────────────────────────────────
-  if (ext === 'css' || ext === 'scss' || ext === 'less') {
-    // selector or @-rule at column 0 that opens a block
-    return !line.startsWith('/*') && !line.startsWith('//');
-  }
-
-  // ── SQL ─────────────────────────────────────────────────────────────────────
-  if (ext === 'sql' || ext === 'tsql' || ext === 'plsql') {
-    return /^(?:CREATE|ALTER|DROP|SELECT|INSERT|UPDATE|DELETE|WITH)\b/i.test(
-      line
-    );
-  }
-
-  // ── Elixir / Erlang ──────────────────────────────────────────────────────────
-  if (ext === 'erl' || ext === 'hrl') {
-    return /^-(?:module|export|import|define|record|type|spec)\(/.test(line);
-  }
-
-  // ── Markdown ─────────────────────────────────────────────────────────────────
-  if (ext === 'md' || ext === 'markdown') {
-    return line.startsWith('#');
-  }
-
-  // ── Generic fallback (Lua, Vue, Svelte, unknown extensions) ─────────────────
-  // Any non-indented, non-empty line that isn't a lone closing delimiter.
-  return true;
+function nextLineStart(content: string, fromChar: number): number | undefined {
+  const lineBreak = content.indexOf('\n', fromChar);
+  return lineBreak === -1 ? undefined : lineBreak + 1;
 }
 
 /**
@@ -240,27 +84,11 @@ export function findNextBlockBoundary(
   fromChar: number,
   filePath?: string
 ): number | undefined {
-  const ext = getExtension(filePath);
-
-  // Move past the partial line at the cut point
-  let pos = content.indexOf('\n', fromChar);
-  if (pos === -1) return undefined;
-  pos += 1;
-
-  while (pos < content.length) {
-    const lineEnd = content.indexOf('\n', pos);
-    const lineEndActual = lineEnd === -1 ? content.length : lineEnd;
-    const line = content.substring(pos, lineEndActual);
-
-    if (isTopLevelLine(line, ext)) {
-      return pos;
-    }
-
-    if (lineEnd === -1) break;
-    pos = lineEnd + 1;
-  }
-
-  return undefined;
+  const searchStart = nextLineStart(content, Math.max(0, fromChar));
+  if (searchStart === undefined) return undefined;
+  return getSemanticBoundaries(content, filePath).find(
+    offset => offset >= searchStart && offset > fromChar
+  );
 }
 
 /**
@@ -315,24 +143,19 @@ export function snapToSemanticBoundary(
   charLength: number,
   filePath?: string
 ): { length: number; chunkMode: ChunkMode } {
-  const idealEnd = charOffset + charLength;
+  const safeOffset = Math.min(Math.max(0, charOffset), content.length);
+  const safeLength = Math.max(1, charLength);
+  const idealEnd = safeOffset + safeLength;
 
   // Nothing to snap — content fits entirely
   if (idealEnd >= content.length) {
-    return { length: content.length - charOffset, chunkMode: 'char-limit' };
+    return { length: content.length - safeOffset, chunkMode: 'char-limit' };
   }
 
-  // Get tree-sitter / heuristic boundaries from Rust
-  let boundaries: number[];
-  try {
-    boundaries = getSemanticBoundaryOffsets(content, filePath ?? '');
-  } catch {
-    boundaries = [];
-  }
-
+  const boundaries = getSemanticBoundaries(content, filePath);
   if (boundaries.length === 0) {
     // Data file, plain text, oversized, or unsupported — use fixed char-limit
-    return { length: charLength, chunkMode: 'char-limit' };
+    return { length: safeLength, chunkMode: 'char-limit' };
   }
 
   // Find the first boundary strictly past the ideal cut point
@@ -349,8 +172,8 @@ export function snapToSemanticBoundary(
   // Giant functions (> MAX_SEMANTIC_EXTENSION) stay char-limited — the reactive
   // `nextBlockChar` hint handles those as a fallback.
   if (extension <= MAX_SEMANTIC_EXTENSION) {
-    return { length: nextBoundary - charOffset, chunkMode: 'semantic' };
+    return { length: nextBoundary - safeOffset, chunkMode: 'semantic' };
   }
 
-  return { length: charLength, chunkMode: 'char-limit' };
+  return { length: safeLength, chunkMode: 'char-limit' };
 }
