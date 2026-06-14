@@ -10,7 +10,7 @@ vi.mock('octocode-shared', () => ({
   },
 }));
 
-import { applyOutputSizeLimit } from '@octocodeai/octocode-tools-core';
+import { applyOutputSizeLimit } from '../../../octocode-tools-core/src/utils/pagination/outputSizeLimit.js';
 
 describe('applyOutputSizeLimit — catch branch when getConfigSync throws', () => {
   it('falls back to DEFAULTS when getConfigSync throws', () => {

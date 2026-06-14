@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
-import * as client from '@octocodeai/octocode-tools-core';
+import { searchGitHubPullRequestsAPI } from '../../octocode-tools-core/src/github/pullRequestSearch';
+import * as client from '../../octocode-tools-core/src/github/client';
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../octocode-tools-core/src/github/client', () => ({
   getOctokit: vi.fn(),
   OctokitWithThrottling: class {},
 }));

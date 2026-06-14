@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { transformCodeSearchResult } from '@octocodeai/octocode-tools-core';
-import { buildPaginationHints } from '@octocodeai/octocode-tools-core';
-import type { OptimizedCodeSearchResult } from '@octocodeai/octocode-tools-core';
+import { transformCodeSearchResult } from '../../../../octocode-tools-core/src/providers/github/githubSearch.js';
+import { buildPaginationHints } from '../../../../octocode-tools-core/src/tools/providerMappers.js';
+import type { OptimizedCodeSearchResult } from '../../../../octocode-tools-core/src/github/githubAPI.js';
 
 describe('transformCodeSearchResult — pagination page size', () => {
   const makeData = (perPage: number): OptimizedCodeSearchResult =>

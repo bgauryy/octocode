@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
-import { getOctokit } from '@octocodeai/octocode-tools-core';
-import { handleGitHubAPIError } from '@octocodeai/octocode-tools-core';
-import { buildRepoSearchQuery } from '@octocodeai/octocode-tools-core';
+import { searchGitHubReposAPI } from '../../../octocode-tools-core/src/github/repoSearch.js';
+import { getOctokit } from '../../../octocode-tools-core/src/github/client.js';
+import { handleGitHubAPIError } from '../../../octocode-tools-core/src/github/errors.js';
+import { buildRepoSearchQuery } from '../../../octocode-tools-core/src/github/queryBuilders.js';
 import type { GitHubReposSearchQuery } from '../../src/public.js';
 
-vi.mock('@octocodeai/octocode-tools-core');
-vi.mock('@octocodeai/octocode-tools-core');
-vi.mock('@octocodeai/octocode-tools-core');
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/client.js');
+vi.mock('../../../octocode-tools-core/src/github/errors.js');
+vi.mock('../../../octocode-tools-core/src/github/queryBuilders.js');
+vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
   withDataCache: vi.fn((_, operation) => operation()),
 }));
@@ -809,7 +809,7 @@ describe('GitHub Repository Search', () => {
 
   describe('searchGitHubReposAPI - Caching', () => {
     it('should use cache with session ID', async () => {
-      const { withDataCache } = await import('@octocodeai/octocode-tools-core');
+      const { withDataCache } = await import('../../../octocode-tools-core/src/utils/http/cache.js');
       const mockWithDataCache = vi.mocked(withDataCache);
 
       const mockResponse = {

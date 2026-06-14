@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   createResponseFormat,
   createRoleBasedResult,
-} from '@octocodeai/octocode-tools-core';
-import { executeBulkOperation } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/responses.js';
+import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import { maskSensitiveData } from 'octocode-security/mask';
-import type { ProcessedBulkResult } from '@octocodeai/octocode-tools-core';
+import type { ProcessedBulkResult } from '../../../octocode-tools-core/src/types/toolResults.js';
 
 const SECRETS = {
   AWS_KEY: 'AKIAIOSFODNN7EXAMPLE',

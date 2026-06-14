@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { LsCommandBuilder } from '@octocodeai/octocode-tools-core';
+import { LsCommandBuilder } from '../../../octocode-tools-core/src/commands/LsCommandBuilder.js';
 
 describe('LsCommandBuilder', () => {
   const originalPlatform = process.platform;

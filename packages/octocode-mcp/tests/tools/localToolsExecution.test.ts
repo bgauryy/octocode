@@ -4,25 +4,25 @@ import type { z } from 'zod';
 import type { RipgrepQuerySchema } from '@octocodeai/octocode-core/schemas';
 type RipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/response/bulk.js', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'mocked result' }],
   }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js', () => ({
   fetchContent: vi.fn().mockResolvedValue({ status: 'success' }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_find_files/findFiles.js', () => ({
   findFiles: vi.fn().mockResolvedValue({ status: 'success' }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
   searchContentRipgrep: vi.fn().mockResolvedValue({ status: 'success' }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js', () => ({
   viewStructure: vi.fn().mockResolvedValue({ status: 'success' }),
 }));
 
@@ -55,10 +55,10 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js', async importOriginal => {
   const actual =
     await importOriginal<
-      typeof import('@octocodeai/octocode-tools-core')
+      typeof import('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js')
     >();
   return {
     ...actual,
@@ -67,10 +67,10 @@ vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/tools/local_find_files/scheme.js', async importOriginal => {
   const actual =
     await importOriginal<
-      typeof import('@octocodeai/octocode-tools-core')
+      typeof import('../../../octocode-tools-core/src/tools/local_find_files/scheme.js')
     >();
   return {
     ...actual,
@@ -80,11 +80,11 @@ vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
 });
 
 vi.mock(
-  '../../src/tools/local_view_structure/scheme.js',
+  '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js',
   async importOriginal => {
     const actual =
       await importOriginal<
-        typeof import('@octocodeai/octocode-tools-core')
+        typeof import('../../../octocode-tools-core/src/tools/local_view_structure/scheme.js')
       >();
     return {
       ...actual,
@@ -95,11 +95,11 @@ vi.mock(
 );
 
 vi.mock(
-  '../../src/tools/local_fetch_content/scheme.js',
+  '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js',
   async importOriginal => {
     const actual =
       await importOriginal<
-        typeof import('@octocodeai/octocode-tools-core')
+        typeof import('../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js')
       >();
     return {
       ...actual,
@@ -117,9 +117,9 @@ describe('Local Tools Execution', () => {
   describe('executeFetchContent', () => {
     it('should call executeBulkOperation with queries', async () => {
       const { executeFetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       const queries = [
         {
@@ -141,11 +141,11 @@ describe('Local Tools Execution', () => {
 
     it('should pass fetchContent function as callback', async () => {
       const { executeFetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { fetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js');
 
       const queries = [
         {
@@ -173,11 +173,11 @@ describe('Local Tools Execution', () => {
 
     it('keeps matchString slices complete in evidence despite isPartial', async () => {
       const { executeFetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { fetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js');
 
       vi.mocked(fetchContent).mockResolvedValueOnce({
         content: 'sliced content',
@@ -202,9 +202,9 @@ describe('Local Tools Execution', () => {
 
     it('should handle empty queries array', async () => {
       const { executeFetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       await executeFetchContent({ queries: [] });
 
@@ -218,9 +218,9 @@ describe('Local Tools Execution', () => {
 
     it('should handle undefined queries with fallback to empty array', async () => {
       const { executeFetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       await executeFetchContent({ queries: undefined } as unknown as Parameters<
         typeof executeFetchContent
@@ -236,11 +236,11 @@ describe('Local Tools Execution', () => {
 
     it('should not cache callback responses', async () => {
       const { executeFetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { fetchContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js');
       vi.mocked(fetchContent).mockResolvedValue({
         content: 'abc',
       } as any);
@@ -262,9 +262,9 @@ describe('Local Tools Execution', () => {
   describe('executeFindFiles', () => {
     it('should call executeBulkOperation with queries', async () => {
       const { executeFindFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       const queries = [
         {
@@ -286,11 +286,11 @@ describe('Local Tools Execution', () => {
 
     it('should pass findFiles function as callback', async () => {
       const { executeFindFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { findFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/findFiles.js');
 
       const queries = [
         {
@@ -318,9 +318,9 @@ describe('Local Tools Execution', () => {
 
     it('should handle undefined queries with fallback to empty array', async () => {
       const { executeFindFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       await executeFindFiles({ queries: undefined } as unknown as Parameters<
         typeof executeFindFiles
@@ -336,11 +336,11 @@ describe('Local Tools Execution', () => {
 
     it('should catch thrown errors via executeWithToolBoundary', async () => {
       const { executeFindFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { findFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/findFiles.js');
 
       vi.mocked(findFiles).mockRejectedValueOnce(
         new Error('Unexpected failure')
@@ -362,11 +362,11 @@ describe('Local Tools Execution', () => {
 
     it('marks capped find results as incomplete evidence', async () => {
       const { executeFindFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { findFiles } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_find_files/findFiles.js');
 
       vi.mocked(findFiles).mockResolvedValueOnce({
         files: [{ path: '/test/a.ts' }],
@@ -396,9 +396,9 @@ describe('Local Tools Execution', () => {
   describe('executeRipgrepSearch', () => {
     it('should call executeBulkOperation with queries', async () => {
       const { executeRipgrepSearch } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_ripgrep/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       const queries = [
         {
@@ -420,11 +420,11 @@ describe('Local Tools Execution', () => {
 
     it('should pass searchContentRipgrep function as callback', async () => {
       const { executeRipgrepSearch } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_ripgrep/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { searchContentRipgrep } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js');
 
       const queries = [
         {
@@ -455,9 +455,9 @@ describe('Local Tools Execution', () => {
 
     it('should handle undefined queries with fallback to empty array', async () => {
       const { executeRipgrepSearch } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_ripgrep/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       await executeRipgrepSearch({
         queries: undefined,
@@ -473,11 +473,11 @@ describe('Local Tools Execution', () => {
 
     it('marks limited ripgrep results as incomplete evidence', async () => {
       const { executeRipgrepSearch } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_ripgrep/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { searchContentRipgrep } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js');
 
       vi.mocked(searchContentRipgrep).mockResolvedValueOnce({
         files: [{ path: '/test/a.ts', matches: [] }],
@@ -507,9 +507,9 @@ describe('Local Tools Execution', () => {
   describe('executeViewStructure', () => {
     it('should call executeBulkOperation with queries', async () => {
       const { executeViewStructure } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_view_structure/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       const queries = [
         {
@@ -531,11 +531,11 @@ describe('Local Tools Execution', () => {
 
     it('should pass viewStructure function as callback', async () => {
       const { executeViewStructure } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_view_structure/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { viewStructure } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js');
 
       const queries = [
         {
@@ -563,9 +563,9 @@ describe('Local Tools Execution', () => {
 
     it('should handle undefined queries with fallback to empty array', async () => {
       const { executeViewStructure } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_view_structure/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
 
       await executeViewStructure({
         queries: undefined,
@@ -581,11 +581,11 @@ describe('Local Tools Execution', () => {
 
     it('should catch thrown errors via executeWithToolBoundary', async () => {
       const { executeViewStructure } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_view_structure/execution.js');
       const { executeBulkOperation } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/utils/response/bulk.js');
       const { viewStructure } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js');
 
       vi.mocked(viewStructure).mockRejectedValueOnce(
         new Error('Unexpected failure')
@@ -617,7 +617,7 @@ describe('Local Tools Registration', () => {
   describe('registerLocalFetchContentTool', () => {
     it('should register the tool with correct name and schema', async () => {
       const { registerLocalFetchContentTool } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../src/tools/local_fetch_content/register.js');
 
       const mockServer = createMockServer();
       registerLocalFetchContentTool(mockServer);
@@ -643,7 +643,7 @@ describe('Local Tools Registration', () => {
   describe('registerLocalFindFilesTool', () => {
     it('should register the tool with correct name and schema', async () => {
       const { registerLocalFindFilesTool } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../src/tools/local_find_files/register.js');
 
       const mockServer = createMockServer();
       registerLocalFindFilesTool(mockServer);
@@ -669,7 +669,7 @@ describe('Local Tools Registration', () => {
   describe('registerLocalRipgrepTool', () => {
     it('should register the tool with correct name and schema', async () => {
       const { registerLocalRipgrepTool } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../src/tools/local_ripgrep/register.js');
 
       const mockServer = createMockServer();
       registerLocalRipgrepTool(mockServer);

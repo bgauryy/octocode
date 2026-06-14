@@ -11,26 +11,26 @@ const mockContentSanitizer = vi.hoisted(() => ({
 }));
 const mockLogSessionError = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: mockLogSessionError,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: mockGetOctokit,
   OctokitWithThrottling: class MockOctokit {},
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/errors.js', () => ({
   handleGitHubAPIError: mockHandleGitHubAPIError,
   isNoResultsSearchError: vi.fn(() => false),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/queryBuilders.js', () => ({
   buildPullRequestSearchQuery: mockBuildPullRequestSearchQuery,
   shouldUseSearchForPRs: mockShouldUseSearchForPRs,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withDataCache: mockWithDataCache,
 }));
@@ -39,11 +39,11 @@ vi.mock('octocode-security/contentSanitizer', () => ({
   ContentSanitizer: mockContentSanitizer,
 }));
 
-import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
-import { fetchGitHubPullRequestByNumberAPI } from '@octocodeai/octocode-tools-core';
-import { transformPullRequestItemFromREST } from '@octocodeai/octocode-tools-core';
-import type { PullRequestSimple } from '@octocodeai/octocode-tools-core';
-import { countSerializedChars } from '@octocodeai/octocode-tools-core';
+import { searchGitHubPullRequestsAPI } from '../../../octocode-tools-core/src/github/pullRequestSearch.js';
+import { fetchGitHubPullRequestByNumberAPI } from '../../../octocode-tools-core/src/github/prByNumber.js';
+import { transformPullRequestItemFromREST } from '../../../octocode-tools-core/src/github/prContentFetcher.js';
+import type { PullRequestSimple } from '../../../octocode-tools-core/src/github/githubAPI.js';
+import { countSerializedChars } from '../../../octocode-tools-core/src/utils/response/charSavings.js';
 
 type MockPRItem = Partial<PullRequestSimple>;
 

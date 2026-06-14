@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { toMCPSchema } from '../../src/types/toolTypes.js';
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async importOriginal => {
   const mod =
     await importOriginal<
-      typeof import('@octocodeai/octocode-tools-core')
+      typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
     >();
   return {
     ...mod,
@@ -25,7 +25,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
   describe('when DESCRIPTIONS returns undefined (fallback branch)', () => {
     it('should return empty string when tool is not in DESCRIPTIONS', async () => {
       const { DESCRIPTIONS } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
 
       const unknownDescription = DESCRIPTIONS['completely_unknown_tool_xyz'];
       expect(unknownDescription).toBe('');
@@ -33,14 +33,14 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
 
     it('should return empty string for undefined tool name', async () => {
       const { DESCRIPTIONS } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
 
       const result = DESCRIPTIONS[''];
       expect(result).toBe('');
     });
 
     it('getDescription returns empty string for unknown tool (hits ?? fallback)', async () => {
-      const { getDescription } = await import('@octocodeai/octocode-tools-core');
+      const { getDescription } = await import('../../src/tools/toolConfig.js');
       const result = getDescription('__nonexistent_tool_for_coverage__');
       expect(result).toBe('');
     }, 10_000);
@@ -56,7 +56,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         GITHUB_SEARCH_PULL_REQUESTS,
         PACKAGE_SEARCH,
         ALL_TOOLS,
-      } = await import('@octocodeai/octocode-tools-core');
+      } = await import('../../src/tools/toolConfig.js');
 
       const configs = [
         GITHUB_SEARCH_CODE,
@@ -91,7 +91,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         GITHUB_SEARCH_REPOSITORIES,
         GITHUB_SEARCH_PULL_REQUESTS,
         PACKAGE_SEARCH,
-      } = await import('@octocodeai/octocode-tools-core');
+      } = await import('../../src/tools/toolConfig.js');
 
       expect(GITHUB_SEARCH_CODE.type).toBe('search');
       expect(GITHUB_SEARCH_REPOSITORIES.type).toBe('search');
@@ -104,7 +104,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
     });
 
     it('should mark all tools as default', async () => {
-      const { ALL_TOOLS } = await import('@octocodeai/octocode-tools-core');
+      const { ALL_TOOLS } = await import('../../src/tools/toolConfig.js');
 
       for (const tool of ALL_TOOLS) {
         expect(tool.isDefault).toBe(true);
@@ -122,7 +122,7 @@ describe('toolConfig - fn property', () => {
       GITHUB_SEARCH_REPOSITORIES,
       GITHUB_SEARCH_PULL_REQUESTS,
       PACKAGE_SEARCH,
-    } = await import('@octocodeai/octocode-tools-core');
+    } = await import('../../src/tools/toolConfig.js');
 
     expect(typeof GITHUB_SEARCH_CODE.fn).toBe('function');
     expect(typeof GITHUB_FETCH_CONTENT.fn).toBe('function');

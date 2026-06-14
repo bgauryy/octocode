@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyOutputSizeLimit } from '@octocodeai/octocode-tools-core';
+import { applyOutputSizeLimit } from '../../../octocode-tools-core/src/utils/pagination/outputSizeLimit.js';
 
 const DEFAULT_OUTPUT_CHAR_LENGTH = 8000;
 

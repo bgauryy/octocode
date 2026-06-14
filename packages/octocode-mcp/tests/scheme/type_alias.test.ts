@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalFindFilesQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalViewStructureQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalRipgrepQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
+import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
+import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
 
 /**
  * The `type` param historically meant 4 unrelated things across tools

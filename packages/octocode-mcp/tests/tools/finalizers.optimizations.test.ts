@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { buildGithubFetchContentFinalizer } from '@octocodeai/octocode-tools-core';
-import { buildGithubSearchCodeFinalizer } from '@octocodeai/octocode-tools-core';
-import type { FlatQueryResult } from '@octocodeai/octocode-tools-core';
+import { buildGithubFetchContentFinalizer } from '../../../octocode-tools-core/src/tools/github_fetch_content/finalizer.js';
+import { buildGithubSearchCodeFinalizer } from '../../../octocode-tools-core/src/tools/github_search_code/finalizer.js';
+import type { FlatQueryResult } from '../../../octocode-tools-core/src/types/toolResults.js';
 
 describe('githubGetFileContent finalizer — optimization fixes', () => {
   it('FIX #1: does not emit top-level "Partial content ... Use startLine=..." hint when the file is partial (info already in fields)', () => {
@@ -204,7 +204,7 @@ describe('Truncator recovery strings — apostrophe consistency', () => {
     const path = await import('node:path');
     const file = path.resolve(
       __dirname,
-      '../../src/tools/github_fetch_content/finalizer.ts'
+      '../../../octocode-tools-core/src/tools/github_fetch_content/finalizer.ts'
     );
     const src = await fs.readFile(file, 'utf8');
     expect(src.includes('’')).toBe(false);

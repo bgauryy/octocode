@@ -25,7 +25,7 @@ import {
   getMaxCloneCount,
   startCacheGC,
   stopCacheGC,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/github_clone_repo/cache.js';
 
 describe('github_clone_repo cache', () => {
   const testBaseDir = join(tmpdir(), `octocode-cache-test-${Date.now()}`);
@@ -506,7 +506,7 @@ const mockSpawnWithTimeout = vi.hoisted(() => vi.fn());
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockGetOctocodeDir = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/utils/exec/spawn.js', async importOriginal => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
@@ -516,7 +516,7 @@ vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
 
 const mockResolveDefaultBranch = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: mockGetOctokit,
   resolveDefaultBranch: mockResolveDefaultBranch,
 }));
@@ -529,7 +529,7 @@ vi.mock('octocode-shared', async importOriginal => {
   };
 });
 
-import { cloneRepo } from '@octocodeai/octocode-tools-core';
+import { cloneRepo } from '../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js';
 
 describe('cloneRepo', () => {
   let testDir: string;
@@ -1279,17 +1279,17 @@ const mockGetActiveProvider = vi.hoisted(() => vi.fn());
 const mockGetActiveProviderConfig = vi.hoisted(() => vi.fn());
 const mockGetProvider = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getActiveProvider: mockGetActiveProvider,
   getActiveProviderConfig: mockGetActiveProviderConfig,
   isLoggingEnabled: vi.fn(() => false),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-import { executeCloneRepo } from '@octocodeai/octocode-tools-core';
+import { executeCloneRepo } from '../../../octocode-tools-core/src/tools/github_clone_repo/execution.js';
 import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { applyStructurePagination } from '@octocodeai/octocode-tools-core';
-import type { GitHubRepositoryStructureResult } from '@octocodeai/octocode-tools-core';
+import { applyStructurePagination } from '../../../octocode-tools-core/src/github/repoStructurePagination.js';
+import type { GitHubRepositoryStructureResult } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/types.js';
 import type { GitHubViewRepoStructureQuery } from '../../src/public.js';
 
 function makeQuery(

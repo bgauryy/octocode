@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockLogSessionError = vi.hoisted(() => vi.fn(() => Promise.resolve()));
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: mockLogSessionError,
 }));
 

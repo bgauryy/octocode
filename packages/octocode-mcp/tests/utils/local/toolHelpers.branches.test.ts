@@ -6,12 +6,12 @@ vi.mock('octocode-security/pathValidator', () => ({
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../../octocode-tools-core/src/hints/index.js', () => ({
   getHints: vi.fn(() => []),
 }));
 
 import { pathValidator } from 'octocode-security/pathValidator';
-import { validateToolPath } from '@octocodeai/octocode-tools-core';
+import { validateToolPath } from '../../../../octocode-tools-core/src/utils/file/toolHelpers.js';
 
 describe('getPathErrorHints - branch coverage', () => {
   const baseQuery = {

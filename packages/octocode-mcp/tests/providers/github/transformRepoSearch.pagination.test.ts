@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transformRepoSearchResult } from '@octocodeai/octocode-tools-core';
+import { transformRepoSearchResult } from '../../../../octocode-tools-core/src/providers/github/githubSearch.js';
 import type { GitHubSearchRepositoriesData } from '@octocodeai/octocode-core/extra-types';
 
 describe('transformRepoSearchResult — pagination page size', () => {

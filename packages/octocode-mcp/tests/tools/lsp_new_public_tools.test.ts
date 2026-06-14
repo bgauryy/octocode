@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import {
   BulkLspGetSemanticContentQuerySchema,
   LspGetSemanticContentQuerySchema,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 import { registerLspGetSemanticContentTool } from '../../src/tools/lsp/semantic_content/register.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 

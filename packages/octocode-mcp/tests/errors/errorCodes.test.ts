@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { LOCAL_TOOL_ERROR_CODES } from '@octocodeai/octocode-tools-core';
+import { LOCAL_TOOL_ERROR_CODES } from '../../../octocode-tools-core/src/errors/localToolErrors.js';
 import {
   ToolError,
   isToolError,
   toToolError,
-} from '@octocodeai/octocode-tools-core';
-import { ToolErrors } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/errors/ToolError.js';
+import { ToolErrors } from '../../../octocode-tools-core/src/errors/errorFactories.js';
 import {
   LOCAL_TOOL_ERROR_REGISTRY,
   LocalToolErrorCategory as ErrorCategory,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/errors/localToolErrors.js';
 
 describe('Local Error Codes', () => {
   describe('LOCAL_TOOL_ERROR_CODES', () => {

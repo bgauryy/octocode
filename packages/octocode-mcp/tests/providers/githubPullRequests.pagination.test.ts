@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transformPullRequestResult } from '@octocodeai/octocode-tools-core';
+import { transformPullRequestResult } from '../../../octocode-tools-core/src/providers/github/githubPullRequests.js';
 
 type Args = Parameters<typeof transformPullRequestResult>;
 

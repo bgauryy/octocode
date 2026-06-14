@@ -3,8 +3,8 @@ import {
   applyPartialContentFilter,
   createBasePRTransformation,
   formatPRForResponse,
-} from '@octocodeai/octocode-tools-core';
-import type { GitHubPullRequestsSearchParams } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/github/prTransformation.js';
+import type { GitHubPullRequestsSearchParams } from '../../../octocode-tools-core/src/github/githubAPI.js';
 
 describe('createBasePRTransformation — labels', () => {
   const baseItem = {

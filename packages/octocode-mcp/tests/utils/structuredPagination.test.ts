@@ -2,10 +2,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   applyQueryOutputPagination,
   applyBulkResponsePagination,
-} from '@octocodeai/octocode-tools-core';
-import { executeBulkOperation } from '@octocodeai/octocode-tools-core';
-import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/response/structuredPagination.js';
+import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 
 beforeAll(async () => {});
 

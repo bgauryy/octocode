@@ -1,12 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/hints/index.js', () => ({
   getHints: vi.fn(() => ['mock-hint']),
 }));
 
-import { createErrorResult } from '@octocodeai/octocode-tools-core';
-import { ToolError } from '@octocodeai/octocode-tools-core';
-import { LOCAL_TOOL_ERROR_CODES } from '@octocodeai/octocode-tools-core';
+import { createErrorResult } from '../../../octocode-tools-core/src/utils/response/error.js';
+import { ToolError } from '../../../octocode-tools-core/src/errors/ToolError.js';
+import { LOCAL_TOOL_ERROR_CODES } from '../../../octocode-tools-core/src/errors/localToolErrors.js';
 
 const baseQuery = {
   researchGoal: 'test',

@@ -17,8 +17,8 @@ import {
 import {
   TOOL_NAMES,
   DESCRIPTIONS,
-} from '@octocodeai/octocode-tools-core';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 
 const removedLspToolNames = [
   `lsp${'Goto'}Definition`,

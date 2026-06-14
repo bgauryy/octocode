@@ -42,7 +42,7 @@ describe('LSP workspace root routing', () => {
       vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
 
       const { executeLspGetSemanticContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/lsp/semantic_content/execution.js');
 
       await executeLspGetSemanticContent({
         queries: [

@@ -71,13 +71,13 @@ vi.mock('@octokit/plugin-throttling', () => ({
   throttling: vi.fn(),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withCache: mockWithCache,
   withDataCache: mockWithDataCache,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/mcp/responses.js', () => ({
   createResult: mockCreateResult,
   optimizeTextMatch: mockOptimizeTextMatch,
 }));
@@ -94,18 +94,18 @@ vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   return { ...actual, minifyContent: mockminifyContent };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: vi.fn(() => Promise.resolve(mockOctokit)),
   clearOctokitInstances: vi.fn(),
 }));
 
-import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
-import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
-import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
-import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
-import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
+import { searchGitHubCodeAPI } from '../../../octocode-tools-core/src/github/codeSearch.js';
+import { searchGitHubReposAPI } from '../../../octocode-tools-core/src/github/repoSearch.js';
+import { fetchGitHubFileContentAPI } from '../../../octocode-tools-core/src/github/fileContent.js';
+import { viewGitHubRepositoryStructureAPI } from '../../../octocode-tools-core/src/github/repoStructure.js';
+import { searchGitHubPullRequestsAPI } from '../../../octocode-tools-core/src/github/pullRequestSearch.js';
 import type { GitHubCodeSearchQuery } from '../../src/public.js';
-import { initialize, cleanup } from '@octocodeai/octocode-tools-core';
+import { initialize, cleanup } from '../../../octocode-tools-core/src/serverConfig.js';
 
 describe('GitHub API Utils', () => {
   beforeEach(async () => {

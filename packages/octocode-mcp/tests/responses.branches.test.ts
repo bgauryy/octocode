@@ -6,7 +6,7 @@ import {
   formatCallToolResultForOutput,
   QuickResult,
   StatusEmoji,
-} from '@octocodeai/octocode-tools-core';
+} from '../../octocode-tools-core/src/responses.js';
 import { getConfigSync } from 'octocode-shared';
 
 describe('responses.branches', () => {

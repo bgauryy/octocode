@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
-import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
-import { getOctokit, resolveDefaultBranch } from '@octocodeai/octocode-tools-core';
+import { fetchGitHubFileContentAPI } from '../../../octocode-tools-core/src/github/fileContent.js';
+import { viewGitHubRepositoryStructureAPI } from '../../../octocode-tools-core/src/github/repoStructure.js';
+import { getOctokit, resolveDefaultBranch } from '../../../octocode-tools-core/src/github/client.js';
 import { RequestError } from 'octokit';
 import * as minifierModule from '@octocodeai/octocode-minifier-utils';
 import {
@@ -9,7 +9,7 @@ import {
   applyContentViewMinification,
 } from '@octocodeai/octocode-minifier-utils';
 import { SIGNATURE_SOURCE } from '../fixtures/signatureSource.js';
-import { clearAllCache } from '@octocodeai/octocode-tools-core';
+import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache.js';
 
 function createRequestError(message: string, status: number) {
   return new RequestError(message, status, {
@@ -28,7 +28,7 @@ function createRequestError(message: string, status: number) {
   });
 }
 
-vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('../../../octocode-tools-core/src/github/client.js');
 vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   const actual =
     await importOriginal<

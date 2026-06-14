@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
-import { LOCAL_MAX_DEPTH, LOCAL_MAX_LIMIT } from '@octocodeai/octocode-tools-core';
+import { LOCAL_MAX_DEPTH, LOCAL_MAX_LIMIT } from '../../../octocode-tools-core/src/config.js';
 
 const LOCAL_OVERLAY_MAX_LIMIT = LOCAL_MAX_LIMIT;
 const LOCAL_OVERLAY_MAX_DEPTH = LOCAL_MAX_DEPTH;
-import { LocalFindFilesQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalViewStructureQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LspGetSemanticContentQuerySchema } from '@octocodeai/octocode-tools-core';
+import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
+import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
+import { LspGetSemanticContentQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 
 describe('LocalFindFilesQuerySchema.limit bound', () => {
   it('clamps limit above LOCAL_OVERLAY_MAX_LIMIT to the max', () => {

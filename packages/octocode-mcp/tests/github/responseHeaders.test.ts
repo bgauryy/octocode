@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeResponseHeaders } from '@octocodeai/octocode-tools-core';
+import { normalizeResponseHeaders } from '../../../octocode-tools-core/src/github/responseHeaders.js';
 
 describe('normalizeResponseHeaders (validated narrowing of HTTP headers)', () => {
   it('passes string values through unchanged', () => {

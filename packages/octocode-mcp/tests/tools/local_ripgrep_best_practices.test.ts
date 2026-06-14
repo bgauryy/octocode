@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   preflightValidateRipgrepPattern,
   type RipgrepPatternValidation,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/local_ripgrep/patternValidation.js';
 
 describe('T1.6 — Ripgrep regex is validated pre-launch (cheap fail-fast)', () => {
   it('accepts a plain literal pattern (smartCase mode)', () => {
@@ -74,7 +74,7 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
       };
     });
 
-    vi.doMock('../../src/utils/exec/safe.js', () => ({
+    vi.doMock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
       safeExec: vi.fn(async () => ({
         success: true,
         stdout: '',
@@ -83,10 +83,10 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
       })),
     }));
 
-    vi.doMock('../../src/utils/file/toolHelpers.js', async () => {
+    vi.doMock('../../../octocode-tools-core/src/utils/file/toolHelpers.js', async () => {
       const real = await vi.importActual<
-        typeof import('@octocodeai/octocode-tools-core')
-      >('../../src/utils/file/toolHelpers.js');
+        typeof import('../../../octocode-tools-core/src/utils/file/toolHelpers.js')
+      >('../../../octocode-tools-core/src/utils/file/toolHelpers.js');
       return {
         ...real,
         validateToolPath: vi.fn(() => ({
@@ -96,13 +96,13 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
       };
     });
 
-    vi.doMock('../../src/utils/exec/commandAvailability.js', () => ({
+    vi.doMock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
       checkCommandAvailability: vi.fn(async () => ({ available: true })),
       getMissingCommandError: vi.fn(() => ''),
     }));
 
     const { searchContentRipgrep } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js');
 
     await searchContentRipgrep({
       id: 'q1',

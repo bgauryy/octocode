@@ -5,7 +5,7 @@ import {
   charToByteIndex,
   getByteLength,
   convertByteMatchToChar,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/utils/file/byteOffset.js';
 
 describe('byteOffset', () => {
   describe('byteSlice', () => {

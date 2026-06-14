@@ -175,20 +175,20 @@ const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
   });
 
 vi.mock('fs', () => fsMocks);
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
   safeExec: execMocks.safeExec,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
   checkCommandAvailability: execMocks.checkCommandAvailability,
   getMissingCommandError: execMocks.getMissingCommandError,
 }));
 vi.mock('octocode-security/pathValidator', () => pathValidatorMocks);
 
 const { viewStructure } =
-  await import('@octocodeai/octocode-tools-core');
+  await import('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js');
 const { LocalViewStructureQuerySchema } =
-  await import('@octocodeai/octocode-tools-core');
+  await import('../../../octocode-tools-core/src/tools/local_view_structure/scheme.js');
 
 describe('Example: Using Unified Test Helpers', () => {
   beforeEach(() => {

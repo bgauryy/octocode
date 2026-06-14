@@ -42,7 +42,7 @@ describe('toolMetadata/state', () => {
   describe('loadToolContent', () => {
     it('should return core metadata', async () => {
       const { loadToolContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../../octocode-tools-core/src/tools/toolMetadata/state.js');
 
       const result = await loadToolContent();
 
@@ -53,7 +53,7 @@ describe('toolMetadata/state', () => {
 
     it('should return the same object on repeated calls', async () => {
       const { loadToolContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../../octocode-tools-core/src/tools/toolMetadata/state.js');
 
       const result1 = await loadToolContent();
       const result2 = await loadToolContent();
@@ -63,7 +63,7 @@ describe('toolMetadata/state', () => {
 
     it('should return base schema string fields', async () => {
       const { loadToolContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../../octocode-tools-core/src/tools/toolMetadata/state.js');
 
       const result = await loadToolContent();
 
@@ -77,7 +77,7 @@ describe('toolMetadata/state', () => {
   describe('BASE_SCHEMA proxy', () => {
     it('proxies upstream base schema fields', async () => {
       const { BASE_SCHEMA } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../../octocode-tools-core/src/tools/toolMetadata/baseSchema.js');
 
       expect(typeof BASE_SCHEMA).toBe('object');
       expect(BASE_SCHEMA).not.toBeNull();
@@ -88,7 +88,7 @@ describe('toolMetadata/state', () => {
   describe('DESCRIPTIONS proxy', () => {
     it('reads tool descriptions from core metadata', async () => {
       const { DESCRIPTIONS } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../../octocode-tools-core/src/tools/toolMetadata/descriptions.js');
 
       expect(DESCRIPTIONS['githubSearchCode']).toBe('Search code');
       expect(DESCRIPTIONS['unknownTool']).toBe('');

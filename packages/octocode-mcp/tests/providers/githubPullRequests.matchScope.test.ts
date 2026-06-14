@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const mockSearchAPI = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/pullRequestSearch.js', () => ({
   searchGitHubPullRequestsAPI: mockSearchAPI,
 }));
 
-import { searchPullRequests } from '@octocodeai/octocode-tools-core';
+import { searchPullRequests } from '../../../octocode-tools-core/src/providers/github/githubPullRequests.js';
 
 type PRQuery = Parameters<typeof searchPullRequests>[0];
 

@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { completeMetadata } from '@octocodeai/octocode-core';
 import { readFileSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '@octocodeai/octocode-tools-core';
+import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 
 const SHARED_FIELDS = [
   'id',
@@ -14,18 +14,18 @@ const SHARED_FIELDS = [
 ] as const;
 
 const SCHEME_FILES = [
-  '../../src/tools/github_clone_repo/scheme.ts',
-  '../../src/tools/github_fetch_content/scheme.ts',
-  '../../src/tools/github_search_code/scheme.ts',
-  '../../src/tools/github_search_pull_requests/scheme.ts',
-  '../../src/tools/github_search_repos/scheme.ts',
-  '../../src/tools/github_view_repo_structure/scheme.ts',
-  '../../src/tools/local_fetch_content/scheme.ts',
-  '../../src/tools/local_find_files/scheme.ts',
-  '../../src/tools/local_ripgrep/scheme.ts',
-  '../../src/tools/local_view_structure/scheme.ts',
-  '../../src/tools/lsp/semantic_content/scheme.ts',
-  '../../src/tools/package_search/scheme.ts',
+  '../../../octocode-tools-core/src/tools/github_clone_repo/scheme.ts',
+  '../../../octocode-tools-core/src/tools/github_fetch_content/scheme.ts',
+  '../../../octocode-tools-core/src/tools/github_search_code/scheme.ts',
+  '../../../octocode-tools-core/src/tools/github_search_pull_requests/scheme.ts',
+  '../../../octocode-tools-core/src/tools/github_search_repos/scheme.ts',
+  '../../../octocode-tools-core/src/tools/github_view_repo_structure/scheme.ts',
+  '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.ts',
+  '../../../octocode-tools-core/src/tools/local_find_files/scheme.ts',
+  '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.ts',
+  '../../../octocode-tools-core/src/tools/local_view_structure/scheme.ts',
+  '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.ts',
+  '../../../octocode-tools-core/src/tools/package_search/scheme.ts',
 ] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {

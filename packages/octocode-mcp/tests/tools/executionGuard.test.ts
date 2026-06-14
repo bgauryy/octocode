@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/utils.js', () => ({
   handleCatchError: vi
     .fn()
     .mockReturnValue({ status: 'error', error: 'guarded failure' }),
 }));
 
-import { handleCatchError } from '@octocodeai/octocode-tools-core';
-import { executeWithToolBoundary } from '@octocodeai/octocode-tools-core';
+import { handleCatchError } from '../../../octocode-tools-core/src/tools/utils.js';
+import { executeWithToolBoundary } from '../../../octocode-tools-core/src/tools/executionGuard.js';
 
 describe('executeWithToolBoundary', () => {
   beforeEach(() => {

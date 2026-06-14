@@ -13,7 +13,7 @@ const { constructorSpy, MockGitHubProvider } = vi.hoisted(() => {
   return { constructorSpy: spy, MockGitHubProvider: MockProvider };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/providers/github/GitHubProvider.js', () => ({
   GitHubProvider: MockGitHubProvider,
 }));
 
@@ -21,7 +21,7 @@ import {
   getProvider,
   clearProviderCache,
   initializeProviders,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/providers/factory.js';
 
 describe('provider factory', () => {
   beforeEach(() => {

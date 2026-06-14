@@ -4,12 +4,12 @@ import {
   initializeSession,
   resetSessionManager,
   logToolCall,
-} from '@octocodeai/octocode-tools-core';
-import { initialize, cleanup } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/session.js';
+import { initialize, cleanup } from '../../../octocode-tools-core/src/serverConfig.js';
 import {
   buildChildProcessEnv,
   SENSITIVE_ENV_VARS,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/exec/spawn.js';
 
 describe('Finding 2 — Telemetry excludes sensitive data', () => {
   let savedLog: string | undefined;

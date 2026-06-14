@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { formatPRForResponse } from '@octocodeai/octocode-tools-core';
+import { formatPRForResponse } from '../../../octocode-tools-core/src/github/prTransformation.js';
 import type {
   GitHubPullRequestItem,
   DiffEntry,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/github/githubAPI.js';
 
 const createMockDiffEntry = (
   overrides: Partial<DiffEntry> &

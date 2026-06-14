@@ -3,9 +3,9 @@ import { z } from 'zod';
 import {
   FileContentQueryBaseLocalSchema,
   FileContentQueryLocalSchema,
-} from '@octocodeai/octocode-tools-core';
-import { LocalFetchContentQuerySchema } from '@octocodeai/octocode-tools-core';
-import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/github_fetch_content/scheme.js';
+import { LocalFetchContentQuerySchema } from '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js';
+import { GitHubPullRequestSearchQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/scheme.js';
 
 const GH_BASE = { owner: 'o', repo: 'r', path: 'src/a.ts' };
 const LOCAL_BASE = { path: 'src/a.ts' };

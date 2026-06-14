@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
-import { getOctokit } from '@octocodeai/octocode-tools-core';
-import { clearAllCache } from '@octocodeai/octocode-tools-core';
-import { GITHUB_STRUCTURE_DEFAULTS } from '@octocodeai/octocode-tools-core';
+import { viewGitHubRepositoryStructureAPI } from '../../../octocode-tools-core/src/github/repoStructure.js';
+import { getOctokit } from '../../../octocode-tools-core/src/github/client.js';
+import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache.js';
+import { GITHUB_STRUCTURE_DEFAULTS } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/constants.js';
 
-vi.mock('@octocodeai/octocode-tools-core');
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/client.js');
+vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 

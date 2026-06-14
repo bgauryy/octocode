@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatRepoLine } from '@octocodeai/octocode-tools-core';
+import { formatRepoLine } from '../../../octocode-tools-core/src/tools/github_search_repos/execution.js';
 
 const base = {
   owner: 'punkpeye',

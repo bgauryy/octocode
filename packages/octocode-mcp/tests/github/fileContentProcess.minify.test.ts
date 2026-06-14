@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   processFileContentAPI,
   applyContentPagination,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/github/fileContentProcess.js';
 
 const TS_CONTENT = [
   'import { useState } from "react";',

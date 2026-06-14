@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
-import { LocalFetchContentQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-tools-core';
-import { FileContentQueryLocalSchema } from '@octocodeai/octocode-tools-core';
-import { PackageSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { LocalFetchContentQuerySchema } from '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js';
+import { LocalRipgrepQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
+import { FileContentQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_fetch_content/scheme.js';
+import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 
 describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
   const baseQuery = { path: 'src/foo.ts' };

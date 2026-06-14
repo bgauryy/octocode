@@ -52,7 +52,7 @@ describe('toolMetadata - Final Edge Cases', () => {
   describe('loadToolContent', () => {
     it('returns core metadata directly', async () => {
       const { loadToolContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/toolMetadata/state.js');
 
       const content = await loadToolContent();
 
@@ -63,7 +63,7 @@ describe('toolMetadata - Final Edge Cases', () => {
 
     it('is stable across repeated calls', async () => {
       const { loadToolContent } =
-        await import('@octocodeai/octocode-tools-core');
+        await import('../../../octocode-tools-core/src/tools/toolMetadata/state.js');
 
       const first = await loadToolContent();
       const second = await loadToolContent();

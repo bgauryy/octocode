@@ -5,12 +5,12 @@ import os from 'os';
 import {
   walkDirectory,
   type WalkStats,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/tools/local_view_structure/structureWalker.js';
 import {
   formatEntryString,
   type DirectoryEntry,
-} from '@octocodeai/octocode-tools-core';
-import { parseLsLongFormat } from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/tools/local_view_structure/structureFilters.js';
+import { parseLsLongFormat } from '../../../../octocode-tools-core/src/tools/local_view_structure/structureParser.js';
 
 describe('localViewStructure details param', () => {
   let tmpDir: string;

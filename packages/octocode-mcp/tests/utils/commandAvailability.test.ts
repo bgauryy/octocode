@@ -5,7 +5,7 @@ import {
   getMissingCommandError,
   clearAvailabilityCache,
   REQUIRED_COMMANDS,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/exec/commandAvailability.js';
 
 describe('commandAvailability', () => {
   beforeEach(() => {
@@ -54,7 +54,7 @@ describe('commandAvailability', () => {
     });
 
     it('should return error message when command is not available', async () => {
-      const spawnModule = await import('@octocodeai/octocode-tools-core');
+      const spawnModule = await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
         .mockResolvedValue(false);
@@ -70,7 +70,7 @@ describe('commandAvailability', () => {
     });
 
     it('should handle spawn errors gracefully', async () => {
-      const spawnModule = await import('@octocodeai/octocode-tools-core');
+      const spawnModule = await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
         .mockRejectedValue(new Error('Spawn failed'));
@@ -86,7 +86,7 @@ describe('commandAvailability', () => {
     });
 
     it('should handle non-Error spawn failures', async () => {
-      const spawnModule = await import('@octocodeai/octocode-tools-core');
+      const spawnModule = await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
         .mockRejectedValue('string error');
@@ -165,7 +165,7 @@ describe('commandAvailability', () => {
 
   describe('POSIX command fast path', () => {
     it('should return available for find without calling spawnCheckSuccess on non-Windows', async () => {
-      const spawnModule = await import('@octocodeai/octocode-tools-core');
+      const spawnModule = await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
       const spawnSpy = vi.spyOn(spawnModule, 'spawnCheckSuccess');
 
       clearAvailabilityCache();
@@ -181,7 +181,7 @@ describe('commandAvailability', () => {
     });
 
     it('should return available for ls without calling spawnCheckSuccess on non-Windows', async () => {
-      const spawnModule = await import('@octocodeai/octocode-tools-core');
+      const spawnModule = await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
       const spawnSpy = vi.spyOn(spawnModule, 'spawnCheckSuccess');
 
       clearAvailabilityCache();
@@ -197,7 +197,7 @@ describe('commandAvailability', () => {
     });
 
     it('should still call spawnCheckSuccess for rg (not POSIX)', async () => {
-      const spawnModule = await import('@octocodeai/octocode-tools-core');
+      const spawnModule = await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
       const spawnSpy = vi
         .spyOn(spawnModule, 'spawnCheckSuccess')
         .mockResolvedValue(true);
@@ -259,7 +259,7 @@ describe('commandAvailability', () => {
     it('should default to 5000ms when env var is not set', async () => {
       delete process.env.OCTOCODE_COMMAND_CHECK_TIMEOUT_MS;
       vi.resetModules();
-      const mod = await import('@octocodeai/octocode-tools-core');
+      const mod = await import('../../../octocode-tools-core/src/utils/exec/commandAvailability.js');
       expect(mod.checkCommandAvailability).toBeDefined();
       expect(mod.REQUIRED_COMMANDS).toBeDefined();
     });
@@ -267,14 +267,14 @@ describe('commandAvailability', () => {
     it('should accept custom timeout from env var', async () => {
       process.env.OCTOCODE_COMMAND_CHECK_TIMEOUT_MS = '10000';
       vi.resetModules();
-      const mod = await import('@octocodeai/octocode-tools-core');
+      const mod = await import('../../../octocode-tools-core/src/utils/exec/commandAvailability.js');
       expect(mod.checkCommandAvailability).toBeDefined();
     });
 
     it('should fall back to 5000ms for invalid env var', async () => {
       process.env.OCTOCODE_COMMAND_CHECK_TIMEOUT_MS = 'invalid';
       vi.resetModules();
-      const mod = await import('@octocodeai/octocode-tools-core');
+      const mod = await import('../../../octocode-tools-core/src/utils/exec/commandAvailability.js');
       expect(mod.checkCommandAvailability).toBeDefined();
     });
   });

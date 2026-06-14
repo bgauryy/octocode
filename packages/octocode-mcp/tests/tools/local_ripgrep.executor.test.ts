@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/exec/ripgrepBinary.js', () => ({
   resolveRipgrepBinary: vi.fn().mockReturnValue('rg'),
 }));
 
@@ -25,17 +25,17 @@ vi.mock('fs', () => ({
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/hints/index.js', () => ({
   getHints: vi.fn().mockReturnValue(['hint1']),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/hints/dynamic.js', () => ({
   getLargeFileWorkflowHints: vi.fn().mockReturnValue(['narrow your search']),
 }));
 
-import { safeExec } from '@octocodeai/octocode-tools-core';
-import { executeRipgrepSearchInternal } from '@octocodeai/octocode-tools-core';
-import { RESOURCE_LIMITS } from '@octocodeai/octocode-tools-core';
+import { safeExec } from '../../../octocode-tools-core/src/utils/exec/safe.js';
+import { executeRipgrepSearchInternal } from '../../../octocode-tools-core/src/tools/local_ripgrep/ripgrepExecutor.js';
+import { RESOURCE_LIMITS } from '../../../octocode-tools-core/src/utils/core/constants.js';
 
 const mockSafeExec = vi.mocked(safeExec);
 

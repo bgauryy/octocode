@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
-vi.mock('@octocodeai/octocode-tools-core', () => {
+vi.mock('../../src/tools/toolConfig.js', () => {
   const mockGitHubTools = [
     { name: 'githubSearchCode', isDefault: true, isLocal: false, fn: vi.fn() },
     {
@@ -71,10 +71,10 @@ vi.mock('@octocodeai/octocode-tools-core', () => {
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', async () => {
+vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async () => {
   const actual = await vi.importActual<
-    typeof import('@octocodeai/octocode-tools-core')
-  >('../../src/tools/toolMetadata/proxies.js');
+    typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
+  >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
   return {
     ...actual,
     isToolInMetadata: vi.fn(),
@@ -93,13 +93,13 @@ vi.mock('@octocodeai/octocode-tools-core', async () => {
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getServerConfig: vi.fn(),
   isLocalEnabled: vi.fn().mockReturnValue(false),
   isCloneEnabled: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(),
 }));
 
@@ -108,12 +108,12 @@ import {
   getServerConfig,
   isLocalEnabled,
   isCloneEnabled,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/serverConfig.js';
 import {
   TOOL_NAMES,
   isToolInMetadata,
-} from '@octocodeai/octocode-tools-core';
-import { logSessionError } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { logSessionError } from '../../../octocode-tools-core/src/session.js';
 
 const mockGetServerConfig = vi.mocked(getServerConfig);
 const mockIsToolAvailableSync = vi.mocked(isToolInMetadata);

@@ -6,14 +6,14 @@ const mocks = vi.hoisted(() => ({
   cloneRepo: vi.fn(),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/response/bulk.js', () => ({
   executeBulkOperation: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: '' }],
     isError: false,
   }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js', () => ({
   fetchContent: mocks.fetchContent,
 }));
 
@@ -41,39 +41,39 @@ vi.mock('@octocodeai/octocode-core', () => ({
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js', () => ({
   LocalRipgrepQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_find_files/scheme.js', () => ({
   LocalFindFilesQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_view_structure/scheme.js', () => ({
   LocalViewStructureQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js', () => ({
   LocalFetchContentQuerySchema: {
     safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
   searchContentRipgrep: mocks.searchContentRipgrep,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js', () => ({
   cloneRepo: mocks.cloneRepo,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/providerExecution.js', () => ({
   createProviderExecutionContext: vi.fn().mockReturnValue({
     providerType: 'github',
     token: 'test-token',
@@ -94,9 +94,9 @@ describe('Execution boundary guards in target RFC flows', () => {
 
   it('returns structured error when local_fetch_content callback throws', async () => {
     const { executeBulkOperation } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
     const { executeFetchContent } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/tools/local_fetch_content/execution.js');
 
     mocks.fetchContent.mockRejectedValueOnce(new Error('fetch failed'));
 
@@ -113,9 +113,9 @@ describe('Execution boundary guards in target RFC flows', () => {
 
   it('returns structured error when local_ripgrep callback throws', async () => {
     const { executeBulkOperation } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
     const { executeRipgrepSearch } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/tools/local_ripgrep/execution.js');
 
     mocks.searchContentRipgrep.mockRejectedValueOnce(
       new Error('ripgrep failed')
@@ -136,9 +136,9 @@ describe('Execution boundary guards in target RFC flows', () => {
 
   it('returns structured error when github_clone_repo callback throws', async () => {
     const { executeBulkOperation } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
     const { executeCloneRepo } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/tools/github_clone_repo/execution.js');
 
     mocks.cloneRepo.mockRejectedValueOnce(new Error('clone failed'));
 

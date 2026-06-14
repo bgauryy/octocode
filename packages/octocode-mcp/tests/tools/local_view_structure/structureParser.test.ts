@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseLsSimple,
   parseLsLongFormat,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/tools/local_view_structure/structureParser.js';
 import fs from 'fs';
 
 describe('structureParser - parseLsSimple', () => {

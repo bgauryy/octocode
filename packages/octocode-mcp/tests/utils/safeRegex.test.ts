@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   checkRegexSafety,
   createSafeRegExp,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/core/safeRegex.js';
 
 describe('safeRegex', () => {
   describe('checkRegexSafety', () => {

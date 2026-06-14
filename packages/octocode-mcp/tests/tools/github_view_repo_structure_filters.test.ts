@@ -5,7 +5,7 @@ import {
   IGNORED_FILE_EXTENSIONS,
   shouldIgnoreDir,
   shouldIgnoreFile,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/file/filters.js';
 
 describe('GitHub View Repo Structure Filters', () => {
   describe('IGNORED_FOLDER_NAMES', () => {

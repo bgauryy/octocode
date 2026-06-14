@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { LocalFetchContentBulkQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalRipgrepBulkQuerySchema } from '@octocodeai/octocode-tools-core';
-import { FileContentBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { LocalFetchContentBulkQuerySchema } from '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js';
+import { LocalRipgrepBulkQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
+import { FileContentBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_fetch_content/scheme.js';
 
 describe('bulk schemas defer mutex to per-query (no whole-batch rejection)', () => {
   it('localGetFileContent bulk accepts a mutex-violating query alongside valid ones', () => {

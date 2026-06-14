@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   walkDirectory,
   type WalkStats,
-} from '@octocodeai/octocode-tools-core';
-import type { DirectoryEntry } from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/tools/local_view_structure/structureWalker.js';
+import type { DirectoryEntry } from '../../../../octocode-tools-core/src/tools/local_view_structure/structureFilters.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   paginateGroupsCharWindow,
   collectFlatErrors,
-} from '@octocodeai/octocode-tools-core';
-import { countSerializedChars } from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/utils/response/groupedFinalizer.js';
+import { countSerializedChars } from '../../../../octocode-tools-core/src/utils/response/charSavings.js';
 
 type Match = { path: string; value?: string };
 type Group = { id: string; matches: Match[] };

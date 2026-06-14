@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildEvidenceMetadata,
   incompleteHintReasons,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/evidence.js';
 
 describe('tool evidence helpers', () => {
   it('builds complete evidence when data is answer-ready and no incomplete reasons exist', () => {

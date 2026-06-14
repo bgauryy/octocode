@@ -3,13 +3,13 @@ import {
   applyPagination,
   serializeForPagination,
   createPaginationInfo,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/pagination/core.js';
 import {
   generatePaginationHints,
   generateStructurePaginationHints,
-} from '@octocodeai/octocode-tools-core';
-import type { PaginationMetadata } from '@octocodeai/octocode-tools-core';
-import { sliceByCharRespectLines } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/pagination/hints.js';
+import type { PaginationMetadata } from '../../../octocode-tools-core/src/utils/pagination/types.js';
+import { sliceByCharRespectLines } from '../../../octocode-tools-core/src/utils/pagination/core.js';
 
 describe('pagination utility', () => {
   describe('applyPagination', () => {

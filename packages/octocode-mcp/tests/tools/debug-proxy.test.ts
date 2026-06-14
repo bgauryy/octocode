@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
-import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-tools-core';
-import { HINTS } from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
+import { HINTS } from '../../../octocode-tools-core/src/hints/dynamic.js';
 
 describe('Debug proxy', () => {
   it('should show values', () => {

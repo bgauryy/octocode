@@ -6,7 +6,7 @@ import {
   shouldIgnoreDir,
   shouldIgnoreFile,
   getExtension,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/file/filters.js';
 
 describe('fileFilters', () => {
   describe('IGNORED_FOLDER_NAMES', () => {

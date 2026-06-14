@@ -2,8 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import {
   applyQueryOutputPagination,
   applyBulkResponsePagination,
-} from '@octocodeai/octocode-tools-core';
-import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/response/structuredPagination.js';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 
 beforeAll(async () => {});
 

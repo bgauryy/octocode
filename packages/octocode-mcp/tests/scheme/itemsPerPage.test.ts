@@ -4,14 +4,14 @@ import {
   GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE,
   LOCAL_DEFAULT_FILES_PER_PAGE,
   PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
-} from '@octocodeai/octocode-tools-core';
-import { LocalRipgrepBulkQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalFindFilesBulkQuerySchema } from '@octocodeai/octocode-tools-core';
-import { LocalViewStructureBulkQuerySchema } from '@octocodeai/octocode-tools-core';
-import { GitHubReposSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
-import { GitHubCodeSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
-import { GitHubViewRepoStructureBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
-import { PackageSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/config.js';
+import { LocalRipgrepBulkQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
+import { LocalFindFilesBulkQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
+import { LocalViewStructureBulkQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
+import { GitHubReposSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_repos/scheme.js';
+import { GitHubCodeSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_code/scheme.js';
+import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/scheme.js';
+import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 
 describe('Pagination config constants', () => {
   it('LOCAL_DEFAULT_FILES_PER_PAGE is 20', () => {

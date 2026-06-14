@@ -3,7 +3,7 @@ import {
   createResult,
   createResponseFormat,
   formatCallToolResultForOutput,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/responses';
 import { jsonToYamlString } from '@octocodeai/octocode-minifier-utils';
 import { getTextContent } from './testHelpers.js';
 

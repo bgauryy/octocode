@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildContentHints,
   shapePullRequestForContent,
-} from '@octocodeai/octocode-tools-core';
-import type { NormalizedPrContentRequest } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/github_search_pull_requests/contentResponse.js';
+import type { NormalizedPrContentRequest } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/contentRequest.js';
 
 const baseRequest: NormalizedPrContentRequest = {
   body: false,

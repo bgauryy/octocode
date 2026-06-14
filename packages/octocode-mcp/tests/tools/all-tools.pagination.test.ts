@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildPaginationHints } from '@octocodeai/octocode-tools-core';
+import { buildPaginationHints } from '../../../octocode-tools-core/src/tools/providerMappers.js';
 import {
   generatePaginationHints,
   generateStructurePaginationHints,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/pagination/hints.js';
 
 describe('pagination cursor uniformity', () => {
   const buildPagination = (hasMore: boolean) =>

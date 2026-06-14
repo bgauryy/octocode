@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { incrementToolCharSavings } from 'octocode-shared';
-import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
@@ -12,11 +12,11 @@ const mockCreateLazyProviderContext = vi.hoisted(() => vi.fn());
 const mockProviderSupports = vi.hoisted(() => vi.fn());
 const mockCloneRepo = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(async () => 'test-token'),
   isLoggingEnabled: vi.fn(() => false),
   getActiveProviderConfig: vi.fn(() => ({
@@ -31,27 +31,27 @@ vi.mock('@octocodeai/octocode-tools-core', () => ({
   })),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/utils/exec/npm.js', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
+    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/exec/npm.js')>();
   return {
     ...actual,
     checkNpmAvailability: mockCheckNpmAvailability,
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/utils/package/npm.js', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
+    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/package/npm.js')>();
   return {
     ...actual,
     checkNpmRegistryReachable: mockCheckNpmRegistryReachable,
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/utils/package/common.js', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
+    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/package/common.js')>();
   return {
     ...actual,
     searchPackage: mockSearchPackage,
@@ -59,10 +59,10 @@ vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/tools/providerExecution.js', async importOriginal => {
   const actual =
     await importOriginal<
-      typeof import('@octocodeai/octocode-tools-core')
+      typeof import('../../../octocode-tools-core/src/tools/providerExecution.js')
     >();
   return {
     ...actual,
@@ -71,7 +71,7 @@ vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
   };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js', () => ({
   cloneRepo: mockCloneRepo,
 }));
 

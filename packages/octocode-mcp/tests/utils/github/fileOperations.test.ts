@@ -25,7 +25,7 @@ const mockWithDataCache = vi.hoisted(() => vi.fn());
 const mockGenerateCacheKey = vi.hoisted(() => vi.fn());
 const mockCreateResult = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: mockGetOctokit,
   OctokitWithThrottling: class MockOctokit {},
   resolveDefaultBranch: mockResolveDefaultBranch,
@@ -43,16 +43,16 @@ vi.mock('@octocodeai/octocode-minifier-utils', async importOriginal => {
   return { ...actual, minifyContent: mockminifyContent };
 });
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withDataCache: mockWithDataCache,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../../octocode-tools-core/src/mcp/responses.js', () => ({
   createResult: mockCreateResult,
 }));
 
-import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
+import { fetchGitHubFileContentAPI } from '../../../../octocode-tools-core/src/github/fileContent.js';
 
 function createTestParams(overrides: Record<string, unknown> = {}) {
   return {

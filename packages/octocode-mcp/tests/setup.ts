@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, afterAll, vi } from 'vitest';
-import { resetCircuitBreaker } from '@octocodeai/octocode-tools-core';
+import { resetCircuitBreaker } from '../../octocode-tools-core/src/utils/http/circuitBreaker.js';
 import {
   consumeExpectedStderrWarning,
   resetExpectedStderrWarnings,
@@ -221,7 +221,6 @@ vi.mock('octocode-shared', () => ({
   _resetConfigCache: vi.fn(),
   getDirectorySizeBytes: vi.fn(() => 0),
   formatBytes: vi.fn((b: number) => `${b} B`),
-  DEFAULT_OUTPUT_CONFIG: { format: 'yaml', pagination: { defaultCharLength: 20000 } },
 }));
 
 export { sessionMockState };

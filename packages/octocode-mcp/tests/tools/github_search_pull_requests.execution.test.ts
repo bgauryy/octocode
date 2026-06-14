@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const mockSearchPullRequests = vi.fn();
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/providerExecution.js', () => ({
   createProviderExecutionContext: vi.fn(() => ({
     provider: {
       searchPullRequests: mockSearchPullRequests,
@@ -21,8 +21,8 @@ vi.mock('@octocodeai/octocode-tools-core', () => ({
 import {
   createLazyProviderContext,
   executeProviderOperation,
-} from '@octocodeai/octocode-tools-core';
-import { searchMultipleGitHubPullRequests } from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/providerExecution.js';
+import { searchMultipleGitHubPullRequests } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/execution.js';
 
 function getFirstText(
   result: Awaited<ReturnType<typeof searchMultipleGitHubPullRequests>>

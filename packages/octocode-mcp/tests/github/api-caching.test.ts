@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { clearAllCache, getCacheStats } from '@octocodeai/octocode-tools-core';
-import { getOctokit } from '@octocodeai/octocode-tools-core';
-import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
-import { searchGitHubReposAPI } from '@octocodeai/octocode-tools-core';
-import { searchGitHubPullRequestsAPI } from '@octocodeai/octocode-tools-core';
-import { fetchGitHubFileContentAPI } from '@octocodeai/octocode-tools-core';
-import { viewGitHubRepositoryStructureAPI } from '@octocodeai/octocode-tools-core';
+import { clearAllCache, getCacheStats } from '../../../octocode-tools-core/src/utils/http/cache.js';
+import { getOctokit } from '../../../octocode-tools-core/src/github/client';
+import { searchGitHubCodeAPI } from '../../../octocode-tools-core/src/github/codeSearch';
+import { searchGitHubReposAPI } from '../../../octocode-tools-core/src/github/repoSearch';
+import { searchGitHubPullRequestsAPI } from '../../../octocode-tools-core/src/github/pullRequestSearch';
+import { fetchGitHubFileContentAPI } from '../../../octocode-tools-core/src/github/fileContent.js';
+import { viewGitHubRepositoryStructureAPI } from '../../../octocode-tools-core/src/github/repoStructure.js';
 
-vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('../../../octocode-tools-core/src/github/client');
 
 const mockOctokit = {
   rest: {

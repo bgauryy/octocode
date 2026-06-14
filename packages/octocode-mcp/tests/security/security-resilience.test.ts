@@ -13,7 +13,7 @@ import {
   TOOLING_ALLOWED_ENV_VARS,
   SENSITIVE_ENV_VARS,
   validateArgs,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/utils/exec/spawn.js';
 
 function createMockProcess() {
   const proc = new EventEmitter() as EventEmitter & {
@@ -469,7 +469,7 @@ describe('[RESILIENCE] ContentSanitizer edge cases', () => {
   });
 });
 
-import { generateCacheKey } from '@octocodeai/octocode-tools-core';
+import { generateCacheKey } from '../../../octocode-tools-core/src/utils/http/cache.js';
 
 describe('[RESILIENCE] Cache key generation edge cases', () => {
   it('should handle null params', () => {

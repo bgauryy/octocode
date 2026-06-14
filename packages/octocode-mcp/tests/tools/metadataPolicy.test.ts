@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { hasValidMetadata } from '../../src/tools/metadataPolicy.js';
-import { TOOL_METADATA_ERRORS } from '@octocodeai/octocode-tools-core';
+import { TOOL_METADATA_ERRORS } from '../../../octocode-tools-core/src/errors/domainErrors.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
 
 function makeTool(

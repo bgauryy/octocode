@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PackageSearchBulkQueryLocalSchema } from '@octocodeai/octocode-tools-core';
+import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 
 function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
   const parsed = PackageSearchBulkQueryLocalSchema.parse({ queries: [query] });

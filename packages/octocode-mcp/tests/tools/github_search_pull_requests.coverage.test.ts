@@ -8,20 +8,20 @@ import { getTextContent } from '../utils/testHelpers.js';
 const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: vi.fn(),
   withCache: vi.fn(),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/utils/tokenManager.js', () => ({
   getGitHubToken: mockGetGitHubToken,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
@@ -38,9 +38,9 @@ vi.mock('@octocodeai/octocode-tools-core', () => ({
 }));
 
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { buildPRSearchOutput } from '@octocodeai/octocode-tools-core';
-import { mapPullRequestProviderResultData } from '@octocodeai/octocode-tools-core';
-import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { buildPRSearchOutput } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/execution.js';
+import { mapPullRequestProviderResultData } from '../../../octocode-tools-core/src/tools/providerMappers.js';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 
 function basePR(overrides: Record<string, unknown> = {}) {
   return {
@@ -422,7 +422,7 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
   it('computes maxFiles from fileChanges length when changedFilesCount is absent', async () => {
     const search = vi.fn();
 
-    vi.doMock('../../src/tools/providerExecution.js', () => ({
+    vi.doMock('../../../octocode-tools-core/src/tools/providerExecution.js', () => ({
       createProviderExecutionContext: vi.fn(() => ({
         provider: { searchPullRequests: search },
       })),
@@ -439,10 +439,10 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
       filename: `src/f${i}.ts`,
     }));
 
-    vi.doMock('../../src/tools/providerMappers.js', async () => {
+    vi.doMock('../../../octocode-tools-core/src/tools/providerMappers.js', async () => {
       const actual = await vi.importActual<
-        typeof import('@octocodeai/octocode-tools-core')
-      >('../../src/tools/providerMappers.js');
+        typeof import('../../../octocode-tools-core/src/tools/providerMappers.js')
+      >('../../../octocode-tools-core/src/tools/providerMappers.js');
       return {
         ...actual,
         mapPullRequestProviderResultData: vi.fn(() => ({
@@ -457,7 +457,7 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
     });
 
     const { searchMultipleGitHubPullRequests } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../../octocode-tools-core/src/tools/github_search_pull_requests/execution.js');
 
     const result = await searchMultipleGitHubPullRequests({
       queries: [

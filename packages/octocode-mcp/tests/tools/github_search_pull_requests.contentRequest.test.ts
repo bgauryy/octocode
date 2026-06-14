@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePullRequestContentRequest } from '@octocodeai/octocode-tools-core';
+import { normalizePullRequestContentRequest } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/contentRequest.js';
 
 describe('githubSearchPullRequests content request normalization', () => {
   it('keeps request lean by default', () => {

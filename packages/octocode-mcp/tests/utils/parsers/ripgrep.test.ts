@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseRipgrepJson } from '@octocodeai/octocode-tools-core';
+import { parseRipgrepJson } from '../../../../octocode-tools-core/src/utils/parsers/ripgrep.js';
 import {
   parseCountOutput,
   parseFilesOnlyOutput,
   parseRipgrepOutput,
-} from '@octocodeai/octocode-tools-core';
-import type { RipgrepQuery } from '@octocodeai/octocode-tools-core';
+} from '../../../../octocode-tools-core/src/tools/local_ripgrep/ripgrepParser.js';
+import type { RipgrepQuery } from '../../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
 
 const baseQuery = {
   keywords: 'test',

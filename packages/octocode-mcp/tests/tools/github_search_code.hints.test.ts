@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hints } from '@octocodeai/octocode-tools-core';
+import { hints } from '../../../octocode-tools-core/src/tools/github_search_code/hints.js';
 
 describe('githubSearchCode empty hints — path: is directory-only', () => {
   it('does NOT blame the phrase when a path filter is present', () => {

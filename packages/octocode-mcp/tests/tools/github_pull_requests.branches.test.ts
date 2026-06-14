@@ -4,35 +4,35 @@ import {
   MockMcpServer,
 } from '../fixtures/mcp-fixtures.js';
 import { getTextContent } from '../utils/testHelpers.js';
-import { getOctokit } from '@octocodeai/octocode-tools-core';
+import { getOctokit } from '../../../octocode-tools-core/src/github/client.js';
 
 const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockGetGitHubToken = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
 }));
 
 const mockWithCache = vi.hoisted(() => vi.fn());
 const mockGenerateCacheKey = vi.hoisted(() => vi.fn());
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: mockGenerateCacheKey,
   withCache: mockWithCache,
   clearAllCache: vi.fn(),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/utils/tokenManager.js', () => ({
   getGitHubToken: mockGetGitHubToken,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core');
+vi.mock('../../../octocode-tools-core/src/github/client.js');
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
@@ -49,7 +49,7 @@ vi.mock('@octocodeai/octocode-tools-core', () => ({
 }));
 
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
-import { TOOL_NAMES } from '@octocodeai/octocode-tools-core';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 
 describe('GitHub Pull Requests Tool - Branch Coverage', () => {
   let mockServer: MockMcpServer;
@@ -185,7 +185,7 @@ describe('GitHub Pull Requests Tool - Branch Coverage', () => {
     describe('fetchCommitFilesAPI catch block (line 234)', () => {
       it('should handle getCommit errors gracefully by returning null', async () => {
         const { transformPullRequestItemFromREST } =
-          await import('@octocodeai/octocode-tools-core');
+          await import('../../../octocode-tools-core/src/github/prContentFetcher.js');
 
         const getCommitMock = vi
           .fn()

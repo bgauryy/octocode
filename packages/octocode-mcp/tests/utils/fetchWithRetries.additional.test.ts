@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { fetchWithRetries } from '@octocodeai/octocode-tools-core';
+import { fetchWithRetries } from '../../../octocode-tools-core/src/utils/http/fetch.js';
 
 describe('fetchWithRetries - Additional Coverage', () => {
   beforeEach(() => {

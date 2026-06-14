@@ -1,7 +1,9 @@
 import { access } from 'fs/promises';
+import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
+const CORE_ROOT = resolve(ROOT, '../octocode-tools-core');
 
 async function fileExists(relative: string): Promise<boolean> {
   try {
@@ -79,7 +81,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
   for (const target of SOURCE_FILES_THAT_MUST_NOT_REFERENCE) {
     it(`${target.file} no longer references the removed API (${target.reason})`, async () => {
       const { readFile } = await import('fs/promises');
-      const source = await readFile(`${ROOT}/${target.file}`, 'utf-8');
+      const source = await readFile(`${CORE_ROOT}/${target.file}`, 'utf-8');
       expect(source).not.toMatch(target.banned);
     });
   }
@@ -91,7 +93,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
 
   it("REQUIRED_COMMANDS no longer includes 'grep'", async () => {
     const { REQUIRED_COMMANDS } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../octocode-tools-core/src/utils/exec/commandAvailability.js');
     expect(
       Object.prototype.hasOwnProperty.call(REQUIRED_COMMANDS, 'grep')
     ).toBe(false);
@@ -99,7 +101,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
 
   it('ripgrep resolver does not fall back to PATH rg', async () => {
     const source = await import('fs/promises').then(fs =>
-      fs.readFile(`${ROOT}/src/utils/exec/ripgrepBinary.ts`, 'utf-8')
+      fs.readFile(`${CORE_ROOT}/src/utils/exec/ripgrepBinary.ts`, 'utf-8')
     );
     expect(source).not.toMatch(/RIPGREP_PATH_FALLBACK/);
     expect(source).not.toMatch(/return ['"]rg['"]/);
@@ -109,7 +111,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     const { readFile } = await import('fs/promises');
     const files = ['src/tools/lsp/semantic_content/execution.ts'];
     for (const file of files) {
-      const src = await readFile(`${ROOT}/${file}`, 'utf-8');
+      const src = await readFile(`${CORE_ROOT}/${file}`, 'utf-8');
       const assignPattern = /lspMode\s*:\s*(?!_)/g;
       const matches = [...src.matchAll(assignPattern)].filter(
         m =>
@@ -127,7 +129,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
   it('structured pagination never injects outputPagination into error/empty data', async () => {
     const { readFile } = await import('fs/promises');
     const source = await readFile(
-      `${ROOT}/src/utils/response/structuredPagination.ts`,
+      `${CORE_ROOT}/src/utils/response/structuredPagination.ts`,
       'utf-8'
     );
 
@@ -154,7 +156,7 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     const { validateCommand } =
       await import('octocode-security/commandValidator');
     const { resolveRipgrepBinary } =
-      await import('@octocodeai/octocode-tools-core');
+      await import('../../octocode-tools-core/src/utils/exec/ripgrepBinary.js');
     const binary = resolveRipgrepBinary();
     const validation = validateCommand(binary, [
       '-n',

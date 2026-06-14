@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { RipgrepQuery } from '@octocodeai/octocode-tools-core';
-import { LOCAL_TOOL_ERROR_CODES } from '@octocodeai/octocode-tools-core';
+import type { RipgrepQuery } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
+import { LOCAL_TOOL_ERROR_CODES } from '../../../octocode-tools-core/src/errors/localToolErrors.js';
 
 const mocks = vi.hoisted(() => ({
   checkCommandAvailability: vi.fn(),
@@ -8,20 +8,20 @@ const mocks = vi.hoisted(() => ({
   executeGrepFallbackSearch: vi.fn(),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
   checkCommandAvailability: mocks.checkCommandAvailability,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/ripgrepExecutor.js', () => ({
   executeRipgrepSearchInternal: mocks.executeRipgrepSearchInternal,
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/grepFallbackExecutor.js', () => ({
   executeGrepFallbackSearch: mocks.executeGrepFallbackSearch,
 }));
 
 const { searchContentRipgrep } =
-  await import('@octocodeai/octocode-tools-core');
+  await import('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js');
 
 function makeRipgrepQuery(overrides: Partial<RipgrepQuery> = {}): RipgrepQuery {
   return {

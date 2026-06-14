@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterPatch, trimDiffContext } from '@octocodeai/octocode-tools-core';
+import { filterPatch, trimDiffContext } from '../../../octocode-tools-core/src/utils/parsers/diff.js';
 
 describe('filterPatch', () => {
   const samplePatch = `@@ -1,3 +1,4 @@

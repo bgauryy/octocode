@@ -27,7 +27,7 @@ import {
   createCacheMeta,
   writeCacheMeta,
   isCacheHit,
-} from '@octocodeai/octocode-tools-core';
+} from '../../../octocode-tools-core/src/tools/github_clone_repo/cache.js';
 
 describe('github_clone_repo cache - branch coverage', () => {
   const testBaseDir = join(tmpdir(), `octocode-cache-branches-${Date.now()}`);

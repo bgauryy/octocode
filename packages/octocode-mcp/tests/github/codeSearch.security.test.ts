@@ -8,23 +8,23 @@ const mockOctokit = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: vi.fn(() => mockOctokit),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
   withDataCache: vi.fn(async (_key: string, fn: () => unknown) => {
     return await fn();
   }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', () => ({
+vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 
-import { searchGitHubCodeAPI } from '@octocodeai/octocode-tools-core';
-import { SEARCH_ERRORS } from '@octocodeai/octocode-tools-core';
+import { searchGitHubCodeAPI } from '../../../octocode-tools-core/src/github/codeSearch.js';
+import { SEARCH_ERRORS } from '../../../octocode-tools-core/src/errors/domainErrors.js';
 
 describe('Code Search - Empty Query Validation', () => {
   beforeEach(() => {

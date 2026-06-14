@@ -4,7 +4,7 @@ import {
   reinitializePathValidator,
 } from 'octocode-security/pathValidator';
 import { validateCommand } from 'octocode-security/commandValidator';
-import { validateToolPath } from '@octocodeai/octocode-tools-core';
+import { validateToolPath } from '../../../octocode-tools-core/src/utils/file/toolHelpers.js';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
