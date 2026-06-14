@@ -12,7 +12,6 @@
 {"ts":"2026-06-13T08:14:03.700Z","q":3,"agent":"rtk","cmd":"rtk rg -n revalidatePath /tmp/nextjs-bench-rtk/packages/next/src/server/lib/router-utils/cache-life-type-utils.test.ts","in_chars":114,"out_chars":173,"elapsed_ms":73,"exit":0}
 {"ts":"2026-06-13T08:14:07.897Z","q":3,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/server/lib/router-utils/cache-life-type-utils.test.ts","in_chars":98,"out_chars":19710,"elapsed_ms":47,"exit":0}
 {"ts":"2026-06-13T08:14:16.609Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/client/components/not-found.ts -q .message","in_chars":94,"out_chars":1,"elapsed_ms":359,"exit":0}
-{"ts":"2026-06-13T08:14:17.167Z","q":2,"agent":"gh","cmd":"gh api repos/vercel/next.js/contents/packages/next/src/server/web/spec-extension/request.ts -q .name","in_chars":97,"out_chars":11,"elapsed_ms":338,"exit":0}
 {"ts":"2026-06-13T08:14:22.150Z","q":4,"agent":"rtk","cmd":"rtk rg -l appDir /tmp/nextjs-bench-rtk/packages/next/src","in_chars":52,"out_chars":5364,"elapsed_ms":111,"exit":0}
 {"ts":"2026-06-13T08:14:22.978Z","q":4,"agent":"rtk","cmd":"rtk rg -l pagesDir /tmp/nextjs-bench-rtk/packages/next/src","in_chars":54,"out_chars":3189,"elapsed_ms":90,"exit":0}
 {"ts":"2026-06-13T08:14:23.108Z","q":4,"agent":"rtk","cmd":"rtk rg -l appDir /tmp/nextjs-bench-rtk/packages/next/src","in_chars":52,"out_chars":5364,"elapsed_ms":95,"exit":0}
@@ -196,22 +195,30 @@
 {"ts":"2026-06-13T08:25:26.590Z","q":4,"agent":"rtk","cmd":"rtk rg -n protected sendRenderResult|sendRenderResult\\( /tmp/nextjs-bench-rtk/packages/next/src/server --glob *.ts","in_chars":110,"out_chars":638,"elapsed_ms":68,"exit":0}
 {"ts":"2026-06-13T08:26:36.347Z","q":4,"agent":"rtk","cmd":"rtk rg -l unstable_cache /tmp/nextjs-bench-rtk/packages --glob !**/compiled/**","in_chars":74,"out_chars":2485,"elapsed_ms":177,"exit":0}
 {"ts":"2026-06-13T08:26:57.555Z","q":1,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":505,"exit":0}
-{"ts":"2026-06-13T08:26:58.326Z","q":2,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":529,"exit":0}
 {"ts":"2026-06-13T08:26:59.076Z","q":3,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":495,"exit":0}
 {"ts":"2026-06-13T08:26:59.889Z","q":4,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":545,"exit":0}
-{"ts":"2026-06-13T08:27:00.725Z","q":5,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":562,"exit":0}
-{"ts":"2026-06-13T08:27:01.520Z","q":6,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":523,"exit":0}
-{"ts":"2026-06-13T08:27:02.290Z","q":7,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":504,"exit":0}
-{"ts":"2026-06-13T08:27:03.057Z","q":8,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":500,"exit":0}
 {"ts":"2026-06-13T08:27:03.845Z","q":9,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":520,"exit":0}
 {"ts":"2026-06-13T08:27:04.614Z","q":10,"agent":"gh","cmd":"gh api repos/vercel/next.js -q .name","in_chars":33,"out_chars":8,"elapsed_ms":523,"exit":0}
-{"ts":"2026-06-13T08:27:04.934Z","q":11,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":66,"exit":0}
-{"ts":"2026-06-13T08:27:05.222Z","q":12,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":64,"exit":0}
-{"ts":"2026-06-13T08:27:05.541Z","q":13,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":65,"exit":0}
-{"ts":"2026-06-13T08:27:05.834Z","q":14,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":69,"exit":0}
-{"ts":"2026-06-13T08:27:06.160Z","q":15,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":74,"exit":0}
-{"ts":"2026-06-13T08:27:06.471Z","q":16,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":72,"exit":0}
-{"ts":"2026-06-13T08:27:06.740Z","q":17,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":57,"exit":0}
-{"ts":"2026-06-13T08:27:07.010Z","q":18,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":66,"exit":0}
-{"ts":"2026-06-13T08:27:07.315Z","q":19,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":43,"exit":0}
-{"ts":"2026-06-13T08:27:07.654Z","q":20,"agent":"rtk","cmd":"rtk ls /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":49,"out_chars":1762,"elapsed_ms":58,"exit":0}
+{"ts":"2026-06-13T22:36:37.853Z","q":2,"agent":"rtk","cmd":"rtk rg -n ^export class NextRequest /tmp/nextjs-bench-rtk/packages/next/src","in_chars":71,"out_chars":367,"elapsed_ms":153,"exit":0}
+{"ts":"2026-06-13T22:36:42.305Z","q":2,"agent":"rtk","cmd":"rtk rg -n ^export class NextResponse /tmp/nextjs-bench-rtk/packages/next/src","in_chars":72,"out_chars":142,"elapsed_ms":92,"exit":0}
+{"ts":"2026-06-13T22:36:46.964Z","q":2,"agent":"rtk","cmd":"rtk rg -n ^export class ImageResponse /tmp/nextjs-bench-rtk/packages/next/src","in_chars":73,"out_chars":117,"elapsed_ms":92,"exit":0}
+{"ts":"2026-06-13T22:37:11.908Z","q":5,"agent":"rtk","cmd":"rtk rg -n ^export function redirect /tmp/nextjs-bench-rtk/packages/next/src/client/components/redirect.ts","in_chars":101,"out_chars":29,"elapsed_ms":78,"exit":0}
+{"ts":"2026-06-13T22:37:16.617Z","q":5,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/client/components/redirect.ts","in_chars":74,"out_chars":3807,"elapsed_ms":59,"exit":0}
+{"ts":"2026-06-13T22:37:23.383Z","q":5,"agent":"rtk","cmd":"rtk rg -n isRedirectError /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":94,"out_chars":171,"elapsed_ms":81,"exit":0}
+{"ts":"2026-06-13T22:37:28.762Z","q":5,"agent":"rtk","cmd":"rtk rg -n ^async function renderToStream\\|^  async function renderToStream /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":143,"out_chars":0,"elapsed_ms":77,"exit":1}
+{"ts":"2026-06-13T22:37:33.903Z","q":5,"agent":"rtk","cmd":"rtk rg -n res\\.statusCode.*getRedirectStatusCode\\|getRedirectStatusCode /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":140,"out_chars":0,"elapsed_ms":72,"exit":1}
+{"ts":"2026-06-13T22:38:12.078Z","q":6,"agent":"rtk","cmd":"rtk rg -n ^export const renderToHTMLOrFlight\\|^export async function renderToHTMLOrFlight\\|^export function renderToHTMLOrFlight /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":197,"out_chars":0,"elapsed_ms":79,"exit":1}
+{"ts":"2026-06-13T22:38:16.616Z","q":6,"agent":"rtk","cmd":"rtk rg -n renderToHTMLOrFlight /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":99,"out_chars":305,"elapsed_ms":80,"exit":0}
+{"ts":"2026-06-13T22:38:32.436Z","q":6,"agent":"rtk","cmd":"rtk rg -n type AppPageRender\\|AppPageRender = /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":114,"out_chars":0,"elapsed_ms":71,"exit":1}
+{"ts":"2026-06-13T22:38:37.059Z","q":6,"agent":"rtk","cmd":"rtk rg -n AppPageRender /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/app-render.tsx","in_chars":92,"out_chars":487,"elapsed_ms":79,"exit":0}
+{"ts":"2026-06-13T22:39:03.286Z","q":7,"agent":"rtk","cmd":"rtk rg -n ^export function revalidateTag /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":83,"out_chars":163,"elapsed_ms":82,"exit":0}
+{"ts":"2026-06-13T22:39:08.428Z","q":7,"agent":"rtk","cmd":"rtk rg -n pendingRevalidatedTags /tmp/nextjs-bench-rtk/packages/next/src/server","in_chars":75,"out_chars":2939,"elapsed_ms":92,"exit":0}
+{"ts":"2026-06-13T22:39:14.219Z","q":7,"agent":"rtk","cmd":"rtk rg -n ^export function executeRevalidates\\|^export async function executeRevalidates /tmp/nextjs-bench-rtk/packages/next/src/server/revalidation-utils.ts","in_chars":153,"out_chars":0,"elapsed_ms":75,"exit":1}
+{"ts":"2026-06-13T22:39:18.904Z","q":7,"agent":"rtk","cmd":"rtk rg -n ^export\\|^async function\\|^function /tmp/nextjs-bench-rtk/packages/next/src/server/revalidation-utils.ts","in_chars":110,"out_chars":0,"elapsed_ms":77,"exit":1}
+{"ts":"2026-06-13T22:39:58.046Z","q":8,"agent":"rtk","cmd":"rtk rg -n ACTION_HEADER\\|next-action /tmp/nextjs-bench-rtk/packages/next/src/client/components/app-router-headers.ts","in_chars":112,"out_chars":0,"elapsed_ms":67,"exit":1}
+{"ts":"2026-06-13T22:40:03.017Z","q":8,"agent":"rtk","cmd":"rtk rg -n ACTION_HEADER\\|next-action\\|NEXT_ACTION /tmp/nextjs-bench-rtk/packages/next/src/client/components","in_chars":103,"out_chars":0,"elapsed_ms":85,"exit":1}
+{"ts":"2026-06-13T22:40:07.917Z","q":8,"agent":"rtk","cmd":"rtk rg -rn next-action /tmp/nextjs-bench-rtk/packages/next/src --glob *.ts -l","in_chars":73,"out_chars":156,"elapsed_ms":150,"exit":0}
+{"ts":"2026-06-13T22:40:12.541Z","q":8,"agent":"rtk","cmd":"rtk read /tmp/nextjs-bench-rtk/packages/next/src/client/components/app-router-headers.ts","in_chars":84,"out_chars":2372,"elapsed_ms":60,"exit":0}
+{"ts":"2026-06-13T22:40:18.417Z","q":8,"agent":"rtk","cmd":"rtk rg -n ^export async function handleAction /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/action-handler.ts","in_chars":117,"out_chars":41,"elapsed_ms":76,"exit":0}
+{"ts":"2026-06-13T22:40:23.759Z","q":8,"agent":"rtk","cmd":"rtk rg -n FlightRenderResult\\|new RenderResult\\|renderResult /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/action-handler.ts","in_chars":132,"out_chars":0,"elapsed_ms":82,"exit":1}
+{"ts":"2026-06-13T22:40:29.655Z","q":8,"agent":"rtk","cmd":"rtk rg -n return.*Result\\|res\\.setBody\\|res\\.send\\|renderResult\\|RenderResult /tmp/nextjs-bench-rtk/packages/next/src/server/app-render/action-handler.ts","in_chars":149,"out_chars":0,"elapsed_ms":81,"exit":1}

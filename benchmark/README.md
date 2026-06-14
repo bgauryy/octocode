@@ -20,7 +20,7 @@ benchmark/
 │   └── judge.md               # Paste-ready judge prompt
 ├── questions/
 │   ├── README.md              # Detailed Next.js benchmark notes
-│   └── nextjs.md              # Default 20-question benchmark
+│   └── nextjs.md              # Default 10-question benchmark (Section 1, remote only)
 ├── scripts/
 │   ├── init-run.sh            # Creates output/<agent>/ and exports RUN/LOG
 │   ├── set-q.sh               # Selects the active question
@@ -36,7 +36,7 @@ benchmark/
 
 The default benchmark uses
 [`benchmark/questions/nextjs.md`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/questions/nextjs.md).
-The shared scripts can run any question file that uses the existing
+It covers **10 remote-only questions** (Section 1). The shared scripts can run any question file that uses the existing
 `### Q<n> — <question>` heading format.
 
 ## Agents
@@ -145,6 +145,22 @@ Approximate tokens are display-only:
 ```text
 approx_tokens = ceil(total_chars_to_answer / 4)
 ```
+
+### octocode — Q1–Q10 token usage (latest run)
+
+| Q | Topic | Calls | ~Tokens | Total Chars |
+|---|-------|------:|--------:|------------:|
+| Q1 | `notFound()` propagation | 4 | 4,341 | 17,363 |
+| Q2 | Bulk symbol lookup | 2 | 2,892 | 11,567 |
+| Q3 | `revalidatePath` call sites | 7 | 13,116 | 52,463 |
+| Q4 | Files with both routers | 2 | 3,636 | 14,541 |
+| Q5 | `redirect()` end-to-end | 4 | 4,103 | 16,410 |
+| Q6 | `renderToHTMLOrFlight` signature | 4 | 3,399 | 13,593 |
+| Q7 | `revalidateTag` invalidation | 4 | 3,917 | 15,665 |
+| Q8 | Server Action routing | 7 | 7,039 | 28,153 |
+| Q9 | Agent eval benchmark | 5 | 3,218 | 12,869 |
+| Q10 | Turbopack benchmark workflow | 11 | 5,917 | 23,668 |
+| **Σ** | | **50** | **51,573** | **206,292** |
 
 For the full scoring model, clean-win rules, drift handling, and character/token
 policy, see

@@ -2096,15 +2096,76 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/octocode-minifier-utils@workspace:*, @octocodeai/octocode-minifier-utils@workspace:packages/octocode-minifier-utils":
+"@octocodeai/octocode-minifier-utils-darwin-arm64@portal:packages/octocode-minifier-utils/npm/darwin-arm64::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier-utils-darwin-arm64@portal:packages/octocode-minifier-utils/npm/darwin-arm64::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: soft
+
+"@octocodeai/octocode-minifier-utils-darwin-x64@portal:packages/octocode-minifier-utils/npm/darwin-x64::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier-utils-darwin-x64@portal:packages/octocode-minifier-utils/npm/darwin-x64::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: soft
+
+"@octocodeai/octocode-minifier-utils-linux-arm64-gnu@portal:packages/octocode-minifier-utils/npm/linux-arm64-gnu::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier-utils-linux-arm64-gnu@portal:packages/octocode-minifier-utils/npm/linux-arm64-gnu::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=linux & cpu=arm64
+  languageName: node
+  linkType: soft
+
+"@octocodeai/octocode-minifier-utils-linux-x64-gnu@portal:packages/octocode-minifier-utils/npm/linux-x64-gnu::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier-utils-linux-x64-gnu@portal:packages/octocode-minifier-utils/npm/linux-x64-gnu::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=linux & cpu=x64
+  languageName: node
+  linkType: soft
+
+"@octocodeai/octocode-minifier-utils-linux-x64-musl@portal:packages/octocode-minifier-utils/npm/linux-x64-musl::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier-utils-linux-x64-musl@portal:packages/octocode-minifier-utils/npm/linux-x64-musl::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=linux & cpu=x64
+  languageName: node
+  linkType: soft
+
+"@octocodeai/octocode-minifier-utils-win32-x64-msvc@portal:packages/octocode-minifier-utils/npm/win32-x64-msvc::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-minifier-utils-win32-x64-msvc@portal:packages/octocode-minifier-utils/npm/win32-x64-msvc::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: soft
+
+"@octocodeai/octocode-minifier-utils@workspace:*, @octocodeai/octocode-minifier-utils@workspace:^, @octocodeai/octocode-minifier-utils@workspace:packages/octocode-minifier-utils":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-minifier-utils@workspace:packages/octocode-minifier-utils"
   dependencies:
     "@napi-rs/cli": "npm:^2"
+    "@octocodeai/octocode-minifier-utils-darwin-arm64": "npm:16.0.0"
+    "@octocodeai/octocode-minifier-utils-darwin-x64": "npm:16.0.0"
+    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "npm:16.0.0"
+    "@octocodeai/octocode-minifier-utils-linux-x64-gnu": "npm:16.0.0"
+    "@octocodeai/octocode-minifier-utils-linux-x64-musl": "npm:16.0.0"
+    "@octocodeai/octocode-minifier-utils-win32-x64-msvc": "npm:16.0.0"
     "@types/node": "npm:^25.9.3"
     "@vitest/coverage-v8": "npm:^4.0.16"
     typescript: "npm:^5.9.3"
     vitest: "npm:^4.0.16"
+  dependenciesMeta:
+    "@octocodeai/octocode-minifier-utils-darwin-arm64":
+      optional: true
+    "@octocodeai/octocode-minifier-utils-darwin-x64":
+      optional: true
+    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu":
+      optional: true
+    "@octocodeai/octocode-minifier-utils-linux-x64-gnu":
+      optional: true
+    "@octocodeai/octocode-minifier-utils-linux-x64-musl":
+      optional: true
+    "@octocodeai/octocode-minifier-utils-win32-x64-msvc":
+      optional: true
   languageName: unknown
   linkType: soft
 
@@ -8005,7 +8066,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/octocode-core": "npm:^4.3.0"
-    "@octocodeai/octocode-minifier-utils": "workspace:*"
+    "@octocodeai/octocode-minifier-utils": "workspace:^"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/openapi-types": "npm:^27.0.0"
     "@octokit/plugin-rest-endpoint-methods": "npm:^17.0.0"
@@ -8073,6 +8134,48 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"octocode-security-darwin-arm64@portal:packages/octocode-security/npm/darwin-arm64::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "octocode-security-darwin-arm64@portal:packages/octocode-security/npm/darwin-arm64::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=darwin & cpu=arm64
+  languageName: node
+  linkType: soft
+
+"octocode-security-darwin-x64@portal:packages/octocode-security/npm/darwin-x64::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "octocode-security-darwin-x64@portal:packages/octocode-security/npm/darwin-x64::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=darwin & cpu=x64
+  languageName: node
+  linkType: soft
+
+"octocode-security-linux-arm64-gnu@portal:packages/octocode-security/npm/linux-arm64-gnu::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "octocode-security-linux-arm64-gnu@portal:packages/octocode-security/npm/linux-arm64-gnu::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=linux & cpu=arm64 & libc=glibc
+  languageName: node
+  linkType: soft
+
+"octocode-security-linux-x64-gnu@portal:packages/octocode-security/npm/linux-x64-gnu::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "octocode-security-linux-x64-gnu@portal:packages/octocode-security/npm/linux-x64-gnu::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: soft
+
+"octocode-security-linux-x64-musl@portal:packages/octocode-security/npm/linux-x64-musl::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "octocode-security-linux-x64-musl@portal:packages/octocode-security/npm/linux-x64-musl::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: soft
+
+"octocode-security-win32-x64-msvc@portal:packages/octocode-security/npm/win32-x64-msvc::locator=octocode-monorepo%40workspace%3A.":
+  version: 0.0.0-use.local
+  resolution: "octocode-security-win32-x64-msvc@portal:packages/octocode-security/npm/win32-x64-msvc::locator=octocode-monorepo%40workspace%3A."
+  conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: soft
+
 "octocode-security@workspace:^, octocode-security@workspace:packages/octocode-security":
   version: 0.0.0-use.local
   resolution: "octocode-security@workspace:packages/octocode-security"
@@ -8085,10 +8188,29 @@ __metadata:
     eslint: "npm:^9.18.0"
     eslint-config-prettier: "npm:^10.1.8"
     eslint-plugin-prettier: "npm:^5.5.4"
+    octocode-security-darwin-arm64: "npm:16.0.0"
+    octocode-security-darwin-x64: "npm:16.0.0"
+    octocode-security-linux-arm64-gnu: "npm:16.0.0"
+    octocode-security-linux-x64-gnu: "npm:16.0.0"
+    octocode-security-linux-x64-musl: "npm:16.0.0"
+    octocode-security-win32-x64-msvc: "npm:16.0.0"
     prettier: "npm:^3.6.2"
     typescript: "npm:^5.9.3"
     typescript-eslint: "npm:^8.52.0"
     vitest: "npm:^4.1.8"
+  dependenciesMeta:
+    octocode-security-darwin-arm64:
+      optional: true
+    octocode-security-darwin-x64:
+      optional: true
+    octocode-security-linux-arm64-gnu:
+      optional: true
+    octocode-security-linux-x64-gnu:
+      optional: true
+    octocode-security-linux-x64-musl:
+      optional: true
+    octocode-security-win32-x64-msvc:
+      optional: true
   languageName: unknown
   linkType: soft
 

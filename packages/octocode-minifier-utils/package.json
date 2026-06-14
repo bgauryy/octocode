@@ -36,9 +36,9 @@
   "optionalDependencies": {
     "@octocodeai/octocode-minifier-utils-darwin-arm64": "16.0.0",
     "@octocodeai/octocode-minifier-utils-darwin-x64": "16.0.0",
+    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "16.0.0",
     "@octocodeai/octocode-minifier-utils-linux-x64-gnu": "16.0.0",
     "@octocodeai/octocode-minifier-utils-linux-x64-musl": "16.0.0",
-    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "16.0.0",
     "@octocodeai/octocode-minifier-utils-win32-x64-msvc": "16.0.0"
   },
   "engines": {

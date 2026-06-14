@@ -11,7 +11,7 @@ import {
 const minifyField = z
   .enum(['none', 'standard', 'symbols'])
   .optional()
-  .default('none');
+  .default('standard');
 import { validateFileContentExtractionMode } from '../../scheme/fileContentModeValidation.js';
 import {
   EvidenceSchema,

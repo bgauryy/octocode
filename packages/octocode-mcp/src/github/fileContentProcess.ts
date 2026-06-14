@@ -1,5 +1,6 @@
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
+import { GITHUB_FILE_CONTENT_DEFAULT_CHAR_LENGTH } from '../config.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyContentViewMinification,
@@ -12,7 +13,12 @@ import { OctokitWithThrottling } from './client.js';
 import type { MinifyMode } from '../scheme/fields.js';
 
 function getDefaultContentPageSize(): number {
-  return getOutputCharLimit();
+  // Use the global output limit only if it was explicitly lowered below the
+  // tool-specific default; otherwise use the tool-specific 1000-char budget.
+  // This keeps pages tight (cache re-use, low token cost) while still
+  // respecting operator overrides via OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH.
+  const globalLimit = getOutputCharLimit();
+  return Math.min(globalLimit, GITHUB_FILE_CONTENT_DEFAULT_CHAR_LENGTH);
 }
 
 function sourceSizeFields(sourceChars: number, sourceBytes: number) {
@@ -327,8 +333,8 @@ export async function processFileContentAPI(
     repo,
     path: filePath,
     content: finalContent,
-    // Omit contentView when 'none' (default) — absence implies raw/none.
-    ...(fallbackContentView !== 'none' && {
+    // Omit contentView when 'standard' (default) — absence implies standard.
+    ...(fallbackContentView !== 'standard' && {
       contentView: fallbackContentView,
     }),
     branch,

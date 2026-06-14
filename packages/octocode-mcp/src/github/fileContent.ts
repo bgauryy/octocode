@@ -65,7 +65,7 @@ export async function fetchGitHubFileContentAPI(
     params.matchString,
     params.matchStringIsRegex,
     params.matchStringCaseSensitive,
-    params.minify ?? 'none'
+    params.minify ?? 'standard'
   );
 
   if ('error' in processedResult) {
@@ -86,7 +86,11 @@ export async function fetchGitHubFileContentAPI(
     ? processedData
     : applyContentPagination(processedData, charOffset, charLength);
 
-  if (!params.noTimestamp) {
+  // Continuation pages (charOffset > 0) skip the timestamp lookup entirely —
+  // the agent already received it on page 1, and omitting it removes per-page
+  // overhead without any loss of information.
+  const isContinuationPage = (params.charOffset ?? 0) > 0;
+  if (!params.noTimestamp && !isContinuationPage) {
     try {
       const octokit = await getOctokit(authInfo);
       // Cached separately from raw content: every read variant of the same

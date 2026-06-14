@@ -40,7 +40,19 @@
     "typescript-eslint": "^8.52.0"
   },
   "resolutions": {
-    "axios": "1.13.2"
+    "axios": "1.13.2",
+    "@octocodeai/octocode-minifier-utils-darwin-arm64": "portal:packages/octocode-minifier-utils/npm/darwin-arm64",
+    "@octocodeai/octocode-minifier-utils-darwin-x64": "portal:packages/octocode-minifier-utils/npm/darwin-x64",
+    "@octocodeai/octocode-minifier-utils-linux-arm64-gnu": "portal:packages/octocode-minifier-utils/npm/linux-arm64-gnu",
+    "@octocodeai/octocode-minifier-utils-linux-x64-gnu": "portal:packages/octocode-minifier-utils/npm/linux-x64-gnu",
+    "@octocodeai/octocode-minifier-utils-linux-x64-musl": "portal:packages/octocode-minifier-utils/npm/linux-x64-musl",
+    "@octocodeai/octocode-minifier-utils-win32-x64-msvc": "portal:packages/octocode-minifier-utils/npm/win32-x64-msvc",
+    "octocode-security-darwin-arm64": "portal:packages/octocode-security/npm/darwin-arm64",
+    "octocode-security-darwin-x64": "portal:packages/octocode-security/npm/darwin-x64",
+    "octocode-security-linux-arm64-gnu": "portal:packages/octocode-security/npm/linux-arm64-gnu",
+    "octocode-security-linux-x64-gnu": "portal:packages/octocode-security/npm/linux-x64-gnu",
+    "octocode-security-linux-x64-musl": "portal:packages/octocode-security/npm/linux-x64-musl",
+    "octocode-security-win32-x64-msvc": "portal:packages/octocode-security/npm/win32-x64-msvc"
   },
   "private": true,
   "workspaces": [

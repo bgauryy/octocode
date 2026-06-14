@@ -242,7 +242,7 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       });
     });
 
-    it("applies the schema-default 'none' content view — raw content returned, no minification", async () => {
+    it("applies the schema-default 'standard' content view via applyContentViewMinification", async () => {
       const params = createTestParams();
 
       const result = await fetchGitHubFileContentAPI(params);

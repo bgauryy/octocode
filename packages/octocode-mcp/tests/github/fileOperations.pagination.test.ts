@@ -36,7 +36,7 @@ describe('GitHub File Operations - Pagination', () => {
 
   describe('auto-pagination', () => {
     it('should NOT paginate small files below the shared output budget', async () => {
-      const smallContent = 'x'.repeat(5000);
+      const smallContent = 'x'.repeat(800);
       const mockOctokit = createMockOctokit(smallContent);
 
       vi.mocked(getOctokit).mockResolvedValue(
@@ -59,7 +59,7 @@ describe('GitHub File Operations - Pagination', () => {
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data && !('error' in result.data)) {
         expect(result.data.pagination).toBeUndefined();
-        expect(result.data.content?.length).toBe(5000);
+        expect(result.data.content?.length).toBe(800);
       }
     });
 
@@ -164,8 +164,8 @@ describe('GitHub File Operations - Pagination', () => {
       expect(result).toHaveProperty('data');
     });
 
-    it('should paginate when explicit charOffset=0 but content < threshold', async () => {
-      const smallContent = 'x'.repeat(5000);
+    it('should not paginate when explicit charOffset=0 and content is below the page budget', async () => {
+      const smallContent = 'x'.repeat(800);
       const mockOctokit = createMockOctokit(smallContent);
 
       vi.mocked(getOctokit).mockResolvedValue(

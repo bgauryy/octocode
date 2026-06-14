@@ -67,5 +67,14 @@ export const MAX_CONTEXT_LINES = 100;
 /** Maximum char window for a single paginated response. */
 export const MAX_CHAR_LENGTH = 50_000;
 
+/**
+ * Default page size for githubGetFileContent pagination.
+ * Intentionally smaller than the global output limit — GitHub files are
+ * fetched and cached once; all continuation pages are served from cache
+ * with no re-fetch overhead. Keeping this tight avoids large token dumps
+ * when the agent only needs a targeted slice.
+ */
+export const GITHUB_FILE_CONTENT_DEFAULT_CHAR_LENGTH = 1_000;
+
 /** Maximum match content length (chars) for ripgrep snippets. */
 export const MAX_MATCH_CONTENT_LENGTH = 100_000;

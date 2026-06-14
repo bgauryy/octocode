@@ -183,7 +183,8 @@ describe('processFileContentAPI — minify mode', () => {
       'symbols'
     );
     expect(result.signaturesExtracted).toBeUndefined();
-    expect(result.contentView).toBe('standard');
+    // contentView omitted when 'standard' — absence implies standard
+    expect(result.contentView).toBeUndefined();
     expect(result.isSkeleton).toBeUndefined();
     expect(result.content).toContain('name=octocode');
     expect(result.content).toContain('keep=true');

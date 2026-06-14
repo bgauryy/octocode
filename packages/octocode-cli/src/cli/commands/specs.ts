@@ -17,7 +17,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     ],
     whenToUse: [
       'Use after tree/files/search identifies a file or exact slice to read.',
-      'Use --mode none for exact evidence, --mode standard for normal reading, and --mode symbols for a skeleton map.',
+      'Default mode is standard (strips comments/blanks, token-efficient). Use --mode symbols for a skeleton map; use --mode none only when comments or exact formatting are required.',
     ],
     examples: [
       'octocode get packages/octocode-cli/src/cli/index.ts',

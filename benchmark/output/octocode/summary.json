@@ -1,0 +1,167 @@
+{
+  "run": "octocode",
+  "agent": "octocode",
+  "questions": 10,
+  "totals": {
+    "calls": 50,
+    "in_chars": 27681,
+    "out_chars": 178611,
+    "total_chars": 206292,
+    "approx_tokens": 51573,
+    "tool_elapsed_ms": 77690,
+    "q_elapsed_ms": 752487,
+    "reasoning_ms": 674797
+  },
+  "per_q": [
+    {
+      "q": 1,
+      "calls": 4,
+      "in_chars": 1741,
+      "out_chars": 15622,
+      "total_chars": 17363,
+      "approx_tokens": 4341,
+      "tool_elapsed_ms": 5514,
+      "q_elapsed_ms": 63875,
+      "reasoning_ms": 58361
+    },
+    {
+      "q": 2,
+      "calls": 2,
+      "in_chars": 2632,
+      "out_chars": 8935,
+      "total_chars": 11567,
+      "approx_tokens": 2892,
+      "tool_elapsed_ms": 6747,
+      "q_elapsed_ms": 32085,
+      "reasoning_ms": 25338
+    },
+    {
+      "q": 3,
+      "calls": 7,
+      "in_chars": 4229,
+      "out_chars": 48234,
+      "total_chars": 52463,
+      "approx_tokens": 13116,
+      "tool_elapsed_ms": 9257,
+      "q_elapsed_ms": 146225,
+      "reasoning_ms": 136968
+    },
+    {
+      "q": 4,
+      "calls": 2,
+      "in_chars": 947,
+      "out_chars": 13594,
+      "total_chars": 14541,
+      "approx_tokens": 3636,
+      "tool_elapsed_ms": 2005,
+      "q_elapsed_ms": 51446,
+      "reasoning_ms": 49441
+    },
+    {
+      "q": 5,
+      "calls": 4,
+      "in_chars": 2047,
+      "out_chars": 14363,
+      "total_chars": 16410,
+      "approx_tokens": 4103,
+      "tool_elapsed_ms": 6485,
+      "q_elapsed_ms": 71793,
+      "reasoning_ms": 65308
+    },
+    {
+      "q": 6,
+      "calls": 4,
+      "in_chars": 1973,
+      "out_chars": 11620,
+      "total_chars": 13593,
+      "approx_tokens": 3399,
+      "tool_elapsed_ms": 9645,
+      "q_elapsed_ms": 65465,
+      "reasoning_ms": 55820
+    },
+    {
+      "q": 7,
+      "calls": 4,
+      "in_chars": 2128,
+      "out_chars": 13537,
+      "total_chars": 15665,
+      "approx_tokens": 3917,
+      "tool_elapsed_ms": 6003,
+      "q_elapsed_ms": 56545,
+      "reasoning_ms": 50542
+    },
+    {
+      "q": 8,
+      "calls": 7,
+      "in_chars": 4483,
+      "out_chars": 23670,
+      "total_chars": 28153,
+      "approx_tokens": 7039,
+      "tool_elapsed_ms": 10233,
+      "q_elapsed_ms": 81295,
+      "reasoning_ms": 71062
+    },
+    {
+      "q": 9,
+      "calls": 5,
+      "in_chars": 2068,
+      "out_chars": 10801,
+      "total_chars": 12869,
+      "approx_tokens": 3218,
+      "tool_elapsed_ms": 7090,
+      "q_elapsed_ms": 68597,
+      "reasoning_ms": 61507
+    },
+    {
+      "q": 10,
+      "calls": 11,
+      "in_chars": 5433,
+      "out_chars": 18235,
+      "total_chars": 23668,
+      "approx_tokens": 5917,
+      "tool_elapsed_ms": 14711,
+      "q_elapsed_ms": 115161,
+      "reasoning_ms": 100450
+    },
+    {
+      "q": 11,
+      "missing": true
+    },
+    {
+      "q": 12,
+      "missing": true
+    },
+    {
+      "q": 13,
+      "missing": true
+    },
+    {
+      "q": 14,
+      "missing": true
+    },
+    {
+      "q": 15,
+      "missing": true
+    },
+    {
+      "q": 16,
+      "missing": true
+    },
+    {
+      "q": 17,
+      "missing": true
+    },
+    {
+      "q": 18,
+      "missing": true
+    },
+    {
+      "q": 19,
+      "missing": true
+    },
+    {
+      "q": 20,
+      "missing": true
+    }
+  ]
+}
