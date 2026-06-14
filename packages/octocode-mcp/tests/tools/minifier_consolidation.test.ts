@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const readSrc = (p: string): string =>
-  readFileSync(resolve(here, '../../src', p), 'utf8');
+  readFileSync(resolve(here, '../../../octocode-tools-core/src', p), 'utf8');
 
 describe('minifier consolidation (#4)', () => {
   it('applyMinification is exported from the shared minifier util', async () => {

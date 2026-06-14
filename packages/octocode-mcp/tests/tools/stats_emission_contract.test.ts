@@ -2,7 +2,9 @@ import { readFile } from 'fs/promises';
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
+import { resolve } from 'path';
 const ROOT = process.cwd();
+const CORE_ROOT = resolve(ROOT, '../octocode-tools-core');
 
 const registeredTools = [
   {
@@ -97,7 +99,17 @@ const registeredTools = [
 ] as const;
 
 async function readProjectFile(relativePath: string): Promise<string> {
-  return readFile(`${ROOT}/${relativePath}`, 'utf-8');
+  // Files starting with 'src/tools/' or 'src/utils/' moved to octocode-tools-core
+  const isMcpOnly = relativePath.startsWith('src/index.ts') ||
+    relativePath.startsWith('src/public') ||
+    relativePath.startsWith('src/tools/toolsManager') ||
+    relativePath.startsWith('src/tools/toolConfig') ||
+    relativePath.startsWith('src/tools/toolFilters') ||
+    relativePath.startsWith('src/utils/core/logger') ||
+    relativePath.startsWith('src/utils/secureServer') ||
+    relativePath.startsWith('src/utils/securityBridge');
+  const root = isMcpOnly ? ROOT : CORE_ROOT;
+  return readFile(`${root}/${relativePath}`, 'utf-8');
 }
 
 describe('tool stats emission contract', () => {

@@ -12,6 +12,10 @@ import {
   createPaginationInfo,
 } from '../../utils/pagination/core.js';
 import { generatePaginationHints } from '../../utils/pagination/hints.js';
+import {
+  isMidBlockCut,
+  findNextBlockBoundary,
+} from '../../utils/pagination/boundary.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { getOutputCharLimit } from '../../utils/pagination/charLimit.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
@@ -580,6 +584,25 @@ function buildSuccessResult(
         })
       : [];
 
+  // Detect mid-block cuts: when the page ends inside an indented block, scan
+  // forward for the next top-level definition so the agent can extend
+  // charLength to a semantic boundary rather than paginating blindly.
+  let nextBlockChar: number | undefined;
+  const midBlockHints: string[] = [];
+  if (pagination.hasMore && isMidBlockCut(pagination.paginatedContent)) {
+    const cutPos = pagination.charOffset + pagination.charLength;
+    nextBlockChar = findNextBlockBoundary(outputContent, cutPos, queryPath);
+    if (nextBlockChar !== undefined) {
+      const extendBy = nextBlockChar - cutPos;
+      midBlockHints.push(
+        `Page cut mid-block at char ${cutPos}. ` +
+          `Next top-level definition at char ${nextBlockChar}. ` +
+          `Re-request with charLength=${(effectiveCharLength ?? pagination.charLength) + extendBy} to extend this page to the next boundary, ` +
+          `or use charOffset=${cutPos} to continue page-by-page.`
+      );
+    }
+  }
+
   // Large-file navigation hints: when the file is large and no narrowing was
   // requested, guide agents to use startLine for tail access and
   // minify:"symbols" for an export index — prevents agents giving up on
@@ -629,11 +652,15 @@ function buildSuccessResult(
     ...((effectiveCharLength !== undefined ||
       explicitCharOffset > 0 ||
       autoPaginated) && {
-      pagination: createPaginationInfo(pagination),
+      pagination: {
+        ...createPaginationInfo(pagination),
+        ...(nextBlockChar !== undefined && { nextBlockChar }),
+      },
     }),
     ...(warnings.length > 0 && { warnings }),
     hints: [
       ...baseHints,
+      ...midBlockHints,
       ...paginationHints,
       ...largeFileHints,
       ...nextStepHints,

@@ -8,7 +8,8 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   isCloneEnabled: vi.fn(),
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', () => ({
+vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async importOriginal => ({
+  ...(await importOriginal<object>()),
   isToolInMetadata: vi.fn(),
 }));
 

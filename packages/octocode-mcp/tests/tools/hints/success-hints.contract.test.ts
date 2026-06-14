@@ -41,7 +41,7 @@ describe('localSearchCode — LSP lineHint success hint', () => {
   it('ripgrepResultBuilder contains LSP chaining hint for non-empty results', async () => {
     const fs = await import('fs/promises');
     const src = await fs.readFile(
-      'src/tools/local_ripgrep/ripgrepResultBuilder.ts',
+      '../octocode-tools-core/src/tools/local_ripgrep/ripgrepResultBuilder.ts',
       'utf-8'
     );
     expect(src).toContain('lspGetSemanticContent');
@@ -84,7 +84,7 @@ describe('githubSearchPullRequests — result hint exists in code', () => {
   it('execution imports resultHints that include reviewMode guidance', async () => {
     const fs = await import('fs/promises');
     const src = await fs.readFile(
-      'src/tools/github_search_pull_requests/execution.ts',
+      '../octocode-tools-core/src/tools/github_search_pull_requests/execution.ts',
       'utf-8'
     );
     expect(src).toContain('resultHints');
@@ -96,7 +96,7 @@ describe('githubSearchCode — chain hint', () => {
   it('execution contains githubGetFileContent escalation hint', async () => {
     const fs = await import('fs/promises');
     const src = await fs.readFile(
-      'src/tools/github_search_code/execution.ts',
+      '../octocode-tools-core/src/tools/github_search_code/execution.ts',
       'utf-8'
     );
     expect(src).toContain('githubGetFileContent');
@@ -125,7 +125,7 @@ describe('githubSearchRepositories — parallel explore hint', () => {
   it('execution contains parallel githubViewRepoStructure hint', async () => {
     const fs = await import('fs/promises');
     const src = await fs.readFile(
-      'src/tools/github_search_repos/execution.ts',
+      '../octocode-tools-core/src/tools/github_search_repos/execution.ts',
       'utf-8'
     );
     expect(src).toContain('parallel');
