@@ -9,22 +9,22 @@
   "contentView": {
     "bytes": 2569,
     "cutPercent": 1.8,
-    "durationMs": 0.033
+    "durationMs": 0.03
   },
   "applyMinification": {
     "bytes": 2571,
     "cutPercent": 1.7,
-    "durationMs": 0.027
+    "durationMs": 0.023
   },
   "sync": {
     "bytes": 2571,
     "cutPercent": 1.7,
-    "durationMs": 0.025
+    "durationMs": 0.022
   },
   "async": {
     "bytes": 2571,
     "cutPercent": 1.7,
-    "durationMs": 0.033,
+    "durationMs": 0.023,
     "failed": false,
     "type": "conservative",
     "reason": null

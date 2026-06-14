@@ -1407,15 +1407,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/cli@npm:^2":
-  version: 2.18.4
-  resolution: "@napi-rs/cli@npm:2.18.4"
-  bin:
-    napi: scripts/index.js
-  checksum: 10c0/cb80bc86687ba01077a0faa8d38198bc632b7caacf3a42ec42c3ec04700084ca26be9eec13bf7ac7da90e6afb46c65a39de8a86825a53b74dec2f2f459c0a7ea
-  languageName: node
-  linkType: hard
-
 "@napi-rs/cli@npm:^3.7.1":
   version: 3.7.1
   resolution: "@napi-rs/cli@npm:3.7.1"
@@ -2133,7 +2124,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils@workspace:packages/octocode-context-utils"
   dependencies:
-    "@napi-rs/cli": "npm:^2"
+    "@napi-rs/cli": "npm:^3.7.1"
     "@octocodeai/octocode-context-utils-darwin-arm64": "npm:16.0.0"
     "@octocodeai/octocode-context-utils-darwin-x64": "npm:16.0.0"
     "@octocodeai/octocode-context-utils-linux-arm64-gnu": "npm:16.0.0"

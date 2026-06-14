@@ -1,6 +1,6 @@
 # `@octocodeai/octocode-context-utils`
 
-Token-efficient compression for AI agent context windows. Reduces file content, PR patches, and search results before they enter the LLM — while keeping the output navigable by an agent, not just byte-smaller.
+LLM context engine for AI agent context windows. It combines agent-readable compression, semantic signature extraction, deterministic pagination boundaries, and stable YAML serialization so file content, PR patches, and search results enter the model smaller while staying navigable.
 
 > **Not a production build optimizer.** Use [Terser](https://www.npmjs.com/package/terser), [esbuild](https://www.npmjs.com/package/esbuild), or [Lightning CSS](https://www.npmjs.com/package/lightningcss) for deployable output. This package optimizes for agent-readable token reduction.
 
@@ -89,7 +89,7 @@ Raw synchronous strategy dispatch. Returns the strategy output even if it is lon
 
 **Use for:** Any path where async is allowed and maximum compression matters.
 
-Dispatches to the strongest compiled engine for the format: OXC for JS/TS, Lightning CSS for CSS-family files, `minify-html` for HTML, and strategy-backed cleanup otherwise. Returns:
+Dispatches to the strongest compiled engine for the format: OXC for JS/TS, Lightning CSS for CSS-family files, `minify-html` for HTML, and centralized strategy-backed cleanup otherwise. Returns:
 
 ```ts
 type MinifyResult = {
@@ -161,8 +161,8 @@ Strongest compression path. Uses production parsing libraries.
 | `js` `mjs` `cjs`       | terser                          | OXC parse + minify, JS fallback on parse failure           | ✓       |
 | `jsx`                  | terser                          | OXC parse + minify, JS fallback on parse failure           | ✓       |
 | `ts` `tsx`             | conservative + terser candidate | OXC parse + minify, TS-only syntax stripped                | ✓       |
-| `css` `less` `scss`    | aggressive                      | Lightning CSS quality path, regex fallback                 | ✓       |
-| `html` `htm`           | aggressive                      | `minify-html`, regex fallback                              | ✓       |
+| `css` `less` `scss`    | aggressive                      | Lightning CSS quality path, centralized text cleanup fallback | ✓       |
+| `html` `htm`           | aggressive                      | `minify-html`, centralized text cleanup fallback           | ✓       |
 | `vue` `svelte`         | aggressive                      | Component-aware heuristic skeletons + text cleanup         | ✓       |
 | `json` `jsonc` `json5` | json                            | JSON parse → compact stringify; JSONC/JSON5 stripped first | —       |
 
@@ -224,18 +224,18 @@ The slim build still exists for size experiments and constrained distributions: 
 
 `tree-sitter-large-grammars` is the default feature group for the published package. It gives maintainers one stable switch for "build the full parser-backed C++/C# artifact" instead of remembering two feature names everywhere: publish jobs, benchmark comparisons, local size experiments, and regression checks can all use the same feature. The feature accepts the raw install-size cost to improve C++/C# body dropping, while adding only about `0.63 MiB` to the gzipped native addon.
 
-Default native addon size with parser-backed C++/C#:
+Default native addon size with parser-backed C++/C# (`darwin-arm64`, OXC `0.135`, napi-rs v3):
 
 ```text
-33.26 MiB raw
- 4.97 MiB gzip
+34.85 MiB raw
+ 5.62 MiB gzip
 ```
 
-Slim native addon size with `--no-default-features`:
+Slim native addon size with `--no-default-features` (`darwin-arm64`, OXC `0.135`, napi-rs v3):
 
 ```text
-24.82 MiB raw
- 4.34 MiB gzip
+26.43 MiB raw
+ 4.99 MiB gzip
 ```
 
 Default build:
@@ -384,6 +384,8 @@ Input (content + filePath)
   Output: shorter, agent-readable content
 ```
 
+This package is positioned as Octocode's LLM context engine, not as a generic minifier. The moat is semantic signatures, deterministic pagination helpers, and agent-readable compression under one native boundary.
+
 ### Comment stripping is string-aware
 
 The `conservative` strategy does not use bare regexes on comment syntax. Every comment family uses a character-level scanner that:
@@ -455,13 +457,14 @@ benchmark/
 ```bash
 yarn build          # release native addon, default parser-backed C++/C# support
 yarn build:dev      # debug/native addon for quick local iteration
-yarn verify         # typecheck + clippy + cargo test + Node FFI tests + cargo audit
+yarn verify         # typecheck + clippy + cargo test + Node FFI tests + pack check + cargo audit
 
 yarn test           # Rust unit tests
 yarn test:node      # Node FFI tests, no coverage
 yarn test:node:coverage
 yarn lint:rust
 yarn typecheck
+yarn pack:check     # npm pack dry-run guard: no root .node files, bounded size
 ```
 
 Run both default and slim grammar checks when touching signature extraction:
@@ -506,6 +509,7 @@ Measure the native addon after every dependency or grammar change:
 
 ```bash
 yarn build
+yarn pack:check
 ls -lh *.node
 gzip -c octocode-context-utils.*.node | wc -c
 ```
@@ -557,7 +561,9 @@ V8 coverage only measures the JS loader/postbuild surface. Rust correctness live
 
 ### Publishing notes
 
-This package publishes prebuilt `.node` artifacts. Cargo features are compile-time, so npm users get whichever profile CI built. For `octocode-mcp`, publish the default parser-backed C++/C# profile; the measured gzip cost is small enough for the quality gain. Use `--no-default-features` only for constrained distributions or package-size experiments.
+This package publishes prebuilt `.node` artifacts through optional per-platform packages. The root npm package intentionally contains only the JS loaders, type declarations, metadata, and README; `yarn pack:check` fails if a native binary is accidentally included in the main tarball.
+
+Cargo features are compile-time, so npm users get whichever profile CI built. For `octocode-mcp`, publish the default parser-backed C++/C# profile; the measured gzip cost is small enough for the quality gain. Use `--no-default-features` only for constrained distributions or package-size experiments.
 
 ---
 

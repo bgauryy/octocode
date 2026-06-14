@@ -84,6 +84,12 @@ jobs:
           yarn workspace octocode-security run build
           yarn workspace @octocodeai/octocode-context-utils run build
 
+      - name: Check context-utils npm package size
+        run: yarn workspace @octocodeai/octocode-context-utils run pack:check
+
+      - name: Check security npm package size
+        run: yarn workspace octocode-security run pack:check
+
       - name: Build all packages (native platform)
         run: yarn build
 

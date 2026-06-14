@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 20778,
       "cutPercent": 41.4,
-      "durationMs": 1.839
+      "durationMs": 1.703
     },
     "content": "<?php\n\nnamespace Illuminate\\Support;\n\nuse ArgumentCountError;\nuse ArrayAccess;\nuse Closure;\nuse Illuminate\\Contracts\\Support\\Arrayable;\nuse Illuminate\\Contracts\\Support\\Jsonable;\nuse Illuminate\\Support\\Traits\\Macroable;\nuse InvalidArgumentException;\nuse JsonSerializable;\nuse Random\\Randomizer;\nuse Traversable;\nuse WeakMap;\n\nclass Arr\n{\n    use Macroable;\n\n    public static function accessible($value)\n    {\n        return is_array($value) || $value instanceof ArrayAccess;\n    }\n\n    public static function arrayable($value)\n    {\n        return is_array($value)\n            || $value instanceof Arrayable\n            || $value instanceof Traversable\n            || $value instanceof Jsonable\n            || $value instanceof JsonSerializable;\n    }\n\n    public static function add($array, $key, $value)\n    {\n        if (is_null(static::get($array, $key))) {\n            static::set($array, $key, $value);\n        }\n\n        return $array;\n    }\n\n    public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array\n    {\n        $value = Arr::get($array, $key, $default);\n\n        if (! is_array($value)) {\n            throw new InvalidArgumentException(\n                sprin\n\n... [truncated 18978 chars] ...\n\n     $failed = [];\n\n        foreach ($array as $key => $item) {\n            if ($callback($item, $key)) {\n                $passed[$key] = $item;\n            } else {\n                $failed[$key] = $item;\n            }\n        }\n\n        return [$passed, $failed];\n    }\n\n    public static function whereNotNull($array)\n    {\n        return static::where($array, fn ($value) => ! is_null($value));\n    }\n\n    public static function wrap($value)\n    {\n        if (is_null($value)) {\n            return [];\n        }\n\n        return is_array($value) ? $value : [$value];\n    }\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 20842,
       "cutPercent": 41.2,
-      "durationMs": 1.682
+      "durationMs": 1.582
     },
     "content": "<?php\n\nnamespace Illuminate\\Support;\n\nuse ArgumentCountError;\nuse ArrayAccess;\nuse Closure;\nuse Illuminate\\Contracts\\Support\\Arrayable;\nuse Illuminate\\Contracts\\Support\\Jsonable;\nuse Illuminate\\Support\\Traits\\Macroable;\nuse InvalidArgumentException;\nuse JsonSerializable;\nuse Random\\Randomizer;\nuse Traversable;\nuse WeakMap;\n\nclass Arr\n{\n    use Macroable;\n\n\n    public static function accessible($value)\n    {\n        return is_array($value) || $value instanceof ArrayAccess;\n    }\n\n\n    public static function arrayable($value)\n    {\n        return is_array($value)\n            || $value instanceof Arrayable\n            || $value instanceof Traversable\n            || $value instanceof Jsonable\n            || $value instanceof JsonSerializable;\n    }\n\n\n    public static function add($array, $key, $value)\n    {\n        if (is_null(static::get($array, $key))) {\n            static::set($array, $key, $value);\n        }\n\n        return $array;\n    }\n\n\n    public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array\n    {\n        $value = Arr::get($array, $key, $default);\n\n        if (! is_array($value)) {\n            throw new InvalidArgumentException(\n                s\n\n... [truncated 19042 chars] ...\n\n   $failed = [];\n\n        foreach ($array as $key => $item) {\n            if ($callback($item, $key)) {\n                $passed[$key] = $item;\n            } else {\n                $failed[$key] = $item;\n            }\n        }\n\n        return [$passed, $failed];\n    }\n\n\n    public static function whereNotNull($array)\n    {\n        return static::where($array, fn ($value) => ! is_null($value));\n    }\n\n\n    public static function wrap($value)\n    {\n        if (is_null($value)) {\n            return [];\n        }\n\n        return is_array($value) ? $value : [$value];\n    }\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 20842,
       "cutPercent": 41.2,
-      "durationMs": 1.783
+      "durationMs": 1.65
     },
     "content": "<?php\n\nnamespace Illuminate\\Support;\n\nuse ArgumentCountError;\nuse ArrayAccess;\nuse Closure;\nuse Illuminate\\Contracts\\Support\\Arrayable;\nuse Illuminate\\Contracts\\Support\\Jsonable;\nuse Illuminate\\Support\\Traits\\Macroable;\nuse InvalidArgumentException;\nuse JsonSerializable;\nuse Random\\Randomizer;\nuse Traversable;\nuse WeakMap;\n\nclass Arr\n{\n    use Macroable;\n\n\n    public static function accessible($value)\n    {\n        return is_array($value) || $value instanceof ArrayAccess;\n    }\n\n\n    public static function arrayable($value)\n    {\n        return is_array($value)\n            || $value instanceof Arrayable\n            || $value instanceof Traversable\n            || $value instanceof Jsonable\n            || $value instanceof JsonSerializable;\n    }\n\n\n    public static function add($array, $key, $value)\n    {\n        if (is_null(static::get($array, $key))) {\n            static::set($array, $key, $value);\n        }\n\n        return $array;\n    }\n\n\n    public static function array(ArrayAccess|array $array, string|int|null $key, ?array $default = null): array\n    {\n        $value = Arr::get($array, $key, $default);\n\n        if (! is_array($value)) {\n            throw new InvalidArgumentException(\n                s\n\n... [truncated 19042 chars] ...\n\n   $failed = [];\n\n        foreach ($array as $key => $item) {\n            if ($callback($item, $key)) {\n                $passed[$key] = $item;\n            } else {\n                $failed[$key] = $item;\n            }\n        }\n\n        return [$passed, $failed];\n    }\n\n\n    public static function whereNotNull($array)\n    {\n        return static::where($array, fn ($value) => ! is_null($value));\n    }\n\n\n    public static function wrap($value)\n    {\n        if (is_null($value)) {\n            return [];\n        }\n\n        return is_array($value) ? $value : [$value];\n    }\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 20842,
       "cutPercent": 41.2,
-      "durationMs": 1.753,
+      "durationMs": 1.637,
       "failed": false,
       "type": "conservative",
       "reason": null

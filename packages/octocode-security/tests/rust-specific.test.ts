@@ -239,6 +239,119 @@ describe('RUST-04: Large content & chunked path', () => {
 });
 
 // ---------------------------------------------------------------------------
+// RUST-04b: Chunked path — detect_chunked REGEX_SET pre-filter
+// Content > 500 000 chars goes through detect_chunked (the slow path).
+// The pre-filter runs REGEX_SET once on the full content to eliminate patterns
+// that cannot match any chunk, so clean large payloads complete in near-zero
+// time regardless of how many patterns exist.
+// ---------------------------------------------------------------------------
+describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
+  const CHUNK_BOUNDARY = 500_001; // just past the single-path threshold
+
+  it('clean 600KB content: no false positives via chunked path', () => {
+    const content = 'The quick brown fox. '.repeat(Math.ceil(600_000 / 21)).slice(0, 600_000);
+    const r = ContentSanitizer.sanitizeContent(content);
+    expect(r.hasSecrets).toBe(false);
+    expect(r.content).toBe(content);
+    expect(r.secretsDetected).toHaveLength(0);
+  });
+
+  it('clean 2MB content: no false positives via chunked path', () => {
+    const sentence = 'Lorem ipsum dolor sit amet. ';
+    const content = sentence.repeat(Math.ceil(2_000_000 / sentence.length)).slice(0, 2_000_000);
+    const r = ContentSanitizer.sanitizeContent(content);
+    expect(r.hasSecrets).toBe(false);
+    expect(r.content).toBe(content);
+  });
+
+  it('clean 600KB content completes in under 15ms p50 (pre-filter early-return)', () => {
+    const content = 'x'.repeat(600_000);
+    const times: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      const t = performance.now();
+      ContentSanitizer.sanitizeContent(content);
+      times.push(performance.now() - t);
+    }
+    times.sort((a, b) => a - b);
+    const p50 = times[Math.floor(times.length * 0.5)]!;
+    expect(p50).toBeLessThan(15);
+  });
+
+  it('clean 2MB content completes in under 40ms p50 (pre-filter early-return)', () => {
+    const content = 'y'.repeat(2_000_000);
+    const times: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const t = performance.now();
+      ContentSanitizer.sanitizeContent(content);
+      times.push(performance.now() - t);
+    }
+    times.sort((a, b) => a - b);
+    const p50 = times[Math.floor(times.length * 0.5)]!;
+    expect(p50).toBeLessThan(40);
+  });
+
+  it('detects GitHub PAT at position 0 in 600KB content (chunked path)', () => {
+    const secret = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
+    const content = secret + ' ' + 'z'.repeat(CHUNK_BOUNDARY - secret.length - 1);
+    const r = ContentSanitizer.sanitizeContent(content);
+    expect(r.hasSecrets).toBe(true);
+    expect(r.content).not.toContain(secret);
+    expect(r.content).toContain('[REDACTED-');
+  });
+
+  it('detects GitHub PAT at the very end of 600KB content (chunked path)', () => {
+    const secret = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
+    const content = 'z'.repeat(CHUNK_BOUNDARY - secret.length - 1) + ' ' + secret;
+    const r = ContentSanitizer.sanitizeContent(content);
+    expect(r.hasSecrets).toBe(true);
+    expect(r.content).not.toContain(secret);
+  });
+
+  it('detects two different secrets spread across 1.2MB content (chunked path)', () => {
+    const s1 = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
+    const s2 = 'AKIAIOSFODNN7EXAMPLE';
+    const pad = 'p'.repeat(600_000);
+    const content = `${pad} ${s1} ${pad} ${s2} ${pad}`;
+    const r = ContentSanitizer.sanitizeContent(content);
+    expect(r.hasSecrets).toBe(true);
+    expect(r.content).not.toContain(s1);
+    expect(r.content).not.toContain(s2);
+    expect(r.secretsDetected.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('chunked and single paths agree on the same small input', () => {
+    // Verify the pre-filter does not introduce divergence from detect_single.
+    // Both paths must produce identical redacted output.
+    const secret = 'AKIAIOSFODNN7EXAMPLE';
+    const single = ContentSanitizer.sanitizeContent(secret + ' clean');
+    const chunked = ContentSanitizer.sanitizeContent(
+      secret + ' clean' + 'x'.repeat(CHUNK_BOUNDARY)
+    );
+    // The chunked version has extra 'x' padding, so only compare the secret region.
+    expect(chunked.hasSecrets).toBe(true);
+    expect(chunked.content).not.toContain(secret);
+    // Both should report the same pattern name.
+    expect(chunked.secretsDetected).toEqual(
+      expect.arrayContaining(single.secretsDetected)
+    );
+  });
+
+  it('file-context pattern fires for .yaml in chunked mode', () => {
+    const yaml = 'kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n';
+    const largePad = 'x'.repeat(CHUNK_BOUNDARY);
+    const content = yaml + largePad;
+    const withPath = ContentSanitizer.sanitizeContent(content, 'k8s/secret.yaml');
+    const noPath   = ContentSanitizer.sanitizeContent(content);
+    // File-context pattern must fire when path matches.
+    // (Other non-file-context patterns may or may not fire.)
+    // The key invariant: the yaml block is redacted with path, untouched without.
+    expect(withPath.content.slice(0, yaml.length)).not.toBe(
+      noPath.content.slice(0, yaml.length)
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RUST-05: ReDoS linear-time guarantee
 // ---------------------------------------------------------------------------
 describe('RUST-05: ReDoS linear-time guarantee', () => {

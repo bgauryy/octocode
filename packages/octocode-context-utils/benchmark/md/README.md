@@ -7,11 +7,11 @@ Strategy: `markdown`
 | Tool | Bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | input | 3304 | - | - |
-| content-view | 3264 | 1.2% | 0.202 ms |
-| applyMinification | 3264 | 1.2% | 0.151 ms |
-| sync minify | 3264 | 1.2% | 0.133 ms |
-| async minify | 3264 | 1.2% | 0.132 ms |
-| symbols | 1961 | 40.6% | 0.396 ms |
+| content-view | 3264 | 1.2% | 0.209 ms |
+| applyMinification | 3264 | 1.2% | 0.175 ms |
+| sync minify | 3264 | 1.2% | 0.144 ms |
+| async minify | 3264 | 1.2% | 0.146 ms |
+| symbols | 1961 | 40.6% | 0.464 ms |
 
 ## Notes
 

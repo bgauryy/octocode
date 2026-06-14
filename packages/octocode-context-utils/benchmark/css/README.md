@@ -7,11 +7,11 @@ Strategy: `aggressive`
 | Tool | Bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | input | 280311 | - | - |
-| content-view | 229667 | 18.1% | 11.603 ms |
-| applyMinification | 229667 | 18.1% | 4.303 ms |
-| sync minify | 229667 | 18.1% | 3.954 ms |
-| async minify | 229667 | 18.1% | 4.408 ms |
-| symbols | 82074 | 70.7% | 1.513 ms |
+| content-view | 229667 | 18.1% | 5.953 ms |
+| applyMinification | 229667 | 18.1% | 4.935 ms |
+| sync minify | 229667 | 18.1% | 4.763 ms |
+| async minify | 229667 | 18.1% | 4.74 ms |
+| symbols | 82074 | 70.7% | 1.601 ms |
 
 ## Notes
 

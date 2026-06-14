@@ -15,8 +15,8 @@ unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "2", default-features = false, features = ["napi9"] }
-napi-derive = "2"
+napi = { version = "3", default-features = false, features = ["napi9"] }
+napi-derive = "3"
 regex = "1"
 
 [profile.release]

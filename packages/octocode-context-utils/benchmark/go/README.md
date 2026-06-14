@@ -7,11 +7,11 @@ Strategy: `conservative`
 | Tool | Bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | input | 33315 | - | - |
-| content-view | 21954 | 34.1% | 0.975 ms |
-| applyMinification | 22018 | 33.9% | 0.966 ms |
-| sync minify | 22018 | 33.9% | 0.958 ms |
-| async minify | 22018 | 33.9% | 0.949 ms |
-| symbols | 4385 | 86.8% | 4.422 ms |
+| content-view | 21954 | 34.1% | 1.078 ms |
+| applyMinification | 22018 | 33.9% | 0.981 ms |
+| sync minify | 22018 | 33.9% | 1.004 ms |
+| async minify | 22018 | 33.9% | 0.981 ms |
+| symbols | 4385 | 86.8% | 3.995 ms |
 
 ## Notes
 

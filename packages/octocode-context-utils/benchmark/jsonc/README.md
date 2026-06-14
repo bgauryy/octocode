@@ -7,10 +7,10 @@ Strategy: `json`
 | Tool | Bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | input | 1427 | - | - |
-| content-view | 1427 | 0% | 0.008 ms |
-| applyMinification | 1210 | 15.2% | 0.006 ms |
-| sync minify | 1210 | 15.2% | 0.004 ms |
-| async minify | 1210 | 15.2% | 0.006 ms |
+| content-view | 1427 | 0% | 0.01 ms |
+| applyMinification | 1210 | 15.2% | 0.007 ms |
+| sync minify | 1210 | 15.2% | 0.005 ms |
+| async minify | 1210 | 15.2% | 0.008 ms |
 | symbols | n/a | n/a | 0.001 ms |
 
 ## Notes

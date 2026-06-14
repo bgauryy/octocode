@@ -2,10 +2,10 @@
 name = "octocode-context-utils"
 version = "0.1.0"
 edition = "2021"
-description = "High-performance Rust minification, signature extraction (tree-sitter), and YAML utilities for Octocode"
+description = "Rust LLM context engine for agent-readable compression, semantic signatures, deterministic pagination, and YAML utilities"
 license = "MIT"
 repository = "https://github.com/bgauryy/octocode-mcp"
-keywords   = ["napi", "minifier", "tree-sitter", "signatures", "nodejs"]
+keywords   = ["napi", "llm", "context", "signatures", "nodejs"]
 categories = ["development-tools", "text-processing"]
 
 [lints.clippy]
@@ -15,24 +15,24 @@ unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy
 crate-type = ["cdylib"]
 
 [dependencies]
-napi        = { version = "2", features = ["napi4", "serde-json"] }
-napi-derive = "2"
+napi        = { version = "3", features = ["napi4", "serde-json"] }
+napi-derive = "3"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 serde_yaml_ng = "0.10"  # maintained continuation of serde_yaml (archived upstream)
 regex       = "1"
 
 # ── high-quality CSS / HTML minifiers ────────────────────────────────────────
-lightningcss = "1.0.0-alpha.71"
-minify-html  = "0.18"
+lightningcss = { version = "1.0.0-alpha.71", default-features = false }
+minify-html  = { version = "0.18", default-features = false }
 
-# ── OXC — JS/TS AST minifier (already in Cargo.lock via minify-html) ─────────────
-oxc_allocator = "0.95"
-oxc_ast       = "0.95"
-oxc_codegen   = "0.95"
-oxc_minifier  = "0.95"
-oxc_parser    = "0.95"
-oxc_span      = "0.95"
+# ── OXC — JS/TS AST minifier ─────────────────────────────────────────────────
+oxc_allocator = "0.135"
+oxc_ast       = "0.135"
+oxc_codegen   = "0.135"
+oxc_minifier  = "0.135"
+oxc_parser    = "0.135"
+oxc_span      = "0.135"
 
 # ── tree-sitter core ─────────────────────────────────────────────────────────
 tree-sitter          = "0.26"

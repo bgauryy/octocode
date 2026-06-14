@@ -7,11 +7,11 @@ Strategy: `terser`
 | Tool | Bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | input | 3825 | - | - |
-| content-view | 2863 | 25.2% | 0.135 ms |
-| applyMinification | 2863 | 25.2% | 0.062 ms |
-| sync minify | 2863 | 25.2% | 0.045 ms |
-| async minify | 2863 | 25.2% | 0.041 ms |
-| symbols | 600 | 84.3% | 1.379 ms |
+| content-view | 2863 | 25.2% | 0.13 ms |
+| applyMinification | 2863 | 25.2% | 0.053 ms |
+| sync minify | 2863 | 25.2% | 0.036 ms |
+| async minify | 2863 | 25.2% | 0.058 ms |
+| symbols | 600 | 84.3% | 1.492 ms |
 
 ## Notes
 

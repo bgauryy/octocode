@@ -121,6 +121,17 @@ const SIZES = [
   { label: '500KB',  size: 500_000 },
 ];
 
+// Sizes that exercise the chunked path (detect_chunked, content > 500 000 chars).
+// The Rust implementation runs REGEX_SET once on the full content to pre-filter
+// candidate patterns, so clean large payloads should early-return in near-zero
+// time.  These benchmarks validate that optimisation.
+const CHUNKED_SIZES = [
+  { label: '600KB',  size: 600_000  },
+  { label: '1MB',    size: 1_000_000 },
+  { label: '2MB',    size: 2_000_000 },
+  { label: '5MB',    size: 5_000_000 },
+];
+
 // ---------------------------------------------------------------------------
 // Measurement helpers
 // ---------------------------------------------------------------------------
@@ -181,17 +192,51 @@ function runSuite(label, payloads, fnTs, fnRust) {
   }
 }
 
-// -- sanitizeContent (clean, no secrets) --
+// -- sanitizeContent (clean, no secrets) — single path (< 500KB) --
 const cleanPayloads = SIZES.map(s => ({ label: s.label, payload: makePayload(s.size, false) }));
-runSuite('sanitizeContent — clean input (no secrets)', cleanPayloads, tsSanitize, rustSanitize);
+runSuite('sanitizeContent — clean input (single path, < 500KB)', cleanPayloads, tsSanitize, rustSanitize);
 
-// -- sanitizeContent (with secrets) --
+// -- sanitizeContent (with secrets) — single path --
 const dirtyPayloads = SIZES.map(s => ({ label: s.label, payload: makePayload(s.size, true) }));
-runSuite('sanitizeContent — 5 embedded secrets', dirtyPayloads, tsSanitize, rustSanitize);
+runSuite('sanitizeContent — 5 embedded secrets (single path, < 500KB)', dirtyPayloads, tsSanitize, rustSanitize);
 
 // -- maskSensitiveData --
 const maskPayloads = SIZES.map(s => ({ label: s.label, payload: makePayload(s.size, true) }));
 runSuite('maskSensitiveData', maskPayloads, tsMask, rustMask);
+
+// ---------------------------------------------------------------------------
+// Chunked path benchmarks (content > 500 000 chars → detect_chunked)
+// ---------------------------------------------------------------------------
+// Clean content: the REGEX_SET pre-filter should early-return, making the
+// chunked path nearly as fast as the single path on clean data.
+// With secrets: the pre-filter narrows to only matching patterns, then
+// processes only those across chunks.
+
+const CHUNKED_RUNS = Math.min(RUNS, 100); // fewer runs — payloads are large
+
+function runChunkedSuite(label, payloads, fnTs, fnRust) {
+  header(label);
+  for (const { label: szLabel, payload } of payloads) {
+    // Warmup (fewer iterations for large payloads)
+    for (let i = 0; i < Math.min(WARMUP, 10); i++) { fnTs(payload); fnRust(payload); }
+
+    const tsStats   = measure(() => fnTs(payload),   CHUNKED_RUNS);
+    const rustStats = measure(() => fnRust(payload), CHUNKED_RUNS);
+
+    const row = { suite: label, size: szLabel, ts: tsStats, rust: rustStats };
+    results.push(row);
+
+    const winner = speedup(tsStats.p50, rustStats.p50);
+    console.log(`  ${szLabel.padEnd(10)} ${'TS'.padEnd(6)} ${fmt(tsStats.mean)} ${fmt(tsStats.p50)} ${fmt(tsStats.p95)} ${fmt(tsStats.p99)}`);
+    console.log(`  ${szLabel.padEnd(10)} ${'Rust'.padEnd(6)} ${fmt(rustStats.mean)} ${fmt(rustStats.p50)} ${fmt(rustStats.p95)} ${fmt(rustStats.p99)}  ← ${winner}`);
+  }
+}
+
+const chunkedCleanPayloads = CHUNKED_SIZES.map(s => ({ label: s.label, payload: makePayload(s.size, false) }));
+runChunkedSuite('sanitizeContent — clean input (chunked path, > 500KB) — REGEX_SET pre-filter', chunkedCleanPayloads, tsSanitize, rustSanitize);
+
+const chunkedDirtyPayloads = CHUNKED_SIZES.map(s => ({ label: s.label, payload: makePayload(s.size, true) }));
+runChunkedSuite('sanitizeContent — 5 embedded secrets (chunked path, > 500KB)', chunkedDirtyPayloads, tsSanitize, rustSanitize);
 
 // ---------------------------------------------------------------------------
 // ReDoS adversarial test

@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-context-utils",
   "version": "16.0.0",
-  "description": "High-performance Rust minification, signature extraction (tree-sitter), and YAML serialization for Octocode",
+  "description": "Rust LLM context engine for agent-readable compression, semantic signatures, deterministic pagination, and YAML serialization",
   "main": "index.js",
   "types": "index.d.ts",
   "license": "MIT",
@@ -27,7 +27,6 @@
     }
   },
   "files": [
-    "*.node",
     "index.js",
     "index.mjs",
     "index.d.ts",
@@ -45,17 +44,15 @@
     "node": ">=20.0.0"
   },
   "napi": {
-    "name": "octocode-context-utils",
-    "triples": {
-      "defaults": true,
-      "additional": [
-        "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
-        "x86_64-unknown-linux-musl",
-        "aarch64-unknown-linux-gnu",
-        "x86_64-pc-windows-msvc"
-      ]
-    }
+    "binaryName": "octocode-context-utils",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
   },
   "scripts": {
     "build": "napi build --platform --release && node scripts/postbuild.cjs",
@@ -68,6 +65,7 @@
     "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && node scripts/postbuild.cjs",
     "build:dev": "napi build --platform && node scripts/postbuild.cjs",
     "clean": "rm -f *.node",
+    "pack:check": "node scripts/check-pack-size.cjs",
     "test": "cargo test",
     "test:node": "vitest run",
     "test:node:coverage": "vitest run --coverage",
@@ -76,11 +74,11 @@
     "lint": "echo 'No TS source files to lint'",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn test:node && yarn audit",
+    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn test:node && yarn pack:check && yarn audit",
     "audit": "cargo audit -D unmaintained -D unsound -D yanked"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2",
+    "@napi-rs/cli": "^3.7.1",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.0.16",
     "typescript": "^5.9.3",

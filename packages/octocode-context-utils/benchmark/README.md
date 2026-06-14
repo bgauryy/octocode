@@ -33,7 +33,7 @@ Measured async result types across the real corpus: conservative 27, terser 4, a
 | `cjs` | CommonJS | `terser` | `terser` | 3184 | 49.6% | 49.6% | 49.6% | 49.6% | -19.1% | `cjs/apidom-babel.config.cjs` |
 | `mjs` | ESM JavaScript | `terser` | `terser` | 1259 | 31.2% | 31.2% | 31.2% | 31.2% | -14.6% | `mjs/llhttp-eslint.config.mjs` |
 | `jsx` | JSX | `terser` | `terser` | 3825 | 25.2% | 25.2% | 25.2% | 25.2% | 84.3% | `jsx/00-fullcalendar-demo.jsx` |
-| `ts` | TypeScript | `conservative` | `conservative` | 92419 | 59.5% | 59.5% | 59.5% | 59.5% | 69.2% | `ts/00-typescript-core.ts` |
+| `ts` | TypeScript | `conservative` | `conservative` | 92419 | 59.6% | 59.6% | 59.6% | 59.6% | 69.2% | `ts/00-typescript-core.ts` |
 | `tsx` | TSX | `conservative` | `conservative` | 23197 | 50.2% | 50.2% | 50.2% | 50.2% | 83.9% | `tsx/00-next-app-router.tsx` |
 | `json` | JSON | `json` | `json` | 3468 | 0% | 29% | 29% | 29% | n/a | `json/typescript-package.json` |
 | `jsonc` | JSONC | `json` | `json` | 1427 | 0% | 15.2% | 15.2% | 15.2% | n/a | `jsonc/grammy-deno.jsonc` |

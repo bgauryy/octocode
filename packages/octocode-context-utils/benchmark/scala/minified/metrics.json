@@ -4,7 +4,7 @@
     "metric": {
       "bytes": 3882,
       "cutPercent": 80.7,
-      "durationMs": 0.223
+      "durationMs": 0.231
     },
     "content": "package scala\n\nobject Option {\n\n  import scala.language.implicitConversions\n\n  implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =\n    if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)\n\n  def apply[A](x: A): Option[A] = if (x == null) None else Some(x)\n\n  def empty[A] : Option[A] = None\n\n  def when[A](cond: Boolean)(a: => A): Option[A] =\n    if (cond) Some(a) else None\n\n  @inline def unless[A](cond: Boolean)(a: => A): Option[A] =\n    when(!cond)(a)\n}\n\n@SerialVersionUID(-114498752079829388L)\nsealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {\n  self =>\n\n  final def isEmpty: Boolean = this eq None\n\n  final def isDefined: Boolean = !isEmpty\n\n  override final def knownSize: Int = if (isEmpty) 0 else 1\n\n  def get: A\n\n  @inline final def getOrElse[B >: A](default: => B): B =\n    if (isEmpty) default else this.get\n\n  @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)\n\n  @inline final def map[B](f: A => B): Option[B] =\n    if (isEmpty) None else Some(f(this.get))\n\n  @inline final def fold[B](ifEmpty: => B)(f: A => B): B =\n    if (isEmpty) ifEmpty else f(this.get)\n\n  @inline final def flatMap[B](f: A => Option[B]): Opt\n\n... [truncated 2082 chars] ...\n\nis.get)\n\n  def toList: List[A] =\n    if (isEmpty) List() else new ::(this.get, Nil)\n\n  @inline final def toRight[X](left: => X): Either[X, A] =\n    if (isEmpty) Left(left) else Right(this.get)\n\n  @inline final def toLeft[X](right: => X): Either[A, X] =\n    if (isEmpty) Right(right) else Left(this.get)\n}\n\n@SerialVersionUID(1234815782226070388L)\nfinal case class Some[+A](value: A) extends Option[A] {\n  def get: A = value\n}\n\n@SerialVersionUID(5066590221178148012L)\ncase object None extends Option[Nothing] {\n  def get: Nothing = throw new NoSuchElementException(\"None.get\")\n}",
     "api": "applyContentViewMinification"
@@ -14,7 +14,7 @@
     "metric": {
       "bytes": 3919,
       "cutPercent": 80.5,
-      "durationMs": 0.218
+      "durationMs": 0.223
     },
     "content": "\n\npackage scala\n\nobject Option {\n\n  import scala.language.implicitConversions\n\n\n  implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =\n    if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)\n\n\n  def apply[A](x: A): Option[A] = if (x == null) None else Some(x)\n\n\n  def empty[A] : Option[A] = None\n\n\n  def when[A](cond: Boolean)(a: => A): Option[A] =\n    if (cond) Some(a) else None\n\n\n  @inline def unless[A](cond: Boolean)(a: => A): Option[A] =\n    when(!cond)(a)\n}\n\n\n@SerialVersionUID(-114498752079829388L)\nsealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {\n  self =>\n\n\n  final def isEmpty: Boolean = this eq None\n\n\n  final def isDefined: Boolean = !isEmpty\n\n  override final def knownSize: Int = if (isEmpty) 0 else 1\n\n\n  def get: A\n\n\n  @inline final def getOrElse[B >: A](default: => B): B =\n    if (isEmpty) default else this.get\n\n\n  @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)\n\n\n  @inline final def map[B](f: A => B): Option[B] =\n    if (isEmpty) None else Some(f(this.get))\n\n\n  @inline final def fold[B](ifEmpty: => B)(f: A => B): B =\n    if (isEmpty) ifEmpty else f(this.get)\n\n\n  @inline final def flatMap[B](f: A =>\n\n... [truncated 2119 chars] ...\n\nt)\n\n\n  def toList: List[A] =\n    if (isEmpty) List() else new ::(this.get, Nil)\n\n\n  @inline final def toRight[X](left: => X): Either[X, A] =\n    if (isEmpty) Left(left) else Right(this.get)\n\n\n  @inline final def toLeft[X](right: => X): Either[A, X] =\n    if (isEmpty) Right(right) else Left(this.get)\n}\n\n\n@SerialVersionUID(1234815782226070388L)\nfinal case class Some[+A](value: A) extends Option[A] {\n  def get: A = value\n}\n\n\n@SerialVersionUID(5066590221178148012L)\ncase object None extends Option[Nothing] {\n  def get: Nothing = throw new NoSuchElementException(\"None.get\")\n}",
     "api": "applyMinification"
@@ -24,7 +24,7 @@
     "metric": {
       "bytes": 3919,
       "cutPercent": 80.5,
-      "durationMs": 0.217
+      "durationMs": 0.221
     },
     "content": "\n\npackage scala\n\nobject Option {\n\n  import scala.language.implicitConversions\n\n\n  implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =\n    if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)\n\n\n  def apply[A](x: A): Option[A] = if (x == null) None else Some(x)\n\n\n  def empty[A] : Option[A] = None\n\n\n  def when[A](cond: Boolean)(a: => A): Option[A] =\n    if (cond) Some(a) else None\n\n\n  @inline def unless[A](cond: Boolean)(a: => A): Option[A] =\n    when(!cond)(a)\n}\n\n\n@SerialVersionUID(-114498752079829388L)\nsealed abstract class Option[+A] extends IterableOnce[A] with Product with Serializable {\n  self =>\n\n\n  final def isEmpty: Boolean = this eq None\n\n\n  final def isDefined: Boolean = !isEmpty\n\n  override final def knownSize: Int = if (isEmpty) 0 else 1\n\n\n  def get: A\n\n\n  @inline final def getOrElse[B >: A](default: => B): B =\n    if (isEmpty) default else this.get\n\n\n  @inline final def orNull[A1 >: A](implicit ev: Null <:< A1): A1 = this getOrElse ev(null)\n\n\n  @inline final def map[B](f: A => B): Option[B] =\n    if (isEmpty) None else Some(f(this.get))\n\n\n  @inline final def fold[B](ifEmpty: => B)(f: A => B): B =\n    if (isEmpty) ifEmpty else f(this.get)\n\n\n  @inline final def flatMap[B](f: A =>\n\n... [truncated 2119 chars] ...\n\nt)\n\n\n  def toList: List[A] =\n    if (isEmpty) List() else new ::(this.get, Nil)\n\n\n  @inline final def toRight[X](left: => X): Either[X, A] =\n    if (isEmpty) Left(left) else Right(this.get)\n\n\n  @inline final def toLeft[X](right: => X): Either[A, X] =\n    if (isEmpty) Right(right) else Left(this.get)\n}\n\n\n@SerialVersionUID(1234815782226070388L)\nfinal case class Some[+A](value: A) extends Option[A] {\n  def get: A = value\n}\n\n\n@SerialVersionUID(5066590221178148012L)\ncase object None extends Option[Nothing] {\n  def get: Nothing = throw new NoSuchElementException(\"None.get\")\n}",
     "api": "minifyContentSync"
@@ -34,7 +34,7 @@
     "metric": {
       "bytes": 3919,
       "cutPercent": 80.5,
-      "durationMs": 0.208,
+      "durationMs": 0.222,
       "failed": false,
       "type": "conservative",
       "reason": null

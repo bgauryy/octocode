@@ -94,7 +94,6 @@
   },
   "files": [
     "dist",
-    "*.node",
     "README.md",
     "LICENSE"
   ],
@@ -131,11 +130,12 @@
     "build:all": "yarn build:rust:all && yarn build:ts",
     "build:dev": "node scripts/gen-patterns.mjs && napi build --platform && node build.mjs && tsc --emitDeclarationOnly",
     "gen": "node scripts/gen-patterns.mjs",
+    "pack:check": "node scripts/check-pack-size.cjs",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn verify:patterns && yarn typecheck && yarn lint:rust && yarn audit",
+    "verify": "yarn verify:patterns && yarn typecheck && yarn lint:rust && yarn test:quiet && yarn pack:check && yarn audit",
     "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/patterns.rs || (echo 'ERROR: src/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",
     "bench": "node bench/compare.mjs",
     "test": "vitest run --coverage",

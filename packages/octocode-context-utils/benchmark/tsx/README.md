@@ -7,11 +7,11 @@ Strategy: `conservative`
 | Tool | Bytes | Cut | Time |
 | --- | ---: | ---: | ---: |
 | input | 23197 | - | - |
-| content-view | 11549 | 50.2% | 0.386 ms |
-| applyMinification | 11549 | 50.2% | 0.32 ms |
-| sync minify | 11549 | 50.2% | 0.268 ms |
-| async minify | 11549 | 50.2% | 0.253 ms |
-| symbols | 3742 | 83.9% | 9.114 ms |
+| content-view | 11560 | 50.2% | 0.327 ms |
+| applyMinification | 11560 | 50.2% | 0.262 ms |
+| sync minify | 11560 | 50.2% | 0.218 ms |
+| async minify | 11560 | 50.2% | 0.21 ms |
+| symbols | 3742 | 83.9% | 6.908 ms |
 
 ## Notes
 
@@ -89,7 +89,7 @@ imp
 ```tsx
 import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{dispatchTraverseAction,publicAppRouterInstance,type App
 
-... [truncated 9749 chars] ...
+... [truncated 9760 chars] ...
 
 Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack(){let[,forceUpdate]=React.useState(0),renderedStylesSize=runtimeStyles?.size??0;useEffect(()=>{if(!runtimeStyles||!runtimeStyleChanged)return;let changed=()=>forceUpdate(c=>c+1);return runtimeStyleChanged.add(changed),renderedStylesSize!==runtimeStyles.size&&changed(),()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);let query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=><link key={i} rel="stylesheet" href={`${href}${query}`} precedence="next"/>)}
 ```
@@ -99,7 +99,7 @@ Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack()
 ```tsx
 import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{dispatchTraverseAction,publicAppRouterInstance,type App
 
-... [truncated 9749 chars] ...
+... [truncated 9760 chars] ...
 
 Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack(){let[,forceUpdate]=React.useState(0),renderedStylesSize=runtimeStyles?.size??0;useEffect(()=>{if(!runtimeStyles||!runtimeStyleChanged)return;let changed=()=>forceUpdate(c=>c+1);return runtimeStyleChanged.add(changed),renderedStylesSize!==runtimeStyles.size&&changed(),()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);let query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=><link key={i} rel="stylesheet" href={`${href}${query}`} precedence="next"/>)}
 ```
@@ -109,7 +109,7 @@ Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack()
 ```tsx
 import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{dispatchTraverseAction,publicAppRouterInstance,type App
 
-... [truncated 9749 chars] ...
+... [truncated 9760 chars] ...
 
 Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack(){let[,forceUpdate]=React.useState(0),renderedStylesSize=runtimeStyles?.size??0;useEffect(()=>{if(!runtimeStyles||!runtimeStyleChanged)return;let changed=()=>forceUpdate(c=>c+1);return runtimeStyleChanged.add(changed),renderedStylesSize!==runtimeStyles.size&&changed(),()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);let query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=><link key={i} rel="stylesheet" href={`${href}${query}`} precedence="next"/>)}
 ```
@@ -119,7 +119,7 @@ Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack()
 ```tsx
 import React,{useEffect,useMemo,startTransition,useInsertionEffect,useDeferredValue}from"react";import{AppRouterContext,LayoutRouterContext,GlobalLayoutRouterContext}from"../../shared/lib/app-router-context.shared-runtime";import{ACTION_RESTORE}from"./router-reducer/router-reducer-types";import{createHrefFromUrl}from"./router-reducer/create-href-from-url";import{SearchParamsContext,PathnameContext,PathParamsContext,NavigationPromisesContext,type NavigationPromises}from"../../shared/lib/hooks-client-context.shared-runtime";import{dispatchAppRouterAction,useActionQueue}from"./use-action-queue";import{setLastCommittedTree}from"./router-reducer/reducers/committed-state";import{AppRouterAnnouncer}from"./app-router-announcer";import{RedirectBoundary}from"./redirect-boundary";import{findHeadInCache}from"./router-reducer/reducers/find-head-in-cache";import{unresolvedThenable}from"./unresolved-thenable";import{removeBasePath}from"../remove-base-path";import{hasBasePath}from"../has-base-path";import{extractSourcePageFromFlightRouterState,getSelectedParams}from"./router-reducer/compute-changed-path";import{useNavFailureHandler}from"./nav-failure-handler";import{dispatchTraverseAction,publicAppRouterInstance,type App
 
-... [truncated 9749 chars] ...
+... [truncated 9760 chars] ...
 
 Changed.forEach(cb=>cb()),Promise.resolve()});function RuntimeStylesForWebpack(){let[,forceUpdate]=React.useState(0),renderedStylesSize=runtimeStyles?.size??0;useEffect(()=>{if(!runtimeStyles||!runtimeStyleChanged)return;let changed=()=>forceUpdate(c=>c+1);return runtimeStyleChanged.add(changed),renderedStylesSize!==runtimeStyles.size&&changed(),()=>{runtimeStyleChanged.delete(changed)}},[renderedStylesSize,forceUpdate]);let query=getAssetTokenQuery();return[...runtimeStyles||[]].map((href,i)=><link key={i} rel="stylesheet" href={`${href}${query}`} precedence="next"/>)}
 ```

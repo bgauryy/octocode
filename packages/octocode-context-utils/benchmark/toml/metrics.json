@@ -9,12 +9,12 @@
   "contentView": {
     "bytes": 1881,
     "cutPercent": 38.1,
-    "durationMs": 0.036
+    "durationMs": 0.041
   },
   "applyMinification": {
     "bytes": 1885,
     "cutPercent": 38,
-    "durationMs": 0.035
+    "durationMs": 0.034
   },
   "sync": {
     "bytes": 1885,
@@ -34,7 +34,7 @@
     "returned": false,
     "bytes": null,
     "cutPercent": null,
-    "durationMs": 0.001
+    "durationMs": 0.002
   },
   "agentUnderstanding": {
     "output": "standard",
