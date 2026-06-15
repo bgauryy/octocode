@@ -18,7 +18,7 @@ export const hints: ToolHintGenerators = {
     if (prNumber !== undefined && scope) {
       return [
         `PR #${prNumber} not found in ${scope}.`,
-        'Verify the PR number is correct, or search by title keyword using `query` with `sort="best-match"`.',
+        'Verify the PR number, or search by title using `query` with `sort="best-match"`.',
       ];
     }
 
@@ -30,38 +30,24 @@ export const hints: ToolHintGenerators = {
     if (filters.length === 0) {
       if (!scope && query) {
         return [
-          'Searching PRs across all of GitHub requires at least one qualifier — add owner/repo, state, or author alongside the query keyword.',
+          'Cross-GitHub PR search requires at least one qualifier — add owner/repo, state, or author.',
         ];
       }
       return [];
     }
+
     return [
-      `0 PRs found in ${scope ?? 'this scope'} matching ${filters.join(' + ')} — result is confirmed empty.`,
+      `0 PRs in ${scope ?? 'this scope'} matching ${filters.join(' + ')}.`,
       state === 'merged'
-        ? "GitHub's is:merged qualifier is not indexed for all repos (especially large or high-traffic ones like facebook/react). Fallback: use state:'closed' instead — merged PRs have mergedAt set in the results. Or narrow with merged-at:>2024-01-01 to confirm indexing."
-        : author
-          ? 'If unexpected, try removing one filter at a time: drop `author` first, then loosen `query` keywords.'
-          : query
-            ? 'If unexpected, loosen `query` keywords or remove filters one at a time.'
-            : 'If unexpected, try removing or loosening filters one at a time.',
+        ? "is:merged isn't indexed on all repos — try state=closed (merged PRs have mergedAt set)."
+        : 'Remove a filter or try broader keywords.',
       ...(query && !alreadyTitleScope
         ? [
-            'For title-only matching, add match:["title"] with sort:"best-match" to surface the closest PR. ' +
-              'For exact phrases, use the `query` field with double-quoted text, e.g. query:\'"Partial Prerendering"\'.',
+            'For title-only matching add match:["title"] with sort:"best-match".',
           ]
         : !query
-          ? [
-              'Add a `query` with keywords from the PR title or body to narrow the search.',
-            ]
+          ? ['Add a `query` keyword to narrow by title or body.']
           : []),
-      'Tip: the `query` field supports GitHub search qualifiers — e.g. `label:bug`, `created:>2024-01-01`, `merged:>2024-06-01`, `involves:<user>` — to filter by date, label, or involvement.',
-      // Omit the "repo may have been renamed" hint for merged state — that is never
-      // the cause of zero merged results; the repo just may not be indexed for is:merged.
-      ...(scope && state !== 'merged'
-        ? [
-            `Zero PRs in ${scope} — the repo may have been renamed or transferred. Confirm the canonical name with githubSearchRepositories before concluding the PR does not exist.`,
-          ]
-        : []),
     ];
   },
 

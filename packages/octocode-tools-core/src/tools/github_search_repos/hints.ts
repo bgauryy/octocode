@@ -19,31 +19,21 @@ export const hints: ToolHintGenerators = {
 
     if (!searchTerm && !hasFilters) return [];
 
-    const out: string[] = [];
-    if (searchTerm) {
-      out.push(`No repositories found for "${searchTerm}".`);
-    } else {
-      out.push('No repositories found matching the current filters.');
-    }
+    const out: string[] = [
+      searchTerm
+        ? `No repositories found for "${searchTerm}".`
+        : 'No repositories found.',
+      hasFilters
+        ? 'Remove a filter to widen.'
+        : 'Try fewer/simpler keywords, or use match="name" for an exact-name lookup.',
+    ];
 
-    if (hasFilters) {
-      out.push(
-        'Remove filters one at a time (language → owner → topic) to widen; add stars filter to surface niche repos with fewer keywords.'
-      );
-    } else {
-      out.push(
-        'Try: (1) fewer/simpler keywords; (2) match="name" for an exact-name lookup; (3) separate queries — one keyword each.'
-      );
-    }
-
-    // Match scoped packages (@scope/pkg) or kebab/dot-separated names (react-query, lodash.get)
-    // Excludes camelCase/PascalCase identifiers like executeCloneRepo or MyComponent
     if (
       searchTerm &&
       /^@[\w-]+\/[\w.-]+$|^[a-z][\w]*[-.][\w.-]+$/.test(searchTerm)
     ) {
       out.push(
-        `"${searchTerm}" looks like a package — use \`packageSearch\` to resolve it directly to the source repo.`
+        `"${searchTerm}" looks like a package — use \`packageSearch\` to resolve it directly.`
       );
     }
 

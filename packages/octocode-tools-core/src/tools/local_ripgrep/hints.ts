@@ -16,59 +16,28 @@ export const hints: ToolHintGenerators = {
       : [];
     const pattern = typeof c.keywords === 'string' ? c.keywords : undefined;
     const mode = typeof c.mode === 'string' ? c.mode : undefined;
+    const hasFilters = langType || include.length > 0 || excludeDir.length > 0;
 
-    if (
-      !pattern &&
-      !path &&
-      !langType &&
-      include.length === 0 &&
-      excludeDir.length === 0
-    ) {
-      return [];
+    if (!pattern && !path && !hasFilters) return [];
+
+    if (hasFilters) {
+      return [
+        `No matches in ${path ?? 'this scope'} with active filters.`,
+        'Remove a filter or try a shorter/partial term.',
+      ];
     }
 
-    const filters: string[] = [];
-    if (langType) filters.push(`langType="${langType}"`);
-    if (include.length > 0) filters.push(`include=${JSON.stringify(include)}`);
-    if (excludeDir.length > 0)
-      filters.push(`excludeDir=${JSON.stringify(excludeDir)}`);
+    const out: string[] = [
+      `No matches for "${pattern}" in ${path ?? 'this scope'}.`,
+      'Broaden: try a shorter or partial term, use fixedString=true for a literal match, or search a parent directory.',
+    ];
 
-    const out: string[] = [];
-    if (filters.length > 0) {
+    if (mode !== 'discovery') {
       out.push(
-        `No matches in ${path ?? 'this scope'} with ${filters.join(' + ')}.`
+        'Use mode="discovery" to check for file presence before a full search.'
       );
-      out.push(
-        'Remove filters one at a time (langType → include → excludeDir) to widen the search.'
-      );
-    } else {
-      out.push(`No matches for "${pattern}" in ${path ?? 'this scope'}.`);
-      if (
-        pattern &&
-        (pattern.includes('\\n') ||
-          /\[[\^]?[^\]]*\]/.test(pattern) ||
-          pattern.includes('[\\s\\S]') ||
-          pattern.includes('(.|\n)'))
-      ) {
-        out.push(
-          'Multiline pattern detected — ripgrep runs in single-line mode by default, so patterns ' +
-            'spanning newlines (e.g. [^}], [\\s\\S], \\n) will never match. ' +
-            'Split into two separate single-line queries and post-filter results instead.'
-        );
-      }
-      out.push(
-        'Broaden: (1) use fixedString=true for a literal match; (2) drop regex meta-chars; ' +
-          '(3) try a shorter/partial term; (4) run separate queries scoped to different subdirectories.'
-      );
-      out.push(
-        "Verify files exist: use `localFindFiles` with a name filter or `localViewStructure` to confirm the path isn't empty before retrying."
-      );
-      if (mode !== 'discovery') {
-        out.push(
-          'Tip: use mode="discovery" for a fast cheap presence-check (returns only file paths, no content or match counts) before doing a full read.'
-        );
-      }
     }
+
     return out;
   },
 
@@ -76,7 +45,7 @@ export const hints: ToolHintGenerators = {
     if (ctx.errorType === 'size_limit') {
       const count = ctx.matchCount ? ` (${ctx.matchCount} matches)` : '';
       return [
-        `Too many results${count} — narrow the pattern, add a langType/path filter, or use fixedString=true.`,
+        `Too many results${count} — narrow the pattern, add a filter, or use fixedString=true.`,
       ];
     }
     if (ctx.errorType === 'not_found') {
