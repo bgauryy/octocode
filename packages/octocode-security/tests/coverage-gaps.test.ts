@@ -879,7 +879,6 @@ describe('Security penetration — additional bypass vectors', () => {
       vi.restoreAllMocks();
     });
   });
-
 });
 
 describe('SecurityRegistry — freeze & ReDoS protection', () => {

@@ -7,6 +7,7 @@ import { vi } from 'vitest';
 
 export interface MockMcpServer {
   server: McpServer;
+  registrations: MockToolRegistration[];
   callTool: (
     name: string,
     args?: Record<string, unknown>,
@@ -19,15 +20,23 @@ export interface MockMcpServer {
   cleanup: () => void;
 }
 
+export interface MockToolRegistration {
+  name: string;
+  options: unknown;
+  handler: Function;
+}
+
 export function createMockMcpServer(): MockMcpServer {
   const toolHandlers = new Map<string, Function>();
+  const registrations: MockToolRegistration[] = [];
 
   const mockServer = {
     tool: vi.fn((name: string, handler: Function) => {
       toolHandlers.set(name, handler);
     }),
 
-    registerTool: vi.fn((name: string, _options: any, handler: Function) => {
+    registerTool: vi.fn((name: string, options: unknown, handler: Function) => {
+      registrations.push({ name, options, handler });
       toolHandlers.set(name, handler);
     }),
     addTool: vi.fn(),
@@ -65,11 +74,13 @@ export function createMockMcpServer(): MockMcpServer {
 
   const cleanup = () => {
     toolHandlers.clear();
+    registrations.length = 0;
     vi.clearAllMocks();
   };
 
   return {
     server: mockServer,
+    registrations,
     callTool,
     cleanup,
   };

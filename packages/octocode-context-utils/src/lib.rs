@@ -1,3 +1,4 @@
+#![deny(clippy::all)]
 // napi-rs requires owned String/Value parameters at the FFI boundary, which
 // trips needless_pass_by_value on every exported fn — allowed crate-wide.
 #![allow(clippy::needless_pass_by_value)]
@@ -365,14 +366,14 @@ pub fn parse_ripgrep_json(
 
 // ── UTF-8 offset helpers ──────────────────────────────────────────────────────
 
-/// Number of UTF-8 bytes up to (not including) the `char_index`-th Unicode
-/// scalar value in `content`. Zero-allocation — no `Buffer.from()` needed.
+/// Number of UTF-8 bytes up to (not including) the `char_index`-th JavaScript
+/// UTF-16 code unit in `content`. Zero-allocation — no `Buffer.from()` needed.
 #[napi(js_name = "charToByteOffset")]
 pub fn char_to_byte_offset(content: String, char_index: u32) -> u32 {
     utf8_offsets::char_to_byte_offset_inner(&content, char_index as usize) as u32
 }
 
-/// Unicode scalar offset for `byte_offset` bytes into `content`.
+/// JavaScript UTF-16 code-unit offset for `byte_offset` bytes into `content`.
 /// Zero-allocation — no `Buffer.from()` needed.
 #[napi(js_name = "byteToCharOffset")]
 pub fn byte_to_char_offset(content: String, byte_offset: u32) -> u32 {

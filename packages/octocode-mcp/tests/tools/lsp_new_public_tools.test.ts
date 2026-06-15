@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import {
   BulkLspGetSemanticContentQuerySchema,
@@ -6,6 +6,7 @@ import {
 } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 import { registerLspGetSemanticContentTool } from '../../src/tools/lsp/semantic_content/register.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
+import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 
 const removedLspToolNames = [
   `lsp${'Goto'}Definition`,
@@ -25,18 +26,20 @@ describe('new public LSP tools', () => {
   });
 
   it('registers the semantic tool with read-only annotations', () => {
-    const server = { registerTool: vi.fn() };
+    const server = createMockMcpServer();
 
-    registerLspGetSemanticContentTool(server as never);
+    registerLspGetSemanticContentTool(server.server);
 
-    expect(server.registerTool).toHaveBeenCalledWith(
-      LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+    expect(server.registrations).toContainEqual(
       expect.objectContaining({
-        inputSchema: expect.any(Object),
-        outputSchema: expect.any(Object),
-        annotations: expect.objectContaining({ readOnlyHint: true }),
-      }),
-      expect.any(Function)
+        name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+        options: expect.objectContaining({
+          inputSchema: expect.any(Object),
+          outputSchema: expect.any(Object),
+          annotations: expect.objectContaining({ readOnlyHint: true }),
+        }),
+        handler: expect.any(Function),
+      })
     );
   });
 

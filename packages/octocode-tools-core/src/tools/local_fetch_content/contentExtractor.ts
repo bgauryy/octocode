@@ -1,7 +1,7 @@
 import {
-  extractMatchingLines as extractMatchingLinesNative,
+  contextUtils,
   type ExtractMatchingLinesOptions,
-} from '@octocodeai/octocode-context-utils';
+} from '../../utils/contextUtils.js';
 
 export function extractMatchingLines(
   lines: string[],
@@ -16,6 +16,24 @@ export function extractMatchingLines(
   matchCount: number;
   matchingLines: number[];
 } {
+  if (isRegex) {
+    try {
+      new RegExp(pattern);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid regex pattern: ${message}`);
+    }
+  }
+
+  if (maxMatches !== undefined && maxMatches <= 0) {
+    return {
+      lines: [],
+      matchRanges: [],
+      matchCount: 0,
+      matchingLines: [],
+    };
+  }
+
   const content = lines.join('\n');
 
   const options: ExtractMatchingLinesOptions = {
@@ -25,7 +43,7 @@ export function extractMatchingLines(
     maxMatches,
   };
 
-  const result = extractMatchingLinesNative(content, pattern, options);
+  const result = contextUtils.extractMatchingLines(content, pattern, options);
 
   return {
     lines: result.lines,

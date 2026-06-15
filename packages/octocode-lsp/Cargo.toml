@@ -38,6 +38,13 @@ tree-sitter-c = "0.23"
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-c-sharp = { version = "0.23", optional = true }
 tree-sitter-bash = "0.23"
+tree-sitter-json = "0.24"
+tree-sitter-yaml = "0.7"
+tree-sitter-toml-ng = "0.7"
+tree-sitter-html = "0.23"
+tree-sitter-css = "0.25"
+tree-sitter-scss = "1"
+tree-sitter-less = "1"
 
 [features]
 default = ["tree-sitter-large-grammars"]

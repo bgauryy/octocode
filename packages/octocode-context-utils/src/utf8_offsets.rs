@@ -10,27 +10,30 @@ use crate::types::{SliceContentOptions, SliceContentResult};
 
 // ── core offset helpers ───────────────────────────────────────────────────────
 
-/// Number of UTF-8 bytes up to (not including) the `char_index`-th Unicode
-/// scalar value in `s`. Clamps to `s.len()` if `char_index` exceeds the string.
+/// Number of UTF-8 bytes up to (not including) the `char_index`-th JavaScript
+/// UTF-16 code unit in `s`. Clamps to `s.len()` if `char_index` exceeds the string.
 pub(crate) fn char_to_byte_offset_inner(s: &str, char_index: usize) -> usize {
     if char_index == 0 {
         return 0;
     }
-    for (count, (byte_idx, _ch)) in s.char_indices().enumerate() {
-        if count == char_index {
+
+    let mut utf16_units = 0usize;
+    for (byte_idx, ch) in s.char_indices() {
+        if utf16_units >= char_index || utf16_units + ch.len_utf16() > char_index {
             return byte_idx;
         }
+        utf16_units += ch.len_utf16();
     }
-    s.len() // char_index beyond string length — clamp
+    s.len() // char_index beyond string length - clamp
 }
 
-/// Unicode scalar offset corresponding to `byte_offset` bytes into `s`.
-/// Clamps to `s.chars().count()` if `byte_offset` exceeds `s.len()`.
+/// JavaScript UTF-16 code-unit offset corresponding to `byte_offset` bytes into `s`.
+/// Clamps to the JS string length if `byte_offset` exceeds `s.len()`.
 pub(crate) fn byte_to_char_offset_inner(s: &str, byte_offset: usize) -> usize {
     let clamped = byte_offset.min(s.len());
     // Safe: we snap to the nearest valid boundary
     let valid_offset = floor_char_boundary(s, clamped);
-    s[..valid_offset].chars().count()
+    utf16_len(&s[..valid_offset])
 }
 
 /// Extract a byte-range substring from `s`. Returns `""` for an out-of-range or
@@ -59,6 +62,10 @@ fn floor_char_boundary(s: &str, mut byte_pos: usize) -> usize {
     byte_pos
 }
 
+fn utf16_len(s: &str) -> usize {
+    s.chars().map(char::len_utf16).sum()
+}
+
 // ── combined slicer ───────────────────────────────────────────────────────────
 
 /// Paginate `content` starting at `char_offset` for up to `char_length` chars.
@@ -79,7 +86,7 @@ pub(crate) fn slice_content_inner(
         .and_then(|o| o.snap_to_line_boundary)
         .unwrap_or(false);
 
-    let total_chars = content.chars().count();
+    let total_chars = utf16_len(content);
 
     if total_chars == 0 || char_length == 0 {
         return SliceContentResult {
@@ -126,12 +133,14 @@ pub(crate) fn slice_content_inner(
 /// Snap `(start_char, end_char)` to line boundaries: push start back to line
 /// start, extend end to line end (or next line start).
 fn snap_to_lines(content: &str, start_char: usize, end_char: usize) -> (usize, usize) {
-    // Build newline positions as char offsets (0-indexed line starts)
+    // Build newline positions as JavaScript UTF-16 offsets (0-indexed line starts)
     let mut line_starts: Vec<usize> = vec![0];
-    for (char_idx, ch) in content.char_indices().map(|(_, ch)| ch).enumerate() {
+    let mut char_idx = 0usize;
+    for ch in content.chars() {
         if ch == '\n' {
             line_starts.push(char_idx + 1);
         }
+        char_idx += ch.len_utf16();
     }
 
     // Find the line that contains start_char
@@ -143,7 +152,7 @@ fn snap_to_lines(content: &str, start_char: usize, end_char: usize) -> (usize, u
         .unwrap_or(0);
 
     // Find the line boundary at or after end_char
-    let total_chars = content.chars().count();
+    let total_chars = utf16_len(content);
     let actual_end = line_starts
         .iter()
         .find(|&&ls| ls > end_char)
@@ -178,6 +187,16 @@ mod tests {
     }
 
     #[test]
+    fn char_to_byte_uses_javascript_utf16_indices() {
+        let s = "a🌍b";
+        assert_eq!(char_to_byte_offset_inner(s, 0), 0);
+        assert_eq!(char_to_byte_offset_inner(s, 1), 1);
+        assert_eq!(char_to_byte_offset_inner(s, 2), 1); // inside surrogate pair snaps down
+        assert_eq!(char_to_byte_offset_inner(s, 3), 5); // after emoji
+        assert_eq!(char_to_byte_offset_inner(s, 4), 6);
+    }
+
+    #[test]
     fn char_to_byte_clamps_beyond_length() {
         assert_eq!(char_to_byte_offset_inner("hi", 100), 2);
     }
@@ -196,6 +215,15 @@ mod tests {
         assert_eq!(byte_to_char_offset_inner(s, 0), 0);
         assert_eq!(byte_to_char_offset_inner(s, 3), 3); // at start of 'é'
         assert_eq!(byte_to_char_offset_inner(s, 5), 4); // after 'é'
+    }
+
+    #[test]
+    fn byte_to_char_uses_javascript_utf16_indices() {
+        let s = "a🌍b";
+        assert_eq!(byte_to_char_offset_inner(s, 0), 0);
+        assert_eq!(byte_to_char_offset_inner(s, 1), 1);
+        assert_eq!(byte_to_char_offset_inner(s, 5), 3);
+        assert_eq!(byte_to_char_offset_inner(s, 6), 4);
     }
 
     #[test]
@@ -292,9 +320,21 @@ mod tests {
     }
 
     #[test]
+    fn slice_content_uses_javascript_utf16_indices() {
+        let content = "a🌍b";
+        let r = slice_content_inner(content, 0, 3, None);
+        assert_eq!(r.text, "a🌍");
+        assert_eq!(r.char_length, 3);
+        assert_eq!(r.byte_length, 5);
+        assert!(r.has_more);
+        assert_eq!(r.next_char_offset, Some(3));
+    }
+
+    #[test]
     fn byte_offset_roundtrip() {
         let s = "hello 世界 world";
-        for char_idx in 0..=s.chars().count() {
+        let js_boundaries = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+        for char_idx in js_boundaries {
             let byte_off = char_to_byte_offset_inner(s, char_idx);
             let char_back = byte_to_char_offset_inner(s, byte_off);
             assert_eq!(

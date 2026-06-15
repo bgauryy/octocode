@@ -1,7 +1,7 @@
 import {
-  parseRipgrepJson as parseRipgrepJsonNative,
+  contextUtils,
   type RipgrepParseOptions,
-} from '@octocodeai/octocode-context-utils';
+} from '../contextUtils.js';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { SearchStats } from '../core/types.js';
 
@@ -22,7 +22,7 @@ export function parseRipgrepJson(
     maxSnippetChars: query.matchContentLength,
   };
 
-  const result = parseRipgrepJsonNative(jsonOutput, options);
+  const result = contextUtils.parseRipgrepJson(jsonOutput, options);
 
   const files: LocalSearchCodeFile[] = result.files.map(f => ({
     path: f.path,

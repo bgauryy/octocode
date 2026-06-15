@@ -18,7 +18,7 @@
  * Language coverage is owned by octocode-context-utils and tested there.
  */
 
-import { getSemanticBoundaryOffsets } from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../contextUtils.js';
 
 // When the next semantic boundary is farther than this from the ideal cut,
 // use char-limit chunking for giant functions rather than over-extending.
@@ -32,7 +32,7 @@ function resolveBoundaryFilePath(filePath: string | undefined): string {
 }
 
 function getSemanticBoundaries(content: string, filePath?: string): number[] {
-  return getSemanticBoundaryOffsets(
+  return contextUtils.getSemanticBoundaryOffsets(
     content,
     resolveBoundaryFilePath(filePath)
   ).filter(

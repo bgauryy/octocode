@@ -10,7 +10,7 @@ import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/sche
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
-import { minifyContent } from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../utils/contextUtils.js';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import { buildCodeSearchQuery } from './queryBuilders.js';
@@ -238,7 +238,7 @@ async function transformToOptimizedFormat(
           }
 
           try {
-            const minifyResult = await minifyContent(
+            const minifyResult = await contextUtils.minifyContent(
               processedFragment || '',
               item.path
             );

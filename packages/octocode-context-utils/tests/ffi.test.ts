@@ -621,6 +621,13 @@ describe('charToByteOffset', () => {
     expect(addon!.charToByteOffset(s, 4)).toBe(5);
   });
 
+  it('emoji: char offset uses JavaScript UTF-16 code units', () => {
+    const s = 'a🌍b';
+    expect(addon!.charToByteOffset(s, 1)).toBe(1);
+    expect(addon!.charToByteOffset(s, 3)).toBe(5);
+    expect(addon!.charToByteOffset(s, 4)).toBe(6);
+  });
+
   it('clamps beyond string length', () => {
     expect(addon!.charToByteOffset('hi', 100)).toBe(2);
   });
@@ -633,6 +640,13 @@ describe('byteToCharOffset', () => {
 
   it('multibyte: 5 bytes into café = 4 chars', () => {
     expect(addon!.byteToCharOffset('café', 5)).toBe(4);
+  });
+
+  it('emoji: byte offset returns JavaScript UTF-16 code units', () => {
+    const s = 'a🌍b';
+    expect(addon!.byteToCharOffset(s, 1)).toBe(1);
+    expect(addon!.byteToCharOffset(s, 5)).toBe(3);
+    expect(addon!.byteToCharOffset(s, 6)).toBe(4);
   });
 });
 
@@ -665,11 +679,19 @@ describe('sliceContent', () => {
     expect(r.nextCharOffset).toBeUndefined();
   });
 
-  it('multibyte: charLength counts Unicode scalars', () => {
+  it('multibyte: charLength counts JavaScript UTF-16 code units', () => {
     const r = addon!.sliceContent('café world', 0, 4, null);
     expect(r.text).toBe('café');
     expect(r.charLength).toBe(4);
     expect(r.byteLength).toBe(5); // é = 2 bytes
+  });
+
+  it('emoji: sliceContent uses JavaScript UTF-16 code units', () => {
+    const r = addon!.sliceContent('a🌍b', 0, 3, null);
+    expect(r.text).toBe('a🌍');
+    expect(r.charLength).toBe(3);
+    expect(r.byteLength).toBe(5);
+    expect(r.nextCharOffset).toBe(3);
   });
 
   it('snap to line boundary', () => {

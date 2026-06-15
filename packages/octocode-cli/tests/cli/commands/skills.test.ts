@@ -213,21 +213,6 @@ vi.mock('../../../src/utils/skills-fetch.js', () => ({
   getSkillsCacheDir: vi.fn().mockReturnValue('/fake/cache'),
 }));
 
-const octocodePublicMocks = vi.hoisted(() => ({
-  executeDirectTool: vi.fn(),
-  prepareDirectToolInputFromJsonText: vi.fn(),
-}));
-
-vi.mock('octocode-mcp/public', async importOriginal => {
-  const original = await importOriginal<typeof import('octocode-mcp/public')>();
-  return {
-    ...original,
-    executeDirectTool: octocodePublicMocks.executeDirectTool,
-    prepareDirectToolInputFromJsonText:
-      octocodePublicMocks.prepareDirectToolInputFromJsonText,
-  };
-});
-
 vi.mock('../../../src/configs/skills-marketplace.js', () => ({
   SKILLS_MARKETPLACES: [
     {
@@ -312,13 +297,6 @@ describe('skillsCommand', () => {
     promptsMocks.select.mockReset();
     promptsMocks.checkbox.mockReset();
     platformFlags.isWindows = false;
-
-    octocodePublicMocks.prepareDirectToolInputFromJsonText.mockReturnValue({});
-    octocodePublicMocks.executeDirectTool.mockResolvedValue({
-      isError: false,
-      content: [],
-      structuredContent: { results: [] },
-    });
 
     fsReadMocks.fileExists.mockReturnValue(false);
     fsReadMocks.readFileContent.mockReturnValue(null);

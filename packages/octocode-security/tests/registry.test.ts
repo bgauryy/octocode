@@ -83,6 +83,26 @@ describe('SecurityRegistry', () => {
       const result = ContentSanitizer.sanitizeContent(`key: ${awsKey}`);
       expect(result.hasSecrets).toBe(true);
     });
+
+    it('should apply custom global fileContext patterns consistently', () => {
+      securityRegistry.addSecretPatterns([
+        {
+          name: 'envOnlyToken',
+          description: 'Env-only custom token',
+          regex: /\bENVONLY_[A-Z0-9]{16}\b/g,
+          fileContext: /\.env/g,
+          matchAccuracy: 'high',
+        },
+      ]);
+
+      const secret = 'ENVONLY_ABCDEFGHIJKLMNOP';
+      const first = ContentSanitizer.sanitizeContent(secret, '.env');
+      const second = ContentSanitizer.sanitizeContent(secret, '.env');
+
+      expect(first.hasSecrets).toBe(true);
+      expect(second.hasSecrets).toBe(true);
+      expect(second.content).toBe('[REDACTED-ENVONLYTOKEN]');
+    });
   });
 
   describe('custom allowed commands', () => {

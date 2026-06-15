@@ -110,7 +110,9 @@ describe('withSecurityValidation - Additional Coverage', () => {
     });
 
     it('should handle handler errors gracefully', async () => {
-      const mockHandler = vi.fn().mockRejectedValue(new Error('Handler execution failed'));
+      const mockHandler = vi
+        .fn()
+        .mockRejectedValue(new Error('Handler execution failed'));
       const wrappedHandler = withBasicSecurityValidation(mockHandler);
 
       const result = await wrappedHandler(
@@ -132,16 +134,38 @@ describe('withSecurityValidation - Additional Coverage', () => {
       });
 
       mockIsLoggingEnabled.mockReturnValue(true);
-      const wrappedHandler = withSecurityValidation(GITHUB_SEARCH_CODE, mockHandler);
+      const wrappedHandler = withSecurityValidation(
+        GITHUB_SEARCH_CODE,
+        mockHandler
+      );
 
       await wrappedHandler(
-        { queries: [{ owner: 'facebook', repo: 'react' }, { owner: 'microsoft', repo: 'vscode' }] },
+        {
+          queries: [
+            { owner: 'facebook', repo: 'react' },
+            { owner: 'microsoft', repo: 'vscode' },
+          ],
+        },
         { sessionId: 'test-session', signal: new AbortController().signal }
       );
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, GITHUB_SEARCH_CODE, ['facebook/react'], undefined, undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, GITHUB_SEARCH_CODE, ['microsoft/vscode'], undefined, undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        GITHUB_SEARCH_CODE,
+        ['facebook/react'],
+        undefined,
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        GITHUB_SEARCH_CODE,
+        ['microsoft/vscode'],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should not log when logging is disabled', async () => {
@@ -171,7 +195,13 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'test-session', signal: new AbortController().signal }
       );
 
-      expect(mockLogToolCall).toHaveBeenCalledWith('test-tool', [], undefined, undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenCalledWith(
+        'test-tool',
+        [],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should ignore logging errors and continue execution', async () => {
@@ -183,7 +213,10 @@ describe('withSecurityValidation - Additional Coverage', () => {
       mockIsLoggingEnabled.mockReturnValue(true);
       mockLogToolCall.mockRejectedValue(new Error('Logging failed'));
 
-      const result = await withSecurityValidation(GITHUB_SEARCH_CODE, mockHandler)(
+      const result = await withSecurityValidation(
+        GITHUB_SEARCH_CODE,
+        mockHandler
+      )(
         { queries: [{ owner: 'facebook', repo: 'react' }] },
         { sessionId: 'test-session', signal: new AbortController().signal }
       );
@@ -205,7 +238,11 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'session-123', signal: new AbortController().signal }
       );
 
-      expect(mockHandler).toHaveBeenCalledWith({ query: 'test' }, undefined, 'session-123');
+      expect(mockHandler).toHaveBeenCalledWith(
+        { query: 'test' },
+        undefined,
+        'session-123'
+      );
     });
 
     it('should pass authInfo and sessionId to handler', async () => {
@@ -217,10 +254,18 @@ describe('withSecurityValidation - Additional Coverage', () => {
       const mockAuthInfo = { token: 'test-token' };
       await withSecurityValidation('test-tool', mockHandler)(
         { query: 'test' },
-        { authInfo: mockAuthInfo, sessionId: 'session-456', signal: new AbortController().signal }
+        {
+          authInfo: mockAuthInfo,
+          sessionId: 'session-456',
+          signal: new AbortController().signal,
+        }
       );
 
-      expect(mockHandler).toHaveBeenCalledWith({ query: 'test' }, mockAuthInfo, 'session-456');
+      expect(mockHandler).toHaveBeenCalledWith(
+        { query: 'test' },
+        mockAuthInfo,
+        'session-456'
+      );
     });
 
     it('should handle undefined sessionId', async () => {
@@ -234,7 +279,11 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { signal: new AbortController().signal }
       );
 
-      expect(mockHandler).toHaveBeenCalledWith({ query: 'test' }, undefined, undefined);
+      expect(mockHandler).toHaveBeenCalledWith(
+        { query: 'test' },
+        undefined,
+        undefined
+      );
     });
   });
 
@@ -255,7 +304,9 @@ describe('withSecurityValidation - Additional Coverage', () => {
     });
 
     it('should handle rejected handler without calling logSessionError', async () => {
-      const mockHandler = vi.fn().mockRejectedValue(new Error('handler failed'));
+      const mockHandler = vi
+        .fn()
+        .mockRejectedValue(new Error('handler failed'));
       const result = await withSecurityValidation('test-tool', mockHandler)(
         { query: 'clean' },
         { sessionId: 'test', signal: new AbortController().signal }
@@ -279,13 +330,32 @@ describe('withSecurityValidation - Additional Coverage', () => {
 
       mockIsLoggingEnabled.mockReturnValue(true);
       await withSecurityValidation('test-tool', mockHandler)(
-        { queries: [{ repository: 'facebook/react' }, { repository: 'microsoft/vscode' }] },
+        {
+          queries: [
+            { repository: 'facebook/react' },
+            { repository: 'microsoft/vscode' },
+          ],
+        },
         { sessionId: 'test', signal: new AbortController().signal }
       );
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, 'test-tool', ['facebook/react'], undefined, undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, 'test-tool', ['microsoft/vscode'], undefined, undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        'test-tool',
+        ['facebook/react'],
+        undefined,
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        'test-tool',
+        ['microsoft/vscode'],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should extract owner-only format', async () => {
@@ -301,8 +371,22 @@ describe('withSecurityValidation - Additional Coverage', () => {
       );
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, GITHUB_SEARCH_REPOSITORIES, ['facebook'], undefined, undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, GITHUB_SEARCH_REPOSITORIES, ['microsoft'], undefined, undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        GITHUB_SEARCH_REPOSITORIES,
+        ['facebook'],
+        undefined,
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        GITHUB_SEARCH_REPOSITORIES,
+        ['microsoft'],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should extract from non-array parameters', async () => {
@@ -317,7 +401,13 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { sessionId: 'test', signal: new AbortController().signal }
       );
 
-      expect(mockLogToolCall).toHaveBeenCalledWith('test-tool', ['vercel/next.js'], undefined, undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenCalledWith(
+        'test-tool',
+        ['vercel/next.js'],
+        undefined,
+        undefined,
+        undefined
+      );
     });
   });
 
@@ -340,7 +430,10 @@ describe('withSecurityValidation - Additional Coverage', () => {
       };
       const mockHandler = vi.fn().mockResolvedValue(handlerResult);
 
-      const wrappedHandler = withBasicSecurityValidation(mockHandler, 'local_tool');
+      const wrappedHandler = withBasicSecurityValidation(
+        mockHandler,
+        'local_tool'
+      );
       const result = await wrappedHandler({});
 
       expect(result.content[0]?.text).toBe('clean basic output');
@@ -358,7 +451,10 @@ describe('withSecurityValidation - Additional Coverage', () => {
       const result = await wrappedHandler({}, {});
 
       expect(result.content[0]).toMatchObject({ type: 'image' });
-      expect(result.content[1]).toMatchObject({ type: 'text', text: 'safe text' });
+      expect(result.content[1]).toMatchObject({
+        type: 'text',
+        text: 'safe text',
+      });
     });
   });
 });

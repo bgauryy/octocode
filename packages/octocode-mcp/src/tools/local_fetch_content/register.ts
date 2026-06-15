@@ -1,15 +1,12 @@
 import { z } from 'zod';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { toMCPSchema } from '../../types/toolTypes.js';
 import {
   TOOL_NAMES,
-  DESCRIPTIONS,
   LocalFetchContentBulkQuerySchema,
   executeFetchContent,
   withResponseEnvelope,
 } from '@octocodeai/octocode-tools-core';
-import { withBasicSecurityValidation } from '@octocodeai/octocode-tools-core';
 import { LocalGetFileContentOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
+import { createBasicToolRegistration } from '../registerBasicTool.js';
 
 const MatchRangeSchema = z.object({ start: z.number(), end: z.number() });
 
@@ -35,26 +32,10 @@ const LocalGetFileContentFixedOutputSchema =
       ),
   });
 
-export function registerLocalFetchContentTool(server: McpServer) {
-  return server.registerTool(
-    TOOL_NAMES.LOCAL_FETCH_CONTENT,
-    {
-      description: DESCRIPTIONS[TOOL_NAMES.LOCAL_FETCH_CONTENT],
-      inputSchema: toMCPSchema(LocalFetchContentBulkQuerySchema),
-      outputSchema: toMCPSchema(
-        withResponseEnvelope(LocalGetFileContentFixedOutputSchema)
-      ),
-      annotations: {
-        title: 'Local Fetch Content',
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    withBasicSecurityValidation(
-      executeFetchContent,
-      TOOL_NAMES.LOCAL_FETCH_CONTENT
-    )
-  );
-}
+export const registerLocalFetchContentTool = createBasicToolRegistration({
+  name: TOOL_NAMES.LOCAL_FETCH_CONTENT,
+  title: 'Local Fetch Content',
+  inputSchema: LocalFetchContentBulkQuerySchema,
+  outputSchema: withResponseEnvelope(LocalGetFileContentFixedOutputSchema),
+  executionFn: executeFetchContent,
+});

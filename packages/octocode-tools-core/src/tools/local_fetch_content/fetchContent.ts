@@ -1,11 +1,7 @@
 import { open, readFile, stat } from 'fs/promises';
 import { getHints } from '../../hints/index.js';
 import { extractMatchingLines } from './contentExtractor.js';
-import {
-  applyContentViewMinification,
-  extractSignatures,
-  SIGNATURES_ONLY_HINT,
-} from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../../utils/contextUtils.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import {
   applyPagination,
@@ -541,7 +537,10 @@ function buildSuccessResult(
   const warnings = [...(extraction.warnings ?? [])];
   const queryPath = String(query.path);
   const outputContent = shouldMinify
-    ? applyContentViewMinification(extraction.resultContent, queryPath)
+    ? contextUtils.applyContentViewMinification(
+        extraction.resultContent,
+        queryPath
+      )
     : extraction.resultContent;
   const explicitCharLength = query.charLength;
   const explicitCharOffset = query.charOffset ?? 0;
@@ -772,20 +771,23 @@ export async function fetchContent(
 
     let signaturesSkippedWarning: string | undefined;
     if (minifyMode === 'symbols') {
-      const sigs = extractSignatures(content, queryPath);
+      const sigs = contextUtils.extractSignatures(content, queryPath);
       if (sigs === null) {
         signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${queryPath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
       }
       if (sigs !== null) {
         const totalLinesOrig = content.split('\n').length;
-        const sigsProcessed = applyContentViewMinification(sigs, queryPath);
+        const sigsProcessed = contextUtils.applyContentViewMinification(
+          sigs,
+          queryPath
+        );
 
         // Skeletons are indexes — they always come back WHOLE in one response
         // (paging an index is confusing). charOffset/charLength inputs are
         // intentionally ignored for minify:"symbols", mirroring the GitHub path.
         // isSkeleton carries the lossy "bodies omitted" signal; isPartial stays
         // false so agents do not try to paginate a complete skeleton index.
-        const symbolsHints: string[] = [SIGNATURES_ONLY_HINT];
+        const symbolsHints: string[] = [contextUtils.SIGNATURES_ONLY_HINT];
         if (query.matchString) {
           symbolsHints.push(
             `matchString was ignored — minify:"symbols" returns the full skeleton index. Use startLine/endLine from the gutter to read the matching body.`
@@ -838,7 +840,10 @@ export async function fetchContent(
         shouldMinify && typeof earlyContent === 'string'
           ? {
               ...extraction.earlyResult,
-              content: applyContentViewMinification(earlyContent, queryPath),
+              content: contextUtils.applyContentViewMinification(
+                earlyContent,
+                queryPath
+              ),
             }
           : extraction.earlyResult;
       return attachRawResponseChars(

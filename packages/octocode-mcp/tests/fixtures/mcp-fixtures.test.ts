@@ -23,7 +23,17 @@ describe('MCP Test Fixtures', () => {
       expect(typeof mockServer.server).toEqual('object');
       expect(typeof mockServer.callTool).toEqual('function');
       expect(typeof mockServer.cleanup).toEqual('function');
+      expect(Array.isArray(mockServer.registrations)).toBe(true);
       expect(typeof mockServer.server.tool).toEqual('function');
+    });
+
+    it('tracks registerTool registrations for adapter contract tests', () => {
+      mockServer.server.registerTool('tracked_tool', {}, async () => ({
+        content: [{ type: 'text' as const, text: 'ok' }],
+      }));
+
+      expect(mockServer.registrations).toHaveLength(1);
+      expect(mockServer.registrations[0]?.name).toBe('tracked_tool');
     });
 
     it('should register and call tools correctly', async () => {

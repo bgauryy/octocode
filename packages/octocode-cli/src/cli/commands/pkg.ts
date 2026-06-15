@@ -2,6 +2,7 @@ import type { CLICommand } from '../types.js';
 import { getBool, getString } from '../options.js';
 import { c, dim } from '../../utils/colors.js';
 import { EXIT } from '../exit-codes.js';
+import { executeDirectTool } from '@octocodeai/octocode-tools-core';
 import {
   markDirectToolFailure,
   printDirectToolResult,
@@ -56,7 +57,6 @@ export const pkgCommand: CLICommand = {
     }
 
     try {
-      const { executeDirectTool } = await import('octocode-mcp/public');
       const result = await executeDirectTool('packageSearch', {
         queries: [
           {

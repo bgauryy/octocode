@@ -1,4 +1,4 @@
-use crate::json_rpc::JsonRpcConnection;
+use crate::json_rpc::{ClientRequestContext, JsonRpcConnection};
 use crate::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::uri::{path_to_uri, uri_to_path};
 use napi::{Error, Result, Status};
@@ -62,7 +62,19 @@ impl NativeLspClient {
             Error::new(Status::GenericFailure, "Language server stdin pipe missing")
         })?;
 
-        let connection = JsonRpcConnection::new(stdout, stdin);
+        let root_uri = path_to_uri(&self.config.workspace_root)?;
+        let connection = JsonRpcConnection::new(
+            stdout,
+            stdin,
+            ClientRequestContext {
+                configuration: self
+                    .config
+                    .initialization_options
+                    .clone()
+                    .unwrap_or_else(|| json!({})),
+                workspace_folders: json!([{ "uri": root_uri, "name": "workspace" }]),
+            },
+        );
         initialize(&connection, &self.config).await?;
         connection.notify("initialized", json!({})).await?;
 

@@ -483,9 +483,6 @@ async function getDocumentSymbols(
   const client = serverAvailable
     ? await acquirePooledClient(workspaceRoot, anchor.value.uri)
     : null;
-  if (client) {
-    await client.openDocument(anchor.value.uri, anchor.value.content);
-  }
   const symbols = client
     ? client.hasCapability('documentSymbolProvider')
       ? await client.documentSymbols(anchor.value.uri)

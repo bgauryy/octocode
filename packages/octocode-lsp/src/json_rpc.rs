@@ -8,12 +8,19 @@ use tokio::sync::{oneshot, Mutex};
 use tokio::time::{timeout, Duration};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
+type SharedWriter<W> = Arc<Mutex<W>>;
+
+#[derive(Clone)]
+pub struct ClientRequestContext {
+    pub configuration: Value,
+    pub workspace_folders: Value,
+}
 
 pub struct JsonRpcConnection<W>
 where
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    writer: Arc<Mutex<W>>,
+    writer: SharedWriter<W>,
     next_id: AtomicU64,
     pending: PendingMap,
 }
@@ -22,14 +29,20 @@ impl<W> JsonRpcConnection<W>
 where
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    pub fn new<R>(reader: R, writer: W) -> Self
+    pub fn new<R>(reader: R, writer: W, context: ClientRequestContext) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
     {
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
-        tokio::spawn(read_loop(reader, Arc::clone(&pending)));
+        let writer = Arc::new(Mutex::new(writer));
+        tokio::spawn(read_loop(
+            reader,
+            Arc::clone(&pending),
+            Arc::clone(&writer),
+            context,
+        ));
         Self {
-            writer: Arc::new(Mutex::new(writer)),
+            writer,
             next_id: AtomicU64::new(1),
             pending,
         }
@@ -66,26 +79,19 @@ where
     }
 
     async fn write_message(&self, message: &Value) -> Result<()> {
-        let body = serde_json::to_vec(message).map_err(|err| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Serialize JSON-RPC failed: {err}"),
-            )
-        })?;
-        let header = format!("Content-Length: {}\r\n\r\n", body.len());
-        let mut writer = self.writer.lock().await;
-        writer
-            .write_all(header.as_bytes())
-            .await
-            .map_err(io_error)?;
-        writer.write_all(&body).await.map_err(io_error)?;
-        writer.flush().await.map_err(io_error)
+        write_message(&self.writer, message).await
     }
 }
 
-async fn read_loop<R>(reader: R, pending: PendingMap)
+async fn read_loop<R, W>(
+    reader: R,
+    pending: PendingMap,
+    writer: SharedWriter<W>,
+    context: ClientRequestContext,
+)
 where
     R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin + Send + 'static,
 {
     let mut reader = BufReader::new(reader);
     loop {
@@ -99,6 +105,17 @@ where
         let Ok(value) = serde_json::from_slice::<Value>(&body) else {
             continue;
         };
+        if let Some(method) = value.get("method").and_then(Value::as_str) {
+            if let Some(id) = value.get("id").cloned() {
+                let response = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": client_response_for(method, value.get("params"), &context),
+                });
+                let _ = write_message(&writer, &response).await;
+            }
+            continue;
+        }
         let Some(id) = value.get("id").and_then(Value::as_u64) else {
             continue;
         };
@@ -113,6 +130,34 @@ where
         if let Some(sender) = pending.lock().await.remove(&id) {
             let _ = sender.send(result);
         }
+    }
+}
+
+fn client_response_for(
+    method: &str,
+    params: Option<&Value>,
+    context: &ClientRequestContext,
+) -> Value {
+    match method {
+        "workspace/configuration" => {
+            let item_count = params
+                .and_then(|value| value.get("items"))
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
+            Value::Array(
+                (0..item_count)
+                    .map(|_| context.configuration.clone())
+                    .collect(),
+            )
+        }
+        "workspace/workspaceFolders" => context.workspace_folders.clone(),
+        "workspace/applyEdit" => json!({ "applied": false }),
+        "client/registerCapability"
+        | "client/unregisterCapability"
+        | "window/showMessageRequest"
+        | "workDoneProgress/create" => Value::Null,
+        _ => Value::Null,
     }
 }
 
@@ -135,6 +180,26 @@ where
             content_length = value.trim().parse::<usize>().ok();
         }
     }
+}
+
+async fn write_message<W>(writer: &SharedWriter<W>, message: &Value) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    let body = serde_json::to_vec(message).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Serialize JSON-RPC failed: {err}"),
+        )
+    })?;
+    let header = format!("Content-Length: {}\r\n\r\n", body.len());
+    let mut writer = writer.lock().await;
+    writer
+        .write_all(header.as_bytes())
+        .await
+        .map_err(io_error)?;
+    writer.write_all(&body).await.map_err(io_error)?;
+    writer.flush().await.map_err(io_error)
 }
 
 fn io_error(err: std::io::Error) -> Error {

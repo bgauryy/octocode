@@ -15,7 +15,7 @@ unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy
 crate-type = ["cdylib"]
 
 [dependencies]
-napi        = { version = "3", features = ["napi4", "serde-json"] }
+napi        = { version = "3", default-features = false, features = ["napi4", "serde-json"] }
 napi-derive = "3"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"

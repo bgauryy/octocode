@@ -1,35 +1,16 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { toMCPSchema } from '../../types/toolTypes.js';
 import {
   TOOL_NAMES,
-  DESCRIPTIONS,
   LocalViewStructureBulkQuerySchema,
   executeViewStructure,
   withResponseEnvelope,
 } from '@octocodeai/octocode-tools-core';
-import { withBasicSecurityValidation } from '@octocodeai/octocode-tools-core';
 import { LocalViewStructureOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
+import { createBasicToolRegistration } from '../registerBasicTool.js';
 
-export function registerLocalViewStructureTool(server: McpServer) {
-  return server.registerTool(
-    TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-    {
-      description: DESCRIPTIONS[TOOL_NAMES.LOCAL_VIEW_STRUCTURE],
-      inputSchema: toMCPSchema(LocalViewStructureBulkQuerySchema),
-      outputSchema: toMCPSchema(
-        withResponseEnvelope(LocalViewStructureOutputSchema)
-      ),
-      annotations: {
-        title: 'Local View Structure',
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    withBasicSecurityValidation(
-      executeViewStructure,
-      TOOL_NAMES.LOCAL_VIEW_STRUCTURE
-    )
-  );
-}
+export const registerLocalViewStructureTool = createBasicToolRegistration({
+  name: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+  title: 'Local View Structure',
+  inputSchema: LocalViewStructureBulkQuerySchema,
+  outputSchema: withResponseEnvelope(LocalViewStructureOutputSchema),
+  executionFn: executeViewStructure,
+});

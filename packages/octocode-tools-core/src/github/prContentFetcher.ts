@@ -14,7 +14,7 @@ import {
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { logSessionError } from '../session.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
-import { minifyMarkdownCore } from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../utils/contextUtils.js';
 import { getOctokit, OctokitWithThrottling } from './client.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import {
@@ -156,7 +156,7 @@ async function fetchPRComments(
     const botsDropped = raw.length - kept.length;
 
     const comments = kept.map((comment: IssueComment): PRCommentItem => {
-      const stripped = minifyMarkdownCore(
+      const stripped = contextUtils.minifyMarkdownCore(
         stripMachineBlobs(comment.body ?? '')
       );
       return {
@@ -221,7 +221,7 @@ async function fetchPRReviews(
         user: review.user?.login ?? 'unknown',
         state: review.state ?? '',
         body: ContentSanitizer.sanitizeContent(
-          minifyMarkdownCore(stripMachineBlobs(review.body ?? ''))
+          contextUtils.minifyMarkdownCore(stripMachineBlobs(review.body ?? ''))
         ).content,
         submitted_at: review.submitted_at ?? undefined,
         commit_id: review.commit_id ?? undefined,
@@ -269,7 +269,7 @@ async function fetchPRInlineComments(
     const botsDropped = raw.length - kept.length;
 
     const comments = kept.map((comment: ReviewComment): PRCommentItem => {
-      const stripped = minifyMarkdownCore(
+      const stripped = contextUtils.minifyMarkdownCore(
         stripMachineBlobs(comment.body ?? '')
       );
       return {

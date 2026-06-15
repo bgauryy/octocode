@@ -2,11 +2,7 @@ import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/t
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 import { GITHUB_FILE_CONTENT_DEFAULT_CHAR_LENGTH } from '../config.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
-import {
-  applyContentViewMinification,
-  extractSignatures,
-  SIGNATURES_ONLY_HINT,
-} from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../utils/contextUtils.js';
 import { applyPagination } from '../utils/pagination/core.js';
 import {
   snapToSemanticBoundary,
@@ -153,7 +149,7 @@ export async function processFileContentAPI(
 
   let signaturesSkippedWarning: string | undefined;
   if (minify === 'symbols') {
-    const sigs = extractSignatures(decodedContent, filePath);
+    const sigs = contextUtils.extractSignatures(decodedContent, filePath);
     if (sigs === null) {
       signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${filePath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
     }
@@ -162,11 +158,11 @@ export async function processFileContentAPI(
       // matches a signature pattern) — same ContentSanitizer pass the normal
       // content path runs below, keeping local and GitHub aligned.
       const sanitized = ContentSanitizer.sanitizeContent(sigs, filePath);
-      const sigContent = applyContentViewMinification(
+      const sigContent = contextUtils.applyContentViewMinification(
         sanitized.content,
         filePath
       );
-      const hints: string[] = [SIGNATURES_ONLY_HINT];
+      const hints: string[] = [contextUtils.SIGNATURES_ONLY_HINT];
       if (matchString) {
         hints.push(
           `matchString was ignored — minify:"symbols" returns the full skeleton index. Use startLine/endLine from the gutter to read the matching body.`
@@ -324,7 +320,10 @@ export async function processFileContentAPI(
     filePath
   );
   finalContent = applyStandardMinify
-    ? applyContentViewMinification(sanitizationResult.content, filePath)
+    ? contextUtils.applyContentViewMinification(
+        sanitizationResult.content,
+        filePath
+      )
     : sanitizationResult.content;
 
   if (sanitizationResult.hasSecrets) {

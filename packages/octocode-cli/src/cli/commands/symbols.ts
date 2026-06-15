@@ -4,6 +4,7 @@ import type { CLICommand } from '../types.js';
 import { getBool, getString } from '../options.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { EXIT } from '../exit-codes.js';
+import { executeDirectTool } from '@octocodeai/octocode-tools-core';
 import { getDirectToolText } from './direct-tool-output.js';
 
 const DEFAULT_SOURCE_EXTENSIONS = [
@@ -30,17 +31,7 @@ const DEFAULT_SOURCE_EXTENSIONS = [
   'dart',
 ] as const;
 
-type DirectToolExecutor = (
-  toolName: string,
-  input: Record<string, unknown>
-) => Promise<{
-  readonly content?: readonly {
-    readonly type?: string;
-    readonly text?: string;
-  }[];
-  readonly structuredContent?: unknown;
-  readonly isError?: boolean;
-}>;
+type DirectToolExecutor = typeof executeDirectTool;
 
 type FileEntry = {
   readonly path?: unknown;
@@ -326,7 +317,6 @@ export const symbolsCommand: CLICommand = {
     }
 
     try {
-      const { executeDirectTool } = await import('octocode-mcp/public');
       const stats = statSync(resolved);
       const files = stats.isDirectory()
         ? await discoverSourceFiles(

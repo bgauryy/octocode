@@ -44,6 +44,21 @@ function normalizeResolvedSymbol(value: unknown): ResolvedSymbol {
   };
 }
 
+function toSymbolResolutionError(
+  error: unknown,
+  fuzzy: FuzzyPosition,
+  searchRadius = 5
+): SymbolResolutionError {
+  if (error instanceof SymbolResolutionError) return error;
+  const reason = error instanceof Error ? error.message : String(error);
+  return new SymbolResolutionError(
+    fuzzy.symbolName,
+    fuzzy.lineHint ?? 0,
+    reason,
+    searchRadius
+  );
+}
+
 export async function resolveSymbolPosition(
   filePath: string,
   symbolName: string,
@@ -61,19 +76,28 @@ export function resolveSymbolPosition(
   orderHint?: number
 ): Promise<ResolvedSymbol> | ResolvedSymbol {
   if (typeof fuzzyOrSymbolName === 'string') {
-    return Promise.resolve(
-      normalizeResolvedSymbol(
-        nativeBinding.resolvePosition(fileOrContent, {
-          symbolName: fuzzyOrSymbolName,
-          lineHint,
-          orderHint,
-        })
-      )
-    );
+    const fuzzy = {
+      symbolName: fuzzyOrSymbolName,
+      lineHint,
+      orderHint,
+    };
+    try {
+      return Promise.resolve(
+        normalizeResolvedSymbol(
+          nativeBinding.resolvePosition(fileOrContent, fuzzy)
+        )
+      );
+    } catch (error) {
+      return Promise.reject(toSymbolResolutionError(error, fuzzy));
+    }
   }
-  return normalizeResolvedSymbol(
-    nativeBinding.resolvePositionFromContent(fileOrContent, fuzzyOrSymbolName)
-  );
+  try {
+    return normalizeResolvedSymbol(
+      nativeBinding.resolvePositionFromContent(fileOrContent, fuzzyOrSymbolName)
+    );
+  } catch (error) {
+    throw toSymbolResolutionError(error, fuzzyOrSymbolName);
+  }
 }
 
 export class SymbolResolver {
@@ -87,17 +111,25 @@ export class SymbolResolver {
     filePath: string,
     fuzzy: FuzzyPosition
   ): Promise<ResolvedSymbol> {
-    return normalizeResolvedSymbol(
-      nativeBinding.resolvePosition(filePath, fuzzy)
-    );
+    try {
+      return normalizeResolvedSymbol(
+        nativeBinding.resolvePosition(filePath, fuzzy)
+      );
+    } catch (error) {
+      throw toSymbolResolutionError(error, fuzzy, this.lineSearchRadius);
+    }
   }
 
   resolvePositionFromContent(
     content: string,
     fuzzy: FuzzyPosition
   ): ResolvedSymbol {
-    return normalizeResolvedSymbol(
-      nativeBinding.resolvePositionFromContent(content, fuzzy)
-    );
+    try {
+      return normalizeResolvedSymbol(
+        nativeBinding.resolvePositionFromContent(content, fuzzy)
+      );
+    } catch (error) {
+      throw toSymbolResolutionError(error, fuzzy, this.lineSearchRadius);
+    }
   }
 }

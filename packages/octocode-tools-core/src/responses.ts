@@ -1,8 +1,8 @@
 import { CallToolResult } from '@modelcontextprotocol/sdk/types';
 import { maskSensitiveData } from 'octocode-security/mask';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
-import { jsonToYamlString } from '@octocodeai/octocode-context-utils';
 import { getConfigSync } from 'octocode-shared';
+import { contextUtils } from './utils/contextUtils.js';
 import type { BulkToolResponse } from './types/bulk.js';
 import type { StructuredToolResponse } from './types/toolResults.js';
 import type {
@@ -93,7 +93,7 @@ export const ContentBuilder = {
     try {
       text =
         resolvedFormat === 'yaml'
-          ? jsonToYamlString(cleanJsonObject(data))
+          ? contextUtils.jsonToYamlString(cleanJsonObject(data))
           : JSON.stringify(cleanJsonObject(data), null, 2);
     } catch {
       text = 'error: "Data serialization failed"\n';
@@ -336,7 +336,7 @@ export function createResponseFormat(
     const priority = keysPriority || defaultPriority;
     serialized = JSON.stringify(sortObjectKeys(cleanedData, priority), null, 2);
   } else {
-    serialized = jsonToYamlString(cleanedData, {
+    serialized = contextUtils.jsonToYamlString(cleanedData, {
       keysPriority: keysPriority || defaultPriority,
     });
   }

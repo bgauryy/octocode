@@ -3,6 +3,7 @@ import { getBool, getString } from '../options.js';
 import { resolveRef, isGithubRef, refLabel } from '../routing.js';
 import { c, dim } from '../../utils/colors.js';
 import { EXIT } from '../exit-codes.js';
+import { executeDirectTool } from '@octocodeai/octocode-tools-core';
 import {
   getDirectToolText,
   markDirectToolFailure,
@@ -263,7 +264,6 @@ export const getCommand: CLICommand = {
             reasoning: 'CLI get command',
           };
 
-      const { executeDirectTool } = await import('octocode-mcp/public');
       const result = await executeDirectTool(toolName, { queries: [query] });
 
       // Auto-reroute: if GitHub returns "Path is a directory", run tree instead

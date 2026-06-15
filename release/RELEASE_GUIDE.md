@@ -6,6 +6,7 @@
 
 - [Package Dependency Flows](#package-dependency-flows)
 - [Native Binaries](#native-binaries)
+- [Dev Workflow](#dev-workflow)
 - [Build](#build)
 - [Publish](#publish)
 - [Standalone Binaries](#standalone-binaries)
@@ -101,6 +102,100 @@ The `npm/{platform}/` directories are declared as workspaces in the root `packag
 
 ---
 
+## Dev Workflow
+
+Day-to-day development loop for working across the Rust/TS library packages and the interface packages that consume them.
+
+### First-time setup
+
+```bash
+yarn install
+```
+
+This wires all workspace packages together. Because every internal dep uses `workspace:*`, Yarn links siblings directly — no npm publish needed to test changes locally.
+
+If any `package.json` has a pinned version instead of `workspace:*` (e.g. after a publish run), restore workspace refs:
+
+```bash
+node release/sync-packages-local.mjs --fix
+yarn install
+```
+
+### Build native Rust libs for your platform
+
+`octocode-security` and `octocode-context-utils` compile to `.node` native addons. Build only the platform you're on:
+
+```bash
+# macOS Apple Silicon
+yarn workspace octocode-security run build:rust:darwin-arm64
+yarn workspace @octocodeai/octocode-context-utils run build:darwin-arm64
+
+# macOS Intel
+yarn workspace octocode-security run build:rust:darwin-x64
+yarn workspace @octocodeai/octocode-context-utils run build:darwin-x64
+```
+
+The compiled `.node` is placed next to the JS loader. In dev the loader resolves it via the "`.node` next to the loader" path — no install step needed.
+
+### Build TS packages
+
+```bash
+# From the package directory you changed:
+yarn build:dev    # bundle only, skip lint (fast)
+yarn build        # lint + bundle
+
+# Or rebuild everything from the repo root:
+yarn workspaces foreach -pt run build:dev
+```
+
+Build order matters. Always build dependencies before consumers:
+
+```
+octocode-shared → octocode-security → octocode-context-utils → octocode-lsp
+  → octocode-tools-core → octocode-mcp / octocode-cli
+```
+
+### Test
+
+```bash
+# From any package directory:
+yarn test          # run with coverage
+yarn test:watch    # watch mode
+yarn test:quiet    # minimal output
+
+# From the root (all packages):
+yarn verify        # lint + typecheck + tests everywhere
+```
+
+### Keep versions in sync
+
+When you bump the version in `packages/octocode-mcp/package.json`, align every other package:
+
+```bash
+node release/sync-packages-version.mjs
+# → sets the same version on every package.json
+# → converts any pinned internal dep back to workspace:*
+```
+
+To check that no package has accidentally lost its `workspace:*` ref:
+
+```bash
+node release/sync-packages-local.mjs          # exits 1 on any violation
+node release/sync-packages-local.mjs --verbose # see every dep that was checked
+```
+
+### Typical change cycle
+
+```
+1. Edit source in packages/octocode-security|lsp|context-utils|tools-core
+2. yarn build:dev  (from the changed package)
+3. yarn build:dev  (from octocode-tools-core if a lib changed)
+4. yarn test       (from the affected package)
+5. Test end-to-end from octocode-mcp or octocode-cli
+```
+
+---
+
 ## Build
 
 ### Prerequisites
@@ -134,13 +229,38 @@ The build scripts copy the compiled `.node` into `npm/{platform}/` automatically
 
 ## Publish
 
+### How users get binaries after `npm install`
+
+When a user runs `npm install octocode-mcp` or `npm install octocode-cli`, npm resolves the full dependency tree automatically:
+
+```
+npm install octocode-mcp  (or octocode-cli)
+  └─ @octocodeai/octocode-tools-core
+       ├─ octocode-security
+       │    └─ optionalDependencies:
+       │         octocode-security-darwin-arm64   ← installed on macOS Apple Silicon
+       │         octocode-security-darwin-x64     ← installed on macOS Intel
+       │         octocode-security-linux-x64-gnu  ← installed on Linux x64
+       │         octocode-security-linux-x64-musl ← installed on Alpine/musl
+       │         octocode-security-linux-arm64-gnu
+       │         octocode-security-win32-x64-msvc
+       └─ @octocodeai/octocode-context-utils
+            └─ optionalDependencies: (same 6 platforms as above)
+```
+
+npm uses `os`, `cpu`, and `libc` fields on each platform package to install **exactly one `.node` file** — the one that matches the user's machine. No post-install scripts, no compilation on the user's machine.
+
+**This only works if all packages are published to npm.** Publishing in the correct order (dependencies before consumers) and publishing every platform sub-package before the root loader is what makes `npm install` deliver the right binary to end users.
+
 ### Pre-publish checks
 
 ```bash
-# Bump + sync all versions:
-node scripts/sync-packages-version.mjs
+# 1. Bump the version in packages/octocode-mcp/package.json, then:
+#    Sync version to every package AND pin all internal deps to exact version
+#    (workspace: refs are not valid on npm — this step removes them):
+node release/sync-packages-version.mjs --pin-for-publish
 
-# No workspace: ranges must exist in any publishable manifest:
+# 2. Verify no workspace: refs remain — npm publish will fail if any do:
 rg '"workspace:' packages/*/package.json packages/*/npm/*/package.json
 # → must be empty
 
@@ -217,6 +337,23 @@ npm publish packages/octocode-lsp               --access public --provenance
 npm publish packages/octocode-tools-core        --access public --provenance
 npm publish packages/octocode-mcp               --access public --provenance --ignore-scripts
 npm publish packages/octocode-cli               --access public --provenance
+```
+
+### Restore workspace refs after publish
+
+After publishing, internal deps are pinned to the exact version. Restore `workspace:*` so local development works again:
+
+```bash
+node release/sync-packages-version.mjs   # converts pinned refs back to workspace:*
+yarn install                             # re-sync the lockfile
+```
+
+Or verify first, then fix:
+
+```bash
+node release/sync-packages-local.mjs        # shows any remaining pinned refs
+node release/sync-packages-local.mjs --fix  # rewrites them to workspace:*
+yarn install
 ```
 
 ### Smoke test after publish

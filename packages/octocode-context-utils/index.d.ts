@@ -227,13 +227,13 @@ export declare function parseRipgrepJson(stdout: string, options?: RipgrepParseO
 // ── UTF-8 offset helpers ──────────────────────────────────────────────────────
 
 /**
- * Number of UTF-8 bytes up to (not including) the `charIndex`-th Unicode scalar
- * value in `content`. Zero-allocation — replaces `Buffer.byteLength(content.substring(0, charIndex))`.
+ * Number of UTF-8 bytes up to (not including) the `charIndex`-th JavaScript
+ * UTF-16 code unit in `content`. Zero-allocation — replaces `Buffer.byteLength(content.substring(0, charIndex))`.
  */
 export declare function charToByteOffset(content: string, charIndex: number): number
 
 /**
- * Unicode scalar offset for `byteOffset` bytes into `content`.
+ * JavaScript UTF-16 code-unit offset for `byteOffset` bytes into `content`.
  * Zero-allocation — replaces `Buffer.from(content, 'utf8').slice(0, offset).toString('utf8').length`.
  */
 export declare function byteToCharOffset(content: string, byteOffset: number): number

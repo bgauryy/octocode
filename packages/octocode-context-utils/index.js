@@ -7,10 +7,46 @@ const packageName = '@octocodeai/octocode-context-utils'
 const binaryName = 'octocode-context-utils'
 const { platform, arch } = process
 
+const { readFileSync } = require('fs')
+
+const isFileMusl = (f) => f.includes('libc.musl-') || f.includes('ld-musl-')
+
+function isMuslFromFilesystem() {
+  try {
+    return readFileSync('/usr/bin/ldd', 'utf-8').includes('musl')
+  } catch {
+    return null
+  }
+}
+
+function isMuslFromReport() {
+  let report = null
+  if (typeof process.report?.getReport === 'function') {
+    process.report.excludeNetwork = true
+    report = process.report.getReport()
+  }
+  if (!report) return null
+  if (report.header && report.header.glibcVersionRuntime) return false
+  if (Array.isArray(report.sharedObjects)) {
+    if (report.sharedObjects.some(isFileMusl)) return true
+  }
+  return false
+}
+
+function isMuslFromChildProcess() {
+  try {
+    return require('child_process').execSync('ldd --version', { encoding: 'utf8' }).includes('musl')
+  } catch {
+    return false
+  }
+}
+
 function isMusl() {
-  const report = process.report?.getReport?.()
-  const header = report && typeof report === 'object' ? report.header : undefined
-  return !(header && typeof header === 'object' && 'glibcVersionRuntime' in header)
+  if (process.platform !== 'linux') return false
+  let result = isMuslFromFilesystem()
+  if (result === null) result = isMuslFromReport()
+  if (result === null) result = isMuslFromChildProcess()
+  return !!result
 }
 
 function getPlatformKey() {

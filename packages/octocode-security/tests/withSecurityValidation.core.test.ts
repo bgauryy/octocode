@@ -91,7 +91,9 @@ describe('CORE-01: Input validation — both wrappers reject invalid params iden
     const result = await wrapped({ constructor: 'evil' }, {});
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/Security validation failed/);
-    expect(result.content[0]?.text).toContain('Dangerous parameter key blocked');
+    expect(result.content[0]?.text).toContain(
+      'Dangerous parameter key blocked'
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -167,13 +169,19 @@ describe('CORE-02: Success result — both wrappers forward handler output uncha
 
   it('full wrapper forwards handler result as-is', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    const result = await withSecurityValidation('t', handler)({ key: 'val' }, {});
+    const result = await withSecurityValidation('t', handler)(
+      { key: 'val' },
+      {}
+    );
     expect(result).toEqual(SUCCESS_RESULT);
   });
 
   it('basic wrapper forwards handler result as-is', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    const result = await withBasicSecurityValidation(handler, 't')({ key: 'val' });
+    const result = await withBasicSecurityValidation(
+      handler,
+      't'
+    )({ key: 'val' });
     expect(result).toEqual(SUCCESS_RESULT);
   });
 
@@ -218,7 +226,10 @@ describe('CORE-03: Logging gate — both wrappers log on success, skip on error'
 
   it('basic wrapper: logToolCall fires on success', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    await withBasicSecurityValidation(handler, 'localSearchCode')({ path: '/src' });
+    await withBasicSecurityValidation(
+      handler,
+      'localSearchCode'
+    )({ path: '/src' });
     expect(mockLogToolCall).toHaveBeenCalledTimes(1);
   });
 
@@ -296,8 +307,13 @@ describe('CORE-05: Timeout enforcement', () => {
   it('both wrappers complete before timeout when handler is fast', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
 
-    const p1 = withSecurityValidation('t', handler, { timeoutMs: 5000 })({}, {});
-    const p2 = withBasicSecurityValidation(handler, 't', { timeoutMs: 5000 })({});
+    const p1 = withSecurityValidation('t', handler, { timeoutMs: 5000 })(
+      {},
+      {}
+    );
+    const p2 = withBasicSecurityValidation(handler, 't', { timeoutMs: 5000 })(
+      {}
+    );
 
     vi.advanceTimersByTime(10);
     const [r1, r2] = await Promise.all([p1, p2]);
@@ -320,7 +336,10 @@ describe('CORE-06: AbortSignal cancellation', () => {
     const controller = new AbortController();
     controller.abort();
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    const result = await withSecurityValidation('t', handler)({}, { signal: controller.signal });
+    const result = await withSecurityValidation('t', handler)(
+      {},
+      { signal: controller.signal }
+    );
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/cancelled/);
   });
@@ -329,7 +348,10 @@ describe('CORE-06: AbortSignal cancellation', () => {
     const controller = new AbortController();
     controller.abort();
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    const result = await withBasicSecurityValidation(handler, 't')({}, { signal: controller.signal });
+    const result = await withBasicSecurityValidation(handler, 't')(
+      {},
+      { signal: controller.signal }
+    );
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/cancelled/);
   });
@@ -337,7 +359,10 @@ describe('CORE-06: AbortSignal cancellation', () => {
   it('full wrapper: aborting mid-flight resolves to cancellation result', async () => {
     const controller = new AbortController();
     const handler = vi.fn().mockReturnValue(new Promise(() => {}));
-    const promise = withSecurityValidation('t', handler)({}, { signal: controller.signal });
+    const promise = withSecurityValidation('t', handler)(
+      {},
+      { signal: controller.signal }
+    );
     controller.abort();
     const result = await promise;
     expect(result.isError).toBe(true);
@@ -347,7 +372,10 @@ describe('CORE-06: AbortSignal cancellation', () => {
   it('basic wrapper: aborting mid-flight resolves to cancellation result', async () => {
     const controller = new AbortController();
     const handler = vi.fn().mockReturnValue(new Promise(() => {}));
-    const promise = withBasicSecurityValidation(handler, 't')({}, { signal: controller.signal });
+    const promise = withBasicSecurityValidation(handler, 't')(
+      {},
+      { signal: controller.signal }
+    );
     controller.abort();
     const result = await promise;
     expect(result.isError).toBe(true);
@@ -388,7 +416,12 @@ describe('CORE-07: withSecurityValidation — auth/session passthrough', () => {
     await wrapped({}, { authInfo: { user: 'alice' } });
     await wrapped({}, { authInfo: { user: 'bob' } });
 
-    expect(handler).toHaveBeenNthCalledWith(1, {}, { user: 'alice' }, undefined);
+    expect(handler).toHaveBeenNthCalledWith(
+      1,
+      {},
+      { user: 'alice' },
+      undefined
+    );
     expect(handler).toHaveBeenNthCalledWith(2, {}, { user: 'bob' }, undefined);
   });
 });
@@ -405,7 +438,10 @@ describe('CORE-08: withBasicSecurityValidation — no auth contract', () => {
 
   it('handler receives only sanitizedArgs (no auth context)', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    await withBasicSecurityValidation(handler, 'local_read')({ path: '/workspace/file.ts' });
+    await withBasicSecurityValidation(
+      handler,
+      'local_read'
+    )({ path: '/workspace/file.ts' });
     expect(handler).toHaveBeenCalledWith({ path: '/workspace/file.ts' });
     expect(handler).toHaveBeenCalledTimes(1);
   });
@@ -421,13 +457,17 @@ describe('CORE-08: withBasicSecurityValidation — no auth contract', () => {
 
   it('missing extra argument does not throw', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    await expect(withBasicSecurityValidation(handler, 't')({})).resolves.not.toThrow();
+    await expect(
+      withBasicSecurityValidation(handler, 't')({})
+    ).resolves.not.toThrow();
   });
 
   it('toolName defaults to "tool" in timeout messages when not provided', async () => {
     vi.useFakeTimers();
     const handler = vi.fn().mockReturnValue(new Promise(() => {}));
-    const promise = withBasicSecurityValidation(handler, undefined, { timeoutMs: 50 })({});
+    const promise = withBasicSecurityValidation(handler, undefined, {
+      timeoutMs: 50,
+    })({});
     vi.advanceTimersByTime(100);
     const result = await promise;
     expect(result.content[0]?.text).toContain('tool');

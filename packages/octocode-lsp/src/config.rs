@@ -1,3 +1,4 @@
+use crate::grammar::grammar_for_file;
 use crate::types::JsLanguageServerConfig;
 use napi::{Error, Result, Status};
 use serde::Deserialize;
@@ -31,7 +32,9 @@ struct UserServerSpec {
 }
 
 pub fn detect_language_id(file_path: String) -> Option<String> {
-    spec_for_file(&file_path).map(|spec| spec.language_id.to_owned())
+    grammar_for_file(&file_path)
+        .map(|spec| spec.language_id.to_owned())
+        .or_else(|| spec_for_file(&file_path).map(|spec| spec.language_id.to_owned()))
 }
 
 pub fn default_server_for_file(
@@ -189,8 +192,20 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &["--stdio"],
             env_var: Some("OCTOCODE_HTML_SERVER_PATH"),
         },
-        ".css" | ".scss" | ".less" => ServerSpec {
+        ".css" => ServerSpec {
             language_id: "css",
+            command: "vscode-css-language-server",
+            args: &["--stdio"],
+            env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
+        },
+        ".scss" => ServerSpec {
+            language_id: "scss",
+            command: "vscode-css-language-server",
+            args: &["--stdio"],
+            env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
+        },
+        ".less" => ServerSpec {
+            language_id: "less",
             command: "vscode-css-language-server",
             args: &["--stdio"],
             env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
@@ -260,4 +275,58 @@ fn is_rejected_shell(command: &str) -> bool {
             | "pwsh"
             | "pwsh.exe"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_server_for_file, detect_language_id};
+
+    #[test]
+    fn detects_requested_language_matrix_from_native_grammar_registry() {
+        let cases = [
+            ("demo.ts", "typescript"),
+            ("demo.tsx", "typescriptreact"),
+            ("demo.js", "javascript"),
+            ("demo.jsx", "javascript"),
+            ("demo.py", "python"),
+            ("demo.go", "go"),
+            ("demo.rs", "rust"),
+            ("demo.java", "java"),
+            ("demo.c", "c"),
+            ("demo.cpp", "cpp"),
+            ("demo.cs", "csharp"),
+            ("demo.sh", "shellscript"),
+            ("demo.json", "json"),
+            ("demo.yaml", "yaml"),
+            ("demo.toml", "toml"),
+            ("demo.html", "html"),
+            ("demo.css", "css"),
+            ("demo.scss", "scss"),
+            ("demo.less", "less"),
+        ];
+
+        for (file_name, expected) in cases {
+            assert_eq!(
+                detect_language_id(file_name.to_owned()).as_deref(),
+                Some(expected),
+                "{file_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn maps_scss_and_less_to_css_language_server_with_specific_language_ids() {
+        let workspace_root = "/workspace".to_owned();
+        let cases = [("demo.scss", "scss"), ("demo.less", "less")];
+
+        for (file_name, expected_language_id) in cases {
+            let Some(config) =
+                default_server_for_file(file_name.to_owned(), workspace_root.clone())
+            else {
+                panic!("missing server config for {file_name}");
+            };
+            assert_eq!(config.command, "vscode-css-language-server");
+            assert_eq!(config.language_id.as_deref(), Some(expected_language_id));
+        }
+    }
 }

@@ -25,7 +25,10 @@ pub(crate) fn sanitize_content(content: &str, file_path: Option<&str>) -> Saniti
     let warnings = if result.secrets_detected.is_empty() {
         vec![]
     } else {
-        vec![format!("{} secret(s) redacted", result.secrets_detected.len())]
+        vec![format!(
+            "{} secret(s) redacted",
+            result.secrets_detected.len()
+        )]
     };
 
     SanitizationResult {

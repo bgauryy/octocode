@@ -1,4 +1,5 @@
 use crate::patterns::{PATTERNS, PATTERN_REGEXES, REGEX_SET};
+use std::sync::LazyLock;
 
 pub(crate) const CHUNK_SIZE: usize = 500_000;
 const CHUNK_OVERLAP: usize = 1_000;
@@ -8,18 +9,65 @@ const CHUNK_OVERLAP: usize = 1_000;
 // None means the pattern has no file-context constraint (always applicable).
 // ---------------------------------------------------------------------------
 
-static FILE_CONTEXT_REGEXES: std::sync::LazyLock<Vec<Option<regex::Regex>>> =
-    std::sync::LazyLock::new(|| {
-        PATTERNS
-            .iter()
-            .map(|p| {
-                p.file_context.map(|ctx| {
-                    regex::Regex::new(ctx)
-                        .unwrap_or_else(|e| panic!("invalid file_context regex '{ctx}': {e}"))
-                })
+static FILE_CONTEXT_REGEXES: LazyLock<Vec<Option<regex::Regex>>> = LazyLock::new(|| {
+    PATTERNS
+        .iter()
+        .map(|p| {
+            p.file_context.map(|ctx| {
+                regex::Regex::new(ctx)
+                    .unwrap_or_else(|e| panic!("invalid file_context regex '{ctx}': {e}"))
             })
-            .collect()
-    });
+        })
+        .collect()
+});
+
+static REPLACEMENTS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    PATTERNS
+        .iter()
+        .map(|p| format!("[REDACTED-{}]", p.name.to_ascii_uppercase()))
+        .collect()
+});
+
+fn replacement_for(idx: usize) -> &'static str {
+    &REPLACEMENTS[idx]
+}
+
+fn matching_pattern_indices(content: &str) -> Vec<usize> {
+    REGEX_SET.matches(content).into_iter().collect()
+}
+
+fn empty_result(content: &str) -> DetectResult {
+    DetectResult {
+        sanitized: content.to_string(),
+        secrets_detected: vec![],
+    }
+}
+
+fn matching_non_context_indices(content: &str) -> Vec<usize> {
+    REGEX_SET
+        .matches(content)
+        .into_iter()
+        .filter(|&idx| PATTERNS[idx].file_context.is_none())
+        .collect()
+}
+
+fn replace_chunk(
+    sanitized: &mut String,
+    range: std::ops::Range<usize>,
+    regex: &regex::Regex,
+    replacement: &str,
+) -> usize {
+    let new_chunk = regex
+        .replace_all(&sanitized[range.clone()], replacement)
+        .into_owned();
+    let new_len = new_chunk.len();
+    sanitized.replace_range(range, &new_chunk);
+    new_len
+}
+
+fn next_chunk_start(s: &str, effective_end: usize) -> usize {
+    find_char_boundary(s, effective_end.saturating_sub(CHUNK_OVERLAP))
+}
 
 /// Returns `true` if pattern at `idx` should be applied for the given file path.
 ///
@@ -45,13 +93,10 @@ pub(crate) struct DetectResult {
 /// `file_path` gates file-context patterns (e.g. Kubernetes YAML secrets, `.env`
 /// fine-grained GitHub tokens) so they fire only when the path matches.
 pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectResult {
-    let matched_indices: Vec<usize> = REGEX_SET.matches(content).into_iter().collect();
+    let matched_indices = matching_pattern_indices(content);
 
     if matched_indices.is_empty() {
-        return DetectResult {
-            sanitized: content.to_string(),
-            secrets_detected: vec![],
-        };
+        return empty_result(content);
     }
 
     let mut sanitized = content.to_string();
@@ -63,15 +108,17 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
         }
         let pattern = &PATTERNS[idx];
         let regex = &PATTERN_REGEXES[idx];
-        let replacement = format!("[REDACTED-{}]", pattern.name.to_uppercase());
-        let result = regex.replace_all(&sanitized, replacement.as_str());
+        let result = regex.replace_all(&sanitized, replacement_for(idx));
         if result != sanitized.as_str() {
             secrets_detected.push(pattern.name.to_string());
             sanitized = result.into_owned();
         }
     }
 
-    DetectResult { sanitized, secrets_detected }
+    DetectResult {
+        sanitized,
+        secrets_detected,
+    }
 }
 
 /// Slow path: content exceeds `CHUNK_SIZE` — process in overlapping chunks to
@@ -89,58 +136,43 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
 pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectResult {
     // Pre-filter: collect pattern indices that appear anywhere in the original
     // content.  Patterns absent here are skipped in the per-pattern loop below.
-    let candidate_indices: std::collections::HashSet<usize> =
-        REGEX_SET.matches(content).into_iter().collect();
+    let candidate_indices = matching_pattern_indices(content);
 
     if candidate_indices.is_empty() {
-        return DetectResult {
-            sanitized: content.to_string(),
-            secrets_detected: vec![],
-        };
+        return empty_result(content);
     }
 
     let mut sanitized = content.to_string();
-    let mut secrets_detected_set: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut secrets_detected = Vec::with_capacity(candidate_indices.len());
 
-    for (idx, pattern) in PATTERNS.iter().enumerate() {
-        if !candidate_indices.contains(&idx) {
-            continue; // not in original content — skip all chunks
-        }
+    for idx in candidate_indices {
         if !should_apply(idx, file_path) {
             continue;
         }
 
+        let pattern = &PATTERNS[idx];
         let regex = &PATTERN_REGEXES[idx];
+        let replacement = replacement_for(idx);
         let mut chunk_start = 0usize;
         let mut found_in_pattern = false;
 
         while chunk_start < sanitized.len() {
-            let chunk_end = find_char_boundary(
-                &sanitized,
-                (chunk_start + CHUNK_SIZE).min(sanitized.len()),
-            );
+            let chunk_end =
+                find_char_boundary(&sanitized, (chunk_start + CHUNK_SIZE).min(sanitized.len()));
             let chunk = &sanitized[chunk_start..chunk_end];
 
             // Track the effective end after replacement so the next chunk_start
             // is correct even when the replacement changes the string length.
             let effective_end = if regex.is_match(chunk) {
                 found_in_pattern = true;
-                let replacement = format!("[REDACTED-{}]", pattern.name.to_uppercase());
-                let new_chunk = regex.replace_all(chunk, replacement.as_str()).into_owned();
-                let new_len = new_chunk.len();
-                sanitized = format!(
-                    "{}{}{}",
-                    &sanitized[..chunk_start],
-                    new_chunk,
-                    &sanitized[chunk_end..]
-                );
+                let new_len =
+                    replace_chunk(&mut sanitized, chunk_start..chunk_end, regex, replacement);
                 chunk_start + new_len
             } else {
                 chunk_end
             };
 
-            let next = effective_end.saturating_sub(CHUNK_OVERLAP);
+            let next = next_chunk_start(&sanitized, effective_end);
             if next <= chunk_start {
                 break;
             }
@@ -148,13 +180,13 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
         }
 
         if found_in_pattern {
-            secrets_detected_set.insert(pattern.name.to_string());
+            secrets_detected.push(pattern.name.to_string());
         }
     }
 
     DetectResult {
         sanitized,
-        secrets_detected: secrets_detected_set.into_iter().collect(),
+        secrets_detected,
     }
 }
 
@@ -171,11 +203,14 @@ pub(crate) fn mask_text(text: String) -> String {
         return text;
     }
 
+    let candidate_indices = matching_non_context_indices(&text);
+    if candidate_indices.is_empty() {
+        return text;
+    }
+
     let mut matches: Vec<(usize, usize)> = Vec::new();
-    for (idx, regex) in PATTERN_REGEXES.iter().enumerate() {
-        if PATTERNS[idx].file_context.is_some() {
-            continue;
-        }
+    for idx in candidate_indices {
+        let regex = &PATTERN_REGEXES[idx];
         for m in regex.find_iter(&text) {
             matches.push((m.start(), m.end()));
         }
@@ -185,7 +220,7 @@ pub(crate) fn mask_text(text: String) -> String {
         return text;
     }
 
-    matches.sort_unstable_by_key(|m| m.0);
+    matches.sort_by_key(|m| m.0);
 
     // Deduplicate overlapping spans — first match wins.
     let mut non_overlapping: Vec<(usize, usize)> = Vec::new();
@@ -321,6 +356,39 @@ mod tests {
     }
 
     #[test]
+    fn next_chunk_start_snaps_overlap_to_char_boundary() {
+        let s = format!("{}😀tail", "a".repeat(10));
+        let inside_emoji = 11;
+
+        let next = next_chunk_start(&s, CHUNK_OVERLAP + inside_emoji);
+
+        assert_eq!(next, 10);
+        assert!(s.is_char_boundary(next));
+    }
+
+    #[test]
+    fn detect_chunked_preserves_canonical_pattern_order() {
+        let input = format!(
+            "{} {} {} {}",
+            "sk-1234567890abcdefghijklmnopqrstuvwxyzT3BlbkFJABCDEFGHIJKLMNO",
+            "AKIAIOSFODNN7EXAMPLE",
+            "ghp_1234567890abcdefghijklmnopqrstuvwxyz123456",
+            "x".repeat(CHUNK_SIZE)
+        );
+
+        let result = detect_chunked(&input, None);
+
+        assert_eq!(
+            result.secrets_detected,
+            vec![
+                "openaiApiKeyLegacy".to_string(),
+                "awsAccessKeyId".to_string(),
+                "githubTokens".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn detect_chunked_matches_detect_single_on_same_input() {
         // Both paths must produce the same redacted output for content that
         // fits in a single chunk (use a small string so both paths are tested).
@@ -329,8 +397,14 @@ mod tests {
         let chunked = detect_chunked(input, None);
         assert_eq!(single.sanitized, chunked.sanitized);
         assert_eq!(
-            single.secrets_detected.iter().collect::<std::collections::HashSet<_>>(),
-            chunked.secrets_detected.iter().collect::<std::collections::HashSet<_>>(),
+            single
+                .secrets_detected
+                .iter()
+                .collect::<std::collections::HashSet<_>>(),
+            chunked
+                .secrets_detected
+                .iter()
+                .collect::<std::collections::HashSet<_>>(),
         );
     }
 

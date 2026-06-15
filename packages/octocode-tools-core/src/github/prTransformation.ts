@@ -6,7 +6,7 @@ import {
 } from './githubAPI.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import { filterPatch, trimDiffContext } from '../utils/parsers/diff.js';
-import { minifyMarkdownCore } from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../utils/contextUtils.js';
 
 interface RawPRData {
   number: number;
@@ -145,7 +145,9 @@ export function formatPRForResponse(
   // minify control here). minify:"none" only takes effect in the detail path
   // via shapePullRequestForContent.
   const rawBody =
-    typeof pr.body === 'string' ? minifyMarkdownCore(pr.body) : pr.body;
+    typeof pr.body === 'string'
+      ? contextUtils.minifyMarkdownCore(pr.body)
+      : pr.body;
   const body = paginateText(
     rawBody,
     charOffset,

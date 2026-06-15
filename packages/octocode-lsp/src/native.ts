@@ -1,9 +1,14 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const packageName = 'octocode-lsp';
 const binaryName = 'octocode-lsp';
 const { platform, arch } = process;
+const require = createRequire(import.meta.url);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 type NativeBinding = {
   NativeLspClient: new (config: unknown) => NativeLspClientBinding;
@@ -61,17 +66,44 @@ export type NativeLspClientBinding = {
   outgoingCalls(item: unknown): Promise<unknown>;
 };
 
+const isFileMusl = (f: string): boolean =>
+  f.includes('libc.musl-') || f.includes('ld-musl-');
+
+function isMuslFromFilesystem(): boolean | null {
+  try {
+    return readFileSync('/usr/bin/ldd', 'utf-8').includes('musl');
+  } catch {
+    return null;
+  }
+}
+
+function isMuslFromReport(): boolean | null {
+  let report: unknown = null;
+  if (typeof process.report?.getReport === 'function') {
+    (process.report as { excludeNetwork?: boolean }).excludeNetwork = true;
+    report = process.report.getReport();
+  }
+  if (!report) return null;
+  const r = report as Record<string, unknown>;
+  if (r.header && typeof r.header === 'object' && 'glibcVersionRuntime' in r.header) return false;
+  if (Array.isArray(r.sharedObjects) && r.sharedObjects.some(isFileMusl)) return true;
+  return false;
+}
+
+function isMuslFromChildProcess(): boolean {
+  try {
+    return execSync('ldd --version', { encoding: 'utf8' }).includes('musl');
+  } catch {
+    return false;
+  }
+}
+
 function isMusl(): boolean {
-  const report = process.report?.getReport?.();
-  const header =
-    report && typeof report === 'object' && 'header' in report
-      ? report.header
-      : undefined;
-  return !(
-    header &&
-    typeof header === 'object' &&
-    'glibcVersionRuntime' in header
-  );
+  if (process.platform !== 'linux') return false;
+  let result: boolean | null = isMuslFromFilesystem();
+  if (result === null) result = isMuslFromReport();
+  if (result === null) result = isMuslFromChildProcess();
+  return !!result;
 }
 
 function getPlatformKey(): string {

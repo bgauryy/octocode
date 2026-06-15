@@ -1,9 +1,6 @@
 import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../config.js';
 import type { NormalizedPrContentRequest } from './contentRequest.js';
-import {
-  applyContentViewMinification,
-  minifyMarkdownCore,
-} from '@octocodeai/octocode-context-utils';
+import { contextUtils } from '../../utils/contextUtils.js';
 
 type QueryLike = {
   owner?: string;
@@ -108,7 +105,7 @@ function stripDiffCommentOnlyLines(patch: string): string {
 }
 
 function minifyPatchView(patch: string, filePath: string): string {
-  return applyContentViewMinification(
+  return contextUtils.applyContentViewMinification(
     stripDiffCommentOnlyLines(patch),
     filePath
   );
@@ -405,7 +402,7 @@ export function shapePullRequestForContent(
           if (!raw) return undefined;
           // Apply markdown minification when the standard (token-saving) view
           // is requested. minify:"none" opts out for exact-text quoting.
-          return shouldMinify ? minifyMarkdownCore(raw) : raw;
+          return shouldMinify ? contextUtils.minifyMarkdownCore(raw) : raw;
         })(),
         query.charOffset ?? 0,
         query.charLength ?? 12_000

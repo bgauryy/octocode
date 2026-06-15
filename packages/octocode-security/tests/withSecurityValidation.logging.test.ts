@@ -38,18 +38,31 @@ describe('withSecurityValidation logging', () => {
 
   it('should log the tool call after the handler produces a response', async () => {
     const events: string[] = [];
-    mockLogToolCall.mockImplementation(async () => { events.push('logToolCall'); });
+    mockLogToolCall.mockImplementation(async () => {
+      events.push('logToolCall');
+    });
 
     const mockHandler = vi.fn(async () => {
       events.push('handler');
-      return { isError: false, content: [{ type: 'text' as const, text: 'success' }] };
+      return {
+        isError: false,
+        content: [{ type: 'text' as const, text: 'success' }],
+      };
     });
 
     const args = {
-      queries: [{ owner: 'test-owner', repo: 'test-repo', mainResearchGoal: 'Response ordered logging' }],
+      queries: [
+        {
+          owner: 'test-owner',
+          repo: 'test-repo',
+          mainResearchGoal: 'Response ordered logging',
+        },
+      ],
     };
 
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
     expect(events).toEqual(['handler', 'logToolCall']);
   });
@@ -60,10 +73,27 @@ describe('withSecurityValidation logging', () => {
       content: [{ type: 'text' as const, text: 'success' }],
     }));
 
-    const args = { queries: [{ id: 'q1', owner: 'test-owner', repo: 'test-repo', keywordsToSearch: ['test'] }] };
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    const args = {
+      queries: [
+        {
+          id: 'q1',
+          owner: 'test-owner',
+          repo: 'test-repo',
+          keywordsToSearch: ['test'],
+        },
+      ],
+    };
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
-    expect(mockLogToolCall).toHaveBeenCalledWith('test_tool', ['test-owner/test-repo'], undefined, undefined, undefined);
+    expect(mockLogToolCall).toHaveBeenCalledWith(
+      'test_tool',
+      ['test-owner/test-repo'],
+      undefined,
+      undefined,
+      undefined
+    );
   });
 
   it('should extract repo and owner from direct params and log them', async () => {
@@ -72,10 +102,22 @@ describe('withSecurityValidation logging', () => {
       content: [{ type: 'text' as const, text: 'success' }],
     }));
 
-    const args = { owner: 'direct-owner', repo: 'direct-repo', path: 'test/file.js' };
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    const args = {
+      owner: 'direct-owner',
+      repo: 'direct-repo',
+      path: 'test/file.js',
+    };
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
-    expect(mockLogToolCall).toHaveBeenCalledWith('test_tool', ['direct-owner/direct-repo'], undefined, undefined, undefined);
+    expect(mockLogToolCall).toHaveBeenCalledWith(
+      'test_tool',
+      ['direct-owner/direct-repo'],
+      undefined,
+      undefined,
+      undefined
+    );
   });
 
   it('should skip logging when logging is disabled', async () => {
@@ -87,7 +129,9 @@ describe('withSecurityValidation logging', () => {
     }));
 
     const args = { owner: 'test-owner', repo: 'test-repo' };
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
     expect(mockIsLoggingEnabled).toHaveBeenCalled();
     expect(mockLogToolCall).not.toHaveBeenCalled();
@@ -101,15 +145,19 @@ describe('withSecurityValidation logging', () => {
     }));
 
     const args = {
-      queries: [{
-        owner: 'test-owner',
-        repo: 'test-repo',
-        mainResearchGoal: 'Find authentication',
-        researchGoal: 'Locate login function',
-        reasoning: 'Need to understand auth flow',
-      }],
+      queries: [
+        {
+          owner: 'test-owner',
+          repo: 'test-repo',
+          mainResearchGoal: 'Find authentication',
+          researchGoal: 'Locate login function',
+          reasoning: 'Need to understand auth flow',
+        },
+      ],
     };
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
     expect(mockLogToolCall).toHaveBeenCalledWith(
       'test_tool',
@@ -127,14 +175,18 @@ describe('withSecurityValidation logging', () => {
     }));
 
     const args = {
-      queries: [{
-        owner: 'test-owner',
-        repo: 'test-repo',
-        mainResearchGoal: 'Find authentication',
-        reasoning: 'Need to understand auth flow',
-      }],
+      queries: [
+        {
+          owner: 'test-owner',
+          repo: 'test-repo',
+          mainResearchGoal: 'Find authentication',
+          reasoning: 'Need to understand auth flow',
+        },
+      ],
     };
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
     expect(mockLogToolCall).toHaveBeenCalledWith(
       'test_tool',
@@ -152,16 +204,20 @@ describe('withSecurityValidation logging', () => {
     }));
 
     const args = {
-      queries: [{
-        id: 'pkg',
-        mainResearchGoal: 'Package lookup',
-        researchGoal: 'Find package metadata',
-        reasoning: 'Package tools do not always have repository fields',
-        ecosystem: 'npm',
-        name: 'react',
-      }],
+      queries: [
+        {
+          id: 'pkg',
+          mainResearchGoal: 'Package lookup',
+          researchGoal: 'Find package metadata',
+          reasoning: 'Package tools do not always have repository fields',
+          ecosystem: 'npm',
+          name: 'react',
+        },
+      ],
     };
-    await withSecurityValidation('packageSearch', mockHandler)(args, { signal: new AbortController().signal });
+    await withSecurityValidation('packageSearch', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
     expect(mockLogToolCall).toHaveBeenCalledWith(
       'packageSearch',
@@ -181,15 +237,43 @@ describe('withSecurityValidation logging', () => {
 
       const args = {
         queries: [
-          { owner: 'owner1', repo: 'repo1', mainResearchGoal: 'Authentication', researchGoal: 'Find login', reasoning: 'Security audit' },
-          { owner: 'owner2', repo: 'repo2', mainResearchGoal: 'Authorization', researchGoal: 'Find logout', reasoning: 'Access control' },
+          {
+            owner: 'owner1',
+            repo: 'repo1',
+            mainResearchGoal: 'Authentication',
+            researchGoal: 'Find login',
+            reasoning: 'Security audit',
+          },
+          {
+            owner: 'owner2',
+            repo: 'repo2',
+            mainResearchGoal: 'Authorization',
+            researchGoal: 'Find logout',
+            reasoning: 'Access control',
+          },
         ],
       };
-      await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+      await withSecurityValidation('test_tool', mockHandler)(args, {
+        signal: new AbortController().signal,
+      });
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(2);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, 'test_tool', ['owner1/repo1'], 'Authentication', 'Find login', 'Security audit');
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, 'test_tool', ['owner2/repo2'], 'Authorization', 'Find logout', 'Access control');
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        'test_tool',
+        ['owner1/repo1'],
+        'Authentication',
+        'Find login',
+        'Security audit'
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        'test_tool',
+        ['owner2/repo2'],
+        'Authorization',
+        'Find logout',
+        'Access control'
+      );
     });
 
     it('should log each query with its own repos in bulk operations', async () => {
@@ -201,16 +285,43 @@ describe('withSecurityValidation logging', () => {
       const args = {
         queries: [
           { repository: 'facebook/react', mainResearchGoal: 'React hooks' },
-          { owner: 'microsoft', repo: 'vscode', mainResearchGoal: 'VS Code API' },
+          {
+            owner: 'microsoft',
+            repo: 'vscode',
+            mainResearchGoal: 'VS Code API',
+          },
           { owner: 'vercel', mainResearchGoal: 'Vercel tools' },
         ],
       };
-      await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+      await withSecurityValidation('test_tool', mockHandler)(args, {
+        signal: new AbortController().signal,
+      });
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(3);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, 'test_tool', ['facebook/react'], 'React hooks', undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, 'test_tool', ['microsoft/vscode'], 'VS Code API', undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(3, 'test_tool', ['vercel'], 'Vercel tools', undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        'test_tool',
+        ['facebook/react'],
+        'React hooks',
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        'test_tool',
+        ['microsoft/vscode'],
+        'VS Code API',
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        3,
+        'test_tool',
+        ['vercel'],
+        'Vercel tools',
+        undefined,
+        undefined
+      );
     });
 
     it('should log queries without repos using an empty repo list in bulk operations', async () => {
@@ -226,12 +337,35 @@ describe('withSecurityValidation logging', () => {
           { owner: 'owner3', repo: 'repo3', keywordsToSearch: ['test3'] },
         ],
       };
-      await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+      await withSecurityValidation('test_tool', mockHandler)(args, {
+        signal: new AbortController().signal,
+      });
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(3);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, 'test_tool', ['owner1/repo1'], undefined, undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, 'test_tool', [], undefined, undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(3, 'test_tool', ['owner3/repo3'], undefined, undefined, undefined);
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        'test_tool',
+        ['owner1/repo1'],
+        undefined,
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        'test_tool',
+        [],
+        undefined,
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        3,
+        'test_tool',
+        ['owner3/repo3'],
+        undefined,
+        undefined,
+        undefined
+      );
     });
 
     it('should handle bulk operations with mixed research fields', async () => {
@@ -242,17 +376,46 @@ describe('withSecurityValidation logging', () => {
 
       const args = {
         queries: [
-          { owner: 'owner1', repo: 'repo1', mainResearchGoal: 'Goal 1', researchGoal: 'Subgoal 1', reasoning: 'Reason 1' },
+          {
+            owner: 'owner1',
+            repo: 'repo1',
+            mainResearchGoal: 'Goal 1',
+            researchGoal: 'Subgoal 1',
+            reasoning: 'Reason 1',
+          },
           { owner: 'owner2', repo: 'repo2', mainResearchGoal: 'Goal 2' },
           { owner: 'owner3', repo: 'repo3', reasoning: 'Reason 3' },
         ],
       };
-      await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+      await withSecurityValidation('test_tool', mockHandler)(args, {
+        signal: new AbortController().signal,
+      });
 
       expect(mockLogToolCall).toHaveBeenCalledTimes(3);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(1, 'test_tool', ['owner1/repo1'], 'Goal 1', 'Subgoal 1', 'Reason 1');
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(2, 'test_tool', ['owner2/repo2'], 'Goal 2', undefined, undefined);
-      expect(mockLogToolCall).toHaveBeenNthCalledWith(3, 'test_tool', ['owner3/repo3'], undefined, undefined, 'Reason 3');
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        1,
+        'test_tool',
+        ['owner1/repo1'],
+        'Goal 1',
+        'Subgoal 1',
+        'Reason 1'
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        2,
+        'test_tool',
+        ['owner2/repo2'],
+        'Goal 2',
+        undefined,
+        undefined
+      );
+      expect(mockLogToolCall).toHaveBeenNthCalledWith(
+        3,
+        'test_tool',
+        ['owner3/repo3'],
+        undefined,
+        undefined,
+        'Reason 3'
+      );
     });
   });
 
@@ -262,9 +425,21 @@ describe('withSecurityValidation logging', () => {
       content: [{ type: 'text' as const, text: 'success' }],
     }));
 
-    const args = { queries: [{ owner: 'test-owner', repo: 'test-repo', keywordsToSearch: ['test'] }] };
-    await withSecurityValidation('test_tool', mockHandler)(args, { signal: new AbortController().signal });
+    const args = {
+      queries: [
+        { owner: 'test-owner', repo: 'test-repo', keywordsToSearch: ['test'] },
+      ],
+    };
+    await withSecurityValidation('test_tool', mockHandler)(args, {
+      signal: new AbortController().signal,
+    });
 
-    expect(mockLogToolCall).toHaveBeenCalledWith('test_tool', ['test-owner/test-repo'], undefined, undefined, undefined);
+    expect(mockLogToolCall).toHaveBeenCalledWith(
+      'test_tool',
+      ['test-owner/test-repo'],
+      undefined,
+      undefined,
+      undefined
+    );
   });
 });

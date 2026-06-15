@@ -16,6 +16,19 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 // ---------------------------------------------------------------------------
 // Extra-pattern JS processing (for patterns added via securityRegistry at runtime)
 // ---------------------------------------------------------------------------
+function shouldApplyExtraPattern(
+  fileContext: RegExp | undefined,
+  filePath: string | undefined
+): boolean {
+  if (!fileContext) return true;
+  if (!filePath) return false;
+
+  fileContext.lastIndex = 0;
+  const applies = fileContext.test(filePath);
+  fileContext.lastIndex = 0;
+  return applies;
+}
+
 function detectWithExtraPatterns(
   content: string,
   filePath: string | undefined,
@@ -24,10 +37,7 @@ function detectWithExtraPatterns(
   let sanitized = content;
   const secrets: string[] = [];
   for (const pattern of extraPatterns) {
-    if (
-      pattern.fileContext &&
-      (!filePath || !pattern.fileContext.test(filePath))
-    ) {
+    if (!shouldApplyExtraPattern(pattern.fileContext, filePath)) {
       continue;
     }
     pattern.regex.lastIndex = 0;
@@ -45,10 +55,7 @@ function detectWithExtraPatterns(
 }
 
 export const ContentSanitizer: ISanitizer = {
-  sanitizeContent(
-    content: string,
-    filePath?: string
-  ): SanitizationResult {
+  sanitizeContent(content: string, filePath?: string): SanitizationResult {
     if (content == null || typeof content !== 'string') {
       return {
         content: content == null ? '' : String(content),
