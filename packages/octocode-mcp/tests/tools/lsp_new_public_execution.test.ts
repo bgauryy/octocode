@@ -94,6 +94,67 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('**target**');
   });
 
+  it('passes cached file content into LSP client calls', async () => {
+    const client = createClient();
+    vi.mocked(acquirePooledClient).mockResolvedValue(client as never);
+    const expectedContent = [
+      'export function target() {',
+      '  return 1;',
+      '}',
+      'export function caller() {',
+      '  return target();',
+      '}',
+    ].join('\n');
+
+    await executeLspGetSemanticContent({
+      queries: [
+        anchored('definition'),
+        anchored('references', { includeDeclaration: false }),
+        anchored('hover'),
+        anchored('typeDefinition'),
+        anchored('implementation'),
+        { uri: filePath, type: 'documentSymbols' },
+        anchored('callers'),
+      ],
+    } as never);
+
+    expect(client.gotoDefinition).toHaveBeenCalledWith(
+      filePath,
+      expect.objectContaining({ line: 0, character: 16 }),
+      expectedContent
+    );
+    expect(client.findReferences).toHaveBeenCalledWith(
+      filePath,
+      expect.objectContaining({ line: 0, character: 16 }),
+      false,
+      expectedContent
+    );
+    expect(client.hover).toHaveBeenCalledWith(
+      filePath,
+      expect.objectContaining({ line: 0, character: 16 }),
+      expectedContent
+    );
+    expect(client.typeDefinition).toHaveBeenCalledWith(
+      filePath,
+      expect.objectContaining({ line: 0, character: 16 }),
+      expectedContent
+    );
+    expect(client.implementation).toHaveBeenCalledWith(
+      filePath,
+      expect.objectContaining({ line: 0, character: 16 }),
+      expectedContent
+    );
+    expect(client.documentSymbols).toHaveBeenCalledWith(
+      filePath,
+      expectedContent
+    );
+    expect(client.prepareCallHierarchy).toHaveBeenCalledWith(
+      filePath,
+      expect.objectContaining({ line: 0, character: 16 }),
+      expectedContent
+    );
+  });
+
   it('returns document symbols and call-flow payloads', async () => {
     vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
       calls: [{ from: callItem('caller'), fromRanges: [range] }],

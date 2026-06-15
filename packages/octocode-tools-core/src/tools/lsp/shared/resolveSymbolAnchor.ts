@@ -78,7 +78,7 @@ export async function resolveSymbolAnchor(
 
   const resolver = new SymbolResolver({ lineSearchRadius: 5 });
   try {
-    const resolved = await resolver.resolvePosition(file.value.absolutePath, {
+    const resolved = resolver.resolvePositionFromContent(file.value.content, {
       symbolName: query.symbolName,
       lineHint: query.lineHint,
       orderHint: query.orderHint ?? 0,

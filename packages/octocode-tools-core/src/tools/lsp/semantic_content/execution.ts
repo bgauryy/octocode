@@ -373,7 +373,8 @@ async function getSemanticContent(
         'definitionProvider',
         await client.gotoDefinition(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position
+          anchor.value.resolvedSymbol.position,
+          anchor.value.content
         )
       );
     case 'typeDefinition':
@@ -392,7 +393,8 @@ async function getSemanticContent(
         'typeDefinitionProvider',
         await client.typeDefinition(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position
+          anchor.value.resolvedSymbol.position,
+          anchor.value.content
         )
       );
     case 'implementation':
@@ -411,7 +413,8 @@ async function getSemanticContent(
         'implementationProvider',
         await client.implementation(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position
+          anchor.value.resolvedSymbol.position,
+          anchor.value.content
         )
       );
     case 'references':
@@ -429,7 +432,8 @@ async function getSemanticContent(
         await client.findReferences(
           anchor.value.uri,
           anchor.value.resolvedSymbol.position,
-          query.includeDeclaration ?? true
+          query.includeDeclaration ?? true,
+          anchor.value.content
         )
       );
     case 'hover':
@@ -446,7 +450,8 @@ async function getSemanticContent(
         anchor.value,
         await client.hover(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position
+          anchor.value.resolvedSymbol.position,
+          anchor.value.content
         )
       );
     case 'callers':
@@ -485,7 +490,7 @@ async function getDocumentSymbols(
     : null;
   const symbols = client
     ? client.hasCapability('documentSymbolProvider')
-      ? await client.documentSymbols(anchor.value.uri)
+      ? await client.documentSymbols(anchor.value.uri, anchor.value.content)
       : []
     : [];
   const complete = Boolean(client?.hasCapability('documentSymbolProvider'));
@@ -631,7 +636,8 @@ async function callsEnvelope(
 ): Promise<LspSemanticEnvelope> {
   const items = await client.prepareCallHierarchy(
     anchor.uri,
-    anchor.resolvedSymbol.position
+    anchor.resolvedSymbol.position,
+    anchor.content
   );
   const root = items[0];
   if (!root) {

@@ -114,6 +114,10 @@ pub(crate) fn filter_patch_inner(patch: &str, options: Option<FilterPatchOptions
         return patch.to_owned();
     }
 
+    if additions.is_none() && deletions.is_none() && trim_context {
+        return trim_raw_diff_context(patch, context_lines);
+    }
+
     let parsed = parse_patch(patch);
 
     // ── Filter ────────────────────────────────────────────────────────────────
@@ -162,6 +166,67 @@ pub(crate) fn filter_patch_inner(patch: &str, options: Option<FilterPatchOptions
     };
 
     output_lines.join("\n")
+}
+
+/// Trim raw unified diff context while preserving the original diff format.
+/// This powers `trimDiffContext`: no line-number annotations, hunk headers are
+/// retained, and unchanged/no-op cases return the original patch.
+fn trim_raw_diff_context(patch: &str, context_lines: usize) -> String {
+    const TRIM_THRESHOLD_LINES: usize = 30;
+
+    let lines: Vec<&str> = patch.split('\n').collect();
+    if lines.len() <= TRIM_THRESHOLD_LINES {
+        return patch.to_owned();
+    }
+
+    let changed_indexes: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| is_changed_raw_patch_line(line).then_some(index))
+        .collect();
+
+    if changed_indexes.is_empty() {
+        return patch.to_owned();
+    }
+
+    let mut keep = vec![false; lines.len()];
+    for (index, line) in lines.iter().enumerate() {
+        if line.starts_with("@@") {
+            keep[index] = true;
+        }
+    }
+
+    for index in changed_indexes {
+        let start = index.saturating_sub(context_lines);
+        let end = (index + context_lines).min(lines.len().saturating_sub(1));
+        keep[start..=end].fill(true);
+    }
+
+    let mut trimmed: Vec<&str> = Vec::new();
+    let mut omitted = false;
+    for (index, line) in lines.iter().enumerate() {
+        if keep[index] {
+            trimmed.push(line);
+            omitted = false;
+        } else if !omitted {
+            trimmed.push("...");
+            omitted = true;
+        }
+    }
+
+    let result = trimmed.join("\n");
+    if result.len() < patch.len() {
+        result
+    } else {
+        patch.to_owned()
+    }
+}
+
+fn is_changed_raw_patch_line(line: &str) -> bool {
+    if line.starts_with("+++") || line.starts_with("---") {
+        return false;
+    }
+    line.starts_with('+') || line.starts_with('-')
 }
 
 /// Apply context trimming: keep at most `context_lines` pure-context lines
@@ -338,6 +403,59 @@ mod tests {
         assert!(result.contains("added_line"));
         assert!(result.contains("deleted_line"));
         assert!(result.contains("..."));
+    }
+
+    #[test]
+    fn trim_context_preserves_raw_diff_format_for_full_patch() {
+        let mut lines = vec!["@@ -1,35 +1,36 @@".to_owned()];
+        for i in 0..15 {
+            lines.push(format!(" ctx{i}"));
+        }
+        lines.push("+added".to_owned());
+        for i in 0..19 {
+            lines.push(format!(" after{i}"));
+        }
+        let patch = lines.join("\n");
+
+        let result = filter_patch_inner(
+            &patch,
+            Some(FilterPatchOptions {
+                additions: None,
+                deletions: None,
+                trim_context: Some(true),
+                context_lines: Some(2),
+            }),
+        );
+
+        assert!(result.len() < patch.len());
+        assert!(result.contains("@@ -1,35 +1,36 @@"));
+        assert!(result.contains("+added"));
+        assert!(result.contains(" ctx13"));
+        assert!(result.contains(" ctx14"));
+        assert!(result.contains(" after0"));
+        assert!(result.contains(" after1"));
+        assert!(result.contains("..."));
+        assert!(!result.contains("+16: added"));
+    }
+
+    #[test]
+    fn trim_context_returns_original_when_no_changed_lines() {
+        let patch = (0..35)
+            .map(|i| format!(" context{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let result = filter_patch_inner(
+            &patch,
+            Some(FilterPatchOptions {
+                additions: None,
+                deletions: None,
+                trim_context: Some(true),
+                context_lines: Some(2),
+            }),
+        );
+
+        assert_eq!(result, patch);
     }
 
     #[test]

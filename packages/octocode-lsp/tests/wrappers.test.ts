@@ -164,6 +164,43 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
     });
   });
 
+  it('uses supplied document content for LSP requests that open a file', async () => {
+    await withMockedNative(async mock => {
+      const { LSPClient } = await import('../src/client.js');
+      const root = await mkdtemp(
+        path.join(os.tmpdir(), 'octocode-lsp-wrapper-')
+      );
+      const filePath = path.join(root, 'cached.ts');
+      await writeFile(filePath, 'from disk\n');
+      const client = new LSPClient({
+        command: 'server',
+        args: ['--stdio'],
+        workspaceRoot: root,
+        languageId: 'typescript',
+      });
+      const position = { line: 0, character: 16 };
+      const cachedContent = 'from cached anchor\n';
+
+      await client.getDefinition(filePath, position, cachedContent);
+      await client.gotoDefinition(filePath, position, cachedContent);
+      await client.findReferences(filePath, position, false, cachedContent);
+      await client.getHover(filePath, position, cachedContent);
+      await client.hover(filePath, position, cachedContent);
+      await client.getTypeDefinition(filePath, position, cachedContent);
+      await client.typeDefinition(filePath, position, cachedContent);
+      await client.getImplementation(filePath, position, cachedContent);
+      await client.implementation(filePath, position, cachedContent);
+      await client.getDocumentSymbols(filePath, cachedContent);
+      await client.documentSymbols(filePath, cachedContent);
+      await client.prepareCallHierarchy(filePath, position, cachedContent);
+
+      expect(mock.client.openDocument.mock.calls).toEqual(
+        Array.from({ length: 12 }, () => [filePath, cachedContent])
+      );
+      await rm(root, { recursive: true, force: true });
+    });
+  });
+
   it('delegates resolver, uri, config, validation, and workspace helpers', async () => {
     await withMockedNative(async mock => {
       const resolverModule = await import('../src/resolver.js');

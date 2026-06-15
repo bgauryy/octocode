@@ -40,16 +40,18 @@ export class LSPClient {
 
   async gotoDefinition(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    return this.getDefinition(filePath, position);
+    return this.getDefinition(filePath, position, content);
   }
 
   async getDefinition(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    await this.openDocument(filePath);
+    await this.openDocument(filePath, content);
     return (await this.nativeClient.getDefinition(
       filePath,
       position.line,
@@ -60,9 +62,10 @@ export class LSPClient {
   async findReferences(
     filePath: string,
     position: ExactPosition,
-    includeDeclaration = true
+    includeDeclaration = true,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    await this.openDocument(filePath);
+    await this.openDocument(filePath, content);
     return (await this.nativeClient.getReferences(
       filePath,
       position.line,
@@ -71,8 +74,12 @@ export class LSPClient {
     )) as CodeSnippet[];
   }
 
-  async getHover(filePath: string, position: ExactPosition): Promise<unknown> {
-    await this.openDocument(filePath);
+  async getHover(
+    filePath: string,
+    position: ExactPosition,
+    content?: string
+  ): Promise<unknown> {
+    await this.openDocument(filePath, content);
     return this.nativeClient.getHover(
       filePath,
       position.line,
@@ -80,15 +87,20 @@ export class LSPClient {
     );
   }
 
-  async hover(filePath: string, position: ExactPosition): Promise<unknown> {
-    return this.getHover(filePath, position);
+  async hover(
+    filePath: string,
+    position: ExactPosition,
+    content?: string
+  ): Promise<unknown> {
+    return this.getHover(filePath, position, content);
   }
 
   async getTypeDefinition(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    await this.openDocument(filePath);
+    await this.openDocument(filePath, content);
     return (await this.nativeClient.getTypeDefinition(
       filePath,
       position.line,
@@ -98,16 +110,18 @@ export class LSPClient {
 
   async typeDefinition(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    return this.getTypeDefinition(filePath, position);
+    return this.getTypeDefinition(filePath, position, content);
   }
 
   async getImplementation(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    await this.openDocument(filePath);
+    await this.openDocument(filePath, content);
     return (await this.nativeClient.getImplementation(
       filePath,
       position.line,
@@ -117,25 +131,30 @@ export class LSPClient {
 
   async implementation(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CodeSnippet[]> {
-    return this.getImplementation(filePath, position);
+    return this.getImplementation(filePath, position, content);
   }
 
-  async getDocumentSymbols(filePath: string): Promise<unknown> {
-    await this.openDocument(filePath);
+  async getDocumentSymbols(
+    filePath: string,
+    content?: string
+  ): Promise<unknown> {
+    await this.openDocument(filePath, content);
     return this.nativeClient.getDocumentSymbols(filePath);
   }
 
-  async documentSymbols(filePath: string): Promise<unknown> {
-    return this.getDocumentSymbols(filePath);
+  async documentSymbols(filePath: string, content?: string): Promise<unknown> {
+    return this.getDocumentSymbols(filePath, content);
   }
 
   async prepareCallHierarchy(
     filePath: string,
-    position: ExactPosition
+    position: ExactPosition,
+    content?: string
   ): Promise<CallHierarchyItem[]> {
-    await this.openDocument(filePath);
+    await this.openDocument(filePath, content);
     const result = await this.nativeClient.prepareCallHierarchy(
       filePath,
       position.line,

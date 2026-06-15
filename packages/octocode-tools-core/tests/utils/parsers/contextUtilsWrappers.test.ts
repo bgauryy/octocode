@@ -68,7 +68,7 @@ describe('context-utils parser wrappers', () => {
     });
   });
 
-  it('keeps diff no-op and trim paths native-free while mapping selected-line options', () => {
+  it('keeps selected-line no-op native-free while mapping selected-line options', () => {
     const calls: NonNullable<
       Parameters<NativeContextUtilsModule['filterPatch']>[1]
     >[] = [];
@@ -81,21 +81,47 @@ describe('context-utils parser wrappers', () => {
 
     expect(filterPatch('raw patch')).toBe('raw patch');
     expect(filterPatch('raw patch', [4], [2])).toBe('filtered');
-    expect(trimDiffContext('raw patch')).toBe('raw patch');
 
     expect(calls).toEqual([{ additions: [4], deletions: [2] }]);
   });
 
-  it('trims raw diff context without adding native line annotations', () => {
+  it('delegates raw diff context trimming to native filterPatch', () => {
+    const calls: Array<{
+      patch: string;
+      options: NonNullable<
+        Parameters<NativeContextUtilsModule['filterPatch']>[1]
+      >;
+    }> = [];
+    installNative({
+      filterPatch: (patch, options) => {
+        if (!options) throw new Error('trimDiffContext must pass options');
+        calls.push({ patch, options });
+        return 'native-trimmed';
+      },
+    });
+
     const lines: string[] = [];
     for (let i = 0; i < 15; i++) lines.push(` ctx${i}`);
     lines.push('+added');
     for (let i = 0; i < 19; i++) lines.push(` after${i}`);
+    const patch = lines.join('\n');
 
-    const result = trimDiffContext(lines.join('\n'));
+    expect(trimDiffContext(patch)).toBe('native-trimmed');
+    expect(calls).toEqual([
+      {
+        patch,
+        options: { trimContext: true, contextLines: 2 },
+      },
+    ]);
+  });
 
-    expect(result).toContain('+added');
-    expect(result).not.toContain('+16: added');
-    expect(result).toContain('...');
+  it('keeps empty diff trimming native-free', () => {
+    installNative({
+      filterPatch: () => {
+        throw new Error('empty trim must not load native filter');
+      },
+    });
+
+    expect(trimDiffContext('')).toBe('');
   });
 });
