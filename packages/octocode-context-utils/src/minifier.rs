@@ -28,7 +28,7 @@ pub fn comment_groups(cfg: &FileTypeConfig) -> Vec<&'static str> {
     cfg.comments.map(|c| c.to_vec()).unwrap_or_default()
 }
 
-/// Synchronous full minification — mirrors TS `minifyContentSync`.
+/// Synchronous full minification.
 pub fn minify_content_sync_inner(content: &str, file_path: &str) -> String {
     if content.len() > MAX_SIZE {
         return content.to_owned();
@@ -36,8 +36,7 @@ pub fn minify_content_sync_inner(content: &str, file_path: &str) -> String {
     dispatch_inner(content, file_path).content
 }
 
-/// Full minification returning MinifyResult — mirrors TS `minifyContent` (async in TS).
-/// In Rust all operations are sync; callers may wrap in Promise.resolve() on the JS side.
+/// Full minification returning MinifyResult.
 pub fn minify_content_result_inner(content: &str, file_path: &str) -> MinifyResult {
     let content_size = content.len();
     if content_size > MAX_SIZE {

@@ -1,6 +1,10 @@
 import { nativeSanitizeContent } from './native.js';
 import type { SensitiveDataPattern } from './types.js';
-import type { ISanitizer, SanitizationResult, ValidationResult } from './types.js';
+import type {
+  ISanitizer,
+  SanitizationResult,
+  ValidationResult,
+} from './types.js';
 import { securityRegistry } from './registry.js';
 
 const MAX_STRING_LENGTH = 10_000;
@@ -10,7 +14,7 @@ const MAX_DEPTH = 20;
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 // ---------------------------------------------------------------------------
-// Extra-pattern JS fallback (for patterns added via securityRegistry at runtime)
+// Extra-pattern JS processing (for patterns added via securityRegistry at runtime)
 // ---------------------------------------------------------------------------
 function detectWithExtraPatterns(
   content: string,
@@ -26,7 +30,6 @@ function detectWithExtraPatterns(
     ) {
       continue;
     }
-    // Reset lastIndex for global regexes
     pattern.regex.lastIndex = 0;
     if (pattern.regex.test(sanitized)) {
       secrets.push(pattern.name);
@@ -41,88 +44,10 @@ function detectWithExtraPatterns(
   return { sanitized, secrets };
 }
 
-// ---------------------------------------------------------------------------
-// Pure-JS detection for custom / extra patterns
-// ---------------------------------------------------------------------------
-function jsDetectSecrets(
-  content: string,
-  filePath: string | undefined,
-  patterns: readonly SensitiveDataPattern[]
-): { sanitized: string; secrets: string[] } {
-  const MAX_CONTENT_SIZE = 10_000_000;
-  const CHUNK_SIZE = 500_000;
-  const CHUNK_OVERLAP = 1_000;
-
-  if (content.length > MAX_CONTENT_SIZE) {
-    return {
-      sanitized: '[CONTENT-REDACTED-SIZE-LIMIT]',
-      secrets: ['content-size-exceeded'],
-    };
-  }
-
-  const applicable = patterns.filter(
-    p => !p.fileContext || (filePath && p.fileContext.test(filePath))
-  );
-
-  try {
-    if (content.length <= CHUNK_SIZE) {
-      // single-pass
-      let sanitized = content;
-      const secrets: string[] = [];
-      for (const p of applicable) {
-        p.regex.lastIndex = 0;
-        if (p.regex.test(sanitized)) {
-          secrets.push(p.name);
-          p.regex.lastIndex = 0;
-          sanitized = sanitized.replace(
-            p.regex,
-            `[REDACTED-${p.name.toUpperCase()}]`
-          );
-        }
-        p.regex.lastIndex = 0;
-      }
-      return { sanitized, secrets };
-    }
-
-    // chunked
-    let sanitized = content;
-    const secretSet = new Set<string>();
-    for (const p of applicable) {
-      let chunkStart = 0;
-      while (chunkStart < sanitized.length) {
-        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, sanitized.length);
-        const chunk = sanitized.slice(chunkStart, chunkEnd);
-        p.regex.lastIndex = 0;
-        if (p.regex.test(chunk)) {
-          secretSet.add(p.name);
-          p.regex.lastIndex = 0;
-          const replacement = `[REDACTED-${p.name.toUpperCase()}]`;
-          const newChunk = chunk.replace(p.regex, replacement);
-          sanitized =
-            sanitized.slice(0, chunkStart) +
-            newChunk +
-            sanitized.slice(chunkEnd);
-        }
-        p.regex.lastIndex = 0;
-        const next = chunkEnd - CHUNK_OVERLAP;
-        if (next <= chunkStart) break;
-        chunkStart = next;
-      }
-    }
-    return { sanitized, secrets: Array.from(secretSet) };
-  } catch {
-    return {
-      sanitized: '[CONTENT-REDACTED-DETECTION-ERROR]',
-      secrets: ['detection-error'],
-    };
-  }
-}
-
 export const ContentSanitizer: ISanitizer = {
   sanitizeContent(
     content: string,
-    filePath?: string,
-    patterns?: SensitiveDataPattern[]
+    filePath?: string
   ): SanitizationResult {
     if (content == null || typeof content !== 'string') {
       return {
@@ -133,26 +58,10 @@ export const ContentSanitizer: ISanitizer = {
       };
     }
 
-    // Explicit patterns: run in pure JS (matches original TS behaviour)
-    if (patterns && patterns.length > 0) {
-      const { sanitized, secrets } = jsDetectSecrets(
-        content,
-        filePath,
-        patterns
-      );
-      const hasSecrets = secrets.length > 0;
-      return {
-        content: sanitized,
-        hasSecrets,
-        secretsDetected: secrets,
-        warnings: hasSecrets ? [`${secrets.length} secret(s) redacted`] : [],
-      };
-    }
-
-    // --- Rust fast path (built-in patterns) ---
+    // Rust fast path (built-in patterns)
     const rustResult = nativeSanitizeContent(content, filePath ?? null);
 
-    // --- JS fallback for any extra patterns added via registry ---
+    // Apply any extra patterns registered at runtime via securityRegistry
     const extraPatterns = securityRegistry.extraSecretPatterns;
     if (extraPatterns.length > 0) {
       const { sanitized: finalContent, secrets: extraSecrets } =
@@ -176,15 +85,14 @@ export const ContentSanitizer: ISanitizer = {
     };
   },
 
-  validateInputParameters(
-    params: Record<string, unknown>
-  ): ValidationResult {
+  validateInputParameters(params: Record<string, unknown>): ValidationResult {
     return validateRecursive(params, 0, new WeakSet<object>());
   },
 };
 
 // ---------------------------------------------------------------------------
-// Pure-TS recursive validation (identical logic to former octocode-security-utils)
+// Recursive parameter validation — structural checks delegating to Rust for
+// per-string secret detection.
 // ---------------------------------------------------------------------------
 function validateRecursive(
   params: Record<string, unknown>,

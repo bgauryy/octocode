@@ -455,7 +455,7 @@ benchmark/
 ### Daily workflow
 
 ```bash
-yarn build          # release native addon, default parser-backed C++/C# support
+yarn build          # release native addon, patch JS/types, sync current platform package
 yarn build:dev      # debug/native addon for quick local iteration
 yarn verify         # typecheck + clippy + cargo test + Node FFI tests + pack check + cargo audit
 
@@ -483,8 +483,7 @@ The package default includes `tree-sitter-cpp` and `tree-sitter-c-sharp` through
 Default parser-backed build:
 
 ```bash
-yarn napi build --platform --release
-node scripts/postbuild.cjs
+yarn build
 ```
 
 Slim build with heuristic C++/C# fallback:
@@ -562,6 +561,8 @@ V8 coverage only measures the JS loader/postbuild surface. Rust correctness live
 ### Publishing notes
 
 This package publishes prebuilt `.node` artifacts through optional per-platform packages. The root npm package intentionally contains only the JS loaders, type declarations, metadata, and README; `yarn pack:check` fails if a native binary is accidentally included in the main tarball.
+
+Every native build script runs `scripts/postbuild.cjs` after `napi build`. That script restores the generated CJS/type declaration additions and copies any built `octocode-context-utils.<triple>.node` file into its matching `npm/<platform>/` optional package directory. Release jobs should publish those platform packages first, then the root loader package.
 
 Cargo features are compile-time, so npm users get whichever profile CI built. For `octocode-mcp`, publish the default parser-backed C++/C# profile; the measured gzip cost is small enough for the quality gain. Use `--no-default-features` only for constrained distributions or package-size experiments.
 

@@ -13,6 +13,7 @@ function key(
 ): PoolKey {
   return {
     workspaceRoot,
+    filePath: `${workspaceRoot}/file.ts`,
     languageId,
     ...(serverId && { serverId }),
   };

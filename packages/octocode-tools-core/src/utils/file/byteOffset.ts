@@ -1,27 +1,30 @@
+import {
+  charToByteOffset,
+  byteToCharOffset,
+  byteSliceContent,
+  sliceContent,
+  type SliceContentOptions,
+  type SliceContentResult,
+} from '@octocodeai/octocode-context-utils';
+
 export function byteSlice(
   content: string,
   byteStart: number,
   byteEnd: number
 ): string {
-  const buffer = Buffer.from(content, 'utf8');
-  return buffer.slice(byteStart, byteEnd).toString('utf8');
+  return byteSliceContent(content, byteStart, byteEnd);
 }
 
 export function byteToCharIndex(content: string, byteOffset: number): number {
-  if (byteOffset === 0) return 0;
-
-  const buffer = Buffer.from(content, 'utf8');
-  const clampedOffset = Math.min(byteOffset, buffer.length);
-  const substring = buffer.slice(0, clampedOffset).toString('utf8');
-  return substring.length;
+  return byteToCharOffset(content, byteOffset);
 }
 
 export function charToByteIndex(content: string, charIndex: number): number {
-  return Buffer.byteLength(content.substring(0, charIndex), 'utf8');
+  return charToByteOffset(content, charIndex);
 }
 
 export function getByteLength(content: string): number {
-  return Buffer.byteLength(content, 'utf8');
+  return charToByteOffset(content, content.length);
 }
 
 export function convertByteMatchToChar(
@@ -35,10 +38,7 @@ export function convertByteMatchToChar(
 } {
   const text = byteSlice(content, byteOffset, byteOffset + byteLength);
   const charOffset = byteToCharIndex(content, byteOffset);
-
-  return {
-    charOffset,
-    charLength: text.length,
-    text,
-  };
+  return { charOffset, charLength: text.length, text };
 }
+
+export { sliceContent, type SliceContentOptions, type SliceContentResult };

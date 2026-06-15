@@ -1,5 +1,5 @@
 /// String-aware comment removal.
-/// Ported from the previous TypeScript comment-removal strategy.
+/// Comment-removal strategy for supported language comment groups.
 
 // ── Rule types ────────────────────────────────────────────────────────────────
 

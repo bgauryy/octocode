@@ -1,9 +1,5 @@
 import type { PaginationInfo } from '../../types/toolResults.js';
-import type {
-  PaginationMetadata,
-  ApplyPaginationOptions,
-  SliceByCharResult,
-} from './types.js';
+import type { PaginationMetadata, ApplyPaginationOptions } from './types.js';
 import { byteToCharIndex, charToByteIndex } from '../file/byteOffset.js';
 
 export function applyPagination(
@@ -96,86 +92,6 @@ export function serializeForPagination(
   pretty: boolean = false
 ): string {
   return pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data);
-}
-
-export function sliceByCharRespectLines(
-  text: string,
-  charOffset: number,
-  charLength: number
-): SliceByCharResult {
-  const totalChars = text.length;
-
-  if (totalChars === 0) {
-    return {
-      sliced: '',
-      actualOffset: 0,
-      actualLength: 0,
-      hasMore: false,
-      lineCount: 0,
-      totalChars: 0,
-    };
-  }
-
-  if (charOffset >= totalChars) {
-    return {
-      sliced: '',
-      actualOffset: totalChars,
-      actualLength: 0,
-      hasMore: false,
-      nextOffset: totalChars,
-      lineCount: 0,
-      totalChars,
-    };
-  }
-
-  const lines: number[] = [0];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\n') {
-      lines.push(i + 1);
-    }
-  }
-
-  let startLineIdx = 0;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i]! <= charOffset) {
-      startLineIdx = i;
-    } else {
-      break;
-    }
-  }
-
-  const actualOffset = lines[startLineIdx]!;
-
-  let endPos = Math.min(actualOffset + charLength, totalChars);
-  let endLineIdx = startLineIdx;
-
-  for (let i = startLineIdx; i < lines.length; i++) {
-    if (lines[i]! < endPos) {
-      endLineIdx = i;
-    } else {
-      break;
-    }
-  }
-
-  if (endLineIdx < lines.length - 1 && endPos < lines[endLineIdx + 1]!) {
-    endPos = lines[endLineIdx + 1]!;
-  } else if (endLineIdx === lines.length - 1 && endPos < totalChars) {
-    endPos = totalChars;
-  }
-
-  const sliced = text.substring(actualOffset, endPos);
-  const hasMore = endPos < totalChars;
-  const lineCount = sliced.split('\n').length - 1;
-
-  return {
-    sliced,
-    actualOffset,
-    actualLength: sliced.length,
-    hasMore,
-    nextOffset: hasMore ? endPos : undefined,
-    lineCount,
-    totalChars,
-  };
 }
 
 export function createPaginationInfo(

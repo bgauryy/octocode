@@ -1830,14 +1830,16 @@ describe('OCTOCODE_BULK_QUERY_TIMEOUT_MS', () => {
   it('should parse custom timeout from env var', async () => {
     process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS = '120000';
     vi.resetModules();
-    const mod = await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+    const mod =
+      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
     expect(mod.executeBulkOperation).toBeDefined();
   });
 
   it('should fall back to 60000ms for invalid env var', async () => {
     process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS = 'not-a-number';
     vi.resetModules();
-    const mod = await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+    const mod =
+      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
     expect(mod.executeBulkOperation).toBeDefined();
   });
 });

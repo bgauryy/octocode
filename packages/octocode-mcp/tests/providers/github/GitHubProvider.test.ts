@@ -21,9 +21,12 @@ vi.mock('../../../../octocode-tools-core/src/github/repoSearch.js', () => ({
   searchGitHubReposAPI: vi.fn(),
 }));
 
-vi.mock('../../../../octocode-tools-core/src/github/pullRequestSearch.js', () => ({
-  searchGitHubPullRequestsAPI: vi.fn(),
-}));
+vi.mock(
+  '../../../../octocode-tools-core/src/github/pullRequestSearch.js',
+  () => ({
+    searchGitHubPullRequestsAPI: vi.fn(),
+  })
+);
 
 vi.mock('../../../../octocode-tools-core/src/github/repoStructure.js', () => ({
   viewGitHubRepositoryStructureAPI: vi.fn(),

@@ -133,6 +133,7 @@ export {
   getDirectToolOutputFields,
   prepareDirectToolInputFromJsonText,
   sortDirectToolNames,
+  withBasicSecurityValidation,
   type DirectToolCategory,
   type DirectToolDefinition,
   type DirectToolDisplayField,
@@ -140,10 +141,7 @@ export {
   type DirectToolMetadata,
   type DirectToolOutputField,
   type PrepareDirectToolInputOptions,
-} from './tools/directToolCatalog.js';
-
-export { withBasicSecurityValidation } from './utils/securityBridge.js';
-
+} from '@octocodeai/octocode-tools-core';
 
 export {
   GitHubCodeSearchQuerySchema,

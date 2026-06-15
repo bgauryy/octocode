@@ -1,11 +1,14 @@
 {
   "name": "@octocodeai/octocode-context-utils-linux-x64-musl",
-  "version": "16.0.0",
+  "version": "16.0.1",
   "os": [
     "linux"
   ],
   "cpu": [
     "x64"
+  ],
+  "libc": [
+    "musl"
   ],
   "main": "octocode-context-utils.linux-x64-musl.node",
   "files": [

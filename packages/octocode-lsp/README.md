@@ -68,45 +68,24 @@ import type { CodeSnippet } from 'octocode-lsp/types';
 The default for `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, and `.cjs` is:
 
 ```bash
-tsgo --lsp --stdio
+typescript-language-server --stdio
 ```
 
-Octocode prefers the packaged or globally available `tsgo` binary. If `tsgo` is not available and the user did not explicitly request it, Octocode falls back to `typescript-language-server --stdio` when that server is installed next to the runtime or available on `PATH`.
+Resolution order is owned by the Rust registry in [`src/config.rs`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-lsp/src/config.rs):
 
-Provider override:
+1. A custom local mapping from `OCTOCODE_LSP_CONFIG`, `<workspace>/.octocode/lsp-servers.json`, or `~/.octocode/lsp-servers.json`.
+2. `OCTOCODE_TS_SERVER_PATH`, using the built-in TypeScript/JavaScript args.
+3. The `typescript-language-server` command from `PATH`.
 
-```bash
-OCTOCODE_TS_LSP_PROVIDER=typescript-language-server
-OCTOCODE_TS_LSP_PROVIDER=vtsls
-OCTOCODE_TS_LSP_PROVIDER=tsgo
-```
-
-Provider table:
-
-| Provider | Command | Package | Role |
-| --- | --- | --- | --- |
-| `tsgo` | `tsgo --lsp --stdio` | `@typescript/native-preview` | Speed-first default |
-| `typescript-language-server` | `typescript-language-server --stdio` | `typescript-language-server` | Stable fallback |
-| `vtsls` | `vtsls --stdio` | `@vtsls/language-server` | Alternative TS/JS server |
-
-`tsgo` is Microsoft TypeScript's native preview written in Go. Do not reimplement it in Rust and do not bind it into Node. Spawn it as a normal stdio LSP server.
-
-Resolution order:
-
-1. `OCTOCODE_TS_SERVER_PATH`, using the selected provider's args.
-2. Selected provider package binary installed next to the runtime.
-3. Selected provider command from `PATH`.
-4. `typescript-language-server` fallback when no provider was explicitly requested.
-
-Example custom native-preview binary:
+Example custom TypeScript server binary:
 
 ```bash
-OCTOCODE_TS_LSP_PROVIDER=tsgo OCTOCODE_TS_SERVER_PATH=/absolute/path/to/tsgo octocode
+OCTOCODE_TS_SERVER_PATH=/absolute/path/to/typescript-language-server octocode
 ```
 
 ## Other Languages
 
-`tsgo` is not a general multilingual server. Non-TS languages use their own LSP servers from the registry or a custom mapping.
+TypeScript's server is not a general multilingual server. Non-TS languages use their own LSP servers from the Rust registry or a custom mapping.
 
 Registry highlights:
 
@@ -139,7 +118,7 @@ Registry highlights:
 | GraphQL | `graphql-lsp server -m stream` |
 | Terraform | `terraform-ls serve` |
 
-The full registry lives in [packages/octocode-lsp/src/lspRegistry.ts](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-lsp/src/lspRegistry.ts).
+The built-in registry is owned by Rust in [packages/octocode-lsp/src/config.rs](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-lsp/src/config.rs).
 
 Add registry entries only when the language-server command is common, safe to spawn directly, and supports stdio or an equivalent non-shell mode. Otherwise use custom local server config.
 
@@ -151,7 +130,7 @@ Octocode does not install every ecosystem server. A built-in server is active wh
 
 | Stack | Command Octocode starts | Override | Current benchmark coverage |
 | --- | --- | --- | --- |
-| TypeScript/JavaScript | `tsgo --lsp --stdio` by default | `OCTOCODE_TS_LSP_PROVIDER`, `OCTOCODE_TS_SERVER_PATH` | TypeScript and JavaScript |
+| TypeScript/JavaScript | `typescript-language-server --stdio` | `OCTOCODE_TS_SERVER_PATH` | TypeScript and JavaScript |
 | Python | `pylsp` | `OCTOCODE_PYTHON_SERVER_PATH` | Python fixture, skipped when unavailable |
 | Go | `gopls serve` | `OCTOCODE_GO_SERVER_PATH` | Go fixture, skipped when unavailable |
 | Rust | `rust-analyzer` | `OCTOCODE_RUST_SERVER_PATH` | Rust fixture, skipped when unavailable or rustup shim is unhealthy |
@@ -251,9 +230,8 @@ Useful subpath exports:
 | --- | --- |
 | `octocode-lsp/client` | Direct `LSPClient` lifecycle |
 | `octocode-lsp/manager` | Availability checks and pooled clients |
-| `octocode-lsp/config` | Provider and custom-server resolution |
-| `octocode-lsp/lspRegistry` | Built-in extension registry |
-| `octocode-lsp/workspaceRoot` | Workspace-root inference |
+| `octocode-lsp/config` | Rust-backed language detection and server resolution |
+| `octocode-lsp/workspaceRoot` | Rust-backed workspace-root inference |
 | `octocode-lsp/resolver` | Symbol-to-position resolver |
 | `octocode-lsp/types` | Shared semantic types |
 | `octocode-lsp/validation` | Safe file reads and server path validation |
@@ -308,7 +286,7 @@ The env var replaces only the command. The registry args are still used.
 
 ### 3. Add A Built-In Registry Entry
 
-1. Add the extension mapping in `src/lspRegistry.ts`.
+1. Add the extension mapping in `src/config.rs`.
 2. Set the correct LSP `languageId`.
 3. Add an env-var override such as `OCTOCODE_GO_SERVER_PATH`.
 4. Confirm the server supports stdio or a direct non-shell mode.
@@ -360,11 +338,11 @@ Run the full matrix:
 yarn benchmark
 ```
 
-Compare TS providers:
+Run the TypeScript fixture with the default server or a custom server path:
 
 ```bash
-OCTOCODE_TS_LSP_PROVIDER=tsgo yarn benchmark typescript
-OCTOCODE_TS_LSP_PROVIDER=typescript-language-server yarn benchmark typescript
+yarn benchmark typescript
+OCTOCODE_TS_SERVER_PATH=/absolute/path/to/typescript-language-server yarn benchmark typescript
 ```
 
 The benchmark reports:
@@ -379,8 +357,8 @@ Current matrix:
 
 | Case | Server | Expected when server exists |
 | --- | --- | --- |
-| `typescript` | `tsgo` or selected TS provider | definition, references, hover, document symbols, type definition, implementation, call hierarchy |
-| `javascript` | `tsgo` or selected TS provider | definition, references, hover, document symbols, call hierarchy |
+| `typescript` | `typescript-language-server` | definition, references, hover, document symbols, type definition, implementation, call hierarchy |
+| `javascript` | `typescript-language-server` | definition, references, hover, document symbols, call hierarchy |
 | `python` | `pylsp` | definition, references, hover, document symbols, call hierarchy |
 | `go` | `gopls serve` | definition, references, hover, document symbols, type definition, implementation, call hierarchy |
 | `rust` | `rust-analyzer` | definition, references, hover, document symbols, type definition, implementation, call hierarchy |
@@ -431,16 +409,16 @@ Good product opportunities:
 
 - Private DSL support through checked-in `.octocode/lsp-servers.json` examples.
 - Polyglot monorepo diagnostics that show exactly which language servers are active, missing, skipped, or unhealthy.
-- Provider comparisons for TS/JS (`tsgo` vs `typescript-language-server` vs `vtsls`) using the same benchmark fixture and timing output.
+- Server comparisons for TS/JS using custom config mappings and the same benchmark fixture.
 - A small compatibility command that prints the detected server command, args, version/health check result, and benchmark hint for a file.
 
 ## Troubleshooting
 
 `No language server is available`
 
-- Confirm the file extension is in `src/lspRegistry.ts` or a custom config.
-- Run `command -v tsgo`, `command -v gopls`, or the relevant server command.
-- For TypeScript/JavaScript, install `@typescript/native-preview` or set `OCTOCODE_TS_LSP_PROVIDER=typescript-language-server`.
+- Confirm the file extension is in the Rust registry at [`src/config.rs`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-lsp/src/config.rs) or a custom config.
+- Run `command -v typescript-language-server`, `command -v gopls`, or the relevant server command.
+- For TypeScript/JavaScript, install `typescript-language-server` or set `OCTOCODE_TS_SERVER_PATH`.
 - For Rust, `command -v rust-analyzer` is not enough if rustup exposes a missing-component shim. Run `rust-analyzer --version`.
 
 `Server exits before initialize`

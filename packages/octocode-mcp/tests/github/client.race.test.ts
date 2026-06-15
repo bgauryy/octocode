@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getOctokit, clearOctokitInstances } from '../../../octocode-tools-core/src/github/client.js';
+import {
+  getOctokit,
+  clearOctokitInstances,
+} from '../../../octocode-tools-core/src/github/client.js';
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(function () {}),

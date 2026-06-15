@@ -51,6 +51,8 @@ const RG_VERSION = ripgrepVersion.replace(/^[~^]/, '');
 
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 const MAX_REDIRECT_DEPTH = 5;
+const MAX_NETWORK_ATTEMPTS = 3;
+const NETWORK_RETRY_DELAY_MS = 1_000;
 
 /** @type {Record<string, { vscodeArch: string; binary: string }>} */
 const PLATFORM_MAP = {
@@ -115,23 +117,15 @@ async function main() {
 
   // Prefetch integrity from registry metadata so we can verify the tarball.
   const integrity = await fetchPackageIntegrity(config.vscodeArch, RG_VERSION);
-  if (integrity) {
-    console.log(`bundle-rg: fetched integrity for ${localPkgName}@${RG_VERSION}`);
-  } else {
-    console.warn(
-      `bundle-rg: ⚠ Could not fetch integrity metadata for ${localPkgName}@${RG_VERSION} — skipping checksum verification`
-    );
-  }
+  console.log(`bundle-rg: fetched integrity for ${localPkgName}@${RG_VERSION}`);
 
   const tmpDir = join(tmpdir(), `bundle-rg-${platform}-${Date.now()}`);
   try {
     await mkdir(tmpDir, { recursive: true });
     const tgz = join(tmpDir, 'pkg.tgz');
     const tgzUrl = npmTarballUrl(config.vscodeArch, RG_VERSION);
-    await download(tgzUrl, tgz);
-    if (integrity) {
-      verifyIntegrity(tgz, integrity);
-    }
+    await downloadWithRetry(tgzUrl, tgz);
+    verifyIntegrity(tgz, integrity);
     extractBinaryFromTgz(tgz, `package/bin/${config.binary}`, outFile, tmpDir);
     if (!isWindows) chmodSync(outFile, 0o755);
     verifyStaticBinary(outFile, platform);
@@ -174,37 +168,43 @@ function npmTarballUrl(vscodeArch, version) {
 
 /**
  * Fetch the SRI integrity string (sha512-<base64>) for a specific version of
- * @vscode/ripgrep-<arch> from the npm registry. Returns null on any failure so
- * callers can treat integrity verification as best-effort rather than fatal.
+ * @vscode/ripgrep-<arch> from the npm registry. This is mandatory for
+ * cross-platform publish builds; do not use downloaded binaries unchecked.
  */
 function fetchPackageIntegrity(vscodeArch, version) {
   const url = `https://registry.npmjs.org/@vscode/ripgrep-${vscodeArch}/${version}`;
-  return new Promise(resolve => {
-    const req = get(url, res => {
-      if (res.statusCode !== 200) {
-        resolve(null);
-        return;
-      }
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => {
-        data += chunk;
-      });
-      res.on('end', () => {
-        try {
-          const meta = JSON.parse(data);
-          resolve(meta.dist?.integrity ?? null);
-        } catch {
-          resolve(null);
+  return withNetworkRetries(`fetch integrity metadata for ${url}`, () =>
+    new Promise((resolve, reject) => {
+      const req = get(url, res => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+          return;
         }
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', chunk => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const meta = JSON.parse(data);
+            const integrity = meta.dist?.integrity;
+            if (typeof integrity !== 'string' || integrity.length === 0) {
+              reject(new Error(`Missing dist.integrity in ${url}`));
+              return;
+            }
+            resolve(integrity);
+          } catch (error) {
+            reject(error);
+          }
+        });
       });
-    });
-    req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
-      req.destroy();
-      resolve(null);
-    });
-    req.on('error', () => resolve(null));
-  });
+      req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+        req.destroy(new Error(`Request timed out after ${DOWNLOAD_TIMEOUT_MS}ms`));
+      });
+      req.on('error', reject);
+    })
+  );
 }
 
 /**
@@ -249,10 +249,11 @@ function verifyStaticBinary(binaryPath, platform) {
   });
 
   if (result.status !== 0 || !result.stdout) {
-    console.warn(
-      `bundle-rg: ⚠ Could not verify static linkage for ${platform} (file command unavailable)`
+    throw new Error(
+      `Could not verify static linkage for ${platform}.\n` +
+        `  status: ${result.status ?? 'unknown'}\n` +
+        `  stderr: ${result.stderr || '(none)'}`
     );
-    return;
   }
 
   const output = result.stdout.toLowerCase();
@@ -275,6 +276,13 @@ function verifyStaticBinary(binaryPath, platform) {
  * Download a URL to a local file with timeout and redirect-depth protection.
  * Throws on HTTP errors, timeout, or too many redirects.
  */
+function downloadWithRetry(url, dest) {
+  return withNetworkRetries(`download ${url}`, async () => {
+    await rm(dest, { force: true });
+    await download(url, dest);
+  });
+}
+
 function download(url, dest, depth = 0) {
   if (depth > MAX_REDIRECT_DEPTH) {
     return Promise.reject(
@@ -323,6 +331,31 @@ function download(url, dest, depth = 0) {
 
     req.on('error', reject);
   });
+}
+
+async function withNetworkRetries(label, operation) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_NETWORK_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_NETWORK_ATTEMPTS) break;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `bundle-rg: ${label} failed on attempt ${attempt}/${MAX_NETWORK_ATTEMPTS}: ${message}`
+      );
+      await delay(NETWORK_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`${label} failed after ${MAX_NETWORK_ATTEMPTS} attempts: ${message}`);
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /** Extract a single file from a .tgz archive using the system tar command. */

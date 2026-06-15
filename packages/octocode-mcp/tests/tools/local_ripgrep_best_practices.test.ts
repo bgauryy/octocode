@@ -83,23 +83,29 @@ describe('T1.7 — fs.readdir pre-flight is removed from the ripgrep hot path', 
       })),
     }));
 
-    vi.doMock('../../../octocode-tools-core/src/utils/file/toolHelpers.js', async () => {
-      const real = await vi.importActual<
-        typeof import('../../../octocode-tools-core/src/utils/file/toolHelpers.js')
-      >('../../../octocode-tools-core/src/utils/file/toolHelpers.js');
-      return {
-        ...real,
-        validateToolPath: vi.fn(() => ({
-          isValid: true,
-          sanitizedPath: '/tmp/repo',
-        })),
-      };
-    });
+    vi.doMock(
+      '../../../octocode-tools-core/src/utils/file/toolHelpers.js',
+      async () => {
+        const real = await vi.importActual<
+          typeof import('../../../octocode-tools-core/src/utils/file/toolHelpers.js')
+        >('../../../octocode-tools-core/src/utils/file/toolHelpers.js');
+        return {
+          ...real,
+          validateToolPath: vi.fn(() => ({
+            isValid: true,
+            sanitizedPath: '/tmp/repo',
+          })),
+        };
+      }
+    );
 
-    vi.doMock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
-      checkCommandAvailability: vi.fn(async () => ({ available: true })),
-      getMissingCommandError: vi.fn(() => ''),
-    }));
+    vi.doMock(
+      '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
+      () => ({
+        checkCommandAvailability: vi.fn(async () => ({ available: true })),
+        getMissingCommandError: vi.fn(() => ''),
+      })
+    );
 
     const { searchContentRipgrep } =
       await import('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js');

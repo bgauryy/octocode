@@ -31,7 +31,9 @@ function getCompiledPathRegex(): RegExp {
       extra.length > 0
         ? [...IGNORED_PATH_PATTERNS, ...extra]
         : IGNORED_PATH_PATTERNS;
-    _compiledPathRegex = new RegExp(all.map(r => stripNamedGroups(r.source)).join('|'));
+    _compiledPathRegex = new RegExp(
+      all.map(r => stripNamedGroups(r.source)).join('|')
+    );
   }
   return _compiledPathRegex;
 }
@@ -44,7 +46,9 @@ function getCompiledFileRegex(): RegExp {
       extra.length > 0
         ? [...IGNORED_FILE_PATTERNS, ...extra]
         : IGNORED_FILE_PATTERNS;
-    _compiledFileRegex = new RegExp(all.map(r => stripNamedGroups(r.source)).join('|'));
+    _compiledFileRegex = new RegExp(
+      all.map(r => stripNamedGroups(r.source)).join('|')
+    );
   }
   return _compiledFileRegex;
 }

@@ -179,10 +179,13 @@ vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
   safeExec: execMocks.safeExec,
 }));
 
-vi.mock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
-  checkCommandAvailability: execMocks.checkCommandAvailability,
-  getMissingCommandError: execMocks.getMissingCommandError,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
+  () => ({
+    checkCommandAvailability: execMocks.checkCommandAvailability,
+    getMissingCommandError: execMocks.getMissingCommandError,
+  })
+);
 vi.mock('octocode-security/pathValidator', () => pathValidatorMocks);
 
 const { viewStructure } =

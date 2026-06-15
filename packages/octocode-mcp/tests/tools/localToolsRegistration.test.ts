@@ -64,15 +64,18 @@ vi.mock('../../src/tools/toolConfig.js', () => ({
   ],
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
-  >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
-  return {
-    ...actual,
-    isToolInMetadata: vi.fn().mockReturnValue(true),
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
+  async () => {
+    const actual = await vi.importActual<
+      typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
+    >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
+    return {
+      ...actual,
+      isToolInMetadata: vi.fn().mockReturnValue(true),
+    };
+  }
+);
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getServerConfig: vi.fn().mockReturnValue({

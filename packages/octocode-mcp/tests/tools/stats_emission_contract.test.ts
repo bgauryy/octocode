@@ -100,14 +100,14 @@ const registeredTools = [
 
 async function readProjectFile(relativePath: string): Promise<string> {
   // Files starting with 'src/tools/' or 'src/utils/' moved to octocode-tools-core
-  const isMcpOnly = relativePath.startsWith('src/index.ts') ||
+  const isMcpOnly =
+    relativePath.startsWith('src/index.ts') ||
     relativePath.startsWith('src/public') ||
     relativePath.startsWith('src/tools/toolsManager') ||
     relativePath.startsWith('src/tools/toolConfig') ||
     relativePath.startsWith('src/tools/toolFilters') ||
     relativePath.startsWith('src/utils/core/logger') ||
-    relativePath.startsWith('src/utils/secureServer') ||
-    relativePath.startsWith('src/utils/securityBridge');
+    relativePath.startsWith('src/utils/secureServer');
   const root = isMcpOnly ? ROOT : CORE_ROOT;
   return readFile(`${root}/${relativePath}`, 'utf-8');
 }
@@ -163,12 +163,13 @@ describe('tool stats emission contract', () => {
     // Both wrappers now log uniformly when isLoggingEnabled() — no isLocalTool gate.
     expect(indexSource).toMatch(/configureSecurity\(\{[\s\S]*logToolCall/);
     expect(indexSource).not.toMatch(/configureSecurity\(\{[\s\S]*isLocalTool/);
+    // handleBulk lives in runSecure, which both public wrappers delegate to.
     expect(securitySource).toMatch(
-      /withSecurityValidation[\s\S]*handleBulk\(toolName, sanitizedParams\)/
+      /runSecure[\s\S]*handleBulk\(toolName, sanitizedParams\)/
     );
+    // withSecurityValidation delegates to runSecure
+    expect(securitySource).toMatch(/withSecurityValidation[\s\S]*runSecure\(/);
     // withBasicSecurityValidation now logs the same way — no isLocalTool gate.
-    expect(securitySource).toMatch(
-      /withBasicSecurityValidation[\s\S]*!rawResult\.isError[\s\S]*handleBulk\(/
-    );
+    expect(securitySource).toMatch(/withBasicSecurityValidation[\s\S]*runSecure\(/);
   });
 });

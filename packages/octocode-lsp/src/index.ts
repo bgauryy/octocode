@@ -1,13 +1,5 @@
 export { LSPClient } from './client.js';
-export {
-  LANGUAGE_SERVER_COMMANDS,
-  detectLanguageId,
-  getLanguageServerForFile,
-  loadUserConfig,
-  resolveLanguageServer,
-  resolveTypeScriptLspProvider,
-  TYPESCRIPT_LSP_PROVIDERS,
-} from './config.js';
+export { detectLanguageId, getLanguageServerForFile } from './config.js';
 export {
   acquirePooledClient,
   getLspStatus,

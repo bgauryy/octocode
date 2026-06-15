@@ -11,24 +11,45 @@ import { join } from 'path';
 
 // ── addon availability guard ──────────────────────────────────────────────────
 
-const addonExists =
-  existsSync(
-    join(
-      __dirname,
-      '..',
-      `octocode-context-utils.${process.platform}-${process.arch}.node`
-    )
-  ) || existsSync(join(__dirname, '..', 'octocode-context-utils.node'));
+function platformKey(): string | null {
+  if (process.platform === 'darwin') return `darwin-${process.arch}`;
+  if (process.platform === 'win32' && process.arch === 'x64') {
+    return 'win32-x64-msvc';
+  }
+  if (process.platform === 'linux') {
+    const report = process.report?.getReport() as
+      | { header?: { glibcVersionRuntime?: string } }
+      | undefined;
+    const libc = report?.header?.glibcVersionRuntime ? 'gnu' : 'musl';
+    if (process.arch === 'x64') return `linux-x64-${libc}`;
+    if (process.arch === 'arm64') return `linux-arm64-${libc}`;
+  }
+  return null;
+}
 
-// In CI a missing addon must FAIL the suite, not silently skip every test.
-if (!addonExists && process.env.CI) {
+const key = platformKey();
+const addonExists =
+  existsSync(join(__dirname, '..', 'octocode-context-utils.node')) ||
+  (key !== null &&
+    (existsSync(join(__dirname, '..', `octocode-context-utils.${key}.node`)) ||
+      existsSync(
+        join(
+          __dirname,
+          '..',
+          'npm',
+          key,
+          `octocode-context-utils.${key}.node`
+        )
+      )));
+
+// A missing addon must FAIL the suite — silent skipping masks broken builds.
+// Run `yarn build:dev` in packages/octocode-context-utils to build the addon.
+if (!addonExists) {
   throw new Error(
-    'FFI addon not built — run `yarn build:dev` before tests. ' +
-      'Silent skipping is only allowed for local runs without a compiled addon.'
+    'FFI addon not built — run `yarn build:dev` in packages/octocode-context-utils before running tests.'
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let addon: typeof import('../index.js') | null = null;
 const esmLoaderPath = '../index.mjs';
 
@@ -62,6 +83,13 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'getSupportedSignatureExtensions',
   'jsonToYamlString',
   'getMINIFY_CONFIG',
+  'parseRipgrepJson',
+  'charToByteOffset',
+  'byteToCharOffset',
+  'byteSliceContent',
+  'sliceContent',
+  'extractMatchingLines',
+  'filterPatch',
 ] as const satisfies readonly (keyof typeof import('../index.js'))[];
 
 const PUBLIC_NATIVE_EXPORTS = [
@@ -76,9 +104,9 @@ beforeAll(async () => {
   addon = await import('../index.js');
 });
 
-const skip = !addonExists;
 
-describe.skipIf(skip)('getExtension', () => {
+
+describe('getExtension', () => {
   it('returns extension from normal file', () => {
     expect(addon!.getExtension('foo.ts', { lowercase: true })).toBe('ts');
   });
@@ -96,7 +124,7 @@ describe.skipIf(skip)('getExtension', () => {
   });
 });
 
-describe.skipIf(skip)('removeComments', () => {
+describe('removeComments', () => {
   it('strips c-style line comments', () => {
     const out = addon!.removeComments(
       'int x = 1; // comment\nint y;',
@@ -131,7 +159,7 @@ describe.skipIf(skip)('removeComments', () => {
   });
 });
 
-describe.skipIf(skip)('minifyJsonCore', () => {
+describe('minifyJsonCore', () => {
   it('compacts valid JSON', () => {
     const r = addon!.minifyJsonCore('{"a": 1, "b": 2 }');
     expect(r.failed).toBe(false);
@@ -152,7 +180,7 @@ describe.skipIf(skip)('minifyJsonCore', () => {
   });
 });
 
-describe.skipIf(skip)('minifyCodeCore', () => {
+describe('minifyCodeCore', () => {
   it('collapses 3+ blank lines to max 1', () => {
     const out = addon!.minifyCodeCore('a\n\n\n\nb');
     expect(out).toBe('a\n\nb');
@@ -166,7 +194,7 @@ describe.skipIf(skip)('minifyCodeCore', () => {
   });
 });
 
-describe.skipIf(skip)('minifyMarkdownCore', () => {
+describe('minifyMarkdownCore', () => {
   it('removes markdown emoji/noise and compacts paragraph newlines', () => {
     const src = `# Guide 🚀
 
@@ -195,7 +223,7 @@ console.log("😀 keep literal");
   });
 });
 
-describe.skipIf(skip)('minifyContentSync', () => {
+describe('minifyContentSync', () => {
   it('strips JS comments for .js file', () => {
     const out = addon!.minifyContentSync(
       'const x = 1; // comment\n',
@@ -210,7 +238,7 @@ describe.skipIf(skip)('minifyContentSync', () => {
   });
 });
 
-describe.skipIf(skip)('minifyContent (async wrapper)', () => {
+describe('minifyContent (async wrapper)', () => {
   it('returns a Promise', async () => {
     const result = addon!.minifyContent('const x = 1;', 'file.js');
     expect(result).toBeInstanceOf(Promise);
@@ -227,7 +255,7 @@ describe.skipIf(skip)('minifyContent (async wrapper)', () => {
   });
 });
 
-describe.skipIf(skip)('applyContentViewMinification', () => {
+describe('applyContentViewMinification', () => {
   it('strips comments but preserves indentation for code', () => {
     const out = addon!.applyContentViewMinification(
       'fn foo() {\n  // comment\n  let x = 1;\n}',
@@ -244,7 +272,7 @@ describe.skipIf(skip)('applyContentViewMinification', () => {
   });
 });
 
-describe.skipIf(skip)('extractSignatures', () => {
+describe('extractSignatures', () => {
   it('extracts TypeScript function signatures', () => {
     const src = `
 export function add(a: number, b: number): number {
@@ -333,7 +361,7 @@ API
   });
 });
 
-describe.skipIf(skip)('jsonToYamlString', () => {
+describe('jsonToYamlString', () => {
   it('serializes a plain object to YAML', () => {
     const out = addon!.jsonToYamlString({ a: 1, b: 'hello' });
     expect(out).toContain('a:');
@@ -370,7 +398,7 @@ describe.skipIf(skip)('jsonToYamlString', () => {
   });
 });
 
-describe.skipIf(skip)('minifyCSSQuality', () => {
+describe('minifyCSSQuality', () => {
   it('strips comments and compacts CSS', () => {
     const src = 'h1 { color: red; } /* comment */ p { margin: 0px 0px; }';
     const out = addon!.minifyCSSQuality(src);
@@ -379,7 +407,7 @@ describe.skipIf(skip)('minifyCSSQuality', () => {
   });
 });
 
-describe.skipIf(skip)('minifyHTMLQuality', () => {
+describe('minifyHTMLQuality', () => {
   it('strips HTML comments', () => {
     const src = '<html><body><!-- comment --><h1>Hi</h1></body></html>';
     const out = addon!.minifyHTMLQuality(src);
@@ -388,14 +416,14 @@ describe.skipIf(skip)('minifyHTMLQuality', () => {
   });
 });
 
-describe.skipIf(skip)('SIGNATURES_ONLY_HINT', () => {
+describe('SIGNATURES_ONLY_HINT', () => {
   it('is a non-empty string', () => {
     expect(typeof addon!.SIGNATURES_ONLY_HINT).toBe('string');
     expect(addon!.SIGNATURES_ONLY_HINT.length).toBeGreaterThan(0);
   });
 });
 
-describe.skipIf(!addonExists)('getSupportedSignatureExtensions', () => {
+describe('getSupportedSignatureExtensions', () => {
   it('returns an array including ts and py', () => {
     if (!addon) return;
     const exts = addon.getSupportedSignatureExtensions();
@@ -409,7 +437,7 @@ describe.skipIf(!addonExists)('getSupportedSignatureExtensions', () => {
 
 // ── UTF-8 safety across the FFI boundary ──────────────────────────────────────
 
-describe.skipIf(skip)('UTF-8 preservation', () => {
+describe('UTF-8 preservation', () => {
   it('aggressive strategy preserves non-ASCII (lua)', () => {
     const out = addon!.minifyContentSync(
       'local s = "café → naïve" { x = 1 }',
@@ -438,7 +466,7 @@ describe.skipIf(skip)('UTF-8 preservation', () => {
 
 // ── size-cap contract ─────────────────────────────────────────────────────────
 
-describe.skipIf(skip)('oversized input contract', () => {
+describe('oversized input contract', () => {
   it('minifyContentResult flags >1MB as failed', () => {
     const big = 'x'.repeat(1024 * 1024 + 1);
     const r = addon!.minifyContentResult(big, 'big.txt');
@@ -459,7 +487,7 @@ describe.skipIf(skip)('oversized input contract', () => {
 
 // ── skeleton one-liners ───────────────────────────────────────────────────────
 
-describe.skipIf(skip)('python one-liner signatures', () => {
+describe('python one-liner signatures', () => {
   it('keeps the signature row of a one-line def', () => {
     const out = addon!.extractSignatures(
       'def f(): return 1\n\ndef g():\n    return 2\n',
@@ -472,9 +500,14 @@ describe.skipIf(skip)('python one-liner signatures', () => {
   });
 });
 
-// ── postbuild shim exports (CJS) ──────────────────────────────────────────────
+// ── public wrapper exports (CJS) ─────────────────────────────────────────────
 
-describe.skipIf(skip)('postbuild additions', () => {
+describe('public wrapper additions', () => {
+  it('does not rely on generated JS fallback loader artifacts', () => {
+    expect(existsSync(join(__dirname, '..', 'native.cjs'))).toBe(false);
+    expect(existsSync(join(__dirname, '..', 'native.d.ts'))).toBe(false);
+  });
+
   it('minifyContent resolves to a MinifyResult', async () => {
     const r = await addon!.minifyContent('{"a": 1 }', 'x.json');
     expect(r.failed).toBe(false);
@@ -489,7 +522,274 @@ describe.skipIf(skip)('postbuild additions', () => {
   });
 });
 
-describe.skipIf(skip)('ESM/CJS loader parity', () => {
+// ── parseRipgrepJson ──────────────────────────────────────────────────────────
+
+describe('parseRipgrepJson', () => {
+  const makeMatch = (path: string, text: string, line: number, col = 0) =>
+    JSON.stringify({
+      type: 'match',
+      data: {
+        path: { text: path },
+        lines: { text: text },
+        line_number: line,
+        absolute_offset: 0,
+        submatches: [{ match: { text: 'x' }, start: col, end: col + 1 }],
+      },
+    });
+
+  const makeSummary = (matches: number) =>
+    JSON.stringify({
+      type: 'summary',
+      data: {
+        elapsed: { human: '0.001s', nanos: 1_000_000, secs: 0 },
+        stats: {
+          bytes_printed: 0,
+          bytes_searched: 500,
+          elapsed: { human: '0.001s', nanos: 1_000_000, secs: 0 },
+          matched_lines: matches,
+          matches,
+          searches: 1,
+          searches_with_match: 1,
+        },
+      },
+    });
+
+  it('returns empty result for empty stdout', () => {
+    const r = addon!.parseRipgrepJson('', null);
+    expect(r.files).toHaveLength(0);
+    expect(r.stats.matchCount).toBeUndefined();
+  });
+
+  it('parses a single match line', () => {
+    const stdout = makeMatch('src/foo.ts', '  const x = 1;\n', 10, 8);
+    const r = addon!.parseRipgrepJson(stdout, null);
+    expect(r.files).toHaveLength(1);
+    expect(r.files[0].path).toBe('src/foo.ts');
+    expect(r.files[0].matchCount).toBe(1);
+    expect(r.files[0].matches[0].line).toBe(10);
+    expect(r.files[0].matches[0].column).toBe(8);
+    expect(r.files[0].matches[0].value).toBe('  const x = 1;');
+  });
+
+  it('strips trailing newline from match value', () => {
+    const stdout = makeMatch('f.ts', 'line\n', 1, 0);
+    const r = addon!.parseRipgrepJson(stdout, null);
+    expect(r.files[0].matches[0].value).toBe('line');
+  });
+
+  it('parses summary stats', () => {
+    const stdout = [makeMatch('f.ts', 'x\n', 1, 0), makeSummary(2)].join('\n');
+    const r = addon!.parseRipgrepJson(stdout, null);
+    expect(r.stats.matchCount).toBe(2);
+    expect(r.stats.searchTime).toBe('0.001s');
+  });
+
+  it('truncates snippets to maxSnippetChars', () => {
+    const long = 'a'.repeat(600);
+    const stdout = makeMatch('f.ts', long + '\n', 1, 0);
+    const r = addon!.parseRipgrepJson(stdout, { maxSnippetChars: 10 });
+    expect(r.files[0].matches[0].value.length).toBeLessThanOrEqual(10);
+  });
+
+  it('preserves unicode content', () => {
+    const stdout = makeMatch('f.ts', 'café → naïve\n', 1, 0);
+    const r = addon!.parseRipgrepJson(stdout, null);
+    expect(r.files[0].matches[0].value).toBe('café → naïve');
+  });
+
+  it('groups multiple matches under same file', () => {
+    const stdout = [
+      makeMatch('f.ts', 'line1\n', 1, 0),
+      makeMatch('f.ts', 'line2\n', 5, 0),
+    ].join('\n');
+    const r = addon!.parseRipgrepJson(stdout, null);
+    expect(r.files).toHaveLength(1);
+    expect(r.files[0].matchCount).toBe(2);
+  });
+});
+
+// ── UTF-8 offset helpers ──────────────────────────────────────────────────────
+
+describe('charToByteOffset', () => {
+  it('ASCII: char offset equals byte offset', () => {
+    expect(addon!.charToByteOffset('hello', 3)).toBe(3);
+    expect(addon!.charToByteOffset('hello', 0)).toBe(0);
+  });
+
+  it('multibyte: é is 2 bytes', () => {
+    const s = 'café'; // c(1) a(1) f(1) é(2) → 5 bytes total
+    expect(addon!.charToByteOffset(s, 4)).toBe(5);
+  });
+
+  it('clamps beyond string length', () => {
+    expect(addon!.charToByteOffset('hi', 100)).toBe(2);
+  });
+});
+
+describe('byteToCharOffset', () => {
+  it('ASCII: byte offset equals char offset', () => {
+    expect(addon!.byteToCharOffset('hello', 3)).toBe(3);
+  });
+
+  it('multibyte: 5 bytes into café = 4 chars', () => {
+    expect(addon!.byteToCharOffset('café', 5)).toBe(4);
+  });
+});
+
+describe('byteSliceContent', () => {
+  it('extracts ASCII range', () => {
+    expect(addon!.byteSliceContent('hello world', 6, 11)).toBe('world');
+  });
+
+  it('extracts multibyte char', () => {
+    expect(addon!.byteSliceContent('café', 3, 5)).toBe('é');
+  });
+
+  it('returns empty for bad range', () => {
+    expect(addon!.byteSliceContent('hello', 3, 2)).toBe('');
+  });
+});
+
+describe('sliceContent', () => {
+  it('basic char window', () => {
+    const r = addon!.sliceContent('abcdefghij', 3, 4, null);
+    expect(r.text).toBe('defg');
+    expect(r.charOffset).toBe(3);
+    expect(r.hasMore).toBe(true);
+  });
+
+  it('last page has no more', () => {
+    const r = addon!.sliceContent('abcde', 3, 10, null);
+    expect(r.text).toBe('de');
+    expect(r.hasMore).toBe(false);
+    expect(r.nextCharOffset).toBeUndefined();
+  });
+
+  it('multibyte: charLength counts Unicode scalars', () => {
+    const r = addon!.sliceContent('café world', 0, 4, null);
+    expect(r.text).toBe('café');
+    expect(r.charLength).toBe(4);
+    expect(r.byteLength).toBe(5); // é = 2 bytes
+  });
+
+  it('snap to line boundary', () => {
+    const content = 'line1\nline2\nline3\n';
+    const r = addon!.sliceContent(content, 3, 4, { snapToLineBoundary: true });
+    expect(r.text.startsWith('line1')).toBe(true);
+    expect(r.charOffset).toBe(0);
+  });
+
+  it('charOffset + byteOffset round-trip', () => {
+    const content = 'hello 世界 world';
+    const r = addon!.sliceContent(content, 6, 2, null);
+    expect(r.text).toBe('世界');
+    expect(r.byteLength).toBe(6); // each CJK char = 3 bytes
+  });
+});
+
+// ── extractMatchingLines ──────────────────────────────────────────────────────
+
+describe('extractMatchingLines', () => {
+  it('finds literal match case-insensitively', () => {
+    const r = addon!.extractMatchingLines('Hello World\nfoo', 'hello', null);
+    expect(r.matchCount).toBe(1);
+    expect(r.matchingLines).toEqual([1]);
+    expect(r.lines[0]).toBe('Hello World');
+  });
+
+  it('case-sensitive when requested', () => {
+    const r = addon!.extractMatchingLines('Hello\nhello', 'hello', {
+      caseSensitive: true,
+    });
+    expect(r.matchCount).toBe(1);
+    expect(r.matchingLines).toEqual([2]);
+  });
+
+  it('regex match', () => {
+    const r = addon!.extractMatchingLines('const x = 1;\nlet y = 2;', String.raw`(const|let)\s+\w`, {
+      isRegex: true,
+    });
+    expect(r.matchCount).toBe(2);
+  });
+
+  it('context lines included', () => {
+    const r = addon!.extractMatchingLines('a\nb\nc match\nd\ne', 'match', {
+      contextLines: 1,
+    });
+    expect(r.lines).toContain('b');
+    expect(r.lines).toContain('c match');
+    expect(r.lines).toContain('d');
+  });
+
+  it('whitespace-stripped fallback', () => {
+    const r = addon!.extractMatchingLines('hello    world\nfoo', 'helloworld', null);
+    expect(r.matchCount).toBe(1);
+  });
+
+  it('no match returns empty result', () => {
+    const r = addon!.extractMatchingLines('foo\nbar', 'zzz', null);
+    expect(r.matchCount).toBe(0);
+    expect(r.lines).toHaveLength(0);
+  });
+
+  it('max matches cap', () => {
+    const r = addon!.extractMatchingLines('x\nx\nx\nx\nx', 'x', { maxMatches: 2 });
+    expect(r.matchingLines).toHaveLength(2);
+  });
+
+  it('preserves unicode content', () => {
+    const r = addon!.extractMatchingLines('café\nnormal', 'café', null);
+    expect(r.matchCount).toBe(1);
+    expect(r.lines[0]).toContain('café');
+  });
+});
+
+// ── filterPatch ───────────────────────────────────────────────────────────────
+
+describe('filterPatch', () => {
+  const samplePatch = '@@ -1,4 +1,4 @@\n context1\n-deleted\n+added\n context2';
+
+  it('returns original when no options', () => {
+    expect(addon!.filterPatch(samplePatch, null)).toBe(samplePatch);
+  });
+
+  it('returns empty for empty patch', () => {
+    expect(addon!.filterPatch('', null)).toBe('');
+  });
+
+  it('filters by addition line number', () => {
+    const patch = '@@ -1,3 +1,3 @@\n context\n+line2\n+line3';
+    const r = addon!.filterPatch(patch, { additions: [2] });
+    expect(r).toContain('+2:');
+    expect(r).not.toContain('+3:');
+  });
+
+  it('filters by deletion line number', () => {
+    const patch = '@@ -1,3 +1,3 @@\n context\n-line2\n-line3';
+    const r = addon!.filterPatch(patch, { deletions: [2] });
+    expect(r).toContain('-2:');
+    expect(r).not.toContain('-3:');
+  });
+
+  it('trim context on long patch inserts markers', () => {
+    const lines = ['@@ -1,50 +1,50 @@'];
+    for (let i = 1; i <= 48; i++) lines.push(` context${i}`);
+    lines.push('+added_line');
+    lines.push('-deleted_line');
+    const patch = lines.join('\n');
+    const r = addon!.filterPatch(patch, { trimContext: true, contextLines: 2 });
+    expect(r).toContain('added_line');
+    expect(r).toContain('deleted_line');
+    expect(r).toContain('...');
+  });
+
+  it('short patch not trimmed even with trimContext=true', () => {
+    const r = addon!.filterPatch(samplePatch, { trimContext: true });
+    expect(r).not.toContain('...');
+  });
+});
+
+describe('ESM/CJS loader parity', () => {
   it('exports the same public native surface from both loaders', async () => {
     const esm = await importEsmLoader();
 

@@ -20,6 +20,10 @@
     "health:report": "node ./scripts/workspace-health.mjs report",
     "lint": "node ./scripts/workspace-health.mjs run lint",
     "lint:fix": "yarn workspaces foreach -Apt run lint:fix",
+    "local:check": "node ./scripts/sync-packages-local.mjs",
+    "local:fix": "node ./scripts/sync-packages-local.mjs --fix",
+    "sync:version": "node ./scripts/sync-packages-version.mjs",
+    "sync:version:publish": "node ./scripts/sync-packages-version.mjs --pin-for-publish",
     "syncpack:fix": "syncpack fix",
     "syncpack:format": "syncpack format",
     "syncpack:lint": "syncpack lint",
@@ -39,24 +43,11 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.52.0"
   },
-  "resolutions": {
-    "axios": "1.13.2",
-    "@octocodeai/octocode-context-utils-darwin-arm64": "portal:packages/octocode-context-utils/npm/darwin-arm64",
-    "@octocodeai/octocode-context-utils-darwin-x64": "portal:packages/octocode-context-utils/npm/darwin-x64",
-    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "portal:packages/octocode-context-utils/npm/linux-arm64-gnu",
-    "@octocodeai/octocode-context-utils-linux-x64-gnu": "portal:packages/octocode-context-utils/npm/linux-x64-gnu",
-    "@octocodeai/octocode-context-utils-linux-x64-musl": "portal:packages/octocode-context-utils/npm/linux-x64-musl",
-    "@octocodeai/octocode-context-utils-win32-x64-msvc": "portal:packages/octocode-context-utils/npm/win32-x64-msvc",
-    "octocode-security-darwin-arm64": "portal:packages/octocode-security/npm/darwin-arm64",
-    "octocode-security-darwin-x64": "portal:packages/octocode-security/npm/darwin-x64",
-    "octocode-security-linux-arm64-gnu": "portal:packages/octocode-security/npm/linux-arm64-gnu",
-    "octocode-security-linux-x64-gnu": "portal:packages/octocode-security/npm/linux-x64-gnu",
-    "octocode-security-linux-x64-musl": "portal:packages/octocode-security/npm/linux-x64-musl",
-    "octocode-security-win32-x64-msvc": "portal:packages/octocode-security/npm/win32-x64-msvc"
-  },
   "private": true,
   "workspaces": [
     "skills/*",
-    "packages/*"
+    "packages/*",
+    "packages/octocode-context-utils/npm/*",
+    "packages/octocode-security/npm/*"
   ]
 }

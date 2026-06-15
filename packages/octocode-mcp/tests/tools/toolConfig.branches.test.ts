@@ -1,21 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { toMCPSchema } from '../../src/types/toolTypes.js';
 
-vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async importOriginal => {
-  const mod =
-    await importOriginal<
-      typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
-    >();
-  return {
-    ...mod,
-    DESCRIPTIONS: new Proxy(mod.DESCRIPTIONS as Record<string, string>, {
-      get(target, prop: string) {
-        if (prop === '__nonexistent_tool_for_coverage__') return undefined;
-        return Reflect.get(target, prop) ?? '';
-      },
-    }),
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
+  async importOriginal => {
+    const mod =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
+      >();
+    return {
+      ...mod,
+      DESCRIPTIONS: new Proxy(mod.DESCRIPTIONS as Record<string, string>, {
+        get(target, prop: string) {
+          if (prop === '__nonexistent_tool_for_coverage__') return undefined;
+          return Reflect.get(target, prop) ?? '';
+        },
+      }),
+    };
+  }
+);
 
 describe('toolConfig branch coverage - getDescription fallback (line 26)', () => {
   beforeEach(async () => {

@@ -14,7 +14,8 @@ beforeAll(async () => {
     await vi.importActual<typeof import('child_process')>('child_process');
   vi.mocked(spawn).mockImplementation(childProcess.spawn);
 
-  const safeModule = await import('../../../octocode-tools-core/src/utils/exec/safe.js');
+  const safeModule =
+    await import('../../../octocode-tools-core/src/utils/exec/safe.js');
   safeExec = safeModule.safeExec;
 });
 

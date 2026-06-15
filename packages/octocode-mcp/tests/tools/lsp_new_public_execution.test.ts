@@ -12,15 +12,18 @@ vi.mock('octocode-lsp/workspaceRoot', () => ({
   resolveWorkspaceRootForFile: vi.fn().mockResolvedValue('/workspace'),
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/lsp/shared/callHierarchyTraversal.js', () => ({
-  gatherIncomingCallsRecursive: vi.fn(),
-  gatherOutgoingCallsRecursive: vi.fn(),
-  createCallItemKey: (item: {
-    uri: string;
-    range: { start: { line: number } };
-    name: string;
-  }) => `${item.uri}:${item.range.start.line}:${item.name}`,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/lsp/shared/callHierarchyTraversal.js',
+  () => ({
+    gatherIncomingCallsRecursive: vi.fn(),
+    gatherOutgoingCallsRecursive: vi.fn(),
+    createCallItemKey: (item: {
+      uri: string;
+      range: { start: { line: number } };
+      name: string;
+    }) => `${item.uri}:${item.range.start.line}:${item.name}`,
+  })
+);
 
 import {
   acquirePooledClient,

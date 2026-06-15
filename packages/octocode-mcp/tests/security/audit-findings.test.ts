@@ -5,7 +5,10 @@ import {
   resetSessionManager,
   logToolCall,
 } from '../../../octocode-tools-core/src/session.js';
-import { initialize, cleanup } from '../../../octocode-tools-core/src/serverConfig.js';
+import {
+  initialize,
+  cleanup,
+} from '../../../octocode-tools-core/src/serverConfig.js';
 import {
   buildChildProcessEnv,
   SENSITIVE_ENV_VARS,

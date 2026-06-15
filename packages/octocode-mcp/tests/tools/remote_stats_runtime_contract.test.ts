@@ -31,49 +31,70 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   })),
 }));
 
-vi.mock('../../../octocode-tools-core/src/utils/exec/npm.js', async importOriginal => {
-  const actual =
-    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/exec/npm.js')>();
-  return {
-    ...actual,
-    checkNpmAvailability: mockCheckNpmAvailability,
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/utils/exec/npm.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/utils/exec/npm.js')
+      >();
+    return {
+      ...actual,
+      checkNpmAvailability: mockCheckNpmAvailability,
+    };
+  }
+);
 
-vi.mock('../../../octocode-tools-core/src/utils/package/npm.js', async importOriginal => {
-  const actual =
-    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/package/npm.js')>();
-  return {
-    ...actual,
-    checkNpmRegistryReachable: mockCheckNpmRegistryReachable,
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/utils/package/npm.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/utils/package/npm.js')
+      >();
+    return {
+      ...actual,
+      checkNpmRegistryReachable: mockCheckNpmRegistryReachable,
+    };
+  }
+);
 
-vi.mock('../../../octocode-tools-core/src/utils/package/common.js', async importOriginal => {
-  const actual =
-    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/package/common.js')>();
-  return {
-    ...actual,
-    searchPackage: mockSearchPackage,
-    checkNpmDeprecation: mockCheckNpmDeprecation,
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/utils/package/common.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/utils/package/common.js')
+      >();
+    return {
+      ...actual,
+      searchPackage: mockSearchPackage,
+      checkNpmDeprecation: mockCheckNpmDeprecation,
+    };
+  }
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/providerExecution.js', async importOriginal => {
-  const actual =
-    await importOriginal<
-      typeof import('../../../octocode-tools-core/src/tools/providerExecution.js')
-    >();
-  return {
-    ...actual,
-    createLazyProviderContext: mockCreateLazyProviderContext,
-    providerSupports: mockProviderSupports,
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/providerExecution.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/tools/providerExecution.js')
+      >();
+    return {
+      ...actual,
+      createLazyProviderContext: mockCreateLazyProviderContext,
+      providerSupports: mockProviderSupports,
+    };
+  }
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js', () => ({
-  cloneRepo: mockCloneRepo,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js',
+  () => ({
+    cloneRepo: mockCloneRepo,
+  })
+);
 
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../../src/tools/github_fetch_content/github_fetch_content.js';

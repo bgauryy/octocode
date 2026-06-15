@@ -2,30 +2,33 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 
-vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
-  >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
-  return {
-    ...actual,
-    isToolInMetadata: vi.fn(),
-    TOOL_NAMES: {
-      GITHUB_FETCH_CONTENT: 'githubGetFileContent',
-      GITHUB_SEARCH_CODE: 'githubSearchCode',
-      GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
-      GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
-      GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
-    },
-    DESCRIPTIONS: new Proxy(
-      {},
-      {
-        get: (_target, prop: string) => {
-          return `Description for ${prop}`;
-        },
-      }
-    ),
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
+  async () => {
+    const actual = await vi.importActual<
+      typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
+    >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
+    return {
+      ...actual,
+      isToolInMetadata: vi.fn(),
+      TOOL_NAMES: {
+        GITHUB_FETCH_CONTENT: 'githubGetFileContent',
+        GITHUB_SEARCH_CODE: 'githubSearchCode',
+        GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
+        GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
+        GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
+      },
+      DESCRIPTIONS: new Proxy(
+        {},
+        {
+          get: (_target, prop: string) => {
+            return `Description for ${prop}`;
+          },
+        }
+      ),
+    };
+  }
+);
 
 vi.mock('../../src/tools/toolConfig.js', () => {
   const mockGitHubTools = [

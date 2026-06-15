@@ -78,7 +78,8 @@ describe('local_fetch_content hints — uncovered branches', () => {
   let hints: (typeof import('../../../octocode-tools-core/src/tools/local_fetch_content/hints.js'))['hints'];
 
   beforeAll(async () => {
-    ({ hints } = await import('../../../octocode-tools-core/src/tools/local_fetch_content/hints.js'));
+    ({ hints } =
+      await import('../../../octocode-tools-core/src/tools/local_fetch_content/hints.js'));
   });
 
   it('empty() returns [] when path is not a string', () => {
@@ -131,7 +132,8 @@ describe('local_find_files hints — uncovered branches', () => {
   let hints: (typeof import('../../../octocode-tools-core/src/tools/local_find_files/hints.js'))['hints'];
 
   beforeAll(async () => {
-    ({ hints } = await import('../../../octocode-tools-core/src/tools/local_find_files/hints.js'));
+    ({ hints } =
+      await import('../../../octocode-tools-core/src/tools/local_find_files/hints.js'));
   });
 
   it('empty() with sizeLess filter', () => {

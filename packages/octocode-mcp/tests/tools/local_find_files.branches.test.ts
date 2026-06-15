@@ -17,12 +17,15 @@ vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
   safeExec: vi.fn(),
 }));
 
-vi.mock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
-  checkCommandAvailability: vi
-    .fn()
-    .mockResolvedValue({ available: true, command: 'find' }),
-  getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
+  () => ({
+    checkCommandAvailability: vi
+      .fn()
+      .mockResolvedValue({ available: true, command: 'find' }),
+    getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
+  })
+);
 
 vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {

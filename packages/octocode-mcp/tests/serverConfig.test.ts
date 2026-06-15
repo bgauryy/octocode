@@ -1045,7 +1045,8 @@ describe('ServerConfig - Simplified Version', () => {
     let getActiveProviderConfig: typeof import('../../octocode-tools-core/src/serverConfig.js').getActiveProviderConfig;
 
     beforeEach(async () => {
-      const serverConfig = await import('../../octocode-tools-core/src/serverConfig.js');
+      const serverConfig =
+        await import('../../octocode-tools-core/src/serverConfig.js');
       getActiveProvider = serverConfig.getActiveProvider;
       getActiveProviderConfig = serverConfig.getActiveProviderConfig;
     });

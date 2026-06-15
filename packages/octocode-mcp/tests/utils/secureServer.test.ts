@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
-  buildToolErrorResult,
-  sanitizeCallToolResult,
   withOutputSanitization,
 } from '../../src/utils/secureServer.js';
+import {
+  buildToolErrorResult,
+  sanitizeCallToolResult,
+} from '@octocodeai/octocode-tools-core';
 
 describe('secureServer', () => {
   describe('sanitizeCallToolResult', () => {

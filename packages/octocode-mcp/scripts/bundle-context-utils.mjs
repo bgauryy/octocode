@@ -46,13 +46,13 @@ if (!triple) {
 
 const contextUtilsPkg = join(__dirname, '..', '..', 'octocode-context-utils');
 const binaryName = `octocode-context-utils.${triple}.node`;
-const src = join(contextUtilsPkg, binaryName);
+const src = join(contextUtilsPkg, 'npm', triple, binaryName);
 const dest = join(outDir, binaryName);
 const runtimeDest = join(outDir, 'runtime', 'context-utils', binaryName);
 
 if (!existsSync(src)) {
   console.warn(`⚠  octocode-context-utils binary not found: ${src}`);
-  console.warn(`   Run: cd packages/octocode-context-utils && yarn build`);
+  console.warn(`   Run: cd packages/octocode-context-utils && yarn build:all`);
   process.exit(1);
 }
 

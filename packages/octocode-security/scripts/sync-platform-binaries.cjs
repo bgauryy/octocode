@@ -5,7 +5,7 @@
  */
 'use strict'
 
-const { copyFileSync, existsSync } = require('fs')
+const { copyFileSync, existsSync, unlinkSync } = require('fs')
 const { join } = require('path')
 
 const PLATFORM_PACKAGES = {
@@ -25,13 +25,18 @@ for (const [triple, dirName] of Object.entries(PLATFORM_PACKAGES)) {
   const packageDir = join(__dirname, '..', 'npm', dirName)
   const destinationPath = join(packageDir, binaryName)
 
-  if (!existsSync(sourcePath) || !existsSync(packageDir)) {
+  if (!existsSync(sourcePath)) {
     continue
   }
 
+  if (!existsSync(packageDir)) {
+    throw new Error(`Missing optional package dir for ${binaryName}: ${packageDir}`)
+  }
+
   copyFileSync(sourcePath, destinationPath)
+  unlinkSync(sourcePath)
   copied += 1
-  console.log(`${binaryName} copied to npm/${dirName}`)
+  console.log(`${binaryName} copied to npm/${dirName}; root artifact removed`)
 }
 
 if (copied === 0) {

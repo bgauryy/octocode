@@ -13,9 +13,12 @@ vi.mock('../../../octocode-tools-core/src/utils/response/bulk.js', () => ({
   }),
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js', () => ({
-  fetchContent: mocks.fetchContent,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js',
+  () => ({
+    fetchContent: mocks.fetchContent,
+  })
+);
 
 vi.mock('@octocodeai/octocode-core', () => ({
   FetchContentQuerySchema: {
@@ -41,37 +44,55 @@ vi.mock('@octocodeai/octocode-core', () => ({
   },
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js', () => ({
-  LocalRipgrepQuerySchema: {
-    safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
-  },
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js',
+  () => ({
+    LocalRipgrepQuerySchema: {
+      safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
+    },
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_find_files/scheme.js', () => ({
-  LocalFindFilesQuerySchema: {
-    safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
-  },
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_find_files/scheme.js',
+  () => ({
+    LocalFindFilesQuerySchema: {
+      safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
+    },
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_view_structure/scheme.js', () => ({
-  LocalViewStructureQuerySchema: {
-    safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
-  },
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js',
+  () => ({
+    LocalViewStructureQuerySchema: {
+      safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
+    },
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js', () => ({
-  LocalFetchContentQuerySchema: {
-    safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
-  },
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js',
+  () => ({
+    LocalFetchContentQuerySchema: {
+      safeParse: vi.fn().mockReturnValue({ success: true, data: {} }),
+    },
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
-  searchContentRipgrep: mocks.searchContentRipgrep,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js',
+  () => ({
+    searchContentRipgrep: mocks.searchContentRipgrep,
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js', () => ({
-  cloneRepo: mocks.cloneRepo,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/github_clone_repo/cloneRepo.js',
+  () => ({
+    cloneRepo: mocks.cloneRepo,
+  })
+);
 
 vi.mock('../../../octocode-tools-core/src/tools/providerExecution.js', () => ({
   createProviderExecutionContext: vi.fn().mockReturnValue({

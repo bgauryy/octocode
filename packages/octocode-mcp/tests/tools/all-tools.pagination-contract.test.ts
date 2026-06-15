@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDirectToolSchemaText } from '../../src/tools/directToolCatalog.js';
+import { formatDirectToolSchemaText } from '@octocodeai/octocode-tools-core';
 
 const LOSS_LANGUAGE: RegExp[] = [
   /may be truncated/i,

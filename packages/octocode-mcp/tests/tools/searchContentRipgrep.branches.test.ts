@@ -8,17 +8,26 @@ const mocks = vi.hoisted(() => ({
   executeGrepFallbackSearch: vi.fn(),
 }));
 
-vi.mock('../../../octocode-tools-core/src/utils/exec/commandAvailability.js', () => ({
-  checkCommandAvailability: mocks.checkCommandAvailability,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
+  () => ({
+    checkCommandAvailability: mocks.checkCommandAvailability,
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/ripgrepExecutor.js', () => ({
-  executeRipgrepSearchInternal: mocks.executeRipgrepSearchInternal,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_ripgrep/ripgrepExecutor.js',
+  () => ({
+    executeRipgrepSearchInternal: mocks.executeRipgrepSearchInternal,
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/grepFallbackExecutor.js', () => ({
-  executeGrepFallbackSearch: mocks.executeGrepFallbackSearch,
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_ripgrep/grepFallbackExecutor.js',
+  () => ({
+    executeGrepFallbackSearch: mocks.executeGrepFallbackSearch,
+  })
+);
 
 const { searchContentRipgrep } =
   await import('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js');

@@ -21,7 +21,7 @@ import {
   sortDirectToolNames,
   type DirectToolDefinition,
   type DirectToolDisplayField,
-} from 'octocode-mcp/public';
+} from '@octocodeai/octocode-tools-core';
 
 type ToolResult = Parameters<typeof formatCallToolResultForOutput>[0];
 

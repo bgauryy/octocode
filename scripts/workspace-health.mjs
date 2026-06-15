@@ -58,9 +58,17 @@ function discoverWorkspaces() {
       const packageJsonPath = path.join(dirPath, 'package.json');
       const packageJson = readJson(packageJsonPath);
       const relativePath = path.relative(ROOT, dirPath);
-      const kind = relativePath.startsWith('packages/') ? 'package' : 'skill';
-      const requiredScripts =
-        kind === 'package' ? PACKAGE_SCRIPT_POLICY : SKILL_SCRIPT_POLICY;
+      const isNativePlatformPackage = /\/npm\/[^/]+$/.test(relativePath);
+      const kind = isNativePlatformPackage
+        ? 'native-platform'
+        : relativePath.startsWith('packages/')
+          ? 'package'
+          : 'skill';
+      const requiredScripts = isNativePlatformPackage
+        ? []
+        : kind === 'package'
+          ? PACKAGE_SCRIPT_POLICY
+          : SKILL_SCRIPT_POLICY;
 
       return {
         name: packageJson.name,

@@ -266,7 +266,7 @@ fn strip_trailing_commas(content: &str) -> String {
 // ── Code (whitespace only, preserve indent) ───────────────────────────────────
 
 pub fn minify_code_core(content: &str) -> String {
-    // mirrors TS: strip trailing whitespace per line, then
+    // Strip trailing whitespace per line, then
     // replace 3+ consecutive newlines (\n\s*\n\s*\n+) with \n\n
     let s = content.replace("\r\n", "\n");
     let lines: Vec<&str> = s.split('\n').collect();

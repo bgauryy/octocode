@@ -860,21 +860,6 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
     tags: ['sentry', 'errors', 'monitoring', 'official'],
   },
   {
-    id: 'mcp-memory-service',
-    name: 'Memory Service MCP',
-    description:
-      'Automatic context memory for Claude, VS Code, Cursor - stop re-explaining',
-    category: 'developer-tools',
-    repository: 'https://github.com/doobidoo/mcp-memory-service',
-    installationType: 'pip',
-    pipPackage: 'mcp-memory-service',
-    installConfig: {
-      command: 'uvx',
-      args: ['mcp-memory-service'],
-    },
-    tags: ['memory', 'context', 'persistence'],
-  },
-  {
     id: 'serena-mcp',
     name: 'Serena MCP',
     description:
@@ -1006,26 +991,6 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
     ],
     tags: ['llamaindex', 'rag', 'index', 'official'],
   },
-  {
-    id: 'huggingface-spaces-mcp',
-    name: 'HuggingFace Spaces MCP',
-    description:
-      'Use HuggingFace Spaces from your MCP Client - images, audio, text',
-    category: 'ai-services',
-    repository: 'https://github.com/evalstate/mcp-hfspace',
-    website: 'https://huggingface.co/spaces',
-    installationType: 'npx',
-    npmPackage: '@llmindset/mcp-hfspace',
-    installConfig: {
-      command: 'npx',
-      args: ['-y', '@llmindset/mcp-hfspace'],
-    },
-    requiredEnvVars: [
-      { name: 'HF_TOKEN', description: 'HuggingFace API token' },
-    ],
-    tags: ['huggingface', 'spaces', 'models'],
-  },
-
   {
     id: 'n8n-mcp',
     name: 'n8n MCP',
@@ -1561,22 +1526,6 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
     ],
   },
   {
-    id: 'claude-code-mcp',
-    name: 'Claude Code MCP',
-    description:
-      'Run Claude Code in one-shot mode with permissions bypassed for direct agent access to file editing and terminal',
-    category: 'coding-agents',
-    repository: 'https://github.com/steipete/claude-code-mcp',
-    stars: 989,
-    installationType: 'npx',
-    npmPackage: '@steipete/claude-code-mcp',
-    installConfig: {
-      command: 'npx',
-      args: ['-y', '@steipete/claude-code-mcp@latest'],
-    },
-    tags: ['claude', 'coding', 'agent', 'cursor', 'windsurf'],
-  },
-  {
     id: 'ros-mcp-server',
     name: 'ROS MCP Server',
     description:
@@ -1592,35 +1541,6 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
       args: ['-m', 'ros_mcp_server.server'],
     },
     tags: ['ros', 'ros2', 'robotics', 'robots', 'sensors'],
-  },
-  {
-    id: 'gmail-mcp',
-    name: 'Gmail MCP',
-    description:
-      'Gmail integration with auto authentication for AI assistants to manage email through natural language',
-    category: 'communication',
-    repository: 'https://github.com/GongRzhe/Gmail-MCP-Server',
-    website: 'https://gmail.google.com',
-    stars: 895,
-    installationType: 'npx',
-    npmPackage: '@gongrzhe/server-gmail-autoauth-mcp',
-    installConfig: {
-      command: 'npx',
-      args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
-    },
-    requiredEnvVars: [
-      {
-        name: 'GMAIL_OAUTH_PATH',
-        description: 'Path to GCP OAuth credentials JSON file',
-        example: '/path/to/gcp-oauth.keys.json',
-      },
-      {
-        name: 'GMAIL_CREDENTIALS_PATH',
-        description: 'Path where authenticated tokens are stored',
-        example: '/path/to/credentials.json',
-      },
-    ],
-    tags: ['gmail', 'email', 'google', 'communication', 'oauth'],
   },
   {
     id: 'mcp-knowledge-graph',
@@ -1868,22 +1788,6 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
       'grok',
       'openrouter',
     ],
-  },
-  {
-    id: 'browser-mcp',
-    name: 'Browser MCP',
-    description:
-      'Browser control MCP server via Chrome extension - navigate, click, type, and extract data',
-    category: 'browser-automation',
-    repository: 'https://github.com/BrowserMCP/mcp',
-    stars: 5362,
-    installationType: 'npx',
-    npmPackage: '@anthropic/browser-mcp',
-    installConfig: {
-      command: 'npx',
-      args: ['-y', '@anthropic/browser-mcp'],
-    },
-    tags: ['browser', 'chrome', 'extension', 'automation', 'web'],
   },
   {
     id: 'mcp-playwright-ea',
@@ -2155,22 +2059,6 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
       args: ['mcp-scan'],
     },
     tags: ['security', 'vulnerability', 'audit', 'scanning', 'compliance'],
-  },
-  {
-    id: 'unreal-mcp',
-    name: 'Unreal Engine MCP',
-    description:
-      'Control Unreal Engine 5 through natural language via MCP for Cursor, Windsurf, and Claude',
-    category: 'developer-tools',
-    repository: 'https://github.com/chongdashu/unreal-mcp',
-    stars: 1239,
-    installationType: 'pip',
-    pipPackage: 'unreal-mcp',
-    installConfig: {
-      command: 'uvx',
-      args: ['unreal-mcp'],
-    },
-    tags: ['unreal-engine', 'ue5', 'game-dev', 'editor', 'blueprints'],
   },
   {
     id: 'web-eval-agent',

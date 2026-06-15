@@ -1,35 +1,27 @@
 /// Extract the file extension from a path, handling dotfiles correctly.
-/// Mirrors the legacy TypeScript `getExtension()` implementation.
 pub fn get_extension_internal(file_path: &str, lowercase: bool, fallback: &str) -> String {
     let basename = file_path.rsplit(['/', '\\']).next().unwrap_or(file_path);
 
-    let parts: Vec<&str> = basename.splitn(3, '.').collect();
+    let ext = if let Some(dotfile_ext) = basename.strip_prefix('.') {
+        if dotfile_ext.contains('.') {
+            basename
+                .rsplit_once('.')
+                .map(|(_, ext)| ext)
+                .unwrap_or(fallback)
+        } else {
+            dotfile_ext
+        }
+    } else {
+        basename
+            .rsplit_once('.')
+            .map(|(_, ext)| ext)
+            .unwrap_or(fallback)
+    };
 
-    match parts.as_slice() {
-        // No dot → no extension
-        [_] => fallback.to_owned(),
-        // Dotfile: ".gitignore" → parts = ["", "gitignore"]
-        ["", ext] => {
-            if lowercase {
-                ext.to_lowercase()
-            } else {
-                ext.to_string()
-            }
-        }
-        // Normal file: collect everything after the last dot.
-        // This arm only matches when basename contains a dot, but stay
-        // panic-free at the boundary anyway.
-        _ => {
-            let Some(last_dot) = basename.rfind('.') else {
-                return fallback.to_owned();
-            };
-            let ext = &basename[last_dot + 1..];
-            if lowercase {
-                ext.to_lowercase()
-            } else {
-                ext.to_string()
-            }
-        }
+    if lowercase {
+        ext.to_lowercase()
+    } else {
+        ext.to_owned()
     }
 }
 
@@ -61,5 +53,15 @@ mod tests {
     #[test]
     fn last_dot_wins_for_multi_dot_names() {
         assert_eq!(get_extension_internal("archive.tar.gz", false, ""), "gz");
+    }
+
+    #[test]
+    fn last_dot_wins_for_multi_dot_dotfiles() {
+        assert_eq!(get_extension_internal(".env.local", false, ""), "local");
+    }
+
+    #[test]
+    fn windows_path_basename_is_supported() {
+        assert_eq!(get_extension_internal(r"C:\tmp\Foo.TS", true, ""), "ts");
     }
 }

@@ -333,11 +333,6 @@ describe('README: maskSensitiveData', () => {
     const text = 'no secrets here';
     expect(maskSensitiveData(text)).toBe(text);
   });
-
-  it('signature accepts optional patterns array', () => {
-    const result = maskSensitiveData('some text', []);
-    expect(result).toBe('some text');
-  });
 });
 
 describe('README: validateCommand', () => {

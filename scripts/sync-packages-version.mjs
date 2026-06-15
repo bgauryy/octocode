@@ -7,10 +7,14 @@
  * Updates:
  *  - version field in every main package
  *  - version field in every npm sub-package (npm/* directories)
- *  - pinned internal dependency versions (optionalDependencies referencing
- *    sibling native packages, and non-workspace deps on internal packages)
+ *  - internal dependency refs (see modes below)
  *
- * Workspace protocol references (workspace:* / workspace:^) are left unchanged.
+ * Default (local dev): non-workspace internal deps → workspace:* (Yarn links siblings).
+ * --pin-for-publish: all internal deps → exact version (npm publish; no workspace:).
+ *
+ * Usage:
+ *   node scripts/sync-packages-version.mjs
+ *   node scripts/sync-packages-version.mjs --pin-for-publish
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -20,6 +24,9 @@ import { readdirSync, statSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
+
+const PIN_FOR_PUBLISH = process.argv.includes('--pin-for-publish');
+const WORKSPACE_PROTOCOL = 'workspace:*';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -35,8 +42,18 @@ function bumpDeps(deps, version, internalPackageNames) {
   if (!deps) return false;
   let changed = false;
   for (const [name, val] of Object.entries(deps)) {
-    if (internalPackageNames.has(name) && !String(val).startsWith('workspace:')) {
-      deps[name] = version;
+    if (!internalPackageNames.has(name)) continue;
+
+    if (PIN_FOR_PUBLISH) {
+      if (val !== version) {
+        deps[name] = version;
+        changed = true;
+      }
+      continue;
+    }
+
+    if (!String(val).startsWith('workspace:')) {
+      deps[name] = WORKSPACE_PROTOCOL;
       changed = true;
     }
   }
@@ -45,21 +62,33 @@ function bumpDeps(deps, version, internalPackageNames) {
 
 // ── discover paths ─────────────────────────────────────────────────────────
 
-/** Main package directories (have src/ or are explicit packages) */
-const MAIN_PACKAGES = [
-  'packages/octocode-mcp',
-  'packages/octocode-cli',
-  'packages/octocode-lsp',
-  'packages/octocode-security',
-  'packages/octocode-shared',
-  'packages/octocode-vscode',
-  'packages/octocode-context-utils',
-];
+/** Main package roots — every direct packages/* package with a package.json. */
+function findMainPackages() {
+  const packagesDir = join(ROOT, 'packages');
+  return readdirSync(packagesDir)
+    .map(entry => join('packages', entry))
+    .filter(pkgDir => {
+      try {
+        return statSync(join(ROOT, pkgDir)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .filter(pkgDir => {
+      try {
+        readJson(join(ROOT, pkgDir, 'package.json'));
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+}
 
-/** npm sub-package roots — discovered automatically */
+/** npm sub-package roots under each package's npm directory. */
 function findNpmSubPackages() {
   const results = [];
-  for (const pkg of ['packages/octocode-context-utils', 'packages/octocode-security']) {
+  for (const pkg of MAIN_PACKAGES) {
     const npmDir = join(ROOT, pkg, 'npm');
     try {
       for (const entry of readdirSync(npmDir)) {
@@ -78,15 +107,23 @@ function findNpmSubPackages() {
       // npm dir doesn't exist yet
     }
   }
-  return results;
+  return results.sort();
 }
 
 // ── main ───────────────────────────────────────────────────────────────────
 
 const sourcePkgPath = join(ROOT, 'packages/octocode-mcp/package.json');
 const { version } = readJson(sourcePkgPath);
+const MAIN_PACKAGES = findMainPackages();
 
-console.log(`\nSyncing all packages to version: ${version}\n`);
+console.log(`\nSyncing all packages to version: ${version}`);
+console.log(
+  PIN_FOR_PUBLISH
+    ? 'Mode: --pin-for-publish (internal deps → exact version)\n'
+    : 'Mode: local dev (internal deps → workspace:*)\n'
+);
+console.log('Main packages:', MAIN_PACKAGES.join(', '));
+console.log();
 
 // Collect every internal package name so we can update pinned dep refs
 const internalNames = new Set();

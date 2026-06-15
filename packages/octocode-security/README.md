@@ -61,6 +61,9 @@ The package ships prebuilt native binaries for all supported platforms as
 `optionalDependencies` — no Rust toolchain needed at install time.
 The root package does not publish local `.node` files; those artifacts live in
 the per-platform optional packages.
+Every native build script runs `scripts/sync-platform-binaries.cjs` after
+`napi build` so each built `octocode-security.<triple>.node` file is copied
+into its matching `npm/<platform>/` optional package directory.
 
 Supported: `darwin-arm64`, `darwin-x64`, `linux-arm64-gnu`,
 `linux-x64-gnu`, `linux-x64-musl`, `win32-x64-msvc`.
@@ -377,11 +380,11 @@ is implemented exactly once. The wrappers differ only in whether `authInfo` and
 
 | Script | Purpose |
 |--------|---------|
-| `yarn build` | gen-patterns → napi release build → esbuild + `.d.ts` |
+| `yarn build` | gen-patterns → napi release build → sync platform package → esbuild + `.d.ts` |
 | `yarn build:ts` | gen-patterns → esbuild + `.d.ts` (no Rust recompile) |
-| `yarn build:dev` | gen-patterns → napi debug build → esbuild + `.d.ts` |
-| `yarn build:rust:darwin-arm64` | Cross-compile for macOS arm64 |
-| `yarn build:rust:all` | All platform binaries |
+| `yarn build:dev` | gen-patterns → napi debug build → sync platform package → esbuild + `.d.ts` |
+| `yarn build:rust:darwin-arm64` | Cross-compile for macOS arm64 and sync `npm/darwin-arm64` |
+| `yarn build:rust:all` | All platform binaries, each synced into its optional package directory |
 | `yarn test` | Vitest with v8 coverage (≥ 90% required) |
 | `yarn test:quiet` | Vitest, no coverage |
 | `yarn typecheck` | `tsc --noEmit` |

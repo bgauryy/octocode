@@ -1,7 +1,7 @@
 import type { CLICommand } from '../types.js';
 import { getBool, getString } from '../options.js';
 import { c, bold, dim } from '../../utils/colors.js';
-import { executeDirectTool } from 'octocode-mcp/public';
+import { executeDirectTool } from '@octocodeai/octocode-tools-core';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 // Field names mirror the actual API output (camelCase throughout).

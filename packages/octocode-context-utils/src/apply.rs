@@ -19,7 +19,7 @@ pub fn apply_minification_inner(content: &str, file_path: &str) -> String {
 }
 
 /// Content-view minification — agent-readable, preserves indentation.
-/// Pipeline mirrors TS `applyContentViewMinification`.
+/// Agent-readable content view minification pipeline.
 pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> String {
     if content.len() > MAX_SIZE {
         return content.to_owned();

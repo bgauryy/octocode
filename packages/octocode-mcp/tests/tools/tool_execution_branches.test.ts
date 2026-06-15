@@ -25,31 +25,43 @@ vi.mock('octocode-security/withSecurityValidation', () => ({
   withBasicSecurityValidation: vi.fn(handler => handler),
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/utils.js', async importOriginal => ({
-  ...(await importOriginal<object>()),
-  invokeCallbackSafely: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/utils.js',
+  async importOriginal => ({
+    ...(await importOriginal<object>()),
+    invokeCallbackSafely: vi.fn().mockResolvedValue(undefined),
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/github_search_code/execution.js', () => ({
-  searchMultipleGitHubCode: vi.fn().mockResolvedValue({
-    content: [{ type: 'text', text: '' }],
-    isError: false,
-  }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/github_search_code/execution.js',
+  () => ({
+    searchMultipleGitHubCode: vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: '' }],
+      isError: false,
+    }),
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/github_search_repos/execution.js', () => ({
-  searchMultipleGitHubRepos: vi.fn().mockResolvedValue({
-    content: [{ type: 'text', text: '' }],
-    isError: false,
-  }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/github_search_repos/execution.js',
+  () => ({
+    searchMultipleGitHubRepos: vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: '' }],
+      isError: false,
+    }),
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/github_view_repo_structure/execution.js', () => ({
-  exploreMultipleRepositoryStructures: vi.fn().mockResolvedValue({
-    content: [{ type: 'text', text: '' }],
-    isError: false,
-  }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/github_view_repo_structure/execution.js',
+  () => ({
+    exploreMultipleRepositoryStructures: vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: '' }],
+      isError: false,
+    }),
+  })
+);
 
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';

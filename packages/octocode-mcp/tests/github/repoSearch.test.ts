@@ -809,7 +809,8 @@ describe('GitHub Repository Search', () => {
 
   describe('searchGitHubReposAPI - Caching', () => {
     it('should use cache with session ID', async () => {
-      const { withDataCache } = await import('../../../octocode-tools-core/src/utils/http/cache.js');
+      const { withDataCache } =
+        await import('../../../octocode-tools-core/src/utils/http/cache.js');
       const mockWithDataCache = vi.mocked(withDataCache);
 
       const mockResponse = {

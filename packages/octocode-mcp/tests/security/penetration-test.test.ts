@@ -18,7 +18,7 @@ import {
   createRoleBasedResult,
 } from '../../../octocode-tools-core/src/responses.js';
 import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
-import { sanitizeCallToolResult } from '../../src/utils/secureServer.js';
+import { sanitizeCallToolResult } from '@octocodeai/octocode-tools-core';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 vi.mock('octocode-shared', () => ({

@@ -5,17 +5,47 @@
 mod apply;
 mod comment_remover;
 mod config;
+mod diff_parser;
 mod file_extension;
+mod line_extractor;
 mod minifier;
+mod ripgrep_parser;
 mod signatures;
 mod strategies;
 mod types;
+mod utf8_offsets;
 mod yaml_utils;
 
+use napi::{bindgen_prelude::AsyncTask, Env, Result, Task};
 use napi_derive::napi;
-use types::{FileTypeMinifyConfig, GetExtensionOptions, MinifyResult, YamlConversionConfig};
+use types::{
+    ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FileTypeMinifyConfig,
+    FilterPatchOptions, GetExtensionOptions, MinifyResult, RipgrepParseOptions, RipgrepParseResult,
+    SliceContentOptions, SliceContentResult, YamlConversionConfig,
+};
 
-// ── Re-exports so the TS shim can see them ────────────────────────────────────
+pub struct MinifyContentTask {
+    content: String,
+    file_path: String,
+}
+
+impl Task for MinifyContentTask {
+    type Output = MinifyResult;
+    type JsValue = MinifyResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        Ok(minifier::minify_content_result_inner(
+            &self.content,
+            &self.file_path,
+        ))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+// ── Native exports ────────────────────────────────────────────────────────────
 #[napi]
 pub const SIGNATURES_ONLY_HINT: &str = signatures::SIGNATURES_ONLY_HINT;
 
@@ -40,11 +70,17 @@ pub fn minify_content_sync(content: String, file_path: String) -> String {
     minifier::minify_content_sync_inner(&content, &file_path)
 }
 
-/// Sync equivalent of TS `minifyContent` — returns MinifyResult.
-/// The JS shim wraps this in Promise.resolve() so callers can await it.
+/// Synchronous full minification result.
 #[napi(js_name = "minifyContentResult")]
 pub fn minify_content_result(content: String, file_path: String) -> MinifyResult {
     minifier::minify_content_result_inner(&content, &file_path)
+}
+
+/// Full minification on libuv's worker pool.
+/// Returns a Promise from JavaScript and does not block the event loop.
+#[napi(js_name = "minifyContent")]
+pub fn minify_content(content: String, file_path: String) -> AsyncTask<MinifyContentTask> {
+    AsyncTask::new(MinifyContentTask { content, file_path })
 }
 
 /// Full minification that never grows the content — returns the minified
@@ -205,7 +241,7 @@ pub fn extract_signatures(content: String, file_path: String) -> Option<String> 
 ///   plain text, and files above the 1 MB guard.
 ///
 /// Char offsets match JavaScript `string.substring()` — pass them directly to
-/// the TypeScript pagination layer without conversion.
+/// JavaScript string slicing without conversion.
 #[napi(js_name = "getSemanticBoundaryOffsets")]
 pub fn get_semantic_boundary_offsets(content: String, file_path: String) -> Vec<u32> {
     signatures::get_semantic_boundary_offsets_inner(&content, &file_path)
@@ -309,6 +345,90 @@ fn parse_comment_groups(val: &Option<serde_json::Value>) -> Vec<String> {
             .collect(),
         _ => vec![],
     }
+}
+
+// ── Ripgrep NDJSON parser ─────────────────────────────────────────────────────
+
+/// Parse ripgrep `--json` NDJSON stdout into structured files + stats.
+///
+/// Replaces the TypeScript `parseRipgrepJson` (utils/parsers/ripgrep.ts) which
+/// used `JSON.parse` + Zod `safeParse` per NDJSON line and a `[...value]`
+/// UTF-16 spread per match snippet. A single `serde_json` streaming pass with
+/// no per-line schema validation.
+#[napi(js_name = "parseRipgrepJson")]
+pub fn parse_ripgrep_json(
+    stdout: String,
+    options: Option<RipgrepParseOptions>,
+) -> RipgrepParseResult {
+    ripgrep_parser::parse_ripgrep_json_inner(&stdout, options)
+}
+
+// ── UTF-8 offset helpers ──────────────────────────────────────────────────────
+
+/// Number of UTF-8 bytes up to (not including) the `char_index`-th Unicode
+/// scalar value in `content`. Zero-allocation — no `Buffer.from()` needed.
+#[napi(js_name = "charToByteOffset")]
+pub fn char_to_byte_offset(content: String, char_index: u32) -> u32 {
+    utf8_offsets::char_to_byte_offset_inner(&content, char_index as usize) as u32
+}
+
+/// Unicode scalar offset for `byte_offset` bytes into `content`.
+/// Zero-allocation — no `Buffer.from()` needed.
+#[napi(js_name = "byteToCharOffset")]
+pub fn byte_to_char_offset(content: String, byte_offset: u32) -> u32 {
+    utf8_offsets::byte_to_char_offset_inner(&content, byte_offset as usize) as u32
+}
+
+/// Extract a byte-range substring from `content`.
+#[napi(js_name = "byteSliceContent")]
+pub fn byte_slice_content(content: String, byte_start: u32, byte_end: u32) -> String {
+    utf8_offsets::byte_slice_content_inner(&content, byte_start as usize, byte_end as usize)
+}
+
+/// Paginate `content` by char offset + length, with optional line-boundary
+/// snapping. Replaces both the char-mode conversion block in `applyPagination`
+/// and the dead-code `sliceByCharRespectLines` (0 callers confirmed by LSP).
+#[napi(js_name = "sliceContent")]
+pub fn slice_content(
+    content: String,
+    char_offset: u32,
+    char_length: u32,
+    options: Option<SliceContentOptions>,
+) -> SliceContentResult {
+    utf8_offsets::slice_content_inner(
+        &content,
+        char_offset as usize,
+        char_length as usize,
+        options,
+    )
+}
+
+// ── In-memory line extractor ──────────────────────────────────────────────────
+
+/// Search `content` line-by-line for `pattern` (literal or regex), returning
+/// matched lines with context windows and omission markers.
+///
+/// Replaces `extractMatchingLines` (contentExtractor.ts) which performed 2–3
+/// full `forEach` scans with per-line `toLowerCase` + `RegExp.test`.
+#[napi(js_name = "extractMatchingLines")]
+pub fn extract_matching_lines(
+    content: String,
+    pattern: String,
+    options: Option<ExtractMatchingLinesOptions>,
+) -> ExtractMatchingLinesResult {
+    line_extractor::extract_matching_lines_inner(&content, &pattern, options)
+}
+
+// ── Unified diff parser / filter ──────────────────────────────────────────────
+
+/// Filter and optionally trim a unified diff patch.
+///
+/// Replaces `filterPatch` + `trimDiffContext` from `utils/parsers/diff.ts` which
+/// called `patch.split('\n')` independently in both functions. This combines
+/// both operations in a single pass.
+#[napi(js_name = "filterPatch")]
+pub fn filter_patch(patch: String, options: Option<FilterPatchOptions>) -> String {
+    diff_parser::filter_patch_inner(&patch, options)
 }
 
 // ── Tests — FFI-boundary glue only ───────────────────────────────────────────

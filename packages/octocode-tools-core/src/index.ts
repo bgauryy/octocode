@@ -5,6 +5,7 @@
  * server config, session, providers, and utilities.
  * No McpServer dependency — fully portable.
  */
+export * from './security/bridge.js';
 export * from './commands/BaseCommandBuilder.js';
 export * from './commands/FindCommandBuilder.js';
 export * from './commands/LsCommandBuilder.js';
@@ -115,6 +116,7 @@ export * from './tools/toolMetadata/names.js';
 export * from './tools/toolMetadata/proxies.js';
 export * from './tools/toolMetadata/state.js';
 export * from './tools/toolMetadata/types.js';
+export * from './tools/directToolCatalog.js';
 export * from './tools/toolNames.js';
 export * from './tools/utils.js';
 export * from './types/bulk.js';
@@ -157,6 +159,7 @@ export * from './utils/parsers/diff.js';
 export * from './utils/parsers/ripgrep.js';
 export * from './utils/parsers/schemas.js';
 export * from './utils/response/bulk.js';
+export * from './utils/response/callToolResult.js';
 export * from './utils/response/charSavings.js';
 export * from './utils/response/error.js';
 export * from './utils/response/groupedFinalizer.js';

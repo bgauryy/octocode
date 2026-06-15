@@ -373,8 +373,7 @@ async function getSemanticContent(
         'definitionProvider',
         await client.gotoDefinition(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.value.resolvedSymbol.position
         )
       );
     case 'typeDefinition':
@@ -393,8 +392,7 @@ async function getSemanticContent(
         'typeDefinitionProvider',
         await client.typeDefinition(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.value.resolvedSymbol.position
         )
       );
     case 'implementation':
@@ -413,8 +411,7 @@ async function getSemanticContent(
         'implementationProvider',
         await client.implementation(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.value.resolvedSymbol.position
         )
       );
     case 'references':
@@ -432,8 +429,7 @@ async function getSemanticContent(
         await client.findReferences(
           anchor.value.uri,
           anchor.value.resolvedSymbol.position,
-          query.includeDeclaration ?? true,
-          anchor.value.content
+          query.includeDeclaration ?? true
         )
       );
     case 'hover':
@@ -450,8 +446,7 @@ async function getSemanticContent(
         anchor.value,
         await client.hover(
           anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.value.resolvedSymbol.position
         )
       );
     case 'callers':
@@ -488,14 +483,21 @@ async function getDocumentSymbols(
   const client = serverAvailable
     ? await acquirePooledClient(workspaceRoot, anchor.value.uri)
     : null;
+  if (client) {
+    await client.openDocument(anchor.value.uri, anchor.value.content);
+  }
   const symbols = client
     ? client.hasCapability('documentSymbolProvider')
-      ? await client.documentSymbols(anchor.value.uri, anchor.value.content)
+      ? await client.documentSymbols(anchor.value.uri)
       : []
     : [];
   const complete = Boolean(client?.hasCapability('documentSymbolProvider'));
-  const compactSymbols = flattenDocumentSymbols(symbols);
-  const topLevelSymbols = countTopLevelDocumentSymbols(symbols);
+  const compactSymbols = flattenDocumentSymbols(
+    Array.isArray(symbols) ? symbols : []
+  );
+  const topLevelSymbols = countTopLevelDocumentSymbols(
+    Array.isArray(symbols) ? symbols : []
+  );
   const { pageItems, pagination } = paginateItems(
     compactSymbols,
     query.page ?? 1,
@@ -632,8 +634,7 @@ async function callsEnvelope(
 ): Promise<LspSemanticEnvelope> {
   const items = await client.prepareCallHierarchy(
     anchor.uri,
-    anchor.resolvedSymbol.position,
-    anchor.content
+    anchor.resolvedSymbol.position
   );
   const root = items[0];
   if (!root) {

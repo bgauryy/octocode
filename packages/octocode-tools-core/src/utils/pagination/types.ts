@@ -54,13 +54,3 @@ export interface StructurePaginationHintContext {
   allFiles: number;
   allFolders: number;
 }
-
-export interface SliceByCharResult {
-  sliced: string;
-  actualOffset: number;
-  actualLength: number;
-  hasMore: boolean;
-  nextOffset?: number;
-  lineCount: number;
-  totalChars: number;
-}

@@ -2,8 +2,11 @@
 /**
  * Pre-pack guard for octocode-mcp.
  *
- * Native runtime assets (security, context utils, ripgrep) are now distributed as
- * npm optionalDependencies — no bundled .node files or rg binaries live inside
- * this package. Nothing to verify before packing.
+ * Rust addons are distributed through npm optionalDependencies on
+ * octocode-security and @octocodeai/octocode-context-utils.
+ *
+ * Ripgrep is resolved through the @vscode/ripgrep dependency for npm users.
+ * Standalone Bun binaries still copy rg with build:bin:* scripts, but those
+ * runtime files are not part of the octocode-mcp npm tarball.
  */
-console.log('✓ octocode-mcp prepack: no bundled native assets to verify.');
+console.error('✓ octocode-mcp prepack: npm runtime assets are dependency-owned.');

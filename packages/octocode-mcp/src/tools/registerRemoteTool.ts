@@ -4,7 +4,7 @@ import {
 } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toMCPSchema } from '../types/toolTypes.js';
-import { withSecurityValidation } from '../utils/securityBridge.js';
+import { withSecurityValidation } from '@octocodeai/octocode-tools-core';
 import {
   DESCRIPTIONS,
   invokeCallbackSafely,

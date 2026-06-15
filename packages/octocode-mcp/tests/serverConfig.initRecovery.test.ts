@@ -21,7 +21,8 @@ describe('serverConfig initialize recovery', () => {
   });
 
   afterEach(async () => {
-    const serverConfig = await import('../../octocode-tools-core/src/serverConfig.js');
+    const serverConfig =
+      await import('../../octocode-tools-core/src/serverConfig.js');
     serverConfig.cleanup();
     serverConfig._resetTokenResolvers();
   });
@@ -44,7 +45,8 @@ describe('serverConfig initialize recovery', () => {
         output: { format: 'yaml' },
       });
 
-    const serverConfig = await import('../../octocode-tools-core/src/serverConfig.js');
+    const serverConfig =
+      await import('../../octocode-tools-core/src/serverConfig.js');
     serverConfig._setTokenResolvers({
       resolveTokenFull: vi.fn().mockResolvedValue(null),
     });

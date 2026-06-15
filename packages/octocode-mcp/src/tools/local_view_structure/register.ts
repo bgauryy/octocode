@@ -7,7 +7,7 @@ import {
   executeViewStructure,
   withResponseEnvelope,
 } from '@octocodeai/octocode-tools-core';
-import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
+import { withBasicSecurityValidation } from '@octocodeai/octocode-tools-core';
 import { LocalViewStructureOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 export function registerLocalViewStructureTool(server: McpServer) {

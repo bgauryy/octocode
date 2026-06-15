@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { withDataCache, clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache.js';
+import {
+  withDataCache,
+  clearAllCache,
+} from '../../../octocode-tools-core/src/utils/http/cache.js';
 
 describe('Cache Deduplication', () => {
   beforeEach(() => {

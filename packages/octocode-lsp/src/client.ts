@@ -1,502 +1,185 @@
-import { spawn, ChildProcess } from 'child_process';
-import {
-  createMessageConnection,
-  MessageConnection,
-  StreamMessageReader,
-  StreamMessageWriter,
-} from 'vscode-jsonrpc/node.js';
-import {
-  InitializeResult,
-  InitializedParams,
-} from 'vscode-languageserver-protocol';
+import { promises as fs } from 'node:fs';
+
+import { nativeBinding, type NativeLspClientBinding } from './native.js';
 import type {
-  ExactPosition,
-  CodeSnippet,
   CallHierarchyItem,
+  CodeSnippet,
+  ExactPosition,
   IncomingCall,
-  OutgoingCall,
   LanguageServerConfig,
+  OutgoingCall,
 } from './types.js';
-import { LSPDocumentManager } from './lspDocumentManager.js';
-import { LSPOperations } from './lspOperations.js';
-import {
-  buildChildProcessEnv,
-  TOOLING_ALLOWED_ENV_VARS,
-} from './processEnv.js';
-import { buildInitializeParams } from './initParams.js';
-import { toUri } from './uri.js';
-
-const STDERR_RETENTION_LINES = 200;
-const SHUTDOWN_TIMEOUT_MS = 1_000;
-
-async function raceWithTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-  }
-}
-
-type WorkspaceConfigurationRequest = {
-  items?: Array<{ section?: string; scopeUri?: string }>;
-};
 
 export class LSPClient {
-  private process: ChildProcess | null = null;
-  private connection: MessageConnection | null = null;
+  private readonly nativeClient: NativeLspClientBinding;
   private initialized = false;
-  private config: LanguageServerConfig;
-  private initializeResult: InitializeResult | null = null;
-  private documentManager: LSPDocumentManager;
-  private operations: LSPOperations;
-  private stderrBuffer: string[] = [];
-
-  // Indexing-wait: resolved once all $/progress tokens have ended (or fallback fires).
-  // tsserver only starts loading the project on the first textDocument/didOpen,
-  // so the fallback is armed there — not at initialize. A request sent before
-  // project load finishes gets file-scoped (partial) results, e.g. references
-  // confined to the opened file.
-  private static readonly READY_NO_PROGRESS_SETTLE_MS = 200;
-  private static readonly READY_PROGRESS_SETTLE_MS = 2_500;
-  private static readonly READY_MAX_WAIT_MS = 15_000;
-  private readyPromise: Promise<void>;
-  private readyResolve!: () => void;
-  private readyResolved = false;
-  private activeProgressTokens = new Set<string | number>();
-  private readyFallbackTimer: ReturnType<typeof setTimeout> | null = null;
-  private hasOpenedDocument = false;
 
   constructor(config: LanguageServerConfig) {
-    this.config = config;
-    this.readyPromise = new Promise<void>(resolve => {
-      this.readyResolve = resolve;
+    this.nativeClient = new nativeBinding.NativeLspClient({
+      command: config.command,
+      args: config.args,
+      workspaceRoot: config.workspaceRoot,
+      languageId: config.languageId,
+      initializationOptions: config.initializationOptions,
     });
-    this.documentManager = new LSPDocumentManager(config);
-    this.documentManager.setOnDidOpen(() => this.handleDocumentOpened());
-    this.operations = new LSPOperations(
-      this.documentManager,
-      config.workspaceRoot
-    );
-    this.operations.setProjectReadyWaiter(() => this.waitForReady());
-  }
-
-  private handleDocumentOpened(): void {
-    if (this.hasOpenedDocument) return;
-    this.hasOpenedDocument = true;
-    if (this.readyResolved) return;
-    const armedAt = Date.now();
-    this.armReadyFallback(armedAt, LSPClient.READY_NO_PROGRESS_SETTLE_MS);
-  }
-
-  private armReadyFallback(armedAt: number, delayMs: number): void {
-    this.readyFallbackTimer = setTimeout(
-      () => this.settleReadyFallback(armedAt),
-      delayMs
-    );
-  }
-
-  private settleReadyFallback(armedAt: number): void {
-    this.readyFallbackTimer = null;
-    if (this.readyResolved) return;
-    if (
-      this.activeProgressTokens.size === 0 ||
-      Date.now() - armedAt >= LSPClient.READY_MAX_WAIT_MS
-    ) {
-      this.resolveReady();
-      return;
-    }
-    // Indexing still in flight — the $/progress end handler resolves
-    // readiness; re-arm so a token that never ends cannot block forever.
-    this.armReadyFallback(armedAt, LSPClient.READY_PROGRESS_SETTLE_MS);
-  }
-
-  private resolveReady(): void {
-    if (this.readyResolved) return;
-    this.readyResolved = true;
-    // clearTimeout is a no-op for null/undefined — safe without an explicit null check.
-    clearTimeout(this.readyFallbackTimer ?? undefined);
-    this.readyFallbackTimer = null;
-    this.readyResolve();
-  }
-
-  /**
-   * Waits until the language server has finished its initial project indexing,
-   * or until timeoutMs elapses (whichever comes first). Never throws — callers
-   * proceed even on timeout so a slow server does not block the tool forever.
-   */
-  async waitForReady(timeoutMs = 45_000): Promise<void> {
-    if (this.readyResolved) return;
-    // If the client was never started, skip the wait and let requireConnection()
-    // throw "LSP client not initialized" immediately.
-    if (!this.initialized) return;
-    // Project load only starts on the first didOpen — before that there is
-    // nothing to wait for (and no fallback timer armed yet).
-    if (!this.hasOpenedDocument) return;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<void>(resolve => {
-      timeoutId = setTimeout(resolve, timeoutMs);
-    });
-    try {
-      await Promise.race([this.readyPromise, timeoutPromise]);
-    } finally {
-      if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-      }
-    }
   }
 
   async start(): Promise<void> {
-    if (this.process) {
-      throw new Error('LSP client already started');
-    }
-
-    this.process = spawn(this.config.command, this.config.args ?? [], {
-      cwd: this.config.workspaceRoot,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: buildChildProcessEnv({}, TOOLING_ALLOWED_ENV_VARS),
-    });
-
-    if (!this.process.stdin || !this.process.stdout) {
-      try {
-        this.process.kill();
-      } catch {
-        void 0;
-      }
-      this.process = null;
-      throw new Error('Failed to create language server process pipes');
-    }
-
-    if (typeof this.process.stderr?.setEncoding === 'function') {
-      this.process.stderr.setEncoding('utf8');
-    }
-    // Prevent unhandled-error crashes after startup — errors post-init are logged
-    // via the close handler or surfaced in the next request attempt.
-    this.process.on('error', () => void 0);
-    this.process.stderr?.on('data', (chunk: string | Buffer) => {
-      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      const lines = text.split(/\r?\n/);
-      for (const line of lines) {
-        if (!line) continue;
-        this.stderrBuffer.push(line);
-        if (this.stderrBuffer.length > STDERR_RETENTION_LINES) {
-          this.stderrBuffer.shift();
-        }
-      }
-    });
-
-    let onEarlyError: ((error: Error) => void) | undefined;
-    let onEarlyClose:
-      | ((code: number | null, signal: NodeJS.Signals | null) => void)
-      | undefined;
-    const earlyExitPromise = new Promise<never>((_, reject) => {
-      onEarlyError = (error: Error) => {
-        if (!this.initialized) {
-          reject(
-            new Error(
-              this.formatServerStartupFailure(`process error: ${error.message}`)
-            )
-          );
-        }
-      };
-      onEarlyClose = (code, signal) => {
-        if (!this.initialized) {
-          reject(
-            new Error(
-              this.formatServerStartupFailure(
-                `process exited before initialize (code=${code ?? 'null'}, signal=${signal ?? 'null'})`
-              )
-            )
-          );
-        }
-      };
-      this.process!.once('error', onEarlyError);
-      this.process!.once('close', onEarlyClose);
-    });
-
-    try {
-      this.connection = createMessageConnection(
-        new StreamMessageReader(this.process.stdout),
-        new StreamMessageWriter(this.process.stdin)
-      );
-
-      this.registerServerInitiatedHandlers(this.connection);
-      this.connection.listen();
-
-      await Promise.race([this.initialize(), earlyExitPromise]);
-    } catch (error) {
-      await this.stop();
-      throw error;
-    } finally {
-      if (onEarlyError) this.process?.off('error', onEarlyError);
-      if (onEarlyClose) this.process?.off('close', onEarlyClose);
-    }
-  }
-
-  private formatServerStartupFailure(reason: string): string {
-    const stderr = this.getRecentStderr();
-    const stderrSuffix =
-      stderr.length > 0 ? `; stderr: ${stderr.slice(-8).join('\n')}` : '';
-    return `Language server startup failed: ${reason}${stderrSuffix}`;
-  }
-
-  private registerServerInitiatedHandlers(connection: MessageConnection): void {
-    connection.onRequest('workspace/configuration', params => {
-      const request = params as WorkspaceConfigurationRequest;
-      return (request.items ?? []).map(() => ({}));
-    });
-
-    connection.onRequest('workspace/workspaceFolders', () => [
-      {
-        uri: toUri(this.config.workspaceRoot),
-        name:
-          this.config.workspaceRoot.split(/\//).filter(Boolean).pop() ??
-          this.config.workspaceRoot,
-      },
-    ]);
-
-    connection.onRequest('client/registerCapability', () => null);
-    connection.onRequest('client/unregisterCapability', () => null);
-    connection.onRequest('window/workDoneProgress/create', () => null);
-
-    connection.onNotification('window/logMessage', () => undefined);
-    connection.onNotification('window/showMessage', () => undefined);
-
-    connection.onNotification(
-      '$/progress',
-      (params: { token: string | number; value: { kind: string } }) => {
-        if (params.value.kind === 'begin') {
-          this.activeProgressTokens.add(params.token);
-        } else if (params.value.kind === 'end') {
-          this.activeProgressTokens.delete(params.token);
-          if (this.activeProgressTokens.size === 0) {
-            this.resolveReady();
-          }
-        }
-      }
-    );
-  }
-
-  private async initialize(): Promise<void> {
-    if (!this.connection) {
-      throw new Error('Connection not established');
-    }
-
-    const initParams = buildInitializeParams(this.config);
-
-    this.initializeResult = (await raceWithTimeout(
-      this.connection.sendRequest('initialize', initParams),
-      30_000,
-      'LSP initialize timed out after 30s'
-    )) as InitializeResult;
-
-    const initializedParams: InitializedParams = {};
-    await this.connection.sendNotification('initialized', initializedParams);
-
+    await this.nativeClient.start();
     this.initialized = true;
+  }
 
-    this.documentManager.setTextDocumentSync(
-      this.initializeResult?.capabilities?.textDocumentSync
+  async stop(): Promise<void> {
+    await this.nativeClient.stop();
+    this.initialized = false;
+  }
+
+  async waitForReady(timeoutMs = 45_000): Promise<void> {
+    await this.nativeClient.waitForReady(timeoutMs);
+  }
+
+  async gotoDefinition(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CodeSnippet[]> {
+    return this.getDefinition(filePath, position);
+  }
+
+  async getDefinition(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CodeSnippet[]> {
+    await this.openDocument(filePath);
+    return (await this.nativeClient.getDefinition(
+      filePath,
+      position.line,
+      position.character
+    )) as CodeSnippet[];
+  }
+
+  async findReferences(
+    filePath: string,
+    position: ExactPosition,
+    includeDeclaration = true
+  ): Promise<CodeSnippet[]> {
+    await this.openDocument(filePath);
+    return (await this.nativeClient.getReferences(
+      filePath,
+      position.line,
+      position.character,
+      includeDeclaration
+    )) as CodeSnippet[];
+  }
+
+  async getHover(filePath: string, position: ExactPosition): Promise<unknown> {
+    await this.openDocument(filePath);
+    return this.nativeClient.getHover(
+      filePath,
+      position.line,
+      position.character
     );
-    this.documentManager.setConnection(this.connection, this.initialized);
-    this.operations.setConnection(this.connection, this.initialized);
-    // Readiness fallback is armed on the first didOpen (handleDocumentOpened) —
-    // arming it here would let requests race tsserver's project load.
+  }
+
+  async hover(filePath: string, position: ExactPosition): Promise<unknown> {
+    return this.getHover(filePath, position);
+  }
+
+  async getTypeDefinition(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CodeSnippet[]> {
+    await this.openDocument(filePath);
+    return (await this.nativeClient.getTypeDefinition(
+      filePath,
+      position.line,
+      position.character
+    )) as CodeSnippet[];
+  }
+
+  async typeDefinition(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CodeSnippet[]> {
+    return this.getTypeDefinition(filePath, position);
+  }
+
+  async getImplementation(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CodeSnippet[]> {
+    await this.openDocument(filePath);
+    return (await this.nativeClient.getImplementation(
+      filePath,
+      position.line,
+      position.character
+    )) as CodeSnippet[];
+  }
+
+  async implementation(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CodeSnippet[]> {
+    return this.getImplementation(filePath, position);
+  }
+
+  async getDocumentSymbols(filePath: string): Promise<unknown> {
+    await this.openDocument(filePath);
+    return this.nativeClient.getDocumentSymbols(filePath);
+  }
+
+  async documentSymbols(filePath: string): Promise<unknown> {
+    return this.getDocumentSymbols(filePath);
+  }
+
+  async prepareCallHierarchy(
+    filePath: string,
+    position: ExactPosition
+  ): Promise<CallHierarchyItem[]> {
+    await this.openDocument(filePath);
+    const result = await this.nativeClient.prepareCallHierarchy(
+      filePath,
+      position.line,
+      position.character
+    );
+    return Array.isArray(result) ? (result as CallHierarchyItem[]) : [];
+  }
+
+  async getIncomingCalls(item: CallHierarchyItem): Promise<IncomingCall[]> {
+    const result = await this.nativeClient.incomingCalls(item);
+    return Array.isArray(result) ? (result as IncomingCall[]) : [];
+  }
+
+  async getOutgoingCalls(item: CallHierarchyItem): Promise<OutgoingCall[]> {
+    const result = await this.nativeClient.outgoingCalls(item);
+    return Array.isArray(result) ? (result as OutgoingCall[]) : [];
+  }
+
+  hasCapability(_capability: string): boolean {
+    return this.initialized;
+  }
+
+  getRecentStderr(): string[] {
+    return [];
   }
 
   async openDocument(filePath: string, content?: string): Promise<void> {
-    return this.documentManager.openDocument(filePath, content);
+    await this.ensureDocumentSynced(
+      filePath,
+      content ?? (await fs.readFile(filePath, 'utf8'))
+    );
   }
 
   async ensureDocumentSynced(
     filePath: string,
     content?: string
   ): Promise<void> {
-    await this.waitForReady();
-    return this.documentManager.ensureDocumentSynced(filePath, { content });
-  }
-
-  async closeDocument(filePath: string): Promise<void> {
-    return this.documentManager.closeDocument(filePath);
-  }
-
-  async gotoDefinition(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CodeSnippet[]> {
-    await this.waitForReady();
-    return this.operations.gotoDefinition(filePath, position, content);
-  }
-
-  async findReferences(
-    filePath: string,
-    position: ExactPosition,
-    includeDeclaration = true,
-    content?: string
-  ): Promise<CodeSnippet[]> {
-    await this.waitForReady();
-    return this.operations.findReferences(
+    await this.nativeClient.openDocument(
       filePath,
-      position,
-      includeDeclaration,
-      content
+      content ?? (await fs.readFile(filePath, 'utf8'))
     );
   }
 
-  async prepareCallHierarchy(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CallHierarchyItem[]> {
-    await this.waitForReady();
-    return this.operations.prepareCallHierarchy(filePath, position, content);
-  }
-
-  async getIncomingCalls(item: CallHierarchyItem): Promise<IncomingCall[]> {
-    await this.waitForReady();
-    return this.operations.getIncomingCalls(item);
-  }
-
-  async getOutgoingCalls(item: CallHierarchyItem): Promise<OutgoingCall[]> {
-    await this.waitForReady();
-    return this.operations.getOutgoingCalls(item);
-  }
-
-  async hover(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<unknown> {
-    await this.waitForReady();
-    return this.operations.hover(filePath, position, content);
-  }
-
-  async typeDefinition(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CodeSnippet[]> {
-    await this.waitForReady();
-    return this.operations.typeDefinition(filePath, position, content);
-  }
-
-  async implementation(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CodeSnippet[]> {
-    await this.waitForReady();
-    return this.operations.implementation(filePath, position, content);
-  }
-
-  async documentSymbols(
-    filePath: string,
-    content?: string
-  ): Promise<unknown[]> {
-    await this.waitForReady();
-    return this.operations.documentSymbols(filePath, content);
-  }
-
-  getRecentStderr(): string[] {
-    return [...this.stderrBuffer];
-  }
-
-  hasCapability(capability: string): boolean {
-    if (!this.initializeResult?.capabilities) return false;
-    const caps = this.initializeResult.capabilities as Record<string, unknown>;
-    return !!caps[capability];
-  }
-
-  async stop(): Promise<void> {
-    this.resolveReady();
-    try {
-      if (this.connection) {
-        await this.documentManager.closeAllDocuments();
-
-        await raceWithTimeout(
-          this.connection.sendRequest('shutdown'),
-          SHUTDOWN_TIMEOUT_MS,
-          `LSP shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms`
-        );
-
-        await this.connection.sendNotification('exit');
-      }
-    } catch {
-      void 0;
-    } finally {
-      try {
-        this.connection?.dispose();
-      } catch {
-        void 0;
-      }
-      this.connection = null;
-
-      await this.terminateProcess();
-      this.process = null;
-      this.initialized = false;
-
-      this.documentManager.setConnection(null, false);
-      this.operations.setConnection(null, false);
-    }
-  }
-
-  private async terminateProcess(): Promise<void> {
-    const processToStop = this.process;
-    if (!processToStop) return;
-
-    const closed = new Promise<void>(resolve => {
-      if (
-        processToStop.exitCode !== null ||
-        processToStop.signalCode !== null
-      ) {
-        resolve();
-        return;
-      }
-      processToStop.once('close', () => resolve());
-    });
-
-    try {
-      processToStop.stdin?.end();
-    } catch {
-      void 0;
-    }
-
-    try {
-      processToStop.kill();
-    } catch {
-      void 0;
-    }
-
-    await Promise.race([
-      closed,
-      new Promise<void>(resolve => setTimeout(resolve, 1_000)),
-    ]);
-
-    if (processToStop.exitCode === null && processToStop.signalCode === null) {
-      try {
-        processToStop.kill('SIGKILL');
-      } catch {
-        void 0;
-      }
-    }
-
-    try {
-      processToStop.stdin?.destroy();
-      processToStop.stdout?.destroy();
-      processToStop.stderr?.destroy();
-      processToStop.unref();
-    } catch {
-      void 0;
-    }
+  async closeDocument(_filePath: string): Promise<void> {
+    return Promise.resolve();
   }
 }

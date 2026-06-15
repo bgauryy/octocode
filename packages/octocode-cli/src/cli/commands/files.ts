@@ -3,7 +3,7 @@ import { getBool, getString } from '../options.js';
 import { resolveRef, isGithubRef, isLocalRef, refLabel } from '../routing.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { EXIT } from '../exit-codes.js';
-import { executeDirectTool } from 'octocode-mcp/public';
+import { executeDirectTool } from '@octocodeai/octocode-tools-core';
 import {
   getDirectToolText,
   markDirectToolFailure,

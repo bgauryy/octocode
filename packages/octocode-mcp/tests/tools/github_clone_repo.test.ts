@@ -506,13 +506,16 @@ const mockSpawnWithTimeout = vi.hoisted(() => vi.fn());
 const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockGetOctocodeDir = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../octocode-tools-core/src/utils/exec/spawn.js', async importOriginal => {
-  const actual = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...actual,
-    spawnWithTimeout: mockSpawnWithTimeout,
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/utils/exec/spawn.js',
+  async importOriginal => {
+    const actual = (await importOriginal()) as Record<string, unknown>;
+    return {
+      ...actual,
+      spawnWithTimeout: mockSpawnWithTimeout,
+    };
+  }
+);
 
 const mockResolveDefaultBranch = vi.hoisted(() => vi.fn());
 

@@ -1,6 +1,5 @@
 import type {
   SearchCodeParameters,
-  SearchCodeResponse,
   CodeSearchResultItem,
   GitHubAPIResponse,
   OptimizedCodeSearchResult,
@@ -123,7 +122,10 @@ async function searchGitHubCodeAPIInternal(
 
     const result = await octokit.rest.search.code(searchParams);
 
-    const optimizedResult = await convertCodeSearchResult(result);
+    const optimizedResult = await transformToOptimizedFormat(
+      result.data.items,
+      result.data.total_count
+    );
 
     const reportedTotalMatches = optimizedResult.total_count;
     const totalMatches = Math.min(reportedTotalMatches, 1000);
@@ -191,14 +193,6 @@ async function searchGitHubCodeAPIInternal(
   }
 }
 
-async function convertCodeSearchResult(
-  octokitResult: SearchCodeResponse
-): Promise<OptimizedCodeSearchResult> {
-  const items: CodeSearchResultItem[] = octokitResult.data.items;
-
-  return transformToOptimizedFormat(items, octokitResult.data.total_count);
-}
-
 async function transformToOptimizedFormat(
   items: CodeSearchResultItem[],
   apiTotalCount?: number
@@ -207,7 +201,7 @@ async function transformToOptimizedFormat(
 
   const allMatchLocationsSet = new Set<string>();
   let hasMinificationFailures = false;
-  const minificationTypes: string[] = [];
+  const allMinificationTypes: string[] = [];
 
   const foundFiles = new Set<string>();
 
@@ -219,6 +213,8 @@ async function transformToOptimizedFormat(
   const itemResults = await Promise.allSettled(
     filteredItems.map(async item => {
       foundFiles.add(item.path);
+
+      const itemMinificationTypes: string[] = [];
 
       const matchResults = await Promise.allSettled(
         (item.text_matches || []).map(async match => {
@@ -241,16 +237,21 @@ async function transformToOptimizedFormat(
             );
           }
 
-          const minifyResult = await minifyContent(
-            processedFragment || '',
-            item.path
-          );
-          processedFragment = minifyResult.content;
+          try {
+            const minifyResult = await minifyContent(
+              processedFragment || '',
+              item.path
+            );
+            processedFragment = minifyResult.content;
 
-          if (minifyResult.failed) {
+            if (minifyResult.failed) {
+              hasMinificationFailures = true;
+            } else if (minifyResult.type !== 'failed') {
+              itemMinificationTypes.push(minifyResult.type);
+              allMinificationTypes.push(minifyResult.type);
+            }
+          } catch {
             hasMinificationFailures = true;
-          } else if (minifyResult.type !== 'failed') {
-            minificationTypes.push(minifyResult.type);
           }
 
           return {
@@ -287,6 +288,8 @@ async function transformToOptimizedFormat(
         last_modified_at?: string;
       };
 
+      const uniqueItemTypes = Array.from(new Set(itemMinificationTypes));
+
       return {
         path: item.path,
         matches: processedMatches,
@@ -299,8 +302,8 @@ async function transformToOptimizedFormat(
         ...(itemWithOptionalFields.last_modified_at && {
           lastModifiedAt: itemWithOptionalFields.last_modified_at,
         }),
-        ...(minificationTypes.length > 0 && {
-          minificationType: Array.from(new Set(minificationTypes)).join(','),
+        ...(uniqueItemTypes.length > 0 && {
+          minificationType: uniqueItemTypes.join(','),
         }),
       };
     })
@@ -368,8 +371,8 @@ async function transformToOptimizedFormat(
 
   result.minified = !hasMinificationFailures;
   result.minificationFailed = hasMinificationFailures;
-  if (minificationTypes.length > 0) {
-    result.minificationTypes = Array.from(new Set(minificationTypes));
+  if (allMinificationTypes.length > 0) {
+    result.minificationTypes = Array.from(new Set(allMinificationTypes));
   }
 
   return result;

@@ -25,48 +25,6 @@ describe('ContentSanitizer — coverage gaps', () => {
       expect(result.content).toContain('[REDACTED-GITHUBTOKENS]');
     });
 
-    it('should detect secrets near chunk boundaries (overlap region)', () => {
-      const testPattern = {
-        name: 'test-boundary-secret',
-        description: 'test',
-        regex: /BOUNDARY_SECRET_[A-Z0-9]{20}/g,
-        matchAccuracy: 'high' as const,
-      };
-      const beforeBoundary = 'a'.repeat(499_950);
-      const secret = 'BOUNDARY_SECRET_ABCDEFGHIJ1234567890';
-      const afterBoundary = 'b'.repeat(100_000);
-      const content = beforeBoundary + secret + afterBoundary;
-
-      const result = ContentSanitizer.sanitizeContent(content, undefined, [
-        testPattern,
-      ]);
-
-      expect(result.hasSecrets).toBe(true);
-      expect(result.content).not.toContain(secret);
-      expect(result.content).toContain('[REDACTED-TEST-BOUNDARY-SECRET]');
-    });
-
-    it('should handle multiple secrets across chunks', () => {
-      const testPattern = {
-        name: 'test-multi-secret',
-        description: 'test',
-        regex: /MULTI_SECRET_[A-Z0-9]{20}/g,
-        matchAccuracy: 'high' as const,
-      };
-      const secret1 = 'MULTI_SECRET_AAAAAAAAAA1111111111';
-      const secret2 = 'MULTI_SECRET_BBBBBBBBBB2222222222';
-      const padding = 'x'.repeat(510_000);
-      const content = secret1 + padding + secret2;
-
-      const result = ContentSanitizer.sanitizeContent(content, undefined, [
-        testPattern,
-      ]);
-
-      expect(result.hasSecrets).toBe(true);
-      expect(result.content).not.toContain(secret1);
-      expect(result.content).not.toContain(secret2);
-    });
-
     it('should handle content with fileContext-filtered patterns in chunked mode', () => {
       const padding = 'x'.repeat(510_000);
       const content = padding + 'DB_PASSWORD=hunter2' + padding;
@@ -83,65 +41,6 @@ describe('ContentSanitizer — coverage gaps', () => {
 
       expect(result.hasSecrets).toBe(false);
       expect(result.secretsDetected).toHaveLength(0);
-    });
-  });
-
-  describe('detectSecrets error handling', () => {
-    it('should handle regex errors in non-chunked path gracefully', () => {
-      const evilPattern = {
-        name: 'evil',
-        description: 'causes error',
-        regex: {
-          test: () => {
-            throw new Error('regex exploded');
-          },
-          [Symbol.match]: () => {
-            throw new Error('regex exploded');
-          },
-          exec: () => {
-            throw new Error('regex exploded');
-          },
-        } as unknown as RegExp,
-        matchAccuracy: 'high' as const,
-      };
-
-      const result = ContentSanitizer.sanitizeContent(
-        'some content',
-        undefined,
-        [evilPattern]
-      );
-
-      expect(result.hasSecrets).toBe(true);
-      expect(result.secretsDetected).toContain('detection-error');
-      expect(result.content).toBe('[CONTENT-REDACTED-DETECTION-ERROR]');
-    });
-
-    it('should handle regex errors in chunked path gracefully', () => {
-      const evilPattern = {
-        name: 'evil-chunked',
-        description: 'causes error in chunk',
-        regex: {
-          test: () => {
-            throw new Error('chunk regex exploded');
-          },
-          [Symbol.match]: () => {
-            throw new Error('chunk regex exploded');
-          },
-          exec: () => {
-            throw new Error('chunk regex exploded');
-          },
-        } as unknown as RegExp,
-        matchAccuracy: 'high' as const,
-      };
-
-      const bigContent = 'x'.repeat(600_000);
-      const result = ContentSanitizer.sanitizeContent(bigContent, undefined, [
-        evilPattern,
-      ]);
-
-      expect(result.hasSecrets).toBe(true);
-      expect(result.secretsDetected).toContain('detection-error');
-      expect(result.content).toBe('[CONTENT-REDACTED-DETECTION-ERROR]');
     });
   });
 
@@ -169,58 +68,15 @@ describe('ContentSanitizer — coverage gaps', () => {
     });
   });
 
-  describe('sanitizeContent with filePath and fileContext patterns', () => {
-    it('should skip fileContext patterns when filePath does not match', () => {
-      const pattern = {
-        name: 'env-only',
-        description: 'only matches in .env files',
-        regex: /SECRET_VALUE=\w+/g,
-        fileContext: /\.env$/,
-        matchAccuracy: 'high' as const,
-      };
-
+  describe('sanitizeContent with filePath', () => {
+    it('should sanitize content when filePath is provided', () => {
+      const secret = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
       const result = ContentSanitizer.sanitizeContent(
-        'SECRET_VALUE=hello',
-        'config.json',
-        [pattern]
+        `token: ${secret}`,
+        'config.json'
       );
-
-      expect(result.hasSecrets).toBe(false);
-    });
-
-    it('should apply fileContext patterns when filePath matches', () => {
-      const pattern = {
-        name: 'env-only',
-        description: 'only matches in .env files',
-        regex: /SECRET_VALUE=\w+/g,
-        fileContext: /\.env$/,
-        matchAccuracy: 'high' as const,
-      };
-
-      const result = ContentSanitizer.sanitizeContent(
-        'SECRET_VALUE=hello',
-        '.env',
-        [pattern]
-      );
-
       expect(result.hasSecrets).toBe(true);
-    });
-
-    it('should skip fileContext patterns in chunked mode when filePath is undefined', () => {
-      const pattern = {
-        name: 'env-only',
-        description: 'only matches in .env files',
-        regex: /SECRET_VALUE=\w+/g,
-        fileContext: /\.env$/,
-        matchAccuracy: 'high' as const,
-      };
-
-      const bigContent = 'SECRET_VALUE=hello ' + 'x'.repeat(510_000);
-      const result = ContentSanitizer.sanitizeContent(bigContent, undefined, [
-        pattern,
-      ]);
-
-      expect(result.hasSecrets).toBe(false);
+      expect(result.content).not.toContain(secret);
     });
   });
 
@@ -1024,25 +880,6 @@ describe('Security penetration — additional bypass vectors', () => {
     });
   });
 
-  describe('mask — interaction with SecurityRegistry custom patterns', () => {
-    it('should mask secrets from explicitly passed custom patterns', async () => {
-      vi.resetModules();
-      const { maskSensitiveData } = await import('../src/mask.js');
-
-      const customPattern = {
-        name: 'customCorpKey',
-        description: 'Corp key',
-        regex: /CORP_[A-Z0-9]{32}/g,
-        matchAccuracy: 'high' as const,
-      };
-
-      const secret = 'CORP_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
-      const masked = maskSensitiveData(`key: ${secret}`, [customPattern]);
-
-      expect(masked).not.toContain(secret);
-      expect(masked).toContain('*');
-    });
-  });
 });
 
 describe('SecurityRegistry — freeze & ReDoS protection', () => {

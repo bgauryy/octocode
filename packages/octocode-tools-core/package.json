@@ -28,14 +28,17 @@
     "lint:fix": "eslint src --fix",
     "test": "vitest run --coverage",
     "test:quiet": "vitest run --reporter=dot --silent",
-    "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.json"
+    "typecheck": "tsc --noEmit --skipLibCheck -p tsconfig.json",
+    "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-context-utils": "workspace:^",
+    "@octocodeai/octocode-context-utils": "workspace:*",
     "@octocodeai/octocode-core": "^4.3.0",
     "@vscode/ripgrep": "^1.18.0",
-    "octocode-security": "workspace:^",
+    "octocode-lsp": "workspace:*",
+    "octocode-security": "workspace:*",
+    "octocode-shared": "workspace:*",
     "typescript": "^5.9.3",
     "typescript-language-server": "^5.3.0"
   },
@@ -49,8 +52,6 @@
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
     "node-cache": "^5.1.2",
-    "octocode-lsp": "workspace:^",
-    "octocode-shared": "workspace:^",
     "octokit": "^5.0.5",
     "vitest": "^4.0.16",
     "zod": "^4.3.6"

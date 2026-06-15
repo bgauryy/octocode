@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toMCPSchema } from '../../../types/toolTypes.js';
-import { withBasicSecurityValidation } from '../../../utils/securityBridge.js';
+import { withBasicSecurityValidation } from '@octocodeai/octocode-tools-core';
 import {
   DESCRIPTIONS,
   BulkLspGetSemanticContentQuerySchema,

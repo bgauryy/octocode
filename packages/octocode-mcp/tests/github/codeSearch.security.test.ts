@@ -266,7 +266,7 @@ describe('Code Search - Minification', () => {
     }
   });
 
-  it('should include minification types when minification succeeds', async () => {
+  it('should set minified and minificationFailed flags', async () => {
     const mockResponse = {
       data: {
         total_count: 1,
@@ -299,8 +299,8 @@ describe('Code Search - Minification', () => {
     });
 
     if ('data' in result) {
-      expect(result.data.minified).toBeDefined();
-      expect(result.data.minificationTypes).toBeDefined();
+      expect(typeof result.data.minified).toBe('boolean');
+      expect(typeof result.data.minificationFailed).toBe('boolean');
     } else {
       expect.fail('Expected successful result');
     }

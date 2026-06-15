@@ -12,6 +12,7 @@ export default defineConfig({
         'src/index.ts',
         'src/initConstants.ts',
         'src/lspErrorCodes.ts',
+        'src/native.ts',
         'src/types.ts',
       ],
       thresholds: {

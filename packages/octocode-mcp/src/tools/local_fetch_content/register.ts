@@ -8,7 +8,7 @@ import {
   executeFetchContent,
   withResponseEnvelope,
 } from '@octocodeai/octocode-tools-core';
-import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
+import { withBasicSecurityValidation } from '@octocodeai/octocode-tools-core';
 import { LocalGetFileContentOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 const MatchRangeSchema = z.object({ start: z.number(), end: z.number() });

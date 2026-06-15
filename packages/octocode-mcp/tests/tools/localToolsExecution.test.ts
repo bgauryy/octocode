@@ -10,21 +10,33 @@ vi.mock('../../../octocode-tools-core/src/utils/response/bulk.js', () => ({
   }),
 }));
 
-vi.mock('../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js', () => ({
-  fetchContent: vi.fn().mockResolvedValue({ status: 'success' }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js',
+  () => ({
+    fetchContent: vi.fn().mockResolvedValue({ status: 'success' }),
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_find_files/findFiles.js', () => ({
-  findFiles: vi.fn().mockResolvedValue({ status: 'success' }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_find_files/findFiles.js',
+  () => ({
+    findFiles: vi.fn().mockResolvedValue({ status: 'success' }),
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
-  searchContentRipgrep: vi.fn().mockResolvedValue({ status: 'success' }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_ripgrep/searchContentRipgrep.js',
+  () => ({
+    searchContentRipgrep: vi.fn().mockResolvedValue({ status: 'success' }),
+  })
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js', () => ({
-  viewStructure: vi.fn().mockResolvedValue({ status: 'success' }),
-}));
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js',
+  () => ({
+    viewStructure: vi.fn().mockResolvedValue({ status: 'success' }),
+  })
+);
 
 const withParsedDefaults = <T extends object>(
   query: T
@@ -55,29 +67,35 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
   };
 });
 
-vi.mock('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js', async importOriginal => {
-  const actual =
-    await importOriginal<
-      typeof import('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js')
-    >();
-  return {
-    ...actual,
-    LocalRipgrepQuerySchema: { safeParse: mockSafeParse },
-    LocalRipgrepBulkQuerySchema: {},
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js')
+      >();
+    return {
+      ...actual,
+      LocalRipgrepQuerySchema: { safeParse: mockSafeParse },
+      LocalRipgrepBulkQuerySchema: {},
+    };
+  }
+);
 
-vi.mock('../../../octocode-tools-core/src/tools/local_find_files/scheme.js', async importOriginal => {
-  const actual =
-    await importOriginal<
-      typeof import('../../../octocode-tools-core/src/tools/local_find_files/scheme.js')
-    >();
-  return {
-    ...actual,
-    LocalFindFilesQuerySchema: { safeParse: mockSafeParse },
-    LocalFindFilesBulkQuerySchema: {},
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/local_find_files/scheme.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/tools/local_find_files/scheme.js')
+      >();
+    return {
+      ...actual,
+      LocalFindFilesQuerySchema: { safeParse: mockSafeParse },
+      LocalFindFilesBulkQuerySchema: {},
+    };
+  }
+);
 
 vi.mock(
   '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js',

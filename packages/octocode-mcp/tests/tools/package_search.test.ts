@@ -176,16 +176,21 @@ function createNpmCommandMock(searchResult: {
 
 const mockExecuteNpmCommand = vi.fn();
 const mockCheckNpmAvailability = vi.fn();
-vi.mock('../../../octocode-tools-core/src/utils/exec/npm.js', async importOriginal => {
-  const actual =
-    await importOriginal<typeof import('../../../octocode-tools-core/src/utils/exec/npm.js')>();
-  return {
-    ...actual,
-    executeNpmCommand: (...args: unknown[]) => mockExecuteNpmCommand(...args),
-    checkNpmAvailability: (...args: unknown[]) =>
-      mockCheckNpmAvailability(...args),
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/utils/exec/npm.js',
+  async importOriginal => {
+    const actual =
+      await importOriginal<
+        typeof import('../../../octocode-tools-core/src/utils/exec/npm.js')
+      >();
+    return {
+      ...actual,
+      executeNpmCommand: (...args: unknown[]) => mockExecuteNpmCommand(...args),
+      checkNpmAvailability: (...args: unknown[]) =>
+        mockCheckNpmAvailability(...args),
+    };
+  }
+);
 
 vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   generateCacheKey: vi.fn(() => 'test-cache-key'),
@@ -263,28 +268,31 @@ function setupDefaultFetchMock(): void {
   );
 }
 
-vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
-  >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
-  return {
-    ...actual,
-    TOOL_NAMES: new Proxy(actual.TOOL_NAMES, {
-      get(target, prop: string | symbol) {
-        if (prop === 'PACKAGE_SEARCH') return 'packageSearch';
-        return Reflect.get(target, prop);
-      },
-    }),
-    DESCRIPTIONS: new Proxy(actual.DESCRIPTIONS, {
-      get(target, prop: string) {
-        if (prop === 'packageSearch') {
-          return 'Search for packages in the npm ecosystem';
-        }
-        return Reflect.get(target, prop);
-      },
-    }),
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
+  async () => {
+    const actual = await vi.importActual<
+      typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
+    >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
+    return {
+      ...actual,
+      TOOL_NAMES: new Proxy(actual.TOOL_NAMES, {
+        get(target, prop: string | symbol) {
+          if (prop === 'PACKAGE_SEARCH') return 'packageSearch';
+          return Reflect.get(target, prop);
+        },
+      }),
+      DESCRIPTIONS: new Proxy(actual.DESCRIPTIONS, {
+        get(target, prop: string) {
+          if (prop === 'packageSearch') {
+            return 'Search for packages in the npm ecosystem';
+          }
+          return Reflect.get(target, prop);
+        },
+      }),
+    };
+  }
+);
 
 import {
   searchPackage,

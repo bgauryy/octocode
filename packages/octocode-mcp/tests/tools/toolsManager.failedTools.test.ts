@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerTools } from '../../src/tools/toolsManager.js';
 import type { ToolConfig } from '../../src/tools/toolConfig.js';
-import { initialize, cleanup } from '../../../octocode-tools-core/src/serverConfig.js';
+import {
+  initialize,
+  cleanup,
+} from '../../../octocode-tools-core/src/serverConfig.js';
 import {
   _setTokenResolvers,
   _resetTokenResolvers,

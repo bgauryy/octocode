@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { clearAllCache, getCacheStats } from '../../../octocode-tools-core/src/utils/http/cache.js';
+import {
+  clearAllCache,
+  getCacheStats,
+} from '../../../octocode-tools-core/src/utils/http/cache.js';
 import { getOctokit } from '../../../octocode-tools-core/src/github/client';
 import { searchGitHubCodeAPI } from '../../../octocode-tools-core/src/github/codeSearch';
 import { searchGitHubReposAPI } from '../../../octocode-tools-core/src/github/repoSearch';

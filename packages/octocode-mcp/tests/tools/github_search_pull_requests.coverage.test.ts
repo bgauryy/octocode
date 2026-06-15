@@ -422,39 +422,45 @@ describe('large-file detection — fileChanges fallback arm (199,213)', () => {
   it('computes maxFiles from fileChanges length when changedFilesCount is absent', async () => {
     const search = vi.fn();
 
-    vi.doMock('../../../octocode-tools-core/src/tools/providerExecution.js', () => ({
-      createProviderExecutionContext: vi.fn(() => ({
-        provider: { searchPullRequests: search },
-      })),
-      createLazyProviderContext: vi.fn(() =>
-        vi.fn(() => ({ provider: { searchPullRequests: search } }))
-      ),
-      executeProviderOperation: vi.fn(async () => ({
-        ok: true,
-        response: { data: {}, rawResponseChars: 0 },
-      })),
-    }));
+    vi.doMock(
+      '../../../octocode-tools-core/src/tools/providerExecution.js',
+      () => ({
+        createProviderExecutionContext: vi.fn(() => ({
+          provider: { searchPullRequests: search },
+        })),
+        createLazyProviderContext: vi.fn(() =>
+          vi.fn(() => ({ provider: { searchPullRequests: search } }))
+        ),
+        executeProviderOperation: vi.fn(async () => ({
+          ok: true,
+          response: { data: {}, rawResponseChars: 0 },
+        })),
+      })
+    );
 
     const fileChanges = Array.from({ length: 44 }, (_, i) => ({
       filename: `src/f${i}.ts`,
     }));
 
-    vi.doMock('../../../octocode-tools-core/src/tools/providerMappers.js', async () => {
-      const actual = await vi.importActual<
-        typeof import('../../../octocode-tools-core/src/tools/providerMappers.js')
-      >('../../../octocode-tools-core/src/tools/providerMappers.js');
-      return {
-        ...actual,
-        mapPullRequestProviderResultData: vi.fn(() => ({
-          pullRequests: [{ number: 77, fileChanges }],
-          resultData: {
-            pull_requests: [{ number: 77, fileChanges }],
-            total_count: 1,
-          },
-          pagination: undefined,
-        })),
-      };
-    });
+    vi.doMock(
+      '../../../octocode-tools-core/src/tools/providerMappers.js',
+      async () => {
+        const actual = await vi.importActual<
+          typeof import('../../../octocode-tools-core/src/tools/providerMappers.js')
+        >('../../../octocode-tools-core/src/tools/providerMappers.js');
+        return {
+          ...actual,
+          mapPullRequestProviderResultData: vi.fn(() => ({
+            pullRequests: [{ number: 77, fileChanges }],
+            resultData: {
+              pull_requests: [{ number: 77, fileChanges }],
+              total_count: 1,
+            },
+            pagination: undefined,
+          })),
+        };
+      }
+    );
 
     const { searchMultipleGitHubPullRequests } =
       await import('../../../octocode-tools-core/src/tools/github_search_pull_requests/execution.js');

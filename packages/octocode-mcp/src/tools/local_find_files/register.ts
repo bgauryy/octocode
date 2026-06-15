@@ -7,7 +7,7 @@ import {
   executeFindFiles,
   withResponseEnvelope,
 } from '@octocodeai/octocode-tools-core';
-import { withBasicSecurityValidation } from '../../utils/securityBridge.js';
+import { withBasicSecurityValidation } from '@octocodeai/octocode-tools-core';
 import { LocalFindFilesOutputSchema } from '@octocodeai/octocode-core/schemas/outputs';
 
 export function registerLocalFindFilesTool(server: McpServer) {

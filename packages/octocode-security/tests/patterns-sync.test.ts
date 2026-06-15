@@ -94,12 +94,16 @@ describe('SYNC-03: file_context metadata parity', () => {
       // The pattern block in patterns.rs should NOT have file_context: None
       // for this name.  Find the block and check.
       const blockStart = rsSource.indexOf(`name: "${p.name}"`);
-      expect(blockStart, `pattern "${p.name}" not found in patterns.rs`).toBeGreaterThan(-1);
+      expect(
+        blockStart,
+        `pattern "${p.name}" not found in patterns.rs`
+      ).toBeGreaterThan(-1);
       const blockEnd = rsSource.indexOf('}', blockStart);
       const block = rsSource.slice(blockStart, blockEnd + 1);
-      expect(block, `"${p.name}" should have file_context: Some(...)`).toContain(
-        'file_context: Some('
-      );
+      expect(
+        block,
+        `"${p.name}" should have file_context: Some(...)`
+      ).toContain('file_context: Some(');
     }
   });
 

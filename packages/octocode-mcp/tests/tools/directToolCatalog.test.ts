@@ -21,7 +21,7 @@ import {
   prepareDirectToolInput,
   prepareDirectToolInputFromJsonText,
   sortDirectToolNames,
-} from '../../src/tools/directToolCatalog.js';
+} from '@octocodeai/octocode-tools-core';
 import { z } from 'zod';
 
 describe('directToolCatalog', () => {

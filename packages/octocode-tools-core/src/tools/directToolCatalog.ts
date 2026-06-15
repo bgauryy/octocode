@@ -1,21 +1,19 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import {
-  initialize,
-  initializeProviders,
-  STATIC_TOOL_NAMES,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-} from '@octocodeai/octocode-tools-core';
-import type { ToolConfig } from '@octocodeai/octocode-tools-core';
+import { initialize } from '../serverConfig.js';
+import { initializeProviders } from '../providers/factory.js';
+import { STATIC_TOOL_NAMES } from './toolNames.js';
+import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
+import type { ToolConfig } from './toolConfig.js';
+import { ALL_TOOLS } from './toolConfig.js';
 import {
   buildToolErrorResult,
   sanitizeCallToolResult,
-} from '../utils/secureServer.js';
+} from '../utils/response/callToolResult.js';
 import {
   withBasicSecurityValidation,
   withSecurityValidation,
-} from '../utils/securityBridge.js';
-import { ALL_TOOLS } from './toolConfig.js';
+} from '../security/bridge.js';
 
 export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];

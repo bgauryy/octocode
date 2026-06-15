@@ -46,13 +46,13 @@ if (!triple) {
 
 const securityPkg = join(__dirname, '..', '..', 'octocode-security');
 const binaryName = `octocode-security.${triple}.node`;
-const src = join(securityPkg, binaryName);
+const src = join(securityPkg, 'npm', triple, binaryName);
 const dest = join(outDir, binaryName);
 const runtimeDest = join(outDir, 'runtime', 'security', binaryName);
 
 if (!existsSync(src)) {
   console.warn(`⚠  octocode-security binary not found: ${src}`);
-  console.warn(`   Run: cd packages/octocode-security && yarn build:rust`);
+  console.warn(`   Run: cd packages/octocode-security && yarn build:rust:all`);
   process.exit(1);
 }
 

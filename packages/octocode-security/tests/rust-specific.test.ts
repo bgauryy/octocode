@@ -39,13 +39,45 @@ interface NativeModule {
 
 let native: NativeModule | null = null;
 
+function isMusl(): boolean {
+  try {
+    const report = (
+      process as NodeJS.Process & {
+        report?: {
+          getReport(): { header?: { glibcVersionRuntime?: string } };
+        };
+      }
+    ).report?.getReport();
+    return !report?.header?.glibcVersionRuntime;
+  } catch {
+    return true;
+  }
+}
+
+function currentNativeTriple(): string | undefined {
+  const linuxLibc =
+    process.platform === 'linux' ? (isMusl() ? 'musl' : 'gnu') : '';
+  const tripleMap: Record<string, Record<string, string>> = {
+    darwin: { arm64: 'darwin-arm64', x64: 'darwin-x64' },
+    linux: {
+      arm64: `linux-arm64-${linuxLibc}`,
+      x64: `linux-x64-${linuxLibc}`,
+    },
+    win32: { x64: 'win32-x64-msvc' },
+  };
+  return tripleMap[process.platform]?.[process.arch];
+}
+
 beforeAll(() => {
+  const triple = currentNativeTriple();
   const candidates = [
-    join(__dir, '..', 'octocode-security.darwin-arm64.node'),
-    join(__dir, '..', 'octocode-security.darwin-x64.node'),
-    join(__dir, '..', 'octocode-security.linux-x64-gnu.node'),
-    join(__dir, '..', 'octocode-security.node'),
-  ];
+    process.env.OCTOCODE_SECURITY_NATIVE_PATH,
+    triple ? `octocode-security-${triple}` : undefined,
+    triple
+      ? join(__dir, '..', 'npm', triple, `octocode-security.${triple}.node`)
+      : undefined,
+  ].filter((candidate): candidate is string => typeof candidate === 'string');
+
   for (const c of candidates) {
     try {
       native = _req(c) as NativeModule;
@@ -249,7 +281,9 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
   const CHUNK_BOUNDARY = 500_001; // just past the single-path threshold
 
   it('clean 600KB content: no false positives via chunked path', () => {
-    const content = 'The quick brown fox. '.repeat(Math.ceil(600_000 / 21)).slice(0, 600_000);
+    const content = 'The quick brown fox. '
+      .repeat(Math.ceil(600_000 / 21))
+      .slice(0, 600_000);
     const r = ContentSanitizer.sanitizeContent(content);
     expect(r.hasSecrets).toBe(false);
     expect(r.content).toBe(content);
@@ -258,7 +292,9 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
 
   it('clean 2MB content: no false positives via chunked path', () => {
     const sentence = 'Lorem ipsum dolor sit amet. ';
-    const content = sentence.repeat(Math.ceil(2_000_000 / sentence.length)).slice(0, 2_000_000);
+    const content = sentence
+      .repeat(Math.ceil(2_000_000 / sentence.length))
+      .slice(0, 2_000_000);
     const r = ContentSanitizer.sanitizeContent(content);
     expect(r.hasSecrets).toBe(false);
     expect(r.content).toBe(content);
@@ -292,7 +328,8 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
 
   it('detects GitHub PAT at position 0 in 600KB content (chunked path)', () => {
     const secret = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
-    const content = secret + ' ' + 'z'.repeat(CHUNK_BOUNDARY - secret.length - 1);
+    const content =
+      secret + ' ' + 'z'.repeat(CHUNK_BOUNDARY - secret.length - 1);
     const r = ContentSanitizer.sanitizeContent(content);
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain(secret);
@@ -301,7 +338,8 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
 
   it('detects GitHub PAT at the very end of 600KB content (chunked path)', () => {
     const secret = 'ghp_1234567890abcdefghijklmnopqrstuvwxyz123456';
-    const content = 'z'.repeat(CHUNK_BOUNDARY - secret.length - 1) + ' ' + secret;
+    const content =
+      'z'.repeat(CHUNK_BOUNDARY - secret.length - 1) + ' ' + secret;
     const r = ContentSanitizer.sanitizeContent(content);
     expect(r.hasSecrets).toBe(true);
     expect(r.content).not.toContain(secret);
@@ -340,8 +378,11 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
     const yaml = 'kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n';
     const largePad = 'x'.repeat(CHUNK_BOUNDARY);
     const content = yaml + largePad;
-    const withPath = ContentSanitizer.sanitizeContent(content, 'k8s/secret.yaml');
-    const noPath   = ContentSanitizer.sanitizeContent(content);
+    const withPath = ContentSanitizer.sanitizeContent(
+      content,
+      'k8s/secret.yaml'
+    );
+    const noPath = ContentSanitizer.sanitizeContent(content);
     // File-context pattern must fire when path matches.
     // (Other non-file-context patterns may or may not fire.)
     // The key invariant: the yaml block is redacted with path, untouched without.

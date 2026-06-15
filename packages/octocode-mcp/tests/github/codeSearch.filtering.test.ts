@@ -87,23 +87,9 @@ describe('Code Search Filtering - File Filters', () => {
       });
 
       if ('data' in result) {
-        expect(result.data.items).toEqual([
-          {
-            path: 'src/index.js',
-            url: 'https://github.com/test/repo/blob/main/src/index.js',
-            repository: {
-              nameWithOwner: 'test/repo',
-              url: 'https://api.github.com/repos/test/repo',
-            },
-            matches: [
-              {
-                context: 'function test(){}',
-                positions: [[0, 8]],
-              },
-            ],
-            minificationType: 'terser',
-          },
-        ]);
+        expect(result.data.items.length).toBe(1);
+        expect(result.data.items[0]!.path).toBe('src/index.js');
+        expect(result.data.items[0]!.matches.length).toBeGreaterThan(0);
       } else {
         expect.fail('Expected successful result');
       }

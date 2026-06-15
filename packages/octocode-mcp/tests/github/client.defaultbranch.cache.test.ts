@@ -44,7 +44,10 @@ vi.mock('@octokit/plugin-throttling', () => ({
   throttling: {},
 }));
 
-import { getGitHubToken, getServerConfig } from '../../../octocode-tools-core/src/serverConfig.js';
+import {
+  getGitHubToken,
+  getServerConfig,
+} from '../../../octocode-tools-core/src/serverConfig.js';
 import { Octokit } from 'octokit';
 
 const mockGetGitHubToken = vi.mocked(getGitHubToken);

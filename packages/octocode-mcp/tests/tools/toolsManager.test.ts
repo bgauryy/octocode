@@ -71,27 +71,30 @@ vi.mock('../../src/tools/toolConfig.js', () => {
   };
 });
 
-vi.mock('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
-  >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
-  return {
-    ...actual,
-    isToolInMetadata: vi.fn(),
-    TOOL_NAMES: {
-      GITHUB_FETCH_CONTENT: 'githubGetFileContent',
-      GITHUB_SEARCH_CODE: 'githubSearchCode',
-      GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
-      GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
-      GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
-      PACKAGE_SEARCH: 'packageSearch',
-      LOCAL_RIPGREP: 'localSearchCode',
-      LOCAL_FETCH_CONTENT: 'localGetFileContent',
-      LOCAL_FIND_FILES: 'localFindFiles',
-      LOCAL_VIEW_STRUCTURE: 'localViewStructure',
-    },
-  };
-});
+vi.mock(
+  '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
+  async () => {
+    const actual = await vi.importActual<
+      typeof import('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js')
+    >('../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
+    return {
+      ...actual,
+      isToolInMetadata: vi.fn(),
+      TOOL_NAMES: {
+        GITHUB_FETCH_CONTENT: 'githubGetFileContent',
+        GITHUB_SEARCH_CODE: 'githubSearchCode',
+        GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
+        GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
+        GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
+        PACKAGE_SEARCH: 'packageSearch',
+        LOCAL_RIPGREP: 'localSearchCode',
+        LOCAL_FETCH_CONTENT: 'localGetFileContent',
+        LOCAL_FIND_FILES: 'localFindFiles',
+        LOCAL_VIEW_STRUCTURE: 'localViewStructure',
+      },
+    };
+  }
+);
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getServerConfig: vi.fn(),

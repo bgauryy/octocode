@@ -1,6 +1,6 @@
 [package]
 name = "octocode-context-utils"
-version = "0.1.0"
+version = "16.0.1"
 edition = "2021"
 description = "Rust LLM context engine for agent-readable compression, semantic signatures, deterministic pagination, and YAML utilities"
 license = "MIT"

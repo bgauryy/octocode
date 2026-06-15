@@ -1,26 +1,17 @@
-import { promises as fs } from 'fs';
-import type { FuzzyPosition, ExactPosition } from './types.js';
+import { nativeBinding } from './native.js';
+import type { ExactPosition, FuzzyPosition } from './types.js';
 
 export class SymbolResolutionError extends Error {
-  public readonly symbolName: string;
-  public readonly lineHint: number;
-  public readonly reason: string;
-  public readonly searchRadius: number;
-
   constructor(
-    symbolName: string,
-    lineHint: number,
-    reason: string,
-    searchRadius: number = 5
+    public readonly symbolName: string,
+    public readonly lineHint: number,
+    public readonly reason: string,
+    public readonly searchRadius = 5
   ) {
     super(
       `Could not find symbol '${symbolName}' at or near line ${lineHint}. ${reason}`
     );
     this.name = 'SymbolResolutionError';
-    this.symbolName = symbolName;
-    this.lineHint = lineHint;
-    this.reason = reason;
-    this.searchRadius = searchRadius;
   }
 }
 
@@ -30,77 +21,63 @@ interface SymbolResolverConfig {
 
 interface ResolvedSymbol {
   position: ExactPosition;
-
   foundAtLine: number;
-
   lineOffset: number;
-
   lineContent: string;
 }
 
-interface QuoteScanState {
-  inSingle: boolean;
-  inDouble: boolean;
-  inTemplate: boolean;
-
-  templateExprDepth: number;
-  escaped: boolean;
+function normalizeResolvedSymbol(value: unknown): ResolvedSymbol {
+  const record = value as {
+    position: ExactPosition;
+    foundAtLine?: number;
+    found_at_line?: number;
+    lineOffset?: number;
+    line_offset?: number;
+    lineContent?: string;
+    line_content?: string;
+  };
+  return {
+    position: record.position,
+    foundAtLine: record.foundAtLine ?? record.found_at_line ?? 0,
+    lineOffset: record.lineOffset ?? record.line_offset ?? 0,
+    lineContent: record.lineContent ?? record.line_content ?? '',
+  };
 }
 
-function stepStringScan(
-  line: string,
-  i: number,
-  state: QuoteScanState
-): { commentFound: boolean; nextIndex: number } {
-  if (state.escaped) {
-    state.escaped = false;
-    return { commentFound: false, nextIndex: i + 1 };
+export async function resolveSymbolPosition(
+  filePath: string,
+  symbolName: string,
+  lineHint?: number,
+  orderHint?: number
+): Promise<ResolvedSymbol>;
+export function resolveSymbolPosition(
+  content: string,
+  fuzzy: FuzzyPosition
+): ResolvedSymbol;
+export function resolveSymbolPosition(
+  fileOrContent: string,
+  fuzzyOrSymbolName: FuzzyPosition | string,
+  lineHint?: number,
+  orderHint?: number
+): Promise<ResolvedSymbol> | ResolvedSymbol {
+  if (typeof fuzzyOrSymbolName === 'string') {
+    return Promise.resolve(
+      normalizeResolvedSymbol(
+        nativeBinding.resolvePosition(fileOrContent, {
+          symbolName: fuzzyOrSymbolName,
+          lineHint,
+          orderHint,
+        })
+      )
+    );
   }
-
-  const ch = line[i]!;
-
-  if (ch === '\\') {
-    state.escaped = true;
-    return { commentFound: false, nextIndex: i + 1 };
-  }
-
-  if (
-    ch === '/' &&
-    line[i + 1] === '/' &&
-    !state.inSingle &&
-    !state.inDouble &&
-    !state.inTemplate
-  ) {
-    return { commentFound: true, nextIndex: i + 1 };
-  }
-
-  if (
-    state.inTemplate &&
-    state.templateExprDepth === 0 &&
-    ch === '$' &&
-    line[i + 1] === '{'
-  ) {
-    state.templateExprDepth = 1;
-    return { commentFound: false, nextIndex: i + 2 };
-  }
-  if (state.templateExprDepth > 0) {
-    if (ch === '{') state.templateExprDepth++;
-    else if (ch === '}') state.templateExprDepth--;
-    return { commentFound: false, nextIndex: i + 1 };
-  }
-
-  if (ch === "'" && !state.inDouble && !state.inTemplate)
-    state.inSingle = !state.inSingle;
-  else if (ch === '"' && !state.inSingle && !state.inTemplate)
-    state.inDouble = !state.inDouble;
-  else if (ch === '`' && !state.inSingle && !state.inDouble)
-    state.inTemplate = !state.inTemplate;
-
-  return { commentFound: false, nextIndex: i + 1 };
+  return normalizeResolvedSymbol(
+    nativeBinding.resolvePositionFromContent(fileOrContent, fuzzyOrSymbolName)
+  );
 }
 
 export class SymbolResolver {
-  private readonly lineSearchRadius: number;
+  readonly lineSearchRadius: number;
 
   constructor(config?: SymbolResolverConfig) {
     this.lineSearchRadius = config?.lineSearchRadius ?? 5;
@@ -110,231 +87,17 @@ export class SymbolResolver {
     filePath: string,
     fuzzy: FuzzyPosition
   ): Promise<ResolvedSymbol> {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return this.resolvePositionFromContent(content, fuzzy);
+    return normalizeResolvedSymbol(
+      nativeBinding.resolvePosition(filePath, fuzzy)
+    );
   }
 
   resolvePositionFromContent(
     content: string,
     fuzzy: FuzzyPosition
   ): ResolvedSymbol {
-    const lines = content.split(/\r?\n/);
-    const orderHint = fuzzy.orderHint ?? 0;
-
-    // No lineHint → auto-locate the symbol by scanning the whole file, so the
-    // caller doesn't need a prior localSearchCode to find the line number.
-    if (fuzzy.lineHint === undefined || fuzzy.lineHint <= 0) {
-      const scanned = this.scanWholeFile(lines, fuzzy.symbolName, orderHint);
-      if (scanned !== null) return scanned;
-      throw new SymbolResolutionError(
-        fuzzy.symbolName,
-        0,
-        `Symbol not found anywhere in the file (scanned ${lines.length} lines). Verify the exact symbol name.`,
-        this.lineSearchRadius
-      );
-    }
-
-    const targetLine = fuzzy.lineHint - 1;
-
-    if (targetLine < 0 || targetLine >= lines.length) {
-      throw new SymbolResolutionError(
-        fuzzy.symbolName,
-        fuzzy.lineHint,
-        `Line ${fuzzy.lineHint} is out of range (file has ${lines.length} lines)`,
-        this.lineSearchRadius
-      );
-    }
-
-    const exactLine = lines[targetLine];
-    if (exactLine !== undefined) {
-      const exactResult = this.findSymbolInLine(
-        exactLine,
-        fuzzy.symbolName,
-        orderHint
-      );
-      if (exactResult !== null) {
-        return {
-          position: { line: targetLine, character: exactResult },
-          foundAtLine: fuzzy.lineHint,
-          lineOffset: 0,
-          lineContent: exactLine,
-        };
-      }
-    }
-
-    for (let offset = 1; offset <= this.lineSearchRadius; offset++) {
-      for (const delta of [-offset, offset]) {
-        const searchLine = targetLine + delta;
-        if (searchLine >= 0 && searchLine < lines.length) {
-          const line = lines[searchLine];
-          if (line !== undefined) {
-            const result = this.findSymbolInLine(line, fuzzy.symbolName, 0);
-            if (result !== null) {
-              return {
-                position: { line: searchLine, character: result },
-                foundAtLine: searchLine + 1,
-                lineOffset: delta,
-                lineContent: line,
-              };
-            }
-          }
-        }
-      }
-    }
-
-    throw new SymbolResolutionError(
-      fuzzy.symbolName,
-      fuzzy.lineHint,
-      `Symbol not found in target line or within ±${this.lineSearchRadius} lines. Verify the exact symbol name and line number.`,
-      this.lineSearchRadius
+    return normalizeResolvedSymbol(
+      nativeBinding.resolvePositionFromContent(content, fuzzy)
     );
   }
-
-  /**
-   * Scan the whole file for the symbol when no lineHint is given. Prefers a
-   * line that looks like a declaration of the symbol (so gotoDefinition /
-   * callHierarchy anchor on the definition); otherwise returns the first
-   * word-boundary occurrence. orderHint applies to the first matched line.
-   */
-  private scanWholeFile(
-    lines: string[],
-    symbolName: string,
-    orderHint: number
-  ): ResolvedSymbol | null {
-    // Keyword must directly introduce the symbol (allowing `*` and whitespace),
-    // so a reference like `const helper = () => sym()` is NOT mistaken for a
-    // declaration of `sym`.
-    const escaped = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const declRe = new RegExp(
-      `\\b(function|class|interface|type|enum|const|let|var|def|struct|fn|trait|impl|func|module|namespace)\\s+\\*?\\s*${escaped}\\b`
-    );
-    let firstMatch: ResolvedSymbol | null = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
-      const character = this.findSymbolInLine(
-        line,
-        symbolName,
-        firstMatch === null ? orderHint : 0
-      );
-      if (character === null) continue;
-
-      const hit: ResolvedSymbol = {
-        position: { line: i, character },
-        foundAtLine: i + 1,
-        lineOffset: 0,
-        lineContent: line,
-      };
-      // A declaration line is the best anchor — return immediately.
-      if (declRe.test(line)) return hit;
-      if (firstMatch === null) firstMatch = hit;
-    }
-
-    return firstMatch;
-  }
-
-  private findSymbolInLine(
-    line: string,
-    symbolName: string,
-    orderHint: number
-  ): number | null {
-    let searchStart = 0;
-    let occurrenceCount = 0;
-
-    while (searchStart < line.length) {
-      const index = line.indexOf(symbolName, searchStart);
-      if (index === -1) return null;
-
-      const isWordBoundaryStart =
-        index === 0 || !this.isIdentifierChar(line[index - 1]!);
-      const isWordBoundaryEnd =
-        index + symbolName.length >= line.length ||
-        !this.isIdentifierChar(line[index + symbolName.length]!);
-
-      if (isWordBoundaryStart && isWordBoundaryEnd) {
-        if (this.isInsideStringOrComment(line, index)) {
-          searchStart = index + 1;
-          continue;
-        }
-
-        if (occurrenceCount === orderHint) {
-          return index;
-        }
-        occurrenceCount++;
-      }
-
-      searchStart = index + 1;
-    }
-
-    return null;
-  }
-
-  private isInsideStringOrComment(line: string, position: number): boolean {
-    const state: QuoteScanState = {
-      inSingle: false,
-      inDouble: false,
-      inTemplate: false,
-      templateExprDepth: 0,
-      escaped: false,
-    };
-
-    for (let i = 0; i < position; ) {
-      const step = stepStringScan(line, i, state);
-      if (step.commentFound) return true;
-      i = step.nextIndex;
-    }
-
-    if (state.inTemplate && state.templateExprDepth > 0) return false;
-
-    return state.inSingle || state.inDouble || state.inTemplate;
-  }
-
-  private isIdentifierChar(char: string): boolean {
-    const c = char.charCodeAt(0);
-    // Fast ASCII path covers the common case with no allocations.
-    if (c < 128) {
-      return (
-        (c >= 48 && c <= 57) ||
-        (c >= 65 && c <= 90) ||
-        (c >= 97 && c <= 122) ||
-        c === 95 ||
-        c === 36
-      );
-    }
-    // Unicode identifiers: é, α, 日, etc. are valid JS/TS identifier chars.
-    return /\p{ID_Continue}/u.test(char);
-  }
-
-  extractContext(
-    content: string,
-    lineNumber: number,
-    contextLines: number
-  ): { content: string; startLine: number; endLine: number } {
-    const lines = content.split(/\r?\n/);
-    const startLine = Math.max(1, lineNumber - contextLines);
-    const endLine = Math.min(lines.length, lineNumber + contextLines);
-
-    const contextContent = lines.slice(startLine - 1, endLine).join('\n');
-
-    return {
-      content: contextContent,
-      startLine,
-      endLine,
-    };
-  }
-}
-
-export const defaultResolver = new SymbolResolver({ lineSearchRadius: 5 });
-
-export async function resolveSymbolPosition(
-  filePath: string,
-  symbolName: string,
-  lineHint?: number,
-  orderHint?: number
-): Promise<ResolvedSymbol> {
-  return defaultResolver.resolvePosition(filePath, {
-    symbolName,
-    lineHint,
-    orderHint,
-  });
 }

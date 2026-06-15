@@ -38,16 +38,22 @@ vi.mock('../../octocode-tools-core/src/session.js', () => ({
 vi.mock('octocode-security/withSecurityValidation', () => ({
   configureSecurity: vi.fn(),
 }));
-vi.mock('../../octocode-tools-core/src/tools/toolMetadata/proxies.js', async importOriginal => ({
-  ...(await importOriginal<object>()),
-  loadToolContent: vi
-    .fn()
-    .mockResolvedValue({ instructions: 'Test instructions' }),
-}));
-vi.mock('../../octocode-tools-core/src/tools/github_clone_repo/cache.js', () => ({
-  startCacheGC: vi.fn(),
-  stopCacheGC: vi.fn(),
-}));
+vi.mock(
+  '../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
+  async importOriginal => ({
+    ...(await importOriginal<object>()),
+    loadToolContent: vi
+      .fn()
+      .mockResolvedValue({ instructions: 'Test instructions' }),
+  })
+);
+vi.mock(
+  '../../octocode-tools-core/src/tools/github_clone_repo/cache.js',
+  () => ({
+    startCacheGC: vi.fn(),
+    stopCacheGC: vi.fn(),
+  })
+);
 vi.mock('../src/utils/core/logger.js', () => {
   const mockLogger = {
     info: vi.fn().mockResolvedValue(undefined),

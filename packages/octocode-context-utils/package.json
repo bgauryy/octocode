@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-context-utils",
-  "version": "16.0.0",
+  "version": "16.0.1",
   "description": "Rust LLM context engine for agent-readable compression, semantic signatures, deterministic pagination, and YAML serialization",
   "main": "index.js",
   "types": "index.d.ts",
@@ -33,12 +33,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@octocodeai/octocode-context-utils-darwin-arm64": "16.0.0",
-    "@octocodeai/octocode-context-utils-darwin-x64": "16.0.0",
-    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "16.0.0",
-    "@octocodeai/octocode-context-utils-linux-x64-gnu": "16.0.0",
-    "@octocodeai/octocode-context-utils-linux-x64-musl": "16.0.0",
-    "@octocodeai/octocode-context-utils-win32-x64-msvc": "16.0.0"
+    "@octocodeai/octocode-context-utils-darwin-arm64": "workspace:*",
+    "@octocodeai/octocode-context-utils-darwin-x64": "workspace:*",
+    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "workspace:*",
+    "@octocodeai/octocode-context-utils-linux-x64-gnu": "workspace:*",
+    "@octocodeai/octocode-context-utils-linux-x64-musl": "workspace:*",
+    "@octocodeai/octocode-context-utils-win32-x64-msvc": "workspace:*"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -55,17 +55,19 @@
     ]
   },
   "scripts": {
-    "build": "napi build --platform --release && node scripts/postbuild.cjs",
-    "build:darwin-arm64": "napi build --platform --release --target aarch64-apple-darwin",
-    "build:darwin-x64": "napi build --platform --release --target x86_64-apple-darwin",
-    "build:linux-x64-gnu": "napi build --platform --release --target x86_64-unknown-linux-gnu --zig",
-    "build:linux-x64-musl": "napi build --platform --release --target x86_64-unknown-linux-musl --zig",
-    "build:linux-arm64-gnu": "napi build --platform --release --target aarch64-unknown-linux-gnu --zig",
-    "build:windows-x64": "napi build --platform --release --target x86_64-pc-windows-msvc --zig",
-    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && node scripts/postbuild.cjs",
-    "build:dev": "napi build --platform && node scripts/postbuild.cjs",
+    "build": "node scripts/prebuild.cjs && napi build --platform --release && node scripts/postbuild.cjs",
+    "build:darwin-arm64": "node scripts/prebuild.cjs && napi build --platform --release --target aarch64-apple-darwin && node scripts/postbuild.cjs",
+    "build:darwin-x64": "node scripts/prebuild.cjs && napi build --platform --release --target x86_64-apple-darwin && node scripts/postbuild.cjs",
+    "build:linux-x64-gnu": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-gnu && node scripts/postbuild.cjs",
+    "build:linux-x64-musl": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-musl && node scripts/postbuild.cjs",
+    "build:linux-arm64-gnu": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target aarch64-unknown-linux-gnu && node scripts/postbuild.cjs",
+    "build:windows-x64": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-pc-windows-msvc && node scripts/postbuild.cjs",
+    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64",
+    "build:dev": "node scripts/prebuild.cjs && napi build --platform && node scripts/postbuild.cjs",
     "clean": "rm -f *.node",
     "pack:check": "node scripts/check-pack-size.cjs",
+    "version:check": "node scripts/check-version-consistency.cjs",
+    "binary-size:check": "node scripts/check-binary-size.cjs",
     "test": "cargo test",
     "test:node": "vitest run",
     "test:node:coverage": "vitest run --coverage",
@@ -74,7 +76,7 @@
     "lint": "echo 'No TS source files to lint'",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",
     "typecheck": "tsc --noEmit",
-    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn test:node && yarn pack:check && yarn audit",
+    "verify": "yarn typecheck && yarn lint:rust && yarn test && yarn test:node && yarn pack:check && yarn version:check && yarn binary-size:check && yarn audit",
     "audit": "cargo audit -D unmaintained -D unsound -D yanked"
   },
   "devDependencies": {

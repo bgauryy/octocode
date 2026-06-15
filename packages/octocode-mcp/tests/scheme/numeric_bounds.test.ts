@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
-import { LOCAL_MAX_DEPTH, LOCAL_MAX_LIMIT } from '../../../octocode-tools-core/src/config.js';
+import {
+  LOCAL_MAX_DEPTH,
+  LOCAL_MAX_LIMIT,
+} from '../../../octocode-tools-core/src/config.js';
 
 const LOCAL_OVERLAY_MAX_LIMIT = LOCAL_MAX_LIMIT;
 const LOCAL_OVERLAY_MAX_DEPTH = LOCAL_MAX_DEPTH;

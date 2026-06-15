@@ -102,14 +102,18 @@ describe('semanticTypes — compactLocation branch coverage', () => {
 // Uncovered line 46: `hintGenerator(context || {})` — the truthy branch where
 // a real context object is passed (context is not undefined/falsy).
 
-vi.mock('../../octocode-tools-core/src/hints/dynamic.js', async importOriginal => {
-  // Use real implementation so coverage is tracked.
-  return importOriginal();
-});
+vi.mock(
+  '../../octocode-tools-core/src/hints/dynamic.js',
+  async importOriginal => {
+    // Use real implementation so coverage is tracked.
+    return importOriginal();
+  }
+);
 
 describe('hints/dynamic — getDynamicHints with explicit context (line 46)', () => {
   it('passes provided context through to the hint generator', async () => {
-    const { getDynamicHints } = await import('../../octocode-tools-core/src/hints/dynamic.js');
+    const { getDynamicHints } =
+      await import('../../octocode-tools-core/src/hints/dynamic.js');
 
     // localSearchCode has a real hints generator registered in HINTS.
     // Passing a non-empty context object exercises the left-side of `context || {}`.
@@ -121,7 +125,8 @@ describe('hints/dynamic — getDynamicHints with explicit context (line 46)', ()
   });
 
   it('returns [] for an unknown toolName regardless of context', async () => {
-    const { getDynamicHints } = await import('../../octocode-tools-core/src/hints/dynamic.js');
+    const { getDynamicHints } =
+      await import('../../octocode-tools-core/src/hints/dynamic.js');
     const hints = getDynamicHints('nonExistentTool_xyz', 'hasResults', {
       hasResults: true,
     });
