@@ -15,23 +15,28 @@ describe('packageSearch schema', () => {
     expect(parsedQuery({ packageName: 'lodash', page: 2 }).page).toBe(2);
   });
 
-  it('does not expose itemsPerPage, searchLimit, or mode', () => {
+  it('does not expose itemsPerPage, searchLimit, limit, or verbose', () => {
     const q = parsedQuery({ packageName: 'lodash' });
     expect('itemsPerPage' in q).toBe(false);
     expect('searchLimit' in q).toBe(false);
     expect('limit' in q).toBe(false);
-    expect('mode' in q).toBe(false);
     expect('verbose' in q).toBe(false);
   });
 
-  it('unknown fields are stripped (mode, verbose)', () => {
-    // Zod strips unknown fields — neither mode nor verbose is part of the schema
+  it('accepts mode from the core packageSearch schema', () => {
     const q = parsedQuery({
       packageName: 'lodash',
       mode: 'lean',
-      verbose: true,
     });
-    expect('mode' in q).toBe(false);
-    expect('verbose' in q).toBe(false);
+    expect(q.mode).toBe('lean');
+  });
+
+  it('rejects unknown fields', () => {
+    expect(() =>
+      parsedQuery({
+        packageName: 'lodash',
+        verbose: true,
+      })
+    ).toThrow(/Unrecognized key/);
   });
 });

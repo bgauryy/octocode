@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { GitHubPullRequestSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 
-type GitHubPullRequestSearchQuery = z.infer<
+type GitHubPullRequestSearchQuery = z.input<
   typeof GitHubPullRequestSearchQuerySchema
 >;
 import {

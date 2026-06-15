@@ -21,6 +21,23 @@ type PerQueryGroups = {
   groups: CodeSearchGroupedResult[];
 };
 
+type CodeSearchFileResult = {
+  id: string;
+  owner: string;
+  repo: string;
+  path: string;
+  queryId?: string;
+  matches: Array<Omit<CodeSearchGroupedMatch, 'path'>>;
+};
+
+type CodeSearchResultRecord = {
+  id: string;
+  data: {
+    files: CodeSearchFileResult[];
+    pagination?: CodeSearchPagination;
+  };
+};
+
 function readPerQueryFlat(result: FlatQueryResult): CodeSearchFlatResult {
   const data = result.data as Partial<CodeSearchFlatResult> | undefined;
   return {
@@ -62,6 +79,53 @@ function rankGroupsByRelevance(
     if (matchDelta !== 0) return matchDelta;
     return left.id.localeCompare(right.id);
   });
+}
+
+function flattenGroupsToFiles(
+  groups: readonly CodeSearchGroupedResult[]
+): CodeSearchFileResult[] {
+  const byFile = new Map<string, CodeSearchFileResult>();
+  for (const group of groups) {
+    for (const match of group.matches) {
+      const key = `${group.queryId ?? ''}\u0000${group.owner}\u0000${group.repo}\u0000${match.path}`;
+      const existing = byFile.get(key);
+      const { path: _path, ...matchWithoutPath } = match;
+      if (existing) {
+        existing.matches.push(matchWithoutPath);
+        continue;
+      }
+      byFile.set(key, {
+        id: `${group.owner}/${group.repo}:${match.path}`,
+        owner: group.owner,
+        repo: group.repo,
+        path: match.path,
+        ...(group.queryId ? { queryId: group.queryId } : {}),
+        matches: [matchWithoutPath],
+      });
+    }
+  }
+  return Array.from(byFile.values());
+}
+
+function buildResultRecords(
+  queries: readonly QueryWithPagination[],
+  groups: readonly CodeSearchGroupedResult[],
+  pagination: CodeSearchPagination | undefined
+): CodeSearchResultRecord[] {
+  if (groups.length === 0) return [];
+  const id =
+    queries.length === 1 && typeof queries[0]?.id === 'string'
+      ? queries[0].id
+      : 'githubSearchCode';
+  return [
+    {
+      id,
+      data: {
+        files: flattenGroupsToFiles(groups),
+        ...(pagination ? { pagination } : {}),
+      },
+    },
+  ];
 }
 
 function escapeRegExp(value: string): string {
@@ -258,11 +322,14 @@ export function buildGithubSearchCodeFinalizer<
       ...paginationHints,
       ...pathOnlyHints,
     ]);
-    const responseData: GitHubCodeSearchOutputLocal = { results: groups };
+    const resultPagination =
+      upstreamPagination && upstreamPaginationQueries === 1
+        ? upstreamPagination
+        : undefined;
+    const responseData: GitHubCodeSearchOutputLocal = {
+      results: buildResultRecords(queries, groups, resultPagination),
+    };
 
-    if (upstreamPagination && upstreamPaginationQueries === 1) {
-      responseData.pagination = upstreamPagination;
-    }
     if (hints.length > 0) responseData.hints = hints;
     if (emptyQueries.length > 0) {
       // Per-query hints already aggregated into the top-level hints are not
@@ -293,10 +360,16 @@ export function buildGithubSearchCodeFinalizer<
       [
         'results',
         'id',
+        'data',
+        'files',
+        'path',
         'owner',
         'repo',
         'queryId',
         'matches',
+        'value',
+        'pathOnly',
+        'matchIndices',
         'pagination',
         'hints',
         'emptyQueries',

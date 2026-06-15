@@ -2,7 +2,7 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
-type PackageSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
+type PackageSearchQuery = z.input<typeof NpmPackageQuerySchema>;
 import {
   searchPackage,
   checkNpmDeprecation,
@@ -117,9 +117,53 @@ function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
 }
 
 /** Hints for keyword / multi-result searches — no per-package Install/Browse. */
-function keywordHints(count: number): string[] {
+type PackagePagination = {
+  currentPage: number;
+  totalPages: number;
+  perPage: number;
+  totalFound: number;
+  returned: number;
+  hasMore: boolean;
+};
+
+function buildPackagePagination(
+  query: PackageSearchQuery,
+  totalFound: number,
+  returned: number,
+  isKeyword: boolean
+): PackagePagination {
+  const currentPage = Math.max(1, (query as { page?: number }).page ?? 1);
+  const perPage = isKeyword ? 10 : 1;
+  const totalPages = Math.max(1, Math.ceil(totalFound / perPage));
+  return {
+    currentPage,
+    totalPages,
+    perPage,
+    totalFound,
+    returned,
+    hasMore: currentPage < totalPages,
+  };
+}
+
+function packagePaginationHints(pagination: PackagePagination): string[] {
+  if (pagination.totalFound === 0 || pagination.totalPages <= 1) return [];
+  if (pagination.currentPage > pagination.totalPages) {
+    return [
+      `Requested page ${pagination.currentPage}/${pagination.totalPages} is past the end. Retry page=${pagination.totalPages}.`,
+    ];
+  }
+  const start = (pagination.currentPage - 1) * pagination.perPage + 1;
+  const end = Math.min(start + pagination.returned - 1, pagination.totalFound);
+  return pagination.hasMore
+    ? [
+        `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${start}-${end} of ${pagination.totalFound} packages). Next: page=${pagination.currentPage + 1}`,
+      ]
+    : [];
+}
+
+function keywordHints(count: number, totalFound: number): string[] {
   return [
-    `Found ${count} packages. Re-run with an exact name for source details, install command, and repo navigation.`,
+    `Found ${count}${totalFound > count ? ` of ${totalFound}` : ''} packages. Re-run with an exact name for source details, install command, and repo navigation.`,
   ];
 }
 
@@ -167,7 +211,13 @@ export async function searchPackages(
 
         // Exact lookup (single result): check deprecation and emit targeted hints.
         // Keyword search (multiple results): skip deprecation, emit generic guidance.
-        const isKeyword = raw.length > 1;
+        const isKeyword = raw.length > 1 || apiResult.totalFound > 1;
+        const pagination = buildPackagePagination(
+          query,
+          apiResult.totalFound,
+          packages.length,
+          isKeyword
+        );
         let dep: DeprecationInfo | null = null;
         if (!isKeyword && hasContent && raw[0]) {
           const src = isNpm(raw[0]) ? raw[0].source : undefined;
@@ -176,19 +226,24 @@ export async function searchPackages(
           }
         }
 
-        const extraHints = !hasContent
-          ? getHints(TOOL_NAMES.PACKAGE_SEARCH, 'empty', {
-              name: query.packageName,
-            } as never)
-          : isKeyword
-            ? keywordHints(packages.length)
-            : exactHints(raw[0]!, dep);
+        const extraHints = [
+          ...packagePaginationHints(pagination),
+          ...(!hasContent
+            ? getHints(TOOL_NAMES.PACKAGE_SEARCH, 'empty', {
+                name: query.packageName,
+              } as never)
+            : isKeyword
+              ? keywordHints(packages.length, apiResult.totalFound)
+              : exactHints(raw[0]!, dep)),
+        ];
 
         // Partial when the API returned fewer packages than it knows about.
-        const isPartial = packages.length < apiResult.totalFound;
-        const data = isPartial
-          ? { packages, totalFound: apiResult.totalFound, hasMore: true }
-          : { packages, totalFound: apiResult.totalFound };
+        const isPartial =
+          pagination.hasMore || pagination.currentPage > pagination.totalPages;
+        const data = {
+          packages,
+          pagination,
+        };
 
         return createSuccessResult(
           query,
@@ -210,7 +265,10 @@ export async function searchPackages(
               ...(isPartial
                 ? {
                     confidence: 'medium' as const,
-                    reason: `${packages.length} of ${apiResult.totalFound} results returned.`,
+                    reason:
+                      pagination.currentPage > pagination.totalPages
+                        ? `Requested page ${pagination.currentPage} exceeds totalPages ${pagination.totalPages}.`
+                        : `${packages.length} of ${apiResult.totalFound} results returned.`,
                   }
                 : {}),
             },
@@ -228,7 +286,7 @@ export async function searchPackages(
     },
     {
       toolName: TOOL_NAMES.PACKAGE_SEARCH,
-      keysPriority: ['packages', 'totalFound', 'error'],
+      keysPriority: ['packages', 'pagination', 'error'],
       peerHints: true,
       peerEvidence: true,
     },

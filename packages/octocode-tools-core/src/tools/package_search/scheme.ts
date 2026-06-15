@@ -40,7 +40,16 @@ export const PackageSearchOutputLocalSchema = z
           data: z
             .looseObject({
               packages: z.array(z.string()),
-              totalFound: z.number().optional(),
+              pagination: z
+                .object({
+                  currentPage: z.number(),
+                  totalPages: z.number(),
+                  perPage: z.number(),
+                  totalFound: z.number(),
+                  returned: z.number(),
+                  hasMore: z.boolean(),
+                })
+                .optional(),
             })
             .optional(),
           status: z.string().optional(),

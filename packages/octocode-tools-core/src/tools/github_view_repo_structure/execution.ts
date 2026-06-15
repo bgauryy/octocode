@@ -82,6 +82,23 @@ function buildNextPathHints(
   return [`Next paths: ${topEntries.join(', ')}${more}`];
 }
 
+function buildStructurePageHint(pagination: {
+  currentPage?: number;
+  totalPages?: number;
+  totalEntries?: number;
+  entriesPerPage?: number;
+}): string {
+  const currentPage = pagination.currentPage ?? 1;
+  const totalPages = pagination.totalPages ?? currentPage + 1;
+  const totalEntries = pagination.totalEntries;
+  const entriesPerPage = pagination.entriesPerPage;
+  const visible =
+    typeof totalEntries === 'number' && typeof entriesPerPage === 'number'
+      ? ` (showing ${Math.min(currentPage * entriesPerPage, totalEntries)} of ${totalEntries})`
+      : '';
+  return `Page ${currentPage}/${totalPages}${visible}. Next: page=${currentPage + 1}`;
+}
+
 function normalizeStructureErrorResult(
   result: ProcessedBulkResult,
   query: PartialRepoStructureQuery
@@ -200,6 +217,8 @@ export async function exploreMultipleRepositoryStructures(
               hasMore?: boolean;
               currentPage?: number;
               totalPages?: number;
+              totalEntries?: number;
+              entriesPerPage?: number;
             };
           }
         ).pagination;
@@ -217,7 +236,7 @@ export async function exploreMultipleRepositoryStructures(
               })
             : undefined;
         const extraHintsForOutput = hasMorePages
-          ? []
+          ? [buildStructurePageHint(pagination ?? {})]
           : [...apiHints, ...(navigationHint ? [navigationHint] : [])];
 
         const truncatedReasons: string[] = [];

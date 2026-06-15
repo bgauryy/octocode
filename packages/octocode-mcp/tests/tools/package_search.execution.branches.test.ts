@@ -159,6 +159,24 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
     );
   });
 
+  it('broad searches include pagination metadata and next-page hints', async () => {
+    mockSearchPackage.mockResolvedValue({
+      packages: [
+        pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
+        pkg({ name: 'jotai', repoUrl: 'https://github.com/pmndrs/jotai' }),
+      ],
+      totalFound: 25,
+    });
+    const r = await callTool('state management');
+    const t = text(r);
+    expect(t).toContain('pagination:');
+    expect(t).toContain('currentPage: 1');
+    expect(t).toContain('totalPages: 3');
+    expect(t).toContain('totalFound: 25');
+    expect(t).toContain('Next: page=2');
+    expect(t).toContain('Found 2 of 25 packages');
+  });
+
   it('packages[] is a YAML sequence of strings, not objects', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
@@ -405,7 +423,7 @@ describe('pagination — hasMore through searchPackages', () => {
     expect(t).toContain('complete: false');
   });
 
-  it('no hasMore when packages.length === totalFound (complete page)', async () => {
+  it('sets pagination.hasMore:false when packages.length === totalFound', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
@@ -415,7 +433,7 @@ describe('pagination — hasMore through searchPackages', () => {
     });
 
     const t = text(await callTool('zustand'));
-    expect(t).not.toContain('hasMore');
+    expect(t).toContain('hasMore: false');
     expect(t).toContain('complete: true');
   });
 });

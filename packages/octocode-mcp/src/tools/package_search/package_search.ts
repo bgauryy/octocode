@@ -8,7 +8,7 @@ import {
 } from '@octocodeai/octocode-tools-core';
 import { createRemoteToolRegistration } from '../registerRemoteTool.js';
 
-type NpmPackageQuery = z.infer<typeof NpmPackageQuerySchema>;
+type NpmPackageQuery = z.input<typeof NpmPackageQuerySchema>;
 type PackageSearchQuery = Omit<NpmPackageQuery, 'ecosystem'> & {
   ecosystem?: 'npm';
 };

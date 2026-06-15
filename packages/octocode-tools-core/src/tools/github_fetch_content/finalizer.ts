@@ -248,6 +248,22 @@ function readFileEntry(
   };
 }
 
+function formatContentPageHint(groupId: string, file: FileEntry): string {
+  const pagination = file.pagination;
+  const currentOffset = pagination?.charOffset ?? 0;
+  const currentLength = pagination?.charLength ?? 0;
+  const nextOffset = currentOffset + currentLength;
+  const page =
+    pagination?.currentPage && pagination.totalPages
+      ? `Page ${pagination.currentPage}/${pagination.totalPages}`
+      : 'Content page';
+  const range =
+    typeof pagination?.totalChars === 'number' && currentLength > 0
+      ? ` (chars ${currentOffset + 1}-${nextOffset} of ${pagination.totalChars})`
+      : '';
+  return `${page}${range}. Next: charOffset=${nextOffset} for ${groupId}:${file.path}`;
+}
+
 function readDirectoryEntry(
   data: Record<string, unknown>,
   query: PartialFileContentQuery
@@ -320,15 +336,13 @@ function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
           // so it can extend charLength rather than paging blindly.
           const extendBy = nextBlockChar - nextOffset;
           hints.push(
-            `Page cut mid-block for ${group.id}:${file.path} at char ${nextOffset}. ` +
+            `${formatContentPageHint(group.id, file)}. Page cut mid-block at char ${nextOffset}. ` +
               `Next top-level definition starts at char ${nextBlockChar}. ` +
               `Re-request with charLength=${currentLength + extendBy} to extend this page to the next boundary, ` +
               `or use charOffset=${nextOffset} to continue page-by-page.`
           );
         } else {
-          hints.push(
-            `Use charOffset=${nextOffset} for ${group.id}:${file.path} to continue this file.`
-          );
+          hints.push(formatContentPageHint(group.id, file));
         }
       }
       if (

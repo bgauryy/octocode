@@ -13,11 +13,10 @@ import type {
   WithOptionalMeta,
 } from '../../types/execution.js';
 
-type PRDefaultKeys = 'order' | 'limit' | 'page';
-type PartialPRQuery = WithOptionalMeta<
-  Omit<GitHubPullRequestSearchQuery, PRDefaultKeys> &
-    Partial<Pick<GitHubPullRequestSearchQuery, PRDefaultKeys>>
+type GitHubPullRequestSearchInput = z.input<
+  typeof GitHubPullRequestSearchQueryLocalSchema
 >;
+type PartialPRQuery = WithOptionalMeta<GitHubPullRequestSearchQuery>;
 import {
   handleCatchError,
   createSuccessResult,
@@ -42,14 +41,14 @@ import {
 } from './contentResponse.js';
 
 export async function searchMultipleGitHubPullRequests(
-  args: ToolExecutionArgs<PartialPRQuery>
+  args: ToolExecutionArgs<GitHubPullRequestSearchInput>
 ): Promise<CallToolResult> {
   const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: PartialPRQuery, _index: number) => {
+    async (query: GitHubPullRequestSearchInput, _index: number) => {
       try {
         const validation =
           GitHubPullRequestSearchQueryLocalSchema.safeParse(query);

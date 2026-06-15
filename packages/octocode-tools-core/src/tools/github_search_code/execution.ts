@@ -109,7 +109,13 @@ export async function searchMultipleGitHubCode(
             group.matches.map(m => m.path)
           ),
         };
-        const fileCount = flat.results.flatMap(r => r.matches).length;
+        const fileCount = new Set(
+          flat.results.flatMap(group =>
+            group.matches.map(
+              match => `${group.owner}/${group.repo}:${match.path}`
+            )
+          )
+        ).size;
         const successHints: string[] = [];
         if (flat.results.length > 0) {
           const firstKeyword =

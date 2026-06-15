@@ -102,6 +102,14 @@ export function compactLocation(snippet: {
 }
 
 export type LspEvidence = {
+  kind?:
+    | 'metadata'
+    | 'content'
+    | 'docs'
+    | 'definition'
+    | 'references'
+    | 'calls';
+  answerReady?: boolean;
   confidence: 'high' | 'medium' | 'low';
   complete: boolean;
   reason?: string;

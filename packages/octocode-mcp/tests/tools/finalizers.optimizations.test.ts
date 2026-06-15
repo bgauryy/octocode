@@ -191,10 +191,14 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
       config: { toolName: 'githubSearchCode' },
     });
 
-    expect(out.structuredContent.results?.map(group => group.id)).toEqual([
-      'org/large',
-      'org/small',
+    const files = out.structuredContent.results?.[0]?.data.files ?? [];
+    expect(files.map(file => file.repo)).toEqual([
+      'large',
+      'large',
+      'large',
+      'small',
     ]);
+    expect(files[0]?.matches[0]).not.toHaveProperty('path');
   });
 });
 

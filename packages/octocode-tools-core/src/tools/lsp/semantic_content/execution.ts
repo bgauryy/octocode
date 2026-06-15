@@ -30,6 +30,7 @@ import {
   compactResolvedSymbol,
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
   type CompactLocation,
+  type LspEvidence,
   type LspGetSemanticContentQuery,
   type LspSemanticEnvelope,
   type SemanticContentType,
@@ -88,6 +89,33 @@ type LspPositionLike = {
   line: number;
   character: number;
 };
+
+function semanticEvidence(
+  type: SemanticContentType,
+  confidence: LspEvidence['confidence'],
+  complete: boolean,
+  reason?: string,
+  answerReady = complete
+): LspEvidence {
+  const kind: NonNullable<LspEvidence['kind']> =
+    type === 'documentSymbols'
+      ? 'metadata'
+      : type === 'hover'
+        ? 'docs'
+        : type === 'references'
+          ? 'references'
+          : type === 'callers' || type === 'callees' || type === 'callHierarchy'
+            ? 'calls'
+            : 'definition';
+
+  return {
+    kind,
+    answerReady,
+    confidence,
+    complete,
+    ...(reason ? { reason } : {}),
+  };
+}
 
 export async function executeLspGetSemanticContent(
   args: ToolExecutionArgs<LspGetSemanticContentQuery>
@@ -506,8 +534,11 @@ async function getDocumentSymbols(
     query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
   );
   const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
+  const responseComplete = complete && !pagination.hasMore;
   const incompleteReason = complete
-    ? undefined
+    ? pagination.hasMore
+      ? 'Symbol pagination has more results.'
+      : undefined
     : serverAvailable
       ? 'documentSymbolProvider unsupported'
       : 'Language server unavailable';
@@ -519,11 +550,13 @@ async function getDocumentSymbols(
       serverAvailable,
       ...(complete ? { provider: 'documentSymbolProvider' } : {}),
     },
-    evidence: {
-      confidence: complete ? 'high' : 'low',
-      complete,
-      reason: incompleteReason,
-    },
+    evidence: semanticEvidence(
+      'documentSymbols',
+      complete ? 'high' : 'low',
+      responseComplete,
+      incompleteReason,
+      complete
+    ),
     summary: {
       totalSymbols: compactSymbols.length,
       returnedSymbols: pageItems.length,
@@ -535,7 +568,12 @@ async function getDocumentSymbols(
       symbols: pageItems,
     },
     pagination,
-    hints: semanticHints('documentSymbols', complete),
+    hints: [
+      ...(pagination.hasMore
+        ? [formatItemPageHint(pagination, 'symbols')]
+        : []),
+      ...semanticHints('documentSymbols', complete),
+    ],
   };
 }
 
@@ -552,11 +590,12 @@ function locationsEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider },
-    evidence: {
-      confidence: complete ? 'high' : 'medium',
+    evidence: semanticEvidence(
+      query.type,
+      complete ? 'high' : 'medium',
       complete,
-      reason: complete ? undefined : `${provider} returned no locations`,
-    },
+      complete ? undefined : `${provider} returned no locations`
+    ),
     payload: complete
       ? { kind, locations: locations.map(compactLocation) }
       : { kind: 'empty', reason: `${provider} returned no locations` },
@@ -584,14 +623,13 @@ function referencesEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'referencesProvider' },
-    evidence: {
-      confidence: refs.length > 0 ? 'high' : 'medium',
-      complete: true,
-      reason:
-        refs.length > 0
-          ? undefined
-          : 'referencesProvider returned no references',
-    },
+    evidence: semanticEvidence(
+      'references',
+      refs.length > 0 ? 'high' : 'medium',
+      true,
+      refs.length > 0 ? undefined : 'referencesProvider returned no references',
+      true
+    ),
     payload: {
       kind: 'references',
       // groupByFile is documented as a per-file summary INSTEAD OF the flat
@@ -617,11 +655,12 @@ async function hoverEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'hoverProvider' },
-    evidence: {
-      confidence: complete ? 'high' : 'medium',
+    evidence: semanticEvidence(
+      query.type,
+      complete ? 'high' : 'medium',
       complete,
-      reason: complete ? undefined : 'hoverProvider returned no hover content',
-    },
+      complete ? undefined : 'hoverProvider returned no hover content'
+    ),
     payload: complete
       ? { kind: 'hover', ...normalized }
       : { kind: 'empty', reason: 'hoverProvider returned no hover content' },
@@ -708,20 +747,32 @@ async function callsEnvelope(
       : query.type === 'callees'
         ? 'outgoing'
         : 'both';
+  const traversalComplete =
+    !incomingResult.truncatedByDepth &&
+    !outgoingResult.truncatedByDepth &&
+    incomingResult.failedRequestCount + outgoingResult.failedRequestCount === 0;
+  const responseComplete = traversalComplete && !pagination.hasMore;
+  const evidenceReason =
+    calls.length === 0
+      ? 'callHierarchyProvider returned no calls'
+      : pagination.hasMore
+        ? 'Call pagination has more results.'
+        : !traversalComplete
+          ? 'Call traversal is partial.'
+          : undefined;
 
   return {
     type: query.type,
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'callHierarchyProvider' },
-    evidence: {
-      confidence: calls.length > 0 ? 'high' : 'medium',
-      complete: true,
-      reason:
-        calls.length > 0
-          ? undefined
-          : 'callHierarchyProvider returned no calls',
-    },
+    evidence: semanticEvidence(
+      query.type,
+      calls.length > 0 ? 'high' : 'medium',
+      responseComplete,
+      evidenceReason,
+      true
+    ),
     payload: {
       kind: query.type as 'callers' | 'callees' | 'callHierarchy',
       root: compactCallItem(root),
@@ -734,12 +785,7 @@ async function callsEnvelope(
       completeness: {
         // Complete only when traversal exhausted every level and no
         // sub-request failed — "found calls" is not completeness.
-        complete:
-          !incomingResult.truncatedByDepth &&
-          !outgoingResult.truncatedByDepth &&
-          incomingResult.failedRequestCount +
-            outgoingResult.failedRequestCount ===
-            0,
+        complete: traversalComplete,
         truncatedByDepth:
           incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
         cycleCount: incomingResult.cycleCount + outgoingResult.cycleCount,
@@ -751,10 +797,8 @@ async function callsEnvelope(
     },
     pagination,
     hints: [
+      ...(pagination.hasMore ? [formatItemPageHint(pagination, 'calls')] : []),
       ...semanticHints(query.type, true),
-      ...(pagination.hasMore
-        ? [`More calls available — retry with page=${pagination.nextPage}.`]
-        : []),
       ...(incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth
         ? [
             'Calls exist beyond the traversal depth — increase depth to follow the chain further.',
@@ -767,6 +811,17 @@ async function callsEnvelope(
           ]),
     ],
   };
+}
+
+function formatItemPageHint(pagination: PaginationInfo, label: string): string {
+  const shown =
+    Math.min(
+      pagination.currentPage * pagination.itemsPerPage,
+      pagination.totalResults
+    ) -
+    (pagination.currentPage - 1) * pagination.itemsPerPage;
+  const next = pagination.nextPage ?? pagination.currentPage + 1;
+  return `Page ${pagination.currentPage}/${pagination.totalPages} (${shown} of ${pagination.totalResults} ${label}). Next: page=${next}`;
 }
 
 function paginateItems<T>(
@@ -1037,7 +1092,7 @@ function failedAnchorEnvelope(
     // serverAvailable is omitted: symbol resolution failed before reaching the LSP server,
     // so server availability is unknown. Presence of reason conveys the real issue.
     lsp: {},
-    evidence: { confidence: 'low', complete: false, reason },
+    evidence: semanticEvidence(query.type, 'low', false, reason, false),
     // reason already lives in payload.reason + evidence.reason — repeating it
     // a third time in warnings is pure noise.
     payload: { kind: 'empty', reason },
@@ -1060,7 +1115,7 @@ function emptyEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable },
-    evidence: { confidence: 'low', complete: false, reason },
+    evidence: semanticEvidence(type, 'low', false, reason, false),
     payload: { kind: 'empty', reason },
     hints: semanticHints(type, false),
   };

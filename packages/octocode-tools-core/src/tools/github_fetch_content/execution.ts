@@ -27,22 +27,23 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
-// `minify` defaults to 'standard' via the Zod schema; callers may still omit
-// it and the schema will fill in the default.
-type PartialFileContentQuery = Omit<
-  z.infer<typeof FileContentQueryLocalSchema>,
-  'minify'
-> & { minify: MinifyMode };
+type FileContentInputQuery = z.input<typeof FileContentQueryLocalSchema>;
+
+// `minify` and `contextLines` default via the Zod schema; callers may omit
+// them, but execution after safeParse always uses the parsed/defaulted query.
+type PartialFileContentQuery = z.output<typeof FileContentQueryLocalSchema> & {
+  minify: MinifyMode;
+};
 
 export async function fetchMultipleGitHubFileContents(
-  args: ToolExecutionArgs<PartialFileContentQuery>
+  args: ToolExecutionArgs<FileContentInputQuery>
 ): Promise<CallToolResult> {
   const { queries, authInfo } = args;
   const getProviderContext = createLazyProviderContext(authInfo);
 
   return executeBulkOperation(
     queries,
-    async (query: PartialFileContentQuery, _index: number) => {
+    async (query: FileContentInputQuery, _index: number) => {
       try {
         const validated = FileContentQueryLocalSchema.safeParse(query);
         if (!validated.success) {
@@ -52,13 +53,18 @@ export async function fetchMultipleGitHubFileContents(
           return createErrorResult(messages, query);
         }
 
+        const effectiveQuery = validated.data as PartialFileContentQuery;
         const providerContext = getProviderContext();
 
-        if (query.type === 'directory') {
-          return handleDirectoryFetch(query, authInfo, providerContext);
+        if (effectiveQuery.type === 'directory') {
+          return handleDirectoryFetch(
+            effectiveQuery,
+            authInfo,
+            providerContext
+          );
         }
 
-        return handleFileFetch(query, providerContext);
+        return handleFileFetch(effectiveQuery, providerContext);
       } catch (error) {
         return handleCatchError(error, query);
       }
@@ -67,7 +73,7 @@ export async function fetchMultipleGitHubFileContents(
       toolName: TOOL_NAMES.GITHUB_FETCH_CONTENT,
       peerHints: true,
       peerEvidence: true,
-      finalize: buildGithubFetchContentFinalizer<PartialFileContentQuery>(),
+      finalize: buildGithubFetchContentFinalizer<FileContentInputQuery>(),
     },
     args
   );

@@ -40,36 +40,45 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
   results: z.array(
     z.object({
       id: z.string(),
-      queryId: z.string().optional(),
-      owner: z.string(),
-      repo: z.string(),
-      matches: z.array(
-        z.object({
-          path: z.string(),
-          value: z.string().optional(),
-          pathOnly: z.boolean().optional(),
-          matchIndices: z
-            .array(z.object({ start: z.number(), end: z.number() }))
-            .optional(),
-          url: z.string().optional(),
-        })
-      ),
+      data: z.object({
+        files: z.array(
+          z.object({
+            id: z.string(),
+            owner: z.string(),
+            repo: z.string(),
+            path: z.string(),
+            queryId: z.string().optional(),
+            matches: z.array(
+              z.object({
+                value: z.string().optional(),
+                pathOnly: z.boolean().optional(),
+                matchIndices: z
+                  .array(z.object({ start: z.number(), end: z.number() }))
+                  .optional(),
+                url: z.string().optional(),
+              })
+            ),
+          })
+        ),
+        pagination: z
+          .object({
+            currentPage: z.number(),
+            totalPages: z.number(),
+            perPage: z.number(),
+            totalMatches: z.number(),
+            reportedTotalMatches: z.number().optional(),
+            reachableTotalMatches: z.number().optional(),
+            totalMatchesKind: z
+              .enum(['exact', 'reported', 'lowerBound'])
+              .optional(),
+            totalMatchesCapped: z.boolean().optional(),
+            hasMore: z.boolean(),
+            uniqueFileCount: z.number().optional(),
+          })
+          .optional(),
+      }),
     })
   ),
-  pagination: z
-    .object({
-      currentPage: z.number(),
-      totalPages: z.number(),
-      perPage: z.number(),
-      totalMatches: z.number(),
-      reportedTotalMatches: z.number().optional(),
-      reachableTotalMatches: z.number().optional(),
-      totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
-      totalMatchesCapped: z.boolean().optional(),
-      hasMore: z.boolean(),
-      uniqueFileCount: z.number().optional(),
-    })
-    .optional(),
   hints: z.array(z.string()).optional(),
   emptyQueries: z
     .array(

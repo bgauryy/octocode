@@ -637,41 +637,6 @@ function getOutputMode(args: ParsedArgs): OutputMode {
   return 'text';
 }
 
-function isCompact(args: ParsedArgs): boolean {
-  return args.options.compact === true;
-}
-
-function applyCompactToInputText(jsonText: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return jsonText;
-  }
-
-  const setVerbosity = (obj: unknown): void => {
-    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-      const record = obj as Record<string, unknown>;
-      if (record.verbosity === undefined) {
-        record.verbosity = 'concise';
-      }
-    }
-  };
-
-  if (Array.isArray(parsed)) {
-    parsed.forEach(setVerbosity);
-  } else if (parsed && typeof parsed === 'object') {
-    const record = parsed as Record<string, unknown>;
-    if (Array.isArray(record.queries)) {
-      record.queries.forEach(setVerbosity);
-    } else {
-      setVerbosity(parsed);
-    }
-  }
-
-  return JSON.stringify(parsed);
-}
-
 function printToolResult(result: ToolResult, outputMode: OutputMode): void {
   if (outputMode === 'compact') {
     const structured = (result as { structuredContent?: unknown })
@@ -765,10 +730,6 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   if (!inputText) {
     await showToolHelp(tool.name);
     return true;
-  }
-
-  if (isCompact(args)) {
-    inputText = applyCompactToInputText(inputText);
   }
 
   try {

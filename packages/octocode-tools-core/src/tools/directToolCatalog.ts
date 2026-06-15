@@ -128,10 +128,8 @@ let providerRuntimeInitPromise: Promise<void> | null = null;
 const DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES: readonly DirectToolAutoFilledField[] =
   ['id', 'mainResearchGoal', 'researchGoal', 'reasoning'];
 
-// 'verbosity' is injected internally by --compact mode; suppress unknown-field warnings for it.
 const DIRECT_TOOL_AUTO_FILLED_FIELDS: ReadonlySet<string> = new Set([
   ...DIRECT_TOOL_AUTO_FILLED_FIELD_NAMES,
-  'verbosity',
 ]);
 
 const DIRECT_TOOL_BASE_AUTO_FILLED_FIELDS: readonly DirectToolAutoFilledField[] =
