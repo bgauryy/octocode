@@ -9,6 +9,7 @@ function nativeMock() {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     waitForReady: vi.fn().mockResolvedValue(undefined),
+    getRecentStderr: vi.fn(() => []),
     openDocument: vi.fn().mockResolvedValue(undefined),
     getDefinition: vi.fn().mockResolvedValue([{ uri: 'file:///a.ts' }]),
     getReferences: vi.fn().mockResolvedValue([{ uri: 'file:///b.ts' }]),
@@ -198,6 +199,21 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
         Array.from({ length: 12 }, () => [filePath, cachedContent])
       );
       await rm(root, { recursive: true, force: true });
+    });
+  });
+
+  it('surfaces recent native stderr lines', async () => {
+    await withMockedNative(async mock => {
+      const { LSPClient } = await import('../src/client.js');
+      mock.client.getRecentStderr.mockReturnValueOnce(['server warning']);
+      const client = new LSPClient({
+        command: 'server',
+        args: ['--stdio'],
+        workspaceRoot: '/workspace',
+        languageId: 'typescript',
+      });
+
+      expect(client.getRecentStderr()).toEqual(['server warning']);
     });
   });
 

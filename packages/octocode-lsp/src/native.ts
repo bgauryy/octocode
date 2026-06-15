@@ -34,6 +34,7 @@ export type NativeLspClientBinding = {
   stop(): Promise<void>;
   waitForReady(timeoutMs?: number): Promise<void>;
   hasCapability?(capability: string): boolean;
+  getRecentStderr?(): string[];
   openDocument(filePath: string, content: string): Promise<void>;
   getDefinition(
     filePath: string,

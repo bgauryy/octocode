@@ -1,6 +1,7 @@
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[napi(object)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -10,6 +11,8 @@ pub struct JsLanguageServerConfig {
     pub workspace_root: String,
     pub language_id: Option<String>,
     pub initialization_options: Option<Value>,
+    /// Extra environment variables to inject into the language server process.
+    pub env: Option<HashMap<String, String>>,
 }
 
 #[napi(object)]

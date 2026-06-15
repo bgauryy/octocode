@@ -65,6 +65,7 @@ pub fn default_server_for_file(
         workspace_root,
         language_id: Some(spec.language_id.to_owned()),
         initialization_options: None,
+        env: None,
     })
 }
 
@@ -257,6 +258,7 @@ fn user_server_for_extension(
             workspace_root: workspace_root.to_owned(),
             language_id: Some(server.language_id.clone()),
             initialization_options: server.initialization_options.clone(),
+            env: None,
         });
     }
     None

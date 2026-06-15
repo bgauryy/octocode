@@ -21,6 +21,7 @@ export class LSPClient {
       workspaceRoot: config.workspaceRoot,
       languageId: config.languageId,
       initializationOptions: config.initializationOptions,
+      env: config.env,
     });
   }
 
@@ -181,7 +182,7 @@ export class LSPClient {
   }
 
   getRecentStderr(): string[] {
-    return [];
+    return this.nativeClient.getRecentStderr?.() ?? [];
   }
 
   async openDocument(filePath: string, content?: string): Promise<void> {

@@ -30,9 +30,8 @@ pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usiz
     // tree-sitter path (highest accuracy)
     if let Some(entry) = languages::find_entry(&ext) {
         let cfg = LangExtractConfig {
-            language: (entry.language_fn)(),
+            language: entry.language.clone(),
             body_query: entry.body_query,
-            comment_style: entry.comment_style,
         };
         if let Some(kept) = extract(content, &cfg) {
             return kept;
@@ -263,9 +262,8 @@ fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
     // ── tree-sitter path (top-10 languages) ─────────────────────────────────
     if let Some(entry) = languages::find_entry(ext) {
         let cfg = LangExtractConfig {
-            language: (entry.language_fn)(),
+            language: entry.language.clone(),
             body_query: entry.body_query,
-            comment_style: entry.comment_style,
         };
         // Prefer tree-sitter; use the centralized heuristic extractor when it
         // cannot produce a skeleton for this input.

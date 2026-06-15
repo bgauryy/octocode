@@ -8,15 +8,12 @@
 //!   4. Bodies of class-like containers are NOT dropped — only the bodies
 //!      of their *member* functions (handled by step 3 recursively).
 
-use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
 pub struct LangExtractConfig {
     pub language: Language,
     /// Tree-sitter S-expression query; captures named `@body` must be the nodes to drop.
     pub body_query: &'static str,
-    /// Comment prefix used by `renderer::is_pure_comment` to filter comment lines.
-    #[allow(dead_code)]
-    pub comment_style: &'static str,
 }
 
 /// Returns `(1-based line number, trimmed text)` pairs.
@@ -96,23 +93,3 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
     }
 }
 
-/// Walk an AST node recursively (depth-first) and drop interior rows of all
-/// nodes whose `kind()` is in `body_kinds`.  Used when no query is provided.
-#[allow(dead_code)]
-pub fn drop_bodies_walk(node: Node<'_>, keep: &mut Vec<bool>, body_kinds: &[&str]) {
-    let kind = node.kind();
-    if body_kinds.contains(&kind) {
-        let start = node.start_position().row;
-        let end = node.end_position().row;
-        for row in (start + 1)..end {
-            if row < keep.len() {
-                keep[row] = false;
-            }
-        }
-        return; // don't recurse — interior already dropped
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        drop_bodies_walk(child, keep, body_kinds);
-    }
-}

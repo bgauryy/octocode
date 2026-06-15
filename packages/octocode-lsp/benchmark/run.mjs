@@ -11,12 +11,36 @@ import {
 } from '../dist/index.js';
 
 const benchmarkRoot = path.dirname(fileURLToPath(import.meta.url));
-const requestedLanguages = new Set(
-  process.argv
-    .slice(2)
-    .filter(arg => !arg.startsWith('--'))
-    .map(arg => arg.toLowerCase())
-);
+const rawArgs = process.argv.slice(2);
+const iterations = positiveIntegerFlag('--iterations', 1);
+const jsonOutput = rawArgs.includes('--json');
+const requestedLanguages = new Set(languageArgs(rawArgs));
+
+function positiveIntegerFlag(name, fallback) {
+  const inline = rawArgs.find(arg => arg.startsWith(`${name}=`));
+  const separateIndex = rawArgs.indexOf(name);
+  const rawValue =
+    inline?.slice(name.length + 1) ??
+    (separateIndex >= 0 ? rawArgs[separateIndex + 1] : undefined);
+  const value = Number.parseInt(rawValue ?? '', 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function languageArgs(args) {
+  const languages = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--json') continue;
+    if (arg === '--iterations') {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--iterations=')) continue;
+    if (arg.startsWith('--')) continue;
+    languages.push(arg.toLowerCase());
+  }
+  return languages;
+}
 
 const CASES = [
   {
@@ -292,6 +316,56 @@ const CAPABILITIES = {
   callHierarchy: 'callHierarchyProvider',
 };
 
+function memorySnapshot() {
+  const { rss, heapUsed, external, arrayBuffers } = process.memoryUsage();
+  return { rss, heapUsed, external, arrayBuffers };
+}
+
+function memoryDelta(before, after = memorySnapshot()) {
+  return Object.fromEntries(
+    Object.entries(after).map(([key, value]) => [key, value - before[key]])
+  );
+}
+
+function formatBytes(bytes) {
+  const sign = bytes < 0 ? '-' : '+';
+  const abs = Math.abs(bytes);
+  if (abs < 1024) return `${sign}${abs}B`;
+  if (abs < 1024 * 1024) return `${sign}${(abs / 1024).toFixed(1)}KB`;
+  return `${sign}${(abs / 1024 / 1024).toFixed(2)}MB`;
+}
+
+function percentile(values, p) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  if (lower === upper) return sorted[lower];
+  const weight = rank - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+function latencyStats(values) {
+  if (values.length === 0) {
+    return { count: 0, min: 0, mean: 0, p50: 0, p95: 0, p99: 0, max: 0 };
+  }
+  const sum = values.reduce((total, value) => total + value, 0);
+  return {
+    count: values.length,
+    min: Math.min(...values),
+    mean: sum / values.length,
+    p50: percentile(values, 50),
+    p95: percentile(values, 95),
+    p99: percentile(values, 99),
+    max: Math.max(...values),
+  };
+}
+
+function formatMs(value) {
+  return `${value.toFixed(1)}ms`;
+}
+
 function positionFor(content, needle, occurrence = 0) {
   let index = -1;
   let start = 0;
@@ -363,12 +437,14 @@ async function runOperation(client, testCase, operationName, operation) {
   const caseRoot = path.join(benchmarkRoot, testCase.id);
   const filePath = path.join(caseRoot, operation.file);
   const startedAt = performance.now();
+  const startedMemory = memorySnapshot();
 
   if (operationName === 'documentSymbols') {
-    const symbols = await client.documentSymbols(filePath);
+    const content = await readFile(filePath, 'utf8');
+    const symbols = await client.documentSymbols(filePath, content);
     const names = symbolNames(symbols);
     const error = namesMatch(names, operation.expect.names);
-    return result(operationName, startedAt, !error, error, {
+    return result(operationName, startedAt, startedMemory, !error, error, {
       symbols: names.length,
       sample: names.slice(0, 8),
     });
@@ -382,29 +458,30 @@ async function runOperation(client, testCase, operationName, operation) {
   );
 
   if (operationName === 'definition') {
-    const locations = await client.gotoDefinition(filePath, position);
+    const locations = await client.gotoDefinition(filePath, position, content);
     const error = locationsMatch(caseRoot, locations, operation.expect);
-    return result(operationName, startedAt, !error, error, {
+    return result(operationName, startedAt, startedMemory, !error, error, {
       locations: locations.map(location => relativeFile(caseRoot, location.uri)),
     });
   }
 
   if (operationName === 'references') {
-    const locations = await client.findReferences(filePath, position, true);
+    const locations = await client.findReferences(filePath, position, true, content);
     const error = locationsMatch(caseRoot, locations, operation.expect);
-    return result(operationName, startedAt, !error, error, {
+    return result(operationName, startedAt, startedMemory, !error, error, {
       locations: locations.map(location => relativeFile(caseRoot, location.uri)),
     });
   }
 
   if (operationName === 'hover') {
-    const hover = await client.hover(filePath, position);
+    const hover = await client.hover(filePath, position, content);
     const text = hoverText(hover);
     const expected = operation.expect.textIncludes;
     const ok = expected ? text.includes(expected) : text.length > 0;
     return result(
       operationName,
       startedAt,
+      startedMemory,
       ok,
       ok ? null : `expected hover text to include ${expected}`,
       { text: text.replace(/\s+/g, ' ').trim().slice(0, 120) }
@@ -412,26 +489,32 @@ async function runOperation(client, testCase, operationName, operation) {
   }
 
   if (operationName === 'typeDefinition') {
-    const locations = await client.typeDefinition(filePath, position);
+    const locations = await client.typeDefinition(filePath, position, content);
     const error = locationsMatch(caseRoot, locations, operation.expect);
-    return result(operationName, startedAt, !error, error, {
+    return result(operationName, startedAt, startedMemory, !error, error, {
       locations: locations.map(location => relativeFile(caseRoot, location.uri)),
     });
   }
 
   if (operationName === 'implementation') {
-    const locations = await client.implementation(filePath, position);
+    const locations = await client.implementation(filePath, position, content);
     const error = locationsMatch(caseRoot, locations, operation.expect);
-    return result(operationName, startedAt, !error, error, {
+    return result(operationName, startedAt, startedMemory, !error, error, {
       locations: locations.map(location => relativeFile(caseRoot, location.uri)),
     });
   }
 
   if (operationName === 'callHierarchy') {
-    const items = await client.prepareCallHierarchy(filePath, position);
+    const items = await client.prepareCallHierarchy(filePath, position, content);
     const root = items[0];
     if (!root) {
-      return result(operationName, startedAt, false, 'no call hierarchy root');
+      return result(
+        operationName,
+        startedAt,
+        startedMemory,
+        false,
+        'no call hierarchy root'
+      );
     }
     const incoming = await client.getIncomingCalls(root);
     const outgoing = await client.getOutgoingCalls(root);
@@ -460,6 +543,7 @@ async function runOperation(client, testCase, operationName, operation) {
     return result(
       operationName,
       startedAt,
+      startedMemory,
       errors.length === 0,
       errors.join('; ') || null,
       { root: root.name, incoming: incomingNames, outgoing: outgoingNames }
@@ -469,17 +553,19 @@ async function runOperation(client, testCase, operationName, operation) {
   throw new Error(`Unknown operation: ${operationName}`);
 }
 
-function result(operation, startedAt, ok, error, details = {}) {
+function result(operation, startedAt, startedMemory, ok, error, details = {}) {
+  const durationMs = performance.now() - startedAt;
   return {
     operation,
     status: ok ? 'pass' : 'fail',
-    durationMs: Math.round(performance.now() - startedAt),
+    durationMs: Number(durationMs.toFixed(3)),
+    memoryDeltaBytes: memoryDelta(startedMemory),
     ...(error ? { error } : {}),
     ...details,
   };
 }
 
-async function runCase(testCase) {
+async function runCase(testCase, iteration) {
   const caseRoot = path.join(benchmarkRoot, testCase.id);
   const entryPath = path.join(caseRoot, testCase.entry);
   const originalLspConfig = process.env.OCTOCODE_LSP_CONFIG;
@@ -488,7 +574,7 @@ async function runCase(testCase) {
   }
 
   try {
-    return await runCaseWithConfig(testCase, caseRoot, entryPath);
+    return await runCaseWithConfig(testCase, caseRoot, entryPath, iteration);
   } finally {
     if (originalLspConfig === undefined) {
       delete process.env.OCTOCODE_LSP_CONFIG;
@@ -498,13 +584,15 @@ async function runCase(testCase) {
   }
 }
 
-async function runCaseWithConfig(testCase, caseRoot, entryPath) {
+async function runCaseWithConfig(testCase, caseRoot, entryPath, iteration) {
   const caseStartedAt = performance.now();
+  const caseStartedMemory = memorySnapshot();
   const serverConfig = await getLanguageServerForFile(entryPath, caseRoot);
   const serverAvailable = await isLanguageServerAvailable(entryPath, caseRoot);
   const output = {
     id: testCase.id,
     title: testCase.title,
+    iteration,
     workspaceRoot: caseRoot,
     server: serverConfig
       ? {
@@ -527,6 +615,7 @@ async function runCaseWithConfig(testCase, caseRoot, entryPath) {
       reason: 'language server unavailable',
     });
     output.totalMs = Math.round(performance.now() - caseStartedAt);
+    output.memoryDeltaBytes = memoryDelta(caseStartedMemory);
     return output;
   }
 
@@ -546,12 +635,14 @@ async function runCaseWithConfig(testCase, caseRoot, entryPath) {
         stderr: client.getRecentStderr().slice(-8),
       });
       output.totalMs = Math.round(performance.now() - caseStartedAt);
+      output.memoryDeltaBytes = memoryDelta(caseStartedMemory);
       return output;
     }
 
     for (const file of testCase.files) {
       if (path.extname(file)) {
-        await client.openDocument(path.join(caseRoot, file));
+        const filePath = path.join(caseRoot, file);
+        await client.openDocument(filePath, await readFile(filePath, 'utf8'));
       }
     }
     const readyStartedAt = performance.now();
@@ -587,19 +678,22 @@ async function runCaseWithConfig(testCase, caseRoot, entryPath) {
   }
 
   output.totalMs = Math.round(performance.now() - caseStartedAt);
+  output.memoryDeltaBytes = memoryDelta(caseStartedMemory);
   return output;
 }
 
 function printReport(results) {
+  const summary = buildSummary(results);
   console.log('Octocode LSP real benchmark');
   console.log(`Root: ${benchmarkRoot}`);
+  console.log(`Iterations: ${iterations}`);
   console.log('');
 
   for (const item of results) {
     const server = item.server
       ? `${item.server.command} ${(item.server.args ?? []).join(' ')}`
       : 'none';
-    console.log(`${item.title} (${item.id})`);
+    console.log(`${item.title} (${item.id}) #${item.iteration}`);
     console.log(`  serverAvailable: ${item.serverAvailable}`);
     console.log(`  server: ${server}`);
     if (item.startupMs !== undefined) {
@@ -610,32 +704,79 @@ function printReport(results) {
     }
     for (const operation of item.operations) {
       const duration =
-        operation.durationMs !== undefined ? ` ${operation.durationMs}ms` : '';
+        operation.durationMs !== undefined
+          ? ` ${formatMs(operation.durationMs)}`
+          : '';
+      const memory =
+        operation.memoryDeltaBytes !== undefined
+          ? ` rssΔ=${formatBytes(operation.memoryDeltaBytes.rss)}`
+          : '';
       const suffix = operation.error
         ? ` - ${operation.error}`
         : operation.reason
           ? ` - ${operation.reason}`
           : '';
       console.log(
-        `  ${operation.status.toUpperCase().padEnd(4)} ${operation.operation}${duration}${suffix}`
+        `  ${operation.status.toUpperCase().padEnd(4)} ${operation.operation}${duration}${memory}${suffix}`
       );
     }
     if (item.totalMs !== undefined) {
       console.log(`  totalMs: ${item.totalMs}`);
     }
+    if (item.memoryDeltaBytes !== undefined) {
+      console.log(`  memory rssΔ: ${formatBytes(item.memoryDeltaBytes.rss)}`);
+    }
     console.log('');
   }
 
-  const flat = results.flatMap(item => item.operations);
+  console.log(
+    `Summary: ${summary.counts.pass} passed, ${summary.counts.fail} failed, ${summary.counts.skip} skipped`
+  );
+  console.log(
+    `Latency: count=${summary.latency.count} min=${formatMs(summary.latency.min)} mean=${formatMs(summary.latency.mean)} p50=${formatMs(summary.latency.p50)} p95=${formatMs(summary.latency.p95)} p99=${formatMs(summary.latency.p99)} max=${formatMs(summary.latency.max)}`
+  );
+  if (iterations > 1) {
+    console.log('Latency by operation:');
+    for (const [key, stats] of Object.entries(summary.byOperation)) {
+      console.log(
+        `  ${key}: count=${stats.count} p50=${formatMs(stats.p50)} p95=${formatMs(stats.p95)} p99=${formatMs(stats.p99)} max=${formatMs(stats.max)}`
+      );
+    }
+  }
+  if (summary.counts.fail > 0) process.exitCode = 1;
+}
+
+function buildSummary(results) {
+  const flat = results.flatMap(item =>
+    item.operations.map(operation => ({
+      ...operation,
+      caseId: item.id,
+    }))
+  );
   const counts = {
     pass: flat.filter(operation => operation.status === 'pass').length,
     fail: flat.filter(operation => operation.status === 'fail').length,
     skip: flat.filter(operation => operation.status === 'skip').length,
   };
-  console.log(
-    `Summary: ${counts.pass} passed, ${counts.fail} failed, ${counts.skip} skipped`
-  );
-  if (counts.fail > 0) process.exitCode = 1;
+  const durations = flat
+    .map(operation => operation.durationMs)
+    .filter(duration => typeof duration === 'number');
+  const byOperation = {};
+  for (const operation of flat) {
+    if (typeof operation.durationMs !== 'number') continue;
+    const key = `${operation.caseId}.${operation.operation}`;
+    (byOperation[key] ??= []).push(operation.durationMs);
+  }
+  return {
+    counts,
+    latency: latencyStats(durations),
+    byOperation: Object.fromEntries(
+      Object.entries(byOperation).map(([key, values]) => [
+        key,
+        latencyStats(values),
+      ])
+    ),
+  };
 }
 
 const selectedCases =
@@ -652,10 +793,18 @@ if (selectedCases.length === 0) {
 
 try {
   const results = [];
-  for (const testCase of selectedCases) {
-    results.push(await runCase(testCase));
+  for (let iteration = 1; iteration <= iterations; iteration++) {
+    for (const testCase of selectedCases) {
+      results.push(await runCase(testCase, iteration));
+    }
   }
-  printReport(results);
+  if (jsonOutput) {
+    const summary = buildSummary(results);
+    console.log(JSON.stringify({ iterations, results, summary }, null, 2));
+    if (summary.counts.fail > 0) process.exitCode = 1;
+  } else {
+    printReport(results);
+  }
 } finally {
   await releaseAllPooledClients();
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -53,6 +53,17 @@ describe('native core wrappers', () => {
 
     await expect(resolveWorkspaceRootForFile(file)).resolves.toBe(root);
     await expect(safeReadFile(file)).resolves.toContain('value');
-    expect(validateLSPServerPath(process.execPath).isValid).toBe(true);
+    await expect(safeReadFile('relative.ts')).resolves.toBeNull();
+    expect(validateLSPServerPath(process.execPath)).toEqual({
+      isValid: true,
+      resolvedPath: await realpath(process.execPath),
+    });
+    expect(validateLSPServerPath('bash').isValid).toBe(false);
+    if (process.platform !== 'win32') {
+      const nonExecutable = path.join(root, 'server');
+      await writeFile(nonExecutable, 'not executable\n');
+      await chmod(nonExecutable, 0o644);
+      expect(validateLSPServerPath(nonExecutable).isValid).toBe(false);
+    }
   });
 });

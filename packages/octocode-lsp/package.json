@@ -93,6 +93,23 @@
       "default": "./dist/workspaceRoot.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "client": ["./dist/client.d.ts"],
+      "config": ["./dist/config.d.ts"],
+      "evidence": ["./dist/evidence.d.ts"],
+      "initConstants": ["./dist/initConstants.d.ts"],
+      "lspClientPool": ["./dist/lspClientPool.d.ts"],
+      "lspErrorCodes": ["./dist/lspErrorCodes.d.ts"],
+      "manager": ["./dist/manager.d.ts"],
+      "resolver": ["./dist/resolver.d.ts"],
+      "schemas": ["./dist/schemas.d.ts"],
+      "types": ["./dist/types.d.ts"],
+      "uri": ["./dist/uri.d.ts"],
+      "validation": ["./dist/validation.d.ts"],
+      "workspaceRoot": ["./dist/workspaceRoot.d.ts"]
+    }
+  },
   "files": [
     "dist",
     "README.md",

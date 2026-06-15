@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone)]
 pub struct FileTypeConfig {
@@ -23,9 +23,8 @@ impl FileTypeConfig {
     }
 }
 
-pub fn minify_config() -> &'static HashMap<&'static str, FileTypeConfig> {
-    static CONFIG: OnceLock<HashMap<&'static str, FileTypeConfig>> = OnceLock::new();
-    CONFIG.get_or_init(|| {
+static MINIFY_CONFIG: LazyLock<HashMap<&'static str, FileTypeConfig>> =
+    LazyLock::new(|| {
         let mut m: HashMap<&'static str, FileTypeConfig> = HashMap::new();
 
         // JS / TS
@@ -174,30 +173,34 @@ pub fn minify_config() -> &'static HashMap<&'static str, FileTypeConfig> {
             "dockerignore"=> FileTypeConfig::with("conservative",&["hash"]),
         }
         m
-    })
+    });
+
+pub fn minify_config() -> &'static HashMap<&'static str, FileTypeConfig> {
+    &MINIFY_CONFIG
 }
 
+static INDENTATION_SENSITIVE_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    [
+        "makefile",
+        "dockerfile",
+        "procfile",
+        "justfile",
+        "rakefile",
+        "gemfile",
+        "podfile",
+        "fastfile",
+        "vagrantfile",
+        "jenkinsfile",
+        "cakefile",
+        "pipfile",
+        "buildfile",
+        "capfile",
+        "brewfile",
+    ]
+    .into_iter()
+    .collect()
+});
+
 pub fn indentation_sensitive_names() -> &'static HashSet<&'static str> {
-    static NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
-    NAMES.get_or_init(|| {
-        [
-            "makefile",
-            "dockerfile",
-            "procfile",
-            "justfile",
-            "rakefile",
-            "gemfile",
-            "podfile",
-            "fastfile",
-            "vagrantfile",
-            "jenkinsfile",
-            "cakefile",
-            "pipfile",
-            "buildfile",
-            "capfile",
-            "brewfile",
-        ]
-        .into_iter()
-        .collect()
-    })
+    &INDENTATION_SENSITIVE_NAMES
 }

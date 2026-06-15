@@ -98,8 +98,8 @@ pub fn is_command_available(command: String) -> Result<bool> {
     config::is_command_available(command)
 }
 
-/// Read `file_path` from disk with basic security validation (no path
-/// traversal, no symlink loops).
+/// Read `file_path` from disk after canonicalizing it and confirming it is an
+/// absolute regular file.
 ///
 /// # Errors
 ///
@@ -109,8 +109,8 @@ pub fn safe_read_file(file_path: String) -> Result<String> {
     validation::safe_read_file(file_path)
 }
 
-/// Validate that `command` points to an executable LSP server binary.
-/// Returns the resolved absolute path on success.
+/// Validate that `command` resolves to an executable LSP server binary.
+/// Returns the resolved absolute path on success and rejects shell wrappers.
 ///
 /// # Errors
 ///

@@ -10,6 +10,9 @@ export interface LanguageServerConfig {
   languageId?: string;
 
   initializationOptions?: InitializationOptions;
+
+  /** Extra environment variables injected into the language server process. */
+  env?: Record<string, string>;
 }
 
 export interface UserLanguageServerConfig {

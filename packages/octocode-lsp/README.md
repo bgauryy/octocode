@@ -17,6 +17,7 @@ Run the full live matrix:
 
 ```bash
 yarn benchmark typescript javascript python go rust cpp custom
+yarn benchmark --iterations=5 --json typescript rust
 ```
 
 Current verified live result on the maintainer machine:
@@ -219,7 +220,7 @@ Package quality bar:
 - ESLint passes.
 - Rust `cargo test` and `cargo clippy --all-targets -- -D warnings` pass.
 - Vitest coverage remains above 90%.
-- Live benchmark has no failed operations.
+- Live benchmark has no failed operations and reports p50/p95/p99 latency plus memory deltas.
 
 ## Troubleshooting
 
