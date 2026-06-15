@@ -89,12 +89,16 @@ export class LspClientPool<T extends PooledClient> {
   }
 
   private startIdleTimer(k: string): ReturnType<typeof setTimeout> {
-    return setTimeout(() => {
+    const timer = setTimeout(() => {
       const entry = this.entries.get(k);
       if (!entry) return;
       this.entries.delete(k);
       void safeStop(entry.client);
     }, this.options.idleTimeoutMs);
+    if (typeof timer === 'object' && 'unref' in timer) {
+      timer.unref();
+    }
+    return timer;
   }
 }
 

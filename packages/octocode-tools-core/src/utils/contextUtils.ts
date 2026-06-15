@@ -7,6 +7,7 @@ export type {
   ExtractMatchingLinesResult,
   FilterPatchOptions,
   MinifyResult,
+  JsonInput,
   RipgrepParseOptions,
   RipgrepParseResult,
   SliceContentOptions,
@@ -94,7 +95,7 @@ export const contextUtils = {
   },
 
   jsonToYamlString(
-    jsonObject: unknown,
+    jsonObject: NativeContextUtils.JsonInput,
     config?: NativeContextUtils.YamlConversionConfig | null
   ): string {
     return loadNative().jsonToYamlString(jsonObject, config);

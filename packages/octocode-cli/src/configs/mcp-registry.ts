@@ -1,4 +1,4 @@
-import { z } from '@octocodeai/octocode-tools-core';
+import { z } from '@octocodeai/octocode-tools-core/zod';
 
 const MCPCategorySchema = z.enum([
   'browser-automation',

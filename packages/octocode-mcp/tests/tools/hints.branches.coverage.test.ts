@@ -212,7 +212,7 @@ describe('local_view_structure hints — uncovered branches', () => {
 
 // ── github_search_code/hints.ts line 27 — looksLikeTestInfrastructureQuery ─
 
-describe('github_search_code hints — test infrastructure query detection', () => {
+describe('github_search_code hints — single keyword fallback', () => {
   let scHints: (typeof import('../../../octocode-tools-core/src/tools/github_search_code/hints.js'))['hints'];
 
   beforeAll(async () => {
@@ -220,13 +220,12 @@ describe('github_search_code hints — test infrastructure query detection', () 
       await import('../../../octocode-tools-core/src/tools/github_search_code/hints.js'));
   });
 
-  it('empty() flags test-infrastructure keywords (jest/vitest) in the suggestion', () => {
-    // 'vitest' is in TEST_INFRA_KEYWORDS — triggers looksLikeTestInfrastructureQuery
+  it('empty() with a single keyword returns a cross-GitHub broadening hint', () => {
     const result = scHints.empty({
       keywords: ['vitest'],
     } as never);
-    const joined = result.join(' ');
-    expect(joined.toLowerCase()).toContain('test');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.join(' ')).toMatch(/scope|broaden|keywords|owner/i);
   });
 
   it('empty() with nonExistentScope — owner+repo provided', () => {

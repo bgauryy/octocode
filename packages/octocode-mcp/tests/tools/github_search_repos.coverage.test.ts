@@ -483,9 +483,8 @@ describe('GitHub Search Repositories Coverage', () => {
       const result = await call({ id: 'filter_only_hint', owner: 'someorg' });
       const text = getTextContent(result.content);
       expect(result.isError).toBe(false);
-      expect(text).toContain(
-        'No repositories found matching the current filters'
-      );
+      expect(text).toContain('No repositories found');
+      expect(text).toContain('Remove a filter');
     });
   });
 

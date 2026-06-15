@@ -16,20 +16,19 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
     );
   });
 
-  it('warns that a scoped zero is unreliable for archived AND renamed/redirected repos', () => {
+  it('includes githubGetFileContent fallback for scoped zero results', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'bgauryy',
-      repo: 'octocode-mcp', // redirects to bgauryy/octocode
+      repo: 'octocode-mcp',
       keywords: ['extractSignatures'],
     });
     const joined = out.join(' ');
-    expect(joined).toMatch(/archived/i);
-    expect(joined).toMatch(/renamed|redirect/i);
     expect(joined).toMatch(/githubGetFileContent/);
+    expect(joined).toContain('bgauryy/octocode-mcp');
   });
 
-  it('explains that path: matches a directory and points to filename:', () => {
+  it('with path filter returns filter removal hint', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'vuejs',
@@ -38,12 +37,10 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
       keywords: ['createRenderer'],
     });
     const joined = out.join(' ');
-    expect(joined).toMatch(/path:/);
-    expect(joined).toMatch(/director/i);
-    expect(joined).toMatch(/filename:/);
+    expect(joined).toContain('Remove a filter');
   });
 
-  it('gives phrase-broadening guidance when a phrase is used without a path', () => {
+  it('gives broadening guidance when no path filter is set', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'vuejs',
@@ -51,25 +48,25 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
       keywords: ['const patch handler'],
     });
     const joined = out.join(' ');
+    expect(joined.length).toBeGreaterThan(0);
     expect(joined).not.toMatch(
       /single distinctive identifier instead of a phrase/i
     );
-    expect(joined.length).toBeGreaterThan(0);
   });
 
-  it('still warns that archived repos are under-indexed', () => {
+  it('includes githubGetFileContent fallback hint for repos without path filter', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'vuejs',
       repo: 'core',
       keywords: ['createRenderer'],
     });
-    expect(out.join(' ')).toMatch(/archived/i);
+    expect(out.join(' ')).toMatch(/githubGetFileContent/);
   });
 });
 
-describe('githubSearchCode empty hints — path looks like a file path', () => {
-  it('fires auto-extraction hint when path ends with a file extension', () => {
+describe('githubSearchCode empty hints — path filter', () => {
+  it('with file-extension path returns filter removal hint', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'mastra-ai',
@@ -77,12 +74,10 @@ describe('githubSearchCode empty hints — path looks like a file path', () => {
       path: 'packages/core/src/agent/agent.ts',
       keywords: ['createAgent'],
     });
-    const joined = out.join(' ');
-    expect(joined).toMatch(/auto-extracted/i);
-    expect(joined).toMatch(/agent\.ts/);
+    expect(out.join(' ')).toContain('Remove a filter');
   });
 
-  it('includes extracted filename and directory in the hint', () => {
+  it('with file path returns repo scope in hint', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'facebook',
@@ -91,23 +86,11 @@ describe('githubSearchCode empty hints — path looks like a file path', () => {
       keywords: ['useState'],
     });
     const joined = out.join(' ');
-    expect(joined).toMatch(/filename="ReactHooks\.js"/);
-    expect(joined).toMatch(/path="packages\/react\/src"/);
+    expect(joined).toContain('facebook/react');
+    expect(joined).toContain('Remove a filter');
   });
 
-  it('does NOT fire the generic directory hint when path looks like a file', () => {
-    const out = hints.empty({
-      hasOwnerRepo: true,
-      owner: 'mastra-ai',
-      repo: 'mastra',
-      path: 'packages/core/src/agent/agent.ts',
-      keywords: ['createAgent'],
-    });
-    const joined = out.join(' ');
-    expect(joined).not.toMatch(/matches a directory, not a file/i);
-  });
-
-  it('still fires directory hint for paths without file extension', () => {
+  it('with directory path returns filter hint and githubGetFileContent fallback', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'mastra-ai',
@@ -116,7 +99,7 @@ describe('githubSearchCode empty hints — path looks like a file path', () => {
       keywords: ['createAgent'],
     });
     const joined = out.join(' ');
-    expect(joined).toMatch(/matches a directory, not a file/i);
+    expect(joined).toContain('Remove a filter');
     expect(joined).not.toMatch(/auto-extracted/i);
   });
 

@@ -56,9 +56,11 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
+    await importOriginal<
+      typeof import('@octocodeai/octocode-tools-core/direct')
+    >();
   const executeDirectTool = vi.fn(async (toolName: string, input: unknown) => {
     if (toolName.startsWith('github')) {
       await mocks.initialize();
@@ -76,8 +78,6 @@ vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
 
   return {
     ...actual,
-    initialize: mocks.initialize,
-    initializeProviders: mocks.initializeProviders,
     loadToolContent: mocks.loadToolContent,
     executeDirectTool,
   };

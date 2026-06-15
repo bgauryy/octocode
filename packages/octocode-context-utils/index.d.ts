@@ -19,11 +19,51 @@ export declare function applyMinification(content: string, filePath: string): st
  */
 export declare function extractSignatures(content: string, filePath: string): string | null
 
+export type CommentPatternGroup =
+  | 'c-style'
+  | 'hash'
+  | 'html'
+  | 'sql'
+  | 'lua'
+  | 'haskell'
+  | 'semicolon'
+  | 'wasm-text'
+  | 'percent'
+  | 'haml'
+  | 'slim'
+  | 'powershell'
+  | 'bang'
+  | 'apostrophe'
+  | 'double-dash'
+  | 'fsharp-block'
+  | 'pascal'
+  | 'template'
+  | 'python-docstring'
+
+export type MinifyStrategy = 'aggressive' | 'conservative' | 'general' | 'json' | 'terser'
+
 export interface FileTypeMinifyConfig {
-  strategy: string
-  /** CommentPatternGroup | CommentPatternGroup[] */
-  comments?: any
+  strategy: MinifyStrategy | string
+  comments?: CommentPatternGroup | CommentPatternGroup[] | null
 }
+
+export interface MinifyConfigSnapshot {
+  fileTypes: Record<
+    string,
+    {
+      strategy: MinifyStrategy | string
+      comments: CommentPatternGroup | CommentPatternGroup[] | null
+    }
+  >
+}
+
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
+export type JsonInput =
+  | JsonPrimitive
+  | undefined
+  | JsonInput[]
+  | { [key: string]: JsonInput }
 
 /**
  * Extract the file extension from a path (dotfile-aware).
@@ -40,7 +80,7 @@ export interface GetExtensionOptions {
  * Returns the full MINIFY_CONFIG as a JS-compatible object.
  * Shape: `{ fileTypes: Record<string, { strategy: string, comments: string | string[] | null }> }`
  */
-export declare function getMINIFY_CONFIG(): any
+export declare function getMINIFY_CONFIG(): MinifyConfigSnapshot
 
 /**
  * Returns a sorted list of JS char offsets (UTF-16 code units) where
@@ -68,7 +108,7 @@ export declare function getSupportedSignatureExtensions(): Array<string>
  * response. Optional key sorting and priority-key ordering; multiline
  * strings become block scalars. Emission is locked by yaml_utils tests.
  */
-export declare function jsonToYamlString(jsonObject: any, config?: YamlConversionConfig | undefined | null): string
+export declare function jsonToYamlString(jsonObject: JsonInput, config?: YamlConversionConfig | undefined | null): string
 
 /**
  * Aggressive strategy: strip comments, collapse all whitespace, tighten
@@ -163,7 +203,7 @@ export interface MinifyResult {
 }
 
 /** `commentTypes` accepts a single string or array of strings. */
-export declare function removeComments(content: string, commentTypes: any): string
+export declare function removeComments(content: string, commentTypes: CommentPatternGroup | CommentPatternGroup[]): string
 
 export const SIGNATURES_ONLY_HINT: string
 
@@ -179,7 +219,7 @@ export interface YamlConversionConfig {
 }
 
 export declare const MINIFY_CONFIG: {
-  fileTypes: Record<string, { strategy: string; comments: string | string[] | null }>
+  fileTypes: Record<string, { strategy: MinifyStrategy | string; comments: CommentPatternGroup | CommentPatternGroup[] | null }>
 }
 export declare const SUPPORTED_SIGNATURE_EXTENSIONS: readonly string[]
 

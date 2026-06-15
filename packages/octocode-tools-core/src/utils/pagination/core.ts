@@ -1,6 +1,11 @@
 import type { PaginationInfo } from '../../types/toolResults.js';
 import type { PaginationMetadata, ApplyPaginationOptions } from './types.js';
-import { byteToCharIndex, charToByteIndex } from '../file/byteOffset.js';
+import {
+  byteToCharIndex,
+  charToByteIndex,
+  getByteLength,
+  sliceContent,
+} from '../file/byteOffset.js';
 
 export function applyPagination(
   content: string,
@@ -10,7 +15,7 @@ export function applyPagination(
 ): PaginationMetadata {
   const mode = options.mode ?? 'characters';
   const totalChars = content.length;
-  const totalBytes = Buffer.byteLength(content, 'utf-8');
+  const totalBytes = getByteLength(content);
 
   if (length === undefined) {
     return {
@@ -55,23 +60,28 @@ export function applyPagination(
       endCharPos += 1;
     }
 
-    paginatedContent = content.substring(startCharPos, endCharPos);
-
-    startBytePos = charToByteIndex(content, startCharPos);
-    endBytePos = charToByteIndex(content, endCharPos);
+    const slice = sliceContent(
+      content,
+      startCharPos,
+      endCharPos - startCharPos
+    );
+    paginatedContent = slice.text;
+    startCharPos = slice.charOffset;
+    endCharPos = slice.charOffset + slice.charLength;
+    startBytePos = slice.byteOffset;
+    endBytePos = slice.byteOffset + slice.byteLength;
 
     hasMore = endBytePos < totalBytes;
     const pageOffset = options.actualOffset ?? requestedStartByte;
     currentPage = Math.floor(pageOffset / length) + 1;
     totalPages = Math.ceil(totalBytes / length);
   } else {
-    startCharPos = Math.min(offset, totalChars);
-    endCharPos = Math.min(startCharPos + length, totalChars);
-
-    paginatedContent = content.substring(startCharPos, endCharPos);
-
-    startBytePos = charToByteIndex(content, startCharPos);
-    endBytePos = charToByteIndex(content, endCharPos);
+    const slice = sliceContent(content, offset, length);
+    paginatedContent = slice.text;
+    startCharPos = slice.charOffset;
+    endCharPos = slice.charOffset + slice.charLength;
+    startBytePos = slice.byteOffset;
+    endBytePos = slice.byteOffset + slice.byteLength;
 
     hasMore = endCharPos < totalChars;
     const pageOffset = options.actualOffset ?? startCharPos;

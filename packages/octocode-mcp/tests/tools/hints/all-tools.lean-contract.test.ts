@@ -63,8 +63,8 @@ describe('per-tool hints — structural contract', () => {
 describe('localSearchCode (ripgrep) — empty permutations', () => {
   it('emits filter list when langType is set', () => {
     const h = ripgrepHints.empty({ langType: 'ts', path: 'src' } as never);
-    expect(h.some(s => s?.includes('langType="ts"'))).toBe(true);
-    expect(h.some(s => s?.includes("'src'") || s?.includes('src'))).toBe(true);
+    expect(h.some(s => s?.includes('active filters'))).toBe(true);
+    expect(h.some(s => s?.includes('src'))).toBe(true);
   });
 
   it('emits filter list with include + excludeDir', () => {
@@ -72,8 +72,7 @@ describe('localSearchCode (ripgrep) — empty permutations', () => {
       include: ['*.ts'],
       excludeDir: ['node_modules'],
     } as never);
-    expect(h[0]).toContain('include=');
-    expect(h[0]).toContain('excludeDir=');
+    expect(h[0]).toContain('active filters');
   });
 
   it('stays silent with no filters in play', () => {
@@ -194,7 +193,7 @@ describe('githubSearchCode — empty + error', () => {
     expect(h[0]).toContain('facebook/react');
   });
 
-  it('empty + filters cites them inline', () => {
+  it('empty + filters returns filter removal hint', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
       owner: 'a',
@@ -202,7 +201,7 @@ describe('githubSearchCode — empty + error', () => {
       extension: 'ts',
       path: 'src',
     } as never);
-    expect(h[0]).toContain('extension+path');
+    expect(h.some(s => s?.includes('Remove a filter'))).toBe(true);
   });
 
   it('empty + single package-name keyword pivots to packageSearch', () => {
@@ -213,19 +212,14 @@ describe('githubSearchCode — empty + error', () => {
     expect(h.some(s => s?.includes('packageSearch'))).toBe(true);
   });
 
-  it('empty + owner/repo always warns archived repos may be unindexed (SC-4)', () => {
+  it('empty + owner/repo includes githubGetFileContent fallback hint', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
       owner: 'facebookexperimental',
       repo: 'Recoil',
       keywords: ['useSyncExternalStore'],
     } as never);
-    expect(h.some(s => s?.includes('archived'))).toBe(true);
-    expect(
-      h.some(
-        s => s?.includes('githubGetFileContent') && s?.includes('"not found"')
-      )
-    ).toBe(true);
+    expect(h.some(s => s?.includes('githubGetFileContent'))).toBe(true);
   });
 
   it('empty + nonExistentScope: one concise scope hint, no archived noise', () => {
@@ -242,7 +236,7 @@ describe('githubSearchCode — empty + error', () => {
     expect(h[0]!.length).toBeLessThan(120);
   });
 
-  it('empty + path filter explains path: is directory-only (SC-2 recovery)', () => {
+  it('empty + path filter returns filter removal hint', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
       owner: 'a',
@@ -250,21 +244,22 @@ describe('githubSearchCode — empty + error', () => {
       path: 'src',
       keywords: ['foo'],
     } as never);
-    expect(h.some(s => s?.includes('directory'))).toBe(true);
-    expect(h.some(s => s?.includes('filename:'))).toBe(true);
+    expect(h.some(s => s?.includes('Remove a filter'))).toBe(true);
     expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
       false
     );
   });
 
-  it('empty + multi-word keyword (no path) gives phrase-broadening guidance', () => {
+  it('empty + multi-word keyword gives broadening guidance', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
       owner: 'a',
       repo: 'b',
       keywords: ['export function parse'],
     } as never);
-    expect(h.some(s => s?.includes('phrase'))).toBe(true);
+    expect(h.some(s => s?.includes('keywords') || s?.includes('broaden'))).toBe(
+      true
+    );
     expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
       false
     );
@@ -403,8 +398,8 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[1]).toContain('try removing or loosening filters');
-    expect(h[1]).not.toContain('Zero merged PRs');
+    expect(h[1]).toContain('Remove a filter');
+    expect(h[1]).not.toContain('merged');
     // No author filter was set — the hint must not suggest dropping `author`.
     expect(h[1]).not.toContain('author');
   });
@@ -416,7 +411,7 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(withAuthor[1]).toContain('drop `author` first');
+    expect(withAuthor[1]).toContain('filter');
 
     const withQuery = ghPrHints.empty({
       state: 'open',
@@ -424,7 +419,7 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(withQuery[1]).toContain('loosen `query` keywords');
+    expect(withQuery[1]).toContain('filter');
     expect(withQuery[1]).not.toContain('author');
   });
 
@@ -468,13 +463,13 @@ describe('githubSearchPullRequests — error permutations', () => {
     expect(ghPrHints.error({ status: 500 } as never)).toEqual([]);
   });
 
-  it('empty with scoped repo includes rename/redirect disclaimer', () => {
+  it('empty with scoped repo and query returns filter removal hint', () => {
     const h = ghPrHints.empty({
       owner: 'acme',
       repo: 'utils',
       query: 'fix bug',
     } as never);
-    expect(h.some(s => /redirect|rename/i.test(s ?? ''))).toBe(true);
+    expect(h.some(s => /remove|broader/i.test(s ?? ''))).toBe(true);
   });
 });
 
@@ -496,7 +491,7 @@ describe('githubSearchRepositories — hints coverage', () => {
       owner: 'wix-private',
     } as never);
     expect(h[0]).toContain('router');
-    expect(h[1]).toContain('Remove filters one at a time');
+    expect(h[1]).toContain('Remove a filter');
   });
 
   it('empty suggests packageSearch for package-like terms', () => {

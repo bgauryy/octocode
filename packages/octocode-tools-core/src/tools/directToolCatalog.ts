@@ -14,6 +14,7 @@ import {
   withBasicSecurityValidation,
   withSecurityValidation,
 } from '../security/bridge.js';
+import { releaseAllPooledClients } from 'octocode-lsp/manager';
 
 export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];
@@ -616,8 +617,14 @@ export async function executeDirectTool(
   }
 
   const parsedInput = parseDirectToolInput(tool, input);
-  await ensureDirectToolRuntimeReady(tool);
-  return runDirectTool(tool, parsedInput);
+  try {
+    await ensureDirectToolRuntimeReady(tool);
+    return await runDirectTool(tool, parsedInput);
+  } finally {
+    if (name === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME) {
+      await releaseAllPooledClients();
+    }
+  }
 }
 
 function toDirectToolDefinition(
