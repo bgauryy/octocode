@@ -27,7 +27,7 @@ import { HOME, isWindows, getAppDataPath } from './platform.js';
 import { paths } from 'octocode-shared';
 import { trySafe } from './try-safe.js';
 import { parseSkillFrontmatter } from './parsers/frontmatter.js';
-import { z } from 'zod/v4';
+import { z } from 'octocode-shared';
 
 const OCTOCODE_DIR =
   paths.home || process.env.OCTOCODE_HOME || join(HOME, '.octocode');

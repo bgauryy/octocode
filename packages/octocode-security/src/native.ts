@@ -5,6 +5,8 @@
 import { createRequire } from 'module';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
+import { execSync } from 'child_process';
 
 const _require = createRequire(import.meta.url);
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -25,21 +27,50 @@ interface NativeModule {
   patternCount(): number;
 }
 
-function isMusl(): boolean {
+const isFileMusl = (f: string): boolean =>
+  f.includes('libc.musl-') || f.includes('ld-musl-');
+
+function isMuslFromFilesystem(): boolean | null {
   try {
-    const report = (
-      process as NodeJS.Process & {
-        report?: {
-          getReport(): { header?: { glibcVersionRuntime?: string } };
-        };
-      }
-    ).report?.getReport() as
-      | { header?: { glibcVersionRuntime?: string } }
-      | undefined;
-    return !report?.header?.glibcVersionRuntime;
+    return readFileSync('/usr/bin/ldd', 'utf-8').includes('musl');
   } catch {
-    return true;
+    return null;
   }
+}
+
+function isMuslFromReport(): boolean | null {
+  if (typeof process.report?.getReport !== 'function') return null;
+  (process.report as { excludeNetwork?: boolean }).excludeNetwork = true;
+  const report = process.report.getReport() as Record<string, unknown>;
+  if (!report) return null;
+  if (
+    report.header &&
+    typeof report.header === 'object' &&
+    'glibcVersionRuntime' in report.header
+  )
+    return false;
+  if (
+    Array.isArray(report.sharedObjects) &&
+    (report.sharedObjects as string[]).some(isFileMusl)
+  )
+    return true;
+  return false;
+}
+
+function isMuslFromChildProcess(): boolean {
+  try {
+    return execSync('ldd --version', { encoding: 'utf8' }).includes('musl');
+  } catch {
+    return false;
+  }
+}
+
+function isMusl(): boolean {
+  if (process.platform !== 'linux') return false;
+  let result: boolean | null = isMuslFromFilesystem();
+  if (result === null) result = isMuslFromReport();
+  if (result === null) result = isMuslFromChildProcess();
+  return !!result;
 }
 
 function loadNative(): NativeModule {

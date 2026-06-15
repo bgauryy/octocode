@@ -1,0 +1,25 @@
+{
+  "name": "octocode-lsp-darwin-arm64",
+  "version": "16.0.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "octocode-lsp.darwin-arm64.node",
+  "files": [
+    "octocode-lsp.darwin-arm64.node"
+  ],
+  "description": "Rust native LSP client and semantic navigation runtime for Octocode — darwin-arm64",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-lsp"
+  }
+}

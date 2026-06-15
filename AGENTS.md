@@ -135,7 +135,7 @@ src/
 ├── index.ts, serverConfig.ts, session.ts, responses.ts, errorCodes.ts, types.ts, public.ts
 ├── hints/        # Dynamic + static hint generation
 ├── scheme/       # Shared schema utilities (baseSchema.ts)
-├── tools/        # 13 tool modules, each: execution.ts, scheme.ts, types.ts, register.ts, index.ts
+├── tools/        # 12 tool modules + toolMetadata/, each: execution.ts, scheme.ts, types.ts, register.ts, index.ts
 │                 # toolsManager.ts, toolRegistry.ts, toolConfig.ts, toolMetadata.ts, toolNames.ts
 ├── github/       # Octokit client, code/repo/PR/file search, query builders, errors
 ├── providers/    # Provider abstraction (github) via factory

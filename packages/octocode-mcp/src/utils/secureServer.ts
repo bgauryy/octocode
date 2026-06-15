@@ -4,9 +4,9 @@ import {
   McpError,
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ContentSanitizer } from 'octocode-security';
-import { maskSensitiveData } from 'octocode-security/mask';
 import {
+  ContentSanitizer,
+  maskSensitiveData,
   logSessionError,
   ignoreBestEffortFailure,
   sanitizeCallToolResult,

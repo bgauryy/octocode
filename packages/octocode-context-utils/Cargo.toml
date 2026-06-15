@@ -9,7 +9,12 @@ keywords   = ["napi", "llm", "context", "signatures", "nodejs"]
 categories = ["development-tools", "text-processing"]
 
 [lints.clippy]
-unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy.toml
+all            = { level = "deny", priority = -1 }
+unwrap_used    = "deny"
+needless_pass_by_value = "allow"
+dbg_macro      = "deny"
+print_stdout   = "deny"
+print_stderr   = "deny"
 
 [lib]
 crate-type = ["cdylib"]

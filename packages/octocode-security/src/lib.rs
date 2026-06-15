@@ -1,5 +1,3 @@
-#![deny(clippy::all)]
-
 mod detector;
 mod patterns;
 mod sanitizer;

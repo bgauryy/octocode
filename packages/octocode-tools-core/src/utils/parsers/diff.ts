@@ -1,7 +1,4 @@
-import {
-  contextUtils,
-  type FilterPatchOptions,
-} from '../contextUtils.js';
+import { contextUtils, type FilterPatchOptions } from '../contextUtils.js';
 
 const DIFF_CONTEXT_LINES = 2;
 const DIFF_TRIM_THRESHOLD_LINES = 30;

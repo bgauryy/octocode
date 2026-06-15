@@ -16,11 +16,22 @@ const nodeExternals = [
 ];
 
 // Every runtime `dependency` MUST stay external — never inlined into the bundle.
-// octocode-cli consumes octocode-mcp and octocode-shared through npm so their
-// transitive optional native packages are installed by the user's package manager.
 const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
-const external = [...nodeExternals, ...runtimeExternals];
+// Transitive packages owned by octocode-tools-core; cli does not declare them
+// directly but they must remain external so native .node binaries are resolved
+// at runtime by the package manager rather than bundled.
+const transitiveExternals = [
+  'octocode-shared',
+  'octocode-security',
+  'octocode-lsp',
+  '@octocodeai/octocode-core',
+  '@octocodeai/octocode-core/schemas',
+  '@octocodeai/octocode-core/types',
+  'zod',
+];
+
+const external = [...nodeExternals, ...runtimeExternals, ...transitiveExternals];
 
 const shimBanner = [
   "import { createRequire as __createRequire } from 'module';",

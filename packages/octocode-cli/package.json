@@ -60,21 +60,20 @@
     "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp && yarn validate:skills"
   },
   "dependencies": {
-    "@octocodeai/octocode-tools-core": "workspace:*",
-    "octocode-shared": "workspace:*"
-  },
-  "devDependencies": {
     "@inquirer/prompts": "^8.1.0",
+    "@octocodeai/octocode-tools-core": "workspace:^",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/request": "^10.0.7",
+    "octocode-shared": "workspace:^",
+    "open": "^11.0.0"
+  },
+  "devDependencies": {
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.0.16",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
-    "open": "^11.0.0",
     "tsx": "^4.21.0",
-    "vitest": "^4.0.16",
-    "zod": "^4.3.6"
+    "vitest": "^4.0.16"
   }
 }

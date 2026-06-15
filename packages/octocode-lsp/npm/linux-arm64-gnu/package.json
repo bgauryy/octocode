@@ -1,0 +1,28 @@
+{
+  "name": "octocode-lsp-linux-arm64-gnu",
+  "version": "16.0.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "main": "octocode-lsp.linux-arm64-gnu.node",
+  "files": [
+    "octocode-lsp.linux-arm64-gnu.node"
+  ],
+  "description": "Rust native LSP client and semantic navigation runtime for Octocode — linux-arm64-gnu",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-lsp"
+  }
+}

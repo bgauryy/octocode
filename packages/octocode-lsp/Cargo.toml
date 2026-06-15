@@ -9,7 +9,12 @@ keywords = ["napi", "lsp", "language-server", "tree-sitter", "nodejs"]
 categories = ["development-tools", "parsing"]
 
 [lints.clippy]
-unwrap_used = "deny"
+all            = { level = "deny", priority = -1 }
+unwrap_used    = "deny"
+needless_pass_by_value = "allow"
+dbg_macro      = "deny"
+print_stdout   = "deny"
+print_stderr   = "deny"
 
 [lib]
 path = "src/lib.rs"

@@ -41,7 +41,14 @@ const config = {
   versionGroups: [
     {
       label: 'Use workspace protocol for internal packages',
-      dependencies: ['octocode-shared', 'octocode-security-utils'],
+      dependencies: [
+        'octocode-shared',
+        'octocode-security',
+        'octocode-security-utils',
+        'octocode-lsp',
+        '@octocodeai/octocode-context-utils',
+        '@octocodeai/octocode-tools-core',
+      ],
       pinVersion: 'workspace:^',
     },
     {
@@ -67,6 +74,16 @@ const config = {
     {
       label: 'Align esbuild across all packages',
       dependencies: ['esbuild'],
+      policy: 'sameRange',
+    },
+    {
+      label: 'Align zod across all packages',
+      dependencies: ['zod'],
+      policy: 'sameRange',
+    },
+    {
+      label: 'Align @octokit/* across all packages',
+      dependencies: ['@octokit/*'],
       policy: 'sameRange',
     },
   ],

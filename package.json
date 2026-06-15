@@ -48,6 +48,7 @@
     "skills/*",
     "packages/*",
     "packages/octocode-context-utils/npm/*",
-    "packages/octocode-security/npm/*"
+    "packages/octocode-security/npm/*",
+    "packages/octocode-lsp/npm/*"
   ]
 }

@@ -1,0 +1,25 @@
+{
+  "name": "octocode-lsp-win32-x64-msvc",
+  "version": "16.0.0",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "octocode-lsp.win32-x64-msvc.node",
+  "files": [
+    "octocode-lsp.win32-x64-msvc.node"
+  ],
+  "description": "Rust native LSP client and semantic navigation runtime for Octocode — win32-x64-msvc",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-lsp"
+  }
+}

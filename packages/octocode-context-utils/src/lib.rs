@@ -1,8 +1,3 @@
-#![deny(clippy::all)]
-// napi-rs requires owned String/Value parameters at the FFI boundary, which
-// trips needless_pass_by_value on every exported fn — allowed crate-wide.
-#![allow(clippy::needless_pass_by_value)]
-
 mod apply;
 mod comment_remover;
 mod config;

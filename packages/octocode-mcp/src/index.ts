@@ -21,13 +21,13 @@ import {
   STARTUP_ERRORS,
   startCacheGC,
   stopCacheGC,
+  completeMetadata,
+  getOctocodeDir,
+  configureSecurity,
+  securityRegistry,
 } from '@octocodeai/octocode-tools-core';
 import { createLogger, LoggerFactory, Logger } from './utils/core/logger.js';
-import { completeMetadata } from '@octocodeai/octocode-core';
 import { version, name } from '../package.json';
-import { getOctocodeDir } from 'octocode-shared';
-import { configureSecurity } from 'octocode-security/withSecurityValidation';
-import { securityRegistry } from 'octocode-security';
 
 interface ShutdownState {
   inProgress: boolean;

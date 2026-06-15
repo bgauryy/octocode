@@ -1,6 +1,3 @@
-#![deny(clippy::all)]
-#![allow(clippy::needless_pass_by_value)]
-
 mod client;
 mod config;
 mod grammar;

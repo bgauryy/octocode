@@ -130,7 +130,11 @@ export const contextUtils = {
     return loadNative().byteToCharOffset(content, byteOffset);
   },
 
-  byteSliceContent(content: string, byteStart: number, byteEnd: number): string {
+  byteSliceContent(
+    content: string,
+    byteStart: number,
+    byteEnd: number
+  ): string {
     return loadNative().byteSliceContent(content, byteStart, byteEnd);
   },
 

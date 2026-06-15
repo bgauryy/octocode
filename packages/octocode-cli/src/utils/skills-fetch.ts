@@ -21,7 +21,7 @@ import {
   resolveSkillDestination,
 } from './skills.js';
 import { parseSkillFrontmatter } from './parsers/frontmatter.js';
-import { z } from 'zod/v4';
+import { z } from '@octocodeai/octocode-tools-core';
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 

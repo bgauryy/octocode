@@ -170,6 +170,8 @@ describe('tool stats emission contract', () => {
     // withSecurityValidation delegates to runSecure
     expect(securitySource).toMatch(/withSecurityValidation[\s\S]*runSecure\(/);
     // withBasicSecurityValidation now logs the same way — no isLocalTool gate.
-    expect(securitySource).toMatch(/withBasicSecurityValidation[\s\S]*runSecure\(/);
+    expect(securitySource).toMatch(
+      /withBasicSecurityValidation[\s\S]*runSecure\(/
+    );
   });
 });

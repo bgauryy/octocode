@@ -155,7 +155,10 @@ export class LSPClient {
   }
 
   hasCapability(_capability: string): boolean {
-    return this.initialized;
+    return (
+      this.initialized &&
+      (this.nativeClient.hasCapability?.(_capability) ?? true)
+    );
   }
 
   getRecentStderr(): string[] {

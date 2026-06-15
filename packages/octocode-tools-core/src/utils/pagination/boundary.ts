@@ -32,13 +32,12 @@ function resolveBoundaryFilePath(filePath: string | undefined): string {
 }
 
 function getSemanticBoundaries(content: string, filePath?: string): number[] {
-  return contextUtils.getSemanticBoundaryOffsets(
-    content,
-    resolveBoundaryFilePath(filePath)
-  ).filter(
-    (offset): offset is number =>
-      Number.isInteger(offset) && offset >= 0 && offset <= content.length
-  );
+  return contextUtils
+    .getSemanticBoundaryOffsets(content, resolveBoundaryFilePath(filePath))
+    .filter(
+      (offset): offset is number =>
+        Number.isInteger(offset) && offset >= 0 && offset <= content.length
+    );
 }
 
 function nextLineStart(content: string, fromChar: number): number | undefined {

@@ -96,15 +96,22 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE",
-    "*.node"
+    "LICENSE"
   ],
+  "optionalDependencies": {
+    "octocode-lsp-darwin-arm64": "workspace:*",
+    "octocode-lsp-darwin-x64": "workspace:*",
+    "octocode-lsp-linux-arm64-gnu": "workspace:*",
+    "octocode-lsp-linux-x64-gnu": "workspace:*",
+    "octocode-lsp-linux-x64-musl": "workspace:*",
+    "octocode-lsp-win32-x64-msvc": "workspace:*"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "rm -rf dist && napi build --platform --no-js --dts target/napi-rs/native.d.ts --release && tsc -p tsconfig.build.json",
-    "build:dev": "rm -rf dist && napi build --platform --no-js --dts target/napi-rs/native.d.ts && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && napi build --platform --no-js --dts target/napi-rs/native.d.ts --release && node scripts/sync-platform-binaries.cjs && tsc -p tsconfig.build.json",
+    "build:dev": "rm -rf dist && napi build --platform --no-js --dts target/napi-rs/native.d.ts && node scripts/sync-platform-binaries.cjs && tsc -p tsconfig.build.json",
     "clean": "rm -rf dist/ *.node",
     "benchmark": "node benchmark/run.mjs",
     "lint": "eslint src tests",
@@ -123,7 +130,6 @@
   "devDependencies": {
     "@napi-rs/cli": "^3.7.1",
     "@types/node": "^25.9.3",
-    "@typescript/native-preview": "7.0.0-dev.20260613.1",
     "@vitest/coverage-v8": "^4.0.16",
     "eslint": "^9.18.0",
     "typescript": "^5.9.3",

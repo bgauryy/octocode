@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from '@octocodeai/octocode-tools-core';
 import {
   TOOL_NAMES,
   LocalFetchContentBulkQuerySchema,

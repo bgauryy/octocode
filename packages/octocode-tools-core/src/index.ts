@@ -257,3 +257,44 @@ export { hints as packageSearchHints } from './tools/package_search/hints.js';
 
 // hints/dynamic — 3-arg version distinct from proxies.ts getDynamicHints(toolName, key)
 export { getDynamicHints as getDynamicToolHints } from './hints/dynamic.js';
+
+// ---------------------------------------------------------------------------
+// Facade re-exports — consumers (e.g. octocode-mcp) depend only on tools-core
+// ---------------------------------------------------------------------------
+
+// Security primitives owned by octocode-security
+export { securityRegistry, ContentSanitizer } from 'octocode-security';
+export { maskSensitiveData } from 'octocode-security/mask';
+export { configureSecurity } from 'octocode-security/withSecurityValidation';
+
+// Shared OS/platform + credential utilities owned by octocode-shared
+export {
+  getOctocodeDir,
+  paths,
+  getDirectorySizeBytes,
+  formatBytes,
+  isWindows,
+  isMac,
+  HOME,
+  getAppDataPath,
+  storeCredentials,
+  getCredentials,
+  getCredentialsSync,
+  deleteCredentials,
+  isTokenExpired,
+  isRefreshTokenExpired,
+  getCredentialsFilePath,
+  getEnvTokenSource,
+  hasEnvToken,
+  resolveTokenFull,
+  refreshAuthToken,
+  getTokenWithRefresh,
+  getGhCliToken,
+} from 'octocode-shared';
+export type { OAuthToken, StoredCredentials } from 'octocode-shared';
+
+// Core metadata owned by @octocodeai/octocode-core
+export { completeMetadata } from '@octocodeai/octocode-core';
+
+// Zod schema builder — tools-core owns zod; re-exported for MCP-layer schemas
+export { z } from 'zod';

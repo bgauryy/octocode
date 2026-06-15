@@ -1,7 +1,4 @@
-import {
-  contextUtils,
-  type RipgrepParseOptions,
-} from '../contextUtils.js';
+import { contextUtils, type RipgrepParseOptions } from '../contextUtils.js';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { SearchStats } from '../core/types.js';
 

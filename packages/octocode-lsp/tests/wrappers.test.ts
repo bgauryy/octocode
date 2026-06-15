@@ -98,6 +98,10 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
 
       await client.start();
       expect(client.hasCapability('definitionProvider')).toBe(true);
+      Object.assign(mock.client, {
+        hasCapability: vi.fn().mockReturnValue(false),
+      });
+      expect(client.hasCapability('definitionProvider')).toBe(false);
       await client.waitForReady(10);
       await expect(
         client.getDefinition(filePath, position)
@@ -208,6 +212,55 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
           symbolName: 'target',
         })
       ).toMatchObject({ foundAtLine: 2 });
+      mock.nativeBinding.resolvePosition.mockImplementationOnce(() => {
+        throw new resolverModule.SymbolResolutionError(
+          'target',
+          3,
+          'already normalized',
+          11
+        );
+      });
+      await expect(
+        resolver.resolvePosition(filePath, {
+          symbolName: 'target',
+          lineHint: 3,
+        })
+      ).rejects.toMatchObject({
+        reason: 'already normalized',
+        searchRadius: 11,
+      });
+      mock.nativeBinding.resolvePosition.mockImplementationOnce(() => {
+        throw new Error('native missing');
+      });
+      await expect(
+        resolver.resolvePosition(filePath, { symbolName: 'target' })
+      ).rejects.toMatchObject({
+        symbolName: 'target',
+        lineHint: 0,
+        reason: 'native missing',
+        searchRadius: 7,
+      });
+      mock.nativeBinding.resolvePositionFromContent.mockImplementationOnce(
+        () => {
+          throw 'native string';
+        }
+      );
+      let thrown: unknown;
+      try {
+        resolver.resolvePositionFromContent('content', {
+          symbolName: 'target',
+          lineHint: 6,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(resolverModule.SymbolResolutionError);
+      expect(thrown).toMatchObject({
+        symbolName: 'target',
+        lineHint: 6,
+        reason: 'native string',
+        searchRadius: 7,
+      });
 
       expect(uriModule.toUri(filePath)).toBe('file:///workspace/a.ts');
       expect(uriModule.fromUri('file:///workspace/a.ts')).toBe(filePath);

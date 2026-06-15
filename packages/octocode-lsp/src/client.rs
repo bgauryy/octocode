@@ -5,16 +5,20 @@ use napi::{Error, Result, Status};
 use napi_derive::napi;
 use serde_json::{json, Value};
 use std::process::Stdio;
+use std::sync::Mutex as StdMutex;
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::Mutex;
 
 const REQUEST_TIMEOUT_MS: u32 = 30_000;
+const CONTENT_MODIFIED_RETRIES: u8 = 3;
+const CONTENT_MODIFIED_RETRY_DELAY_MS: u64 = 500;
 
 #[napi]
 pub struct NativeLspClient {
     config: JsLanguageServerConfig,
     child: Mutex<Option<Child>>,
     connection: Mutex<Option<JsonRpcConnection<ChildStdin>>>,
+    capabilities: StdMutex<Option<Value>>,
 }
 
 #[napi]
@@ -25,6 +29,7 @@ impl NativeLspClient {
             config,
             child: Mutex::new(None),
             connection: Mutex::new(None),
+            capabilities: StdMutex::new(None),
         }
     }
 
@@ -75,7 +80,10 @@ impl NativeLspClient {
                 workspace_folders: json!([{ "uri": root_uri, "name": "workspace" }]),
             },
         );
-        initialize(&connection, &self.config).await?;
+        let initialize_result = initialize(&connection, &self.config).await?;
+        if let Ok(mut capabilities) = self.capabilities.lock() {
+            *capabilities = initialize_result.get("capabilities").cloned();
+        }
         connection.notify("initialized", json!({})).await?;
 
         *self.connection.lock().await = Some(connection);
@@ -97,15 +105,30 @@ impl NativeLspClient {
     }
 
     #[napi]
-    pub async fn wait_for_ready(&self, _timeout_ms: Option<u32>) -> Result<()> {
+    pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<()> {
+        let delay_ms = timeout_ms.unwrap_or(1_000).min(1_000);
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(u64::from(delay_ms))).await;
+        }
         Ok(())
     }
 
     #[napi]
+    pub fn has_capability(&self, capability: String) -> bool {
+        let Ok(capabilities) = self.capabilities.lock() else {
+            return false;
+        };
+        capabilities
+            .as_ref()
+            .map(|value| capability_supported(value, &capability))
+            .unwrap_or(false)
+    }
+
+    #[napi]
     pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
-        let language_id = self.config.language_id.clone().unwrap_or_else(|| {
-            language_id_for_path(&file_path).unwrap_or_else(|| "plaintext".to_owned())
-        });
+        let language_id = crate::config::detect_language_id(file_path.clone())
+            .or_else(|| self.config.language_id.clone())
+            .unwrap_or_else(|| "plaintext".to_owned());
         let params = json!({
             "textDocument": {
                 "uri": path_to_uri(&file_path)?,
@@ -232,7 +255,25 @@ impl NativeLspClient {
         let connection = guard
             .as_ref()
             .ok_or_else(|| Error::new(Status::GenericFailure, "LSP client not initialized"))?;
-        connection.request(method, params, REQUEST_TIMEOUT_MS).await
+        let mut attempts = 0;
+        loop {
+            match connection
+                .request(method, params.clone(), REQUEST_TIMEOUT_MS)
+                .await
+            {
+                Ok(value) => return Ok(value),
+                Err(error)
+                    if is_content_modified_error(&error) && attempts < CONTENT_MODIFIED_RETRIES =>
+                {
+                    attempts += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        CONTENT_MODIFIED_RETRY_DELAY_MS,
+                    ))
+                    .await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
 
     async fn location_request(
@@ -253,6 +294,23 @@ impl NativeLspClient {
             )
             .await?;
         snippets_from_locations(result).await
+    }
+}
+
+fn is_content_modified_error(error: &Error) -> bool {
+    error.reason.contains("-32801") || error.reason.contains("content modified")
+}
+
+fn capability_supported(capabilities: &Value, capability: &str) -> bool {
+    let Some(value) = capabilities.get(capability) else {
+        return false;
+    };
+    match value {
+        Value::Bool(enabled) => *enabled,
+        Value::Null => false,
+        Value::Object(_) => true,
+        Value::Array(items) => !items.is_empty(),
+        _ => false,
     }
 }
 
@@ -368,27 +426,4 @@ async fn read_range_content(file_path: &str, range: &JsRange) -> Result<String> 
     }
     let end_inclusive = end.min(lines.len().saturating_sub(1));
     Ok(lines[start..=end_inclusive].join("\n"))
-}
-
-fn language_id_for_path(file_path: &str) -> Option<String> {
-    let ext = std::path::Path::new(file_path)
-        .extension()?
-        .to_string_lossy()
-        .to_ascii_lowercase();
-    let language = match ext.as_str() {
-        "ts" => "typescript",
-        "tsx" => "typescriptreact",
-        "js" | "mjs" | "cjs" => "javascript",
-        "jsx" => "javascriptreact",
-        "py" => "python",
-        "rs" => "rust",
-        "go" => "go",
-        "java" => "java",
-        "c" | "h" => "c",
-        "cpp" | "cc" | "cxx" | "hpp" => "cpp",
-        "cs" => "csharp",
-        "sh" | "bash" | "zsh" => "shellscript",
-        _ => return None,
-    };
-    Some(language.to_owned())
 }

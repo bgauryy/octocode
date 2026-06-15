@@ -1,6 +1,6 @@
 [package]
 name = "octocode-security"
-version = "0.1.0"
+version = "16.0.0"
 edition = "2021"
 description = "Rust-backed secret detection for Node.js — high-performance regex scanning with napi-rs"
 license = "MIT"
@@ -9,7 +9,12 @@ keywords = ["napi", "nodejs", "security", "secrets", "detection"]
 categories = ["development-tools"]
 
 [lints.clippy]
-unwrap_used = "deny"   # use ? or expect with a message; tests exempt via clippy.toml
+all            = { level = "deny", priority = -1 }
+unwrap_used    = "deny"
+needless_pass_by_value = "allow"
+dbg_macro      = "deny"
+print_stdout   = "deny"
+print_stderr   = "deny"
 
 [lib]
 crate-type = ["cdylib"]

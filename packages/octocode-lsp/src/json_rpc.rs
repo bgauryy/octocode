@@ -88,8 +88,7 @@ async fn read_loop<R, W>(
     pending: PendingMap,
     writer: SharedWriter<W>,
     context: ClientRequestContext,
-)
-where
+) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
 {

@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Clone, Copy)]
 struct ServerSpec {
@@ -52,10 +53,15 @@ pub fn default_server_for_file(
         .and_then(|key| std::env::var(key).ok())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| spec.command.to_owned());
+    let (command, args) = resolve_server_invocation(
+        &command,
+        spec.args.iter().map(|arg| (*arg).to_owned()).collect(),
+        &workspace_root,
+    );
 
     Some(JsLanguageServerConfig {
         command,
-        args: Some(spec.args.iter().map(|arg| (*arg).to_owned()).collect()),
+        args: Some(args),
         workspace_root,
         language_id: Some(spec.language_id.to_owned()),
         initialization_options: None,
@@ -63,8 +69,19 @@ pub fn default_server_for_file(
 }
 
 pub fn is_command_available(command: String) -> Result<bool> {
+    let command = resolve_known_server_command(&command);
     if is_rejected_shell(&command) {
         return Ok(false);
+    }
+    if typescript_cli_from_command(&command).is_some() {
+        return Ok(current_node_command().is_some());
+    }
+    if is_rust_analyzer_command(&command) {
+        return Ok(Command::new(&command)
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false));
     }
     if command
         == std::env::current_exe()
@@ -74,10 +91,10 @@ pub fn is_command_available(command: String) -> Result<bool> {
         return Ok(true);
     }
     if Path::new(&command).is_absolute() {
-        return Ok(Path::new(&command).exists());
+        return Ok(is_executable_path(Path::new(&command)));
     }
     which::which(&command)
-        .map(|_| true)
+        .map(|path| is_executable_path(&path))
         .or_else(|err| match err {
             which::Error::CannotFindBinaryPath => Ok(false),
             other => Err(Error::new(Status::GenericFailure, other.to_string())),
@@ -232,9 +249,11 @@ fn user_server_for_extension(
         if is_rejected_shell(&server.command) {
             continue;
         }
+        let (command, args) =
+            resolve_server_invocation(&server.command, server.args.clone(), workspace_root);
         return Some(JsLanguageServerConfig {
-            command: server.command.clone(),
-            args: Some(server.args.clone()),
+            command,
+            args: Some(args),
             workspace_root: workspace_root.to_owned(),
             language_id: Some(server.language_id.clone()),
             initialization_options: server.initialization_options.clone(),
@@ -277,9 +296,145 @@ fn is_rejected_shell(command: &str) -> bool {
     )
 }
 
+fn is_rust_analyzer_command(command: &str) -> bool {
+    Path::new(command)
+        .file_name()
+        .map(|name| name == "rust-analyzer")
+        .unwrap_or(false)
+}
+
+fn resolve_server_invocation(
+    command: &str,
+    args: Vec<String>,
+    workspace_root: &str,
+) -> (String, Vec<String>) {
+    if let Some(cli_path) = resolve_typescript_server_cli(command, workspace_root) {
+        if let Some(node_command) = current_node_command() {
+            let mut resolved_args = Vec::with_capacity(args.len() + 1);
+            resolved_args.push(cli_path.to_string_lossy().into_owned());
+            resolved_args.extend(args);
+            return (node_command, resolved_args);
+        }
+    }
+
+    (resolve_known_server_command(command), args)
+}
+
+fn resolve_known_server_command(command: &str) -> String {
+    if Path::new(command).is_absolute() || command_resolves_to_executable(command) {
+        return command.to_owned();
+    }
+    match command {
+        "pylsp" => find_python_user_script("pylsp").unwrap_or_else(|| command.to_owned()),
+        _ => command.to_owned(),
+    }
+}
+
+fn resolve_typescript_server_cli(command: &str, workspace_root: &str) -> Option<PathBuf> {
+    if !is_typescript_server_command(command) {
+        return None;
+    }
+    if command_resolves_to_executable(command) || is_executable_path(Path::new(command)) {
+        return None;
+    }
+    typescript_cli_from_command(command)
+        .or_else(|| find_node_module_file(workspace_root, "typescript-language-server/lib/cli.mjs"))
+}
+
+fn is_typescript_server_command(command: &str) -> bool {
+    let path = Path::new(command);
+    let file_name = path.file_name().and_then(|name| name.to_str());
+    matches!(file_name, Some("typescript-language-server" | "cli.mjs"))
+        && command.contains("typescript-language-server")
+}
+
+fn typescript_cli_from_command(command: &str) -> Option<PathBuf> {
+    let path = Path::new(command);
+    if !path.exists() {
+        return None;
+    }
+    let candidate = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if candidate.file_name().and_then(|name| name.to_str()) == Some("cli.mjs")
+        && candidate
+            .to_string_lossy()
+            .contains("typescript-language-server")
+    {
+        return Some(candidate);
+    }
+    None
+}
+
+fn find_node_module_file(workspace_root: &str, package_relative_path: &str) -> Option<PathBuf> {
+    let start = Path::new(workspace_root);
+    for ancestor in start.ancestors() {
+        let candidate = ancestor.join("node_modules").join(package_relative_path);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn current_node_command() -> Option<String> {
+    std::env::current_exe()
+        .ok()
+        .filter(|path| is_executable_path(path))
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+fn command_resolves_to_executable(command: &str) -> bool {
+    which::which(command)
+        .map(|path| is_executable_path(&path))
+        .unwrap_or(false)
+}
+
+fn is_executable_path(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        path.metadata()
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn find_python_user_script(script_name: &str) -> Option<String> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    let home = PathBuf::from(home);
+    for candidate in [home.join(".local/bin").join(script_name)] {
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+
+    let python_dir = home.join("Library/Python");
+    let Ok(entries) = std::fs::read_dir(python_dir) else {
+        return None;
+    };
+    for entry in entries.flatten() {
+        let candidate = entry.path().join("bin").join(script_name);
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{default_server_for_file, detect_language_id};
+    use super::{
+        command_resolves_to_executable, current_node_command, default_server_for_file,
+        detect_language_id, is_command_available, is_rust_analyzer_command,
+        resolve_known_server_command, resolve_server_invocation,
+    };
+    use std::path::PathBuf;
 
     #[test]
     fn detects_requested_language_matrix_from_native_grammar_registry() {
@@ -328,5 +483,79 @@ mod tests {
             assert_eq!(config.command, "vscode-css-language-server");
             assert_eq!(config.language_id.as_deref(), Some(expected_language_id));
         }
+    }
+
+    #[test]
+    fn detects_rust_analyzer_command_names() {
+        assert!(is_rust_analyzer_command("rust-analyzer"));
+        assert!(is_rust_analyzer_command("/usr/local/bin/rust-analyzer"));
+        assert!(!is_rust_analyzer_command("typescript-language-server"));
+    }
+
+    #[test]
+    fn keeps_unknown_server_commands_unchanged() {
+        assert_eq!(
+            resolve_known_server_command("definitely-not-an-octocode-server"),
+            "definitely-not-an-octocode-server"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wraps_non_executable_typescript_cli_with_current_node() {
+        let root = temp_test_root("octocode-lsp-ts-cli");
+        let cli = root
+            .join("node_modules")
+            .join("typescript-language-server")
+            .join("lib")
+            .join("cli.mjs");
+        std::fs::create_dir_all(cli.parent().unwrap_or(&root))
+            .expect("create temporary typescript-language-server dir");
+        std::fs::write(&cli, "#!/usr/bin/env node\n").expect("write temporary cli");
+
+        let Some(root_str) = root.to_str() else {
+            panic!("temporary root is not utf-8");
+        };
+        let Some(cli_str) = cli.to_str() else {
+            panic!("temporary cli path is not utf-8");
+        };
+
+        let (command, args) =
+            resolve_server_invocation(cli_str, vec!["--stdio".to_owned()], root_str);
+        assert_eq!(Some(command), current_node_command());
+        assert_eq!(args.len(), 2);
+        assert_eq!(
+            PathBuf::from(&args[0]),
+            std::fs::canonicalize(&cli).expect("canonicalize temporary cli")
+        );
+        assert_eq!(args[1], "--stdio");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn absolute_non_executable_non_node_command_is_unavailable() {
+        let root = temp_test_root("octocode-lsp-non-executable");
+        let command = root.join("server");
+        std::fs::create_dir_all(&root).expect("create temporary command dir");
+        std::fs::write(&command, "not executable\n").expect("write temporary command");
+
+        let Some(command_str) = command.to_str() else {
+            panic!("temporary command path is not utf-8");
+        };
+        assert!(!command_resolves_to_executable(command_str));
+        assert!(!is_command_available(command_str.to_owned()).expect("check command availability"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    fn temp_test_root(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()))
     }
 }

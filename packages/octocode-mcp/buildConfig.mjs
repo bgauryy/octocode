@@ -12,26 +12,40 @@ export const nodeExternals = [
   ...builtinModules.map((m) => `node:${m}`),
 ];
 
-// Most runtime `dependency` entries MUST stay external — never inlined into the bundle.
-// npm/yarn/pnpm install these into the consumer's node_modules, so the published
-// dist/ should `require()` them at runtime rather than embed a copy. This is
-// critical for SDKs and other normal runtime libraries that consumers should
-// receive through package-manager dependency resolution.
+// Runtime `dependency` entries stay external — installed by npm and loaded at
+// runtime rather than inlined into the bundle. mcp's only runtime deps are
+// @modelcontextprotocol/sdk and @octocodeai/octocode-tools-core.
 //
-// Deriving this list from package.json `dependencies` (rather than hardcoding)
-// guarantees it can never drift when deps are added or removed.
-//
-//
-// All runtime dependencies are external — installed via npm and loaded at runtime.
-// octocode-security and @octocodeai/octocode-context-utils ship their own
-// per-platform optionalDependencies; npm installs the right .node for each user.
+// All other packages (octocode-security, octocode-shared, zod, …) are owned
+// by tools-core and declared in transitiveExternals below.
 export const bundledRuntimeDependencies = new Set([]);
 
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
   (dependencyName) => !bundledRuntimeDependencies.has(dependencyName)
 );
 
-export const external = [...nodeExternals, ...runtimeExternals];
+// Packages directly imported in mcp/src that are NOT in mcp's package.json
+// dependencies because ownership belongs to @octocodeai/octocode-tools-core.
+// They install transitively when a consumer installs tools-core; we just need
+// to tell esbuild not to bundle them (native .node modules cannot be bundled).
+export const transitiveExternals = [
+  // octocode-security ships native .node binaries
+  'octocode-security',
+  'octocode-security/mask',
+  'octocode-security/withSecurityValidation',
+  // octocode-shared is a plain TS library, but owned by tools-core
+  'octocode-shared',
+  // @octocodeai/octocode-core — schemas, types, extra-types, outputs subpaths
+  '@octocodeai/octocode-core',
+  '@octocodeai/octocode-core/schemas',
+  '@octocodeai/octocode-core/schemas/outputs',
+  '@octocodeai/octocode-core/types',
+  '@octocodeai/octocode-core/extra-types',
+  // zod — owned by tools-core; mcp uses it for MCP-layer schema fragments
+  'zod',
+];
+
+export const external = [...nodeExternals, ...runtimeExternals, ...transitiveExternals];
 
 // ESM interop shim: provides require/__filename/__dirname inside the ESM bundle.
 export const shimBanner = [

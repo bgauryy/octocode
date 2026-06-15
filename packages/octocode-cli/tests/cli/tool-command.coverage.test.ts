@@ -56,8 +56,9 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock('octocode-mcp/public', async importOriginal => {
-  const actual = await importOriginal<typeof import('octocode-mcp/public')>();
+vi.mock('@octocodeai/octocode-tools-core', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('@octocodeai/octocode-tools-core')>();
   const executeDirectTool = vi.fn(async (toolName: string, input: unknown) => {
     if (toolName.startsWith('github')) {
       await mocks.initialize();

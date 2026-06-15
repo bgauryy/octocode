@@ -33,6 +33,7 @@ export type NativeLspClientBinding = {
   start(): Promise<void>;
   stop(): Promise<void>;
   waitForReady(timeoutMs?: number): Promise<void>;
+  hasCapability?(capability: string): boolean;
   openDocument(filePath: string, content: string): Promise<void>;
   getDefinition(
     filePath: string,
@@ -85,8 +86,14 @@ function isMuslFromReport(): boolean | null {
   }
   if (!report) return null;
   const r = report as Record<string, unknown>;
-  if (r.header && typeof r.header === 'object' && 'glibcVersionRuntime' in r.header) return false;
-  if (Array.isArray(r.sharedObjects) && r.sharedObjects.some(isFileMusl)) return true;
+  if (
+    r.header &&
+    typeof r.header === 'object' &&
+    'glibcVersionRuntime' in r.header
+  )
+    return false;
+  if (Array.isArray(r.sharedObjects) && r.sharedObjects.some(isFileMusl))
+    return true;
   return false;
 }
 
@@ -127,6 +134,15 @@ function getPlatformKey(): string {
 
 function loadNativeBinding(): NativeBinding {
   const key = getPlatformKey();
+
+  // 1. Prefer the per-platform optional npm sub-package (installed by npm/yarn).
+  try {
+    return require(`${packageName}-${key}`) as NativeBinding;
+  } catch {
+    // not installed — fall through to local file candidates
+  }
+
+  // 2. Local file candidates: compiled-in-place (dev) or adjacent to dist/ (bundled).
   const candidates = [
     join(__dirname, `${binaryName}.${key}.node`),
     join(__dirname, '..', `${binaryName}.${key}.node`),
@@ -139,7 +155,9 @@ function loadNativeBinding(): NativeBinding {
   }
 
   throw new Error(
-    `${packageName} native binary not found for ${platform}-${arch}. Tried: ${candidates.join(', ')}`
+    `${packageName} native binary not found for ${platform}-${arch}. ` +
+      `Install the optional dependency '${packageName}-${key}' or build locally with 'yarn build:dev'. ` +
+      `Tried local paths: ${candidates.join(', ')}`
   );
 }
 
