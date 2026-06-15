@@ -18,7 +18,18 @@ export function showLightAvailableTools(): void {
     `  ${dim('For full schemas and execution, the Octocode runtime must load successfully.')}`
   );
   console.log();
-  console.log(`  ${bold('SCHEME')}`);
+  console.log(`  ${bold('AGENT CONTEXT')}`);
+  console.log(
+    `    ${c('yellow', 'octocode context')}                                 ${dim('# protocol + system prompt + compact tool schemas')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode --context')}                               ${dim('# same agent context shortcut')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode context --full')}                          ${dim('# full schemas when runtime loads')}`
+  );
+  console.log();
+  console.log(`  ${bold('RAW TOOL CALLS')}`);
   console.log(
     `    ${c('yellow', 'octocode tools')}                                   ${dim('# list raw MCP tools')}`
   );
@@ -73,19 +84,29 @@ export function showLightToolHelp(toolName: string): boolean {
 }
 
 export function printLightInstructions(options: { full?: boolean } = {}): void {
-  console.log('Octocode CLI — Agent Protocol');
+  console.log('Octocode CLI — Agent Context');
   console.log();
   console.log(
-    '1. Use smart commands first for common research: get, tree, files, search, pr, repo, pkg, symbols, lsp.'
+    'This fallback output shows the CLI protocol and compact tool summaries. Full MCP metadata needs the packaged runtime.'
   );
-  console.log('2. Show the full smart-command scheme with:');
+  console.log();
+  console.log(
+    'Smart commands: get, tree, files, search, pr, repo, pkg, symbols, lsp.'
+  );
+  console.log(
+    '1. Start research with smart commands: tree/repo/pkg/pr -> files/search -> get -> symbols/lsp or PR content.'
+  );
+  console.log('2. Show smart-command help with:');
   console.log('   octocode <command> --help');
-  console.log('3. For raw tools, inspect the schema before calling:');
+  console.log('3. For raw MCP tools, inspect the schema before calling:');
   console.log('   octocode tools <name> --scheme');
   console.log('   octocode tools <name>');
   console.log("   octocode tools <name> --queries '<json>'");
   console.log(
-    '4. Read default YAML directly; use --json only when you need the envelope.'
+    '4. Use `octocode context` or `octocode --context` for the agent protocol and system prompt; add --full for full schemas when runtime loads.'
+  );
+  console.log(
+    '5. Read default YAML directly; use --json only when you need the envelope.'
   );
   console.log();
   console.log('Smart commands:');

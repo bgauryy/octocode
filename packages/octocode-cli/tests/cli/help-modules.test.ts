@@ -28,6 +28,7 @@ describe('main-help', () => {
     expect(output).toContain('SMART COMMANDS');
     expect(output).toContain('TOOLS');
     expect(output).toContain('context');
+    expect(output).toContain('--context');
     expect(output).toContain('tools');
     expect(output).toContain('octocode files');
     expect(output).toContain('octocode repo');
@@ -137,6 +138,7 @@ describe('command-help-specs', () => {
     );
     expect(findStaticCommandHelp('auth')!.usage).toContain('--hostname <host>');
     expect(findStaticCommandHelp('token')!.usage).toContain('--reveal');
+    expect(findStaticCommandHelp('context')!.usage).toContain('--context');
   });
 
   it('returns undefined for unknown commands', async () => {

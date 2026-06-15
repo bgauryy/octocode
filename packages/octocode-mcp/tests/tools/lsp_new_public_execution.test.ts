@@ -329,9 +329,13 @@ describe('new public LSP tool execution', () => {
     const text = textOf(result);
 
     expect(text).toContain('definitionProvider returned no locations');
+    expect(text).toContain('category: noLocations');
     expect(text).toContain('callHierarchyProvider unsupported');
+    expect(text).toContain('category: unsupportedOperation');
     expect(text).toContain('Could not find symbol');
+    expect(text).toContain('category: symbolNotFound');
     expect(text).toContain('Language server unavailable');
+    expect(text).toContain('category: serverUnavailable');
   });
 
   it('reports unsupported providers and missing call hierarchy roots', async () => {
@@ -464,6 +468,33 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
     expect(text).toContain('hasMore: true');
+    expect(text).toContain('nextPage: 2');
+  });
+
+  it('paginates reference and location lists with next-page hints', async () => {
+    const manyLocations = [
+      location('one', 1),
+      location('two', 2),
+      location('three', 3),
+    ];
+    vi.mocked(acquirePooledClient).mockResolvedValue(
+      createClient({
+        gotoDefinition: vi.fn().mockResolvedValue(manyLocations),
+        findReferences: vi.fn().mockResolvedValue(manyLocations),
+      }) as never
+    );
+
+    const result = await executeLspGetSemanticContent({
+      queries: [
+        anchored('definition', { page: 1, itemsPerPage: 1 }),
+        anchored('references', { page: 1, itemsPerPage: 1 }),
+      ],
+    } as never);
+    const text = textOf(result);
+
+    expect(text).toContain('Page 1/3 (1 of 3 locations). Next: page=2');
+    expect(text).toContain('Page 1/3 (1 of 3 references). Next: page=2');
+    expect(text.match(/hasMore: true/g)?.length).toBeGreaterThanOrEqual(2);
     expect(text).toContain('nextPage: 2');
   });
 

@@ -127,18 +127,56 @@ describe('githubSearchPullRequests content response shaping', () => {
     });
 
     expect(shaped.body).toBe('abcde');
-    expect(shaped.bodyPagination).toMatchObject({
+    expect(shaped).not.toHaveProperty('bodyPagination');
+    expect(shaped.contentPagination).toMatchObject({
+      body: {
+        hasMore: true,
+        nextCharOffset: 5,
+        nextQuery: {
+          owner: 'owner',
+          repo: 'repo',
+          prNumber: 123,
+          content: { body: true },
+          charOffset: 5,
+          charLength: 5,
+        },
+      },
+      changedFiles: {
+        totalItems: 1,
+        hasMore: false,
+      },
+      comments: {
+        totalItems: 1,
+        hasMore: false,
+      },
+      commits: {
+        totalItems: 1,
+        hasMore: false,
+      },
+      patches: {
+        hasMore: true,
+        nextQuery: {
+          owner: 'owner',
+          repo: 'repo',
+          prNumber: 123,
+          content: { patches: { mode: 'selected', files: ['src/a.ts'] } },
+          charOffset: 5,
+          charLength: 5,
+        },
+      },
+    });
+    expect(shaped).not.toHaveProperty('filePagination');
+    expect(shaped).not.toHaveProperty('commentPagination');
+    expect(shaped).not.toHaveProperty('commitPagination');
+    expect(
+      (shaped.contentPagination as Record<string, unknown>).body
+    ).toMatchObject({
       hasMore: true,
       nextCharOffset: 5,
     });
     expect(shaped.changedFiles).toHaveLength(1);
     expect(shaped).not.toHaveProperty('fileChanges');
-    expect(shaped.filePagination).toMatchObject({
-      totalItems: 1,
-      hasMore: false,
-    });
     expect(shaped.comments).toHaveLength(1);
-    expect(shaped.commentPagination).toMatchObject({ totalItems: 1 });
     expect(shaped.reviews).toHaveLength(1);
     expect(shaped.commits).toHaveLength(1);
     expect(
@@ -210,6 +248,34 @@ describe('githubSearchPullRequests content response shaping', () => {
     expect(hints.some(hint => hint.includes('Comments not included'))).toBe(
       true
     );
+  });
+
+  it('builds concise next-page hints from unified contentPagination', () => {
+    const shaped = shapePullRequestForContent(pr, query, {
+      ...baseRequest,
+      body: true,
+      changedFiles: true,
+      comments: {
+        discussion: true,
+        reviewInline: true,
+        includeBots: false,
+      },
+    });
+
+    const hints = buildContentHints([shaped], {
+      ...baseRequest,
+      body: true,
+      changedFiles: true,
+      comments: {
+        discussion: true,
+        reviewInline: true,
+        includeBots: false,
+      },
+    });
+
+    expect(hints.join('\n')).toContain('body charOffset=5');
+    expect(hints.join('\n')).toContain('changedFiles filePage=2');
+    expect(hints.join('\n')).toContain('comments commentPage=2');
   });
 
   it('handles empty content surfaces without crashing', () => {
@@ -307,10 +373,13 @@ describe('githubSearchPullRequests content response shaping', () => {
 
     expect(shaped.bodyPreview).toBeUndefined();
     expect(shaped.filePathsPreview).toHaveLength(20);
-    expect(shaped.filePathsPagination).toMatchObject({
-      totalFiles: 21,
-      hasMore: true,
-      nextFilePage: 2,
+    expect(shaped).not.toHaveProperty('filePathsPagination');
+    expect(shaped.contentPagination).toMatchObject({
+      filePaths: {
+        totalFiles: 21,
+        hasMore: true,
+        nextFilePage: 2,
+      },
     });
   });
 
@@ -362,7 +431,11 @@ describe('githubSearchPullRequests content response shaping', () => {
     );
 
     expect(shaped.body).toBe('short');
-    expect(shaped.bodyPagination).toMatchObject({ hasMore: false });
+    expect(shaped.contentPagination).toMatchObject({
+      body: { hasMore: false },
+      changedFiles: { hasMore: false },
+      comments: { hasMore: false },
+    });
     expect(shaped.changedFiles).toEqual([
       { path: 'fallback.ts', status: 'removed', additions: 0, deletions: 3 },
     ]);
@@ -563,9 +636,10 @@ describe('matchString content filtering', () => {
     );
     const files = shaped.changedFiles as Array<{ path: string }>;
     expect(files.map(f => f.path)).toEqual(['src/b.ts']);
-    expect((shaped.filePagination as { totalItems: number }).totalItems).toBe(
-      1
-    );
+    expect(
+      (shaped.contentPagination as Record<string, { totalItems: number }>)
+        .changedFiles.totalItems
+    ).toBe(1);
   });
 
   it('filters comments by body, case-insensitively', () => {

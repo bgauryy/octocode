@@ -72,6 +72,17 @@ describe('runCLI', () => {
     expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
   });
 
+  it('routes --context as a top-level agent-context shortcut', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['--no-color', '--context', '--full']);
+
+    expect(handled).toBe(true);
+    expect(process.env.NO_COLOR).toBe('1');
+    expect(mocks.printToolsContext).toHaveBeenCalledWith({ full: true });
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
+  });
+
   it('routes tools usage through the unified tool executor', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 

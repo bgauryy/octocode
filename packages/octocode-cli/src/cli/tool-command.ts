@@ -48,7 +48,10 @@ const CANONICAL_TOOL_USAGE = [
   'octocode tools <n1> <n2> ...                     # batch input schemas',
   "octocode tools <name> --queries '<json>'         # run a tool",
   "octocode tools <name> --queries '<json>' --json  # run, raw JSON output",
-  'octocode context                                 # agent context + all schemas',
+  'octocode context                                 # agent protocol + MCP system prompt + compact tool schemas',
+  'octocode context --full                          # same, plus full JSON schemas',
+  'octocode --context                               # same as octocode context',
+  'octocode --context --full                        # same as octocode context --full',
 ].join('\n');
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
@@ -265,10 +268,18 @@ export async function showAvailableTools(): Promise<void> {
   );
   console.log();
   console.log(
-    `  ${c('red', bold('REQUIRED BEFORE CALLING ANY TOOL:'))} read its schema first`
+    `  ${c('red', bold('REQUIRED BEFORE CALLING ANY RAW MCP TOOL:'))} read its schema first`
   );
   console.log();
-  console.log(`  ${bold('SCHEME')}`);
+  console.log(`  ${bold('AGENT CONTEXT')}`);
+  console.log(
+    `    ${c('yellow', 'octocode context')}                                 ${dim('# protocol + system prompt + compact tool schemas')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode context --full')}                          ${dim('# all tool descriptions + full JSON schemas')}`
+  );
+  console.log();
+  console.log(`  ${bold('RAW TOOL CALLS')}`);
   console.log(
     `    ${c('yellow', 'octocode tools')}                                   ${dim('# list all raw MCP tools')}`
   );
@@ -320,6 +331,9 @@ export async function showAvailableTools(): Promise<void> {
   );
   console.log(
     `    ${dim('Full command scheme:')} ${c('yellow', 'octocode <command> --help')}`
+  );
+  console.log(
+    `    ${dim('Research loop:')} ${c('cyan', 'tree/repo/pkg/pr')} ${dim('→')} ${c('cyan', 'files/search')} ${dim('→')} ${c('cyan', 'get')} ${dim('→')} ${c('cyan', 'symbols/lsp or PR content')}`
   );
   console.log();
 
@@ -525,19 +539,32 @@ export async function getToolsContextString(
   const toolNames = sortDirectToolNames(Object.keys(metadata.tools));
 
   const sections: string[] = [
-    'Octocode CLI — Agent Protocol',
+    'Octocode CLI — Agent Context',
     [
+      full
+        ? 'This is the full agent target: CLI protocol, MCP system prompt, tool descriptions, and full JSON schemas.'
+        : 'This is the compact agent target: CLI protocol, MCP system prompt, tool descriptions, and schema summaries.',
       'Tool runtime: `octocode tools` runs the same Octocode MCP tool implementations under the hood.',
-      'You are an agent driving the octocode CLI. Follow this protocol:',
+      full
+        ? 'Use `octocode context` for the shorter version.'
+        : 'Use `octocode context --full` when you need every JSON schema inline.',
+      'Shortcut: `octocode --context` prints this same agent target.',
+      'Follow this protocol:',
       '',
-      '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY TOOL CALL ***',
+      '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY RAW TOOL CALL ***',
       "  Always read a tool's schema before calling it:",
       '    octocode tools <name> --scheme           # schema: required fields, types, examples',
       '    octocode tools <name>                    # same schema/help shortcut',
       '    octocode tools <n1> <n2> ...             # batch: read multiple schemas at once',
       full
-        ? '  (Full JSON schemas are included in this output below.)'
-        : '  Run `octocode context --full` to get all schemas as inline JSON in one shot.',
+        ? '  Full JSON schemas are included in this output below.'
+        : '  Compact schema summaries are included below; use --full for exact JSON schemas.',
+      '',
+      '  *** RESEARCH LOOP ***',
+      '  1. Orient: tree / repo / pkg / pr.',
+      '  2. Search: files / search.',
+      '  3. Read: get exact slices; choose --mode standard|symbols|none.',
+      '  4. Prove: symbols/lsp or PR content; stop when evidence.answerReady is true.',
       '',
       '  *** SMART COMMANDS — USE THESE FIRST for file / search / repo / PR / package / LSP ***',
       '  These cover common flows without raw schemas; file/search commands auto-route local ↔ GitHub:',
@@ -557,8 +584,7 @@ export async function getToolsContextString(
       "  octocode tools <name> --queries '<json>' --json    # run tool, raw JSON envelope",
       "  octocode tools <name> --queries '<json>' --compact # run tool, leanest output",
       '',
-      '  Output contract: clean YAML by default — read it directly.',
-      '  Trust evidence.answerReady / hints in each result — they signal whether the answer is complete.',
+      '  Output: clean YAML by default; use --compact for leanest text, --json for the raw envelope.',
       '',
       '  Exit codes: 0=ok  2=bad-input  3=not-found  4=auth  5=tool-error  7=rate-limited',
       '',
@@ -568,7 +594,7 @@ export async function getToolsContextString(
     'CLI Usage:',
     CANONICAL_TOOL_USAGE,
     '',
-    'Octocode MCP Instructions:',
+    'Agent System Prompt (Octocode MCP Instructions):',
     metadata.instructions.trim(),
     '',
     'Output contract (all tools):',

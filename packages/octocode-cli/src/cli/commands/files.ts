@@ -61,7 +61,6 @@ const OPTION_NAMES = new Set([
   'name',
   'path-pattern',
   'regex',
-  'regex-type',
   'entry',
   'min-depth',
   'max-depth',
@@ -108,7 +107,6 @@ const LOCAL_PATH_ONLY_OPTIONS = new Set([
   'name',
   'path-pattern',
   'regex',
-  'regex-type',
   'entry',
   'min-depth',
   'max-depth',
@@ -310,7 +308,6 @@ function buildLocalFindQuery(
         : buildNameGlobs(query, extList)),
     pathPattern: getString(options, 'path-pattern') || undefined,
     regex: getString(options, 'regex') || undefined,
-    regexType: getString(options, 'regex-type') || undefined,
     entryType: getString(options, 'entry') || 'f',
     minDepth: intOption(getString(options, 'min-depth')),
     maxDepth: intOption(getString(options, 'max-depth')),
@@ -515,6 +512,51 @@ function printComposite(
   console.log();
 }
 
+function isEmptySearchResult(result: DirectToolResult): boolean {
+  if (result.isError) return false;
+
+  const structured = result.structuredContent as
+    | {
+        readonly results?: readonly unknown[];
+        readonly emptyQueries?: readonly unknown[];
+        readonly status?: string;
+      }
+    | undefined;
+
+  if (structured?.status === 'empty') return true;
+  if (structured?.emptyQueries && structured.emptyQueries.length > 0) {
+    return true;
+  }
+  if (structured?.results && structured.results.length === 0) return true;
+
+  const text = getDirectToolText(result);
+  return /^results:\s*\[\]/m.test(text) || /\bstatus:\s*empty\b/.test(text);
+}
+
+function printGithubPathFallbackHint(
+  outputs: Array<{ label: string; result: DirectToolResult }>,
+  target: { owner: string; repo: string } | undefined
+): void {
+  if (!target) return;
+
+  const pathSearchEmpty = outputs.some(
+    output =>
+      output.label === 'GitHub path matches' &&
+      isEmptySearchResult(output.result)
+  );
+  if (!pathSearchEmpty) return;
+
+  const repoRef = `${target.owner}/${target.repo}`;
+  console.log('smartHints:');
+  console.log(
+    `- GitHub path search can miss unindexed repos; use octocode tree ${repoRef} --depth 2 to browse paths.`
+  );
+  console.log(
+    `- If the path is known, use octocode get ${repoRef}/<path> --mode standard.`
+  );
+  console.log();
+}
+
 export const filesCommand: CLICommand = {
   name: 'files',
   description:
@@ -570,11 +612,6 @@ export const filesCommand: CLICommand = {
       description: 'Local path pattern filter',
     },
     { name: 'regex', hasValue: true, description: 'Local find regex' },
-    {
-      name: 'regex-type',
-      hasValue: true,
-      description: 'Local find regex type',
-    },
     { name: 'entry', hasValue: true, description: 'Local entry type: f or d' },
     { name: 'min-depth', hasValue: true, description: 'Local minimum depth' },
     { name: 'max-depth', hasValue: true, description: 'Local maximum depth' },
@@ -763,6 +800,8 @@ export const filesCommand: CLICommand = {
       result: DirectToolResult;
     }> = [];
 
+    let githubTargetForHints: { owner: string; repo: string } | undefined;
+
     try {
       if (effectiveSource === 'github') {
         const target = resolveGithubTarget({
@@ -778,6 +817,7 @@ export const filesCommand: CLICommand = {
           );
           return;
         }
+        githubTargetForHints = { owner: target.owner, repo: target.repo };
 
         if (!jsonOutput) {
           process.stderr.write(
@@ -852,6 +892,9 @@ export const filesCommand: CLICommand = {
         printDirectToolResult(outputs[0]!.result, jsonOutput);
       } else {
         printComposite(outputs, jsonOutput);
+      }
+      if (!jsonOutput) {
+        printGithubPathFallbackHint(outputs, githubTargetForHints);
       }
 
       for (const output of outputs) {

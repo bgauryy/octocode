@@ -42,16 +42,16 @@ export function showHelp(): void {
 
     // ── How to use (agent protocol inline) ────────────────────────────────
     `  ${bold('HOW TO USE')}`,
-    `    ${c('red', bold('1.'))} Check schema BEFORE any tool call   ${c('yellow', 'octocode tools <name> --scheme')}`,
-    `    ${c('red', bold('2.'))} Run a tool                          ${c('yellow', "octocode tools <name> --queries '<json>'")}`,
-    `    ${c('cyan', '3.')} For common research use smart cmds   ${dim('(no schema needed — see below)')}`,
-    `    ${dim('4.')} Show full command scheme       ${c('yellow', 'octocode <command> --help')}`,
-    `    ${dim('5.')} Full context + all schemas           ${c('yellow', 'octocode context')}`,
-    `    ${dim('6.')} All schemas as inline JSON           ${c('yellow', 'octocode context --full')}`,
+    `    ${c('cyan', '1.')} Smart research                 ${dim('tree/files/search/get/pr/repo/pkg/symbols/lsp')}`,
+    `    ${c('red', bold('2.'))} Raw schema first              ${c('yellow', 'octocode tools <name> --scheme')}`,
+    `    ${c('red', bold('3.'))} Run raw MCP tool              ${c('yellow', "octocode tools <name> --queries '<json>'")}`,
+    `    ${dim('4.')} System prompt + protocol        ${c('yellow', 'octocode context')} ${dim('(or --context)')}`,
+    `    ${dim('5.')} Full tool descriptions/schemas  ${c('yellow', 'octocode context --full')} ${dim('(or --context --full)')}`,
+    `    ${dim('6.')} Command help                    ${c('yellow', 'octocode <command> --help')}`,
     '',
 
     // ── Smart commands — preferred ─────────────────────────────────────────
-    `  ${bold('SMART COMMANDS')}  ${dim('— prefer over raw tool calls for common research')}`,
+    `  ${bold('SMART COMMANDS')}  ${dim('— preferred for normal research')}`,
     `    ${dim('Common flows without raw schemas; file/search commands auto-route local ↔ GitHub')}`,
     `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--match-string, --mode]')}`,
     `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`,
@@ -84,11 +84,18 @@ export function showHelp(): void {
     '',
 
     // ── Workflows ──────────────────────────────────────────────────────────
-    `  ${bold('WORKFLOWS')}`,
+    `  ${bold('RESEARCH LOOP')}`,
+    `    ${dim('1 orient')}  tree / repo / pkg / pr`,
+    `    ${dim('2 search')}  files / search`,
+    `    ${dim('3 read  ')}  get exact slices; choose --mode standard|symbols|none`,
+    `    ${dim('4 prove ')}  symbols/lsp or PR content; stop when evidence.answerReady is true`,
+    '',
+    `  ${bold('COMMON FLOWS')}`,
     `    ${dim('local  →')}  octocode tree ${dim('→')} octocode files/search ${dim('→')} octocode get ${dim('→')} octocode symbols/lsp`,
-    `    ${dim('github →')}  octocode repo ${dim('→')} octocode tree ${dim('→')} octocode files ${dim('→')} octocode get`,
+    `    ${dim('github →')}  octocode repo ${dim('→')} octocode tree ${dim('→')} octocode search/files ${dim('→')} octocode get`,
+    `    ${dim('pr     →')}  octocode pr ${dim('owner/repo')} ${dim('→')} octocode pr ${dim('owner/repo#123 --deep --patches')}`,
+    `    ${dim('pkg    →')}  octocode pkg ${dim('<package>')} ${dim('→')} octocode repo/tree/get ${dim('(source repo from result)')}`,
     `    ${dim('lsp    →')}  octocode symbols ${dim('<file|path>')} ${dim('→')} octocode lsp ${dim('--type references --symbol X --line N')}`,
-    `    ${dim('pkg    →')}  octocode pkg ${dim('<package>')} ${dim('→')} githubGetFileContent${dim('(owner/repo from result)')}`,
     '',
 
     // ── Output flags ───────────────────────────────────────────────────────

@@ -33,6 +33,21 @@ describe('localFindFiles schema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('rejects the removed regexType compatibility field', () => {
+    const result = LocalFindFilesQuerySchema.safeParse({
+      ...baseQuery,
+      regex: '.*\\.ts$',
+      regexType: 'posix-extended',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.map(issue => issue.message).join('\n')
+      ).toMatch(/Unrecognized key/);
+    }
+  });
+
   it('keeps bulk parsing relaxed so execution can report per-query errors', () => {
     const result = LocalFindFilesBulkQuerySchema.safeParse({
       queries: [

@@ -10,11 +10,15 @@
   <p>
     <a href="https://octocode.ai"><strong>octocode.ai</strong></a>
     &nbsp;·&nbsp;
+    <a href="#quickstart">Quickstart</a>
+    &nbsp;·&nbsp;
     <a href="#two-interfaces-one-engine">Interfaces</a>
     &nbsp;·&nbsp;
     <a href="#all-12-octocode-tools">Tools</a>
     &nbsp;·&nbsp;
     <a href="#cli-commands">CLI</a>
+    &nbsp;·&nbsp;
+    <a href="#develop-locally">Develop</a>
     &nbsp;·&nbsp;
     <a href="#packages">Packages</a>
     &nbsp;·&nbsp;
@@ -23,6 +27,63 @@
 </div>
 
 ---
+
+## Quickstart
+
+Pick the path that matches where you want Octocode to show up.
+
+### Add Octocode to an AI Assistant
+
+```bash
+# Interactive installer for Cursor, Claude Code, Windsurf, Codex, and more.
+npx octocode-cli install
+
+# Non-interactive install for a specific client.
+npx octocode-cli install --ide cursor
+```
+
+Then authenticate GitHub access:
+
+```bash
+npx octocode-cli login
+npx octocode-cli status
+```
+
+If you installed the CLI globally or with Homebrew, use `octocode` instead of `npx octocode-cli`.
+
+### Use Octocode From the Terminal
+
+```bash
+# macOS / Linux
+brew install bgauryy/octocode/octocode
+
+# npm
+npm install -g octocode-cli
+
+# First useful local loop
+octocode tree .
+octocode search "TODO" .
+octocode get README.md
+```
+
+For GitHub research, login once and then point commands at `owner/repo`:
+
+```bash
+octocode login
+octocode tree facebook/react
+octocode search "useState" facebook/react
+octocode pr vercel/next.js#12345
+```
+
+### Common Workflows
+
+| Goal | Start with | Then |
+|------|------------|------|
+| Understand a local codebase | `octocode tree .` | `octocode search "<symbol>" .` -> `octocode get <file>` -> `octocode lsp <file> --type references` |
+| Research a GitHub repo | `octocode tree owner/repo` | `octocode search "<term>" owner/repo` -> `octocode get owner/repo/path/to/file.ts` |
+| Inspect a pull request | `octocode pr owner/repo#123` | Read changed files with `octocode get` or search nearby code with `octocode search`. |
+| Debug MCP behavior | `octocode tools` | `octocode tools <toolName> --scheme` -> `octocode tools <toolName> --queries '<json>'` |
+| Share an agent setup | `octocode context` | Copy the protocol only when an agent cannot load MCP schemas directly. |
 
 ## Two Interfaces, One Engine
 
@@ -212,37 +273,47 @@ That combination keeps flows fast and predictable: search broadly, read narrowly
 
 ---
 
-## Benchmark
+## Develop Locally
 
-> How does Octocode compare to using the `gh` CLI directly for GitHub research?
+Run these from the repository root unless a package doc says otherwise.
 
-We ran a blind 17-question benchmark across five capability categories (code search, file content, repo structure, PR intelligence, repository search). Each agent answered independently using only its own tools; a separate judge scored every answer 0–3 and measured character usage.
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│            GITHUB RESEARCH BENCHMARK · FINAL SCORECARD                  │
-│                   17 questions · 5 categories · Jun 2026                │
-├──────────────────────────┬──────────────────┬───────────────────────────┤
-│ Metric                   │   octocode       │        gh CLI             │
-├──────────────────────────┼──────────────────┼───────────────────────────┤
-│ Quality score (non-drift)│   36 / 42  ████  │   32 / 42  ████           │
-│ Quality score (all 17)   │   43 / 51  ████  │   38 / 51  ████           │
-│ API calls                │     108    ██    │     407    ████████████   │
-│ Total chars used         │    1.08M   █     │   13.20M   ████████████   │
-│ Token-score wins         │      11    ████  │       2    █              │
-│ Quality per 1k chars     │   0.0381         │   0.0027                  │
-│ Efficiency advantage     │  14.2×  BETTER   │  baseline                 │
-├──────────────────────────┼──────────────────┼───────────────────────────┤
-│ Category wins            │  SEARCH ✅       │  CONTENT (Q7 blob read)   │
-│                          │  STRUCTURE ✅    │                           │
-│                          │  PR ✅           │                           │
-│                          │  REPOS (tie) ≈   │  REPOS (tie) ≈            │
-├──────────────────────────┼──────────────────┼───────────────────────────┤
-│ OVERALL WINNER           │  ✅  octocode    │                           │
-└──────────────────────────┴──────────────────┴───────────────────────────┘
+```bash
+yarn install
+yarn build
+yarn test:quiet
+yarn lint
 ```
 
-Full benchmark — questions, raw answers, and judge scoring — lives in [`benchmark/github/`](https://github.com/bgauryy/octocode-mcp/blob/main/benchmark/github).
+| Task | Command |
+|------|---------|
+| Install dependencies | `yarn install` |
+| Build every package | `yarn build` |
+| Run the quieter test lane | `yarn test:quiet` |
+| Run full coverage | `yarn test` |
+| Lint all packages | `yarn lint` |
+| Fix lint/format issues where possible | `yarn lint:fix` |
+| Validate MCP package contracts | `yarn mcp:contracts` |
+| Run the MCP package gate | `yarn mcp:package` |
+| Validate CLI registries | `cd packages/octocode-cli && yarn validate:mcp && yarn validate:skills` |
+
+Useful editing rules for this repo:
+
+- Documentation links in `docs/` and package READMEs use absolute GitHub URLs.
+- MCP behavior changes usually need tests under `packages/octocode-mcp/tests/` or the owning package's `tests/` directory.
+- Tool descriptions and schemas come from the shared tool catalog, so update the shared source instead of patching generated output.
+- Generated folders such as `dist/`, `out/`, `coverage/`, and `node_modules/` are not source.
+
+For the full workflow, see the [Development Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/DEVELOPMENT_GUIDE.md).
+
+### Troubleshooting Fast
+
+| Symptom | Try |
+|---------|-----|
+| GitHub queries fail or return less than expected | Run `octocode login`, then `octocode status` to confirm the token source. |
+| An MCP client does not show Octocode tools | Run `octocode status --sync`, then restart the client so it reloads MCP config. |
+| Local tools cannot see the files you expect | Check `WORKSPACE_ROOT` and `ALLOWED_PATHS` in the [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md). |
+| Output is too large | Use `octocode search` first, then `octocode get --match-string` or a line range instead of reading whole files. |
+| LSP results are hard to target | Run `octocode symbols <file>` before `octocode lsp <file> --type <type>`. |
 
 ---
 
@@ -339,7 +410,6 @@ Full index: **[docs/README.md](https://github.com/bgauryy/octocode-mcp/blob/main
 **CLI & Skills**
 - [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/CLI_REFERENCE.md)
 - [Skills Guide](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/SKILLS_GUIDE.md) · [Skills Index](https://github.com/bgauryy/octocode-mcp/blob/main/skills/README.md)
-- [CLI vs MCP Benchmark](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/workflows/BENCHMARK.md)
 
 **Shared Internals**
 - [Credentials Architecture](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/CREDENTIALS_ARCHITECTURE.md) · [Session Persistence](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/architecture/SESSION_PERSISTENCE.md)

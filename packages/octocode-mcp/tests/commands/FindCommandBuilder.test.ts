@@ -179,26 +179,18 @@ describe('FindCommandBuilder', () => {
       expect(args).toContain('^/test/.*\\.ts$');
     });
 
-    it('should handle regex with custom type (platform-aware)', () => {
+    it('should handle regex without regex type flags', () => {
       const builder = new FindCommandBuilder();
       const { args } = builder
         .fromQuery({
           path: '/test',
           regex: '.*test.*',
-          regexType: 'posix-extended',
         })
         .build();
 
       expect(args).toContain('-regex');
       expect(args).toContain('.*test.*');
-
-      if (process.platform === 'linux') {
-        expect(args).toContain('-regextype');
-        expect(args).toContain('posix-extended');
-      } else if (process.platform === 'darwin') {
-        expect(args).toContain('-E');
-        expect(args).not.toContain('-regextype');
-      }
+      expect(args).not.toContain('-regextype');
     });
 
     it('should handle empty flag', () => {
@@ -508,7 +500,7 @@ describe('FindCommandBuilder', () => {
       expect(args).not.toContain('-regextype');
     });
 
-    it('should use -regextype for regex on Linux', () => {
+    it('should not use -regextype for regex on Linux', () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
 
       const builder = new FindCommandBuilder();
@@ -516,12 +508,11 @@ describe('FindCommandBuilder', () => {
         .fromQuery({
           path: '/test',
           regex: '.*\\.test\\.ts$',
-          regexType: 'posix-egrep',
         })
         .build();
 
-      expect(args).toContain('-regextype');
-      expect(args).toContain('posix-egrep');
+      expect(args).not.toContain('-regextype');
+      expect(args).not.toContain('posix-egrep');
       expect(args).not.toContain('-E');
     });
 
@@ -533,7 +524,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({
           path: '/test',
           regex: '.*test.*',
-          regexType: 'posix-extended',
         })
         .build();
 
@@ -549,7 +539,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({
           path: '/test',
           regex: '\\.(test|spec)\\.ts$',
-          regexType: 'posix-extended',
         })
         .build();
 
@@ -567,18 +556,16 @@ describe('FindCommandBuilder', () => {
         .fromQuery({
           path: '/test',
           regex: '\\.(test|spec)\\.ts$',
-          regexType: 'posix-extended',
         })
         .build();
 
       expect(args).not.toContain('-E');
-      expect(args).toContain('-regextype');
-      expect(args).toContain('posix-extended');
+      expect(args).not.toContain('-regextype');
       expect(args).toContain('-regex');
       expect(args).toContain('.*\\.(test|spec)\\.ts$');
     });
 
-    it('should normalize regex for full path on Linux with posix-egrep', () => {
+    it('should normalize regex for full path on Linux without regex type flags', () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
 
       const builder = new FindCommandBuilder();
@@ -586,17 +573,16 @@ describe('FindCommandBuilder', () => {
         .fromQuery({
           path: '/test',
           regex: '\\.(test|spec)\\.ts$',
-          regexType: 'posix-egrep',
         })
         .build();
 
-      expect(args).toContain('-regextype');
-      expect(args).toContain('posix-egrep');
+      expect(args).not.toContain('-regextype');
+      expect(args).not.toContain('posix-egrep');
       expect(args).toContain('-regex');
       expect(args).toContain('.*\\.(test|spec)\\.ts$');
     });
 
-    it('should normalize regex on Linux without regexType', () => {
+    it('should normalize regex on Linux without regex type flags', () => {
       Object.defineProperty(process, 'platform', { value: 'linux' });
 
       const builder = new FindCommandBuilder();
@@ -636,7 +622,6 @@ describe('FindCommandBuilder', () => {
         .fromQuery({
           path: '/test',
           regex: '.*\\.(test|spec)\\.ts$',
-          regexType: 'posix-extended',
         })
         .build();
 
@@ -682,7 +667,6 @@ describe('FindCommandBuilder', () => {
           .fromQuery({
             path: 'C:\\test',
             regex: '\\.(test|spec)\\.ts$',
-            regexType: 'posix-extended',
           })
           .build();
       }).toThrow(/windows|unsupported|not supported/i);

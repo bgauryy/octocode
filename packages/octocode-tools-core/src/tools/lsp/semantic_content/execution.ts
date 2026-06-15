@@ -33,6 +33,7 @@ import {
   type LspEvidence,
   type LspGetSemanticContentQuery,
   type LspSemanticEnvelope,
+  type SemanticEmptyCategory,
   type SemanticContentType,
   type SymbolAnchoredSemanticQuery,
 } from '../shared/semanticTypes.js';
@@ -44,6 +45,7 @@ import {
 import { semanticHints } from './hints.js';
 
 const DEFAULT_SYMBOLS_PER_PAGE = 40;
+const DEFAULT_LOCATIONS_PER_PAGE = 40;
 const DEFAULT_CALLS_PER_PAGE = 10;
 const MAX_CONTENT_PREVIEW_CHARS = 1_200;
 const MAX_RANGE_SAMPLES = 8;
@@ -534,14 +536,19 @@ async function getDocumentSymbols(
     query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
   );
   const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
-  const responseComplete = complete && !pagination.hasMore;
   const incompleteReason = complete
-    ? pagination.hasMore
-      ? 'Symbol pagination has more results.'
-      : undefined
+    ? undefined
     : serverAvailable
       ? 'documentSymbolProvider unsupported'
       : 'Language server unavailable';
+  const empty = complete
+    ? undefined
+    : {
+        category: (serverAvailable
+          ? 'unsupportedOperation'
+          : 'serverUnavailable') as SemanticEmptyCategory,
+        reason: incompleteReason ?? 'document symbols unavailable',
+      };
 
   return {
     type: 'documentSymbols',
@@ -553,7 +560,7 @@ async function getDocumentSymbols(
     evidence: semanticEvidence(
       'documentSymbols',
       complete ? 'high' : 'low',
-      responseComplete,
+      complete,
       incompleteReason,
       complete
     ),
@@ -566,6 +573,7 @@ async function getDocumentSymbols(
     payload: {
       kind: 'documentSymbols',
       symbols: pageItems,
+      ...(empty ? { empty } : {}),
     },
     pagination,
     hints: [
@@ -585,6 +593,14 @@ function locationsEnvelope(
   locations: CodeSnippet[]
 ): LspSemanticEnvelope {
   const complete = locations.length > 0;
+  const compactLocations = locations.map(compactLocation);
+  const { pageItems, pagination } = paginateItems(
+    compactLocations,
+    query.page ?? 1,
+    query.itemsPerPage ?? DEFAULT_LOCATIONS_PER_PAGE
+  );
+  const reason = complete ? undefined : `${provider} returned no locations`;
+
   return {
     type: query.type,
     uri: anchor.uri,
@@ -594,12 +610,23 @@ function locationsEnvelope(
       query.type,
       complete ? 'high' : 'medium',
       complete,
-      complete ? undefined : `${provider} returned no locations`
+      reason,
+      complete
     ),
     payload: complete
-      ? { kind, locations: locations.map(compactLocation) }
-      : { kind: 'empty', reason: `${provider} returned no locations` },
-    hints: semanticHints(query.type, complete),
+      ? { kind, locations: pageItems }
+      : {
+          kind: 'empty',
+          category: 'noLocations',
+          reason: `${provider} returned no locations`,
+        },
+    ...(complete ? { pagination } : {}),
+    hints: [
+      ...(complete && pagination.hasMore
+        ? [formatItemPageHint(pagination, 'locations')]
+        : []),
+      ...semanticHints(query.type, complete),
+    ],
   };
 }
 
@@ -617,6 +644,19 @@ function referencesEnvelope(
     return { ...location, ...(isDefinition ? { isDefinition: true } : {}) };
   });
   const byFile = query.groupByFile ? buildReferencesByFile(refs) : undefined;
+  const referenceItems = byFile ?? refs.map(compactLocation);
+  const { pageItems, pagination } = paginateItems(
+    referenceItems,
+    query.page ?? 1,
+    query.itemsPerPage ?? DEFAULT_LOCATIONS_PER_PAGE
+  );
+  const empty =
+    refs.length === 0
+      ? {
+          category: 'noReferences' as const,
+          reason: 'referencesProvider returned no references',
+        }
+      : undefined;
 
   return {
     type: 'references',
@@ -627,18 +667,32 @@ function referencesEnvelope(
       'references',
       refs.length > 0 ? 'high' : 'medium',
       true,
-      refs.length > 0 ? undefined : 'referencesProvider returned no references',
+      refs.length === 0
+        ? 'referencesProvider returned no references'
+        : undefined,
       true
     ),
     payload: {
       kind: 'references',
       // groupByFile is documented as a per-file summary INSTEAD OF the flat
       // usage list — emitting both duplicates every location.
-      ...(byFile ? { byFile } : { locations: refs.map(compactLocation) }),
+      ...(byFile ? { byFile: pageItems } : { locations: pageItems }),
       totalReferences: refs.length,
       totalFiles: new Set(refs.map(ref => ref.uri)).size,
+      ...(empty ? { empty } : {}),
     },
-    hints: semanticHints('references', true),
+    pagination,
+    hints: [
+      ...(pagination.hasMore
+        ? [
+            formatItemPageHint(
+              pagination,
+              byFile ? 'reference files' : 'references'
+            ),
+          ]
+        : []),
+      ...semanticHints('references', true),
+    ],
   };
 }
 
@@ -663,7 +717,11 @@ async function hoverEnvelope(
     ),
     payload: complete
       ? { kind: 'hover', ...normalized }
-      : { kind: 'empty', reason: 'hoverProvider returned no hover content' },
+      : {
+          kind: 'empty',
+          category: 'noHover',
+          reason: 'hoverProvider returned no hover content',
+        },
     hints: semanticHints(query.type, complete),
   };
 }
@@ -751,15 +809,12 @@ async function callsEnvelope(
     !incomingResult.truncatedByDepth &&
     !outgoingResult.truncatedByDepth &&
     incomingResult.failedRequestCount + outgoingResult.failedRequestCount === 0;
-  const responseComplete = traversalComplete && !pagination.hasMore;
   const evidenceReason =
     calls.length === 0
       ? 'callHierarchyProvider returned no calls'
-      : pagination.hasMore
-        ? 'Call pagination has more results.'
-        : !traversalComplete
-          ? 'Call traversal is partial.'
-          : undefined;
+      : !traversalComplete
+        ? 'Call traversal is partial.'
+        : undefined;
 
   return {
     type: query.type,
@@ -769,7 +824,7 @@ async function callsEnvelope(
     evidence: semanticEvidence(
       query.type,
       calls.length > 0 ? 'high' : 'medium',
-      responseComplete,
+      traversalComplete,
       evidenceReason,
       true
     ),
@@ -794,6 +849,14 @@ async function callsEnvelope(
         dynamicCallsExcluded: true,
         ...(stdlibCallsExcluded > 0 && { stdlibCallsExcluded }),
       },
+      ...(calls.length === 0
+        ? {
+            empty: {
+              category: 'noCalls' as const,
+              reason: 'callHierarchyProvider returned no calls',
+            },
+          }
+        : {}),
     },
     pagination,
     hints: [
@@ -1080,6 +1143,22 @@ function symbolKindName(kind: unknown): string {
   }
 }
 
+function emptyCategoryForReason(
+  type: SemanticContentType,
+  reason: string
+): SemanticEmptyCategory {
+  if (/unavailable/i.test(reason)) return 'serverUnavailable';
+  if (/unsupported/i.test(reason)) return 'unsupportedOperation';
+  if (/could not find symbol|symbol.*not found/i.test(reason)) {
+    return 'symbolNotFound';
+  }
+  if (/call/i.test(reason)) return 'noCalls';
+  if (type === 'references') return 'noReferences';
+  if (type === 'hover') return 'noHover';
+  if (type === 'documentSymbols') return 'anchorFailed';
+  return 'noLocations';
+}
+
 function failedAnchorEnvelope(
   query: LspGetSemanticContentQuery,
   reason: string,
@@ -1095,7 +1174,11 @@ function failedAnchorEnvelope(
     evidence: semanticEvidence(query.type, 'low', false, reason, false),
     // reason already lives in payload.reason + evidence.reason — repeating it
     // a third time in warnings is pure noise.
-    payload: { kind: 'empty', reason },
+    payload: {
+      kind: 'empty',
+      category: emptyCategoryForReason(query.type, reason),
+      reason,
+    },
     // Anchor hints name the precise failure and recovery; the generic
     // type-level hints would only repeat "rerun localSearchCode".
     hints: hints?.length ? hints : semanticHints(query.type, false),
@@ -1116,7 +1199,11 @@ function emptyEnvelope(
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable },
     evidence: semanticEvidence(type, 'low', false, reason, false),
-    payload: { kind: 'empty', reason },
+    payload: {
+      kind: 'empty',
+      category: emptyCategoryForReason(type, reason),
+      reason,
+    },
     hints: semanticHints(type, false),
   };
 }

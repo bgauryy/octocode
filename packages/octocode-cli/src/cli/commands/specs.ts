@@ -18,6 +18,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     whenToUse: [
       'Use after tree/files/search identifies a file or exact slice to read.',
       'Default mode is standard (strips comments/blanks, token-efficient). Use --mode symbols for a skeleton map; use --mode none only when comments or exact formatting are required.',
+      'If output is paginated, continue only when the page hints say more content is needed; otherwise narrow with --match-string or line bounds.',
     ],
     examples: [
       'octocode get packages/octocode-cli/src/cli/index.ts',
@@ -118,7 +119,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
   },
   {
     name: 'search',
-    description: 'Search code in local paths and GitHub repositories',
+    description: 'Smart code search for local paths and GitHub repositories',
     usage:
       'octocode search <pattern> <path|github-ref> [--type <ext>] [--branch <ref>] [--limit <n>] [--page <n>] [--page-size <n>] [--json]',
     scheme: [
@@ -131,6 +132,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     whenToUse: [
       'Use when you know code text, a function name, an error string, or an import to find.',
       'Search results are discovery; follow with get --match-string or lsp when you need exact proof.',
+      'This is the code-search smart command; there is no separate `code` command.',
     ],
     examples: [
       'octocode search "executeDirectTool" packages/octocode-cli/src --type ts',
@@ -176,7 +178,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'arg[1] target: optional local path OR owner/repo; may be replaced by --owner and --repo for GitHub.',
       'source options: --source enum(auto|local|github, default auto), --search enum(path|content|both, default path), --ext comma-list, --path subpath/root.',
       'GitHub filters: --owner string, --repo string, --filename string, --branch not supported here.',
-      'local path filters: --name, --path-pattern, --regex, --regex-type, --entry enum(f|d), --min-depth int, --max-depth int, size/time/permission flags.',
+      'local path filters: --name, --path-pattern, --regex, --entry enum(f|d), --min-depth int, --max-depth int, size/time/permission flags.',
       'local content filters: --include/--exclude globs, --mode enum(paginated|discovery|detailed), rg booleans, context/count/page controls.',
       'runtime: path search -> localFindFiles or githubSearchCode(match:path); content search -> localSearchCode or githubSearchCode(match:file).',
       'output: YAML file hits by default; --json returns raw combined tool results.',
@@ -184,6 +186,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     whenToUse: [
       'Use when you know a filename, path fragment, extension, or broad content term.',
       'Use --search path for filename/path discovery, content for text matches, and both when unsure.',
+      'Follow path hits with get for exact source, or search when you need line-level code matches.',
     ],
     examples: [
       'octocode files "command-help" packages/octocode-cli/src --search both --ext ts',
@@ -243,11 +246,6 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
         description: 'Local path pattern filter',
       },
       { name: 'regex', hasValue: true, description: 'Local find regex' },
-      {
-        name: 'regex-type',
-        hasValue: true,
-        description: 'Local find regex type',
-      },
       {
         name: 'entry',
         hasValue: true,
@@ -396,6 +394,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     whenToUse: [
       'Use to research change history, PR discussion, review comments, or diffs.',
       'List mode finds candidate PRs; PR number or URL deep-dives one PR.',
+      'For large PRs, use --file or --match-string before paging broad patches/comments.',
     ],
     examples: [
       'octocode pr bgauryy/octocode-mcp --state open --limit 5',
@@ -539,6 +538,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'Use after search or symbols gives a local file, exact symbol name, and line number.',
       'Use symbols for directory outlines; use lsp for references, definitions, hover, callers, callees, typeDefinition, or implementation.',
       'documentSymbols works without --symbol/--line, but symbols is the friendlier outline command.',
+      'If the line is unknown, run search or symbols first; do not guess --line.',
     ],
     examples: [
       'octocode lsp src/index.ts --type documentSymbols',
@@ -632,12 +632,23 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
   },
   {
     name: 'context',
-    description: 'Print agent protocol, workflows, and every tool schema',
-    usage: 'octocode context [--full]',
+    description:
+      'Print the agent protocol, MCP system prompt, tool descriptions, and schemas',
+    usage: 'octocode context [--full]  OR  octocode --context [--full]',
     scheme: [
       'args: none.',
-      'options: --full boolean includes every full JSON input schema inline.',
-      'output: agent protocol, smart command routing, tool list, and tool field schemas.',
+      'top-level shortcut: --context prints the same agent target as the context command.',
+      'options: --full boolean includes every full JSON input schema inline; omit it for compact schema summaries.',
+      'output: CLI research protocol, MCP system prompt, smart command routing, tool descriptions, and schemas.',
+    ],
+    whenToUse: [
+      'Use before autonomous research to see the exact operating prompt and tool routing rules.',
+      'Use --full when an agent needs all JSON schemas in one target output.',
+    ],
+    examples: [
+      'octocode context',
+      'octocode context --full',
+      'octocode --context --full',
     ],
     options: [
       {

@@ -82,7 +82,7 @@ describe('Local tools: page-based pagination, exact fields', () => {
   it('localFindFiles: accepts page + itemsPerPage; removed filesPerPage stays absent', () => {
     const q = q0(LocalFindFilesBulkQuerySchema, {
       path: '.',
-      name: '*.ts',
+      names: ['*.ts'],
       page: 2,
       itemsPerPage: 25,
     });

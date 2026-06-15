@@ -94,6 +94,22 @@ const EvidenceSchema = z.object({
   reason: z.string().optional(),
 });
 
+const EmptyCategorySchema = z.enum([
+  'serverUnavailable',
+  'unsupportedOperation',
+  'symbolNotFound',
+  'anchorFailed',
+  'noLocations',
+  'noReferences',
+  'noHover',
+  'noCalls',
+]);
+
+const EmptyStateSchema = z.object({
+  category: EmptyCategorySchema,
+  reason: z.string(),
+});
+
 const PaginationSchema = z.object({
   currentPage: z.number(),
   totalPages: z.number(),
@@ -175,6 +191,7 @@ const PayloadSchema = z.discriminatedUnion('kind', [
       .optional(),
     totalReferences: z.number(),
     totalFiles: z.number(),
+    empty: EmptyStateSchema.optional(),
   }),
   ...(['callers', 'callees', 'callHierarchy'] as const).map(k =>
     z.object({
@@ -189,6 +206,7 @@ const PayloadSchema = z.discriminatedUnion('kind', [
       incomingCalls: z.number(),
       outgoingCalls: z.number(),
       completeness: CompletenessSchema,
+      empty: EmptyStateSchema.optional(),
     })
   ),
   z.object({
@@ -202,8 +220,13 @@ const PayloadSchema = z.discriminatedUnion('kind', [
     symbols: z.array(z.union([CompactSymbolSchema, CompactSymbolRowSchema])),
     totalSymbols: z.number().optional(),
     topLevelSymbols: z.number().optional(),
+    empty: EmptyStateSchema.optional(),
   }),
-  z.object({ kind: z.literal('empty'), reason: z.string() }),
+  z.object({
+    kind: z.literal('empty'),
+    category: EmptyCategorySchema,
+    reason: z.string(),
+  }),
 ]);
 
 const SemanticDataSchema = z.object({

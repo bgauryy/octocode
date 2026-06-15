@@ -39,6 +39,26 @@ type Pagination = {
   nextPage?: number;
 };
 
+type TextPagination = {
+  charOffset: number;
+  charLength: number;
+  totalChars: number;
+  hasMore: boolean;
+  nextCharOffset?: number;
+};
+
+type ContentPaginationEntry = Record<string, unknown> & {
+  hasMore: boolean;
+  nextQuery?: Record<string, unknown>;
+};
+
+type ContentPagination = Partial<
+  Record<
+    'body' | 'changedFiles' | 'comments' | 'commits' | 'patches' | 'filePaths',
+    ContentPaginationEntry
+  >
+>;
+
 function paginateItems<T>(
   items: T[],
   page = 1,
@@ -117,6 +137,57 @@ function baseQuery(query: QueryLike, prNumber: number) {
     repo: query.repo,
     prNumber,
   };
+}
+
+function compactQuery(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  );
+}
+
+function continuationQuery(
+  query: QueryLike,
+  prNumber: number,
+  patch: Record<string, unknown>
+): Record<string, unknown> {
+  return compactQuery({ ...baseQuery(query, prNumber), ...patch });
+}
+
+function textContinuationQuery(
+  query: QueryLike,
+  prNumber: number,
+  content: Record<string, unknown>,
+  pagination: TextPagination,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> | undefined {
+  if (!pagination.hasMore || pagination.nextCharOffset === undefined) {
+    return undefined;
+  }
+
+  return continuationQuery(query, prNumber, {
+    content,
+    ...extra,
+    charOffset: pagination.nextCharOffset,
+    charLength: query.charLength,
+  });
+}
+
+function pageContinuationQuery(
+  query: QueryLike,
+  prNumber: number,
+  content: Record<string, unknown>,
+  pageKey: 'filePage' | 'commentPage' | 'commitPage',
+  pagination: Pagination
+): Record<string, unknown> | undefined {
+  if (!pagination.hasMore || pagination.nextPage === undefined) {
+    return undefined;
+  }
+
+  return continuationQuery(query, prNumber, {
+    content,
+    [pageKey]: pagination.nextPage,
+    itemsPerPage: query.itemsPerPage,
+  });
 }
 
 // Entries already delivered in THIS response are omitted — the menu only
@@ -386,6 +457,167 @@ function shapeFileSurfaces(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readPagination(value: unknown): Pagination | undefined {
+  if (!isRecord(value)) return undefined;
+  if (
+    typeof value.currentPage !== 'number' ||
+    typeof value.totalPages !== 'number' ||
+    typeof value.itemsPerPage !== 'number' ||
+    typeof value.totalItems !== 'number' ||
+    typeof value.hasMore !== 'boolean'
+  ) {
+    return undefined;
+  }
+
+  return value as Pagination;
+}
+
+function readTextPagination(value: unknown): TextPagination | undefined {
+  if (!isRecord(value)) return undefined;
+  if (
+    typeof value.charOffset !== 'number' ||
+    typeof value.charLength !== 'number' ||
+    typeof value.totalChars !== 'number' ||
+    typeof value.hasMore !== 'boolean'
+  ) {
+    return undefined;
+  }
+
+  return value as TextPagination;
+}
+
+function buildFileContentRequest(
+  request: NormalizedPrContentRequest
+): Record<string, unknown> {
+  return {
+    ...(request.changedFiles ? { changedFiles: true } : {}),
+    ...(request.patches.mode !== 'none' ? { patches: request.patches } : {}),
+  };
+}
+
+function firstPatchPagination(
+  shaped: Record<string, unknown>
+): TextPagination | undefined {
+  const files = shaped.changedFiles;
+  if (!Array.isArray(files)) return undefined;
+  for (const file of files) {
+    if (!isRecord(file)) continue;
+    const pagination = readTextPagination(file.patchPagination);
+    if (pagination?.hasMore) return pagination;
+  }
+  return undefined;
+}
+
+function buildContentPagination(
+  shaped: Record<string, unknown>,
+  query: QueryLike,
+  request: NormalizedPrContentRequest,
+  prNumber: number
+): ContentPagination | undefined {
+  const contentPagination: ContentPagination = {};
+  const bodyPagination = readTextPagination(shaped.bodyPagination);
+  const filePagination = readPagination(shaped.filePagination);
+  const commentPagination = readPagination(shaped.commentPagination);
+  const commitPagination = readPagination(shaped.commitPagination);
+  const patchPagination = firstPatchPagination(shaped);
+  const fileContent = buildFileContentRequest(request);
+
+  if (bodyPagination) {
+    contentPagination.body = {
+      ...bodyPagination,
+      nextQuery: textContinuationQuery(
+        query,
+        prNumber,
+        { body: true },
+        bodyPagination
+      ),
+    };
+  }
+
+  if (filePagination) {
+    contentPagination.changedFiles = {
+      ...filePagination,
+      nextQuery: pageContinuationQuery(
+        query,
+        prNumber,
+        fileContent,
+        'filePage',
+        filePagination
+      ),
+    };
+  }
+
+  if (commentPagination && request.comments) {
+    contentPagination.comments = {
+      ...commentPagination,
+      nextQuery: pageContinuationQuery(
+        query,
+        prNumber,
+        { comments: request.comments },
+        'commentPage',
+        commentPagination
+      ),
+    };
+  }
+
+  if (commitPagination && request.commits) {
+    contentPagination.commits = {
+      ...commitPagination,
+      nextQuery: pageContinuationQuery(
+        query,
+        prNumber,
+        { commits: request.commits },
+        'commitPage',
+        commitPagination
+      ),
+    };
+  }
+
+  if (patchPagination && request.patches.mode !== 'none') {
+    contentPagination.patches = {
+      ...patchPagination,
+      nextQuery: textContinuationQuery(
+        query,
+        prNumber,
+        { patches: request.patches },
+        patchPagination,
+        { filePage: query.filePage ?? query.page }
+      ),
+    };
+  }
+
+  const filePathsPagination = shaped.filePathsPagination;
+  if (isRecord(filePathsPagination)) {
+    contentPagination.filePaths = {
+      ...filePathsPagination,
+      hasMore: filePathsPagination.hasMore === true,
+      nextQuery:
+        filePathsPagination.hasMore === true
+          ? continuationQuery(query, prNumber, {
+              content: { changedFiles: true },
+              filePage: filePathsPagination.nextFilePage,
+            })
+          : undefined,
+    };
+  }
+
+  return Object.keys(contentPagination).length > 0
+    ? contentPagination
+    : undefined;
+}
+
+function removeLegacyPaginationFields(shaped: Record<string, unknown>): void {
+  delete shaped.bodyPagination;
+  delete shaped.filePagination;
+  delete shaped.commentPagination;
+  delete shaped.commitPagination;
+  delete shaped.filePathsPagination;
+}
+
 export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
@@ -470,7 +702,7 @@ export function shapePullRequestForContent(
     ...(emitContentMap ? { next: nextCalls(query, prNumber, request) } : {}),
   };
 
-  return {
+  const shaped: Record<string, unknown> = {
     ...metadata,
     // When body was explicitly requested but the PR has no description,
     // emit bodyEmpty:true so the agent knows it was fetched (not just missing).
@@ -490,6 +722,15 @@ export function shapePullRequestForContent(
       ? { sanitizationWarnings: pr.sanitizationWarnings }
       : {}),
   };
+  const contentPagination = buildContentPagination(
+    shaped,
+    query,
+    request,
+    prNumber
+  );
+  removeLegacyPaginationFields(shaped);
+  if (contentPagination) shaped.contentPagination = contentPagination;
+  return shaped;
 }
 
 export function buildContentHints(
@@ -501,6 +742,30 @@ export function buildContentHints(
   const hints: string[] = [
     'Use next.target + a content key to fetch body, changedFiles, patches, comments, or commits.',
   ];
+  const contentPagination = isRecord(first.contentPagination)
+    ? first.contentPagination
+    : {};
+  const continuationHints: Record<string, string> = {
+    body: 'body charOffset',
+    changedFiles: 'changedFiles filePage',
+    comments: 'comments commentPage',
+    commits: 'commits commitPage',
+    patches: 'patches charOffset',
+    filePaths: 'file paths filePage',
+  };
+  for (const [surface, label] of Object.entries(continuationHints)) {
+    const entry = contentPagination[surface];
+    if (!isRecord(entry) || entry.hasMore !== true) continue;
+    const nextQuery = isRecord(entry.nextQuery) ? entry.nextQuery : {};
+    const nextValue =
+      nextQuery.filePage ??
+      nextQuery.commentPage ??
+      nextQuery.commitPage ??
+      nextQuery.charOffset;
+    if (typeof nextValue === 'number') {
+      hints.push(`More PR ${label}=${nextValue}.`);
+    }
+  }
   if (request.patches.mode === 'none') {
     hints.push(
       'Patches not included — request content.patches={mode:"all"} or {mode:"selected",files:[...]}.'

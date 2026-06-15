@@ -115,6 +115,21 @@ export type LspEvidence = {
   reason?: string;
 };
 
+export type SemanticEmptyCategory =
+  | 'serverUnavailable'
+  | 'unsupportedOperation'
+  | 'symbolNotFound'
+  | 'anchorFailed'
+  | 'noLocations'
+  | 'noReferences'
+  | 'noHover'
+  | 'noCalls';
+
+export type SemanticEmptyState = {
+  category: SemanticEmptyCategory;
+  reason: string;
+};
+
 export type LspSemanticEnvelope = {
   type: SemanticContentType;
   uri: string;
@@ -136,6 +151,7 @@ export type LspSemanticEnvelope = {
         byFile?: unknown[];
         totalReferences: number;
         totalFiles: number;
+        empty?: SemanticEmptyState;
       }
     | {
         kind: 'callers' | 'callees' | 'callHierarchy';
@@ -152,6 +168,7 @@ export type LspSemanticEnvelope = {
           dynamicCallsExcluded: true;
           stdlibCallsExcluded?: number;
         };
+        empty?: SemanticEmptyState;
       }
     | { kind: 'hover'; markdown?: string; text?: string; range?: LSPRange }
     | { kind: 'typeDefinition'; locations: Array<CompactLocation | string> }
@@ -161,8 +178,9 @@ export type LspSemanticEnvelope = {
         symbols: unknown[];
         totalSymbols?: number;
         topLevelSymbols?: number;
+        empty?: SemanticEmptyState;
       }
-    | { kind: 'empty'; reason: string };
+    | { kind: 'empty'; category: SemanticEmptyCategory; reason: string };
   pagination?: unknown;
   warnings?: string[];
   hints?: string[];

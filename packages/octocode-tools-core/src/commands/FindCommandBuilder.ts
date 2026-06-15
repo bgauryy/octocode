@@ -93,9 +93,6 @@ export class FindCommandBuilder extends BaseCommandBuilder {
     }
 
     if (query.regex) {
-      if (this.isLinux && query.regexType) {
-        this.addOption('-regextype', query.regexType);
-      }
       const normalizedRegex = this.normalizeRegexForFullPath(query.regex);
       this.addOption('-regex', normalizedRegex);
     }

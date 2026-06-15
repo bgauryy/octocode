@@ -115,6 +115,19 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     return true;
   }
 
+  if (!args.command && args.options.context === true) {
+    const toolModule = await tryLoadToolCommandModule();
+    if (toolModule) {
+      await toolModule.printToolsContext({
+        full: args.options['full'] === true,
+      });
+      return true;
+    }
+    const { printLightInstructions } = await loadLightToolHelpModule();
+    printLightInstructions({ full: args.options['full'] === true });
+    return true;
+  }
+
   if (!args.command) {
     const optionKeys = Object.keys(args.options);
     if (optionKeys.length > 0) {
