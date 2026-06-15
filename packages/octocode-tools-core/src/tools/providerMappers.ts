@@ -91,11 +91,8 @@ export function buildPaginationHints(
   if (pagination.hasMore) {
     hints.push(
       typeof totalMatches === 'number'
-        ? `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalLabel} ${label}). Next: page=${pagination.currentPage + 1}`
-        : `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} ${label}; total unknown). Next: page=${pagination.currentPage + 1}`
-    );
-    hints.push(
-      `Results are paginated — use page=2, page=3 … to retrieve all ${label} before reporting a total count or enumerating exhaustively.`
+        ? `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} of ${totalLabel} ${label}). Next: page=${pagination.currentPage + 1}; page through before exhaustive claims.`
+        : `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${startItem}-${endItem} ${label}; total unknown). Next: page=${pagination.currentPage + 1}; page through before exhaustive claims.`
     );
   }
 

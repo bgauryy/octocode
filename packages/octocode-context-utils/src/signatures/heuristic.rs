@@ -140,8 +140,7 @@ static RUBY_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
             .expect("static heuristic regex must compile"),
         Regex::new(r"^\s*attr_(reader|writer|accessor)\b")
             .expect("static heuristic regex must compile"),
-        Regex::new(r"^\s*(def|class|module)\s+\S")
-            .expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(def|class|module)\s+\S").expect("static heuristic regex must compile"),
     ]
 });
 
@@ -157,8 +156,7 @@ pub fn extract_ruby(content: &str) -> Option<Vec<(usize, String)>> {
 
 static PHP_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
-        Regex::new(r"^\s*(use|namespace)\s+[\w\\]")
-            .expect("static heuristic regex must compile"),
+        Regex::new(r"^\s*(use|namespace)\s+[\w\\]").expect("static heuristic regex must compile"),
         Regex::new(r"^\s*(abstract\s+|final\s+)*(class|interface|trait|enum)\s+\w+")
             .expect("static heuristic regex must compile"),
         Regex::new(
@@ -256,8 +254,7 @@ pub fn extract_css_signatures(content: &str) -> Option<Vec<(usize, String)>> {
 static HTML_KEEP_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         Regex::new(r"(?i)^\s*<!doctype\b").expect("static heuristic regex must compile"),
-        Regex::new(r"(?i)<script\b[^>]*\bsrc\s*=")
-            .expect("static heuristic regex must compile"),
+        Regex::new(r"(?i)<script\b[^>]*\bsrc\s*=").expect("static heuristic regex must compile"),
         Regex::new(r"(?i)<link\b[^>]*\bhref\s*=").expect("static heuristic regex must compile"),
         Regex::new(r"(?i)<meta\b[^>]*\bname\s*=").expect("static heuristic regex must compile"),
         Regex::new(r"(?i)<h[1-6][\s>]").expect("static heuristic regex must compile"),
@@ -270,8 +267,9 @@ fn html_keep_patterns() -> &'static Vec<Regex> {
     &HTML_KEEP_PATTERNS
 }
 
-static HTML_SCRIPT_ANY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)<script\b[^>]*>").expect("static heuristic regex must compile"));
+static HTML_SCRIPT_ANY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)<script\b[^>]*>").expect("static heuristic regex must compile")
+});
 static HTML_STYLE_OPEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)<style\b").expect("static heuristic regex must compile"));
 
@@ -425,8 +423,9 @@ pub fn extract_sql(content: &str) -> Option<Vec<(usize, String)>> {
 /// - `<script>` blocks run through the JS/TS heuristic with line-offset correction
 /// - `<template>` root line kept
 /// - Tags with `id=` kept
-static VUE_SCRIPT_OPEN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^<script\b([^>]*)>").expect("static heuristic regex must compile"));
+static VUE_SCRIPT_OPEN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^<script\b([^>]*)>").expect("static heuristic regex must compile")
+});
 static VUE_SCRIPT_CLOSE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)</script>").expect("static heuristic regex must compile"));
 static VUE_STYLE_OPEN: LazyLock<Regex> =
@@ -517,10 +516,12 @@ pub fn extract_vue_svelte(content: &str) -> Option<Vec<(usize, String)>> {
 
 // ── Python (upgraded from initial version) ────────────────────────────────────
 
-static PY_IMPORT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:import|from)\s+\S").expect("static heuristic regex must compile"));
-static PY_DEF: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:async\s+)?def\s+\w").expect("static heuristic regex must compile"));
+static PY_IMPORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:import|from)\s+\S").expect("static heuristic regex must compile")
+});
+static PY_DEF: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:async\s+)?def\s+\w").expect("static heuristic regex must compile")
+});
 static PY_CLASS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^class\s+\w").expect("static heuristic regex must compile"));
 static PY_DECORATOR: LazyLock<Regex> =
@@ -593,12 +594,17 @@ pub fn extract_python(content: &str) -> Option<Vec<(usize, String)>> {
 
 // ── Go ────────────────────────────────────────────────────────────────────────
 
-static GO_TOP: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:package|import|func|type|const|var)\b").expect("static heuristic regex must compile"));
-static GO_PAREN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:import|const|var)\s*\(").expect("static heuristic regex must compile"));
-static GO_BRACE_TYPE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^type\s+\w+\s+(?:struct|interface)\b").expect("static heuristic regex must compile"));
+static GO_TOP: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:package|import|func|type|const|var)\b")
+        .expect("static heuristic regex must compile")
+});
+static GO_PAREN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:import|const|var)\s*\(").expect("static heuristic regex must compile")
+});
+static GO_BRACE_TYPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^type\s+\w+\s+(?:struct|interface)\b")
+        .expect("static heuristic regex must compile")
+});
 
 pub fn extract_go(content: &str) -> Option<Vec<(usize, String)>> {
     let go_top = &*GO_TOP;
@@ -658,16 +664,24 @@ pub fn extract_go(content: &str) -> Option<Vec<(usize, String)>> {
 
 // ── C / C++ ───────────────────────────────────────────────────────────────────
 
-static C_PREPROC: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\s*#\s*(?:include|define)\b").expect("static heuristic regex must compile"));
-static C_TYPE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:typedef\s+)?(?:struct|union|enum|class)\b").expect("static heuristic regex must compile"));
-static C_EXTRA: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(?:namespace\s+\w|template\s*<|extern\s+")"#).expect("static heuristic regex must compile"));
-static C_CONTROL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?:if|else|for|while|switch|return|do|case|goto|sizeof|break|continue)\b").expect("static heuristic regex must compile"));
-static C_FUNC: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z_][\w\s*&:<>,~]*\(").expect("static heuristic regex must compile"));
+static C_PREPROC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*#\s*(?:include|define)\b").expect("static heuristic regex must compile")
+});
+static C_TYPE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:typedef\s+)?(?:struct|union|enum|class)\b")
+        .expect("static heuristic regex must compile")
+});
+static C_EXTRA: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^(?:namespace\s+\w|template\s*<|extern\s+")"#)
+        .expect("static heuristic regex must compile")
+});
+static C_CONTROL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:if|else|for|while|switch|return|do|case|goto|sizeof|break|continue)\b")
+        .expect("static heuristic regex must compile")
+});
+static C_FUNC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[A-Za-z_][\w\s*&:<>,~]*\(").expect("static heuristic regex must compile")
+});
 
 pub fn extract_c_family(content: &str) -> Option<Vec<(usize, String)>> {
     let c_preproc = &*C_PREPROC;
@@ -1038,8 +1052,9 @@ fn markdown_setext_level(line: &str) -> Option<u8> {
     }
 }
 
-static MD_REF_DEF: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^\[([^\]]+)\]:\s*(\S+)"#).expect("static heuristic regex must compile"));
+static MD_REF_DEF: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^\[([^\]]+)\]:\s*(\S+)"#).expect("static heuristic regex must compile")
+});
 
 fn markdown_reference_definition(line: &str) -> Option<String> {
     let captures = MD_REF_DEF.captures(line)?;
@@ -1048,8 +1063,9 @@ fn markdown_reference_definition(line: &str) -> Option<String> {
     Some(format!("link ref: [{label}]: {target}"))
 }
 
-static MD_LIST_ITEM: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"^(?:[-+*]|\d+[.)])\s+\S"#).expect("static heuristic regex must compile"));
+static MD_LIST_ITEM: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"^(?:[-+*]|\d+[.)])\s+\S"#).expect("static heuristic regex must compile")
+});
 
 fn markdown_list_item(line: &str) -> bool {
     MD_LIST_ITEM.is_match(line)
@@ -1060,8 +1076,7 @@ static MD_DIRECT_LINK: LazyLock<Regex> = LazyLock::new(|| {
         .expect("static heuristic regex must compile")
 });
 static MD_REF_LINK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"!?\[([^\]\n]+)\]\[([^\]\n]*)\]"#)
-        .expect("static heuristic regex must compile")
+    Regex::new(r#"!?\[([^\]\n]+)\]\[([^\]\n]*)\]"#).expect("static heuristic regex must compile")
 });
 
 fn markdown_inline_links(line: &str) -> Vec<String> {

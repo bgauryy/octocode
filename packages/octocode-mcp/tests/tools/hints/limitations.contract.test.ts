@@ -98,7 +98,7 @@ describe('limitation hints — silence when threshold not hit', () => {
       fileSize: 100,
     } as never);
     expect(h.length).toBeGreaterThan(0);
-    expect(h[0]).toMatch(/read budget/);
+    expect(h[0]).toMatch(/too large|matchString/);
   });
 
   it('localViewStructure without entryCount stays silent', () => {

@@ -125,13 +125,13 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(hints.some(h => h.includes('Retry after 30s'))).toBe(true);
   });
 
-  it('githubSearchCode empty names the scope when owner/repo set', () => {
+  it('githubSearchCode empty returns actionable hint when owner/repo set', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'empty', {
       hasOwnerRepo: true,
       owner: 'a',
       repo: 'b',
     });
-    expect(hints.some(h => h.includes('a/b'))).toBe(true);
+    expect(hints.some(h => /keywords|broaden|filter/.test(h))).toBe(true);
   });
 
   it('per-tool hints fire only on empty/error — hasResults channel is type-narrowed away', () => {
@@ -143,13 +143,13 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(emptyHints.length).toBeGreaterThan(0);
   });
 
-  it('githubGetFileContent error not_found emits path-aware recovery', () => {
+  it('githubGetFileContent error not_found emits recovery hint', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT, 'error', {
       errorType: 'not_found',
       path: 'src/foo.ts',
       branch: 'main',
     });
-    expect(hints.some(h => h.includes('src/foo.ts'))).toBe(true);
+    expect(hints.some(h => h.includes('githubViewRepoStructure'))).toBe(true);
   });
 });
 

@@ -89,12 +89,13 @@ function generateOutputPaginationHints(pagination: PaginationInfo): string[] {
   const hints: string[] = [];
 
   if (pagination.hasMore) {
-    hints.push(
-      `Page ${pagination.currentPage}/${pagination.totalPages} (${pagination.charLength} of ${pagination.totalChars} chars)`
-    );
     const nextOffset =
       (pagination.charOffset ?? 0) + (pagination.charLength ?? 0);
-    hints.push(`Next page: use charOffset=${nextOffset} to continue`);
+    const startChar = (pagination.charOffset ?? 0) + 1;
+    const endChar = nextOffset;
+    hints.push(
+      `Page ${pagination.currentPage}/${pagination.totalPages} (chars ${startChar}-${endChar} of ${pagination.totalChars}). Next: charOffset=${nextOffset}`
+    );
   }
 
   return hints;

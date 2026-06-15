@@ -7,8 +7,6 @@
  */
 export * from './security/bridge.js';
 export * from './commands/BaseCommandBuilder.js';
-export * from './commands/FindCommandBuilder.js';
-export * from './commands/LsCommandBuilder.js';
 export * from './commands/RipgrepCommandBuilder.js';
 export * from './config.js';
 export * from './errors/domainErrors.js';
@@ -46,7 +44,6 @@ export * from './providers/github/utils.js';
 export * from './providers/providerQueries.js';
 export * from './responses.js';
 export * from './scheme/fields.js';
-export * from './scheme/fileContentModeValidation.js';
 export * from './scheme/responseEnvelope.js';
 export * from './serverConfig.js';
 export * from './session.js';
@@ -94,11 +91,8 @@ export * from './tools/local_view_structure/execution.js';
 export * from './tools/local_view_structure/local_view_structure.js';
 export * from './tools/local_view_structure/scheme.js';
 export * from './tools/local_view_structure/structureFilters.js';
-export * from './tools/local_view_structure/structureParser.js';
-export * from './tools/local_view_structure/structureWalker.js';
 export * from './tools/lsp/semantic_content/execution.js';
 export * from './tools/lsp/semantic_content/index.js';
-export * from './tools/lsp/semantic_content/outputSchema.js';
 export * from './tools/lsp/semantic_content/scheme.js';
 export * from './tools/lsp/shared/callHierarchyTraversal.js';
 export * from './tools/lsp/shared/resolveSymbolAnchor.js';

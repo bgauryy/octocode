@@ -21,13 +21,12 @@ describe('github_view_repo_structure hints — uncovered branches', () => {
   it('empty() returns hints when only path is provided', () => {
     const result = hints.empty({ path: 'src' } as never);
     expect(result.length).toBeGreaterThan(0);
-    expect(result[0]).toContain("'src'");
+    expect(result[0]).toContain('parent');
   });
 
-  it('empty() returns hints when only branch is provided', () => {
+  it('empty() returns [] when only branch is provided (no actionable hint without path)', () => {
     const result = hints.empty({ branch: 'main' } as never);
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0]).toContain('main');
+    expect(result).toEqual([]);
   });
 
   it('error() rate-limited — with retryAfter', () => {
@@ -88,7 +87,8 @@ describe('local_fetch_content hints — uncovered branches', () => {
 
   it('empty() returns hints when path provided', () => {
     const result = hints.empty({ path: '/src/foo.ts' } as never);
-    expect(result[0]).toContain('/src/foo.ts');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result[0]).toContain('localFindFiles');
   });
 
   it('error() size_limit — with totalLines pushes tail hint', () => {
@@ -97,7 +97,7 @@ describe('local_fetch_content hints — uncovered branches', () => {
       fileSize: 512000,
       totalLines: 1000,
     } as never);
-    expect(result.some(h => !!h && h.includes('total lines'))).toBe(true);
+    expect(result.some(h => !!h && h.includes('Tail:'))).toBe(true);
   });
 
   it('error() size_limit — without totalLines omits tail hint', () => {
@@ -113,7 +113,7 @@ describe('local_fetch_content hints — uncovered branches', () => {
       errorType: 'not_found',
       path: '/missing/file.ts',
     } as never);
-    expect(result[0]).toContain('/missing/file.ts');
+    expect(result[0]).toContain('localFindFiles');
   });
 
   it('error() permission', () => {
@@ -141,7 +141,8 @@ describe('local_find_files hints — uncovered branches', () => {
       name: 'foo.ts',
       sizeLess: '100kb',
     } as never);
-    expect(result[0]).toContain('sizeLess="100kb"');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result[0]).toContain('filter');
   });
 
   it('empty() with no filters returns []', () => {
@@ -153,12 +154,12 @@ describe('local_find_files hints — uncovered branches', () => {
       errorType: 'not_found',
       path: '/workspace',
     } as never);
-    expect(result[0]).toContain('/workspace');
+    expect(result[0]).toContain('localViewStructure');
   });
 
-  it('error() not_found — without path falls back to "specified"', () => {
+  it('error() not_found — without path', () => {
     const result = hints.error({ errorType: 'not_found' } as never);
-    expect(result[0]).toContain("'specified'");
+    expect(result[0]).toContain('localViewStructure');
   });
 
   it('error() permission', () => {
@@ -186,12 +187,12 @@ describe('local_view_structure hints — uncovered branches', () => {
       errorType: 'not_found',
       path: '/src',
     } as never);
-    expect(result[0]).toContain('/src');
+    expect(result[0]).toContain('WORKSPACE_ROOT');
   });
 
-  it('error() not_found — without path falls back to "specified"', () => {
+  it('error() not_found — without path', () => {
     const result = lvsHints.error({ errorType: 'not_found' } as never);
-    expect(result[0]).toContain('specified');
+    expect(result[0]).toContain('WORKSPACE_ROOT');
   });
 
   it('error() permission', () => {
@@ -206,7 +207,7 @@ describe('local_view_structure hints — uncovered branches', () => {
   it('empty() with extensions filter returns hints', () => {
     const result = lvsHints.empty({ extensions: ['ts'] } as never);
     expect(result.length).toBeGreaterThan(0);
-    expect(result[0]).toContain('ts');
+    expect(result[0]).toContain('filter');
   });
 });
 

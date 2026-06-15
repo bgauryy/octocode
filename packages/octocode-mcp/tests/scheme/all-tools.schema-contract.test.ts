@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+
+const coreEntryPoint = new URL(
+  '../../../../node_modules/@octocodeai/octocode-core/dist/index.js',
+  import.meta.url
+).href;
+const { completeMetadata } = (await import(
+  coreEntryPoint
+)) as typeof import('@octocodeai/octocode-core');
 
 const SHARED_FIELDS = [
   'id',
@@ -136,7 +143,9 @@ const SCHEMA_EXCEPTIONS: Record<
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: {},
 };
 
-function getCoreQueryDescriptions(toolName: string): Record<string, string> {
+function getExpectedQueryDescriptions(
+  toolName: string
+): Record<string, string> {
   const tool = completeMetadata.tools[toolName];
   return {
     id: completeMetadata.baseSchema.id,
@@ -157,13 +166,24 @@ describe('all-tools schema contract', () => {
   describe.each(SCHEME_FILES)('scheme source: %s', schemeFile => {
     const source = readFileSync(new URL(schemeFile, import.meta.url), 'utf8');
 
-    it('imports completeMetadata directly from octocode-core', () => {
-      expect(source).toContain(
-        "import { completeMetadata } from '@octocodeai/octocode-core';"
-      );
+    it('imports canonical input schemas from octocode-core', () => {
+      expect(source).toContain('@octocodeai/octocode-core/schemas');
     });
 
-    it('does not use shared description/meta-field injection', () => {
+    it('does not define local input descriptors', () => {
+      expect(source).not.toContain(
+        "import { completeMetadata } from '@octocodeai/octocode-core';"
+      );
+      expect(source).not.toContain('const QUERY_DESCRIPTIONS = {');
+      expect(source).not.toContain('completeMetadata.baseSchema');
+      expect(source).not.toContain('completeMetadata.tools[');
+    });
+
+    it('uses agnostic schema-description utilities only', () => {
+      expect(source).toContain('describeQuerySchema');
+      expect(source).not.toContain('createCoreQuerySchema');
+      expect(source).not.toContain('createCoreQueryShapeSchema');
+      expect(source).not.toContain('getCoreQueryDescriptions');
       expect(source).not.toContain('withCoreSchemaDescriptions');
       expect(source).not.toContain('optionalMetaFields');
     });
@@ -279,7 +299,7 @@ describe('all-tools schema contract', () => {
         const properties = flattenJsonProperties(
           getJsonProperties(querySchema)
         );
-        const expectedDescriptions = getCoreQueryDescriptions(toolName);
+        const expectedDescriptions = getExpectedQueryDescriptions(toolName);
         const actualFields = Object.keys(properties);
         const exceptions = SCHEMA_EXCEPTIONS[toolName] ?? {};
         const allowedMissing = exceptions.removedCoreFields ?? [];
@@ -463,6 +483,24 @@ describe('all-tools schema contract', () => {
         missing,
         `Missing envelope fields: ${missing.join(', ')}`
       ).toHaveLength(0);
+    });
+
+    it('keeps each tool schema surface in its scheme.ts file', () => {
+      const toolsRoot = new URL(
+        '../../../octocode-tools-core/src/tools/',
+        import.meta.url
+      );
+      const files = readdirSync(toolsRoot, { recursive: true }).map(String);
+      const schemeFiles = files.filter(file => file.endsWith('scheme.ts'));
+      const splitSchemaFiles = files.filter(
+        file =>
+          /schema\.ts$/i.test(file) &&
+          !file.endsWith('scheme.ts') &&
+          !file.startsWith('toolMetadata/')
+      );
+
+      expect(schemeFiles).toHaveLength(12);
+      expect(splitSchemaFiles).toEqual([]);
     });
   });
 });

@@ -26,8 +26,10 @@ function generateTokenWarnings(
 
 function generateNavigationHints(metadata: PaginationMetadata): string[] {
   if (metadata.hasMore && metadata.nextCharOffset !== undefined) {
+    const startChar = metadata.charOffset + 1;
+    const endChar = metadata.charOffset + metadata.charLength;
     return [
-      `Page ${metadata.currentPage}/${metadata.totalPages}. Next: charOffset=${metadata.nextCharOffset}`,
+      `Page ${metadata.currentPage}/${metadata.totalPages} (chars ${startChar}-${endChar} of ${metadata.totalChars}). Next: charOffset=${metadata.nextCharOffset}`,
     ];
   }
   return [];

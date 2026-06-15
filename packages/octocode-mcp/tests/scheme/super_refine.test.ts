@@ -238,7 +238,7 @@ describe('PackageSearch schema', () => {
 
   it('rejects when packageName is missing', () => {
     const result = PackageSearchBulkQueryLocalSchema.safeParse({
-      queries: [{ ecosystem: 'npm' }],
+      queries: [{}],
     });
     expect(result.success).toBe(false);
   });

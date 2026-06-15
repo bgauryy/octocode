@@ -1,11 +1,4 @@
-import { FindCommandBuilder } from '../../commands/FindCommandBuilder.js';
-import { safeExec } from '../../utils/exec/safe.js';
-import {
-  checkCommandAvailability,
-  getMissingCommandError,
-} from '../../utils/exec/commandAvailability.js';
 import { getHints } from '../../hints/index.js';
-import { generatePaginationHints } from '../../utils/pagination/hints.js';
 import {
   validateToolPath,
   createErrorResult,
@@ -15,11 +8,13 @@ import type { z } from 'zod';
 import type { FindFilesQuerySchema } from '@octocodeai/octocode-core/schemas';
 import type { LocalFindFilesEntry } from '@octocodeai/octocode-core/types';
 import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-types';
+import {
+  contextUtils,
+  type FileSystemEntry,
+} from '../../utils/contextUtils.js';
 
 type UpstreamFindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
-import fs from 'fs';
-import { ToolErrors } from '../../errors/errorFactories.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import { LOCAL_DEFAULT_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 
@@ -58,34 +53,6 @@ function computeEffectiveExcludeDirs(
   return rawExcludeDirs.filter(dir => !searchPathParts.has(dir));
 }
 
-async function enrichFileDetails(
-  files: LocalFindFilesEntry[],
-  showLastModified: boolean
-): Promise<void> {
-  await Promise.all(
-    files.map(async file => {
-      if (
-        file.size === undefined ||
-        !file.permissions ||
-        (showLastModified && !file.modified)
-      ) {
-        try {
-          const stats = await fs.promises.lstat(file.path);
-          if (file.size === undefined) file.size = stats.size;
-          if (!file.permissions) {
-            file.permissions = stats.mode.toString(8).slice(-3);
-          }
-          if (showLastModified && !file.modified) {
-            file.modified = stats.mtime.toISOString();
-          }
-        } catch {
-          void 0;
-        }
-      }
-    })
-  );
-}
-
 function buildFindFilesHints(ctx: {
   query: FindFilesQuery;
   currentPage: number;
@@ -97,10 +64,6 @@ function buildFindFilesHints(ctx: {
   discoveredFileCount: number;
   hasConfigFiles: boolean;
   extraHints?: string[];
-  paginationMetadata:
-    | Parameters<typeof generatePaginationHints>[0]
-    | null
-    | undefined;
 }): string[] {
   const {
     query,
@@ -113,7 +76,6 @@ function buildFindFilesHints(ctx: {
     discoveredFileCount,
     hasConfigFiles,
     extraHints = [],
-    paginationMetadata,
   } = ctx;
 
   const q = query as Record<string, unknown>;
@@ -162,7 +124,7 @@ function buildFindFilesHints(ctx: {
       : []),
     ...(wasFileCapped
       ? [
-          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with name/entryType/time filters. Note: sorting applies only within the capped set — limit is a pre-sort discovery cap.`,
+          `Results capped at ${maxFiles} of ${discoveredFileCount} discovered. All ${maxFiles} are reachable via page; to see the rest, narrow with names/entryType/time filters. Note: sorting applies only within the capped set — limit is a pre-sort discovery cap.`,
         ]
       : []),
     ...(totalFiles === 0
@@ -182,37 +144,18 @@ function buildFindFilesHints(ctx: {
               ? `Found ${totalFiles} director${totalFiles === 1 ? 'y' : 'ies'}. Use localViewStructure to browse or localSearchCode to search.`
               : `Found ${totalFiles} entr${totalFiles === 1 ? 'y' : 'ies'} — pass entryType="f" for files, entryType="d" for directories. Use localSearchCode or localGetFileContent.`,
         ]),
-    ...(paginationMetadata
-      ? generatePaginationHints(paginationMetadata, {
-          toolName: TOOL_NAMES.LOCAL_FIND_FILES,
-        })
-      : []),
   ];
 }
 
 export async function findFiles(
   query: FindFilesQuery
 ): Promise<LocalFindFilesToolResult> {
-  // Lean by default: paths only. details=true adds size/permissions,
-  // showFileLastModified=true adds timestamps. Sorting never depends on
-  // display flags — modified is collected whenever the sort needs it.
   const details = query.details ?? false;
   const showLastModified = query.showFileLastModified ?? false;
   const collectModified =
     showLastModified || (query.sortBy || 'modified') === 'modified';
 
   try {
-    const findAvailability = await checkCommandAvailability('find');
-    if (!findAvailability.available) {
-      const toolError = ToolErrors.commandNotAvailable(
-        'find',
-        getMissingCommandError('find')
-      );
-      return createErrorResult(toolError, query, {
-        toolName: TOOL_NAMES.LOCAL_FIND_FILES,
-      }) as LocalFindFilesToolResult;
-    }
-
     const validation = validateToolPath(query, TOOL_NAMES.LOCAL_FIND_FILES);
     if (!validation.isValid) {
       return validation.errorResult as LocalFindFilesToolResult;
@@ -233,47 +176,37 @@ export async function findFiles(
 
     const timeFormatWarnings = validateTimeFilterFormats(queryWithDefaults);
 
-    const builder = new FindCommandBuilder();
-    const { command, args } = builder.fromQuery(queryWithDefaults).build();
-
-    const result = await safeExec(command, args);
-
-    if (!result.success) {
-      const stderrMsg = result.stderr?.trim();
-      const userMessage =
-        stderrMsg?.replace(/^find:\s*/i, '').trim() ||
-        'File search operation failed';
-      const toolError = ToolErrors.commandExecutionFailed(
-        'find',
-        new Error(userMessage),
-        userMessage
-      );
-      return createErrorResult(toolError, query, {
-        toolName: TOOL_NAMES.LOCAL_FIND_FILES,
-        extra: { stderr: userMessage },
-        rawResponse: result.stdout.length + result.stderr.length,
-      }) as LocalFindFilesToolResult;
-    }
-
-    let filePaths = result.stdout
-      .split('\0')
-      .filter(line => line.trim())
-      .map(line => line.trim());
-
     const maxFiles = query.limit ?? LOCAL_MAX_LIMIT;
-    const discoveredFileCount = filePaths.length;
-    const wasFileCapped = discoveredFileCount > maxFiles;
-    filePaths = filePaths.slice(0, maxFiles);
+    const nativeResult = contextUtils.queryFileSystem({
+      path: queryWithDefaults.path,
+      recursive: true,
+      includeRoot: true,
+      showHidden: true,
+      maxDepth: queryWithDefaults.maxDepth,
+      minDepth: queryWithDefaults.minDepth,
+      names: queryWithDefaults.names,
+      pathPattern: queryWithDefaults.pathPattern,
+      regex: queryWithDefaults.regex,
+      entryType: queryWithDefaults.entryType,
+      empty: queryWithDefaults.empty,
+      modifiedWithin: queryWithDefaults.modifiedWithin,
+      modifiedBefore: queryWithDefaults.modifiedBefore,
+      accessedWithin: queryWithDefaults.accessedWithin,
+      sizeGreater: queryWithDefaults.sizeGreater,
+      sizeLess: queryWithDefaults.sizeLess,
+      permissions: queryWithDefaults.permissions,
+      executable: queryWithDefaults.executable,
+      readable: queryWithDefaults.readable,
+      writable: queryWithDefaults.writable,
+      excludeDir: queryWithDefaults.excludeDir,
+      limit: maxFiles,
+    });
 
-    const files: LocalFindFilesEntry[] = await getFileDetails(
-      filePaths,
-      collectModified
+    const discoveredFileCount = nativeResult.totalDiscovered;
+    const wasFileCapped = nativeResult.wasCapped;
+    const files = nativeResult.entries.map(entry =>
+      nativeEntryToFindFile(entry, collectModified)
     );
-
-    if (details) {
-      await enrichFileDetails(files, collectModified);
-    }
-
     const sortBy = query.sortBy || 'modified';
     sortLocalFindFilesEntrys(files, sortBy, collectModified);
     const sortHints: string[] = [];
@@ -285,38 +218,27 @@ export async function findFiles(
       (query as { itemsPerPage?: number }).itemsPerPage ||
       LOCAL_DEFAULT_FILES_PER_PAGE;
     const currentPage = (query as { page?: number }).page || 1;
-    const totalPages = Math.ceil(totalFiles / filesPerPage);
+    const totalPages = Math.max(1, Math.ceil(totalFiles / filesPerPage));
     const startIdx = (currentPage - 1) * filesPerPage;
     const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
     const paginatedFiles = filesForOutput.slice(startIdx, endIdx);
 
     const finalFiles = paginatedFiles;
-    const paginationMetadata = null;
-
     const configFilePatterns =
       /\.(config|rc|env|json|ya?ml|toml|ini)$|^(\..*rc|config\.|\.env)/i;
     const hasConfigFiles = finalFiles.some(f =>
       configFilePatterns.test(f.path.split('/').pop() || '')
     );
 
-    const findStderrWarnings: string[] = [];
-    if (result.stderr?.trim()) {
-      const stderrLines = result.stderr
-        .trim()
-        .split('\n')
-        .map(l => l.replace(/^find:\s*/i, '').trim())
-        .filter(Boolean);
-      if (stderrLines.length > 0) {
-        findStderrWarnings.push(...stderrLines.slice(0, 5));
-        if (stderrLines.length > 5) {
-          findStderrWarnings.push(
-            `... and ${stderrLines.length - 5} more find warning(s)`
-          );
-        }
-      }
-    }
-
-    const allWarnings = [...timeFormatWarnings, ...findStderrWarnings];
+    const nativeWarnings = [
+      ...nativeResult.warnings,
+      ...(nativeResult.skipped > 0
+        ? [
+            `${nativeResult.skipped} entr${nativeResult.skipped === 1 ? 'y' : 'ies'} skipped during filesystem traversal`,
+          ]
+        : []),
+    ];
+    const allWarnings = [...timeFormatWarnings, ...nativeWarnings];
 
     const fullResult: LocalFindFilesToolResult = {
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
@@ -341,19 +263,39 @@ export async function findFiles(
         discoveredFileCount,
         hasConfigFiles,
         extraHints: sortHints,
-        paginationMetadata,
       }),
     };
 
     return attachRawResponseChars(
       finalizeFindFilesResult(fullResult, query, { totalFiles }),
-      result.stdout.length
+      nativeResult.entries.reduce((sum, entry) => sum + entry.path.length, 0)
     );
   } catch (error) {
     return createErrorResult(error, query, {
       toolName: TOOL_NAMES.LOCAL_FIND_FILES,
     }) as LocalFindFilesToolResult;
   }
+}
+
+function nativeEntryToFindFile(
+  entry: FileSystemEntry,
+  showLastModified: boolean
+): LocalFindFilesEntry {
+  const file: LocalFindFilesEntry = {
+    path: entry.path,
+    type:
+      entry.entryType === 'directory'
+        ? 'directory'
+        : entry.entryType === 'symlink'
+          ? 'symlink'
+          : 'file',
+    ...(entry.size !== undefined ? { size: entry.size } : {}),
+    ...(entry.permissions ? { permissions: entry.permissions } : {}),
+  };
+  if (showLastModified && entry.modifiedMs !== undefined) {
+    file.modified = new Date(entry.modifiedMs).toISOString();
+  }
+  return file;
 }
 
 export function finalizeFindFilesResult(
@@ -411,63 +353,6 @@ function formatForOutput(
     }
     return result;
   });
-}
-
-async function getFileDetails(
-  filePaths: string[],
-  showModified: boolean = false
-): Promise<LocalFindFilesEntry[]> {
-  const CONCURRENCY_LIMIT = 24;
-
-  const results: LocalFindFilesEntry[] = new Array(filePaths.length);
-
-  const processAtIndex = async (index: number) => {
-    // index is always in range — the worker pool only dispatches 0..length-1.
-    const filePath = filePaths[index]!;
-    try {
-      const stats = await fs.promises.lstat(filePath);
-
-      let type: 'file' | 'directory' | 'symlink' = 'file';
-      if (stats.isDirectory()) type = 'directory';
-      else if (stats.isSymbolicLink()) type = 'symlink';
-
-      const file: LocalFindFilesEntry = {
-        path: filePath,
-        type,
-        size: stats.size,
-        permissions: stats.mode.toString(8).slice(-3),
-      };
-      if (showModified) {
-        file.modified = stats.mtime.toISOString();
-      }
-      results[index] = file;
-    } catch {
-      results[index] = {
-        path: filePath,
-        type: 'file',
-      };
-    }
-  };
-
-  let nextIndex = 0;
-  const getNext = () => {
-    const current = nextIndex;
-    nextIndex += 1;
-    return current < filePaths.length ? current : -1;
-  };
-  const worker = async () => {
-    for (let i = getNext(); i !== -1; i = getNext()) {
-      await processAtIndex(i);
-    }
-  };
-
-  const workers = Array.from(
-    { length: Math.min(CONCURRENCY_LIMIT, filePaths.length) },
-    () => worker()
-  );
-  await Promise.all(workers);
-
-  return results;
 }
 
 const VALID_TIME_STRING_RE = /^\d+[hdwm]$/;

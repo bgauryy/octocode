@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { GitHubCodeSearchQuerySchema as CoreGitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,
@@ -7,51 +7,28 @@ import {
   relaxedPageNumberField,
 } from '../../scheme/fields.js';
 import {
+  createQueryShapeSchema,
+  describeQuerySchema,
+} from '../../scheme/coreSchemas.js';
+import {
   EvidenceSchema,
   responseEnvelopeFields,
 } from '../../scheme/responseEnvelope.js';
-import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-const QUERY_DESCRIPTIONS = {
-  ...completeMetadata.baseSchema,
-  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]?.schema,
-} as Record<string, string>;
+const queryOverrides = {
+  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
+  page: relaxedPageNumberField.default(1),
+} as const;
 
-const GitHubCodeSearchQuerySchema = z.object({
-  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
-  mainResearchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
-  researchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.researchGoal!),
-  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  keywordsToSearch: z
-    .array(z.string())
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.keywordsToSearch!),
-  owner: z.string().optional().describe(QUERY_DESCRIPTIONS.owner!),
-  repo: z.string().optional().describe(QUERY_DESCRIPTIONS.repo!),
-  extension: z.string().optional().describe(QUERY_DESCRIPTIONS.extension!),
-  filename: z.string().optional().describe(QUERY_DESCRIPTIONS.filename!),
-  path: z.string().optional().describe(QUERY_DESCRIPTIONS.path!),
-  match: z
-    .enum(['file', 'path'])
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.match!),
-  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.limit!),
-  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
-  verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
-});
-
-export const GitHubCodeSearchQueryLocalSchema = GitHubCodeSearchQuerySchema;
+export const GitHubCodeSearchQueryLocalSchema = describeQuerySchema(
+  CoreGitHubCodeSearchQuerySchema,
+  queryOverrides
+);
 
 export const GitHubCodeSearchBulkQueryLocalSchema =
-  createRelaxedBulkQuerySchema(GitHubCodeSearchQuerySchema);
+  createRelaxedBulkQuerySchema(
+    createQueryShapeSchema(CoreGitHubCodeSearchQuerySchema, queryOverrides)
+  );
 
 export const GitHubCodeSearchOutputLocalSchema = z.object({
   base: z.string().optional(),

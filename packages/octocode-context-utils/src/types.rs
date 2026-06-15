@@ -55,6 +55,82 @@ pub struct RipgrepParseResult {
     pub stats: RipgrepStats,
 }
 
+// ── filesystem query types ───────────────────────────────────────────────────
+
+#[napi(object)]
+#[derive(Debug, Clone, Default)]
+pub struct FileSystemQueryOptions {
+    pub path: String,
+    /// Include the root path itself in results (default false).
+    pub include_root: Option<bool>,
+    /// Descend into child directories (default true).
+    pub recursive: Option<bool>,
+    /// Maximum depth where direct children are depth 1.
+    pub max_depth: Option<u32>,
+    /// Minimum depth where direct children are depth 1.
+    pub min_depth: Option<u32>,
+    /// Include dotfiles and dot-directories (default true).
+    pub show_hidden: Option<bool>,
+    /// Match basename globs, OR-combined.
+    pub names: Option<Vec<String>>,
+    /// Match full path glob.
+    pub path_pattern: Option<String>,
+    /// Rust regex against basename.
+    pub regex: Option<String>,
+    /// POSIX find-style entry type: f=file, d=directory, l=symlink.
+    pub entry_type: Option<String>,
+    /// Match only empty files or directories.
+    pub empty: Option<bool>,
+    /// Modified within a duration string such as 7d, 2h, 30m.
+    pub modified_within: Option<String>,
+    /// Modified before a duration string such as 30d.
+    pub modified_before: Option<String>,
+    /// Accessed within a duration string such as 7d.
+    pub accessed_within: Option<String>,
+    /// Size greater than a string such as 100k, 1m, 500b.
+    pub size_greater: Option<String>,
+    /// Size less than a string such as 100k, 1m, 500b.
+    pub size_less: Option<String>,
+    /// Exact octal permissions, e.g. 644.
+    pub permissions: Option<String>,
+    pub executable: Option<bool>,
+    pub readable: Option<bool>,
+    pub writable: Option<bool>,
+    pub exclude_dir: Option<Vec<String>>,
+    /// Store at most this many matching entries while still counting matches.
+    pub limit: Option<u32>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct FileSystemEntry {
+    /// Absolute or input-root-relative path as returned by the platform.
+    pub path: String,
+    /// Path relative to the query root.
+    pub relative_path: String,
+    pub name: String,
+    /// "file", "directory", "symlink", or "other".
+    pub entry_type: String,
+    pub size: Option<i64>,
+    pub modified_ms: Option<f64>,
+    pub accessed_ms: Option<f64>,
+    pub permissions: Option<String>,
+    pub extension: Option<String>,
+    /// Output depth where direct children are 0.
+    pub depth: u32,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct FileSystemQueryResult {
+    pub entries: Vec<FileSystemEntry>,
+    pub total_discovered: u32,
+    pub was_capped: bool,
+    pub skipped: u32,
+    pub permission_denied: u32,
+    pub warnings: Vec<String>,
+}
+
 // ── utf8_offsets types ────────────────────────────────────────────────────────
 
 #[napi(object)]

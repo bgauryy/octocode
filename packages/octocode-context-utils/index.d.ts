@@ -264,6 +264,82 @@ export interface RipgrepParseResult {
  */
 export declare function parseRipgrepJson(stdout: string, options?: RipgrepParseOptions | undefined | null): RipgrepParseResult
 
+// ── Filesystem query ──────────────────────────────────────────────────────────
+
+export interface FileSystemQueryOptions {
+  path: string
+  /** Include the root path itself in results (default false). */
+  includeRoot?: boolean
+  /** Descend into child directories (default true). */
+  recursive?: boolean
+  /** Maximum depth where direct children are depth 1. */
+  maxDepth?: number
+  /** Minimum depth where direct children are depth 1. */
+  minDepth?: number
+  /** Include dotfiles and dot-directories (default true). */
+  showHidden?: boolean
+  /** Match basename globs, OR-combined. */
+  names?: string[]
+  /** Match full path glob. */
+  pathPattern?: string
+  /** Rust regex against basename. */
+  regex?: string
+  /** POSIX find-style entry type: f=file, d=directory, l=symlink. */
+  entryType?: 'f' | 'd' | 'l' | string
+  /** Match only empty files or directories. */
+  empty?: boolean
+  /** Modified within a duration string such as 7d, 2h, 30m. */
+  modifiedWithin?: string
+  /** Modified before a duration string such as 30d. */
+  modifiedBefore?: string
+  /** Accessed within a duration string such as 7d. */
+  accessedWithin?: string
+  /** Size greater than a string such as 100k, 1m, 500b. */
+  sizeGreater?: string
+  /** Size less than a string such as 100k, 1m, 500b. */
+  sizeLess?: string
+  /** Exact octal permissions, e.g. 644. */
+  permissions?: string
+  executable?: boolean
+  readable?: boolean
+  writable?: boolean
+  excludeDir?: string[]
+  /** Store at most this many matching entries while still counting matches. */
+  limit?: number
+}
+
+export interface FileSystemEntry {
+  /** Absolute or input-root-relative path as returned by the platform. */
+  path: string
+  /** Path relative to the query root. */
+  relativePath: string
+  name: string
+  /** "file", "directory", "symlink", or "other". */
+  entryType: string
+  size?: number
+  modifiedMs?: number
+  accessedMs?: number
+  permissions?: string
+  extension?: string
+  /** Output depth where direct children are 0. */
+  depth: number
+}
+
+export interface FileSystemQueryResult {
+  entries: FileSystemEntry[]
+  totalDiscovered: number
+  wasCapped: boolean
+  skipped: number
+  permissionDenied: number
+  warnings: string[]
+}
+
+/**
+ * Cross-platform filesystem traversal and metadata filtering for local tools.
+ * TypeScript callers keep MCP response shaping and hints.
+ */
+export declare function queryFileSystem(options: FileSystemQueryOptions): FileSystemQueryResult
+
 // ── UTF-8 offset helpers ──────────────────────────────────────────────────────
 
 /**

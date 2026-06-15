@@ -1,7 +1,13 @@
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
 import { formatFileSize, parseFileSize } from '../../utils/file/size.js';
 import type { DirectoryEntry } from './structureFilters.js';
-import type { WalkStats } from './structureWalker.js';
+
+export interface WalkStats {
+  skipped: number;
+  permissionDenied: number;
+  wasCapped?: boolean;
+  rootError?: { code: string; message: string };
+}
 
 export function summarizeEntries(entries: DirectoryEntry[]): string {
   const totalFiles = entries.filter(e => e.type === 'file').length;

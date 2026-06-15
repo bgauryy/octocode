@@ -318,20 +318,7 @@ export function getDirectToolDisplayFields(
       : []
   );
 
-  return Object.entries(properties)
-    .filter(([name]) => !DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name))
-    .map(([name, value]) => {
-      const schema = isJsonSchemaObject(value) ? value : {};
-      return {
-        name,
-        required: requiredFields.has(name),
-        type: describeSchemaType(schema),
-        description:
-          typeof schema.description === 'string'
-            ? schema.description
-            : undefined,
-      };
-    });
+  return collectDisplayFields(properties, requiredFields);
 }
 
 export function buildDirectToolExampleQuery(
@@ -516,7 +503,9 @@ function normalizeQueryObject(
   }
 
   const schemaFields = new Set([
-    ...getDirectToolDisplayFields(toolName).map(field => field.name),
+    ...getDirectToolDisplayFields(toolName)
+      .filter(field => !field.name.includes('.'))
+      .map(field => field.name),
     ...DIRECT_TOOL_AUTO_FILLED_FIELDS,
   ]);
   const exactQuery: Record<string, unknown> = {};
@@ -558,6 +547,70 @@ function describeSchemaType(schema: JsonSchemaObject): string {
   return 'value';
 }
 
+function collectDisplayFields(
+  properties: Record<string, unknown>,
+  requiredFields: ReadonlySet<string>,
+  prefix = ''
+): DirectToolDisplayField[] {
+  const fields: DirectToolDisplayField[] = [];
+
+  for (const [name, value] of Object.entries(properties)) {
+    if (!prefix && DIRECT_TOOL_AUTO_FILLED_FIELDS.has(name)) {
+      continue;
+    }
+
+    const schema = isJsonSchemaObject(value) ? value : {};
+    const fieldName = prefix ? `${prefix}.${name}` : name;
+    fields.push({
+      name: fieldName,
+      required: requiredFields.has(name),
+      type: describeSchemaType(schema),
+      description:
+        typeof schema.description === 'string' ? schema.description : undefined,
+    });
+
+    if (isRecord(schema.properties)) {
+      const nestedRequired = new Set(
+        Array.isArray(schema.required)
+          ? schema.required.filter(nestedName =>
+              typeof nestedName === 'string'
+                ? !hasSchemaDefault(schema.properties?.[nestedName])
+                : false
+            )
+          : []
+      );
+      fields.push(
+        ...collectDisplayFields(schema.properties, nestedRequired, fieldName)
+      );
+    }
+
+    const itemSchema =
+      schema.type === 'array' && isJsonSchemaObject(schema.items)
+        ? schema.items
+        : undefined;
+    if (itemSchema && isRecord(itemSchema.properties)) {
+      const nestedRequired = new Set(
+        Array.isArray(itemSchema.required)
+          ? itemSchema.required.filter(nestedName =>
+              typeof nestedName === 'string'
+                ? !hasSchemaDefault(itemSchema.properties?.[nestedName])
+                : false
+            )
+          : []
+      );
+      fields.push(
+        ...collectDisplayFields(
+          itemSchema.properties,
+          nestedRequired,
+          fieldName
+        )
+      );
+    }
+  }
+
+  return fields;
+}
+
 function buildExampleValue(name: string, type: string): unknown {
   if (type.startsWith('array<')) {
     return [name];
@@ -585,8 +638,6 @@ function buildExampleValue(name: string, type: string): unknown {
       return 'octocode';
     case 'keywordsToSearch':
       return ['toolName'];
-    case 'ecosystem':
-      return 'npm';
     case 'name':
     case 'packageName':
       return 'react';

@@ -94,6 +94,7 @@ export async function getFileContent(
     owner,
     repo,
     path: query.path,
+    type: 'file' as const,
     branch: query.ref,
     startLine: query.startLine,
     endLine: query.endLine,

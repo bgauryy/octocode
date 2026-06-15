@@ -22,9 +22,8 @@ export const hints: ToolHintGenerators = {
     if (!name) return [];
     const variations = buildVariations(name);
     return [
-      `Package '${name}' not found on npm.`,
-      'Check spelling and remove any version suffix (e.g. search "express" not "express@4.18").',
-      'If you are looking for a GitHub project rather than a registry package, use `githubSearchRepositories` with the name as a keyword.',
+      'Check spelling and remove any version suffix.',
+      'Not on npm? Use `githubSearchRepositories` instead.',
       ...(variations.length ? [`Try: ${variations.join(', ')}`] : []),
     ];
   },
@@ -37,8 +36,7 @@ export const hints: ToolHintGenerators = {
     }
     if (ctx.originalError) {
       return [
-        'npm registry is unreachable.',
-        'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+        'npm registry unreachable — use `githubSearchRepositories` instead.',
       ];
     }
     return [];

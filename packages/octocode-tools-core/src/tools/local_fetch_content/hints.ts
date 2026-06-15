@@ -5,10 +5,7 @@ export const hints: ToolHintGenerators = {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
     if (!path) return [];
-    return [
-      `File '${path}' is empty (zero bytes).`,
-      'Verify this is the correct file — use `localFindFiles` with a `name` filter to confirm the path.',
-    ];
+    return ['Confirm path with `localFindFiles`.'];
   },
 
   error: (ctx: HintContext = {}) => {
@@ -22,40 +19,26 @@ export const hints: ToolHintGenerators = {
         typeof c.totalLines === 'number' ? c.totalLines : undefined;
       const tailLine = totalLines ? Math.max(1, totalLines - 200) : undefined;
       const hints: string[] = [
-        `File${kb} exceeds the read budget — use matchString or startLine+endLine for a focused section.`,
-        `Or minify:"symbols" for an export index (80–95% fewer chars), then startLine/endLine for a body.`,
+        `File${kb} too large — use matchString or startLine+endLine for a slice.`,
+        `Or minify="symbols" for a skeleton index, then startLine/endLine.`,
       ];
       if (tailLine && totalLines) {
-        hints.push(
-          `File has ${totalLines} total lines. To read the tail: startLine=${tailLine}, endLine=${totalLines}.`
-        );
+        hints.push(`Tail: startLine=${tailLine}, endLine=${totalLines}.`);
       }
       return hints;
     }
     if (ctx.errorType === 'directory') {
       const c = ctx as Record<string, unknown>;
-      const path = typeof c.path === 'string' ? `'${c.path}'` : 'The path';
+      const path = typeof c.path === 'string' ? `'${c.path}'` : 'Path';
       return [
-        `${path} is a directory, not a file.`,
-        'Use `localViewStructure` to explore directory contents, then read a specific file.',
+        `${path} is a directory — use \`localViewStructure\` to explore it.`,
       ];
     }
     if (ctx.errorType === 'not_found') {
-      const c = ctx as Record<string, unknown>;
-      const notFound =
-        typeof c.path === 'string'
-          ? `'${c.path}' not found.`
-          : 'File not found.';
-      return [
-        notFound,
-        'Use `localFindFiles` with a `name` filter to locate the correct path.',
-      ];
+      return ['Use `localFindFiles` to locate the correct path.'];
     }
     if (ctx.errorType === 'permission') {
-      return [
-        'Permission denied reading this file.',
-        'Check ALLOWED_PATHS configuration — the path may be outside the permitted scope.',
-      ];
+      return ['Permission denied — check ALLOWED_PATHS configuration.'];
     }
     return [];
   },

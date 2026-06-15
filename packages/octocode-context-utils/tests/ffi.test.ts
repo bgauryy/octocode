@@ -6,8 +6,9 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { existsSync } from 'fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 
 // ── addon availability guard ──────────────────────────────────────────────────
 
@@ -84,6 +85,7 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'jsonToYamlString',
   'getMINIFY_CONFIG',
   'parseRipgrepJson',
+  'queryFileSystem',
   'charToByteOffset',
   'byteToCharOffset',
   'byteSliceContent',
@@ -124,6 +126,35 @@ describe('getExtension', () => {
   });
 });
 
+describe('queryFileSystem', () => {
+  it('finds files by glob and skips excluded directories', () => {
+    const root = mkdtempSync(join(tmpdir(), 'octocode-fs-query-'));
+    try {
+      mkdirSync(join(root, 'src', 'nested'), { recursive: true });
+      mkdirSync(join(root, 'node_modules', 'pkg'), { recursive: true });
+      writeFileSync(join(root, 'src', 'nested', 'main.ts'), 'export {}');
+      writeFileSync(join(root, 'src', 'nested', 'main.js'), 'module.exports = {}');
+      writeFileSync(join(root, 'node_modules', 'pkg', 'index.ts'), 'ignored');
+
+      const result = addon!.queryFileSystem({
+        path: root,
+        names: ['*.ts'],
+        excludeDir: ['node_modules'],
+        maxDepth: 3,
+        entryType: 'f',
+      });
+
+      expect(result.entries.map(entry => entry.relativePath)).toEqual([
+        'src/nested/main.ts',
+      ]);
+      expect(result.totalDiscovered).toBe(1);
+      expect(result.wasCapped).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('removeComments', () => {
   it('strips c-style line comments', () => {
     const out = addon!.removeComments(
@@ -154,7 +185,10 @@ describe('removeComments', () => {
   });
 
   it('returns original on unknown type (no panic)', () => {
-    const out = addon!.removeComments('hello', 'nonexistent-type');
+    const out = addon!.removeComments(
+      'hello',
+      'nonexistent-type' as unknown as import('../index.js').CommentPatternGroup
+    );
     expect(out).toBe('hello');
   });
 });

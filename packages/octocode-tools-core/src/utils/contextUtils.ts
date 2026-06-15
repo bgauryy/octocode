@@ -6,6 +6,9 @@ export type {
   ExtractMatchingLinesOptions,
   ExtractMatchingLinesResult,
   FilterPatchOptions,
+  FileSystemEntry,
+  FileSystemQueryOptions,
+  FileSystemQueryResult,
   MinifyResult,
   JsonInput,
   RipgrepParseOptions,
@@ -106,6 +109,12 @@ export const contextUtils = {
     options?: NativeContextUtils.RipgrepParseOptions | null
   ): NativeContextUtils.RipgrepParseResult {
     return loadNative().parseRipgrepJson(stdout, options);
+  },
+
+  queryFileSystem(
+    options: NativeContextUtils.FileSystemQueryOptions
+  ): NativeContextUtils.FileSystemQueryResult {
+    return loadNative().queryFileSystem(options);
   },
 
   extractMatchingLines(

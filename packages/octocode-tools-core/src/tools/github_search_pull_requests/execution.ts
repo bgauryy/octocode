@@ -1,7 +1,7 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
 import type { GitHubSearchPullRequestsToolResult } from '@octocodeai/octocode-core/extra-types';
-import type { GitHubPullRequestSearchQueryLocalSchema } from './scheme.js';
+import { GitHubPullRequestSearchQueryLocalSchema } from './scheme.js';
 
 type GitHubPullRequestSearchQuery = z.infer<
   typeof GitHubPullRequestSearchQueryLocalSchema
@@ -51,8 +51,17 @@ export async function searchMultipleGitHubPullRequests(
     queries,
     async (query: PartialPRQuery, _index: number) => {
       try {
+        const validation =
+          GitHubPullRequestSearchQueryLocalSchema.safeParse(query);
+        if (!validation.success) {
+          const messages = validation.error.issues
+            .map(i => i.message)
+            .join('; ');
+          return createErrorResult(`Validation error: ${messages}`, query);
+        }
+
         const currentProviderContext = getProviderContext();
-        const effectiveQuery: PartialPRQuery = { ...query };
+        const effectiveQuery: PartialPRQuery = { ...validation.data };
         const contentRequest = normalizePullRequestContentRequest(
           effectiveQuery as never
         );
@@ -165,10 +174,10 @@ export async function searchMultipleGitHubPullRequests(
           comments: false as const,
           commits: false as const,
         };
-        // Per-PR next.* menus only make sense on a prNumber detail fetch —
+        // Per-PR next maps only make sense on a prNumber detail fetch —
         // broad list results would repeat the identical menu for every PR
         // (the "Metadata mode:" hint covers escalation guidance instead).
-        // Always emit the next.* escalation map for prNumber fetches so the
+        // Always emit the next escalation map for prNumber fetches so the
         // agent can see exactly what to request next — especially useful on a
         // metadata-only fetch where no content was requested yet.
         const showContentMap = hasPrNumber;

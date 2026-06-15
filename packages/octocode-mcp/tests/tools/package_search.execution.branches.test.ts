@@ -340,8 +340,8 @@ describe('hints — empty result', () => {
   it('reports package not found', async () => {
     mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
     const t = text(await callTool('no-such-pkg'));
-    // hints.ts empty handler: "Package '...' not found on npm."
-    expect(t).toContain("Package 'no-such-pkg' not found on npm.");
+    // hints.ts empty handler: actionable recovery
+    expect(t).toContain('Check spelling');
   });
 
   it('suggests hyphen→underscore variation (via hints.ts buildVariations)', async () => {

@@ -1590,9 +1590,7 @@ describe('registerPackageSearchTool', () => {
 
       const text = (result.content[0] as { text: string }).text;
 
-      expect(text).toContain(
-        "Package 'nonexistent pkg xyz123 keyword' not found on npm."
-      );
+      expect(text).toContain('Check spelling');
       expect(text).not.toContain(
         'Browse: https://npmjs.com/search?q=nonexistent%20pkg%20xyz123%20keyword'
       );
@@ -1640,7 +1638,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     });
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("Package 'date-fns keyword' not found on npm.");
+    expect(text).toContain('Check spelling');
   });
 
   it('should suggest unscoped name for @scope/name packages', async () => {
@@ -1690,7 +1688,7 @@ describe('Task 2: Name Variation Suggestions', () => {
     });
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain("Package 'chart library' not found on npm.");
+    expect(text).toContain('Check spelling');
   });
 
   it('should return all packages from a search result', async () => {

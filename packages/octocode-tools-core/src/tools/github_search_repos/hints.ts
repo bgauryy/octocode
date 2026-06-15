@@ -20,12 +20,9 @@ export const hints: ToolHintGenerators = {
     if (!searchTerm && !hasFilters) return [];
 
     const out: string[] = [
-      searchTerm
-        ? `No repositories found for "${searchTerm}".`
-        : 'No repositories found.',
       hasFilters
-        ? 'Remove a filter to widen.'
-        : 'Try fewer/simpler keywords, or use match="name" for an exact-name lookup.',
+        ? 'Remove owner/language/topic first, then retry fewer keywords.'
+        : 'Try fewer/simpler keywords, or use match:["name"] for exact-name lookup.',
     ];
 
     if (
@@ -33,7 +30,7 @@ export const hints: ToolHintGenerators = {
       /^@[\w-]+\/[\w.-]+$|^[a-z][\w]*[-.][\w.-]+$/.test(searchTerm)
     ) {
       out.push(
-        `"${searchTerm}" looks like a package — use \`packageSearch\` to resolve it directly.`
+        `"${searchTerm}" looks like a package — use \`packageSearch\` instead.`
       );
     }
 
@@ -46,16 +43,8 @@ export const hints: ToolHintGenerators = {
         `GitHub API rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ' Wait before retrying.'}`,
       ];
     }
-    if (ctx.status === 401) {
-      return [
-        'GITHUB_TOKEN is missing or expired — set a valid token and retry.',
-      ];
-    }
-    if (ctx.status === 403) {
-      return [
-        'Token lacks `public_repo` scope — update token permissions and retry.',
-      ];
-    }
+    if (ctx.status === 401) return ['GITHUB_TOKEN is missing or expired.'];
+    if (ctx.status === 403) return ['Token lacks `public_repo` scope.'];
     return [];
   },
 };

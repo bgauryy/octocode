@@ -92,4 +92,3 @@ pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, Str
         Some(result)
     }
 }
-

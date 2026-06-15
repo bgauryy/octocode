@@ -2,10 +2,7 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
-type PackageSearchQuery = Omit<
-  z.infer<typeof NpmPackageQuerySchema>,
-  'ecosystem'
->;
+type PackageSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
 import {
   searchPackage,
   checkNpmDeprecation,

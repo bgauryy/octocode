@@ -3,6 +3,7 @@ mod comment_remover;
 mod config;
 mod diff_parser;
 mod file_extension;
+mod fs_query;
 mod line_extractor;
 mod minifier;
 mod ripgrep_parser;
@@ -15,9 +16,10 @@ mod yaml_utils;
 use napi::{bindgen_prelude::AsyncTask, Env, Result, Task};
 use napi_derive::napi;
 use types::{
-    ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FileTypeMinifyConfig,
-    FilterPatchOptions, GetExtensionOptions, MinifyResult, RipgrepParseOptions, RipgrepParseResult,
-    SliceContentOptions, SliceContentResult, YamlConversionConfig,
+    ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FileSystemQueryOptions,
+    FileSystemQueryResult, FileTypeMinifyConfig, FilterPatchOptions, GetExtensionOptions,
+    MinifyResult, RipgrepParseOptions, RipgrepParseResult, SliceContentOptions, SliceContentResult,
+    YamlConversionConfig,
 };
 
 pub struct MinifyContentTask {
@@ -357,6 +359,17 @@ pub fn parse_ripgrep_json(
     options: Option<RipgrepParseOptions>,
 ) -> RipgrepParseResult {
     ripgrep_parser::parse_ripgrep_json_inner(&stdout, options)
+}
+
+// ── Filesystem query ──────────────────────────────────────────────────────────
+
+/// Cross-platform filesystem traversal and metadata filtering for local tools.
+///
+/// Replaces the POSIX `find`/`ls` execution paths in octocode-tools-core while
+/// keeping MCP response shaping in TypeScript.
+#[napi(js_name = "queryFileSystem")]
+pub fn query_file_system(options: FileSystemQueryOptions) -> Result<FileSystemQueryResult> {
+    fs_query::query_file_system_inner(options)
 }
 
 // ── UTF-8 offset helpers ──────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ContextUtilsLoadError,
@@ -41,5 +41,35 @@ describe('contextUtils native boundary', () => {
       expect(error).toBeInstanceOf(ContextUtilsLoadError);
       expect((error as ContextUtilsLoadError).cause).toBe(nativeError);
     }
+  });
+
+  it('delegates filesystem queries to the native package', () => {
+    const queryFileSystem = vi.fn().mockReturnValue({
+      entries: [],
+      totalDiscovered: 0,
+      wasCapped: false,
+      skipped: 0,
+      permissionDenied: 0,
+      warnings: [],
+    });
+    setContextUtilsNativeLoaderForTesting(
+      () =>
+        ({
+          queryFileSystem,
+        }) as unknown as typeof import('@octocodeai/octocode-context-utils')
+    );
+
+    const result = contextUtils.queryFileSystem({
+      path: '/repo',
+      names: ['*.ts'],
+      entryType: 'f',
+    });
+
+    expect(queryFileSystem).toHaveBeenCalledWith({
+      path: '/repo',
+      names: ['*.ts'],
+      entryType: 'f',
+    });
+    expect(result.totalDiscovered).toBe(0);
   });
 });

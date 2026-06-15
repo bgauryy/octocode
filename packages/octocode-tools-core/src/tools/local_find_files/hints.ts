@@ -3,8 +3,6 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
-    const path = typeof c.path === 'string' ? c.path : undefined;
-    const name = typeof c.name === 'string' ? c.name : undefined;
     const names =
       Array.isArray(c.names) && c.names.length > 0
         ? (c.names as string[])
@@ -16,7 +14,6 @@ export const hints: ToolHintGenerators = {
     const sizeLess = typeof c.sizeLess === 'string' ? c.sizeLess : undefined;
 
     const filters: string[] = [];
-    if (name) filters.push(`name="${name}"`);
     if (names) filters.push(`names=${JSON.stringify(names)}`);
     if (modifiedWithin) filters.push(`modifiedWithin="${modifiedWithin}"`);
     if (sizeGreater) filters.push(`sizeGreater="${sizeGreater}"`);
@@ -25,25 +22,17 @@ export const hints: ToolHintGenerators = {
     if (filters.length === 0) return [];
 
     return [
-      `No files match ${filters.join(' + ')} in ${path ?? 'this path'}.`,
-      'Widen: remove filters one at a time. Filename matching is case-sensitive — list both casings in `names` (e.g. ["README*", "readme*"]) when casing is unknown.',
-      'For content-based search, use `localSearchCode` instead — `localFindFiles` matches metadata only.',
+      `No metadata match for ${filters.join(', ')} — remove one filter or broaden names.`,
+      'For content text, switch to `localSearchCode`.',
     ];
   },
 
   error: (ctx: HintContext = {}) => {
     if (ctx.errorType === 'not_found') {
-      const c = ctx as Record<string, unknown>;
-      const path = typeof c.path === 'string' ? c.path : undefined;
-      return [
-        `Path '${path ?? 'specified'}' not found.`,
-        'Verify the path with `localViewStructure` at the parent directory.',
-      ];
+      return ['Verify path with `localViewStructure` at the parent directory.'];
     }
     if (ctx.errorType === 'permission') {
-      return [
-        'Permission denied — check ALLOWED_PATHS configuration; the path may be outside the permitted scope.',
-      ];
+      return ['Permission denied — check ALLOWED_PATHS configuration.'];
     }
     return [];
   },

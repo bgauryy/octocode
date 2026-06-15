@@ -1,12 +1,6 @@
-import { parseFileSize } from '../../utils/file/size.js';
+import { formatFileSize, parseFileSize } from '../../utils/file/size.js';
 import { getHints } from '../../hints/index.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { LsCommandBuilder } from '../../commands/LsCommandBuilder.js';
-import {
-  checkCommandAvailability,
-  getMissingCommandError,
-} from '../../utils/exec/commandAvailability.js';
-import { safeExec } from '../../utils/exec/safe.js';
 import {
   validateToolPath,
   createErrorResult,
@@ -14,53 +8,26 @@ import {
 import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../../types/execution.js';
 import type { ViewStructureQuery as LocalViewStructureQuery } from './scheme.js';
-
-type ViewStructureQuery = WithOptionalMeta<LocalViewStructureQuery>;
-
-/**
- * Sanitize raw `ls` stderr for agent-facing output: strip the `ls:` prefix
- * and redact absolute paths to a relative/short form (no filesystem leak).
- */
-function sanitizeLsStderr(
-  stderr: string | undefined,
-  absolutePath: string
-): string | undefined {
-  const trimmed = stderr?.trim();
-  if (!trimmed) return undefined;
-  const redacted = redactPath(absolutePath);
-  const sanitized = trimmed
-    .split('\n')
-    .map(line =>
-      line
-        .replace(/^ls:\s*/i, '')
-        .split(absolutePath)
-        .join(redacted)
-    )
-    .join('\n')
-    .trim();
-  return sanitized || undefined;
-}
-
 import { ToolErrors } from '../../errors/errorFactories.js';
-import { redactPath } from '../../errors/pathUtils.js';
 import {
   applyEntryFilters,
   toEntryObject,
   toGroupedLists,
   type DirectoryEntry,
 } from './structureFilters.js';
-import { parseLsSimple, parseLsLongFormat } from './structureParser.js';
-import { walkDirectory, type WalkStats } from './structureWalker.js';
 import {
   buildEntryPaginationHints,
   buildWalkWarnings,
   paginateEntries,
   summarizeEntries,
 } from './structureResponse.js';
+import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import {
-  attachRawResponseChars,
-  countSerializedChars,
-} from '../../utils/response/charSavings.js';
+  contextUtils,
+  type FileSystemEntry,
+} from '../../utils/contextUtils.js';
+
+type ViewStructureQuery = WithOptionalMeta<LocalViewStructureQuery>;
 
 export async function viewStructure(
   query: ViewStructureQuery
@@ -80,141 +47,10 @@ export async function viewStructure(
       query.showFileLastModified ??
       (query.sortBy === 'time' || query.details === true);
 
-    if (query.depth || query.recursive) {
-      return await viewStructureRecursive(
-        query,
-        pathValidation.sanitizedPath,
-        effectiveShowModified
-      );
-    }
-
-    const lsAvailability = await checkCommandAvailability('ls');
-    if (!lsAvailability.available) {
-      const toolError = ToolErrors.commandNotAvailable(
-        'ls',
-        getMissingCommandError('ls')
-      );
-      return createErrorResult(toolError, query, {
-        toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-      }) as LocalViewStructureToolResult;
-    }
-
-    const builder = new LsCommandBuilder();
-    const { command, args } = builder
-      .fromQuery({
-        ...query,
-        path: pathValidation.sanitizedPath,
-      })
-      .build();
-
-    const result = await safeExec(command, args);
-
-    if (!result.success) {
-      const stderrMsg = sanitizeLsStderr(
-        result.stderr,
-        pathValidation.sanitizedPath
-      );
-      const toolError = ToolErrors.commandExecutionFailed(
-        'ls',
-        new Error(stderrMsg || 'Unknown error'),
-        stderrMsg
-      );
-      return createErrorResult(toolError, query, {
-        toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-        customHints: [
-          ...(stderrMsg ? [`Error: ${stderrMsg}`] : ['ls command failed']),
-          'Verify the path exists — use localFindFiles or check ALLOWED_PATHS.',
-        ],
-        rawResponse: result.stdout.length + result.stderr.length,
-      }) as LocalViewStructureToolResult;
-    }
-
-    const entries = query.details
-      ? parseLsLongFormat(result.stdout, effectiveShowModified)
-      : await parseLsSimple(
-          result.stdout,
-          pathValidation.sanitizedPath,
-          effectiveShowModified
-        );
-
-    let filteredEntries = applyEntryFilters(entries, query);
-
-    if (query.limit) {
-      filteredEntries = filteredEntries.slice(0, query.limit);
-    }
-
-    const totalEntries = filteredEntries.length;
-    const { paginatedEntries, endIdx, pagination } = paginateEntries(
-      filteredEntries,
-      query as { itemsPerPage?: number; page?: number }
-    );
-    const sanitizedBasePath = pathValidation.sanitizedPath;
-    // Flat grouped name lists by default (githubViewRepoStructure parity);
-    // rich per-entry objects when details or timestamps are requested.
-    const richEntries =
-      query.details === true || query.showFileLastModified === true;
-    const entryPayload = richEntries
-      ? {
-          // Mirror flat mode: always emit base path so the agent knows which
-          // directory was scanned, regardless of output mode.
-          path: sanitizedBasePath,
-          entries: paginatedEntries.map(entry => ({
-            ...toEntryObject(entry),
-            path: `${sanitizedBasePath}/${entry.name}`,
-          })),
-        }
-      : { path: sanitizedBasePath, ...toGroupedLists(paginatedEntries) };
-    const warnings: string[] = [];
-    const isEmpty = totalEntries === 0;
-    // Detect when a filter (extensions/pattern) was active but returned zero
-    // files — folders may still be present, but the intended match failed.
-    const queryPattern =
-      typeof (query as { pattern?: unknown }).pattern === 'string'
-        ? (query as { pattern?: string }).pattern
-        : undefined;
-    const hasFilter =
-      (query.extensions?.length ?? 0) > 0 || Boolean(queryPattern);
-    const fileCount = filteredEntries.filter(e => e.type === 'file').length;
-    const extensionMiss = hasFilter && fileCount === 0 && !isEmpty;
-    const entryPaginationHints = buildEntryPaginationHints(
-      filteredEntries,
-      paginatedEntries.length,
-      pagination,
-      endIdx
-    );
-    const summary = summarizeEntries(filteredEntries);
-    const emptyHintCtx = {
-      entryCount: totalEntries,
-      path: query.path,
-      extensions: query.extensions,
-      pattern: queryPattern,
-    } as Record<string, unknown>;
-
-    return attachRawResponseChars(
-      finalizeViewStructureResult(
-        {
-          ...(isEmpty ? { status: 'empty' as const } : {}),
-          ...entryPayload,
-          summary,
-          // Suppress the pagination block on a single complete page — the
-          // summary string already encodes the total count.
-          ...(pagination.hasMore || pagination.totalPages > 1
-            ? { pagination }
-            : {}),
-          ...(warnings.length > 0 && { warnings }),
-          hints: [
-            // Active-filters hint dropped — the agent set those params itself.
-            ...(isEmpty || extensionMiss
-              ? getHints(TOOL_NAMES.LOCAL_VIEW_STRUCTURE, 'empty', emptyHintCtx)
-              : [
-                  'Use localSearchCode to search or localGetFileContent to read discovered files.',
-                ]),
-            ...entryPaginationHints,
-          ],
-        },
-        query
-      ),
-      result.stdout.length
+    return viewStructureNative(
+      query,
+      pathValidation.sanitizedPath,
+      effectiveShowModified
     );
   } catch (error) {
     const toolError = ToolErrors.toolExecutionFailed(
@@ -230,49 +66,40 @@ export async function viewStructure(
   }
 }
 
-async function viewStructureRecursive(
+function viewStructureNative(
   query: ViewStructureQuery,
   basePath: string,
   showModified: boolean = false
-): Promise<LocalViewStructureToolResult> {
-  const entries: DirectoryEntry[] = [];
-  const maxDepth = query.depth || (query.recursive ? 5 : 2);
+): LocalViewStructureToolResult {
+  const recursiveMode = Boolean(query.depth || query.recursive);
+  const maxDepth = recursiveMode ? query.depth || (query.recursive ? 5 : 2) : 1;
+  const nativeNamePatterns = nativeNamePatternsFromQuery(query);
+  const maxEntries =
+    recursiveMode &&
+    query.limit &&
+    !hasPostNativeFilters(query, nativeNamePatterns)
+      ? query.limit * 2
+      : 10000;
 
-  const maxEntries = query.limit ? query.limit * 2 : 10000;
-
-  const walkStats: WalkStats = { skipped: 0, permissionDenied: 0 };
-
-  await walkDirectory({
-    basePath,
-    currentPath: basePath,
-    depth: 0,
-    maxDepth,
-    entries,
-    maxEntries,
-    showHidden: query.hidden,
-    showModified,
-    stats: walkStats,
-    showDetails: query.details ?? false,
-  });
-
-  if (walkStats.rootError) {
-    const { code } = walkStats.rootError;
-    const isNotFound = code === 'ENOENT' || code === 'ENOTDIR';
-    const toolError = ToolErrors.pathValidationFailed(
-      basePath,
-      isNotFound
-        ? `Directory not found: ${basePath}`
-        : code === 'EACCES'
-          ? `Permission denied: ${basePath}`
-          : `Cannot access path: ${basePath}`
-    );
-    return createErrorResult(toolError, query, {
-      toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-      customHints: isNotFound
-        ? [`Path not found: ${basePath}`]
-        : [`Permission denied: ${basePath}`],
-    }) as LocalViewStructureToolResult;
+  let nativeResult: ReturnType<typeof contextUtils.queryFileSystem>;
+  try {
+    nativeResult = contextUtils.queryFileSystem({
+      path: basePath,
+      recursive: recursiveMode,
+      includeRoot: false,
+      showHidden: query.hidden ?? false,
+      maxDepth,
+      names: nativeNamePatterns,
+      entryType: nativeEntryTypeFromQuery(query),
+      limit: maxEntries,
+    });
+  } catch (error) {
+    return createNativeAccessErrorResult(error, query, basePath);
   }
+
+  const entries = nativeResult.entries.map(entry =>
+    nativeEntryToDirectoryEntry(entry, showModified, query.details ?? false)
+  );
 
   let filteredEntries = applyEntryFilters(entries, query);
 
@@ -326,13 +153,17 @@ async function viewStructureRecursive(
         path: basePath,
         entries: paginatedEntries.map(entry => ({
           ...toEntryObject(entry),
-          path: `${basePath}/${entry.name}`,
+          path: entry.path ?? `${basePath.replace(/\/$/, '')}/${entry.name}`,
         })),
       }
     : { path: basePath, ...toGroupedLists(paginatedEntries) };
   const warnings = [
-    ...buildWalkWarnings(walkStats),
-    ...(walkStats.wasCapped
+    ...nativeResult.warnings,
+    ...buildWalkWarnings({
+      skipped: nativeResult.skipped,
+      permissionDenied: nativeResult.permissionDenied,
+    }),
+    ...(nativeResult.wasCapped
       ? [
           `Results capped at ${maxEntries} entries — add a pattern/extensions filter or reduce depth to narrow the scope.`,
         ]
@@ -389,8 +220,113 @@ async function viewStructureRecursive(
       },
       query
     ),
-    countSerializedChars(entries)
+    nativeResult.entries.reduce((sum, entry) => sum + entry.path.length, 0)
   );
+}
+
+function hasPostNativeFilters(
+  query: ViewStructureQuery,
+  nativeNamePatterns: string[] | undefined
+): boolean {
+  const pattern =
+    typeof (query as { pattern?: unknown }).pattern === 'string'
+      ? (query as { pattern?: string }).pattern
+      : undefined;
+  return Boolean(
+    (pattern && !nativeNamePatterns) || (query.extensions?.length ?? 0) > 0
+  );
+}
+
+function nativeNamePatternsFromQuery(
+  query: ViewStructureQuery
+): string[] | undefined {
+  const pattern =
+    typeof (query as { pattern?: unknown }).pattern === 'string'
+      ? (query as { pattern?: string }).pattern
+      : undefined;
+  if (!pattern) return undefined;
+
+  // Keep bracket globs in TypeScript only. The native glob path intentionally
+  // supports the common "*" and "?" subset, while TS preserves the older
+  // character-class behavior.
+  if (pattern.includes('[')) return undefined;
+  return pattern.includes('*') || pattern.includes('?')
+    ? [pattern]
+    : [`*${pattern}*`];
+}
+
+function nativeEntryTypeFromQuery(
+  query: ViewStructureQuery
+): 'f' | 'd' | undefined {
+  if (query.filesOnly && !query.directoriesOnly) return 'f';
+  if (query.directoriesOnly && !query.filesOnly) return 'd';
+  return undefined;
+}
+
+function nativeEntryToDirectoryEntry(
+  entry: FileSystemEntry,
+  showModified: boolean,
+  showDetails: boolean
+): DirectoryEntry {
+  const type =
+    entry.entryType === 'directory'
+      ? 'directory'
+      : entry.entryType === 'symlink'
+        ? 'symlink'
+        : 'file';
+  const result: DirectoryEntry = {
+    name: entry.relativePath || entry.name,
+    path: entry.path,
+    type,
+    ...(entry.size !== undefined
+      ? { size: formatFileSize(entry.size), sizeBytes: entry.size }
+      : {}),
+    ...(entry.extension ? { extension: entry.extension } : {}),
+    depth: entry.depth,
+  };
+  if ((showDetails || showModified) && entry.modifiedMs !== undefined) {
+    result.modified = new Date(entry.modifiedMs).toISOString();
+  }
+  if (showDetails && entry.permissions) {
+    result.permissions = octalToSymbolicPermissions(entry.permissions);
+  }
+  return result;
+}
+
+function octalToSymbolicPermissions(octal: string): string {
+  const value = Number.parseInt(octal, 8);
+  if (!Number.isFinite(value)) return octal;
+  const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
+  return `${chars[(value >> 6) & 7]}${chars[(value >> 3) & 7]}${chars[value & 7]}`;
+}
+
+function createNativeAccessErrorResult(
+  error: unknown,
+  query: ViewStructureQuery,
+  basePath: string
+): LocalViewStructureToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const isNotFound = /ENOENT|not found|no such file/i.test(message);
+  const isPermission = /EACCES|permission denied/i.test(message);
+  const isNotDirectory = /ENOTDIR|not a directory/i.test(message);
+  const toolError = ToolErrors.pathValidationFailed(
+    basePath,
+    isNotFound
+      ? `Directory not found: ${basePath}`
+      : isPermission
+        ? `Permission denied: ${basePath}`
+        : isNotDirectory
+          ? `Not a directory: ${basePath}`
+          : `Cannot access path: ${basePath}`
+  );
+  return createErrorResult(toolError, query, {
+    toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+    customHints: isNotFound
+      ? [`Path not found: ${basePath}`]
+      : isPermission
+        ? [`Permission denied: ${basePath}`]
+        : [`Cannot access path: ${basePath}`],
+  }) as LocalViewStructureToolResult;
 }
 
 export function finalizeViewStructureResult(

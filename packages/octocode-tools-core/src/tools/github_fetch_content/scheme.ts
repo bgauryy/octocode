@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { FileContentQuerySchema as CoreFileContentQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { MAX_CHAR_LENGTH } from '../../config.js';
 import {
   clampedInt,
@@ -12,17 +12,14 @@ const minifyField = z
   .enum(['none', 'standard', 'symbols'])
   .optional()
   .default('standard');
-import { validateFileContentExtractionMode } from '../../scheme/fileContentModeValidation.js';
+import {
+  createQueryShapeSchema,
+  describeQuerySchema,
+} from '../../scheme/coreSchemas.js';
 import {
   EvidenceSchema,
   responseEnvelopeFields,
 } from '../../scheme/responseEnvelope.js';
-import { STATIC_TOOL_NAMES } from '../toolNames.js';
-
-const QUERY_DESCRIPTIONS = {
-  ...completeMetadata.baseSchema,
-  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]?.schema,
-} as Record<string, string>;
 
 const PaginationInfoSchema = z.object({
   currentPage: z.number(),
@@ -75,59 +72,27 @@ const GitHubFetchDirectoryEntrySchema = z.object({
   resolvedBranch: z.string().optional(),
 });
 
-const FileContentQueryShape = z.object({
-  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
-  mainResearchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
-  researchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.researchGoal!),
-  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  owner: z.string().describe(QUERY_DESCRIPTIONS.owner!),
-  repo: z.string().describe(QUERY_DESCRIPTIONS.repo!),
-  branch: z.string().optional().describe(QUERY_DESCRIPTIONS.branch!),
-  path: z.string().describe(QUERY_DESCRIPTIONS.path!),
-  startLine: lineNumberField.describe(QUERY_DESCRIPTIONS.startLine!),
-  endLine: lineNumberField.describe(QUERY_DESCRIPTIONS.endLine!),
-  fullContent: z.boolean().optional().describe(QUERY_DESCRIPTIONS.fullContent!),
-  matchString: z.string().optional().describe(QUERY_DESCRIPTIONS.matchString!),
-  matchStringIsRegex: z
-    .boolean()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.matchStringIsRegex!),
-  matchStringCaseSensitive: z
-    .boolean()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.matchStringCaseSensitive!),
-  forceRefresh: z
-    .boolean()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.forceRefresh!),
-  type: z
-    .enum(['file', 'directory'])
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.type!),
-  contextLines: contextLinesField.describe(QUERY_DESCRIPTIONS.contextLines!),
-  charOffset: clampedInt(0, 100_000_000)
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.charOffset!),
-  charLength: clampedInt(1, MAX_CHAR_LENGTH)
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.charLength!),
-  minify: minifyField.describe(QUERY_DESCRIPTIONS.minify!),
-});
+const queryOverrides = {
+  startLine: lineNumberField,
+  endLine: lineNumberField,
+  contextLines: contextLinesField,
+  charOffset: clampedInt(0, 100_000_000).optional(),
+  charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
+  minify: minifyField,
+} as const;
 
-export const FileContentQueryBaseLocalSchema = FileContentQueryShape;
+export const FileContentQueryBaseLocalSchema = createQueryShapeSchema(
+  CoreFileContentQuerySchema,
+  queryOverrides
+);
 
-export const FileContentQueryLocalSchema = FileContentQueryShape.superRefine(
-  validateFileContentExtractionMode
+export const FileContentQueryLocalSchema = describeQuerySchema(
+  CoreFileContentQuerySchema,
+  queryOverrides
 );
 
 export const FileContentBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
-  FileContentQueryShape
+  FileContentQueryBaseLocalSchema
 );
 
 export const GitHubFetchContentOutputLocalSchema = z.object({

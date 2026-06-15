@@ -76,7 +76,7 @@ describe('lspGetSemanticContent — success-path handoff hints', () => {
 
     // Type-specific recovery only — the vague generic preamble was removed.
     expect(result.length).toBeGreaterThan(0);
-    expect(result.join(' ')).toContain('rerun localSearchCode');
+    expect(result.join(' ')).toContain('localSearchCode');
   });
 });
 

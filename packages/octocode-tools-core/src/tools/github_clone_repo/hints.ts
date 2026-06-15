@@ -11,9 +11,8 @@ export const hints: ToolHintGenerators = {
           : undefined;
     if (sparsePath) {
       return [
-        `Clone succeeded but 'sparsePath="${sparsePath}"' matched no files.`,
-        'Broaden or omit `sparsePath` to check out the full repo, then inspect with `localViewStructure`.',
-        'Use `githubViewRepoStructure` first to confirm the exact directory path before cloning sparse.',
+        'Omit `sparsePath` to check out the full repo.',
+        'Confirm path with `githubViewRepoStructure` before cloning sparse.',
       ];
     }
     return [];
@@ -23,23 +22,19 @@ export const hints: ToolHintGenerators = {
     if (ctx.isRateLimited) {
       return [
         `GitHub API rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ' Wait before retrying.'}`,
-        'While waiting, use `githubViewRepoStructure` to inspect the tree without cloning.',
+        'Use `githubViewRepoStructure` to inspect the tree without cloning.',
       ];
     }
     if (ctx.errorType === 'permission') {
       return [
-        'Token lacks read access — verify GITHUB_TOKEN has `repo` scope for private repos.',
+        'Token lacks read access — verify GITHUB_TOKEN has `repo` scope.',
       ];
     }
     if (ctx.errorType === 'not_found') {
-      return [
-        'Repo or branch not found — check spelling or omit `branch` to resolve the default branch.',
-      ];
+      return ['Check spelling or omit `branch` to use the default branch.'];
     }
     if (ctx.errorType === 'timeout') {
-      return [
-        'Clone timed out — use `sparsePath` to check out only the relevant subdirectory.',
-      ];
+      return ['Clone timed out — use `sparsePath` for a subdirectory only.'];
     }
     return [];
   },

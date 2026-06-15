@@ -30,7 +30,7 @@ const responsePaginationFields = {
     ),
   responseCharLength: clampedInt(1, 50_000)
     .optional()
-    .describe('Full-response char window (max 50k).'),
+    .describe('Full-response char window.'),
 } as const;
 
 export function createRelaxedBulkQuerySchema(
@@ -39,12 +39,12 @@ export function createRelaxedBulkQuerySchema(
 ) {
   const { maxQueries = 5 } = options;
   return z
-    .object({
+    .strictObject({
       queries: z
         .array(querySchema)
         .min(1)
         .max(maxQueries)
-        .describe(`1–${maxQueries} parallel queries.`),
+        .describe('Parallel queries.'),
       ...responsePaginationFields,
     })
     .superRefine((data, ctx) => {

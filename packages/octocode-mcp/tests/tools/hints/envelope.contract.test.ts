@@ -77,7 +77,9 @@ describe('createSuccessResult — empty path', () => {
     );
 
     expect(result.status).toBe('empty');
-    expect(result.hints?.[0]).toContain('a/b');
+    expect(result.hints?.some(h => /keywords|broaden|filter/.test(h))).toBe(
+      true
+    );
   });
 
   it('merges per-tool empty hint with extraHints (no duplication)', () => {
@@ -93,7 +95,9 @@ describe('createSuccessResult — empty path', () => {
     );
 
     expect(result.hints).toContain('extra-from-executor');
-    expect(result.hints?.some(h => h.includes('a/b'))).toBe(true);
+    expect(result.hints?.some(h => /keywords|broaden|filter/.test(h))).toBe(
+      true
+    );
   });
 
   it('dedupes identical hints across registry + extra', () => {
@@ -144,7 +148,7 @@ describe('createErrorResult — per-tool error hints', () => {
     );
 
     expect(result.status).toBe('error');
-    expect(result.hints?.some(h => h.includes('exact symbol'))).toBe(true);
+    expect(result.hints?.some(h => h.includes('exact line'))).toBe(true);
   });
 
   it('emits clone permission hint', () => {
@@ -203,14 +207,14 @@ describe('HintStatus narrowing', () => {
       owner: 'a',
       repo: 'b',
     });
-    expect(hints[0]).toContain('a/b');
+    expect(hints.some(h => /keywords|broaden|filter/.test(h))).toBe(true);
   });
 
   it('getHints with error status works', () => {
     const hints = getHints(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME, 'error', {
       errorType: 'symbol_not_found',
     });
-    expect(hints[0]).toContain('Symbol was not found');
+    expect(hints[0]).toContain('localSearchCode');
   });
 
   it('returns empty array for unknown tool', () => {

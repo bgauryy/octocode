@@ -31,8 +31,10 @@ import {
 } from 'octocode-lsp/manager';
 import { executeLspGetSemanticContent } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/execution.js';
 import { hints as semanticToolHints } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/hints.js';
-import { LspGetSemanticContentQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
-import { LspGetSemanticContentOutputSchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/outputSchema.js';
+import {
+  LspGetSemanticContentOutputSchema,
+  LspGetSemanticContentQuerySchema,
+} from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 import {
   gatherIncomingCallsRecursive,
   gatherOutgoingCallsRecursive,
@@ -708,10 +710,10 @@ describe('new public LSP tool execution', () => {
 
   it('exposes direct hint branches for the public LSP tool', () => {
     expect(semanticToolHints.empty({ symbolName: 'target' })).toEqual(
-      expect.arrayContaining([expect.stringContaining('target')])
+      expect.arrayContaining([expect.stringContaining('localSearchCode')])
     );
     expect(semanticToolHints.empty({ type: 'hover' } as never)).toEqual(
-      expect.arrayContaining([expect.stringContaining('type="hover"')])
+      expect.arrayContaining([expect.stringContaining('localSearchCode')])
     );
     expect(semanticToolHints.error({ errorType: 'lsp_unavailable' })).toEqual(
       expect.arrayContaining([
@@ -719,7 +721,7 @@ describe('new public LSP tool execution', () => {
       ])
     );
     expect(semanticToolHints.error({ errorType: 'symbol_not_found' })).toEqual(
-      expect.arrayContaining([expect.stringContaining('Symbol was not found')])
+      expect.arrayContaining([expect.stringContaining('localSearchCode')])
     );
   });
 });

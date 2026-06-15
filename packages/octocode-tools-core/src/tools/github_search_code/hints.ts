@@ -18,11 +18,10 @@ export const hints: ToolHintGenerators = {
 
     if (ctx.hasOwnerRepo && owner && repo) {
       return [
-        `No matches in ${owner}/${repo}.`,
         hasFilters
-          ? 'Remove a filter or try different keywords.'
-          : `Try different keywords, or broaden to all of ${owner}.`,
-        'Verify with `githubGetFileContent` — the index covers only the default branch.',
+          ? 'Remove path/filename/extension first, then retry keywords.'
+          : `Try a shorter keyword or broaden to owner="${owner}".`,
+        'GitHub code search is default-branch indexed — use githubGetFileContent if you know the path/branch.',
       ];
     }
 
@@ -41,7 +40,7 @@ export const hints: ToolHintGenerators = {
 
     if (out.length === 0 && keywords && keywords.length > 0) {
       out.push(
-        'No matches across GitHub — scope to owner/repo, try different keywords, or split into one-term queries.'
+        'Scope to owner/repo, split into one-keyword queries, or try a shorter exact term.'
       );
     }
 

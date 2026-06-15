@@ -1,36 +1,26 @@
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 import {
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
 } from '../../scheme/fields.js';
+import {
+  createQueryShapeSchema,
+  describeQuerySchema,
+} from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-const QUERY_DESCRIPTIONS = {
-  ...completeMetadata.baseSchema,
-  ...completeMetadata.tools[STATIC_TOOL_NAMES.PACKAGE_SEARCH]?.schema,
-} as Record<string, string>;
+const queryOverrides = {
+  page: relaxedPageNumberField,
+} as const;
 
-const PackageSearchQueryShape = z.object({
-  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
-  mainResearchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
-  researchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.researchGoal!),
-  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  packageName: z.string().describe(QUERY_DESCRIPTIONS.packageName!),
-  page: relaxedPageNumberField.describe(QUERY_DESCRIPTIONS.page!),
-});
-
-export const PackageSearchQueryLocalSchema = PackageSearchQueryShape;
+export const PackageSearchQueryLocalSchema = describeQuerySchema(
+  NpmPackageQuerySchema,
+  queryOverrides
+);
 
 export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
-  PackageSearchQueryShape,
+  createQueryShapeSchema(NpmPackageQuerySchema, queryOverrides),
   { maxQueries: 5 }
 );
 

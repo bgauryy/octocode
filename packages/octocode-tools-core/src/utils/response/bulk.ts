@@ -335,6 +335,8 @@ function appendResponsePagination<T extends Record<string, unknown>>(
   pagination?: NonNullable<BulkToolResponse['responsePagination']>
 ): T {
   if (!pagination) return structuredContent;
+  const startChar = pagination.charOffset + 1;
+  const endChar = pagination.charOffset + pagination.charLength;
   return {
     ...structuredContent,
     responsePagination: pagination,
@@ -345,8 +347,8 @@ function appendResponsePagination<T extends Record<string, unknown>>(
           )
         : []),
       pagination.hasMore
-        ? `Response page ${pagination.currentPage}/${pagination.totalPages}. Next: responseCharOffset=${pagination.nextCharOffset}`
-        : `Response page ${pagination.currentPage}/${pagination.totalPages}.`,
+        ? `Response page ${pagination.currentPage}/${pagination.totalPages} (chars ${startChar}-${endChar} of ${pagination.totalChars}). Next: responseCharOffset=${pagination.nextCharOffset}`
+        : `Response page ${pagination.currentPage}/${pagination.totalPages} (chars ${startChar}-${endChar} of ${pagination.totalChars}).`,
     ],
   };
 }

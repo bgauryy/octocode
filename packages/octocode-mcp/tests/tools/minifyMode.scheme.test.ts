@@ -63,8 +63,10 @@ describe('minify enum — githubGetFileContent scheme', () => {
 });
 
 describe('minify enum — localGetFileContent scheme', () => {
-  it("defaults to 'none' when omitted (schema-level default — raw content)", () => {
-    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('none');
+  it("defaults to 'standard' when omitted (schema-level default — comment-stripped view)", () => {
+    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe(
+      'standard'
+    );
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {

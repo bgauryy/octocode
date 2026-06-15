@@ -1,76 +1,34 @@
 import { z } from 'zod';
-import { completeMetadata } from '@octocodeai/octocode-core';
+import { GitHubReposSearchSingleQuerySchema as CoreGitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
   relaxedPageNumberField,
 } from '../../scheme/fields.js';
+import {
+  createQueryShapeSchema,
+  describeQuerySchema,
+} from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { STATIC_TOOL_NAMES } from '../toolNames.js';
 
-const QUERY_DESCRIPTIONS = {
-  ...completeMetadata.baseSchema,
-  ...completeMetadata.tools[STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]
-    ?.schema,
-} as Record<string, string>;
+const queryOverrides = {
+  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
+  page: relaxedPageNumberField.default(1),
+} as const;
 
-const GitHubReposSearchQuerySchema = z.object({
-  id: z.string().optional().describe(QUERY_DESCRIPTIONS.id!),
-  mainResearchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.mainResearchGoal!),
-  researchGoal: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.researchGoal!),
-  reasoning: z.string().optional().describe(QUERY_DESCRIPTIONS.reasoning!),
-  keywordsToSearch: z
-    .array(z.string())
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.keywordsToSearch!),
-  topicsToSearch: z
-    .array(z.string())
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.topicsToSearch!),
-  language: z.string().optional().describe(QUERY_DESCRIPTIONS.language!),
-  owner: z.string().optional().describe(QUERY_DESCRIPTIONS.owner!),
-  stars: z.string().optional().describe(QUERY_DESCRIPTIONS.stars!),
-  size: z.string().optional().describe(QUERY_DESCRIPTIONS.size!),
-  created: z.string().optional().describe(QUERY_DESCRIPTIONS.created!),
-  updated: z.string().optional().describe(QUERY_DESCRIPTIONS.updated!),
-  match: z
-    .array(z.enum(['name', 'description', 'readme']))
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.match!),
-  sort: z
-    .enum(['stars', 'forks', 'help-wanted-issues', 'updated', 'best-match'])
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.sort!),
-  limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT)
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.limit!),
-  page: relaxedPageNumberField.default(1).describe(QUERY_DESCRIPTIONS.page!),
-  archived: z.boolean().optional().describe(QUERY_DESCRIPTIONS.archived!),
-  visibility: z
-    .enum(['public', 'private'])
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.visibility!),
-  forks: z.string().optional().describe(QUERY_DESCRIPTIONS.forks!),
-  license: z.string().optional().describe(QUERY_DESCRIPTIONS.license!),
-  goodFirstIssues: z
-    .string()
-    .optional()
-    .describe(QUERY_DESCRIPTIONS.goodFirstIssues!),
-  verbose: z.boolean().optional().describe(QUERY_DESCRIPTIONS.verbose!),
-});
-
-export const GitHubReposSearchSingleQueryLocalSchema =
-  GitHubReposSearchQuerySchema;
+export const GitHubReposSearchSingleQueryLocalSchema = describeQuerySchema(
+  CoreGitHubReposSearchSingleQuerySchema,
+  queryOverrides
+);
 
 export const GitHubReposSearchBulkQueryLocalSchema =
-  createRelaxedBulkQuerySchema(GitHubReposSearchQuerySchema);
+  createRelaxedBulkQuerySchema(
+    createQueryShapeSchema(
+      CoreGitHubReposSearchSingleQuerySchema,
+      queryOverrides
+    )
+  );
 
 const LocalRepositoryDetailSchema = z.object({
   owner: z.string(),

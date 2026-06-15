@@ -440,7 +440,7 @@ function buildMergedPagination(
 function buildMergedPaginationHints(pagination: EffectivePagination): string[] {
   if (!pagination.hasMore) return [];
   return [
-    `More topic+keyword results — fetch page ${pagination.currentPage + 1}; ~${pagination.totalMatches ?? 0} total (upper bound, repos matching both counted twice).`,
+    `Page ${pagination.currentPage}/${pagination.totalPages} for merged topic+keyword results (~${pagination.totalMatches ?? 0} upper-bound total). Next: page=${pagination.currentPage + 1}.`,
   ];
 }
 

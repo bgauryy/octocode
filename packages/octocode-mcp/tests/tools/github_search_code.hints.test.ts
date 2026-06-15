@@ -25,7 +25,6 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
     });
     const joined = out.join(' ');
     expect(joined).toMatch(/githubGetFileContent/);
-    expect(joined).toContain('bgauryy/octocode-mcp');
   });
 
   it('with path filter returns filter removal hint', () => {
@@ -86,7 +85,6 @@ describe('githubSearchCode empty hints — path filter', () => {
       keywords: ['useState'],
     });
     const joined = out.join(' ');
-    expect(joined).toContain('facebook/react');
     expect(joined).toContain('Remove a filter');
   });
 

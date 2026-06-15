@@ -2,6 +2,7 @@ import { checkRegexSafety } from '../../utils/core/safeRegex.js';
 
 export interface DirectoryEntry {
   name: string;
+  path?: string;
   type: 'file' | 'directory' | 'symlink';
   size?: string;
 

@@ -29,6 +29,7 @@ export const getMINIFY_CONFIG = nativeBinding.getMINIFY_CONFIG
 export const MINIFY_CONFIG = nativeBinding.MINIFY_CONFIG
 export const SUPPORTED_SIGNATURE_EXTENSIONS = nativeBinding.SUPPORTED_SIGNATURE_EXTENSIONS
 export const parseRipgrepJson = nativeBinding.parseRipgrepJson
+export const queryFileSystem = nativeBinding.queryFileSystem
 export const charToByteOffset = nativeBinding.charToByteOffset
 export const byteToCharOffset = nativeBinding.byteToCharOffset
 export const byteSliceContent = nativeBinding.byteSliceContent

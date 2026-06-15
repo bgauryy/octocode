@@ -61,18 +61,18 @@ describe('per-tool hints — structural contract', () => {
 });
 
 describe('localSearchCode (ripgrep) — empty permutations', () => {
-  it('emits filter list when langType is set', () => {
+  it('emits filter hint when langType is set', () => {
     const h = ripgrepHints.empty({ langType: 'ts', path: 'src' } as never);
-    expect(h.some(s => s?.includes('active filters'))).toBe(true);
-    expect(h.some(s => s?.includes('src'))).toBe(true);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h.some(s => s?.includes('filter'))).toBe(true);
   });
 
-  it('emits filter list with include + excludeDir', () => {
+  it('emits filter hint with include + excludeDir', () => {
     const h = ripgrepHints.empty({
       include: ['*.ts'],
       excludeDir: ['node_modules'],
     } as never);
-    expect(h[0]).toContain('active filters');
+    expect(h[0]).toContain('filter');
   });
 
   it('stays silent with no filters in play', () => {
@@ -100,19 +100,20 @@ describe('localSearchCode (ripgrep) — error permutations', () => {
 });
 
 describe('localFindFiles — empty permutations', () => {
-  it('quotes name filter', () => {
+  it('returns a hint when name filter is set', () => {
     const h = findFilesHints.empty({ name: '*.ts', path: '/tmp' } as never);
-    expect(h[0]).toContain('name="*.ts"');
-    expect(h[0]).toContain('/tmp');
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('filter');
   });
 
-  it('joins multiple filters with +', () => {
+  it('returns a hint with multiple filters set', () => {
     const h = findFilesHints.empty({
       name: '*.md',
       modifiedWithin: '7d',
       sizeGreater: '10M',
     } as never);
-    expect(h[0]).toMatch(/name=.+\+.+modifiedWithin=.+\+.+sizeGreater=/);
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('filter');
   });
 
   it('stays silent without filters', () => {
@@ -121,19 +122,21 @@ describe('localFindFiles — empty permutations', () => {
 });
 
 describe('localViewStructure — empty + error', () => {
-  it('empty with extensions filter', () => {
+  it('empty with extensions filter returns a hint', () => {
     const h = viewStructureHints.empty({
       path: 'src',
       extensions: ['ts'],
     } as never);
-    expect(h[0]).toContain('extensions=["ts"]');
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('filter');
   });
 
-  it('empty with pattern filter', () => {
+  it('empty with pattern filter returns a hint', () => {
     const h = viewStructureHints.empty({
       pattern: '*.json',
     } as never);
-    expect(h[0]).toContain('pattern="*.json"');
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('filter');
   });
 
   it('empty stays silent without filters', () => {
@@ -169,7 +172,7 @@ describe('localGetFileContent — empty + error', () => {
       fileSize: 1000,
     } as never);
     expect(h.length).toBeGreaterThan(0);
-    expect(h[0]).toMatch(/read budget/);
+    expect(h[0]).toMatch(/too large|matchString/);
   });
 
   it('error size_limit with isLarge but no fileSize emits hint without KB', () => {
@@ -178,19 +181,27 @@ describe('localGetFileContent — empty + error', () => {
       isLarge: true,
     } as never);
     expect(h.length).toBeGreaterThan(0);
-    expect(h[0]).toMatch(/read budget/);
-    expect(h[0]).not.toMatch(/KB/);
+    expect(h[0]).toMatch(/too large|matchString/);
+    expect(h[0]).not.toMatch(/~\d+KB/);
   });
 });
 
 describe('githubSearchCode — empty + error', () => {
-  it('empty + owner/repo names the scope', () => {
+  it('empty + owner/repo returns an actionable hint', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
       owner: 'facebook',
       repo: 'react',
     } as never);
-    expect(h[0]).toContain('facebook/react');
+    expect(h.length).toBeGreaterThan(0);
+    expect(
+      h.some(
+        s =>
+          s?.includes('keywords') ||
+          s?.includes('broaden') ||
+          s?.includes('filter')
+      )
+    ).toBe(true);
   });
 
   it('empty + filters returns filter removal hint', () => {
@@ -306,25 +317,23 @@ describe('githubGetFileContent — error', () => {
     expect(h[0]).toContain('400KB');
   });
 
-  it('size_limit with totalLines pushes tail-read hint (line 27)', () => {
+  it('size_limit with totalLines pushes tail-read hint', () => {
     const h = ghFetchHints.error({
       errorType: 'size_limit',
       fileSize: 400,
       totalLines: 1000,
     } as never);
-    expect(
-      h.some(s => !!s && s.includes('1000') && s.includes('total lines'))
-    ).toBe(true);
+    expect(h.some(s => !!s && s.includes('1000'))).toBe(true);
   });
 
-  it('not_found with path + branch', () => {
+  it('not_found with branch emits omit-branch guidance', () => {
     const h = ghFetchHints.error({
       errorType: 'not_found',
       path: 'src/index.ts',
       branch: 'main',
     } as never);
-    expect(h[0]).toContain('src/index.ts');
-    expect(h[0]).toContain('main');
+    expect(h.some(s => s?.includes('branch'))).toBe(true);
+    expect(h[0]).toContain('githubViewRepoStructure');
   });
 
   it('not_found without branch is still actionable', () => {
@@ -332,7 +341,7 @@ describe('githubGetFileContent — error', () => {
       errorType: 'not_found',
       path: 'README.md',
     } as never);
-    expect(h[0]).toContain('README.md');
+    expect(h[0]).toContain('githubViewRepoStructure');
   });
 
   it('rate-limited with retryAfter', () => {
@@ -360,17 +369,16 @@ describe('githubGetFileContent — error', () => {
 });
 
 describe('githubSearchPullRequests — empty permutations', () => {
-  it('prNumber not found', () => {
+  it('prNumber not found gives recovery hint', () => {
     const h = ghPrHints.empty({
       prNumber: 999,
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[0]).toContain('PR #999');
-    expect(h[0]).toContain('a/b');
+    expect(h[0]).toContain('PR number');
   });
 
-  it('lists state + author + query filters', () => {
+  it('merged state shows is:merged unreliable hint', () => {
     const h = ghPrHints.empty({
       state: 'merged',
       author: 'alice',
@@ -378,9 +386,7 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[0]).toContain('state=merged');
-    expect(h[0]).toContain('author=alice');
-    expect(h[0]).toContain('query="fix bug"');
+    expect(h[0]).toContain('is:merged');
   });
 
   it('stays silent without filters', () => {
@@ -398,10 +404,9 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[1]).toContain('Remove a filter');
-    expect(h[1]).not.toContain('merged');
-    // No author filter was set — the hint must not suggest dropping `author`.
-    expect(h[1]).not.toContain('author');
+    expect(h[0]).toContain('Remove a filter');
+    expect(h[0]).not.toContain('merged');
+    expect(h[0]).not.toContain('author');
   });
 
   it('mentions dropping `author` only when an author filter is present', () => {
@@ -411,7 +416,7 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(withAuthor[1]).toContain('filter');
+    expect(withAuthor[0]).toContain('filter');
 
     const withQuery = ghPrHints.empty({
       state: 'open',
@@ -419,8 +424,8 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(withQuery[1]).toContain('filter');
-    expect(withQuery[1]).not.toContain('author');
+    expect(withQuery[0]).toContain('filter');
+    expect(withQuery[0]).not.toContain('author');
   });
 
   it('no query shows add-query hint', () => {
@@ -429,7 +434,7 @@ describe('githubSearchPullRequests — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[2]).toContain('Add a `query`');
+    expect(h[1]).toContain('Add a `query`');
   });
 });
 
@@ -480,8 +485,8 @@ describe('githubSearchRepositories — hints coverage', () => {
 
   it('empty includes query-driven guidance', () => {
     const h = ghReposHints.empty({ query: 'react' } as never);
-    expect(h[0]).toContain('No repositories found for "react"');
-    expect(h[1]).toContain('fewer/simpler keywords');
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('fewer/simpler keywords');
   });
 
   it('empty includes filter-widening guidance', () => {
@@ -490,8 +495,7 @@ describe('githubSearchRepositories — hints coverage', () => {
       language: 'TypeScript',
       owner: 'wix-private',
     } as never);
-    expect(h[0]).toContain('router');
-    expect(h[1]).toContain('Remove a filter');
+    expect(h[0]).toContain('Remove a filter');
   });
 
   it('empty suggests packageSearch for package-like terms', () => {
@@ -551,16 +555,15 @@ describe('githubSearchRepositories — hints coverage', () => {
 });
 
 describe('githubViewRepoStructure — empty', () => {
-  it('cites path + branch when both set', () => {
+  it('cites path when set', () => {
     const h = ghViewHints.empty({ path: 'src', branch: 'dev' } as never);
-    expect(h[0]).toContain("'src'");
-    expect(h[0]).toContain("'dev'");
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('parent');
   });
 
-  it('cites branch only when path missing', () => {
+  it('returns [] when only branch is provided (no actionable hint)', () => {
     const h = ghViewHints.empty({ branch: 'dev' } as never);
-    expect(h[0]).toContain('root');
-    expect(h[0]).toContain("'dev'");
+    expect(h).toEqual([]);
   });
 
   it('stays silent when both path and branch missing', () => {
@@ -577,7 +580,7 @@ describe('githubCloneRepo — error', () => {
 
   it('not_found', () => {
     expect(cloneHints.error({ errorType: 'not_found' } as never)[0]).toContain(
-      'not found'
+      'branch'
     );
   });
 
@@ -612,8 +615,8 @@ describe('githubCloneRepo — empty', () => {
 
   it('returns guidance when sparsePath provided but matched nothing', () => {
     const h = cloneHints.empty({ sparsePath: 'src/utils' } as never);
-    expect(h[0]).toContain('src/utils');
-    expect(h[1]).toContain('sparsePath');
+    expect(h[0]).toContain('sparsePath');
+    expect(h[1]).toContain('githubViewRepoStructure');
   });
 });
 
@@ -624,13 +627,13 @@ describe('packageSearch — hints coverage', () => {
 
   it('empty returns package guidance when name exists', () => {
     const h = pkgHints.empty({ name: 'left-pad' } as never);
-    expect(h[0]).toContain("Package 'left-pad' not found on npm.");
-    expect(h[1]).toContain('remove any version suffix');
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('version suffix');
   });
 
-  it('empty uses the exact name field', () => {
+  it('empty includes npm alternative hint', () => {
     const h = pkgHints.empty({ name: 'lodash' } as never);
-    expect(h[0]).toContain("Package 'lodash' not found on npm.");
+    expect(h.some(s => s?.includes('githubSearchRepositories'))).toBe(true);
   });
 
   it('error rate-limited includes retryAfter when present', () => {
@@ -652,11 +655,12 @@ describe('packageSearch — hints coverage', () => {
 });
 
 describe('lspGetSemanticContent — empty + error', () => {
-  it('empty with symbolName cites the symbol', () => {
+  it('empty with symbolName returns a recovery hint', () => {
     const h = semanticContentHints.empty({
       symbolName: 'handleAuth',
     } as never);
-    expect(h[0]).toContain('handleAuth');
+    expect(h.length).toBeGreaterThan(0);
+    expect(h[0]).toContain('localSearchCode');
   });
 
   it('error symbol_not_found tells agents to refresh lineHint', () => {
