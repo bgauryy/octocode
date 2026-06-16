@@ -24,9 +24,9 @@ export interface PaginationInfo {
   charOffset?: number;
   charLength?: number;
   totalChars?: number;
-  
+
   chunkMode?: 'semantic' | 'char-limit';
-  
+
   nextBlockChar?: number;
   perPage?: number;
   itemsPerPage?: number;

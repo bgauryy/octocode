@@ -507,7 +507,6 @@ describe('Response Utilities', () => {
 
         expect(yamlResult).toEqual(expectedYaml);
       });
-
     });
 
     describe('Priority Key Ordering', () => {

@@ -185,7 +185,6 @@ export class PathValidator {
     }
   }
 
-  
   private validateNonExistentPath(
     absolutePath: string,
     inputPath: string

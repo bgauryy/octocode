@@ -3,10 +3,7 @@ import { SymbolResolver, SymbolResolutionError } from 'octocode-lsp/resolver';
 import type { ExactPosition, LSPRange } from 'octocode-lsp/types';
 import { validateToolPath } from '../../../utils/file/toolHelpers.js';
 import { LSP_ERROR_CODES } from 'octocode-lsp/lspErrorCodes';
-import type {
-  LspGetSemanticsQuery,
-  ResolvedSymbol,
-} from './semanticTypes.js';
+import type { LspGetSemanticsQuery, ResolvedSymbol } from './semanticTypes.js';
 
 export type FileAnchor = {
   uri: string;

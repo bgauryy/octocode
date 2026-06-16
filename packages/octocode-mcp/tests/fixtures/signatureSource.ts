@@ -1,4 +1,3 @@
-
 export const SIGNATURE_SOURCE = [
   "import { A } from './a';",
   '',

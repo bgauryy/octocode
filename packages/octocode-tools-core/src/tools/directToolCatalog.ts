@@ -88,7 +88,7 @@ type DirectToolAutoFilledField =
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;
-  
+
   onUnknownFields?: (unknownFields: string[], queryIndex: number) => void;
 }
 

@@ -353,9 +353,7 @@ describe('searchNpmPackage - network error fallback', () => {
       expect(hints.some(h => h.toLowerCase().includes('unreachable'))).toBe(
         true
       );
-      expect(hints.some(h => h.includes('ghSearchRepos'))).toBe(
-        true
-      );
+      expect(hints.some(h => h.includes('ghSearchRepos'))).toBe(true);
     }
   });
 
@@ -367,9 +365,9 @@ describe('searchNpmPackage - network error fallback', () => {
     expect('error' in result).toBe(true);
     if ('error' in result) {
       expect(result.hints).toBeDefined();
-      expect(
-        (result.hints ?? []).some(h => h.includes('ghSearchRepos'))
-      ).toBe(true);
+      expect((result.hints ?? []).some(h => h.includes('ghSearchRepos'))).toBe(
+        true
+      );
     }
   });
 

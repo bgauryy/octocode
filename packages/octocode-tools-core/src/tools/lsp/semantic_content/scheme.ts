@@ -41,11 +41,12 @@ export const LspGetSemanticsQueryDisplaySchema = describeQuerySchema(
   queryOverrides
 );
 
-export const LspGetSemanticsQuerySchema =
-  LspGetSemanticsQueryDisplaySchema;
+export const LspGetSemanticsQuerySchema = LspGetSemanticsQueryDisplaySchema;
 
-export const BulkLspGetSemanticsQuerySchema =
-  createRelaxedBulkQuerySchema(SemanticContentQueryShape, { maxQueries: 5 });
+export const BulkLspGetSemanticsQuerySchema = createRelaxedBulkQuerySchema(
+  SemanticContentQueryShape,
+  { maxQueries: 5 }
+);
 
 const PositionSchema = z.object({
   line: z.number(),

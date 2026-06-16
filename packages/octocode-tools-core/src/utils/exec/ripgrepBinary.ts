@@ -24,6 +24,7 @@ export function allowRipgrepCommandName(binaryPath: string): void {
   try {
     securityRegistry.addAllowedCommands([name]);
   } catch {
+    /* silently ignore */
   }
 }
 
@@ -71,6 +72,7 @@ function resolveRuntimeRg(): string | null {
         if (existsSync(resolved)) return resolved;
       }
     } catch {
+      /* silently ignore */
     }
   }
 
@@ -120,6 +122,7 @@ function resolveSiblingRg(): string | null {
       if (existsSync(suffixed)) return suffixed;
     }
   } catch {
+    /* silently ignore */
   }
   return null;
 }
@@ -133,6 +136,7 @@ function resolveVscodeRipgrep(): string | null {
       return mod.rgPath;
     }
   } catch {
+    /* silently ignore */
   }
   return null;
 }
@@ -150,6 +154,7 @@ export function resolveRgFromPath(): string | null {
       if (resolved && existsSync(resolved)) return resolved;
     }
   } catch {
+    /* silently ignore */
   }
   return null;
 }

@@ -11,7 +11,6 @@ export interface LanguageServerConfig {
 
   initializationOptions?: InitializationOptions;
 
-  
   env?: Record<string, string>;
 }
 
@@ -42,7 +41,6 @@ export interface LanguageServerCommand {
 export interface FuzzyPosition {
   symbolName: string;
 
-  
   lineHint?: number;
 
   orderHint?: number;

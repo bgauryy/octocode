@@ -106,7 +106,6 @@ export interface FileContentResult {
 
   endLine?: number;
 
-  
   matchRanges?: Array<{ start: number; end: number }>;
 
   warnings?: string[];
@@ -190,13 +189,13 @@ export interface PullRequestItem {
       hasMore: boolean;
       nextCharOffset?: number;
     };
-    
+
     commentType?: 'discussion' | 'review_inline';
-    
+
     path?: string;
-    
+
     line?: number;
-    
+
     in_reply_to_id?: number;
   }>;
 
@@ -224,7 +223,6 @@ export interface PullRequestItem {
     patch?: string;
   }>;
 
-  
   sanitizationWarnings?: string[];
 }
 

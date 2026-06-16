@@ -1,4 +1,3 @@
-
 import type { SensitiveDataPattern } from './types.js';
 
 import { aiProviderPatterns } from './ai-providers.js';

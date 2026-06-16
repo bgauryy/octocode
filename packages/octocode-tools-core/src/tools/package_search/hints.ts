@@ -35,9 +35,7 @@ export const hints: ToolHintGenerators = {
       ];
     }
     if (ctx.originalError) {
-      return [
-        'npm registry unreachable — use `ghSearchRepos` instead.',
-      ];
+      return ['npm registry unreachable — use `ghSearchRepos` instead.'];
     }
     return [];
   },

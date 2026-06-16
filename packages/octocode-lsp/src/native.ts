@@ -139,6 +139,7 @@ function loadNativeBinding(): NativeBinding {
   try {
     return require(`${packageName}-${key}`) as NativeBinding;
   } catch {
+    /* try next candidate */
   }
 
   const candidates = [

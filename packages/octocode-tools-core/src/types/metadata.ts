@@ -78,7 +78,7 @@ export interface HintContext {
 
   language?: string;
   topic?: string;
-  
+
   prMatch?: string[];
 }
 

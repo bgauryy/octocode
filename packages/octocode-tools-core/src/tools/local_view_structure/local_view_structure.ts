@@ -200,10 +200,7 @@ function viewStructureNative(
           ? { pagination }
           : {}),
         ...(warnings.length > 0 && { warnings }),
-        hints: [
-          ...baseHints,
-          ...entryPaginationHints,
-        ],
+        hints: [...baseHints, ...entryPaginationHints],
       },
       query
     ),

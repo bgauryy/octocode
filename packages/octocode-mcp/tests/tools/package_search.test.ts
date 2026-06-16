@@ -1346,8 +1346,7 @@ describe('registerNpmSearchTool', () => {
             packageName: 'my_package_name',
             mainResearchGoal: 'Test error hint',
             researchGoal: 'Test',
-            reasoning:
-              'Registry unreachable — should hint ghSearchRepos',
+            reasoning: 'Registry unreachable — should hint ghSearchRepos',
           },
         ],
       });

@@ -49,7 +49,7 @@ export interface GitHubPullRequestApiItem {
     commentType?: 'discussion' | 'review_inline';
     path?: string;
     line?: number;
-    
+
     in_reply_to_id?: number | null;
     body_pagination?: {
       charOffset: number;
@@ -92,7 +92,7 @@ export interface GitHubPullRequestApiItem {
       patch?: string;
     }>;
   }>;
-  
+
   _sanitization_warnings?: string[];
 }
 
@@ -102,7 +102,7 @@ export interface GitHubPullRequestSearchApiData {
   pull_requests?: GitHubPullRequestApiItem[];
   total_count?: number;
   incomplete_results?: boolean;
-  
+
   effectiveQuery?: string;
   pagination?: PaginationInfo;
   outputPagination?: {

@@ -407,6 +407,11 @@ interface ListOpts {
   author?: string;
   label?: string;
   base?: string;
+  sort?: string;
+  order?: string;
+  draft?: boolean;
+  created?: string;
+  mergedAt?: string;
   page?: number;
   pageSize?: number;
 }
@@ -426,6 +431,16 @@ async function fetchPRList(
         author: opts.author,
         label: opts.label,
         base: opts.base,
+        sort: opts.sort as
+          | 'created'
+          | 'updated'
+          | 'popularity'
+          | 'long-running'
+          | undefined,
+        order: opts.order as 'asc' | 'desc' | undefined,
+        draft: opts.draft,
+        created: opts.created,
+        'merged-at': opts.mergedAt,
         page: opts.page ?? 1,
         itemsPerPage: opts.pageSize,
         mainResearchGoal: 'List pull requests',
@@ -456,6 +471,8 @@ interface ViewOpts {
   commits?: boolean;
   deep?: boolean;
   matchString?: string;
+  charLength?: number;
+  charOffset?: number;
   page?: number;
   pageSize?: number;
 }
@@ -498,7 +515,10 @@ async function fetchPRDetail(
         prNumber,
         content,
         reviewMode: opts.deep ? 'full' : undefined,
+        minify: 'standard',
         matchString: opts.matchString,
+        charLength: opts.charLength,
+        charOffset: opts.charOffset,
         filePage: opts.page,
         commentPage: opts.comments || opts.deep ? opts.page : undefined,
         commitPage: opts.commits || opts.deep ? opts.page : undefined,
@@ -565,6 +585,31 @@ export const prCommand: CLICommand = {
       description: 'Filter by base branch (list mode)',
     },
     {
+      name: 'sort',
+      hasValue: true,
+      description:
+        'Sort list results: created · updated · popularity · long-running (list mode)',
+    },
+    {
+      name: 'order',
+      hasValue: true,
+      description: 'Sort direction: asc · desc (list mode, default: desc)',
+    },
+    {
+      name: 'draft',
+      description: 'Show only draft PRs (list mode)',
+    },
+    {
+      name: 'created',
+      hasValue: true,
+      description: 'Filter by creation date, e.g. >2024-01-01 (list mode)',
+    },
+    {
+      name: 'merged-at',
+      hasValue: true,
+      description: 'Filter by merge date, e.g. >2024-06-01 (list mode)',
+    },
+    {
       name: 'limit',
       hasValue: true,
       description: 'Max PRs to show in list mode (default: 10)',
@@ -596,6 +641,18 @@ export const prCommand: CLICommand = {
       hasValue: true,
       description:
         'Narrow PR content to section matching this string (view mode)',
+    },
+    {
+      name: 'char-length',
+      hasValue: true,
+      description:
+        'Cap PR body/diff size in chars — prevents token flood on large PRs (view mode)',
+    },
+    {
+      name: 'char-offset',
+      hasValue: true,
+      description:
+        'Continue reading PR body from this char offset for pagination (view mode)',
     },
     {
       name: 'page',
@@ -668,6 +725,11 @@ export const prCommand: CLICommand = {
       process.stderr.write(`  ${dim(`Loading ${modeLabel} ...`)}\n`);
     }
 
+    const rawCharLength = getString(options, 'char-length');
+    const rawCharOffset = getString(options, 'char-offset');
+    const charLength = rawCharLength ? parseInt(rawCharLength, 10) : undefined;
+    const charOffset = rawCharOffset ? parseInt(rawCharOffset, 10) : undefined;
+
     try {
       if (isViewMode) {
         const viewOpts: ViewOpts = {
@@ -677,6 +739,8 @@ export const prCommand: CLICommand = {
           commits: getBool(options, 'commits'),
           deep: getBool(options, 'deep'),
           matchString: getString(options, 'match-string') || undefined,
+          charLength,
+          charOffset,
           page,
           pageSize,
         };
@@ -698,6 +762,11 @@ export const prCommand: CLICommand = {
           author: getString(options, 'author') || undefined,
           label: getString(options, 'label') || undefined,
           base: getString(options, 'base') || undefined,
+          sort: getString(options, 'sort') || undefined,
+          order: getString(options, 'order') || undefined,
+          draft: getBool(options, 'draft') || undefined,
+          created: getString(options, 'created') || undefined,
+          mergedAt: getString(options, 'merged-at') || undefined,
           page,
           pageSize,
         };

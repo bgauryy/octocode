@@ -126,7 +126,6 @@ export interface CodeSearchGroupedMatch {
 
   matchIndices?: Array<{ start: number; end: number }>;
 
-  
   url?: string;
 }
 

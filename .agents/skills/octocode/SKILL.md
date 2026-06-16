@@ -53,7 +53,7 @@ octocode-mcp-host/ (SEPARATE REPO — tool metadata source)
 
 | Tool | When to use |
 |------|-------------|
-| `localSearchCode` | ripgrep search — file+line, regex, modes (paginated/discovery/detailed/count) |
+| `localSearchCode` | ripgrep search — file+line, regex, modes: paginated/discovery/detailed; countLinesPerFile/countMatchesPerFile for count-only |
 | `localGetFileContent` | Read a local file or region (matchString, startLine/endLine, charOffset pagination) |
 | `localViewStructure` | Browse local directories |
 | `localFindFiles` | Find files by name pattern, metadata, extension |
@@ -85,8 +85,9 @@ Is it an npm package?
 Is it GitHub code / history?
   → ghSearchRepos → ghViewRepoStructure → ghSearchCode → ghGetFileContent
 
-Need deep cross-package LSP analysis?
-  → ghCloneRepo → local + LSP on localPath
+Need deep cross-package LSP analysis? (requires ENABLE_CLONE=true server config)
+  → ghCloneRepo → localViewStructure(localPath) → localSearchCode → lspGetSemantics
+  → fallback without clone: ghViewRepoStructure → ghSearchCode → ghGetFileContent
 ```
 
 ### LSP type routing
@@ -126,15 +127,20 @@ Every tool call uses a **bulk queries envelope**:
 
 ---
 
-## Minify Modes
+## Minify Decision Table
 
-| Value | Meaning |
-|-------|---------|
-| `"none"` | Exact raw text — preserves comments, formatting (use for quoting or exact diffs) |
-| `"standard"` | Strips comments + blank lines — token-efficient reads |
-| `"symbols"` | Skeleton/gutter only — fastest orientation, skips matchString/charLength |
+Pick by goal, not habit. Wrong default = 2–5× extra tokens.
 
-Default is `"standard"` for `localGetFileContent`, `ghGetFileContent`, and `ghSearchPRs`. Use `"none"` explicitly when you need exact text, comments, or raw diffs.
+| Goal | Tool | Use |
+|------|------|-----|
+| Orient on an unknown file | `localGetFileContent`, `ghGetFileContent` | `minify:"symbols"` — skeleton + line numbers, 55–97% smaller |
+| Normal investigation | Any content read | `minify:"standard"` (default) — strips comments/blanks |
+| Quote exact text / match whitespace / raw diff | Any content read | `minify:"none"` |
+| PR review | `ghSearchPRs` detail | `minify:"standard"` always; `minify:"none"` only for raw diff quoting |
+| PR search — `"symbols"` | `ghSearchPRs` | **Not available** — Zod error if attempted |
+| Call tree navigation | `lspGetSemantics` callers/callees/callHierarchy | `format:"compact"` — ~50% fewer tokens (different flag name) |
+| Repo discovery | `ghSearchRepos` | `verbose:false` (default) lean strings; `verbose:true` only when filtering on stars/topics/dates |
+| File-existence check | `ghSearchCode` | `match:"path"` — ~10× cheaper than file content scan |
 
 ---
 
@@ -263,40 +269,129 @@ Note: the CLI command is `octocode tools <name>` (not `octocode <name>` directly
 
 ---
 
-## Evidence Pattern
+## Evidence Gate
 
+Every response includes an `evidence` object. Check it before issuing follow-up calls.
+
+```yaml
+evidence:
+  answerReady: true   # → STOP — result is sufficient, do not issue follow-up calls
+  complete: true      # → no more pages; false → paginate with charOffset/page
+  confidence: high    # high | medium | low — calibrate trust
+  kind: code          # content type
 ```
-snippets from search = discovery (not proof)
-proof = getFileContent(matchString=exact-text, minify:"none")
-LSP needs uri + symbolName + lineHint from a prior localSearchCode hit
-documentSymbols only needs uri
-```
+
+**Hard rules:**
+- `answerReady:true` → stop. Do not confirm with a follow-up read.
+- `complete:false` → paginate first (charOffset/page) before issuing a different query.
+- Call `localGetFileContent` only when the search snippet is insufficient to answer the question, or when you need exact text. A snippet proving the symbol exists is proof — `minify:"none"` confirmation is not required.
+
+**LSP prerequisites (hard — not soft):**
+- `documentSymbols` → needs only `uri`
+- All other types → need `uri` + `symbolName` + `lineHint` from a real `localSearchCode` match
+- Never estimate `lineHint`. A wrong value returns empty results silently.
 
 ---
 
-## Common Research Chains
+## Research Patterns
 
-**Local symbol investigation**
-```
-localViewStructure → localSearchCode → localGetFileContent → lspGetSemantics
-```
+Chains are evidence-driven, not fixed sequences. Start from what you know, skip steps you don't need.
 
-**GitHub code investigation**
+**Local — symbol investigation**
 ```
-ghSearchRepos → ghViewRepoStructure → ghSearchCode → ghGetFileContent
-```
+# If file path unknown:
+localSearchCode(keywords, path, mode:"discovery")     → file list (cheap)
+localSearchCode(keywords, path, include:[known files]) → targeted snippets
+localGetFileContent(path, matchString)                 → read when snippet insufficient
+lspGetSemantics(uri, symbolName, lineHint=match.line)  → semantic navigation
 
-**Package → source**
-```
-npmSearch → ghViewRepoStructure → ghSearchCode → ghGetFileContent
+# If file path already known: skip directly to localGetFileContent or lspGetSemantics
 ```
 
-**Deep cross-package LSP**
+**Local — temporal / metadata queries** (use localFindFiles, not localSearchCode)
+```
+localFindFiles(path, modifiedWithin:"24h", sortBy:"modified")     → recently changed files
+localFindFiles(path, names:["*.test.ts"], pathPattern:"src/**")    → scoped file discovery
+localFindFiles(path, regex:"^index\\.", entryType:"f")             → all index files
+```
+
+**GitHub — code investigation**
+```
+ghSearchCode(keywordsToSearch:[...], owner, repo, match:"path")   → file existence check (~10× cheaper)
+ghSearchRepos(keywordsToSearch:[...])                              → discover owner/repo if unknown
+ghViewRepoStructure(owner, repo, path, depth)                     → tree when path structure is unknown
+ghGetFileContent(owner, repo, path, minify:"symbols")             → orient on unknown files first
+```
+
+**GitHub — PR review**
+```
+ghSearchPRs(owner, repo, prNumber, minify:"standard", charLength:20000,
+  content:{metadata:true, body:true, changedFiles:true})
+→ ghGetFileContent for current source state
+```
+
+**Deep cross-package LSP** (ENABLE_CLONE=true required; fallback: ghViewRepoStructure → ghSearchCode → ghGetFileContent)
 ```
 ghCloneRepo → localViewStructure(localPath) → localSearchCode → lspGetSemantics
 ```
 
-**PR review**
+**Package → source**
 ```
-ghSearchPRs(prNumber, reviewMode="full") → ghGetFileContent for current source
+npmSearch(packageName) → ghViewRepoStructure(owner, repo) → ghSearchCode → ghGetFileContent
+```
+
+---
+
+## Response Budget Rules
+
+Any call that might return >5 files or a full PR diff **must** cap its output. No cap = silent truncation or token flood.
+
+| Field | Scope | When to set |
+|-------|-------|-------------|
+| `responseCharLength` | Entire response (all queries) | Default for unknown-size ops: `10000` |
+| `charLength` | Single file or PR body | Always set on file reads >~200 lines |
+| `maxMatchesPerFile` | localSearchCode per-file cap | Set when searching noisy files (e.g. generated code) |
+| `maxFiles` | localSearchCode total file cap | Set when `mode:"paginated"` on a broad path |
+| `itemsPerPage` | PR content paginators | Lower when fetching comments/commits on large PRs |
+
+---
+
+## Discovery-First Pattern
+
+Never run a full `paginated` search as the first call on an unknown codebase. Cheap → targeted → read.
+
+```
+Step 1: localSearchCode(keywords, path, mode:"discovery")
+        → file list only, near-zero output tokens
+
+Step 2: localSearchCode(keywords, path, include:[files from step 1])
+        → targeted paginated, bounded result
+
+Step 3: localGetFileContent(path, matchString)
+        → focused read only if snippet insufficient
+```
+
+For count-only orientation (which files, how many hits):
+```
+localSearchCode(keywords, path, countLinesPerFile:true)
+→ file + line-count table, ~5 tokens per file
+```
+
+---
+
+## Parallel vs Serial Batching
+
+Max 5 queries per bulk call. Batch independent queries; serialize dependent ones.
+
+```
+✅ Batch in one call (independent):
+  Multiple ghSearchCode queries for the same research goal
+  localSearchCode + localFindFiles (different search dimensions)
+  ghGetFileContent on N known file paths
+
+❌ Must serialize (output of step N feeds step N+1):
+  localSearchCode → lspGetSemantics  (need lineHint from search result)
+  ghSearchRepos  → ghViewRepoStructure  (need owner/repo from repos result)
+  ghGetFileContent(type:"directory") → localViewStructure  (need localPath)
+  localSearchCode → localGetFileContent  (need path from search result)
 ```

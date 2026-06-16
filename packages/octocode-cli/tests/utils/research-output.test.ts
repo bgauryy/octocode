@@ -293,9 +293,9 @@ describe('research-output', () => {
       expect(getShortToolName('mcp__octocode-local__localSearchCode')).toBe(
         'localSearchCode'
       );
-      expect(
-        getShortToolName('mcp__octocode-local__ghGetFileContent')
-      ).toBe('ghGetFileContent');
+      expect(getShortToolName('mcp__octocode-local__ghGetFileContent')).toBe(
+        'ghGetFileContent'
+      );
     });
 
     it('should return original name if not MCP format', () => {

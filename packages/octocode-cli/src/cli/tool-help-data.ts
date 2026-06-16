@@ -55,7 +55,7 @@ export const HELP_TOOL_DEFINITIONS: readonly HelpToolDefinition[] = [
   {
     name: 'localFindFiles',
     category: 'Local',
-    fields: '[path*, pattern?, extension?]',
+    fields: '[path*, names?, regex?, pathPattern?]',
   },
   {
     name: 'localGetFileContent',
@@ -70,6 +70,6 @@ export const HELP_TOOL_DEFINITIONS: readonly HelpToolDefinition[] = [
   {
     name: 'npmSearch',
     category: 'Package',
-    fields: '[packageName?, keywords?]',
+    fields: '[packageName*]',
   },
 ];

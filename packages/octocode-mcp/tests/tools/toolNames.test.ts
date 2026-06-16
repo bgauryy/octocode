@@ -35,15 +35,9 @@ describe('TOOL_NAMES proxy (TDD for local tools registration)', () => {
     it('should return correct value for all GitHub tools', () => {
       expect(TOOL_NAMES.GITHUB_FETCH_CONTENT).toBe('ghGetFileContent');
       expect(TOOL_NAMES.GITHUB_SEARCH_CODE).toBe('ghSearchCode');
-      expect(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES).toBe(
-        'ghSearchRepos'
-      );
-      expect(TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE).toBe(
-        'ghViewRepoStructure'
-      );
-      expect(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS).toBe(
-        'ghSearchPRs'
-      );
+      expect(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES).toBe('ghSearchRepos');
+      expect(TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE).toBe('ghViewRepoStructure');
+      expect(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS).toBe('ghSearchPRs');
       expect(TOOL_NAMES.PACKAGE_SEARCH).toBe('npmSearch');
     });
 

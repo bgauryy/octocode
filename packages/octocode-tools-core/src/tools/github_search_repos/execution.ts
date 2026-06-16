@@ -141,7 +141,9 @@ function buildReposSearchOutput(
     },
     extraHints: verbose
       ? []
-      : ['Use verbose=true to get structured objects for programmatic filtering/sorting by stars, language, or date.'],
+      : [
+          'Use verbose=true to get structured objects for programmatic filtering/sorting by stars, language, or date.',
+        ],
   };
 }
 import {

@@ -1,5 +1,3 @@
-
-
 export function normalizeCommandName(command: string): string {
   if (!command || typeof command !== 'string') return command;
   const lastSep = Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\'));

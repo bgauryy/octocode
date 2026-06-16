@@ -5,9 +5,7 @@ export const hints: ToolHintGenerators = {
     const c = ctx as Record<string, unknown>;
     const path = typeof c.path === 'string' ? c.path : undefined;
     if (!path) return [];
-    return [
-      "Verify it's a file, not a directory — use `ghViewRepoStructure`.",
-    ];
+    return ["Verify it's a file, not a directory — use `ghViewRepoStructure`."];
   },
 
   error: (ctx: HintContext = {}) => {

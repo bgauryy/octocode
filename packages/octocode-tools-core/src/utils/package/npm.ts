@@ -1152,9 +1152,7 @@ export async function searchNpmPackage(
         return {
           error:
             'npm registry circuit open and web search returned no results.',
-          hints: [
-            'Use `ghSearchRepos` to find the source repo directly.',
-          ],
+          hints: ['Use `ghSearchRepos` to find the source repo directly.'],
         } as NpmSearchError;
       }
 

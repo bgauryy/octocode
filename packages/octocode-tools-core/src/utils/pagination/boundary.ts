@@ -1,5 +1,3 @@
-
-
 import { contextUtils } from '../contextUtils.js';
 
 const MAX_SEMANTIC_EXTENSION = 8_000;

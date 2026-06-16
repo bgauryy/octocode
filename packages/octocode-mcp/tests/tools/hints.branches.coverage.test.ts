@@ -1,4 +1,3 @@
-
 import { describe, it, expect } from 'vitest';
 
 describe('github_view_repo_structure hints — uncovered branches', () => {

@@ -23,7 +23,7 @@ interface RawPRData {
   merged_at?: string | null;
   head?: { ref?: string; sha?: string };
   base?: { ref?: string; sha?: string };
-  
+
   comments?: number | null;
 }
 

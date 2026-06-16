@@ -30,7 +30,7 @@ export interface GitHubFileContentApiData {
   totalLines?: number;
   sourceChars?: number;
   sourceBytes?: number;
-  
+
   matchRanges?: Array<{ start: number; end: number }>;
   matchLocations?: string[];
   warnings?: string[];
@@ -40,7 +40,7 @@ export interface GitHubFileContentApiData {
   cached?: boolean;
   matchNotFound?: boolean;
   searchedFor?: string;
-  
+
   signaturesExtracted?: boolean;
 }
 

@@ -1,4 +1,3 @@
-
 export * from './security/bridge.js';
 export * from './commands/BaseCommandBuilder.js';
 export * from './commands/RipgrepCommandBuilder.js';

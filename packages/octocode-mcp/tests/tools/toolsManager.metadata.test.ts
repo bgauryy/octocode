@@ -265,10 +265,7 @@ describe('ToolsManager - Metadata Availability', () => {
   describe('Multiple Tools Missing from Metadata', () => {
     it('should skip multiple tools when not in metadata and log errors', async () => {
       mockIsToolAvailableSync.mockImplementation((toolName: string) => {
-        return (
-          toolName !== 'ghSearchCode' &&
-          toolName !== 'ghSearchPRs'
-        );
+        return toolName !== 'ghSearchCode' && toolName !== 'ghSearchPRs';
       });
 
       const result = await registerTools(mockServer);

@@ -137,13 +137,13 @@ export interface PRCommentItem {
   body: string;
   created_at: string;
   updated_at: string;
-  
+
   commentType?: 'discussion' | 'review_inline';
-  
+
   path?: string;
-  
+
   line?: number;
-  
+
   in_reply_to_id?: number | null;
 }
 
@@ -163,7 +163,7 @@ export type GitHubPullRequestItem = Pick<
   labels: string[];
   merged_at?: string;
   comments?: PRCommentItem[];
-  
+
   total_comment_count?: number;
   reactions: number;
   head?: string;

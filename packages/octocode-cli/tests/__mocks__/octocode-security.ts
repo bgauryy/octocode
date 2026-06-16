@@ -1,5 +1,3 @@
-
-
 export const maskSensitiveData = (text: string) => text;
 export const nativeMaskSensitiveData = (text: string) => text;
 export const nativeSanitizeContent = (content: string) => ({

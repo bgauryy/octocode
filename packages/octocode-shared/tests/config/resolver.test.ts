@@ -174,10 +174,7 @@ describe('config/resolver', () => {
       it('parses TOOLS_TO_RUN as string array', () => {
         process.env.TOOLS_TO_RUN = 'ghSearchCode,npmSearch';
         const config = resolveConfigSync();
-        expect(config.tools.enabled).toEqual([
-          'ghSearchCode',
-          'npmSearch',
-        ]);
+        expect(config.tools.enabled).toEqual(['ghSearchCode', 'npmSearch']);
       });
 
       it('parses ENABLE_TOOLS as string array', () => {

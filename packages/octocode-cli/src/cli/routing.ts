@@ -6,10 +6,10 @@ export type GithubRef = {
   kind: 'github';
   owner: string;
   repo: string;
-  
+
   subpath: string;
   branch?: string;
-  
+
   raw: string;
 };
 export type Ref = LocalRef | GithubRef;

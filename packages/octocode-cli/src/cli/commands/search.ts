@@ -43,21 +43,35 @@ interface GithubCodeResult {
   emptyQueries?: Array<{ id?: string }>;
 }
 
+interface LocalSearchOpts {
+  typeFilter?: string;
+  mode?: string;
+  include?: string[];
+  exclude?: string[];
+  contextLines?: number;
+  maxMatchesPerFile?: number;
+  page?: number;
+  pageSize?: number;
+}
+
 async function searchLocal(
   pattern: string,
   dirPath: string,
-  typeFilter?: string,
-  page?: number,
-  pageSize?: number
+  opts: LocalSearchOpts = {}
 ): Promise<LocalSearchResult> {
   const result = await executeDirectTool('localSearchCode', {
     queries: [
       {
         keywords: pattern,
         path: dirPath,
-        langType: typeFilter,
-        page,
-        itemsPerPage: pageSize,
+        langType: opts.typeFilter,
+        mode: opts.mode as 'paginated' | 'discovery' | 'detailed' | undefined,
+        include: opts.include,
+        exclude: opts.exclude,
+        contextLines: opts.contextLines,
+        maxMatchesPerFile: opts.maxMatchesPerFile,
+        page: opts.page,
+        itemsPerPage: opts.pageSize,
         mainResearchGoal: 'Search local codebase',
         researchGoal: `Find "${pattern}" in ${dirPath}`,
         reasoning: 'CLI search command',
@@ -205,12 +219,40 @@ export const searchCommand: CLICommand = {
   name: 'search',
   description: 'Search code — works for local paths and GitHub repositories',
   usage:
-    'octocode search <pattern> <path|github-ref> [--type <ext>] [--branch <ref>] [--limit <n>] [--page <n>] [--page-size <n>] [--json]',
+    'octocode search <pattern> <path|github-ref> [--type <ext>] [--mode paginated|discovery|detailed] [--include <glob>] [--exclude <glob>] [--context <n>] [--max-matches <n>] [--branch <ref>] [--limit <n>] [--page <n>] [--page-size <n>] [--json]',
   options: [
     {
       name: 'type',
       hasValue: true,
       description: 'Filter by language / extension (e.g. ts, py, go)',
+    },
+    {
+      name: 'mode',
+      hasValue: true,
+      description:
+        'Search mode (local only): paginated (default) · discovery (file paths only, ~80% fewer tokens) · detailed (expanded context)',
+    },
+    {
+      name: 'include',
+      hasValue: true,
+      description:
+        'Comma-separated glob patterns to include (local only, e.g. "*.ts,*.tsx")',
+    },
+    {
+      name: 'exclude',
+      hasValue: true,
+      description:
+        'Comma-separated glob patterns to exclude (local only, e.g. "*.min.js,dist/**")',
+    },
+    {
+      name: 'context',
+      hasValue: true,
+      description: 'Lines of context around each match (local only, default: 0)',
+    },
+    {
+      name: 'max-matches',
+      hasValue: true,
+      description: 'Max matches returned per file (local only)',
     },
     {
       name: 'limit',
@@ -247,8 +289,17 @@ export const searchCommand: CLICommand = {
     const limit = rawLimit ? parseInt(rawLimit, 10) : 10;
     const rawPage = getString(options, 'page');
     const rawPageSize = getString(options, 'page-size');
+    const rawContextLines = getString(options, 'context');
+    const rawMaxMatches = getString(options, 'max-matches');
     const page = rawPage ? parseInt(rawPage, 10) : undefined;
     const pageSize = rawPageSize ? parseInt(rawPageSize, 10) : undefined;
+    const contextLines = rawContextLines ? parseInt(rawContextLines, 10) : undefined;
+    const maxMatchesPerFile = rawMaxMatches ? parseInt(rawMaxMatches, 10) : undefined;
+    const modeOpt = getString(options, 'mode') || undefined;
+    const includeOpt = getString(options, 'include');
+    const excludeOpt = getString(options, 'exclude');
+    const include = includeOpt ? includeOpt.split(',').map(s => s.trim()) : undefined;
+    const exclude = excludeOpt ? excludeOpt.split(',').map(s => s.trim()) : undefined;
     const jsonOutput = getBool(options, 'json');
 
     if (!pattern) {
@@ -296,13 +347,16 @@ export const searchCommand: CLICommand = {
           '\n' + renderGithubResults(sc, limit, ref.owner, ref.repo) + '\n'
         );
       } else {
-        const sc = await searchLocal(
-          pattern,
-          ref.path,
-          typeFilter || undefined,
+        const sc = await searchLocal(pattern, ref.path, {
+          typeFilter: typeFilter || undefined,
+          mode: modeOpt,
+          include,
+          exclude,
+          contextLines,
+          maxMatchesPerFile,
           page,
-          pageSize
-        );
+          pageSize,
+        });
         if (jsonOutput) {
           console.log(JSON.stringify(sc, null, 2));
           return;

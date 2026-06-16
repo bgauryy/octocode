@@ -246,7 +246,7 @@ export async function findFiles(
         totalPages,
         filesPerPage,
         totalFiles,
-        hasMore: currentPage < totalPages,
+        hasMore: currentPage < totalPages || wasFileCapped,
         ...(wasFileCapped ? { totalFilesFound: discoveredFileCount } : {}),
       },
       ...(allWarnings.length > 0 && { warnings: allWarnings }),

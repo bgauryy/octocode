@@ -93,9 +93,7 @@ function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
       `Browse source: use ghViewRepoStructure owner=${owner} repo=${repo}`
     );
   else if (url)
-    hints.push(
-      `Repository: ${url} — use ghSearchRepos to find on GitHub.`
-    );
+    hints.push(`Repository: ${url} — use ghSearchRepos to find on GitHub.`);
   else
     hints.push(
       `No repository URL for "${name}" — use ghSearchRepos to find the source repo.`

@@ -37,10 +37,7 @@ const ALL_BULK_SCHEMAS = [
   ],
   ['NpmSearchBulkQueryLocalSchema', NpmSearchBulkQueryLocalSchema],
   ['BulkCloneRepoLocalSchema', BulkCloneRepoLocalSchema],
-  [
-    'BulkLspGetSemanticsQuerySchema',
-    BulkLspGetSemanticsQuerySchema,
-  ],
+  ['BulkLspGetSemanticsQuerySchema', BulkLspGetSemanticsQuerySchema],
 ] as const;
 
 describe('bulk envelope numeric bounds', () => {

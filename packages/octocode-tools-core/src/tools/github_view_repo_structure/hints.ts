@@ -21,9 +21,7 @@ export const hints: ToolHintGenerators = {
       const owner = typeof c.owner === 'string' ? c.owner : undefined;
       const repo = typeof c.repo === 'string' ? c.repo : undefined;
       const scope = owner && repo ? `'${owner}/${repo}'` : 'the repository';
-      return [
-        `${scope} not found — check spelling or use \`ghSearchRepos\`.`,
-      ];
+      return [`${scope} not found — check spelling or use \`ghSearchRepos\`.`];
     }
     return [];
   },
