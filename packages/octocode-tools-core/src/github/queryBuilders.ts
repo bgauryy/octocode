@@ -163,6 +163,11 @@ class CodeSearchQueryBuilder extends BaseQueryBuilder {
     this.addSimpleFilter(filename, 'filename');
     this.addSimpleFilter(params.extension, 'extension');
     this.addQuotedFilter(path, 'path');
+    if ((params as Record<string, unknown>).language) {
+      this.queryParts.push(
+        `language:${(params as Record<string, unknown>).language}`
+      );
+    }
     return this;
   }
 

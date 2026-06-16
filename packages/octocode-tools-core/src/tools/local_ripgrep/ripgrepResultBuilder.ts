@@ -172,7 +172,7 @@ export async function buildSearchResult(
     hints: [
       ...(totalFiles > 0 && !isFileListMode
         ? [
-            'Use localGetFileContent with the returned path and line numbers to read surrounding code.',
+            'Use localGetFileContent with the full path (prepend base to each returned path) and line numbers to read surrounding code.',
             'Pass line numbers as lineHint to lspGetSemanticContent for definitions, references, or call flow.',
           ]
         : []),

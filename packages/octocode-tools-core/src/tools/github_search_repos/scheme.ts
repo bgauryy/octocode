@@ -49,31 +49,44 @@ const LocalRepositoryDetailSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
+const RepositoryPaginationSchema = z
+  .object({
+    currentPage: z.number(),
+    totalPages: z.number(),
+    hasMore: z.boolean(),
+    perPage: z.number().optional(),
+    totalMatches: z.number().optional(),
+    reportedTotalMatches: z.number().optional(),
+    reachableTotalMatches: z.number().optional(),
+    totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
+    totalMatchesCapped: z.boolean().optional(),
+  })
+  .optional();
+
+const RepositoryResultDataSchema = z
+  .object({
+    // Lean mode returns compact strings ("owner/repo ★stars …");
+    // verbose=true returns full structured objects.
+    repositories: z
+      .array(z.union([z.string(), LocalRepositoryDetailSchema]))
+      .optional(),
+    pagination: RepositoryPaginationSchema,
+  })
+  .passthrough();
+
 export const GitHubSearchRepositoriesOutputLocalSchema = z
   .object({
-    data: z
-      .object({
-        // Lean mode returns compact strings ("owner/repo ★stars …");
-        // verbose=true returns full structured objects.
-        repositories: z.array(
-          z.union([z.string(), LocalRepositoryDetailSchema])
-        ),
-        pagination: z
+    // executeBulkOperation wraps per-query data in a results array.
+    results: z
+      .array(
+        z
           .object({
-            currentPage: z.number(),
-            totalPages: z.number(),
-            hasMore: z.boolean(),
-            perPage: z.number().optional(),
-            totalMatches: z.number().optional(),
-            reportedTotalMatches: z.number().optional(),
-            reachableTotalMatches: z.number().optional(),
-            totalMatchesKind: z
-              .enum(['exact', 'reported', 'lowerBound'])
-              .optional(),
-            totalMatchesCapped: z.boolean().optional(),
+            id: z.string().optional(),
+            status: z.string().optional(),
+            data: RepositoryResultDataSchema.optional(),
           })
-          .optional(),
-      })
+          .passthrough()
+      )
       .optional(),
   })
   .extend(responseEnvelopeFields);

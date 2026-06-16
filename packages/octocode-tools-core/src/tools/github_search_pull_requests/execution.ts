@@ -267,7 +267,7 @@ export async function searchMultipleGitHubPullRequests(
           ).length;
           if (withChanges > 0) {
             fileChangeHints.push(
-              'Metadata mode: changedFiles details omitted (changedFilesCount available). Re-call with prNumber + content.changedFiles=true for file paths, or content.patches={mode:"selected",files:["src/foo.ts"]} for targeted diffs.'
+              'Metadata mode: changedFiles details omitted (changedFilesCount available). Re-call with prNumber + content.changedFiles=true for file paths, content.patches={mode:"selected",files:["src/foo.ts"]} for targeted diffs, or reviewMode="full" for all content in one call.'
             );
           }
         }

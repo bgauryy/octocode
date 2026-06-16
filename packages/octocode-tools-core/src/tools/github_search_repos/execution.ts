@@ -145,7 +145,9 @@ function buildReposSearchOutput(
         ? data.repositories.map(buildRepositoryDetail)
         : data.repositories.map(formatRepoLine),
     },
-    extraHints: [],
+    extraHints: verbose
+      ? []
+      : ['Use verbose=true to get structured objects for programmatic filtering/sorting by stars, language, or date.'],
   };
 }
 import {

@@ -23,6 +23,8 @@ export interface CodeSearchQuery extends BaseProviderQuery {
 
   extension?: string;
 
+  language?: string;
+
   match?: 'file' | 'path';
 
   limit?: number;

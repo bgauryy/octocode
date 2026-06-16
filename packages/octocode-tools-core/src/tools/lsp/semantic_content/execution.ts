@@ -1045,7 +1045,10 @@ function compactOutgoingCall(
 function compactCallItem(item: CallHierarchyItem): CompactCallTarget {
   return {
     name: item.name,
-    kind: item.kind,
+    // LSP protocol sends numeric SymbolKind values (1–26); convert to a
+    // human-readable name so the result matches the z.string() schema
+    // expectation and is readable in structured and compact outputs.
+    kind: symbolKindName(item.kind),
     uri: item.uri,
     line: item.range.start.line + 1,
     endLine: item.range.end.line + 1,
@@ -1084,6 +1087,9 @@ function truncateContent(content: string): string {
 }
 
 function symbolKindName(kind: unknown): string {
+  // Pass through string kinds as-is (defensive: LSP client may evolve to
+  // return named kinds instead of numeric enum values).
+  if (typeof kind === 'string') return kind;
   const numericKind = typeof kind === 'number' ? kind : undefined;
   switch (numericKind) {
     case 1:

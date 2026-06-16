@@ -151,6 +151,7 @@ export async function searchCode(
     repo,
     extension: query.extension,
     filename: query.filename,
+    language: query.language,
     path: query.path,
     match: query.match,
     limit: query.limit,

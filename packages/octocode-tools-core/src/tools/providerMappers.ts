@@ -109,6 +109,7 @@ export function mapCodeSearchToolQuery(
     path: query.path,
     filename: query.filename,
     extension: query.extension,
+    language: (query as Record<string, unknown>).language as string | undefined,
     match: query.match,
     limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,

@@ -20,8 +20,8 @@ export const hints: ToolHintGenerators = {
       return [
         hasFilters
           ? 'Remove path/filename/extension first, then retry keywords.'
-          : `Try a shorter keyword or broaden to owner="${owner}".`,
-        'GitHub code search is default-branch indexed — use githubGetFileContent if you know the path/branch.',
+          : `No results in ${owner}/${repo} — repo may be unindexed (new/private/recently renamed repos lag). Fall back to githubGetFileContent with a known path, or githubViewRepoStructure to discover paths.`,
+        'GitHub code search indexes the default branch only.',
       ];
     }
 

@@ -46,19 +46,20 @@ export function semanticHints(
         'Use returned line values as lineHint for definition, references, or callers.',
       ],
       hover: [
-        'type="definition" to jump to source, type="references" for usage.',
+        'type="definition" to jump to source, type="callers" for cross-package usage.',
       ],
       definition: [
-        'localGetFileContent for context, type="references" or "callHierarchy" for impact.',
+        'localGetFileContent for context, type="callers" for cross-package impact, type="references" for same-package usages.',
       ],
       typeDefinition: [
         'localGetFileContent for the type, type="implementation" for concrete implementations.',
       ],
       implementation: [
-        'localGetFileContent for implementation, type="references" for call sites.',
+        'localGetFileContent for implementation, type="callers" for call sites.',
       ],
       references: [
         'groupByFile=true for compact summary, localGetFileContent for context.',
+        'Scope: bounded by files open in the TS server (current package). Use callers/callHierarchy for cross-package blast radius.',
       ],
       callers: [
         'Increase depth for a wider tree, localGetFileContent for context.',
@@ -77,9 +78,18 @@ export function semanticHints(
     definition: ['Re-anchor with localSearchCode and retry.'],
     hover: ['Try type="definition" instead.'],
     typeDefinition: ['Try type="hover" for the inferred type.'],
-    callers: ['Use localSearchCode for dynamic references.'],
-    callees: ['Use localSearchCode for dynamic calls.'],
-    callHierarchy: ['Use localSearchCode for dynamic references.'],
+    callers: [
+      'callHierarchyProvider unsupported by this language server (e.g. Python, C++). Use type="references" for same-package usages instead.',
+      'Use localSearchCode for dynamic references.',
+    ],
+    callees: [
+      'callHierarchyProvider unsupported by this language server (e.g. Python, C++). Use type="references" or localSearchCode instead.',
+      'Use localSearchCode for dynamic calls.',
+    ],
+    callHierarchy: [
+      'callHierarchyProvider unsupported by this language server (e.g. Python, C++). Use type="references" for same-package usages instead.',
+      'Use localSearchCode for dynamic references.',
+    ],
     documentSymbols: [
       'Use localSearchCode with "export|function|class|const" as a fallback.',
     ],

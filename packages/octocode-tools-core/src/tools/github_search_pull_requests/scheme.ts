@@ -46,4 +46,27 @@ export const GitHubPullRequestSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(GitHubPullRequestSearchQueryShape);
 
 export const GitHubSearchPullRequestsOutputLocalSchema =
-  UpstreamPRsOutput.extend(responseEnvelopeFields);
+  UpstreamPRsOutput.extend({
+    // executeBulkOperation wraps per-query data in a results array; extend the
+    // upstream passthrough schema to advertise this envelope to clients.
+    results: z
+      .array(
+        z
+          .object({
+            id: z.string().optional(),
+            status: z.string().optional(),
+            // PR data shape varies with requested content fields; passthrough
+            // avoids falsely rejecting any combination. pull_requests is the
+            // primary output key (snake_case, matches GitHub API naming).
+            data: z
+              .object({
+                pull_requests: z.array(z.object({}).passthrough()).optional(),
+              })
+              .passthrough()
+              .optional(),
+          })
+          .passthrough()
+      )
+      .optional(),
+    ...responseEnvelopeFields,
+  });

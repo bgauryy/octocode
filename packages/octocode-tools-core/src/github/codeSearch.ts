@@ -43,6 +43,7 @@ export async function searchGitHubCodeAPI(
       repo: params.repo,
       extension: params.extension,
       filename: params.filename,
+      language: params.language,
       path: params.path,
       match: params.match,
       limit: params.limit,
