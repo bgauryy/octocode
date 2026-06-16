@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Tests use the real @octocodeai/octocode-core data (mock interception across
-// package boundaries is not reliable in Vitest 4 for cross-package imports).
-
 describe('toolMetadata/proxies', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -18,7 +15,7 @@ describe('toolMetadata/proxies', () => {
       _resetMetadataState();
       await initializeToolMetadata();
 
-      expect(TOOL_NAMES.GITHUB_SEARCH_CODE).toBe('githubSearchCode');
+      expect(TOOL_NAMES.GITHUB_SEARCH_CODE).toBe('ghSearchCode');
     });
 
     it('should fallback to static names when not initialized', async () => {
@@ -124,8 +121,8 @@ describe('toolMetadata/proxies', () => {
       _resetMetadataState();
       await initializeToolMetadata();
 
-      expect(typeof DESCRIPTIONS['githubSearchCode']).toBe('string');
-      expect(DESCRIPTIONS['githubSearchCode'].length).toBeGreaterThan(0);
+      expect(typeof DESCRIPTIONS['ghSearchCode']).toBe('string');
+      expect(DESCRIPTIONS['ghSearchCode'].length).toBeGreaterThan(0);
     });
 
     it('should return empty string for unknown tool', async () => {
@@ -149,8 +146,7 @@ describe('toolMetadata/proxies', () => {
       _resetMetadataState();
       await initializeToolMetadata();
 
-      const hints = TOOL_HINTS['githubSearchCode'];
-      // hints structure may vary — just verify it's an object
+      const hints = TOOL_HINTS['ghSearchCode'];
       expect(hints).toBeDefined();
       expect(typeof hints).toBe('object');
     });
@@ -164,7 +160,6 @@ describe('toolMetadata/proxies', () => {
       await initializeToolMetadata();
 
       const base = TOOL_HINTS.base;
-      // base hints may be an empty object — just verify it's defined
       expect(base).toBeDefined();
       expect(typeof base).toBe('object');
     });
@@ -192,7 +187,7 @@ describe('toolMetadata/proxies', () => {
 
       const keys = Object.keys(TOOL_HINTS);
       expect(keys).toContain('base');
-      expect(keys).toContain('githubSearchCode');
+      expect(keys).toContain('ghSearchCode');
     });
 
     it('should support Object.keys when metadata is null (ownKeys)', async () => {
@@ -231,7 +226,7 @@ describe('toolMetadata/proxies', () => {
       _resetMetadataState();
       await initializeToolMetadata();
 
-      expect(isToolInMetadata('githubSearchCode')).toBe(true);
+      expect(isToolInMetadata('ghSearchCode')).toBe(true);
     });
 
     it('should return false for non-existent tool', async () => {
@@ -252,7 +247,7 @@ describe('toolMetadata/proxies', () => {
         await import('../../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
       _resetMetadataState();
 
-      expect(isToolInMetadata('githubSearchCode')).toBe(true);
+      expect(isToolInMetadata('ghSearchCode')).toBe(true);
     });
   });
 
@@ -265,7 +260,7 @@ describe('toolMetadata/proxies', () => {
       _resetMetadataState();
       await initializeToolMetadata();
 
-      const hints = getToolHintsSync('githubSearchCode', 'empty');
+      const hints = getToolHintsSync('ghSearchCode', 'empty');
       expect(Array.isArray(hints)).toBe(true);
     });
 
@@ -328,7 +323,7 @@ describe('toolMetadata/proxies', () => {
       _resetMetadataState();
       await initializeToolMetadata();
 
-      const hints = getDynamicHints('githubSearchCode', 'topicsHasResults');
+      const hints = getDynamicHints('ghSearchCode', 'topicsHasResults');
       expect(Array.isArray(hints)).toBe(true);
     });
 
@@ -339,7 +334,7 @@ describe('toolMetadata/proxies', () => {
         await import('../../../../octocode-tools-core/src/tools/toolMetadata/proxies.js');
       _resetMetadataState();
 
-      const hints = getDynamicHints('githubSearchCode', 'topicsHasResults');
+      const hints = getDynamicHints('ghSearchCode', 'topicsHasResults');
       expect(Array.isArray(hints)).toBe(true);
     });
   });

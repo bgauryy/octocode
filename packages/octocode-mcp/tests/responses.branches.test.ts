@@ -558,7 +558,6 @@ describe('responses.branches', () => {
 
   describe('formatCallToolResultForOutput branch coverage', () => {
     it('falls back to JSON.stringify(result) when no text blocks and no structuredContent (line 318)', () => {
-      // No content array and no structuredContent → hits the final JSON.stringify(result) fallback
       const result = formatCallToolResultForOutput({
         isError: false,
       } as never);
@@ -569,7 +568,6 @@ describe('responses.branches', () => {
 
   describe('isTrivialPagination edge cases', () => {
     it('removes a hasMore=false-only pagination object as trivial (line 416 return true)', () => {
-      // { hasMore: false } with no other keys — should hit the final return true
       const result = createResponseFormat({
         results: [
           {
@@ -578,7 +576,6 @@ describe('responses.branches', () => {
           },
         ],
       } as never);
-      // The trivial pagination is cleaned out; result should still parse
       expect(result).toBeDefined();
     });
   });

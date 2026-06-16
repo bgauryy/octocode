@@ -30,7 +30,7 @@ export interface GitHubFileContentApiData {
   totalLines?: number;
   sourceChars?: number;
   sourceBytes?: number;
-  /** Line ranges of the returned slices when matchString hits multiple spots. */
+  
   matchRanges?: Array<{ start: number; end: number }>;
   matchLocations?: string[];
   warnings?: string[];
@@ -40,11 +40,7 @@ export interface GitHubFileContentApiData {
   cached?: boolean;
   matchNotFound?: boolean;
   searchedFor?: string;
-  /**
-   * INTERNAL: set when minify:"symbols" extraction succeeded — skeletons are
-   * indexes and must bypass applyContentPagination (returned whole).
-   * Stripped in fetchGitHubFileContentAPI before the result leaves the layer.
-   */
+  
   signaturesExtracted?: boolean;
 }
 

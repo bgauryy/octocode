@@ -18,7 +18,7 @@ function buildToolBlock(): string[] {
     for (const tool of tools) {
       const namePad = tool.name.padEnd(28);
       lines.push(`      ${c('cyan', namePad)} ${dim(tool.fields)}`);
-      if (tool.name === 'lspGetSemanticContent') {
+      if (tool.name === 'lspGetSemantics') {
         const indent = ''.padEnd(28 + 6);
         lines.push(`      ${dim(indent)} ${dim('type: ' + LSP_TYPES)}`);
         lines.push(
@@ -40,7 +40,6 @@ export function showHelp(): void {
     `  ${c('magenta', bold('🔍🐙 Octocode'))}  ${dim('Code research CLI — GitHub · Local · LSP · Package')}`,
     '',
 
-    // ── How to use (agent protocol inline) ────────────────────────────────
     `  ${bold('HOW TO USE')}`,
     `    ${c('cyan', '1.')} Smart research                 ${dim('tree/files/search/get/pr/repo/pkg/symbols/lsp')}`,
     `    ${c('red', bold('2.'))} Raw schema first              ${c('yellow', 'octocode tools <name> --scheme')}`,
@@ -50,7 +49,6 @@ export function showHelp(): void {
     `    ${dim('6.')} Command help                    ${c('yellow', 'octocode <command> --help')}`,
     '',
 
-    // ── Smart commands — preferred ─────────────────────────────────────────
     `  ${bold('SMART COMMANDS')}  ${dim('— preferred for normal research')}`,
     `    ${dim('Common flows without raw schemas; file/search commands auto-route local ↔ GitHub')}`,
     `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--match-string, --mode]')}`,
@@ -64,12 +62,10 @@ export function showHelp(): void {
     `    ${c('cyan', 'octocode lsp')}    ${dim('<file> --type <type>')}        ${dim('semantic nav after symbol+line')}`,
     '',
 
-    // ── All tools ─────────────────────────────────────────────────────────
     `  ${bold(`TOOLS (${toolCount})`)}  ${dim('* = required   ? = optional   |  octocode tools <name> → full schema + examples')}`,
     ...toolLines,
     '',
 
-    // ── Output contract ───────────────────────────────────────────────────
     `  ${bold('OUTPUT CONTRACT')}  ${dim('(add --json to get the full envelope)')}`,
     `    ${dim('Default output:')}  clean YAML — read directly`,
     `    ${dim('--compact:    ')}   leanest YAML (fewer tokens)`,
@@ -83,7 +79,6 @@ export function showHelp(): void {
     `      ${dim('Trust evidence.answerReady — true = answer is complete, stop calling')}`,
     '',
 
-    // ── Workflows ──────────────────────────────────────────────────────────
     `  ${bold('RESEARCH LOOP')}`,
     `    ${dim('1 orient')}  tree / repo / pkg / pr`,
     `    ${dim('2 search')}  files / search`,
@@ -98,12 +93,10 @@ export function showHelp(): void {
     `    ${dim('lsp    →')}  octocode symbols ${dim('<file|path>')} ${dim('→')} octocode lsp ${dim('--type references --symbol X --line N')}`,
     '',
 
-    // ── Output flags ───────────────────────────────────────────────────────
     `  ${bold('FLAGS')}`,
     `    ${c('cyan', '--json')}         raw JSON envelope   ${c('cyan', '--compact')}   leanest output   ${c('cyan', '--no-color')}  no ANSI`,
     '',
 
-    // ── Management ─────────────────────────────────────────────────────────
     `  ${bold('MANAGEMENT')}`,
     `    ${c('cyan', 'install')} ${dim('--ide <cursor|claude-desktop|windsurf|vscode-cline|...>')}  ${dim('configure IDE')}`,
     `    ${c('cyan', 'auth')} ${dim('<login|logout|status|token|refresh>')} ${dim('GitHub authentication')}`,
@@ -111,7 +104,6 @@ export function showHelp(): void {
     `    ${c('cyan', 'status')} ${dim('[--sync]')}                           ${dim('auth, MCP clients, cache')}`,
     '',
 
-    // ── Exit codes ─────────────────────────────────────────────────────────
     `  ${bold('EXIT CODES')}`,
     `    ${c('cyan', '0')} ok   ${c('cyan', '2')} bad-input   ${c('cyan', '3')} not-found   ${c('cyan', '4')} auth-error   ${c('cyan', '5')} tool-error   ${c('cyan', '7')} rate-limited`,
     '',

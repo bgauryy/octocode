@@ -40,7 +40,7 @@ description: Research-driven RFC and design document generator. Use when the use
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
@@ -65,10 +65,10 @@ Proceed with whatever tools are available — do not block on setup.
 
 <tools>
 **Local codebase** — use Octocode local search + LSP tools:
-`localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemanticContent(type=definition)`, `lspGetSemanticContent(type=references)`, `lspGetSemanticContent(type=callers/callees)`
+`localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemantics(type=definition)`, `lspGetSemantics(type=references)`, `lspGetSemantics(type=callers/callees)`
 
 **External research** — use Octocode external search tools:
-`githubSearchCode`, `githubSearchRepositories`, `githubGetFileContent`, `githubSearchPullRequests`, `packageSearch`
+`ghSearchCode`, `ghSearchRepos`, `ghGetFileContent`, `ghSearchPRs`, `npmSearch`
 
 The MCP server knows how to use these tools — just call them with your research goal.
 

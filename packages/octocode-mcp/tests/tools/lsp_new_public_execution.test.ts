@@ -29,11 +29,11 @@ import {
   acquirePooledClient,
   isLanguageServerAvailable,
 } from 'octocode-lsp/manager';
-import { executeLspGetSemanticContent } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/execution.js';
+import { executeLspGetSemantics } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/execution.js';
 import { hints as semanticToolHints } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/hints.js';
 import {
-  LspGetSemanticContentOutputSchema,
-  LspGetSemanticContentQuerySchema,
+  LspGetSemanticsOutputSchema,
+  LspGetSemanticsQuerySchema,
 } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 import {
   gatherIncomingCallsRecursive,
@@ -77,7 +77,7 @@ describe('new public LSP tool execution', () => {
   });
 
   it('returns semantic locations, references, hover, type, and implementation content', async () => {
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         anchored('definition'),
         anchored('references', { groupByFile: true, includeDeclaration: true }),
@@ -108,7 +108,7 @@ describe('new public LSP tool execution', () => {
       '}',
     ].join('\n');
 
-    await executeLspGetSemanticContent({
+    await executeLspGetSemantics({
       queries: [
         anchored('definition'),
         anchored('references', { includeDeclaration: false }),
@@ -171,7 +171,7 @@ describe('new public LSP tool execution', () => {
       failedRequestCount: 0,
     } as never);
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         { uri: filePath, type: 'documentSymbols' },
         anchored('callers'),
@@ -208,7 +208,7 @@ describe('new public LSP tool execution', () => {
       failedRequestCount: 0,
     } as never);
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         { uri: filePath, type: 'documentSymbols', format: 'compact' },
         anchored('references', { groupByFile: true, format: 'compact' }),
@@ -222,7 +222,7 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('count=2 lines=');
     expect(text).toContain('incoming callerFn');
     expect(text).not.toContain('childCount:');
-    const parsed = LspGetSemanticContentOutputSchema.safeParse(
+    const parsed = LspGetSemanticsOutputSchema.safeParse(
       result.structuredContent
     );
     expect(
@@ -245,13 +245,12 @@ describe('new public LSP tool execution', () => {
         documentSymbols: vi.fn().mockResolvedValue(manySymbols),
       }) as never
     );
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         { uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 },
       ],
     } as never);
     const text = textOf(result);
-    // hasMore is present (display pagination), but evidence must remain complete
     expect(text).toContain('hasMore: true');
     expect(text).toContain('complete: true');
     expect(text).not.toContain('Result pagination has more results');
@@ -277,7 +276,7 @@ describe('new public LSP tool execution', () => {
       failedRequestCount: 0,
     } as never);
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('references'), anchored('callers')],
     } as never);
     const text = textOf(result);
@@ -297,7 +296,7 @@ describe('new public LSP tool execution', () => {
       }) as never
     );
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('hover')],
     } as never);
 
@@ -318,7 +317,7 @@ describe('new public LSP tool execution', () => {
       }) as never
     );
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         anchored('definition'),
         anchored('callers'),
@@ -353,7 +352,7 @@ describe('new public LSP tool execution', () => {
       }) as never
     );
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         anchored('implementation'),
         anchored('references'),
@@ -370,7 +369,7 @@ describe('new public LSP tool execution', () => {
   });
 
   it('requires uri and does not rewrite filePath', async () => {
-    const semanticParse = LspGetSemanticContentQuerySchema.safeParse({
+    const semanticParse = LspGetSemanticsQuerySchema.safeParse({
       filePath,
       type: 'documentSymbols',
     });
@@ -395,7 +394,7 @@ describe('new public LSP tool execution', () => {
       }) as never
     );
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         anchored('hover'),
         anchored('hover'),
@@ -415,7 +414,7 @@ describe('new public LSP tool execution', () => {
 
   it('handles serverAvailable=false for symbol-anchored queries', async () => {
     vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('definition'), anchored('references')],
     } as never);
     const text = textOf(result);
@@ -424,14 +423,14 @@ describe('new public LSP tool execution', () => {
 
   it('handles acquirePooledClient returning null for symbol queries', async () => {
     vi.mocked(acquirePooledClient).mockResolvedValue(null);
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('definition')],
     } as never);
     expect(textOf(result)).toContain('Language server unavailable');
   });
 
   it('handles documentSymbols with an invalid/missing path', async () => {
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [{ uri: join(tempDir, 'missing.ts'), type: 'documentSymbols' }],
     } as never);
     expect(textOf(result)).toContain('file_not_found');
@@ -439,7 +438,7 @@ describe('new public LSP tool execution', () => {
 
   it('handles documentSymbols when language server is unavailable', async () => {
     vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [{ uri: filePath, type: 'documentSymbols' }],
     } as never);
     const text = textOf(result);
@@ -461,7 +460,7 @@ describe('new public LSP tool execution', () => {
         documentSymbols: vi.fn().mockResolvedValue(manySymbols),
       }) as never
     );
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         { uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 },
       ],
@@ -484,7 +483,7 @@ describe('new public LSP tool execution', () => {
       }) as never
     );
 
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         anchored('definition', { page: 1, itemsPerPage: 1 }),
         anchored('references', { page: 1, itemsPerPage: 1 }),
@@ -499,7 +498,6 @@ describe('new public LSP tool execution', () => {
   });
 
   it('summary.kinds reflects total symbol count across all pages, not only the current page slice', async () => {
-    // 30 functions (kind=12) + 5 classes (kind=5) = 35 total; page shows 10
     const symbols = [
       ...Array.from({ length: 30 }, (_, i) => ({
         name: `fn${i}`,
@@ -523,13 +521,12 @@ describe('new public LSP tool execution', () => {
         documentSymbols: vi.fn().mockResolvedValue(symbols),
       }) as never
     );
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         { uri: filePath, type: 'documentSymbols', page: 1, itemsPerPage: 10 },
       ],
     } as never);
     const text = textOf(result);
-    // Counts must reflect ALL 35 symbols, not just the 10 on this page
     expect(text).toContain('function: 30');
     expect(text).toContain('class: 5');
     expect(text).toContain('totalSymbols: 35');
@@ -549,7 +546,7 @@ describe('new public LSP tool execution', () => {
       cycleCount: 0,
       failedRequestCount: 0,
     } as never);
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('callers', { page: 1, itemsPerPage: 5 })],
     } as never);
     const text = textOf(result);
@@ -575,7 +572,7 @@ describe('new public LSP tool execution', () => {
       cycleCount: 0,
       failedRequestCount: 0,
     } as never);
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('callers', { contextLines: 2 })],
     } as never);
     const text = textOf(result);
@@ -621,7 +618,7 @@ describe('new public LSP tool execution', () => {
         documentSymbols: vi.fn().mockResolvedValue(nestedSymbols),
       }) as never
     );
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [{ uri: filePath, type: 'documentSymbols' }],
     } as never);
     const text = textOf(result);
@@ -648,7 +645,7 @@ describe('new public LSP tool execution', () => {
         documentSymbols: vi.fn().mockResolvedValue(kindSymbols),
       }) as never
     );
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [{ uri: filePath, type: 'documentSymbols' }],
     } as never);
     const text = textOf(result);
@@ -684,7 +681,7 @@ describe('new public LSP tool execution', () => {
         ]),
       }) as never
     );
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [anchored('references', { groupByFile: true })],
     } as never);
     const text = textOf(result);
@@ -693,7 +690,7 @@ describe('new public LSP tool execution', () => {
   });
 
   it('returns a schema-valid empty envelope when the symbol is not found near lineHint', async () => {
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [
         {
           uri: filePath,
@@ -704,7 +701,7 @@ describe('new public LSP tool execution', () => {
       ],
     } as never);
 
-    const parsed = LspGetSemanticContentOutputSchema.safeParse(
+    const parsed = LspGetSemanticsOutputSchema.safeParse(
       result.structuredContent
     );
     expect(
@@ -715,15 +712,10 @@ describe('new public LSP tool execution', () => {
 
     const firstResult = parsed.data.results[0];
     expect(firstResult).toBeDefined();
-    // no status field — failedAnchorEnvelope produces a no-status result with payload.kind='empty'
     expect(firstResult).not.toHaveProperty('status');
-    // evidence is hoisted to top-level by aggregatePeerEvidence — not present in individual data
-    // uri is relativized against the hoisted base (single absolute path → basename)
     expect(firstResult!.data).toMatchObject({
       type: 'definition',
       uri: 'fixture.ts',
-      // serverAvailable is intentionally omitted: symbol resolution fails before reaching the LSP
-      // server so we cannot report server status — lsp object is present but serverAvailable is undefined
       lsp: {},
       payload: expect.objectContaining({ kind: 'empty' }),
     });
@@ -733,7 +725,7 @@ describe('new public LSP tool execution', () => {
   });
 
   it('handles empty queries array', async () => {
-    const result = await executeLspGetSemanticContent({
+    const result = await executeLspGetSemantics({
       queries: [],
     } as never);
     expect(result).toBeDefined();

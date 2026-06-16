@@ -172,11 +172,11 @@ describe('config/resolver', () => {
       });
 
       it('parses TOOLS_TO_RUN as string array', () => {
-        process.env.TOOLS_TO_RUN = 'githubSearchCode,packageSearch';
+        process.env.TOOLS_TO_RUN = 'ghSearchCode,npmSearch';
         const config = resolveConfigSync();
         expect(config.tools.enabled).toEqual([
-          'githubSearchCode',
-          'packageSearch',
+          'ghSearchCode',
+          'npmSearch',
         ]);
       });
 
@@ -190,9 +190,9 @@ describe('config/resolver', () => {
       });
 
       it('parses DISABLE_TOOLS as string array', () => {
-        process.env.DISABLE_TOOLS = 'packageSearch';
+        process.env.DISABLE_TOOLS = 'npmSearch';
         const config = resolveConfigSync();
-        expect(config.tools.disabled).toEqual(['packageSearch']);
+        expect(config.tools.disabled).toEqual(['npmSearch']);
       });
 
       it('parses REQUEST_TIMEOUT as number', () => {

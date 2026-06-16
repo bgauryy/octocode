@@ -55,28 +55,28 @@ describe('Resilience Wrappers', () => {
     it('executes operation successfully', async () => {
       const result = await withGitHubResilience(
         async () => ({ data: 'github-result' }),
-        'githubSearchCode'
+        'ghSearchCode'
       );
       expect(result).toEqual({ data: 'github-result' });
     });
 
     it('uses timeout wrapper', async () => {
-      await withGitHubResilience(async () => 'ok', 'githubSearchCode');
+      await withGitHubResilience(async () => 'ok', 'ghSearchCode');
       expect(withTimeout).toHaveBeenCalled();
     });
 
     it('uses circuit breaker', async () => {
-      await withGitHubResilience(async () => 'ok', 'githubSearchCode');
+      await withGitHubResilience(async () => 'ok', 'ghSearchCode');
       expect(withCircuitBreaker).toHaveBeenCalled();
     });
 
     it('uses retry', async () => {
-      await withGitHubResilience(async () => 'ok', 'githubSearchCode');
+      await withGitHubResilience(async () => 'ok', 'ghSearchCode');
       expect(withRetry).toHaveBeenCalled();
     });
 
     it('maps tool to correct circuit', async () => {
-      await withGitHubResilience(async () => 'ok', 'githubSearchCode');
+      await withGitHubResilience(async () => 'ok', 'ghSearchCode');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
         'github:search',
         expect.any(Function)
@@ -84,7 +84,7 @@ describe('Resilience Wrappers', () => {
     });
 
     it('maps content tools to github:content circuit', async () => {
-      await withGitHubResilience(async () => 'ok', 'githubGetFileContent');
+      await withGitHubResilience(async () => 'ok', 'ghGetFileContent');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
         'github:content',
         expect.any(Function)
@@ -92,7 +92,7 @@ describe('Resilience Wrappers', () => {
     });
 
     it('maps PR tools to github:pulls circuit', async () => {
-      await withGitHubResilience(async () => 'ok', 'githubSearchPullRequests');
+      await withGitHubResilience(async () => 'ok', 'ghSearchPRs');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
         'github:pulls',
         expect.any(Function)
@@ -102,7 +102,7 @@ describe('Resilience Wrappers', () => {
     it('propagates errors from operation', async () => {
       vi.mocked(withRetry).mockRejectedValueOnce(new Error('API error'));
       await expect(
-        withGitHubResilience(async () => { throw new Error('API error'); }, 'githubSearchCode')
+        withGitHubResilience(async () => { throw new Error('API error'); }, 'ghSearchCode')
       ).rejects.toThrow('API error');
     });
   });
@@ -129,13 +129,13 @@ describe('Resilience Wrappers', () => {
     it('executes LSP operations', async () => {
       const result = await withLspResilience(
         async () => ({ definition: 'found' }),
-        'lspGetSemanticContent'
+        'lspGetSemantics'
       );
       expect(result).toEqual({ definition: 'found' });
     });
 
-    it('maps lspGetSemanticContent to lsp:navigation circuit', async () => {
-      await withLspResilience(async () => 'ok', 'lspGetSemanticContent');
+    it('maps lspGetSemantics to lsp:navigation circuit', async () => {
+      await withLspResilience(async () => 'ok', 'lspGetSemantics');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
         'lsp:navigation',
         expect.any(Function)
@@ -147,13 +147,13 @@ describe('Resilience Wrappers', () => {
     it('executes package operations', async () => {
       const result = await withPackageResilience(
         async () => ({ packages: [] }),
-        'packageSearch'
+        'npmSearch'
       );
       expect(result).toEqual({ packages: [] });
     });
 
     it('maps to package circuit', async () => {
-      await withPackageResilience(async () => 'ok', 'packageSearch');
+      await withPackageResilience(async () => 'ok', 'npmSearch');
       expect(withCircuitBreaker).toHaveBeenCalledWith(
         'package',
         expect.any(Function)
@@ -177,7 +177,7 @@ describe('Resilience Wrappers', () => {
         return fn();
       });
 
-      await withGitHubResilience(async () => 'ok', 'githubSearchCode');
+      await withGitHubResilience(async () => 'ok', 'ghSearchCode');
       expect(callOrder).toEqual(['timeout', 'circuit', 'retry']);
     });
   });

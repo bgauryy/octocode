@@ -57,7 +57,7 @@ For checkpoint/resume state transitions, see [`references/SESSION_MANAGEMENT.md`
 ## MCP Discovery
 
 <mcp_discovery>
-Before starting, check if `octocode-mcp` is available as an MCP server (look for `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
+Before starting, check if `octocode-mcp` is available as an MCP server (look for `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
 
 - **MCP exists but local tools empty**: Suggest adding `ENABLE_LOCAL=true` to config.
 - **MCP not installed**: Suggest:

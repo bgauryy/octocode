@@ -47,7 +47,7 @@
 
 ### Agent A: Flow Impact Analyst
 - **Scope**: Flow Impact domain + blast radius mapping
-- **Tools**: `localSearchCode` → `lspCallHierarchy(incoming)` → `lspFindReferences` → `githubSearchCode`
+- **Tools**: `localSearchCode` → `lspCallHierarchy(incoming)` → `lspFindReferences` → `ghSearchCode`
 - **Task**: For every modified function/method/type in the diff:
   1. Call `localSearchCode` to get lineHint for each symbol
   2. Call `lspCallHierarchy(incoming, depth=1)` to find all callers
@@ -75,7 +75,7 @@
 
 ### Agent B: Security & Error Handling Reviewer
 - **Scope**: Security scan + Error Handling domain
-- **Tools**: `localSearchCode` → `githubGetFileContent(matchString=...)` → `localGetFileContent`
+- **Tools**: `localSearchCode` → `ghGetFileContent(matchString=...)` → `localGetFileContent`
 - **Task**:
   1. Scan changed files for: hardcoded secrets, SQL injection, XSS, data exposure, auth bypass
   2. Check error handling: swallowed exceptions, missing context, unclear messages
@@ -93,14 +93,14 @@
   Security checks: injection, XSS, data exposure, auth bypass, hardcoded secrets
   Error handling checks: swallowed exceptions, missing context, unclear messages
 
-  Use localSearchCode to find patterns, githubGetFileContent for context.
+  Use localSearchCode to find patterns, ghGetFileContent for context.
   Return findings with file:line, severity, confidence, and fix.
   ONLY flag issues in CHANGED code ('+' lines).
   ```
 
 ### Agent C: Architecture & Code Quality Reviewer
 - **Scope**: Architecture domain + Code Quality domain + Performance domain
-- **Tools**: `githubViewRepoStructure` → `localViewStructure` → `localSearchCode` → `githubGetFileContent`
+- **Tools**: `ghViewRepoStructure` → `localViewStructure` → `localSearchCode` → `ghGetFileContent`
 - **Task**:
   1. Check changed code against repo patterns and conventions
   2. Detect: coupling, circular deps, wrong module placement, naming violations
@@ -117,7 +117,7 @@
   Repo structure: {structure_summary}
 
   Check: pattern violations, coupling, naming, O(n²), blocking ops, magic numbers
-  Use githubViewRepoStructure to understand repo layout.
+  Use ghViewRepoStructure to understand repo layout.
   Use localSearchCode to find existing patterns for comparison.
   Return findings with file:line, domain, severity, confidence, and fix.
   ONLY flag issues in CHANGED code ('+' lines).
@@ -125,7 +125,7 @@
 
 ### Agent D: Guidelines & Duplicate Code Reviewer (only if guidelines loaded)
 - **Scope**: Guidelines compliance + Duplicate Code domain
-- **Tools**: `localSearchCode` → `githubSearchCode` → `localGetFileContent` → `githubGetFileContent`
+- **Tools**: `localSearchCode` → `ghSearchCode` → `localGetFileContent` → `ghGetFileContent`
 - **Task**:
   1. Check each changed file against loaded guidelines (from Phase 1)
   2. Search for existing utilities/patterns that new code could reuse
@@ -142,7 +142,7 @@
   Changed files: {file_list}
 
   Task 1: For each changed file, check compliance against every loaded guideline rule.
-  Task 2: Use localSearchCode/githubSearchCode to find existing utilities that new code duplicates.
+  Task 2: Use localSearchCode/ghSearchCode to find existing utilities that new code duplicates.
   Return: guidelines compliance table + duplicate code findings with file:line.
   ```
 

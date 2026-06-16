@@ -136,8 +136,6 @@ export async function executeRipgrepSearchInternal(
   }
 
   if (!result.success) {
-    // rg's "No such file or directory" stderr repeats the full path twice —
-    // map it to the same actionable shape the other local tools use.
     const isMissingPath =
       result.code === 2 && /No such file or directory/.test(result.stderr);
     const message = isMissingPath

@@ -58,7 +58,7 @@ describe('resolveSymbolAnchor', () => {
         symbolName: 'target',
         lineHint: 1,
       } as never,
-      'lspGetSemanticContent'
+      'lspGetSemantics'
     );
 
     expect(result.ok).toBe(true);

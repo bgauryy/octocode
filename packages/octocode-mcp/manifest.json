@@ -35,19 +35,19 @@
       "description": "Check GitHub and npm login status"
     },
     {
-      "name": "mcp_octocode_githubSearchCode",
+      "name": "mcp_octocode_ghSearchCode",
       "description": "Search code across GitHub repositories"
     },
     {
-      "name": "mcp_octocode_githubGetFileContent",
+      "name": "mcp_octocode_ghGetFileContent",
       "description": "Fetch file content from GitHub repositories"
     },
     {
-      "name": "mcp_octocode_githubSearchRepositories",
+      "name": "mcp_octocode_ghSearchRepos",
       "description": "Search GitHub repositories"
     },
     {
-      "name": "mcp_octocode_githubSearchPullRequests",
+      "name": "mcp_octocode_ghSearchPRs",
       "description": "Search GitHub pull requests"
     },
     {
@@ -55,7 +55,7 @@
       "description": "Search GitHub issues"
     },
     {
-      "name": "mcp_octocode_githubViewRepoStructure",
+      "name": "mcp_octocode_ghViewRepoStructure",
       "description": "View GitHub repository structure"
     }
   ],

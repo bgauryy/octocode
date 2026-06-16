@@ -74,14 +74,11 @@ export async function cloneRepo(
       sparsePath,
       resolvedToken
     );
-    // git sparse-checkout "succeeds" for nonexistent paths — the clone just
-    // silently lacks the requested directory. Verify it actually materialized
-    // so the agent gets an error instead of a false answerReady:true.
     if (!existsSync(join(cloneDir, sparsePath))) {
       removeCloneDir(cloneDir); // don't cache a clone missing its sparse dir
       throw new Error(
         `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
-          'Verify the directory path with githubViewRepoStructure, then retry with the correct sparsePath (or omit it for a full clone).'
+          'Verify the directory path with ghViewRepoStructure, then retry with the correct sparsePath (or omit it for a full clone).'
       );
     }
   } else {
@@ -198,7 +195,7 @@ async function assertGitAvailable(): Promise<void> {
   } catch {
     throw new Error(
       'git is not installed or not on PATH. ' +
-        'The githubCloneRepo tool requires git to be available.'
+        'The ghCloneRepo tool requires git to be available.'
     );
   }
 }

@@ -40,10 +40,6 @@ export async function fetchGitHubPullRequestByNumberAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubPullRequestSearchApiResult> {
-  // filePage/commentPage/commitPage/itemsPerPage are intentionally NOT in the
-  // key: the fetcher downloads complete content lists and pagination slices
-  // post-cache (contentResponse), so every page of the same PR re-hits this
-  // entry. matchString is post-cache too.
   const cacheKey = generateCacheKey(
     'gh-api-prs',
     {

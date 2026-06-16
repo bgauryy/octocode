@@ -6,7 +6,7 @@ import { buildRepoStructureOutput } from '../../../octocode-tools-core/src/tools
 
 beforeAll(async () => {});
 
-describe('Evidence: githubGetFileContent', () => {
+describe('Evidence: ghGetFileContent', () => {
   it('nudges the next pagination parameter for partial file content', () => {
     const finalizer = buildGithubFetchContentFinalizer();
     const output = finalizer({
@@ -52,7 +52,7 @@ describe('Evidence: githubGetFileContent', () => {
   });
 });
 
-describe('Verbosity: githubViewRepoStructure', () => {
+describe('Verbosity: ghViewRepoStructure', () => {
   it('suggests concrete next paths when a structure response is truncated', () => {
     const shaped = buildRepoStructureOutput(
       {
@@ -85,8 +85,8 @@ const FORBIDDEN_STATIC_PHRASES = [
   'Got 3+ examples',
   'Check timestamps (pushedAt, lastModified)',
   'Check DEPRECATED warnings',
-  'Next: githubViewRepoStructure',
-  'Then: githubSearchCode',
+  'Next: ghViewRepoStructure',
+  'Then: ghSearchCode',
   'OUTPUT: Use owner, name',
   'Drill deeper: depth=2',
   'TO GET NEXT PAGE',
@@ -117,7 +117,7 @@ describe('hints contract — static guidance never reaches responses', () => {
     }
   }
 
-  it('githubSearchCode error with rate limit emits a conditional retry hint', () => {
+  it('ghSearchCode error with rate limit emits a conditional retry hint', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'error', {
       isRateLimited: true,
       retryAfter: 30,
@@ -125,7 +125,7 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(hints.some(h => h.includes('Retry after 30s'))).toBe(true);
   });
 
-  it('githubSearchCode empty returns actionable hint when owner/repo set', () => {
+  it('ghSearchCode empty returns actionable hint when owner/repo set', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE, 'empty', {
       hasOwnerRepo: true,
       owner: 'a',
@@ -143,13 +143,13 @@ describe('hints contract — static guidance never reaches responses', () => {
     expect(emptyHints.length).toBeGreaterThan(0);
   });
 
-  it('githubGetFileContent error not_found emits recovery hint', () => {
+  it('ghGetFileContent error not_found emits recovery hint', () => {
     const hints = getHints(STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT, 'error', {
       errorType: 'not_found',
       path: 'src/foo.ts',
       branch: 'main',
     });
-    expect(hints.some(h => h.includes('githubViewRepoStructure'))).toBe(true);
+    expect(hints.some(h => h.includes('ghViewRepoStructure'))).toBe(true);
   });
 });
 
@@ -218,7 +218,7 @@ function buildScorecard(sample: {
 }
 
 describe('agentic-flow quality scorecards', () => {
-  it('githubSearchCode: clean response scores full marks', () => {
+  it('ghSearchCode: clean response scores full marks', () => {
     const card = buildScorecard({
       data: {
         results: [
@@ -238,7 +238,7 @@ describe('agentic-flow quality scorecards', () => {
     expect(score).toBe(MAX_SCORE);
   });
 
-  it('githubGetFileContent: response with a continuation hint scores full marks', () => {
+  it('ghGetFileContent: response with a continuation hint scores full marks', () => {
     const card = buildScorecard({
       data: {
         results: [
@@ -257,7 +257,7 @@ describe('agentic-flow quality scorecards', () => {
     expect(rateAgenticQuality(card).score).toBe(MAX_SCORE);
   });
 
-  it('githubSearchRepositories: full marks with a peer pagination hint', () => {
+  it('ghSearchRepos: full marks with a peer pagination hint', () => {
     const card = buildScorecard({
       data: {
         repositories: [{ owner: 'o', repo: 'r', stars: 1, topics: ['x'] }],
@@ -269,7 +269,7 @@ describe('agentic-flow quality scorecards', () => {
     expect(rateAgenticQuality(card).failures).toEqual([]);
   });
 
-  it('githubSearchPullRequests: clean scorecard', () => {
+  it('ghSearchPRs: clean scorecard', () => {
     const card = buildScorecard({
       data: {
         pull_requests: [
@@ -291,7 +291,7 @@ describe('agentic-flow quality scorecards', () => {
     expect(rateAgenticQuality(card).score).toBe(MAX_SCORE);
   });
 
-  it('githubViewRepoStructure: scorecard for nested tree', () => {
+  it('ghViewRepoStructure: scorecard for nested tree', () => {
     const card = buildScorecard({
       data: {
         structure: {
@@ -305,7 +305,7 @@ describe('agentic-flow quality scorecards', () => {
     expect(rateAgenticQuality(card).score).toBe(MAX_SCORE);
   });
 
-  it('packageSearch: scorecard with empty rows still scores full marks', () => {
+  it('npmSearch: scorecard with empty rows still scores full marks', () => {
     const card = buildScorecard({
       data: { packages: [] },
       hints: [],

@@ -28,7 +28,13 @@ function collectPathHolders(
   const obj = node as Record<string, unknown>;
   for (const key of PATH_LIKE_KEYS) {
     const v = obj[key];
-    if (typeof v === 'string' && v.startsWith('/')) holders.push({ obj, key });
+    if (typeof v !== 'string') continue;
+    if (v.startsWith('file:///')) {
+      obj[key] = v.slice('file://'.length);
+      holders.push({ obj, key });
+    } else if (v.startsWith('/')) {
+      holders.push({ obj, key });
+    }
   }
   for (const value of Object.values(obj)) {
     if (value && typeof value === 'object') {
@@ -56,10 +62,6 @@ export function relativizeResultPaths(
     if (p.startsWith(prefix)) obj[key] = p.slice(cut);
   }
 
-  // Also strip the base from absolute paths embedded in compact string rows
-  // (arrays of formatted strings produced by compact-format tools). Structured
-  // fields are handled above; string elements are handled here so both
-  // representations use the same relative paths.
   stripBaseFromStringElements(results, prefix);
 
   return base;
@@ -75,7 +77,10 @@ function stripBaseFromStringElements(
       for (let i = 0; i < node.length; i++) {
         const v = node[i];
         if (typeof v === 'string') {
-          if (v.includes(prefix))
+          const fileUriPrefix = 'file://' + prefix;
+          if (v.includes(fileUriPrefix))
+            (node as unknown[])[i] = v.replaceAll(fileUriPrefix, '');
+          else if (v.includes(prefix))
             (node as unknown[])[i] = v.replaceAll(prefix, '');
         } else {
           walk(v, depth + 1);
@@ -87,8 +92,6 @@ function stripBaseFromStringElements(
     for (const key of Object.keys(obj)) {
       const v = obj[key];
       if (typeof v === 'string') {
-        // Strip embedded absolute paths from compact string fields (e.g. `root`)
-        // Skip the known structured path keys — those are handled by collectPathHolders.
         if (
           !PATH_LIKE_KEYS.includes(key as (typeof PATH_LIKE_KEYS)[number]) &&
           v.includes(prefix)

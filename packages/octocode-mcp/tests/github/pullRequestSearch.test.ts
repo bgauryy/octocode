@@ -552,7 +552,6 @@ describe('Pull Request Search', () => {
       });
       expect(JSON.stringify(pr)).not.toContain(longComment);
       const warnings = (pr._sanitization_warnings as string[]) ?? [];
-      // body pagination warning only fires for explicit prNumber+content.body requests
       expect(warnings.some(w => w.includes('PR comments are paginated'))).toBe(
         true
       );

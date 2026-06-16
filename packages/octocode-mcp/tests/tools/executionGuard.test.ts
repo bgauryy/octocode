@@ -29,7 +29,7 @@ describe('executeWithToolBoundary', () => {
     const query = { researchGoal: 'test', reasoning: 'test' };
 
     const result = await executeWithToolBoundary({
-      toolName: 'githubCloneRepo',
+      toolName: 'ghCloneRepo',
       query,
       contextMessage: 'Clone failed for owner/repo',
       execute: async () => {
@@ -41,7 +41,7 @@ describe('executeWithToolBoundary', () => {
       expect.any(Error),
       query,
       'Clone failed for owner/repo',
-      'githubCloneRepo'
+      'ghCloneRepo'
     );
     expect(result).toEqual({ status: 'error', error: 'guarded failure' });
   });

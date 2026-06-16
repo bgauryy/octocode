@@ -9,7 +9,7 @@ const LOCAL_OVERLAY_MAX_LIMIT = LOCAL_MAX_LIMIT;
 const LOCAL_OVERLAY_MAX_DEPTH = LOCAL_MAX_DEPTH;
 import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
 import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
-import { LspGetSemanticContentQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
+import { LspGetSemanticsQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 
 describe('LocalFindFilesQuerySchema.limit bound', () => {
   it('clamps limit above LOCAL_OVERLAY_MAX_LIMIT to the max', () => {
@@ -91,7 +91,7 @@ describe('LocalViewStructureQuerySchema depth + limit bounds', () => {
   });
 });
 
-describe('LspGetSemanticContentQuerySchema depth bound', () => {
+describe('LspGetSemanticsQuerySchema depth bound', () => {
   const base = {
     uri: '/tmp/x.ts',
     type: 'callers',
@@ -100,7 +100,7 @@ describe('LspGetSemanticContentQuerySchema depth bound', () => {
   };
 
   it('clamps depth above LOCAL_OVERLAY_MAX_DEPTH to the max', () => {
-    const result = LspGetSemanticContentQuerySchema.safeParse({
+    const result = LspGetSemanticsQuerySchema.safeParse({
       ...base,
       depth: LOCAL_OVERLAY_MAX_DEPTH + 1,
     });
@@ -111,7 +111,7 @@ describe('LspGetSemanticContentQuerySchema depth bound', () => {
   });
 
   it('clamps negative depth up to the minimum', () => {
-    const result = LspGetSemanticContentQuerySchema.safeParse({
+    const result = LspGetSemanticsQuerySchema.safeParse({
       ...base,
       depth: -1,
     });
@@ -122,7 +122,7 @@ describe('LspGetSemanticContentQuerySchema depth bound', () => {
   });
 
   it('accepts depth at the max bound', () => {
-    const result = LspGetSemanticContentQuerySchema.safeParse({
+    const result = LspGetSemanticsQuerySchema.safeParse({
       ...base,
       depth: LOCAL_OVERLAY_MAX_DEPTH,
     });

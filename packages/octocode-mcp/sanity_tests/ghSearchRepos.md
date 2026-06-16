@@ -1,8 +1,8 @@
-# Sanity check — `githubSearchRepositories`
+# Sanity check — `ghSearchRepos`
 
 > Discover repos by keyword/owner/topic/stars.
 >
-> **Manual runtime checklist** — run each step against the live MCP tool (or `benchmark/github/scripts/call-tool.mjs githubSearchRepositories '<queries-json>'`) and tick the box.
+> **Manual runtime checklist** — run each step against the live MCP tool (or `benchmark/github/scripts/call-tool.mjs ghSearchRepos '<queries-json>'`) and tick the box.
 > Automated schema-contract checks live in `tests/tools/all-tools.pagination-contract.test.ts`; cursor-uniformity in `tests/tools/all-tools.pagination.test.ts`.
 
 ## 1. Scheme

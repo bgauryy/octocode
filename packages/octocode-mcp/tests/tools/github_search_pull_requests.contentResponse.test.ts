@@ -87,7 +87,7 @@ const pr = {
   ],
 };
 
-describe('githubSearchPullRequests content response shaping', () => {
+describe('ghSearchPRs content response shaping', () => {
   it('returns previews for lean metadata — no content map when no surfaces requested', () => {
     const shaped = shapePullRequestForContent(pr, query, baseRequest);
     expect(shaped.body).toBeUndefined();
@@ -313,14 +313,12 @@ describe('githubSearchPullRequests content response shaping', () => {
     );
     const reviews = shaped.reviews as Array<Record<string, unknown>>;
     expect(reviews).toHaveLength(1);
-    // Body should be paginated, not a short preview
     expect(reviews[0]!.body).toBe('approval');
     expect(reviews[0]!.bodyPagination).toMatchObject({
       hasMore: true,
       nextCharOffset: 8,
       totalChars: 13, // 'approval-body'
     });
-    // bodyPreview should NOT be present when full body pagination is included
     expect(reviews[0]).not.toHaveProperty('bodyPreview');
   });
 
@@ -516,7 +514,6 @@ describe('githubSearchPullRequests content response shaping', () => {
       sourceSha: 'abc123',
       targetBranch: 'main',
     };
-    // prNumber makes it fullShape
     const shaped = shapePullRequestForContent(prBranches, query, baseRequest);
     expect(shaped.targetBranch).toBe('main');
     expect(shaped.sourceBranch).toBe('feature/foo');
@@ -529,7 +526,6 @@ describe('githubSearchPullRequests content response shaping', () => {
       { prNumber: 55 },
       { ...baseRequest, body: true }
     );
-    // bodyEmpty:true = fetched, no content; absent body key = never fetched
     expect(shaped.bodyEmpty).toBe(true);
     expect('body' in shaped).toBe(false);
   });
@@ -557,14 +553,12 @@ describe('githubSearchPullRequests content response shaping', () => {
         },
       ],
     };
-    // Without matchString: minify:standard strips the comment-only line
     const minified = shapePullRequestForContent(
       prWithFiles,
       { ...query, charLength: 5000 },
       { ...baseRequest, patches: { mode: 'all' } },
       true // shouldMinify
     );
-    // With matchString: minification skipped so matched comment line is visible
     const withMatch = shapePullRequestForContent(
       prWithFiles,
       { ...query, charLength: 5000, matchString: 'comment line' },
@@ -577,15 +571,11 @@ describe('githubSearchPullRequests content response shaping', () => {
     const matchedPatch = (
       withMatch.changedFiles as Array<{ patch?: string }>
     )[0]?.patch;
-    // Standard minification strips the comment-only trailing comment
     expect(minifiedPatch).toBeDefined();
-    // matchString overrides minification — full raw patch shown
     expect(matchedPatch).toContain('// comment line');
   });
 
   it('comment bodies start at charOffset=0 regardless of query charOffset', () => {
-    // Query has charOffset=10 (for PR body continuation), but comment bodies
-    // should always start from the beginning.
     const shaped = shapePullRequestForContent(
       pr,
       { ...query, charOffset: 10, charLength: 100 },
@@ -596,14 +586,11 @@ describe('githubSearchPullRequests content response shaping', () => {
     );
     const comments = shaped.comments as Array<Record<string, unknown>>;
     expect(comments.length).toBeGreaterThan(0);
-    // discussion-body starts at char 0, not char 10
     const discussion = comments.find(c => c.commentType === 'discussion');
     expect(discussion!.body).toBe('discussion-body');
   });
 
   it('minify:false preserves raw body; minify:true may normalise it', () => {
-    // Use a body with many consecutive blank lines — minifyMarkdownCore
-    // collapses them. This is a structural change minification makes reliably.
     const rawBody = 'section one\n\n\n\n\nsection two';
     const prMd = { ...pr, body: rawBody };
     const standard = shapePullRequestForContent(
@@ -618,11 +605,7 @@ describe('githubSearchPullRequests content response shaping', () => {
       { ...baseRequest, body: true },
       false // shouldMinify = false
     );
-    // minify:none → exact raw body returned
     expect(raw.body).toBe(rawBody);
-    // minify:standard → body may differ (minification applied)
-    // At minimum: the raw body is NOT returned unchanged under minification
-    // (collapsed blank lines make it shorter).
     expect((standard.body as string).length).toBeLessThan(rawBody.length);
   });
 });

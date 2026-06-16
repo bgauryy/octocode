@@ -279,7 +279,7 @@ Vulnerability databases, incident reporting, exploit activity, and supply-chain 
 
 - Affected project GHSA pages (GitHub advisories)
 - Patched release notes and incident postmortems
-- Use `githubSearchCode` / `githubViewRepoStructure` to confirm fix landed
+- Use `ghSearchCode` / `ghViewRepoStructure` to confirm fix landed
 
 ---
 
@@ -331,10 +331,10 @@ Examples: `biomejs/biome`, `evanw/esbuild`, `vercel/turborepo`, `honojs/hono`
 
 ### Validation Tools
 
-- `githubSearchRepositories` — candidates by stars/topic/push date
-- `githubViewRepoStructure` — changelog/release docs
-- `githubGetFileContent` — release notes and changelogs
-- `githubSearchCode` — validate specific deprecations or APIs
+- `ghSearchRepos` — candidates by stars/topic/push date
+- `ghViewRepoStructure` — changelog/release docs
+- `ghGetFileContent` — release notes and changelogs
+- `ghSearchCode` — validate specific deprecations or APIs
 - Check merged PRs — prove shipped work
 
 **High-value categories:** AI tooling, TS/JS tooling, build tools, browser frameworks, infra/observability, security tools, DB tools, CLI tools

@@ -426,7 +426,6 @@ describe('File Operations - Additional Coverage Tests', () => {
 
       expect('error' in result).toBe(true);
       if ('error' in result) {
-        // "io" is < 3 chars so prefix match should NOT fire
         expect(result.hints?.some(h => h.includes('Did you mean'))).toBeFalsy();
       }
     });
@@ -910,8 +909,6 @@ describe('File Operations - Additional Coverage Tests', () => {
 
   describe('File content with no content returned', () => {
     it('should fall back to blob API when content field is null but file has size', async () => {
-      // GitHub Contents API returns content: null for files >= 1 MB.
-      // The fetch layer detects size > 0 + sha present and uses the Git Blob API.
       const blobContent = Buffer.from('hello from blob').toString('base64');
       const mockOctokit = {
         rest: {
@@ -996,15 +993,11 @@ describe('File Operations - Additional Coverage Tests', () => {
       expect(result).toHaveProperty('data');
       if ('data' in result && result.data) {
         expect(result.data.matchLocations).toBeDefined();
-        // Multi-occurrence matchString returns all slices; the hint carries
-        // the occurrence count rather than pointing at unfetched lines.
         expect(
           result.data.matchLocations?.some(w =>
             w.includes('occurrences of "TODO"')
           )
         ).toBe(true);
-        // All three occurrences are in the returned content (contiguous
-        // ranges merge into one slice here, so matchRanges stays omitted).
         expect(result.data.content).toContain('TODO: first');
         expect(result.data.content).toContain('TODO: second');
         expect(result.data.content).toContain('TODO: third');

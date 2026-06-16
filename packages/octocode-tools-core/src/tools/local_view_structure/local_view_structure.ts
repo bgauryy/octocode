@@ -41,8 +41,6 @@ export async function viewStructure(
       return pathValidation.errorResult as LocalViewStructureToolResult;
     }
 
-    // Lean by default: timestamps only on request, or when needed for
-    // time-based sorting / detailed listings.
     const effectiveShowModified =
       query.showFileLastModified ??
       (query.sortBy === 'time' || query.details === true);
@@ -103,8 +101,6 @@ function viewStructureNative(
 
   let filteredEntries = applyEntryFilters(entries, query);
 
-  // Default to name sort so omitted sortBy matches the flat (ls) path's
-  // alphabetical order instead of leaking filesystem traversal order.
   const sortBy = query.sortBy ?? 'name';
   filteredEntries = filteredEntries.sort((a, b) => {
     let comparison = 0;
@@ -142,14 +138,10 @@ function viewStructureNative(
     filteredEntries,
     query as { itemsPerPage?: number; page?: number }
   );
-  // Flat grouped name lists by default (githubViewRepoStructure parity);
-  // rich per-entry objects when details or timestamps are requested.
   const richEntries =
     query.details === true || query.showFileLastModified === true;
   const entryPayload = richEntries
     ? {
-        // Mirror flat mode: always emit base path so the agent knows which
-        // directory was scanned, regardless of output mode.
         path: basePath,
         entries: paginatedEntries.map(entry => ({
           ...toEntryObject(entry),
@@ -170,8 +162,6 @@ function viewStructureNative(
       : []),
   ];
   const isEmpty = totalEntries === 0;
-  // Detect when a filter (extensions/pattern) was active but returned zero
-  // files — folders may still be present, but the intended match failed.
   const queryPattern =
     typeof (query as { pattern?: unknown }).pattern === 'string'
       ? (query as { pattern?: string }).pattern
@@ -206,14 +196,11 @@ function viewStructureNative(
         ...(isEmpty ? { status: 'empty' as const } : {}),
         ...entryPayload,
         summary,
-        // Suppress the pagination block on a single complete page — the
-        // summary string already encodes the total count.
         ...(pagination.hasMore || pagination.totalPages > 1
           ? { pagination }
           : {}),
         ...(warnings.length > 0 && { warnings }),
         hints: [
-          // Active-filters hint dropped — the agent set those params itself.
           ...baseHints,
           ...entryPaginationHints,
         ],
@@ -246,9 +233,6 @@ function nativeNamePatternsFromQuery(
       : undefined;
   if (!pattern) return undefined;
 
-  // Keep bracket globs in TypeScript only. The native glob path intentionally
-  // supports the common "*" and "?" subset, while TS preserves the older
-  // character-class behavior.
   if (pattern.includes('[')) return undefined;
   return pattern.includes('*') || pattern.includes('?')
     ? [pattern]

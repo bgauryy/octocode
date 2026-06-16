@@ -52,7 +52,7 @@ Run these scenarios for every tool before adding tool-specific edge cases:
 
 ## Tool Checklist
 
-### `githubSearchCode`
+### `ghSearchCode`
 
 Primary code: [src/tools/github_search_code/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/github_search_code). Schema: `GitHubCodeSearchQueryLocalSchema`.
 
@@ -63,9 +63,9 @@ Primary code: [src/tools/github_search_code/](https://github.com/bgauryy/octocod
 | Pagination | Upstream provider pagination, per-query `outputPagination`, and top-level `responsePagination` can all appear without overwriting each other. |
 | Empty | No-match queries appear in `emptyQueries` with query id and concrete recovery hints. Empty groups are not silently dropped in mixed bulk calls. |
 | Warnings | `match-value-truncated` includes group id, path, full length, truncation point, and recovery. |
-| Research quality | A hit must include enough path and snippet evidence to justify a follow-up `githubGetFileContent` call. Each result must carry `owner`, `repo`, and per-match `path` and `value`. |
+| Research quality | A hit must include enough path and snippet evidence to justify a follow-up `ghGetFileContent` call. Each result must carry `owner`, `repo`, and per-match `path` and `value`. |
 
-### `githubGetFileContent`
+### `ghGetFileContent`
 
 Primary code: [src/tools/github_fetch_content/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/github_fetch_content). Schema: `FileContentQueryLocalSchema`.
 
@@ -79,7 +79,7 @@ Primary code: [src/tools/github_fetch_content/](https://github.com/bgauryy/octoc
 | Warnings | `content-truncated` includes group id, path, full content length, truncation point, and recovery. |
 | Research quality | File content should be answer-ready when the query requested a line range or match. Directory mode should be treated as setup evidence for local and LSP follow-ups. |
 
-### `githubViewRepoStructure`
+### `ghViewRepoStructure`
 
 Primary code: [src/tools/github_view_repo_structure/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/github_view_repo_structure). Schema: `GitHubViewRepoStructureQueryLocalSchema`.
 
@@ -91,7 +91,7 @@ Primary code: [src/tools/github_view_repo_structure/](https://github.com/bgauryy
 | Empty | Empty repository paths or filters return empty with precise path/branch context. Missing paths return error. |
 | Research quality | Structure should support choosing the next content or search query without guessing. Entries must expose `path` and `type`. |
 
-### `githubSearchRepositories`
+### `ghSearchRepos`
 
 Primary code: [src/tools/github_search_repos/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/github_search_repos). Schema: `GitHubReposSearchSingleQueryLocalSchema`.
 
@@ -103,7 +103,7 @@ Primary code: [src/tools/github_search_repos/](https://github.com/bgauryy/octoco
 | Empty | Empty results name active filters so the agent can broaden language, topics, or pushed-date constraints. |
 | Research quality | Results must include repository identity, description, URL, default branch, pushed date, language, stars, topics, and enough metadata to choose follow-up search or structure calls. |
 
-### `githubSearchPullRequests`
+### `ghSearchPRs`
 
 Primary code: [src/tools/github_search_pull_requests/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/github_search_pull_requests). Schema: `GitHubPullRequestSearchQueryLocalSchema`.
 
@@ -115,9 +115,9 @@ Primary code: [src/tools/github_search_pull_requests/](https://github.com/bgaury
 | Empty | Empty responses name state, owner/repo, match scope, and query terms when present. |
 | Research quality | A PR result should expose title, state, author, timestamps, branches, SHAs when present, changed-file counts, comments/diffs when requested, and enough evidence to explain why the PR matters. |
 
-### `packageSearch`
+### `npmSearch`
 
-Primary code: [src/tools/package_search/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/package_search). Schema: `PackageSearchQueryLocalSchema`.
+Primary code: [src/tools/package_search/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/package_search). Schema: `NpmSearchQueryLocalSchema`.
 
 | Surface | Checks |
 | --- | --- |
@@ -127,7 +127,7 @@ Primary code: [src/tools/package_search/](https://github.com/bgauryy/octocode-mc
 | Empty | Empty search returns package-specific recovery without pretending the package exists. |
 | Research quality | Results must include package identity, version, description, repository URL or owner/repo, homepage, weekly downloads if fetched, license, keywords, and freshness metadata when available. |
 
-### `githubCloneRepo`
+### `ghCloneRepo`
 
 Primary code: [src/tools/github_clone_repo/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/github_clone_repo). Schema: `CloneRepoQueryLocalSchema`.
 
@@ -152,7 +152,7 @@ Primary code: [src/tools/local_ripgrep/](https://github.com/bgauryy/octocode-mcp
 | Implementation | Uses the bundled `@vscode/ripgrep` path only. No grep fallback. Invalid regex, path errors, and no-permission paths are structured errors. |
 | Pagination | File and match pagination work independently. `line` values are stable 1-indexed `lineHint` inputs for LSP tools. |
 | Empty | Empty hints name active filters such as type, include, exclude, excludeDir, or path. No-filter empty stays silent. |
-| Research quality | Results must include file path, match count, line, column, snippet value, and enough context to drive precise `lspGetSemanticContent` queries such as `type="definition"`, `type="references"`, `type="callers"`, or `type="callees"`. |
+| Research quality | Results must include file path, match count, line, column, snippet value, and enough context to drive precise `lspGetSemantics` queries such as `type="definition"`, `type="references"`, `type="callers"`, or `type="callees"`. |
 
 ### `localViewStructure`
 
@@ -192,9 +192,9 @@ Primary code: [src/tools/local_fetch_content/](https://github.com/bgauryy/octoco
 | Empty | A missing `matchString` result returns empty with no fake content. Missing file and invalid path are errors. |
 | Research quality | Returned content must include path, line range, total lines, `isPartial`, and enough source text to cite or reason from. Partial line-range reads emit a `startLine=N` continuation hint. |
 
-### `lspGetSemanticContent`
+### `lspGetSemantics`
 
-Primary code: [src/tools/lsp/semantic_content/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp/semantic_content). Schema: `LspGetSemanticContentQuerySchema`.
+Primary code: [src/tools/lsp/semantic_content/](https://github.com/bgauryy/octocode-mcp/tree/main/packages/octocode-mcp/src/tools/lsp/semantic_content). Schema: `LspGetSemanticsQuerySchema`.
 
 | Surface | Checks |
 | --- | --- |
@@ -210,11 +210,11 @@ These suites verify that tools compose into reliable research workflows.
 
 | Suite | Steps | Pass criteria |
 | --- | --- | --- |
-| Local semantic navigation | `localSearchCode` for a symbol, then `lspGetSemanticContent` with `type="definition"`, `type="references"`, and `type="callers"`/`type="callees"` using returned line hints. | LSP tools resolve the same symbol, references include the definition when requested, call direction is correct, and fallback mode is explicit if used. |
-| Remote to local deep dive | `githubSearchCode` or `githubSearchRepositories`, then `githubCloneRepo`, then local search and LSP tools on `localPath`. | Remote identity, branch, clone path, and local path all line up. No result requires guessing a path or branch. |
-| Structure to content | `githubViewRepoStructure` or `localViewStructure`, then content fetch on selected entries. | Paths emitted by structure tools are directly accepted by content tools. Empty directories and missing files are differentiated. |
-| Package provenance | `packageSearch`, then `githubViewRepoStructure` or `githubSearchCode` on parsed repo owner/name. | Package repo metadata is normalized enough to drive GitHub tools, and missing/ambiguous repo URLs are represented as missing evidence. |
-| PR archaeology | `githubSearchPullRequests` with title search, then PR number fetch and file-content or code search follow-up. | Approximate search finds candidates; PR-number path returns full body/diff data requested; large diffs guide targeted follow-up. |
+| Local semantic navigation | `localSearchCode` for a symbol, then `lspGetSemantics` with `type="definition"`, `type="references"`, and `type="callers"`/`type="callees"` using returned line hints. | LSP tools resolve the same symbol, references include the definition when requested, call direction is correct, and fallback mode is explicit if used. |
+| Remote to local deep dive | `ghSearchCode` or `ghSearchRepos`, then `ghCloneRepo`, then local search and LSP tools on `localPath`. | Remote identity, branch, clone path, and local path all line up. No result requires guessing a path or branch. |
+| Structure to content | `ghViewRepoStructure` or `localViewStructure`, then content fetch on selected entries. | Paths emitted by structure tools are directly accepted by content tools. Empty directories and missing files are differentiated. |
+| Package provenance | `npmSearch`, then `ghViewRepoStructure` or `ghSearchCode` on parsed repo owner/name. | Package repo metadata is normalized enough to drive GitHub tools, and missing/ambiguous repo URLs are represented as missing evidence. |
+| PR archaeology | `ghSearchPRs` with title search, then PR number fetch and file-content or code search follow-up. | Approximate search finds candidates; PR-number path returns full body/diff data requested; large diffs guide targeted follow-up. |
 | Empty-result recovery | Run over-constrained queries across GitHub, local, and LSP tools. | Each tool either stays silent when no concrete advice exists or names exactly which filter to relax. |
 | Pagination chain | Force small `limit`, `entriesPerPage`, `filesPerPage`, `matchesPerPage`, `referencesPerPage`, `callsPerPage`, `charLength`, and `responseCharLength`. | Every next cursor continues the same result set without duplicates, missing entries, or final-page chatter. |
 | Verbosity chain | Run the same broad task with `concise`, drill down with `compact`, and confirm with `basic`. | `concise` is tiny and lossy, `compact` is enough to choose a target, and `basic` provides citeable evidence. |

@@ -24,32 +24,32 @@ import type { MCPConfig } from '../../types/index.js';
 const ALL_AVAILABLE_TOOLS = {
   github: [
     {
-      id: 'githubSearchCode',
+      id: 'ghSearchCode',
       name: 'Search Code',
       description: 'Search for code patterns in GitHub repositories',
     },
     {
-      id: 'githubGetFileContent',
+      id: 'ghGetFileContent',
       name: 'Get File Content',
       description: 'Fetch file content from GitHub repositories',
     },
     {
-      id: 'githubViewRepoStructure',
+      id: 'ghViewRepoStructure',
       name: 'View Repo Structure',
       description: 'Browse repository directory structure',
     },
     {
-      id: 'githubSearchRepositories',
+      id: 'ghSearchRepos',
       name: 'Search Repositories',
       description: 'Search for GitHub repositories',
     },
     {
-      id: 'githubSearchPullRequests',
+      id: 'ghSearchPRs',
       name: 'Search Pull Requests',
       description: 'Search for pull requests and view diffs',
     },
     {
-      id: 'packageSearch',
+      id: 'npmSearch',
       name: 'Package Search',
       description: 'Search npm/Python packages and find their repos',
     },
@@ -1028,11 +1028,11 @@ function getExampleValue(option: ConfigOption): string {
     case 'githubApiUrl':
       return 'GITHUB_API_URL=https://github.mycompany.com/api/v3';
     case 'toolsToRun':
-      return 'TOOLS_TO_RUN=githubSearchCode,githubGetFileContent';
+      return 'TOOLS_TO_RUN=ghSearchCode,ghGetFileContent';
     case 'enableTools':
       return 'ENABLE_TOOLS=localSearchCode,localFindFiles';
     case 'disableTools':
-      return 'DISABLE_TOOLS=githubSearchPullRequests';
+      return 'DISABLE_TOOLS=ghSearchPRs';
     case 'requestTimeout':
       return 'REQUEST_TIMEOUT=60000';
     case 'maxRetries':

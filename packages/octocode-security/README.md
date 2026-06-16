@@ -205,7 +205,7 @@ configureSecurity({
 });
 
 const handleSearch = withSecurityValidation(
-  'githubSearchCode',
+  'ghSearchCode',
   async (sanitizedArgs, authInfo, sessionId) => {
     // sanitizedArgs is already validated and secrets-redacted
     const results = await searchCode(sanitizedArgs, authInfo);

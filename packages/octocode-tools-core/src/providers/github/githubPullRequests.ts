@@ -108,7 +108,6 @@ export function transformPullRequestResult(
         deletions: f.deletions,
         patch: f.patch,
       })),
-      // Surface sanitization warnings (bot filtering, secret redaction) to agent
       ...(Array.isArray(pr._sanitization_warnings) &&
       pr._sanitization_warnings.length > 0
         ? { sanitizationWarnings: pr._sanitization_warnings as string[] }

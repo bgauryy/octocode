@@ -4,15 +4,6 @@ import { LocalRipgrepQuerySchema } from '../../../octocode-tools-core/src/tools/
 import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
 import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
 
-/**
- * The `type` param historically meant 4 unrelated things across tools
- * (file|dir / f|d / ripgrep-lang / lsp-query-kind). To de-collide the two
- * local tools, `localSearchCode.type` was replaced by `langType` and
- * `localFindFiles.type` by `entryType`. There is no `type` rewrite — the raw
- * upstream `type` field is omitted from the public schema, so each tool has
- * exactly one name for the filter. Execution consumes that public name
- * directly, so stale keys cannot leak back into the command path.
- */
 describe('localSearchCode langType (one public field)', () => {
   const base = { keywords: 'foo', path: 'src' };
 
@@ -29,8 +20,6 @@ describe('localSearchCode langType (one public field)', () => {
 
   it('does not expose `type` on the public schema (stripped, not honored)', () => {
     const result = LocalRipgrepQuerySchema.safeParse({ ...base, type: 'ts' });
-    // Zod objects strip unknown keys rather than failing, so parse still
-    // succeeds — but `type` must NOT survive as a recognized field.
     expect(result.success).toBe(true);
     if (result.success) {
       expect((result.data as { type?: string }).type).toBeUndefined();

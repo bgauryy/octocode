@@ -14,10 +14,6 @@ import { OctokitWithThrottling } from './client.js';
 import type { MinifyMode } from '../scheme/fields.js';
 
 function getDefaultContentPageSize(): number {
-  // Use the global output limit only if it was explicitly lowered below the
-  // tool-specific default; otherwise use the tool-specific 1000-char budget.
-  // This keeps pages tight (cache re-use, low token cost) while still
-  // respecting operator overrides via OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH.
   const globalLimit = getOutputCharLimit();
   return Math.min(globalLimit, GITHUB_FILE_CONTENT_DEFAULT_CHAR_LENGTH);
 }
@@ -43,10 +39,6 @@ export function applyContentPagination(
     return data;
   }
 
-  // Proactive semantic chunking: snap the page end to the next tree-sitter /
-  // heuristic block boundary so the response is never cut mid-function.
-  // Falls back to char-limit when the file has no semantic structure (data
-  // files, giant functions) — reactive nextBlockChar hint covers that case.
   const filePath = data.path ?? undefined;
   const { length: snappedLength, chunkMode } = snapToSemanticBoundary(
     content,
@@ -57,8 +49,6 @@ export function applyContentPagination(
 
   const paginationMeta = applyPagination(content, charOffset, snappedLength);
 
-  // Reactive fallback: when char-limit mode was used and the cut is mid-block,
-  // surface nextBlockChar so the agent can extend charLength in one step.
   let nextBlockChar: number | undefined;
   if (paginationMeta.hasMore && chunkMode === 'char-limit') {
     if (isMidBlockCut(paginationMeta.paginatedContent)) {
@@ -67,13 +57,6 @@ export function applyContentPagination(
     }
   }
 
-  // Tool-level pagination hints are emitted by the github_fetch_content
-  // finalizer (buildRuntimeHints) from `pagination`; the provider boundary
-  // (transformFileContentResult) does not carry per-file `hints`, so none are
-  // attached here.
-  //
-  // Byte fields are intentionally omitted — pagination is char-based.
-  // Consumers must use charOffset (not byteOffset) as the continuation cursor.
   return {
     ...data,
     content: paginationMeta.paginatedContent,
@@ -142,8 +125,6 @@ export async function processFileContentAPI(
 ): Promise<GitHubFileContentApiResult> {
   const sourceChars = decodedContent.length;
   const sourceBytes = Buffer.byteLength(decodedContent, 'utf-8');
-  // "symbols" implies the standard comment/whitespace strip on whatever
-  // content leaves this function (skeleton, or full-content fallback).
   const applyStandardMinify = minify === 'standard' || minify === 'symbols';
   const fallbackContentView = applyStandardMinify ? 'standard' : 'none';
 
@@ -154,9 +135,6 @@ export async function processFileContentAPI(
       signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${filePath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
     }
     if (sigs !== null) {
-      // Redact secrets in the skeleton too (a top-level `const KEY = "…"`
-      // matches a signature pattern) — same ContentSanitizer pass the normal
-      // content path runs below, keeping local and GitHub aligned.
       const sanitized = ContentSanitizer.sanitizeContent(sigs, filePath);
       const sigContent = contextUtils.applyContentViewMinification(
         sanitized.content,
@@ -183,9 +161,6 @@ export async function processFileContentAPI(
         branch,
         totalLines: decodedContent.split('\n').length,
         ...sourceSizeFields(sourceChars, sourceBytes),
-        // Skeletons bypass applyContentPagination — returned whole. isSkeleton
-        // carries the lossy "bodies omitted" signal, while isPartial remains
-        // false so agents do not try to paginate a complete skeleton index.
         isPartial: false,
         signaturesExtracted: true,
         hints,
@@ -208,9 +183,6 @@ export async function processFileContentAPI(
   if (fullContent) {
     finalContent = decodedContent;
   } else if (matchString) {
-    // Same multi-occurrence extraction as localGetFileContent: ALL matches are
-    // returned as merged context slices (with "[N lines omitted]" separators),
-    // not just the first hit. Oversized results are char-paginated downstream.
     const isCaseSensitive = matchStringCaseSensitive === true;
     let extraction: ReturnType<typeof extractMatchingLines>;
     try {
@@ -337,9 +309,6 @@ export async function processFileContentAPI(
     );
   }
 
-  // Large-file navigation: when no narrowing was requested and the file is big,
-  // guide the agent to use startLine for tail access and minify:"symbols" for
-  // an export index — avoids agents giving up on large files they can read.
   if (
     totalLines > 2000 &&
     minify !== 'symbols' &&
@@ -361,7 +330,6 @@ export async function processFileContentAPI(
     repo,
     path: filePath,
     content: finalContent,
-    // Omit contentView when 'standard' (default) — absence implies standard.
     ...(fallbackContentView !== 'standard' && {
       contentView: fallbackContentView,
     }),

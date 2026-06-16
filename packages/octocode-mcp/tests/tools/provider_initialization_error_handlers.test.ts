@@ -60,7 +60,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     vi.clearAllMocks();
   });
 
-  it('returns an error result for githubSearchCode', async () => {
+  it('returns an error result for ghSearchCode', async () => {
     const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
       queries: [{ keywordsToSearch: ['test'] }],
     });
@@ -70,7 +70,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     );
   });
 
-  it('returns an error result for githubGetFileContent', async () => {
+  it('returns an error result for ghGetFileContent', async () => {
     const result = await mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
       queries: [{ owner: 'owner', repo: 'repo', path: 'README.md' }],
     });
@@ -80,7 +80,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     );
   });
 
-  it('returns an error result for githubSearchPullRequests', async () => {
+  it('returns an error result for ghSearchPRs', async () => {
     const result = await mockServer.callTool(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       {
@@ -93,7 +93,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     );
   });
 
-  it('returns an error result for githubViewRepoStructure', async () => {
+  it('returns an error result for ghViewRepoStructure', async () => {
     const result = await mockServer.callTool(
       TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
       {
@@ -106,7 +106,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     );
   });
 
-  it('returns an error result for githubSearchRepositories', async () => {
+  it('returns an error result for ghSearchRepos', async () => {
     const result = await mockServer.callTool(
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       {
@@ -119,7 +119,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     );
   });
 
-  it('returns an error result for githubCloneRepo', async () => {
+  it('returns an error result for ghCloneRepo', async () => {
     const result = await mockServer.callTool(TOOL_NAMES.GITHUB_CLONE_REPO, {
       queries: [{ owner: 'owner', repo: 'repo' }],
     });

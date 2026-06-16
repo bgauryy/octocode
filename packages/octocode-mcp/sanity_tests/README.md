@@ -28,13 +28,13 @@ comparisons.
 
 ## Tools
 
-- [githubSearchCode](./githubSearchCode.md)
-- [githubGetFileContent](./githubGetFileContent.md)
-- [githubViewRepoStructure](./githubViewRepoStructure.md)
-- [githubSearchRepositories](./githubSearchRepositories.md)
-- [githubSearchPullRequests](./githubSearchPullRequests.md)
-- [packageSearch](./packageSearch.md)
-- [githubCloneRepo](./githubCloneRepo.md)
+- [ghSearchCode](./ghSearchCode.md)
+- [ghGetFileContent](./ghGetFileContent.md)
+- [ghViewRepoStructure](./ghViewRepoStructure.md)
+- [ghSearchRepos](./ghSearchRepos.md)
+- [ghSearchPRs](./ghSearchPRs.md)
+- [npmSearch](./npmSearch.md)
+- [ghCloneRepo](./ghCloneRepo.md)
 - [localSearchCode](./localSearchCode.md)
 - [localViewStructure](./localViewStructure.md)
 - [localFindFiles](./localFindFiles.md)
@@ -46,6 +46,6 @@ comparisons.
 ## Open pagination gaps (tracked)
 
 - `lspFindReferences` — over-budget `locations` tail-dropped, not char-paged (issue #1 / task #6).
-- `packageSearch` — no result-count page cursor for `searchLimit>1` (issue #2).
+- `npmSearch` — no result-count page cursor for `searchLimit>1` (issue #2).
 - `localFindFiles` — `maxFiles` caps discovery before pagination (issue #3).
 - `lspCallHierarchy` — per-node `content` clipped to 500 chars (issue #4).

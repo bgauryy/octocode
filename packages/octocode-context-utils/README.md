@@ -66,7 +66,7 @@ const yaml = jsonToYamlString({ tool: 'read_file', result: data });
 
 ### `applyContentViewMinification(content, filePath) → string`
 
-**Use for:** MCP file-content tools, `localGetFileContent`, `githubGetFileContent`, PR patch context.
+**Use for:** MCP file-content tools, `localGetFileContent`, `ghGetFileContent`, PR patch context.
 
 Applies comment stripping and whitespace compression appropriate for the file type. Preserves indentation and line structure so agents can read the output. Returns the original if the result is not shorter.
 

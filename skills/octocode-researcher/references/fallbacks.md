@@ -12,14 +12,14 @@ Use this reference when Octocode MCP tools are not detected. See [SKILL.md §2](
 
 | Octocode Tool | `gh` CLI Equivalent |
 |---------------|---------------------|
-| `githubSearchCode` | `gh search code "PATTERN" --repo OWNER/REPO --language LANG` |
-| `githubSearchRepositories` | `gh search repos "QUERY" --language LANG --sort stars` |
-| `githubViewRepoStructure` | `gh api repos/OWNER/REPO/git/trees/BRANCH?recursive=1 --jq '.tree[].path'` |
-| `githubGetFileContent` | `gh api repos/OWNER/REPO/contents/PATH --jq '.content' \| base64 -d` |
-| `githubSearchPullRequests` | `gh search prs "QUERY" --repo OWNER/REPO --state merged` |
-| `packageSearch` | `npm search KEYWORD --json` |
-| `githubCloneRepo` | `git clone --depth 1 https://github.com/OWNER/REPO.git /tmp/research-REPO` |
-| `githubCloneRepo` (sparse) | `git clone --depth 1 --filter=blob:none --sparse URL /tmp/research-REPO && cd /tmp/research-REPO && git sparse-checkout set TARGET_DIR` |
+| `ghSearchCode` | `gh search code "PATTERN" --repo OWNER/REPO --language LANG` |
+| `ghSearchRepos` | `gh search repos "QUERY" --language LANG --sort stars` |
+| `ghViewRepoStructure` | `gh api repos/OWNER/REPO/git/trees/BRANCH?recursive=1 --jq '.tree[].path'` |
+| `ghGetFileContent` | `gh api repos/OWNER/REPO/contents/PATH --jq '.content' \| base64 -d` |
+| `ghSearchPRs` | `gh search prs "QUERY" --repo OWNER/REPO --state merged` |
+| `npmSearch` | `npm search KEYWORD --json` |
+| `ghCloneRepo` | `git clone --depth 1 https://github.com/OWNER/REPO.git /tmp/research-REPO` |
+| `ghCloneRepo` (sparse) | `git clone --depth 1 --filter=blob:none --sparse URL /tmp/research-REPO && cd /tmp/research-REPO && git sparse-checkout set TARGET_DIR` |
 
 **`gh` CLI tips**:
 - `gh search code` qualifiers: `--filename`, `--extension`, `--language`, `--repo`
@@ -108,9 +108,9 @@ If neither Octocode MCP nor `gh` CLI is available:
 | `ls`, `tree` | `localViewStructure` | Filtering, sorting, depth control, summaries |
 | `find` | `localFindFiles` | Time/size/permission filters, pagination |
 | `cat`, `head` | `localGetFileContent` | matchString targeting, context lines, pagination |
-| `gh api` | `githubSearchCode` | Structured results, hints, pagination |
-| `npm search` | `packageSearch` | npm registry, structured metadata |
-| `WebFetch` (GitHub) | `githubViewRepoStructure` | Tree view, no HTML parsing |
+| `gh api` | `ghSearchCode` | Structured results, hints, pagination |
+| `npm search` | `npmSearch` | npm registry, structured metadata |
+| `WebFetch` (GitHub) | `ghViewRepoStructure` | Tree view, no HTML parsing |
 
 **Exclusive Octocode benefits** (unavailable in Tier 2/3):
 - Structured JSON with hints for next steps

@@ -1,26 +1,4 @@
-/**
- * withSecurityValidation.core.test.ts
- *
- * Parity contract tests for the shared `runSecure` core.
- * Uses the REAL ContentSanitizer (Rust-backed) — no mocks, no stubs.
- * All validation outcomes are driven by crafted real inputs.
- *
- * Real rejection triggers used here:
- *   - `{ constructor: 'evil' }`          → "Dangerous parameter key blocked: constructor"
- *   - `{ prototype: 'evil' }`            → "Dangerous parameter key blocked: prototype"
- *   - 21-level deep nested object         → "Maximum nesting depth exceeded"
- *   - circular reference                  → "Circular reference detected"
- *
- * Layout:
- *   CORE-01  Input validation (shared path)
- *   CORE-02  Success result shape
- *   CORE-03  Logging on success vs error (unified gate)
- *   CORE-05  Timeout behaviour
- *   CORE-06  AbortSignal cancellation
- *   CORE-07  Full-wrapper auth passthrough (unique to withSecurityValidation)
- *   CORE-08  Basic-wrapper no-auth contract (unique to withBasicSecurityValidation)
- *   CORE-09  configureSecurity isolation
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -29,9 +7,6 @@ import {
   configureSecurity,
 } from '../src/withSecurityValidation.js';
 
-// ---------------------------------------------------------------------------
-// Real input helpers — no mocks, drives the actual Rust-backed sanitizer
-// ---------------------------------------------------------------------------
 function makeDeepObject(depth: number): Record<string, unknown> {
   return depth <= 0 ? {} : { x: makeDeepObject(depth - 1) };
 }
@@ -74,9 +49,6 @@ function teardownDeps() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// CORE-01: Input validation — identical rejection path in both wrappers
-// ---------------------------------------------------------------------------
 describe('CORE-01: Input validation — both wrappers reject invalid params identically', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,7 +59,6 @@ describe('CORE-01: Input validation — both wrappers reject invalid params iden
   it('full wrapper: returns error result when validation fails (dangerous key)', async () => {
     const handler = vi.fn();
     const wrapped = withSecurityValidation('tool', handler);
-    // 'constructor' is a dangerous key — real sanitizer rejects it
     const result = await wrapped({ constructor: 'evil' }, {});
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/Security validation failed/);
@@ -133,7 +104,6 @@ describe('CORE-01: Input validation — both wrappers reject invalid params iden
 
   it('both wrappers accept deeply nested valid objects', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    // 19 levels deep — under the 20-level limit
     const deepInput = makeDeepObject(19);
 
     const r1 = await withSecurityValidation('t', handler)(deepInput, {});
@@ -145,7 +115,6 @@ describe('CORE-01: Input validation — both wrappers reject invalid params iden
 
   it('both wrappers reject objects exceeding max nesting depth', async () => {
     const handler = vi.fn();
-    // 22 levels deep — over the 20-level limit
     const input = makeDeepObject(22);
 
     const r1 = await withSecurityValidation('t', handler)(input, {});
@@ -157,9 +126,6 @@ describe('CORE-01: Input validation — both wrappers reject invalid params iden
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-02: Success result shape — both wrappers forward handler output unchanged
-// ---------------------------------------------------------------------------
 describe('CORE-02: Success result — both wrappers forward handler output unchanged', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -198,9 +164,6 @@ describe('CORE-02: Success result — both wrappers forward handler output uncha
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-03: Logging gate — both wrappers log on success, skip on error
-// ---------------------------------------------------------------------------
 describe('CORE-03: Logging gate — both wrappers log on success, skip on error', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -210,13 +173,13 @@ describe('CORE-03: Logging gate — both wrappers log on success, skip on error'
 
   it('full wrapper: logToolCall fires on success', async () => {
     const handler = vi.fn().mockResolvedValue(SUCCESS_RESULT);
-    await withSecurityValidation('githubSearchCode', handler)(
+    await withSecurityValidation('ghSearchCode', handler)(
       { queries: [{ owner: 'acme', repo: 'api' }] },
       {}
     );
     expect(mockLogToolCall).toHaveBeenCalledTimes(1);
     expect(mockLogToolCall).toHaveBeenCalledWith(
-      'githubSearchCode',
+      'ghSearchCode',
       ['acme/api'],
       undefined,
       undefined,
@@ -266,9 +229,6 @@ describe('CORE-03: Logging gate — both wrappers log on success, skip on error'
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-05: Timeout — both wrappers enforce it
-// ---------------------------------------------------------------------------
 describe('CORE-05: Timeout enforcement', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -322,9 +282,6 @@ describe('CORE-05: Timeout enforcement', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-06: AbortSignal — both wrappers cancel on abort
-// ---------------------------------------------------------------------------
 describe('CORE-06: AbortSignal cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -383,9 +340,6 @@ describe('CORE-06: AbortSignal cancellation', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-07: withSecurityValidation — auth passthrough (unique to this wrapper)
-// ---------------------------------------------------------------------------
 describe('CORE-07: withSecurityValidation — auth/session passthrough', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -426,9 +380,6 @@ describe('CORE-07: withSecurityValidation — auth/session passthrough', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-08: withBasicSecurityValidation — no auth in handler signature
-// ---------------------------------------------------------------------------
 describe('CORE-08: withBasicSecurityValidation — no auth contract', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -475,9 +426,6 @@ describe('CORE-08: withBasicSecurityValidation — no auth contract', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// CORE-09: configureSecurity isolation — deps applied to both wrappers
-// ---------------------------------------------------------------------------
 describe('CORE-09: configureSecurity applies to both wrappers', () => {
   afterEach(teardownDeps);
 

@@ -1,9 +1,4 @@
-/**
- * Canonical source used by the minify:"symbols" skeleton alignment tests on both the
- * GitHub terminal (fileOperations.processContent.test.ts) and the local
- * terminal (local_fetch_content.test.ts). Both must return exactly
- * extractSignatures(SIGNATURE_SOURCE) — that equality IS the alignment contract.
- */
+
 export const SIGNATURE_SOURCE = [
   "import { A } from './a';",
   '',

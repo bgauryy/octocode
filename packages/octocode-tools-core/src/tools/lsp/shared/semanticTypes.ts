@@ -1,6 +1,6 @@
 import type { ExactPosition, LSPRange } from 'octocode-lsp/types';
 
-export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME = 'lspGetSemanticContent';
+export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME = 'lspGetSemantics';
 
 export const SEMANTIC_CONTENT_TYPES = [
   'definition',
@@ -45,7 +45,7 @@ export type DocumentSymbolsSemanticQuery = SemanticQueryBase & {
   type: 'documentSymbols';
 };
 
-export type LspGetSemanticContentQuery =
+export type LspGetSemanticsQuery =
   | SymbolAnchoredSemanticQuery
   | DocumentSymbolsSemanticQuery;
 
@@ -58,8 +58,6 @@ export type ResolvedSymbol = {
   position: ExactPosition;
 };
 
-// Envelope variant: range/position are 0-based internals derived from the
-// same location as foundAtLine (1-based) — emit only the agent-facing facts.
 export type CompactResolvedSymbol = {
   name: string;
   uri: string;
@@ -78,8 +76,6 @@ export function compactResolvedSymbol(
   };
 }
 
-// Envelope variant of CodeSnippet: the 0-based `range` is dropped — content
-// is line-prefixed and displayRange is 1-based, which is what agents chain on.
 export type CompactLocation = {
   uri: string;
   content?: string;
@@ -146,7 +142,6 @@ export type LspSemanticEnvelope = {
     | { kind: 'definition'; locations: Array<CompactLocation | string> }
     | {
         kind: 'references';
-        // groupByFile=true emits byFile INSTEAD OF the flat locations list.
         locations?: Array<CompactLocation | string>;
         byFile?: unknown[];
         totalReferences: number;

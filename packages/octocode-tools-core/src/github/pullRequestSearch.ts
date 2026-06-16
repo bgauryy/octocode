@@ -196,7 +196,6 @@ async function searchGitHubPullRequestsAPIInternal(
     );
     const currentPage = params.page || 1;
 
-    // Capture the effective GitHub query string for debugging / agent transparency
     const effectiveQuery = searchQuery;
 
     const searchResult = await octokit.rest.search.issuesAndPullRequests({

@@ -178,8 +178,8 @@ export const ResearchResponse = {
     const hints: string[] = [...mcpHints];
     if (locations.length > 0) {
       hints.push('Use returned line numbers for further navigation');
-        if (type === 'definition') hints.push('Use lspGetSemanticContent type=references to find all usages');
-        if (type === 'references') hints.push('Use lspGetSemanticContent type=callers for call relationships');
+        if (type === 'definition') hints.push('Use lspGetSemantics type=references to find all usages');
+        if (type === 'references') hints.push('Use lspGetSemantics type=callers for call relationships');
     } else if (mcpHints.length === 0) {
       hints.push('Symbol may be external or unindexed');
       hints.push('Try localSearchCode as fallback');
@@ -236,7 +236,7 @@ export const ResearchResponse = {
     if (structure.files.length > 20 || structure.folders.length > 20) {
       hints.push('Results truncated - use path filter to narrow scope');
     }
-    hints.push('Use localSearchCode or githubSearchCode to find specific files');
+    hints.push('Use localSearchCode or ghSearchCode to find specific files');
 
     return createRoleBasedResult({
       system: {
@@ -261,7 +261,7 @@ export const ResearchResponse = {
   },
 
   
-  packageSearch(result: {
+  npmSearch(result: {
     packages: Array<{
       name: string;
       version?: string;
@@ -292,8 +292,8 @@ export const ResearchResponse = {
 
     const hints: string[] = [...mcpHints];
     if (packages.length > 0) {
-      hints.push('Use repository URL with githubViewRepoStructure to explore source');
-      hints.push('Use githubSearchCode to find usage examples');
+      hints.push('Use repository URL with ghViewRepoStructure to explore source');
+      hints.push('Use ghSearchCode to find usage examples');
     } else if (mcpHints.length === 0) {
       hints.push('Try different search terms');
       hints.push('Check package name spelling');

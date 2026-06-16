@@ -3,8 +3,8 @@ import { fetchWithRetries } from '../http/fetch.js';
 import { generateCacheKey, withDataCache } from '../http/cache.js';
 import { isCircuitOpen } from '../http/circuitBreaker.js';
 import type {
-  PackageSearchAPIResult,
-  PackageSearchError,
+  NpmSearchAPIResult,
+  NpmSearchError,
   NpmPackageResult,
   DeprecationInfo,
 } from './types.js';
@@ -219,11 +219,6 @@ function mapExports(value: unknown): string[] | undefined {
   return entries.length > 0 ? entries : undefined;
 }
 
-/**
- * Normalize package.json `bin` into compact `command → path` lines. `bin` is a
- * key code-location indicator for CLI packages — it points at the executable
- * source, which `main`/`exports` (library entry) do not.
- */
 function mapBin(value: unknown, packageName?: string): string[] | undefined {
   if (typeof value === 'string') {
     const cmd = packageName?.replace(/^@[^/]+\//, '') ?? '';
@@ -583,8 +578,6 @@ async function fetchPackageDetailsFromRegistry(
 }
 
 function cdnPackageJsonUrls(packageName: string): string[] {
-  // Exact package names have already passed isExactPackageName(), so preserving
-  // the scoped slash here is safe and required by jsDelivr/unpkg URLs.
   return [
     `https://cdn.jsdelivr.net/npm/${packageName}/package.json`,
     `https://unpkg.com/${packageName}/package.json`,
@@ -686,7 +679,7 @@ async function fetchNpmPackageByView(
   packageName: string,
   fetchMetadata: boolean,
   allowCdnFallback: boolean = false
-): Promise<PackageSearchAPIResult | PackageSearchError> {
+): Promise<NpmSearchAPIResult | NpmSearchError> {
   const { pkg, errorDetail, rawResponseChars } =
     await fetchPackageDetailsWithError(packageName, fetchMetadata);
 
@@ -717,7 +710,7 @@ async function fetchNpmPackageByView(
         hints: isNetwork
           ? [
               'npm registry is unreachable.',
-              'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+              'Use `ghSearchRepos` to find the source repo directly by package name or domain terms.',
             ]
           : [
               'Ensure npm is installed and available in PATH',
@@ -745,7 +738,7 @@ async function searchNpmPackageViaCliSearch(
   limit: number,
   fetchMetadata: boolean,
   from: number = 0
-): Promise<PackageSearchAPIResult | PackageSearchError> {
+): Promise<NpmSearchAPIResult | NpmSearchError> {
   const searchLimit = Math.max(limit + from, limit);
   const result = await executeNpmCommand(
     'search',
@@ -790,7 +783,6 @@ async function searchNpmPackageViaCliSearch(
     };
   }
 
-  // Sort by npm's combined score (higher = more relevant/popular) before paginating.
   const sortedRaw = [...raw].sort((a, b) => {
     const scoreA = (a as NpmCliSearchItem)?.score?.final ?? 0;
     const scoreB = (b as NpmCliSearchItem)?.score?.final ?? 0;
@@ -836,7 +828,7 @@ async function searchNpmPackageViaRegistrySearch(
   limit: number,
   fetchMetadata: boolean,
   from: number = 0
-): Promise<PackageSearchAPIResult | PackageSearchError> {
+): Promise<NpmSearchAPIResult | NpmSearchError> {
   try {
     const fromParam = from > 0 ? `&from=${from}` : '';
     const url = `${DEFAULT_NPM_REGISTRY}/-/v1/search?text=${encodeURIComponent(keywords)}&size=${limit}${fromParam}`;
@@ -884,7 +876,6 @@ async function searchNpmPackageViaRegistrySearch(
       };
     }
 
-    // Sort by npm's own combined score (higher = more relevant/popular) before slicing.
     const sortedObjects = [...validation.data.objects].sort((a, b) => {
       const scoreA =
         (a.score as { final?: number } | null | undefined)?.final ?? 0;
@@ -969,7 +960,7 @@ async function searchNpmPackageViaRegistrySearch(
 async function searchNpmPackageViaWebSearch(
   packageName: string,
   limit: number
-): Promise<PackageSearchAPIResult | PackageSearchError> {
+): Promise<NpmSearchAPIResult | NpmSearchError> {
   const NPMS_API = 'https://api.npms.io/v2/search';
   const USER_AGENT =
     'octocode-mcp/1.0 (+https://github.com/bgauryy/octocode-mcp)';
@@ -1064,7 +1055,7 @@ async function searchNpmPackageViaSearch(
   limit: number,
   fetchMetadata: boolean,
   from: number = 0
-): Promise<PackageSearchAPIResult | PackageSearchError> {
+): Promise<NpmSearchAPIResult | NpmSearchError> {
   try {
     const cliResult = await searchNpmPackageViaCliSearch(
       keywords,
@@ -1086,8 +1077,8 @@ async function searchNpmPackageViaSearch(
 }
 
 async function enrichTopSearchResult(
-  result: PackageSearchAPIResult
-): Promise<PackageSearchAPIResult> {
+  result: NpmSearchAPIResult
+): Promise<NpmSearchAPIResult> {
   /* c8 ignore next */
   if (result.packages.length === 0) return result;
   const topPkg = result.packages[0] as NpmPackageResult;
@@ -1118,7 +1109,7 @@ export async function searchNpmPackage(
   limit: number,
   fetchMetadata: boolean,
   from: number = 0
-): Promise<PackageSearchAPIResult | PackageSearchError> {
+): Promise<NpmSearchAPIResult | NpmSearchError> {
   const cacheKey = generateCacheKey('npm-search', {
     name: packageName,
     limit,
@@ -1162,9 +1153,9 @@ export async function searchNpmPackage(
           error:
             'npm registry circuit open and web search returned no results.',
           hints: [
-            'Use `githubSearchRepositories` to find the source repo directly.',
+            'Use `ghSearchRepos` to find the source repo directly.',
           ],
-        } as PackageSearchError;
+        } as NpmSearchError;
       }
 
       if (from === 0 && isExactPackageName(packageName)) {
@@ -1210,7 +1201,7 @@ export async function searchNpmPackage(
           ...searchResult,
           hints: [
             'npm registry and web search (npms.io) are both unreachable.',
-            'Use `githubSearchRepositories` to find the source repo directly by package name or domain terms.',
+            'Use `ghSearchRepos` to find the source repo directly by package name or domain terms.',
           ],
         };
       }

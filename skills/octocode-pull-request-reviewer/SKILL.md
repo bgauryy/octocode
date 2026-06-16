@@ -88,7 +88,7 @@ When rules conflict, follow this precedence (highest wins):
 <local_mode_config priority="maximum">
 **CRITICAL: Local Mode requires Octocode MCP local tools to be enabled.**
 
-Local tools (`localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`) and LSP tools (`lspGetSemanticContent(type=definition)`, `lspGetSemanticContent(type=references)`, `lspGetSemanticContent(type=callers/callees)`) require the following configuration:
+Local tools (`localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`) and LSP tools (`lspGetSemantics(type=definition)`, `lspGetSemantics(type=references)`, `lspGetSemantics(type=callers/callees)`) require the following configuration:
 
 ```
 ENABLE_LOCAL=true
@@ -126,7 +126,7 @@ Or in the Octocode config file (`local.enabled: true`).
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
@@ -158,7 +158,7 @@ Keep this section lean in the base skill and use the full protocol in:
 
 <dependency_gate_summary>
 - **MUST run before Phase 1**: verify tool availability for the detected mode.
-- **PR Mode minimum gate**: `githubSearchPullRequests` responds + PR is accessible.
+- **PR Mode minimum gate**: `ghSearchPRs` responds + PR is accessible.
 - **Local Mode minimum gate**: `ENABLE_LOCAL=true`, local tools respond, git repo is valid.
 - **Local File Check gate**: requested file path exists before any analysis.
 - **On failure**: STOP, explain missing prerequisites, and ask for correction.
@@ -177,7 +177,7 @@ Keep this section lean in the base skill and use the full protocol in:
 git diff → localSearchCode(pattern) → get lineHint → LSP tools → localGetFileContent (LAST)
 ```
 - `localSearchCode` is ALWAYS the first step — it finds symbols and provides `lineHint` (1-indexed line number) required by ALL LSP tools.
-- `lspGetSemanticContent(type=callers)(incoming)` traces who calls a changed function. `lspGetSemanticContent(type=references)` finds all usages of a changed type/variable.
+- `lspGetSemantics(type=callers)(incoming)` traces who calls a changed function. `lspGetSemantics(type=references)` finds all usages of a changed type/variable.
 - `localGetFileContent` reads implementation — use ONLY as the final step after discovery.
 - NEVER guess `lineHint` — ALWAYS get it from `localSearchCode` first.
 
@@ -201,20 +201,20 @@ git diff → localSearchCode(pattern) → get lineHint → LSP tools → localGe
 | Review Mode | Primary Tools | Secondary Tools | FORBIDDEN |
 |-------------|---------------|-----------------|-----------|
 | **PR Mode** (workspace IS PR repo) | `local*` + `lsp*` | `github*` for PR metadata/diff | Shell for code reading |
-| **PR Mode** (workspace is NOT PR repo) | `github*` only | `packageSearch` for external | `local*` or `lsp*` (wrong repo) |
-| **Local Mode** | `local*` + `lsp*` + shell `git` | `packageSearch` for external deps | `github*` for code reading (not needed) |
+| **PR Mode** (workspace is NOT PR repo) | `github*` only | `npmSearch` for external | `local*` or `lsp*` (wrong repo) |
+| **Local Mode** | `local*` + `lsp*` + shell `git` | `npmSearch` for external deps | `github*` for code reading (not needed) |
 
 **Tool Transition Matrix**:
 
 | From | Need | Go To |
 |------|------|-------|
-| `githubSearchCode` | File content | `githubGetFileContent` |
-| `githubSearchCode` | Package source | `packageSearch` |
-| `githubSearchPullRequests` | File content | `githubGetFileContent` |
-| `import` statement | External definition | `packageSearch` → `githubViewRepoStructure` |
-| `localSearchCode` | Definition | `lspGetSemanticContent(type=definition)` (with lineHint) |
-| `localSearchCode` | All usages | `lspGetSemanticContent(type=references)` (with lineHint) |
-| `localSearchCode` | Call chain | `lspGetSemanticContent(type=callers/callees)` (with lineHint) |
+| `ghSearchCode` | File content | `ghGetFileContent` |
+| `ghSearchCode` | Package source | `npmSearch` |
+| `ghSearchPRs` | File content | `ghGetFileContent` |
+| `import` statement | External definition | `npmSearch` → `ghViewRepoStructure` |
+| `localSearchCode` | Definition | `lspGetSemantics(type=definition)` (with lineHint) |
+| `localSearchCode` | All usages | `lspGetSemantics(type=references)` (with lineHint) |
+| `localSearchCode` | Call chain | `lspGetSemantics(type=callers/callees)` (with lineHint) |
 | `git diff` output | Deep analysis of changed code | `localSearchCode` → `lsp*` tools |
 | `git status` output | Read changed file | `localGetFileContent` (with matchString) |
 </tools>
@@ -231,12 +231,12 @@ git diff → localSearchCode(pattern) → get lineHint → LSP tools → localGe
 
 | Changed Code | Recipe | Key Tool |
 |-------------|--------|----------|
-| Function signature changed | Recipe 1 — incoming callers | `lspGetSemanticContent(type=callers)(incoming)` |
-| New function added | Recipe 2 — outgoing deps | `lspGetSemanticContent(type=callers)(outgoing)` |
-| Type/Interface changed | Recipe 3 — all usages | `lspGetSemanticContent(type=references)` |
-| Data transformation changed | Recipe 4 — trace chain | Chain `lspGetSemanticContent(type=callers/callees)` hops |
-| Function signature changed (remote) | Recipe 5 — remote callers | `githubSearchCode` + `githubGetFileContent` |
-| Export changed | Recipe 6 — import chain | `githubSearchCode` for consumers |
+| Function signature changed | Recipe 1 — incoming callers | `lspGetSemantics(type=callers)(incoming)` |
+| New function added | Recipe 2 — outgoing deps | `lspGetSemantics(type=callers)(outgoing)` |
+| Type/Interface changed | Recipe 3 — all usages | `lspGetSemantics(type=references)` |
+| Data transformation changed | Recipe 4 — trace chain | Chain `lspGetSemantics(type=callers/callees)` hops |
+| Function signature changed (remote) | Recipe 5 — remote callers | `ghSearchCode` + `ghGetFileContent` |
+| Export changed | Recipe 6 — import chain | `ghSearchCode` for consumers |
 
 </flow_analysis_protocol>
 
@@ -369,7 +369,7 @@ Use detailed lifecycle instructions from:
    - MUST identify if return values, types, or side effects changed
    - MUST check if existing integrations will break
    - MUST document the blast radius: how many callers/consumers are affected
-4. **Validate schemas/APIs/dependencies** using `matchString` targeting (PR Mode: `githubGetFileContent`; Local Mode: `localGetFileContent` + `localSearchCode`)
+4. **Validate schemas/APIs/dependencies** using `matchString` targeting (PR Mode: `ghGetFileContent`; Local Mode: `localGetFileContent` + `localSearchCode`)
 5. **Assess impact per domain** (prioritize user-specified areas from Phase 3):
    - **Architectural**: System structure, pattern alignment
    - **Integration**: Affected systems, integration patterns
@@ -433,7 +433,7 @@ Base expectation in this SKILL:
 **Applies to BOTH PR Mode and Local Mode.** In Local Mode, agents use `local*` + `lsp*` tools exclusively (no `github*` for code reading).
 
 **Agents** (spawn in Phase 4, ALL in a SINGLE message):
-- **Agent A**: Flow Impact — traces callers/consumers of modified symbols (uses `lspGetSemanticContent(type=callers/callees)` + `lspGetSemanticContent(type=references)` in Local Mode)
+- **Agent A**: Flow Impact — traces callers/consumers of modified symbols (uses `lspGetSemantics(type=callers/callees)` + `lspGetSemantics(type=references)` in Local Mode)
 - **Agent B**: Security & Error Handling — scans for vulnerabilities and swallowed exceptions
 - **Agent C**: Architecture & Code Quality — patterns, coupling, performance
 - **Agent D**: Guidelines & Duplicates — compliance + DRY (only if guidelines loaded)

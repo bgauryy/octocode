@@ -7,13 +7,9 @@ import {
   snapToSemanticBoundary,
 } from '../../src/utils/pagination/boundary.js';
 
-// Two TypeScript functions separated by a blank line.
-// The Rust tree-sitter parser returns at least one boundary between them:
-// the char offset where `function beta` begins.
 const TWO_TS_FUNCTIONS =
   'function alpha() {\n  return 1;\n}\n\nfunction beta() {\n  return 2;\n}\n';
 
-// A single deeply-indented function body with no inner top-level boundaries.
 const SINGLE_GIANT_FUNCTION =
   'function big() {\n' + '  const x = 1;\n'.repeat(600) + '}\n';
 
@@ -65,11 +61,6 @@ describe('snapToSemanticBoundary — real Rust boundaries via octocode-context-u
   });
 
   it('snaps to a semantic boundary for TypeScript when one is within budget', () => {
-    // With a budget of 10 (inside `function alpha`), the Rust tree-sitter
-    // parser reports a boundary at `function beta`. If that boundary is within
-    // MAX_SEMANTIC_EXTENSION, the page extends to it (chunkMode = 'semantic').
-    // If for some content variant the boundary is too far or absent, the TS
-    // logic correctly falls back to char-limit — both are self-consistent.
     const result = snapToSemanticBoundary(TWO_TS_FUNCTIONS, 0, 10, 'src/a.ts');
     if (result.chunkMode === 'semantic') {
       expect(result.length).toBeGreaterThan(10);
@@ -80,7 +71,6 @@ describe('snapToSemanticBoundary — real Rust boundaries via octocode-context-u
   });
 
   it('returns char-limit when no boundary is found after the ideal cut', () => {
-    // Force offset past the last function — no boundary exists beyond it.
     const offset = TWO_TS_FUNCTIONS.length - 5;
     const result = snapToSemanticBoundary(TWO_TS_FUNCTIONS, offset, 10, 'src/a.ts');
     expect(result.chunkMode).toBe('char-limit');
@@ -92,13 +82,10 @@ describe('snapToSemanticBoundary — real Rust boundaries via octocode-context-u
   });
 
   it('handles a giant single function without exceeding MAX_SEMANTIC_EXTENSION', () => {
-    // A 600-line single function body: the only boundary (if any) is far away.
-    // The result must be char-limit; the length must equal the budget.
     const result = snapToSemanticBoundary(SINGLE_GIANT_FUNCTION, 0, 10, 'src/big.ts');
     if (result.chunkMode === 'char-limit') {
       expect(result.length).toBe(10);
     } else {
-      // semantic snapped — still within MAX_SEMANTIC_EXTENSION (8000)
       expect(result.length - 10).toBeLessThanOrEqual(8000);
     }
   });
@@ -110,7 +97,6 @@ describe('findNextBlockBoundary — real Rust offsets', () => {
   });
 
   it('finds a boundary after the cut point in a two-function TypeScript file', () => {
-    // Any boundary found must be strictly after position 5
     const boundary = findNextBlockBoundary(TWO_TS_FUNCTIONS, 5, 'src/a.ts');
     if (boundary !== undefined) {
       expect(boundary).toBeGreaterThan(5);
@@ -120,7 +106,6 @@ describe('findNextBlockBoundary — real Rust offsets', () => {
 
   it('uses a generic boundary path for unknown file types', () => {
     const result = findNextBlockBoundary(TWO_TS_FUNCTIONS, 0);
-    // no filePath → Rust falls back to generic heuristics; any integer result is valid
     if (result !== undefined) {
       expect(Number.isInteger(result)).toBe(true);
       expect(result).toBeGreaterThan(0);
@@ -131,7 +116,6 @@ describe('findNextBlockBoundary — real Rust offsets', () => {
 describe('buildBlockBoundaryHint', () => {
   it('returns undefined when the paginated content ends at column 0 (not mid-block)', () => {
     const content = 'function a() {}\nfunction b() {}\n';
-    // Cut between the two functions — last non-empty line starts at col 0
     const cut = content.indexOf('\nfunction b') + 1;
     const hint = buildBlockBoundaryHint(
       content.slice(0, cut),
@@ -144,7 +128,6 @@ describe('buildBlockBoundaryHint', () => {
   });
 
   it('builds a well-formed hint when the cut lands mid-block and Rust finds a next boundary', () => {
-    // Cut inside `function alpha`'s body: last line is `  return 1;` (indented)
     const insideBody = TWO_TS_FUNCTIONS.indexOf('  return 1;') + 5;
     const paginated = TWO_TS_FUNCTIONS.slice(0, insideBody);
     const hint = buildBlockBoundaryHint(

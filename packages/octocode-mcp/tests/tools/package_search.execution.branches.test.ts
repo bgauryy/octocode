@@ -1,14 +1,4 @@
-/**
- * Contract tests for the packageSearch execution layer.
- *
- * Tests are written against OUTPUT CONTRACTS, not implementation internals.
- * Every test mocks `searchPackage` (the npm API boundary) and asserts:
- *   - the YAML/text content shape
- *   - the hints behaviour
- *   - the evidence flags
- *
- * Format contract: packages[] is a list of strings "name url[ sourceRoot]"
- */
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { searchPackages } from '../../../octocode-tools-core/src/tools/package_search/execution.js';
 import * as packageCommon from '../../../octocode-tools-core/src/utils/package/common.js';
@@ -19,8 +9,6 @@ vi.mock('../../../octocode-tools-core/src/utils/package/common.js', () => ({
 }));
 
 const mockSearchPackage = vi.mocked(packageCommon.searchPackage);
-
-// ─── fixtures ────────────────────────────────────────────────────────────────
 
 const BASE = {
   mainResearchGoal: 'Test',
@@ -50,8 +38,6 @@ function text(result: Awaited<ReturnType<typeof searchPackages>>): string {
   return (result.content as { text?: string }[])?.[0]?.text ?? '';
 }
 
-// ─── input validation ────────────────────────────────────────────────────────
-
 describe('input validation', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -67,8 +53,6 @@ describe('input validation', () => {
     expect(mockSearchPackage).not.toHaveBeenCalled();
   });
 });
-
-// ─── output format: string list ──────────────────────────────────────────────
 
 describe('output format — "name url[ sourceRoot]" string list', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -134,7 +118,6 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
     });
     const t = text(await callTool('mypkg'));
     expect(t).toContain('mypkg');
-    // no trailing URL
     expect(t).not.toContain('mypkg https://');
   });
 
@@ -188,7 +171,6 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
       totalFound: 1,
     });
     const t = text(await callTool('express'));
-    // must NOT contain any YAML object keys that would indicate an object shape
     expect(t).not.toContain('repoUrl:');
     expect(t).not.toContain('repositoryDirectory:');
     expect(t).not.toContain('npmUrl:');
@@ -196,8 +178,6 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
     expect(t).not.toContain('weeklyDownloads:');
   });
 });
-
-// ─── evidence flags ───────────────────────────────────────────────────────────
 
 describe('evidence flags', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -218,8 +198,6 @@ describe('evidence flags', () => {
     expect(t).toContain('answerReady: false');
   });
 });
-
-// ─── hints — exact / single result ───────────────────────────────────────────
 
 describe('hints — exact / single result', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -243,28 +221,28 @@ describe('hints — exact / single result', () => {
       totalFound: 1,
     });
     const t = text(await callTool('zod'));
-    expect(t).toContain('githubViewRepoStructure');
+    expect(t).toContain('ghViewRepoStructure');
     expect(t).toContain('owner=colinhacks');
     expect(t).toContain('repo=zod');
   });
 
-  it('uses githubSearchRepositories when repoUrl is null', async () => {
+  it('uses ghSearchRepos when repoUrl is null', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [pkg({ repoUrl: null })],
       totalFound: 1,
     });
     const t = text(await callTool('mypkg'));
-    expect(t).toContain('githubSearchRepositories');
-    expect(t).not.toContain('githubViewRepoStructure');
+    expect(t).toContain('ghSearchRepos');
+    expect(t).not.toContain('ghViewRepoStructure');
   });
 
-  it('uses githubSearchRepositories for non-GitHub repo URLs', async () => {
+  it('uses ghSearchRepos for non-GitHub repo URLs', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [pkg({ repoUrl: 'https://gitlab.com/owner/repo' })],
       totalFound: 1,
     });
     const t = text(await callTool('mypkg'));
-    expect(t).toContain('githubSearchRepositories');
+    expect(t).toContain('ghSearchRepos');
   });
 
   it('adds DEPRECATED prefix when package is deprecated', async () => {
@@ -304,8 +282,6 @@ describe('hints — exact / single result', () => {
   });
 });
 
-// ─── hints — keyword / multiple results ──────────────────────────────────────
-
 describe('hints — keyword / multiple results', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -319,9 +295,8 @@ describe('hints — keyword / multiple results', () => {
       totalFound: 3,
     });
     const t = text(await callTool('state management'));
-    // Should NOT say "npm install obscure-pkg-a" (first result bias)
     expect(t).not.toContain('npm install obscure-pkg-a');
-    expect(t).not.toContain('githubViewRepoStructure owner=a repo=a');
+    expect(t).not.toContain('ghViewRepoStructure owner=a repo=a');
   });
 
   it('tells agent to pick one and re-run with exact name', async () => {
@@ -333,7 +308,6 @@ describe('hints — keyword / multiple results', () => {
       totalFound: 2,
     });
     const t = text(await callTool('state lib'));
-    // hint should guide toward exact name lookup
     expect(t).toMatch(/exact|pick|re.?run|refine/i);
   });
 
@@ -350,15 +324,12 @@ describe('hints — keyword / multiple results', () => {
   });
 });
 
-// ─── hints — empty result ─────────────────────────────────────────────────────
-
 describe('hints — empty result', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reports package not found', async () => {
     mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
     const t = text(await callTool('no-such-pkg'));
-    // hints.ts empty handler: actionable recovery
     expect(t).toContain('Check spelling');
   });
 
@@ -375,21 +346,19 @@ describe('hints — empty result', () => {
   });
 });
 
-// ─── hints — error recovery ───────────────────────────────────────────────────
-
 describe('hints — error recovery', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('propagates error hints from the npm layer', async () => {
     mockSearchPackage.mockResolvedValue({
       error: 'npm registry is unreachable.',
-      hints: ['Use `githubSearchRepositories` to find the source repo.'],
+      hints: ['Use `ghSearchRepos` to find the source repo.'],
     });
     const t = text(await callTool('mypkg'));
-    expect(t).toContain('githubSearchRepositories');
+    expect(t).toContain('ghSearchRepos');
   });
 
-  it('isError=true on PackageSearchError', async () => {
+  it('isError=true on NpmSearchError', async () => {
     mockSearchPackage.mockResolvedValue({ error: 'fetch failed' });
     const r = await callTool('mypkg');
     expect(r.isError).toBe(true);
@@ -399,11 +368,9 @@ describe('hints — error recovery', () => {
     mockSearchPackage.mockRejectedValue(new Error('network error'));
     const r = await callTool('mypkg');
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain('githubSearchRepositories');
+    expect(text(r)).toContain('ghSearchRepos');
   });
 });
-
-// ─── pagination ─────────────────────────────────────────────────────────────────
 
 describe('pagination — hasMore through searchPackages', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -437,8 +404,6 @@ describe('pagination — hasMore through searchPackages', () => {
     expect(t).toContain('complete: true');
   });
 });
-
-// ─── bulk queries ─────────────────────────────────────────────────────────────────
 
 describe('bulk queries', () => {
   beforeEach(() => vi.clearAllMocks());

@@ -1,11 +1,11 @@
 
 export {
-  executeCloneRepo as githubCloneRepo,
-  fetchMultipleGitHubFileContents as githubGetFileContent,
-  searchMultipleGitHubCode as githubSearchCode,
-  searchMultipleGitHubPullRequests as githubSearchPullRequests,
-  searchMultipleGitHubRepos as githubSearchRepositories,
-  exploreMultipleRepositoryStructures as githubViewRepoStructure,
+  executeCloneRepo as ghCloneRepo,
+  fetchMultipleGitHubFileContents as ghGetFileContent,
+  searchMultipleGitHubCode as ghSearchCode,
+  searchMultipleGitHubPullRequests as ghSearchPRs,
+  searchMultipleGitHubRepos as ghSearchRepos,
+  exploreMultipleRepositoryStructures as ghViewRepoStructure,
 } from 'octocode-mcp/public';
 
 
@@ -18,11 +18,11 @@ export {
 
 
 export {
-  executeLspGetSemanticContent as lspGetSemanticContent,
+  executeLspGetSemantics as lspGetSemantics,
 } from 'octocode-mcp/public';
 
 
-export { searchPackages as packageSearch } from 'octocode-mcp/public';
+export { searchPackages as npmSearch } from 'octocode-mcp/public';
 
 
 export { initializeProviders } from 'octocode-mcp/public';

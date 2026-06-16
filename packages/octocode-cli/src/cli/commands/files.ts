@@ -844,7 +844,7 @@ export const filesCommand: CLICommand = {
         for (const planned of searches) {
           const result = await runGithubCall({
             label: planned.label,
-            toolName: 'githubSearchCode',
+            toolName: 'ghSearchCode',
             queries: buildGithubQueries(
               query,
               target,
@@ -854,7 +854,7 @@ export const filesCommand: CLICommand = {
           });
           outputs.push({
             label: planned.label,
-            toolName: 'githubSearchCode',
+            toolName: 'ghSearchCode',
             result,
           });
         }

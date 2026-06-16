@@ -56,12 +56,12 @@ See:
 - `lspCallHierarchy`
 
 ### Octocode repository/package tools
-- `packageSearch`
-- `githubSearchRepositories`
-- `githubViewRepoStructure`
-- `githubSearchCode`
-- `githubGetFileContent`
-- `githubSearchPullRequests`
+- `npmSearch`
+- `ghSearchRepos`
+- `ghViewRepoStructure`
+- `ghSearchCode`
+- `ghGetFileContent`
+- `ghSearchPRs`
 
 ---
 

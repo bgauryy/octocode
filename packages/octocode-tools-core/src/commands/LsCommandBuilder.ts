@@ -23,16 +23,8 @@ export class LsCommandBuilder extends BaseCommandBuilder {
     }
 
     if (query.hidden) {
-      // -A (almost-all): include dotfiles but NOT the `.`/`..` pseudo-entries,
-      // which would inflate folder counts. Matches the recursive walker,
-      // whose fs.readdir never emits `.`/`..`.
       this.addFlag('-A');
     }
-
-    // humanReadable removed from MCP schema — default path (no -h, raw bytes
-    // parsed by formatFileSize) produces more precise output than double-
-    // formatting ls -h strings. The humanReadable() chain method is kept for
-    // programmatic builder use.
 
     if (query.recursive) {
       this.addFlag('-R');
@@ -87,7 +79,6 @@ export class LsCommandBuilder extends BaseCommandBuilder {
   }
 
   all(): this {
-    // -A: include dotfiles without the `.`/`..` pseudo-entries.
     this.addFlag('-A');
     return this;
   }

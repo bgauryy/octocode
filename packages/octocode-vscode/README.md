@@ -132,12 +132,12 @@ All tools support bulk operations (1–5 queries).
 
 | Tool | Purpose | Key Args |
 |------|---------|----------|
-| `githubSearchRepositories` | **DISCOVER**: Find repos | `stars`, `topicsToSearch` |
-| `githubViewRepoStructure` | **EXPLORE**: Map layout | `depth`, `path` |
-| `githubSearchCode` | **SEARCH**: Find patterns | `keywordsToSearch`, `match="path"\|"file"` |
-| `githubGetFileContent` | **ANALYZE**: Read logic | `matchString`, `startLine` |
-| `githubSearchPullRequests` | **HISTORY**: PR context | `prNumber`, `state`, `diff` |
-| `packageSearch` | **DEPS**: Library meta | `query` |
+| `ghSearchRepos` | **DISCOVER**: Find repos | `stars`, `topicsToSearch` |
+| `ghViewRepoStructure` | **EXPLORE**: Map layout | `depth`, `path` |
+| `ghSearchCode` | **SEARCH**: Find patterns | `keywordsToSearch`, `match="path"\|"file"` |
+| `ghGetFileContent` | **ANALYZE**: Read logic | `matchString`, `startLine` |
+| `ghSearchPRs` | **HISTORY**: PR context | `prNumber`, `state`, `diff` |
+| `npmSearch` | **DEPS**: Library meta | `query` |
 
 > **Note**: Octocode also supports NPM for smart research and dependency analysis.
 

@@ -27,7 +27,6 @@ interface WalkDirectoryOptions {
 
 function formatPermissions(mode: number): string {
   const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
-  // `& 7` masks each triad to 0-7, always a valid index into the 8-element table.
   const owner = chars[(mode >> 6) & 7]!;
   const group = chars[(mode >> 3) & 7]!;
   const other = chars[mode & 7]!;

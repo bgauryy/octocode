@@ -1,18 +1,4 @@
-/**
- * rust-specific.test.ts
- *
- * Edge cases unique to the Rust/NAPI implementation.
- * These do NOT exist in octocode-security-utils because they test:
- *   - NAPI binary loading
- *   - patternCount() matches generated detector count
- *   - Unicode / multibyte content via Rust
- *   - Large content / chunked path
- *   - ReDoS linear-time guarantee
- *   - Concurrency (parallel calls)
- *   - Idempotency
- *   - Output shape contract
- *   - Performance regression gates
- */
+
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createRequire } from 'module';
 import { dirname, join } from 'path';
@@ -88,9 +74,6 @@ beforeAll(() => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// RUST-01: Binary loading
-// ---------------------------------------------------------------------------
 describe('RUST-01: Native binary', () => {
   it('loads without throwing', () => {
     expect(native).not.toBeNull();
@@ -113,9 +96,6 @@ describe('RUST-01: Native binary', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-02: NAPI boundary — null / type safety
-// ---------------------------------------------------------------------------
 describe('RUST-02: NAPI boundary type safety', () => {
   it('returns empty-string result for empty input (native)', () => {
     const r = native!.sanitizeContent('', null);
@@ -158,9 +138,6 @@ describe('RUST-02: NAPI boundary type safety', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-03: Unicode / multibyte
-// ---------------------------------------------------------------------------
 describe('RUST-03: Unicode & multibyte safety', () => {
   it('preserves emoji in clean content (no false positives)', () => {
     const input = 'Hello 🔒 world 🦀 no secrets here';
@@ -205,18 +182,13 @@ describe('RUST-03: Unicode & multibyte safety', () => {
     const masked = maskSensitiveData(input);
     expect(typeof masked).toBe('string');
     expect(masked.length).toBeGreaterThan(0);
-    // emoji not in secret region — should be preserved
     expect(masked).toContain('🦀');
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-04: Large content
-// ---------------------------------------------------------------------------
 describe('RUST-04: Large content & chunked path', () => {
   it('detects secret at position 0 in 1MB content', () => {
     const secret = 'AKIAIOSFODNN7EXAMPLE';
-    // space after secret ensures word boundary (\b) matches at end
     const r = ContentSanitizer.sanitizeContent(
       secret + ' ' + 'x'.repeat(1_000_000 - secret.length - 1)
     );
@@ -226,7 +198,6 @@ describe('RUST-04: Large content & chunked path', () => {
 
   it('detects secret at the very end of 1MB content', () => {
     const secret = 'AKIAIOSFODNN7EXAMPLE';
-    // space before secret ensures word boundary (\b) matches at start
     const r = ContentSanitizer.sanitizeContent(
       'x'.repeat(1_000_000 - secret.length - 1) + ' ' + secret
     );
@@ -270,13 +241,6 @@ describe('RUST-04: Large content & chunked path', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-04b: Chunked path — detect_chunked REGEX_SET pre-filter
-// Content > 500 000 chars goes through detect_chunked (the slow path).
-// The pre-filter runs REGEX_SET once on the full content to eliminate patterns
-// that cannot match any chunk, so clean large payloads complete in near-zero
-// time regardless of how many patterns exist.
-// ---------------------------------------------------------------------------
 describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
   const CHUNK_BOUNDARY = 500_001; // just past the single-path threshold
 
@@ -358,17 +322,13 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
   });
 
   it('chunked and single paths agree on the same small input', () => {
-    // Verify the pre-filter does not introduce divergence from detect_single.
-    // Both paths must produce identical redacted output.
     const secret = 'AKIAIOSFODNN7EXAMPLE';
     const single = ContentSanitizer.sanitizeContent(secret + ' clean');
     const chunked = ContentSanitizer.sanitizeContent(
       secret + ' clean' + 'x'.repeat(CHUNK_BOUNDARY)
     );
-    // The chunked version has extra 'x' padding, so only compare the secret region.
     expect(chunked.hasSecrets).toBe(true);
     expect(chunked.content).not.toContain(secret);
-    // Both should report the same pattern name.
     expect(chunked.secretsDetected).toEqual(
       expect.arrayContaining(single.secretsDetected)
     );
@@ -383,18 +343,12 @@ describe('RUST-04b: detect_chunked pre-filter (content > 500KB)', () => {
       'k8s/secret.yaml'
     );
     const noPath = ContentSanitizer.sanitizeContent(content);
-    // File-context pattern must fire when path matches.
-    // (Other non-file-context patterns may or may not fire.)
-    // The key invariant: the yaml block is redacted with path, untouched without.
     expect(withPath.content.slice(0, yaml.length)).not.toBe(
       noPath.content.slice(0, yaml.length)
     );
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-05: ReDoS linear-time guarantee
-// ---------------------------------------------------------------------------
 describe('RUST-05: ReDoS linear-time guarantee', () => {
   const LIMIT_MS = 50;
 
@@ -432,9 +386,6 @@ describe('RUST-05: ReDoS linear-time guarantee', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-06: Pattern correctness — spot-check known secrets
-// ---------------------------------------------------------------------------
 describe('RUST-06: Known secret detection', () => {
   const KNOWN: Array<{ label: string; input: string }> = [
     { label: 'AWS access key', input: 'key=AKIAIOSFODNN7EXAMPLE val' },
@@ -538,7 +489,6 @@ describe('RUST-06: Known secret detection', () => {
     it(`detects ${label}`, () => {
       const r = ContentSanitizer.sanitizeContent(input);
       expect(r.hasSecrets, `should detect: ${input.slice(0, 50)}`).toBe(true);
-      // The original secret text must not appear in output
       const keyPart = input.slice(0, Math.min(20, input.length));
       if (keyPart.length >= 10) {
         expect(r.content).not.toContain(keyPart);
@@ -556,9 +506,6 @@ describe('RUST-06: Known secret detection', () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// RUST-07: maskSensitiveData native-specific
-// ---------------------------------------------------------------------------
 describe('RUST-07: maskSensitiveData (Rust)', () => {
   it('masks AWS key — every other character becomes *', () => {
     const input = 'key=AKIAIOSFODNN7EXAMPLE end';
@@ -600,9 +547,6 @@ describe('RUST-07: maskSensitiveData (Rust)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-08: Concurrency — parallel calls
-// ---------------------------------------------------------------------------
 describe('RUST-08: Parallel / concurrent calls', () => {
   it('100 parallel sanitizeContent calls all return correct results', async () => {
     const inputs = [
@@ -617,7 +561,6 @@ describe('RUST-08: Parallel / concurrent calls', () => {
         )
       )
     );
-    // first 67 should have secrets, last 34 should not
     results.forEach((r, i) => {
       const expected = i % inputs.length < 2;
       expect(r.hasSecrets).toBe(expected);
@@ -644,9 +587,6 @@ describe('RUST-08: Parallel / concurrent calls', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-09: Output shape contract
-// ---------------------------------------------------------------------------
 describe('RUST-09: SanitizationResult shape contract', () => {
   it('has all required fields: content, hasSecrets, secretsDetected, warnings', () => {
     const r = ContentSanitizer.sanitizeContent('AKIAIOSFODNN7EXAMPLE');
@@ -703,9 +643,6 @@ describe('RUST-09: SanitizationResult shape contract', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-10: Idempotency
-// ---------------------------------------------------------------------------
 describe('RUST-10: Idempotency', () => {
   it('sanitizing already-sanitized output is a no-op', () => {
     const input = 'key=AKIAIOSFODNN7EXAMPLE end';
@@ -732,12 +669,8 @@ describe('RUST-10: Idempotency', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// RUST-11: validateInputParameters — Rust-specific depth/concurrency
-// ---------------------------------------------------------------------------
 describe('RUST-11: validateInputParameters edge cases', () => {
   it('validates deeply nested object (depth 19, within limit)', () => {
-    // Build object nested 19 levels deep
     let obj: Record<string, unknown> = { leaf: 'value' };
     for (let i = 0; i < 18; i++) obj = { nested: obj };
     const r = ContentSanitizer.validateInputParameters(obj);

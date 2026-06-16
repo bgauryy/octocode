@@ -214,7 +214,6 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
       this.queryParts.push(`language:${params.language}`);
     }
 
-    // New filter qualifiers
     const p = params as Record<string, unknown>;
     if (typeof p.forks === 'string') this.queryParts.push(`forks:${p.forks}`);
     if (typeof p.license === 'string')
@@ -253,7 +252,6 @@ class RepoSearchQueryBuilder extends BaseQueryBuilder {
     this.queryParts.push(
       archived === true ? 'archived:true' : 'is:not-archived'
     );
-    // visibility: is:public / is:private
     const visibility = p?.visibility as string | undefined;
     if (visibility === 'public') this.queryParts.push('is:public');
     else if (visibility === 'private') this.queryParts.push('is:private');
@@ -379,7 +377,6 @@ export function shouldUseSearchForPRs(
     params.draft !== undefined ||
     params.author !== undefined ||
     params.assignee !== undefined ||
-    // Non-empty text query must use Search API (REST list has no text search)
     (typeof params.query === 'string' && params.query.trim().length > 0) ||
     (params.label && params.label.length > 0) ||
     params.mentions !== undefined ||
@@ -399,9 +396,7 @@ export function shouldUseSearchForPRs(
     params['merged-at'] !== undefined ||
     params.closed !== undefined ||
     params.merged !== undefined ||
-    // match (in:title/body/comments) is only meaningful in Search API
     (params.match !== undefined && params.match.length > 0) ||
-    // REST pulls.list only supports sort=created|updated; comments/reactions require Search API
     params.sort === 'comments' ||
     params.sort === 'reactions' ||
     Array.isArray(params.owner) ||

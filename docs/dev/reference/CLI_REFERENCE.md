@@ -67,10 +67,10 @@ Direct CLI runs auto-fill `id`, `mainResearchGoal`, `researchGoal`, and `reasoni
 
 | Category | Tools |
 |----------|-------|
-| GitHub | `githubSearchCode`, `githubGetFileContent`, `githubViewRepoStructure`, `githubSearchRepositories`, `githubSearchPullRequests`, `githubCloneRepo` |
+| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghSearchPRs`, `ghCloneRepo` |
 | Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent` |
-| LSP | `lspGetSemanticContent` |
-| Package | `packageSearch` |
+| LSP | `lspGetSemantics` |
+| Package | `npmSearch` |
 
 Examples:
 
@@ -78,7 +78,7 @@ Examples:
 octocode tools localSearchCode
 octocode tools localSearchCode --scheme
 octocode tools localSearchCode --queries '{"path":".","keywords":"runCLI"}'
-octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
+octocode tools ghSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
 ```
 
 ## Commands
@@ -121,8 +121,8 @@ octocode files executeDirectTool bgauryy/octocode-mcp --source github --search c
 octocode files auth . --search both --limit 20
 ```
 
-`--search path` uses metadata/path search (`localFindFiles` or `githubSearchCode match:path`).
-`--search content` uses content search (`localSearchCode` or `githubSearchCode match:file`).
+`--search path` uses metadata/path search (`localFindFiles` or `ghSearchCode match:path`).
+`--search content` uses content search (`localSearchCode` or `ghSearchCode match:file`).
 Local path filters include `--name`, `--path-pattern`, `--regex`, `--entry`, depth, size, time, permission, and metadata flags.
 Local content filters include ripgrep-style flags such as `--include`, `--exclude`, `--fixed-string`, `--perl-regex`, case, word, hidden, count, match, and sort controls.
 GitHub filters include `--owner`, `--repo`, `--filename`, `--path`, `--ext`, pagination, and `--verbose`.
@@ -196,9 +196,9 @@ octocode lsp src/index.ts --type hover --symbol runCLI --line 42
 octocode symbols <file|path> [--ext <list>] [--kind <kind>] [--limit <n>] [--depth <n>] [--page-size <n>] [--json]
 ```
 
-For a file, `symbols` runs `lspGetSemanticContent` with `type=documentSymbols`.
+For a file, `symbols` runs `lspGetSemantics` with `type=documentSymbols`.
 For a directory, it uses `localFindFiles` to discover source files, then batches
-`lspGetSemanticContent type=documentSymbols` over those files.
+`lspGetSemantics type=documentSymbols` over those files.
 
 Examples:
 

@@ -4,7 +4,7 @@ import type { ExactPosition, LSPRange } from 'octocode-lsp/types';
 import { validateToolPath } from '../../../utils/file/toolHelpers.js';
 import { LSP_ERROR_CODES } from 'octocode-lsp/lspErrorCodes';
 import type {
-  LspGetSemanticContentQuery,
+  LspGetSemanticsQuery,
   ResolvedSymbol,
 } from './semanticTypes.js';
 
@@ -60,7 +60,7 @@ export async function resolveFileAnchor(
 }
 
 export async function resolveSymbolAnchor(
-  query: LspGetSemanticContentQuery,
+  query: LspGetSemanticsQuery,
   toolName: string
 ): Promise<AnchorResolutionResult<SymbolAnchor>> {
   const file = await resolveFileAnchor(query, toolName);

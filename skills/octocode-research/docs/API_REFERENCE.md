@@ -349,7 +349,7 @@ curl -X POST http://localhost:1987/tools/call/lspCallHierarchy \
 
 **Note:** Requires `GITHUB_TOKEN` environment variable.
 
-### githubSearchCode
+### ghSearchCode
 
 Search code across GitHub repositories.
 
@@ -362,7 +362,7 @@ Search code across GitHub repositories.
 | `extension` | | File extension |
 
 ```bash
-curl -X POST http://localhost:1987/tools/call/githubSearchCode \
+curl -X POST http://localhost:1987/tools/call/ghSearchCode \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [{
@@ -378,7 +378,7 @@ curl -X POST http://localhost:1987/tools/call/githubSearchCode \
 
 ---
 
-### githubGetFileContent
+### ghGetFileContent
 
 Read file from GitHub repository.
 
@@ -392,7 +392,7 @@ Read file from GitHub repository.
 | `endLine` | | End line |
 
 ```bash
-curl -X POST http://localhost:1987/tools/call/githubGetFileContent \
+curl -X POST http://localhost:1987/tools/call/ghGetFileContent \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [{
@@ -408,7 +408,7 @@ curl -X POST http://localhost:1987/tools/call/githubGetFileContent \
 
 ---
 
-### githubSearchRepositories
+### ghSearchRepos
 
 Search GitHub repositories.
 
@@ -423,7 +423,7 @@ Search GitHub repositories.
 *At least one of `keywordsToSearch` or `topicsToSearch` required.
 
 ```bash
-curl -X POST http://localhost:1987/tools/call/githubSearchRepositories \
+curl -X POST http://localhost:1987/tools/call/ghSearchRepos \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [{
@@ -438,7 +438,7 @@ curl -X POST http://localhost:1987/tools/call/githubSearchRepositories \
 
 ---
 
-### githubViewRepoStructure
+### ghViewRepoStructure
 
 View repository tree structure.
 
@@ -451,7 +451,7 @@ View repository tree structure.
 | `depth` | | Tree depth (1-2) |
 
 ```bash
-curl -X POST http://localhost:1987/tools/call/githubViewRepoStructure \
+curl -X POST http://localhost:1987/tools/call/ghViewRepoStructure \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [{
@@ -468,7 +468,7 @@ curl -X POST http://localhost:1987/tools/call/githubViewRepoStructure \
 
 ---
 
-### githubSearchPullRequests
+### ghSearchPRs
 
 Search pull requests.
 
@@ -482,7 +482,7 @@ Search pull requests.
 | `type` | | "metadata" / "fullContent" / "partialContent" |
 
 ```bash
-curl -X POST http://localhost:1987/tools/call/githubSearchPullRequests \
+curl -X POST http://localhost:1987/tools/call/ghSearchPRs \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [{
@@ -502,7 +502,7 @@ curl -X POST http://localhost:1987/tools/call/githubSearchPullRequests \
 
 ## Package Search
 
-### packageSearch
+### npmSearch
 
 Search npm packages.
 
@@ -513,7 +513,7 @@ Search npm packages.
 | `searchLimit` | | Max results |
 
 ```bash
-curl -X POST http://localhost:1987/tools/call/packageSearch \
+curl -X POST http://localhost:1987/tools/call/npmSearch \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [{

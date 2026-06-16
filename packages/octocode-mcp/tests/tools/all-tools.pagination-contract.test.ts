@@ -8,18 +8,18 @@ const LOSS_LANGUAGE: RegExp[] = [
 ];
 
 const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
-  githubSearchCode: ['page'],
-  githubGetFileContent: ['startLine', 'endLine'],
-  githubViewRepoStructure: ['page'],
-  githubSearchRepositories: ['page'],
-  githubSearchPullRequests: ['page'],
-  packageSearch: ['page'],
-  githubCloneRepo: ['owner', 'repo'],
+  ghSearchCode: ['page'],
+  ghGetFileContent: ['startLine', 'endLine'],
+  ghViewRepoStructure: ['page'],
+  ghSearchRepos: ['page'],
+  ghSearchPRs: ['page'],
+  npmSearch: ['page'],
+  ghCloneRepo: ['owner', 'repo'],
   localSearchCode: ['page'],
   localViewStructure: ['page'],
   localFindFiles: ['page'],
   localGetFileContent: ['startLine', 'endLine'],
-  lspGetSemanticContent: ['uri', 'lineHint', 'type'],
+  lspGetSemantics: ['uri', 'lineHint', 'type'],
 };
 
 describe('all-tools pagination contract', () => {

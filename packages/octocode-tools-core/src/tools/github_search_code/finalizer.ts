@@ -116,7 +116,7 @@ function buildResultRecords(
   const id =
     queries.length === 1 && typeof queries[0]?.id === 'string'
       ? queries[0].id
-      : 'githubSearchCode';
+      : 'ghSearchCode';
   return [
     {
       id,
@@ -230,12 +230,9 @@ function buildCodeEvidence(
   if (errors.length > 0) {
     reasons.push(`${errors.length} query result(s) failed.`);
   }
-  // Zero matches ≠ code does not exist — the repo may simply not be indexed
-  // (private, recently pushed, very large, archived, renamed). Mark incomplete
-  // so agents know this is an index miss, not a confirmed absence.
   if (totalMatches === 0) {
     reasons.push(
-      'GitHub code search returned no matches — the repo may not be indexed. Confirm via githubGetFileContent before concluding the code does not exist.'
+      'GitHub code search returned no matches — the repo may not be indexed. Confirm via ghGetFileContent before concluding the code does not exist.'
     );
   }
 
@@ -247,7 +244,7 @@ function buildCodeEvidence(
   });
 }
 
-export function buildGithubSearchCodeFinalizer<
+export function buildGhSearchCodeFinalizer<
   TQuery extends QueryWithPagination,
 >(): BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal> {
   return ({ queries, results, config }) => {
@@ -314,7 +311,7 @@ export function buildGithubSearchCodeFinalizer<
     const errors = collectFlatErrors(results);
     const pathOnlyHints = hasPathOnlyFileMatches(groups)
       ? [
-          'Some match="file" results are path-only because GitHub did not return text matches; use githubGetFileContent with matchString or startLine/endLine to inspect content.',
+          'Some match="file" results are path-only because GitHub did not return text matches; use ghGetFileContent with matchString or startLine/endLine to inspect content.',
         ]
       : [];
     const hints = dedupeHints([
@@ -332,8 +329,6 @@ export function buildGithubSearchCodeFinalizer<
 
     if (hints.length > 0) responseData.hints = hints;
     if (emptyQueries.length > 0) {
-      // Per-query hints already aggregated into the top-level hints are not
-      // repeated here — emptyQueries only marks which queries came up empty.
       const topLevelHints = new Set(hints);
       responseData.emptyQueries = emptyQueries.map(
         ({ id, hints: queryHints, nonExistentScope }) => {

@@ -88,21 +88,21 @@ printf '%s\n%s\n%s\n' \
 Expected output includes the 13 Octocode tools below — this confirms `ENABLE_LOCAL` / `ENABLE_CLONE` are taking effect:
 
 ```
-"name":"githubCloneRepo"
-"name":"githubGetFileContent"
-"name":"githubSearchCode"
-"name":"githubSearchPullRequests"
-"name":"githubSearchRepositories"
-"name":"githubViewRepoStructure"
+"name":"ghCloneRepo"
+"name":"ghGetFileContent"
+"name":"ghSearchCode"
+"name":"ghSearchPRs"
+"name":"ghSearchRepos"
+"name":"ghViewRepoStructure"
 "name":"localFindFiles"
 "name":"localGetFileContent"
 "name":"localSearchCode"
 "name":"localViewStructure"
-"name":"lspGetSemanticContent"
-"name":"packageSearch"
+"name":"lspGetSemantics"
+"name":"npmSearch"
 ```
 
-If `githubCloneRepo` or local/LSP tools are missing, the env block in `mcp.json` is not being read — re-check JSON syntax.
+If `ghCloneRepo` or local/LSP tools are missing, the env block in `mcp.json` is not being read — re-check JSON syntax.
 
 ## 4. Use octocode tools from inside Pi
 
@@ -115,7 +115,7 @@ mcp({ search: "github" })
 The adapter returns matching tool descriptions. Call one with a JSON-string `args` (not an object):
 
 ```
-mcp({ tool: "octocode_githubSearchCode", args: "{\"queries\":[{\"id\":\"q1\",\"keywordsToSearch\":[\"useState\"]}]}" })
+mcp({ tool: "octocode_ghSearchCode", args: "{\"queries\":[{\"id\":\"q1\",\"keywordsToSearch\":[\"useState\"]}]}" })
 ```
 
 Servers are **lazy by default** — `octocode-mcp` only spawns when you first invoke one of its tools.

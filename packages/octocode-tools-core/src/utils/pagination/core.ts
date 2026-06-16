@@ -51,8 +51,6 @@ export function applyPagination(
     startCharPos = byteToCharIndex(content, requestedStartByte);
     endCharPos = byteToCharIndex(content, requestedEndByte);
 
-    // byteToCharIndex rounds DOWN when a byte boundary falls mid-character.
-    // Round UP instead so we always emit complete characters — never malformed UTF-8.
     if (
       endCharPos < totalChars &&
       charToByteIndex(content, endCharPos) < requestedEndByte
@@ -136,14 +134,6 @@ export interface SliceByCharResult {
   nextOffset?: number;
 }
 
-/**
- * Slices `text` starting at `charOffset` (snapped back to the nearest line
- * start when mid-line), collecting complete lines until at least `charLength`
- * characters are covered.
- *
- * For text without newlines the whole string is returned regardless of
- * `charLength` — there are no line boundaries to respect.
- */
 export function sliceByCharRespectLines(
   text: string,
   charOffset: number,
@@ -174,21 +164,18 @@ export function sliceByCharRespectLines(
     };
   }
 
-  // Snap back to the start of the current line when mid-line.
   let actualOffset = charOffset;
   if (actualOffset > 0 && text[actualOffset - 1] !== '\n') {
     const prevNewline = text.lastIndexOf('\n', actualOffset - 1);
     actualOffset = prevNewline === -1 ? 0 : prevNewline + 1;
   }
 
-  // Collect complete lines until we have covered at least charLength chars.
   let endPos = actualOffset;
   let lineCount = 0;
 
   while (endPos < totalChars) {
     const nextNewline = text.indexOf('\n', endPos);
     if (nextNewline === -1) {
-      // No more newlines — include the rest as a partial (no trailing \n).
       endPos = totalChars;
       break;
     }

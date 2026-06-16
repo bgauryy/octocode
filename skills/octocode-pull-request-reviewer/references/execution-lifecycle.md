@@ -19,8 +19,8 @@
   - `.octocode/context/context.md`
   - `CONTRIBUTING.md`
   - `AGENTS.md`
-- **IF** PR Mode AND workspace is NOT the PR repo → Call `githubSearchCode` with `match="path"` and `keywordsToSearch=["pr-guidelines", "CONTRIBUTING", "AGENTS"]` scoped to the PR's `owner/repo`
-- **IF** any files found → Read them using the appropriate tool (`localGetFileContent` or `githubGetFileContent`) and inform user: "I found the following context files: [list]. I'll use these as review guidelines."
+- **IF** PR Mode AND workspace is NOT the PR repo → Call `ghSearchCode` with `match="path"` and `keywordsToSearch=["pr-guidelines", "CONTRIBUTING", "AGENTS"]` scoped to the PR's `owner/repo`
+- **IF** any files found → Read them using the appropriate tool (`localGetFileContent` or `ghGetFileContent`) and inform user: "I found the following context files: [list]. I'll use these as review guidelines."
 
 **Step 2: Ask user (MANDATORY).**
 Ask user:
@@ -34,7 +34,7 @@ Ask user:
 **STOP. Wait for user response.**
 
 **Step 3: Process user-provided guidelines.**
-- **IF** user provides file path(s) → Read each file using `localGetFileContent` (local repo) or `githubGetFileContent` (remote repo)
+- **IF** user provides file path(s) → Read each file using `localGetFileContent` (local repo) or `ghGetFileContent` (remote repo)
 - **IF** user provides inline text → Store as review context
 - **IF** user says "skip" or "no" → Proceed with default review domains only
 - **IF** existing context files were found (Step 1) AND user says "skip" → Still use the auto-discovered files
@@ -93,9 +93,9 @@ The guidelines context MUST be referenced in Phase 4 (Analysis), Phase 5 (Finali
 - [ ] Guidelines context built (or confirmed empty)
 
 ### Actions — PR Mode (REQUIRED — all via Octocode MCP tools)
-1. **Fetch PR metadata**: Call `githubSearchPullRequests` with `type="metadata"` to get title, description, files, author
-2. **Fetch PR diff**: Call `githubSearchPullRequests` with `type="fullContent"` or `type="partialContent"` for specific files
-3. **Fetch existing PR comments**: Call `githubSearchPullRequests` with `withComments=true`
+1. **Fetch PR metadata**: Call `ghSearchPRs` with `type="metadata"` to get title, description, files, author
+2. **Fetch PR diff**: Call `ghSearchPRs` with `type="fullContent"` or `type="partialContent"` for specific files
+3. **Fetch existing PR comments**: Call `ghSearchPRs` with `withComments=true`
    - MUST check if previous comments were fixed (verify resolution)
    - MUST note all existing comments to avoid duplicate suggestions
 4. **Classify risk**: HIGH (Logic/Auth/API/Data changes) vs LOW (Docs/CSS/Config)
@@ -104,7 +104,7 @@ The guidelines context MUST be referenced in Phase 4 (Analysis), Phase 5 (Finali
    - Missing description → flag
    - Can PR be split into independent sub-PRs?
 6. **Group changed files by functional area**: List each area with its files (e.g., "Auth: src/auth/login.ts, src/auth/middleware.ts")
-7. **Fetch commit history**: Call `githubSearchPullRequests` with `withCommits=true` to understand development progression
+7. **Fetch commit history**: Call `ghSearchPRs` with `withCommits=true` to understand development progression
 8. **Check for ticket/issue reference** → verify requirements alignment
 9. **Select review mode**: Apply Review Mode Selector from Global Rules (Quick or Full)
 

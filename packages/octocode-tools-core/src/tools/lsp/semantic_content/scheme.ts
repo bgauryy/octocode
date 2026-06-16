@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LspGetSemanticContentQuerySchema as CoreLspGetSemanticContentQuerySchema } from '@octocodeai/octocode-core/schemas';
+import { LspGetSemanticsQuerySchema as CoreLspGetSemanticsQuerySchema } from '@octocodeai/octocode-core/schemas';
 import { ErrorDataSchema } from '@octocodeai/octocode-core/schemas/outputs';
 import { LOCAL_MAX_DEPTH } from '../../../config.js';
 import {
@@ -32,20 +32,19 @@ const queryOverrides = {
 } as const;
 
 const SemanticContentQueryShape = createQueryShapeSchema(
-  CoreLspGetSemanticContentQuerySchema,
+  CoreLspGetSemanticsQuerySchema,
   queryOverrides
 );
 
-export const LspGetSemanticContentQueryDisplaySchema = describeQuerySchema(
-  CoreLspGetSemanticContentQuerySchema,
+export const LspGetSemanticsQueryDisplaySchema = describeQuerySchema(
+  CoreLspGetSemanticsQuerySchema,
   queryOverrides
 );
 
-export const LspGetSemanticContentQuerySchema =
-  LspGetSemanticContentQueryDisplaySchema;
+export const LspGetSemanticsQuerySchema =
+  LspGetSemanticsQueryDisplaySchema;
 
-// Bulk uses the plain shape — superRefine runs per-query at execution.
-export const BulkLspGetSemanticContentQuerySchema =
+export const BulkLspGetSemanticsQuerySchema =
   createRelaxedBulkQuerySchema(SemanticContentQueryShape, { maxQueries: 5 });
 
 const PositionSchema = z.object({
@@ -63,8 +62,6 @@ const DisplayRangeSchema = z.object({
   endLine: z.number(),
 });
 
-// 0-based `range` is internal-only; locations emit line-prefixed content and
-// 1-based displayRange, which is what agents chain on.
 const LocationSchema = z.object({
   uri: z.string(),
   content: z.string().optional(),
@@ -73,8 +70,6 @@ const LocationSchema = z.object({
 });
 const LocationRowSchema = z.string();
 
-// range/position are 0-based internals derived from the same location as
-// foundAtLine (1-based) — the envelope emits only the agent-facing facts.
 const ResolvedSymbolSchema = z.object({
   name: z.string(),
   uri: z.string(),
@@ -184,7 +179,6 @@ const PayloadSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('references'),
-    // groupByFile=true emits byFile INSTEAD OF the flat locations list.
     locations: z.array(z.union([LocationSchema, LocationRowSchema])).optional(),
     byFile: z
       .array(z.union([ReferencesByFileSchema, ReferencesByFileRowSchema]))
@@ -201,8 +195,6 @@ const PayloadSchema = z.discriminatedUnion('kind', [
         .optional(),
       direction: z.enum(['incoming', 'outgoing', 'both']),
       calls: z.array(z.union([CompactCallSchema, CompactCallRowSchema])),
-      // total count lives in pagination.totalResults; only the
-      // incoming/outgoing split is unique information here.
       incomingCalls: z.number(),
       outgoingCalls: z.number(),
       completeness: CompletenessSchema,
@@ -243,7 +235,7 @@ const SemanticDataSchema = z.object({
   hints: z.array(z.string()).optional(),
 });
 
-export const LspGetSemanticContentOutputSchema = z.object({
+export const LspGetSemanticsOutputSchema = z.object({
   base: z.string().optional(),
   shared: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))

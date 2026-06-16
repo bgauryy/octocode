@@ -25,8 +25,6 @@ type RepositorySearchExtraFields = {
 type PartialReposSearchQuery = WithOptionalMeta<GitHubReposSearchSingleQuery> &
   RepositorySearchExtraFields;
 
-// ── Verbose structured output (verbose=true) ─────────────────────────────────
-
 type RepositoryDetail = {
   owner: string;
   repo: string;
@@ -115,8 +113,6 @@ export function formatRepoLine(repo: GitHubRepositoryOutput): string {
   if (r.visibility && r.visibility !== 'public') parts.push(r.visibility);
   if (Array.isArray(r.topics) && r.topics.length > 0)
     parts.push(`#${r.topics.slice(0, 4).join(',')}`);
-  // 'No description' is a placeholder injected by the API mapper when GitHub
-  // returns null — suppress it; it carries no information.
   if (r.description && r.description !== 'No description') {
     const desc = r.description.replace(/\s+/g, ' ').trim();
     parts.push(desc.length > 100 ? `${desc.slice(0, 99)}...` : desc);
@@ -124,8 +120,6 @@ export function formatRepoLine(repo: GitHubRepositoryOutput): string {
 
   return parts.join(' | ');
 }
-
-// ── Output builder ────────────────────────────────────────────────────────────
 
 function buildReposSearchOutput(
   data: { repositories: GitHubRepositoryOutput[]; pagination?: unknown },
@@ -315,9 +309,6 @@ function compareByRequestedSort(
     case 'forks':
       return (right.forksCount ?? 0) - (left.forksCount ?? 0);
     case 'help-wanted-issues':
-      // Use openIssuesCount as the best available proxy when re-sorting
-      // merged dual-variant results. The API already sorts correctly for
-      // single-variant calls; this comparator only kicks in for merges.
       return (right.openIssuesCount ?? 0) - (left.openIssuesCount ?? 0);
     case 'updated':
       return compareIsoDateDescending(left.updatedAt, right.updatedAt);
@@ -482,9 +473,6 @@ function generateSearchSpecificHints(
   totalMatches = 0
 ): string[] | undefined {
   if (hasResults) {
-    // Only fire the narrowing hint when the result set is genuinely large
-    // (>100 total matches) and has no scope filters. hasMore alone is
-    // insufficient — a limit=1 query on 2 total results also sets hasMore:true.
     if (
       hasMore &&
       totalMatches > LARGE_RESULT_THRESHOLD &&
@@ -584,9 +572,6 @@ export async function searchMultipleGitHubRepos(
           return handleProviderError(firstFailedVariant.response, query);
         }
 
-        // Merge and deduplicate across all variants (topics + keywords run as
-        // separate searches). Cap at query.limit so dual-variant mode never
-        // silently returns more repos than the caller asked for.
         const mergedLimit = (query as { limit?: number }).limit;
         const rankedRepositories = rankRepositoriesByRelevance(
           deduplicateRepositories(
@@ -629,10 +614,6 @@ export async function searchMultipleGitHubRepos(
         const resultPagination = effectivePagination
           ? buildResultPagination(effectivePagination)
           : undefined;
-        // A page beyond totalPages yields zero items from the API while the
-        // clamped pagination still reports the last page — without this
-        // detection the empty result reads as "no repos match" and the
-        // filter-widening hints send the agent down the wrong path.
         const requestedPage = (query as { page?: number }).page;
         const lastAvailablePage = effectivePagination?.totalPages ?? 0;
         const pageExceedsTotal = Boolean(
@@ -682,14 +663,12 @@ export async function searchMultipleGitHubRepos(
           const top = repositories[0];
           if (top?.owner && top?.repo) {
             escalationHints.push(
-              `Top result: ${top.owner}/${top.repo} — use githubViewRepoStructure to browse or githubSearchCode to search within it.`
+              `Top result: ${top.owner}/${top.repo} — use ghViewRepoStructure to browse or ghSearchCode to search within it.`
             );
           }
-          // Only suggest parallel browsing when there are enough distinct results
-          // to compare — fewer than 3 makes the hint noise rather than signal.
           if (repositories.length >= 3) {
             escalationHints.push(
-              'Use multiple githubViewRepoStructure queries in parallel to compare the layouts of top results.'
+              'Use multiple ghViewRepoStructure queries in parallel to compare the layouts of top results.'
             );
           }
         }
@@ -711,8 +690,6 @@ export async function searchMultipleGitHubRepos(
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {
             extraHints: finalExtraHints,
-            // Page overrun is not a "no match" — suppress the keyword/filter
-            // widening empty-hints so only the page guidance remains.
             hintContext: pageExceedsTotal
               ? {}
               : {

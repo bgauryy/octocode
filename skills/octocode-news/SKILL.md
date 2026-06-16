@@ -201,10 +201,10 @@ After merge and ranking, run a verification pass on every item that references a
 
 **Verification checklist per repo item** (batch up to 3 queries per Octocode call):
 
-1. **Repo exists and is public** — use `githubSearchRepositories` with `owner` + repo name extracted from the URL. Confirm `status: "hasResults"`. If `empty` or `error`, flag the item.
+1. **Repo exists and is public** — use `ghSearchRepos` with `owner` + repo name extracted from the URL. Confirm `status: "hasResults"`. If `empty` or `error`, flag the item.
 2. **Stars and activity** — from the search result, read `stars`, `pushedAt`, `language`, `topics`. Update the item `stars` field with the real count (e.g. `"★ 12.4k"`). Flag repos with no pushes in >90 days as potentially stale.
-3. **Release claims** — when an item claims a specific release version, use `githubGetFileContent` on `CHANGELOG.md`, `RELEASES.md`, or the GitHub releases page path. Verify the version string appears. Alternatively use `githubSearchPullRequests` with `type="metadata"` to confirm merged release PRs.
-4. **README / description sanity** — use `githubViewRepoStructure` (root, depth=1) to confirm the repo has a README and is not empty/archived. Cross-check the repo description against the item summary for accuracy.
+3. **Release claims** — when an item claims a specific release version, use `ghGetFileContent` on `CHANGELOG.md`, `RELEASES.md`, or the GitHub releases page path. Verify the version string appears. Alternatively use `ghSearchPRs` with `type="metadata"` to confirm merged release PRs.
+4. **README / description sanity** — use `ghViewRepoStructure` (root, depth=1) to confirm the repo has a README and is not empty/archived. Cross-check the repo description against the item summary for accuracy.
 
 **Actions based on verification results**:
 
@@ -218,7 +218,7 @@ After merge and ranking, run a verification pass on every item that references a
 
 **Efficiency rules**:
 
-- Batch 3 repos per `githubSearchRepositories` call (the tool supports 1-3 queries).
+- Batch 3 repos per `ghSearchRepos` call (the tool supports 1-3 queries).
 - Skip verification for items where `type` is `blog`, `newsletter`, or `advisory` and no GitHub URL appears in `link` or `references`.
 - Do not re-verify repos already checked by subagents in step 3 — carry forward their `sourcesChecked` entries. Only verify repos that subagents discovered via RSS or web sources without GitHub tool confirmation.
 - Update the section JSON files in-place after verification. The coordinator owns this step.

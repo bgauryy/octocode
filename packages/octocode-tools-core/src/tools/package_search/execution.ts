@@ -2,14 +2,14 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
-type PackageSearchQuery = z.input<typeof NpmPackageQuerySchema>;
+type NpmSearchQuery = z.input<typeof NpmPackageQuerySchema>;
 import {
   searchPackage,
   checkNpmDeprecation,
 } from '../../utils/package/common.js';
 import type {
-  PackageSearchAPIResult,
-  PackageSearchError,
+  NpmSearchAPIResult,
+  NpmSearchError,
   PackageResult,
   NpmPackageResult,
   DeprecationInfo,
@@ -20,15 +20,12 @@ import { getHints } from '../../hints/index.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-function isPackageSearchError(
-  result: PackageSearchAPIResult | PackageSearchError
-): result is PackageSearchError {
+function isNpmSearchError(
+  result: NpmSearchAPIResult | NpmSearchError
+): result is NpmSearchError {
   return 'error' in result;
 }
 
-/** Narrows PackageResult to the richer NpmPackageResult branch (has npmUrl). */
 function isNpm(pkg: PackageResult): pkg is NpmPackageResult {
   return 'npmUrl' in pkg;
 }
@@ -61,12 +58,6 @@ function parseGitHubRepo(url: string | null | undefined): {
   return {};
 }
 
-/**
- * "name url[ sourceRoot]"
- * e.g.
- *   zod https://github.com/colinhacks/zod
- *   react https://github.com/facebook/react packages/react
- */
 function formatPackageLine(pkg: PackageResult): string {
   const parts = [getPackageName(pkg)];
   const url = getPackageRepo(pkg);
@@ -78,9 +69,6 @@ function formatPackageLine(pkg: PackageResult): string {
   return parts.join(' ');
 }
 
-// ─── hints ───────────────────────────────────────────────────────────────────
-
-/** Hints for an exact / single-result lookup. */
 function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
   const hints: string[] = [];
   const name = getPackageName(pkg);
@@ -102,21 +90,20 @@ function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
   const { owner, repo } = parseGitHubRepo(url);
   if (owner && repo)
     hints.push(
-      `Browse source: use githubViewRepoStructure owner=${owner} repo=${repo}`
+      `Browse source: use ghViewRepoStructure owner=${owner} repo=${repo}`
     );
   else if (url)
     hints.push(
-      `Repository: ${url} — use githubSearchRepositories to find on GitHub.`
+      `Repository: ${url} — use ghSearchRepos to find on GitHub.`
     );
   else
     hints.push(
-      `No repository URL for "${name}" — use githubSearchRepositories to find the source repo.`
+      `No repository URL for "${name}" — use ghSearchRepos to find the source repo.`
     );
 
   return hints;
 }
 
-/** Hints for keyword / multi-result searches — no per-package Install/Browse. */
 type PackagePagination = {
   currentPage: number;
   totalPages: number;
@@ -127,7 +114,7 @@ type PackagePagination = {
 };
 
 function buildPackagePagination(
-  query: PackageSearchQuery,
+  query: NpmSearchQuery,
   totalFound: number,
   returned: number,
   isKeyword: boolean
@@ -167,14 +154,12 @@ function keywordHints(count: number, totalFound: number): string[] {
   ];
 }
 
-// ─── execution ────────────────────────────────────────────────────────────────
-
 export async function searchPackages(
-  args: ToolExecutionArgs<PackageSearchQuery>
+  args: ToolExecutionArgs<NpmSearchQuery>
 ): Promise<CallToolResult> {
   return executeBulkOperation(
     args.queries,
-    async (query: PackageSearchQuery) => {
+    async (query: NpmSearchQuery) => {
       try {
         if (!query.packageName) {
           return createErrorResult(
@@ -193,7 +178,7 @@ export async function searchPackages(
           reasoning: (query as { reasoning?: string }).reasoning,
         });
 
-        if (isPackageSearchError(apiResult)) {
+        if (isNpmSearchError(apiResult)) {
           return createErrorResult(apiResult.error, query, {
             rawResponse: apiResult,
             customHints: [
@@ -209,8 +194,6 @@ export async function searchPackages(
         const packages = raw.map(formatPackageLine);
         const hasContent = packages.length > 0;
 
-        // Exact lookup (single result): check deprecation and emit targeted hints.
-        // Keyword search (multiple results): skip deprecation, emit generic guidance.
         const isKeyword = raw.length > 1 || apiResult.totalFound > 1;
         const pagination = buildPackagePagination(
           query,
@@ -237,7 +220,6 @@ export async function searchPackages(
               : exactHints(raw[0]!, dep)),
         ];
 
-        // Partial when the API returned fewer packages than it knows about.
         const isPartial =
           pagination.hasMore || pagination.currentPage > pagination.totalPages;
         const data = {

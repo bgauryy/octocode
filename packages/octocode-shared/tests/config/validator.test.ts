@@ -26,8 +26,8 @@ describe('config/validator', () => {
           allowedPaths: ['/home/user/projects'],
         },
         tools: {
-          enabled: ['githubSearchCode'],
-          disabled: ['packageSearch'],
+          enabled: ['ghSearchCode'],
+          disabled: ['npmSearch'],
         },
         network: {
           timeout: 30000,
@@ -129,7 +129,7 @@ describe('config/validator', () => {
 
       it('rejects non-array enabled', () => {
         const result = validateConfig({
-          tools: { enabled: 'githubSearchCode' },
+          tools: { enabled: 'ghSearchCode' },
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('tools.enabled'))).toBe(true);
@@ -161,7 +161,7 @@ describe('config/validator', () => {
 
       it('rejects non-array disabled', () => {
         const result = validateConfig({
-          tools: { disabled: 'packageSearch' },
+          tools: { disabled: 'npmSearch' },
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('tools.disabled'))).toBe(
@@ -171,7 +171,7 @@ describe('config/validator', () => {
 
       it('accepts valid disabled array', () => {
         const result = validateConfig({
-          tools: { disabled: ['packageSearch'] },
+          tools: { disabled: ['npmSearch'] },
         });
         expect(result.valid).toBe(true);
       });

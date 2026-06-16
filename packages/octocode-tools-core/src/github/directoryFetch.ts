@@ -128,7 +128,7 @@ export async function fetchDirectoryContents(
       }
       throw new Error(
         `Path "${path}" not found in the cloned repository (${owner}/${repo}@${branch}). ` +
-          'To refresh the clone, use githubCloneRepo with forceRefresh: true.'
+          'To refresh the clone, use ghCloneRepo with forceRefresh: true.'
       );
     }
 

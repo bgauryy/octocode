@@ -9,7 +9,7 @@ configuration, pooling, protocol operations, and benchmarks.
 ## Decision
 
 `octocode-lsp` is the source of truth. `octocode-mcp` keeps only the
-agent-facing `lspGetSemanticContent` MCP tool: schemas, hints, evidence
+agent-facing `lspGetSemantics` MCP tool: schemas, hints, evidence
 envelopes, pagination, compact formatting, and tool registration.
 
 The MCP package must not contain a local `src/lsp` runtime directory, LSP
@@ -57,7 +57,7 @@ deleted when already covered by `octocode-lsp` tests and benchmarks.
 - has no `src/lsp` directory;
 - imports LSP runtime APIs directly from `octocode-lsp/*`;
 - keeps `src/tools/lsp/**` because that is the MCP tool layer;
-- keeps MCP tool tests for `lspGetSemanticContent`;
+- keeps MCP tool tests for `lspGetSemantics`;
 - removes LSP runtime tests from `tests/lsp`;
 - depends on `octocode-lsp` but not on protocol/server packages used only by
   the runtime.
@@ -76,7 +76,7 @@ Keep this split:
 | Package | Owns | Must not own |
 |---|---|---|
 | `octocode-lsp` | stdio process lifecycle, `LSPClient`, pooling, registry, provider resolution, document sync, semantic operations, URI/path helpers, runtime benchmarks | MCP schemas, MCP response envelopes, tool registration |
-| `octocode-mcp` | `lspGetSemanticContent` schema, bulk execution, security wrapper integration, hints, compact output, evidence payloads, tool registration | LSP client internals, JSON-RPC protocol wiring, language-server binaries |
+| `octocode-mcp` | `lspGetSemantics` schema, bulk execution, security wrapper integration, hints, compact output, evidence payloads, tool registration | LSP client internals, JSON-RPC protocol wiring, language-server binaries |
 
 This preserves the MCP surface while removing duplicate runtime ownership.
 

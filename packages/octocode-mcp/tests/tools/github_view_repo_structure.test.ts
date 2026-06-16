@@ -149,9 +149,6 @@ describe('GitHub View Repository Structure Tool', () => {
     );
 
     const responseText = getTextContent(result.content);
-    // Pagination info now surfaces in evidence.reason rather than a hint string.
-    // The old "Structure page is partial" navigation hint is skipped when
-    // hasMorePages=true to avoid duplicating evidence.reason.
     expect(responseText).toContain('Tree paginated');
     expect(responseText).not.toContain('Structure complete');
   });

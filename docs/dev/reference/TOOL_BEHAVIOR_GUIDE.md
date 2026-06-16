@@ -19,7 +19,7 @@ Skip to the tool you are using.
 
 ---
 
-## `githubGetFileContent`
+## `ghGetFileContent`
 
 ### Data shape
 
@@ -64,7 +64,7 @@ Regex matching still returns only the first match slice (same as B1).
 
 **When file is 3MB+ and 413 fires — clone instead:**
 ```json
-// githubCloneRepo with sparsePath, then read locally
+// ghCloneRepo with sparsePath, then read locally
 { "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler" }
 ```
 
@@ -81,7 +81,7 @@ Regex matching still returns only the first match slice (same as B1).
 
 ---
 
-## `githubSearchPullRequests`
+## `ghSearchPRs`
 
 ### Data shape
 
@@ -165,7 +165,7 @@ A PR with 100+ changed files with `content.patches.mode: "all"` (or legacy `type
 
 ---
 
-## `githubSearchRepositories`
+## `ghSearchRepos`
 
 ### Data shape
 
@@ -225,7 +225,7 @@ Private repo visibility requires the org-scoped listing endpoint, not the search
 
 ---
 
-## `packageSearch`
+## `npmSearch`
 
 ### Data shape
 
@@ -240,11 +240,11 @@ Private repo visibility requires the org-scoped listing endpoint, not the search
 
 ### Known behaviors
 
-**B1 — `packageSearch` has a hard 8-second timeout on every network call, with no retry for weekly downloads.**  
+**B1 — `npmSearch` has a hard 8-second timeout on every network call, with no retry for weekly downloads.**  
 `fetchWeeklyDownloads` uses `maxRetries: 0`. In restricted networks (VPN, corporate proxy, CI), the weekly download count will silently be absent. The package version and repo URL are fetched separately and are more resilient.
 
 **B2 — Circuit breaker fallback goes to web search, not GitHub.**  
-When the npm registry is unreachable, the tool attempts a web-search fallback. If that also fails, it returns an error with a hint to use `githubSearchRepositories`. This fallback is not automatic — you must act on the hint.
+When the npm registry is unreachable, the tool attempts a web-search fallback. If that also fails, it returns an error with a hint to use `ghSearchRepos`. This fallback is not automatic — you must act on the hint.
 
 **B3 — Missing weekly downloads has no fallback hint.**  
 When `weeklyDownloads` is absent from the response, no hint is emitted. The field is simply omitted. There is no URL provided to find it manually.
@@ -259,9 +259,9 @@ When `weeklyDownloads` is absent from the response, no hint is emitted. The fiel
 // Batch all three in one call.
 ```
 
-**When `packageSearch` times out — fall back to GitHub:**
+**When `npmSearch` times out — fall back to GitHub:**
 ```json
-// githubSearchRepositories with the package name
+// ghSearchRepos with the package name
 { "keywordsToSearch": ["hono"], "sort": "stars", "limit": 3 }
 // Then read package.json from the repo for version:
 { "owner": "honojs", "repo": "hono", "path": "package.json" }
@@ -283,16 +283,16 @@ When `weeklyDownloads` is absent from the response, no hint is emitted. The fiel
 
 | Goal | Cheapest approach |
 |------|------------------|
-| Find if a function exists in a file | `githubSearchCode` with `keywordsToSearch: ["functionName"]` |
-| Read one function body | `githubGetFileContent` with `matchString: "function name"` + small `contextLines` |
-| Scan a whole file's structure | `githubGetFileContent` with `signaturesOnly: true` |
+| Find if a function exists in a file | `ghSearchCode` with `keywordsToSearch: ["functionName"]` |
+| Read one function body | `ghGetFileContent` with `matchString: "function name"` + small `contextLines` |
+| Scan a whole file's structure | `ghGetFileContent` with `signaturesOnly: true` |
 | Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |
-| Read a 3MB+ file | `githubCloneRepo` sparse + local read |
-| Understand why a PR was made | `githubSearchPullRequests` with `content.body: true` only |
+| Read a 3MB+ file | `ghCloneRepo` sparse + local read |
+| Understand why a PR was made | `ghSearchPRs` with `content.body: true` only |
 | Review a PR's changes | `content.changedFiles: true` first, then `content.patches.mode: "selected"` for relevant files |
 | Get all inline code comments on a PR | `content: { comments: { reviewInline: true, discussion: false } }` |
 | Count repos in an org | `owner: "vercel"` with no keywords → `totalMatches` from pagination |
-| Get package version only | `packageSearch` — if it times out, read `package.json` from GitHub |
+| Get package version only | `npmSearch` — if it times out, read `package.json` from GitHub |
 
 ---
 

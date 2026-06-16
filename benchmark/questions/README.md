@@ -15,9 +15,9 @@ This directory benchmarks two approaches to LLM-assisted code research on `verce
 | **File content** | `rtk read <file>` — language-aware comment stripping | `localGetFileContent` — full fidelity, char-offset pagination |
 | **Directory listing** | `rtk ls` / `rtk tree` | `localViewStructure` — full tree, structured metadata |
 | **File finding** | `rtk find` — no size/mtime metadata | `localFindFiles` — size, mtime, extension filters |
-| **GitHub API** | `gh api` / `gh search code` — raw JSON | `githubGetFileContent`, `githubSearchCode` — structured with pagination |
-| **PR research** | `gh pr view` — raw JSON | `githubSearchPullRequests` — all metadata, comments, diff access |
-| **LSP navigation** | Out of scope | `lspGetSemanticContent` — definition, references, call hierarchy |
+| **GitHub API** | `gh api` / `gh search code` — raw JSON | `ghGetFileContent`, `ghSearchCode` — structured with pagination |
+| **PR research** | `gh pr view` — raw JSON | `ghSearchPRs` — all metadata, comments, diff access |
+| **LSP navigation** | Out of scope | `lspGetSemantics` — definition, references, call hierarchy |
 
 ---
 
@@ -144,18 +144,18 @@ Use any of the 12 Octocode tools. Every call must go through the wrapper.
 
 | Tool | When to use |
 |---|---|
-| `githubSearchCode` | Search code across GitHub by keyword |
-| `githubGetFileContent` | Fetch a specific file or path from GitHub |
-| `githubViewRepoStructure` | Browse the repository tree |
-| `githubSearchRepositories` | Search for repositories |
-| `githubSearchPullRequests` | Search PRs, read body, comments, diffs |
-| `githubCloneRepo` | Clone a repo subtree for local + LSP use |
-| `packageSearch` | npm package version, downloads, repo URL |
+| `ghSearchCode` | Search code across GitHub by keyword |
+| `ghGetFileContent` | Fetch a specific file or path from GitHub |
+| `ghViewRepoStructure` | Browse the repository tree |
+| `ghSearchRepos` | Search for repositories |
+| `ghSearchPRs` | Search PRs, read body, comments, diffs |
+| `ghCloneRepo` | Clone a repo subtree for local + LSP use |
+| `npmSearch` | npm package version, downloads, repo URL |
 | `localSearchCode` | ripgrep search on the local clone |
 | `localGetFileContent` | Read a local file with optional pagination |
 | `localViewStructure` | Browse local directory tree |
 | `localFindFiles` | Find files by name, extension, size, mtime |
-| `lspGetSemanticContent` | Semantic navigation: definition, references, callHierarchy, documentSymbols, hover, typeDefinition, implementation |
+| `lspGetSemantics` | Semantic navigation: definition, references, callHierarchy, documentSymbols, hover, typeDefinition, implementation |
 
 ## How to call Octocode tools
 
@@ -171,15 +171,15 @@ Examples:
 
 ```bash
 # Search code on GitHub (Q1–Q10)
-bash benchmark/scripts/octo-meas.sh githubSearchCode \
+bash benchmark/scripts/octo-meas.sh ghSearchCode \
   '{"keywordsToSearch":["notFound"],"owner":"vercel","repo":"next.js","mainResearchGoal":"trace notFound propagation","researchGoal":"find notFound definition","reasoning":"need exact declaration file and line"}'
 
 # Get a file from GitHub (Q1–Q10)
-bash benchmark/scripts/octo-meas.sh githubGetFileContent \
+bash benchmark/scripts/octo-meas.sh ghGetFileContent \
   '{"owner":"vercel","repo":"next.js","path":"packages/next/src/server/app-render/app-render.tsx","mainResearchGoal":"read renderToHTMLOrFlight signature","researchGoal":"read app-render.tsx","reasoning":"need return type and parameters"}'
 
 # Browse repo tree (Q1–Q10)
-bash benchmark/scripts/octo-meas.sh githubViewRepoStructure \
+bash benchmark/scripts/octo-meas.sh ghViewRepoStructure \
   '{"owner":"vercel","repo":"next.js","path":"packages/next/src/server","mainResearchGoal":"list server subdirectories","researchGoal":"browse server dir","reasoning":"need subdirectory names"}'
 
 # Search local clone (Q11–Q20)
@@ -187,7 +187,7 @@ bash benchmark/scripts/octo-meas.sh localSearchCode \
   '{"path":"/tmp/nextjs-bench/packages/next/src/server","pattern":"TODO|FIXME|HACK","mainResearchGoal":"find all annotation comments","researchGoal":"search for TODO FIXME HACK","reasoning":"need exhaustive list with file and line"}'
 
 # LSP call hierarchy (Q11–Q20)
-bash benchmark/scripts/octo-meas.sh lspGetSemanticContent \
+bash benchmark/scripts/octo-meas.sh lspGetSemantics \
   '{"type":"callHierarchy","uri":"/tmp/nextjs-bench/packages/next/src/server/app-render/app-render.tsx","symbolName":"renderToHTMLOrFlight","lineHint":42,"mainResearchGoal":"find all callers of renderToHTMLOrFlight","researchGoal":"incoming call hierarchy","reasoning":"need direct callers with file and line"}'
 ```
 

@@ -78,7 +78,6 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
 
     expect(pr.file_changes).toBeDefined();
     expect(pr.file_changes).toHaveLength(2);
-    // Check that patch is undefined for all files
     pr.file_changes?.forEach(file => {
       expect(file.patch).toBeUndefined();
     });
@@ -134,15 +133,12 @@ describe('GitHub PR Search Tool Refactor (Mocked)', () => {
     const pr = result.pull_requests![0]!;
 
     expect(pr.file_changes).toBeDefined();
-    // Should only have the requested file
     expect(pr.file_changes).toHaveLength(1);
     expect(pr.file_changes![0]!.filename).toBe(filename);
 
-    // Check patch content
     const patch = pr.file_changes![0]!.patch;
     expect(patch).toBeDefined();
 
-    // Expect the patch to contain the added line
     expect(patch).toContain('+756:');
     expect(patch).toContain('@reactVersion >= 18.0');
   });

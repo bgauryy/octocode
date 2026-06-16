@@ -4,8 +4,6 @@ import { resolveRef, isGithubRef, refLabel } from '../routing.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { executeDirectTool } from '@octocodeai/octocode-tools-core/direct';
 
-// ── types ─────────────────────────────────────────────────────────────────────
-
 interface LocalMatch {
   path?: string;
   matchCount?: number;
@@ -44,8 +42,6 @@ interface GithubCodeResult {
   hints?: string[];
   emptyQueries?: Array<{ id?: string }>;
 }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 async function searchLocal(
   pattern: string,
@@ -87,7 +83,7 @@ async function searchGithub(
   page?: number,
   pageSize?: number
 ): Promise<GithubCodeResult> {
-  const result = await executeDirectTool('githubSearchCode', {
+  const result = await executeDirectTool('ghSearchCode', {
     queries: [
       {
         keywordsToSearch: [pattern],
@@ -152,7 +148,6 @@ function renderGithubResults(
   owner?: string,
   repo?: string
 ): string {
-  // Each result is one matching repo; its matches array holds per-file snippets
   const results = sc?.results ?? [];
   const total = sc?.pagination?.totalCount ?? results.length;
   const lines: string[] = [];
@@ -181,7 +176,6 @@ function renderGithubResults(
   if (lines.length === 0) {
     lines.push(`  ${dim('No matches found.')}`);
 
-    // Surface tool-level hints (e.g. "repo may not be indexed")
     const toolHints = sc?.hints ?? [];
     const indexingHint = toolHints.find(h =>
       /not be indexed|may not be indexed|zero here isn't proof/i.test(h)
@@ -191,7 +185,6 @@ function renderGithubResults(
       lines.push(`  ${c('yellow', '→')} ${indexingHint}`);
     }
 
-    // Always add actionable alternatives when GitHub search yields nothing
     const repoRef = owner && repo ? `${owner}/${repo}` : '<owner>/<repo>';
     lines.push('');
     lines.push(
@@ -207,8 +200,6 @@ function renderGithubResults(
 
   return lines.join('\n');
 }
-
-// ── command ───────────────────────────────────────────────────────────────────
 
 export const searchCommand: CLICommand = {
   name: 'search',

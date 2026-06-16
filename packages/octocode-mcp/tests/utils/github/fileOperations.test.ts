@@ -581,8 +581,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
       expect(result.status).toBe(200);
       if ('data' in result) {
         expect(result.data.content).toContain('import React from "react"');
-        // All occurrences are returned as slices now — the hint reports the
-        // occurrence count and slice layout instead of "Other occurrences".
         expect(
           result.data.matchLocations?.some(
             loc =>
@@ -716,7 +714,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
         endLine: 5,
       });
 
-      // Two keys per call: raw content + cached timestamp lookup (ts: true).
       expect(mockGenerateCacheKey).toHaveBeenCalledTimes(4);
       const contentKeyCalls = mockGenerateCacheKey.mock.calls.filter(
         call => !(call[1] as Record<string, unknown>).ts
@@ -760,8 +757,6 @@ describe('fetchGitHubFileContentAPI - Parameter Testing', () => {
     });
 
     it('should decode files larger than 300KB that have inline content', async () => {
-      // The 300 KB gate has been removed. Files with inline base64 content are
-      // decoded regardless of reported size; pagination handles large output.
       const params = createTestParams();
       const largeContent = 'x'.repeat(500 * 1024);
 

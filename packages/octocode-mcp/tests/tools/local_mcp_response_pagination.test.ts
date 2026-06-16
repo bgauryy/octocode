@@ -13,10 +13,6 @@ import {
 } from '@octocodeai/octocode-core/schemas/outputs';
 import { withResponseEnvelope } from '../../../octocode-tools-core/src/scheme/responseEnvelope.js';
 
-// Bulk MCP responses wrap each per-query payload as {id, status?, data}.
-// `status` is omitted on success, which the assertion helpers treat as
-// 'hasResults' — the default below mirrors that convention. The per-query
-// data payload is validated separately via the Data schemas below.
 const toBulkOutputSchema = (dataSchema: z.ZodObject) =>
   z.object({
     results: z.array(
@@ -24,9 +20,6 @@ const toBulkOutputSchema = (dataSchema: z.ZodObject) =>
         id: z.string(),
         status: z.enum(['hasResults', 'empty', 'error']).default('hasResults'),
         data: withResponseEnvelope(dataSchema).extend({
-          // This server projects directory entries to a slim shape (only
-          // `name` is guaranteed; `path`/`type` may be stripped), so relax
-          // the upstream entries shape to match the actual local output.
           entries: z.array(z.looseObject({ name: z.string() })).optional(),
         }),
       })
@@ -38,7 +31,6 @@ const LocalGetFileContentDataSchema = UpstreamLocalGetFileContentOutputSchema;
 const LocalSearchCodeDataSchema = UpstreamLocalSearchCodeOutputSchema;
 const LocalViewStructureDataSchema =
   UpstreamLocalViewStructureOutputSchema.extend({
-    // See note above — local entries only guarantee `name`.
     entries: z.array(z.looseObject({ name: z.string() })).optional(),
   });
 

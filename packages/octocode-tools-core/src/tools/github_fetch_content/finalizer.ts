@@ -106,8 +106,6 @@ function buildFetchEvidence(
     (sum, group) => sum + (group.directories?.length ?? 0),
     0
   );
-  // matchString reads are intentionally partial — every occurrence is already
-  // returned as a slice, so they don't reduce evidence completeness.
   const partialFiles = groups.reduce(
     (sum, group) =>
       sum +
@@ -332,8 +330,6 @@ function buildRuntimeHints(groups: readonly RepoGroup[]): string[] {
         const nextBlockChar = file.pagination.nextBlockChar;
 
         if (typeof nextBlockChar === 'number') {
-          // Page cut landed mid-block — give the agent a precise boundary hint
-          // so it can extend charLength rather than paging blindly.
           const extendBy = nextBlockChar - nextOffset;
           hints.push(
             `${formatContentPageHint(group.id, file)}. Page cut mid-block at char ${nextOffset}. ` +
@@ -374,7 +370,7 @@ function errorHints(error: string, status?: number): string[] | undefined {
   if (status === 404 || lower.includes('not found') || lower.includes('404')) {
     return [
       'Verify owner/repo/path/branch.',
-      'Use githubViewRepoStructure to confirm the path.',
+      'Use ghViewRepoStructure to confirm the path.',
     ];
   }
   if (status === 403 || lower.includes('forbidden') || lower.includes('403')) {

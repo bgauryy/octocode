@@ -110,7 +110,7 @@ describe('runCLI', () => {
 
     const handled = await runCLI([
       'tools',
-      'githubSearchCode',
+      'ghSearchCode',
       '--queries',
       '{"owner":"bgauryy","repo":"octocode-mcp","keywordsToSearch":["tool"]}',
       '--output',
@@ -121,7 +121,7 @@ describe('runCLI', () => {
     expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
     expect(mocks.executeToolCommand).toHaveBeenCalledWith({
       command: 'tools',
-      args: ['githubSearchCode'],
+      args: ['ghSearchCode'],
       options: {
         queries:
           '{"owner":"bgauryy","repo":"octocode-mcp","keywordsToSearch":["tool"]}',
@@ -300,7 +300,7 @@ describe('runCLI', () => {
 
     await runCLI([
       'tools',
-      'githubSearchCode',
+      'ghSearchCode',
       '--queries',
       '{"owner":"x","repo":"y","keywordsToSearch":["a"]}',
     ]);

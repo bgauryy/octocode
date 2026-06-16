@@ -20,7 +20,7 @@ function run(
   return finalize({
     queries: queries as never,
     results,
-    config: { toolName: 'githubGetFileContent', ...config } as never,
+    config: { toolName: 'ghGetFileContent', ...config } as never,
   });
 }
 
@@ -379,7 +379,7 @@ describe('buildGithubFetchContentFinalizer — error hints', () => {
     expect(data.errors![0]!.owner).toBe('o');
     expect(data.errors![0]!.path).toBe('gone.ts');
     expect(
-      data.errors![0]!.hints?.some(h => /githubViewRepoStructure/.test(h))
+      data.errors![0]!.hints?.some(h => /ghViewRepoStructure/.test(h))
     ).toBe(true);
     expect(out.isError).toBe(true);
   });

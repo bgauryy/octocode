@@ -24,20 +24,9 @@ export interface PaginationInfo {
   charOffset?: number;
   charLength?: number;
   totalChars?: number;
-  /**
-   * How the page boundary was chosen.
-   * `'semantic'`   — snapped to a tree-sitter/heuristic block boundary; the
-   *                  page ends at a complete function/class, never mid-body.
-   * `'char-limit'` — fixed char-size cut; may end mid-block (see nextBlockChar).
-   * Absent on structure/item pagination (not applicable).
-   */
+  
   chunkMode?: 'semantic' | 'char-limit';
-  /**
-   * When chunkMode is `'char-limit'` and the cut lands mid-block, this is the
-   * char offset of the next top-level semantic boundary. Agents should
-   * re-request with charLength extended to this offset rather than paginating
-   * blindly through a function body.
-   */
+  
   nextBlockChar?: number;
   perPage?: number;
   itemsPerPage?: number;

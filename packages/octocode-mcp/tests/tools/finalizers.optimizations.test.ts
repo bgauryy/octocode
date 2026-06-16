@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { buildGithubFetchContentFinalizer } from '../../../octocode-tools-core/src/tools/github_fetch_content/finalizer.js';
-import { buildGithubSearchCodeFinalizer } from '../../../octocode-tools-core/src/tools/github_search_code/finalizer.js';
+import { buildGhSearchCodeFinalizer } from '../../../octocode-tools-core/src/tools/github_search_code/finalizer.js';
 import type { FlatQueryResult } from '../../../octocode-tools-core/src/types/toolResults.js';
 
-describe('githubGetFileContent finalizer — optimization fixes', () => {
+describe('ghGetFileContent finalizer — optimization fixes', () => {
   it('FIX #1: does not emit top-level "Partial content ... Use startLine=..." hint when the file is partial (info already in fields)', () => {
     const finalizer = buildGithubFetchContentFinalizer();
     const queries = [
@@ -31,7 +31,7 @@ describe('githubGetFileContent finalizer — optimization fixes', () => {
     const out = finalizer({
       queries,
       results,
-      config: { toolName: 'githubGetFileContent' },
+      config: { toolName: 'ghGetFileContent' },
     });
 
     const file = out.structuredContent.results[0]?.files?.[0];
@@ -72,7 +72,7 @@ describe('githubGetFileContent finalizer — optimization fixes', () => {
     const out = finalizer({
       queries,
       results,
-      config: { toolName: 'githubGetFileContent' },
+      config: { toolName: 'ghGetFileContent' },
     });
 
     const errors = out.structuredContent.errors;
@@ -86,9 +86,9 @@ describe('githubGetFileContent finalizer — optimization fixes', () => {
   });
 });
 
-describe('githubSearchCode finalizer — optimization fixes', () => {
+describe('ghSearchCode finalizer — optimization fixes', () => {
   it('FIX #3: surfaces zero-result queries via an emptyQueries[] signal', () => {
-    const finalizer = buildGithubSearchCodeFinalizer();
+    const finalizer = buildGhSearchCodeFinalizer();
     const queries = [
       {
         id: 'has_hits',
@@ -123,7 +123,7 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
     const out = finalizer({
       queries,
       results,
-      config: { toolName: 'githubSearchCode' },
+      config: { toolName: 'ghSearchCode' },
     });
 
     expect(out.structuredContent.emptyQueries).toBeDefined();
@@ -133,7 +133,7 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
   });
 
   it('FIX #3: omits emptyQueries[] entirely when every query had matches', () => {
-    const finalizer = buildGithubSearchCodeFinalizer();
+    const finalizer = buildGhSearchCodeFinalizer();
     const queries = [{ id: 'q1', keywordsToSearch: ['useState'] }];
     const results: FlatQueryResult[] = [
       {
@@ -154,14 +154,14 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
     const out = finalizer({
       queries,
       results,
-      config: { toolName: 'githubSearchCode' },
+      config: { toolName: 'ghSearchCode' },
     });
 
     expect(out.structuredContent.emptyQueries).toBeUndefined();
   });
 
   it('ranks merged owner/repo groups by match count before pagination', () => {
-    const finalizer = buildGithubSearchCodeFinalizer();
+    const finalizer = buildGhSearchCodeFinalizer();
     const queries = [{ id: 'q1', keywordsToSearch: ['handler'] }];
     const results: FlatQueryResult[] = [
       {
@@ -188,7 +188,7 @@ describe('githubSearchCode finalizer — optimization fixes', () => {
     const out = finalizer({
       queries,
       results,
-      config: { toolName: 'githubSearchCode' },
+      config: { toolName: 'ghSearchCode' },
     });
 
     const files = out.structuredContent.results?.[0]?.data.files ?? [];

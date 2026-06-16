@@ -175,12 +175,6 @@ async function fetchContentViaBlob(
   }
 }
 
-/**
- * Fallback for files that the Contents API rejects with HTTP 413.
- * Fetches the parent directory listing to obtain the target file's blob SHA,
- * then delegates to fetchContentViaBlob() (GET /git/blobs/{sha}).
- * Supports files up to 100 MB (GitHub's Git Blob API limit).
- */
 async function fetchContentViaTreeFallback(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
@@ -204,7 +198,6 @@ async function fetchContentViaTreeFallback(
       branch ||
       (await resolveDefaultBranch(owner, repo, authInfo).catch(() => 'HEAD'));
 
-    // A directory listing (array) includes each entry's blob SHA.
     const dirResult = await octokit.rest.repos.getContent({
       owner,
       repo,
@@ -304,9 +297,6 @@ export async function fetchRawGitHubFileContent(
           );
         }
       } else if (error instanceof RequestError && error.status === 413) {
-        // GitHub returned 413 — file is too large for the Contents API inline
-        // path. Fall back to the directory listing to get the blob SHA, then
-        // fetch via the Git Blob API (no inline size cap, supports up to 100 MB).
         return await fetchContentViaTreeFallback(
           octokit,
           owner,
@@ -337,14 +327,9 @@ export async function fetchRawGitHubFileContent(
     }
 
     if ('content' in data && data.type === 'file') {
-      // Normalise to a string (field may be absent on very large responses).
       const contentStr = typeof data.content === 'string' ? data.content : '';
       const fileSize = (data as { size?: number }).size ?? 0;
 
-      // Any non-empty content string (including whitespace-only) goes through
-      // decodeBase64Content, which strips whitespace before decoding.
-      // An absent/empty content field with a positive file size means GitHub
-      // withheld the inline content (≥ 1 MB) — use the Git Blob API instead.
       let decoded: GitHubAPIResponse<string>;
       if (contentStr.length > 0) {
         decoded = await decodeBase64Content(contentStr, filePath);
@@ -354,8 +339,6 @@ export async function fetchRawGitHubFileContent(
         typeof data.sha === 'string' &&
         data.sha
       ) {
-        // GitHub Contents API returns empty content for files ≥ 1 MB.
-        // Fall back to the Git Blob API which has no inline size cap.
         decoded = await fetchContentViaBlob(
           octokit,
           owner,
@@ -427,7 +410,7 @@ function buildPathSuggestionHints(
   const hints: string[] = [];
   if (isCaseMismatch) {
     hints.push(
-      'GitHub Contents API paths are case-sensitive. Verify exact file casing with githubViewRepoStructure.'
+      'GitHub Contents API paths are case-sensitive. Verify exact file casing with ghViewRepoStructure.'
     );
   }
   hints.push(`Did you mean: ${suggestions.join(', ')}?`);
@@ -472,8 +455,6 @@ async function findPathSuggestions(
     });
     extMatches.forEach(f => suggestions.push(f.path));
 
-    // Prefix match: covers typos like "npm_typo.ts" → "npm.ts"
-    // Only kick in when no exact/extension matches found and base name is long enough
     if (suggestions.length === 0 && nameNoExt.length >= 3) {
       const prefixMatches = files.filter(f => {
         const fBase = f.name.replace(/\.[^/.]+$/, '');

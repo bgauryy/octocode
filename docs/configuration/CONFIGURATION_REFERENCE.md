@@ -92,7 +92,7 @@ Invalid file values fall back to defaults or env overrides. Unknown keys warn an
 |-----|---------------|---------|---------|
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | GitHub API endpoint. Use `/api/v3` for GitHub Enterprise. |
 | `ENABLE_LOCAL` | `local.enabled` | `true` | Enable local filesystem and LSP tools. |
-| `ENABLE_CLONE` | `local.enableClone` | `false` | Enable `githubCloneRepo` and directory fetch. Requires local enabled. |
+| `ENABLE_CLONE` | `local.enableClone` | `false` | Enable `ghCloneRepo` and directory fetch. Requires local enabled. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Root used for relative local paths and project context. Must be absolute when set. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Comma-separated env list or JSON array. Empty means unrestricted after path validation. |
 | `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict whitelist. Overrides add/remove filters. |

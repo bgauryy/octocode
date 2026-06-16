@@ -17,7 +17,7 @@ function parseMinify(schema: z.ZodTypeAny, input: Record<string, unknown>) {
   return (result.data as { minify?: unknown }).minify;
 }
 
-describe('minify enum — githubGetFileContent scheme', () => {
+describe('minify enum — ghGetFileContent scheme', () => {
   it("defaults to 'standard' when omitted (schema-level default — comment-stripped view)", () => {
     expect(parseMinify(FileContentQueryLocalSchema, GH_BASE)).toBe('standard');
   });
@@ -111,7 +111,7 @@ describe('minify enum — localGetFileContent scheme', () => {
   });
 });
 
-describe('minify enum — githubSearchPullRequests scheme', () => {
+describe('minify enum — ghSearchPRs scheme', () => {
   it("defaults to 'standard' when omitted (schema-level default, token-saving patch view)", () => {
     expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBe(
       'standard'

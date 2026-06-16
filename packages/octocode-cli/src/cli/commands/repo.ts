@@ -300,7 +300,7 @@ export const repoCommand: CLICommand = {
     }
 
     try {
-      const result = await executeDirectTool('githubSearchRepositories', {
+      const result = await executeDirectTool('ghSearchRepos', {
         queries: [built.query],
       });
 

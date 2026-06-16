@@ -124,9 +124,7 @@ describe('providerMappers', () => {
     );
 
     const matches = result.results[0]!.matches;
-    // empty-snippet-only file falls back to a pathOnly entry
     expect(matches).toContainEqual({ path: 'src/empty.ts', pathOnly: true });
-    // mixed file keeps only the non-empty match
     const mixed = matches.filter(m => m.path === 'src/mixed.ts');
     expect(mixed).toEqual([
       {
@@ -135,7 +133,6 @@ describe('providerMappers', () => {
         matchIndices: [{ start: 6, end: 10 }],
       },
     ]);
-    // no entry anywhere has an empty value
     expect(matches.every(m => m.value !== '')).toBe(true);
   });
 
@@ -653,8 +650,6 @@ describe('providerMappers', () => {
     expect(summary.inlineComments).toBe(1);
     expect(summary.discussionComments).toBe(1);
   });
-
-  // ── mapPullRequestToolQuery: keyword quoting + query field ────────────────
 
   it('phrase-quotes a multi-word keywordsToSearch entry', () => {
     const result = mapPullRequestToolQuery({

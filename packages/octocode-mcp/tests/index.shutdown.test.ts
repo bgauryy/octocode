@@ -51,11 +51,11 @@ vi.mock('../../octocode-tools-core/src/tools/toolMetadata/state.js', () => ({
     Promise.resolve({
       instructions: 'Test instructions',
       toolNames: {
-        GITHUB_FETCH_CONTENT: 'githubGetFileContent',
-        GITHUB_SEARCH_CODE: 'githubSearchCode',
-        GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
-        GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
-        GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
+        GITHUB_FETCH_CONTENT: 'ghGetFileContent',
+        GITHUB_SEARCH_CODE: 'ghSearchCode',
+        GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+        GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
+        GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
       },
       tools: {},
       baseHints: { hasResults: [], empty: [] },
@@ -98,8 +98,6 @@ vi.mock('../src/utils/core/logger.js', () => ({
 let registerAllTools: (server: never) => Promise<void>;
 
 describe('index.ts - Server Lifecycle', () => {
-  // The dynamic index.js import occasionally exceeds the default 1s hook
-  // timeout under full-suite load — a timing flake, not a regression.
   beforeEach(async () => {
     vi.clearAllMocks();
 

@@ -277,7 +277,7 @@ The endpoint `GET /orgs/{org}/repos` (also available for users as `GET /users/{u
 
 ### Current octocode state
 
-`githubSearchRepositories` exclusively uses `octokit.rest.search.repos()` (GitHub Search API), which:
+`ghSearchRepos` exclusively uses `octokit.rest.search.repos()` (GitHub Search API), which:
 - Is capped at **1,000 total results** per query
 - Does not guarantee complete enumeration
 - Does not expose the true total count of an org's repos
@@ -286,7 +286,7 @@ The endpoint `GET /orgs/{org}/repos` (also available for users as `GET /users/{u
 
 ### Fix
 
-**Approach:** Add an `orgRepos` parameter to `githubSearchRepositories`. When `owner` is provided but no `keywordsToSearch` / `topicsToSearch`, route to the listing endpoint instead of search.
+**Approach:** Add an `orgRepos` parameter to `ghSearchRepos`. When `owner` is provided but no `keywordsToSearch` / `topicsToSearch`, route to the listing endpoint instead of search.
 
 **Files to change:**
 
@@ -414,7 +414,7 @@ async function searchGitHubReposAPIInternal(params, authInfo) {
 }
 ```
 
-#### C. Tool schema — `githubSearchRepositories`
+#### C. Tool schema — `ghSearchRepos`
 
 Update the schema to document the new `owner`-only listing mode:
 

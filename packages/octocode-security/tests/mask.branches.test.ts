@@ -91,12 +91,6 @@ describe('maskSensitiveData - patternMap accuracy fallback', () => {
   });
 });
 
-// NOTE: Tests in this suite use vi.doMock('../src/regexes/index.js') to swap allRegexPatterns.
-// In octocode-security the masking hot path runs inside a compiled Rust binary — the JS
-// allRegexPatterns array is never consulted at runtime, so mock-based pattern injection has
-// no effect on our implementation.
-// Tests that rely exclusively on that mechanism are skipped here; equivalent coverage
-// exists in rust-specific.test.ts (RUST-07) and mask.test.ts.
 describe('maskSensitiveData - edge cases for match array access', () => {
   beforeEach(async () => {
     vi.resetModules();

@@ -3,9 +3,6 @@ import { findFiles as findFilesImpl } from '../../../octocode-tools-core/src/too
 import { safeExec } from '../../../octocode-tools-core/src/utils/exec/safe.js';
 import * as pathValidator from 'octocode-security/pathValidator';
 
-// The MCP overlay schema (scheme.ts) layers `page`/`itemsPerPage` on top of
-// the upstream query type; findFiles reads them via runtime casts. This
-// wrapper exposes those overlay fields to the direct-call tests.
 type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
   page?: number;
   itemsPerPage?: number;
@@ -239,13 +236,10 @@ describe('findFiles sortBy branches', () => {
     });
 
     expect(result.status).toBeUndefined();
-    // modified is collected internally for sorting — newest first.
     const files = result.files!;
     expect(files[0]!.path).toBe('/test/b.ts');
     expect(files[1]!.path).toBe('/test/a.ts');
-    // ...but never displayed without showFileLastModified.
     expect(files.every(f => f.modified === undefined)).toBe(true);
-    // The old "sortBy=modified ignored" warning is gone.
     expect(
       (result.hints ?? []).some(h => h.includes('sortBy="modified" ignored'))
     ).toBe(false);

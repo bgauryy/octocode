@@ -5,12 +5,12 @@ import { GitHubCodeSearchQueryLocalSchema } from '../../../octocode-tools-core/s
 import { GitHubReposSearchSingleQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_repos/scheme.js';
 import { GitHubPullRequestSearchQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/scheme.js';
 import { GitHubViewRepoStructureQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/scheme.js';
-import { PackageSearchQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
+import { NpmSearchQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 import { LocalFetchContentQuerySchema } from '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js';
 import { LocalFindFilesQuerySchema } from '../../../octocode-tools-core/src/tools/local_find_files/scheme.js';
 import { LocalRipgrepQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
 import { LocalViewStructureQuerySchema } from '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js';
-import { LspGetSemanticContentQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
+import { LspGetSemanticsQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 
 const SENTINEL = 9007199254740991;
 
@@ -20,12 +20,12 @@ const schemas: Record<string, z.ZodTypeAny> = {
   'repos(remote)': GitHubReposSearchSingleQueryLocalSchema,
   'pullRequests(remote)': GitHubPullRequestSearchQueryLocalSchema,
   'viewRepoStructure(remote)': GitHubViewRepoStructureQueryLocalSchema,
-  'packageSearch(remote)': PackageSearchQueryLocalSchema,
+  'npmSearch(remote)': NpmSearchQueryLocalSchema,
   'fetchContent(local)': LocalFetchContentQuerySchema,
   findFiles: LocalFindFilesQuerySchema,
   ripgrep: LocalRipgrepQuerySchema,
   viewStructure: LocalViewStructureQuerySchema,
-  lspSemantic: LspGetSemanticContentQuerySchema,
+  lspSemantic: LspGetSemanticsQuerySchema,
 };
 
 describe('numeric schema fields are bounded (#C1)', () => {
@@ -47,7 +47,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
     });
   }
 
-  it('githubSearchCode clamps page 0 to page 1 (relaxed page field)', () => {
+  it('ghSearchCode clamps page 0 to page 1 (relaxed page field)', () => {
     const r = GitHubCodeSearchQueryLocalSchema.safeParse({
       keywordsToSearch: ['x'],
       page: 0,
@@ -71,7 +71,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
   });
 
   it('clamps a negative line number instead of rejecting it', () => {
-    const r = LspGetSemanticContentQuerySchema.safeParse({
+    const r = LspGetSemanticsQuerySchema.safeParse({
       uri: 'a.ts',
       type: 'definition',
       symbolName: 'x',

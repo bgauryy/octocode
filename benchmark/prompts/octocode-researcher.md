@@ -61,7 +61,7 @@ have enough source evidence.
 
 Example:
 
-  bash benchmark/scripts/octo-meas.sh githubSearchCode '{
+  bash benchmark/scripts/octo-meas.sh ghSearchCode '{
     "queries": [{
       "id": "1",
       "mainResearchGoal": "trace Next.js notFound behavior",

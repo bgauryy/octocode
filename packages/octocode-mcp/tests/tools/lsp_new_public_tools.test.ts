@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import {
-  BulkLspGetSemanticContentQuerySchema,
-  LspGetSemanticContentQuerySchema,
+  BulkLspGetSemanticsQuerySchema,
+  LspGetSemanticsQuerySchema,
 } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
-import { registerLspGetSemanticContentTool } from '../../src/tools/lsp/semantic_content/register.js';
+import { registerLspGetSemanticsTool } from '../../src/tools/lsp/semantic_content/register.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 
@@ -15,7 +15,7 @@ const removedLspToolNames = [
 ];
 
 describe('new public LSP tools', () => {
-  it('advertises only lspGetSemanticContent without removed LSP tools', () => {
+  it('advertises only lspGetSemantics without removed LSP tools', () => {
     const names = ALL_TOOLS.map(tool => tool.name);
 
     expect(names).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
@@ -28,7 +28,7 @@ describe('new public LSP tools', () => {
   it('registers the semantic tool with read-only annotations', () => {
     const server = createMockMcpServer();
 
-    registerLspGetSemanticContentTool(server.server);
+    registerLspGetSemanticsTool(server.server);
 
     expect(server.registrations).toContainEqual(
       expect.objectContaining({
@@ -45,13 +45,13 @@ describe('new public LSP tools', () => {
 
   it('enforces semantic type anchoring rules', () => {
     expect(
-      LspGetSemanticContentQuerySchema.safeParse({
+      LspGetSemanticsQuerySchema.safeParse({
         type: 'documentSymbols',
         uri: '/tmp/a.ts',
       }).success
     ).toBe(true);
     expect(
-      LspGetSemanticContentQuerySchema.safeParse({
+      LspGetSemanticsQuerySchema.safeParse({
         type: 'definition',
         uri: '/tmp/a.ts',
         symbolName: 'target',
@@ -59,7 +59,7 @@ describe('new public LSP tools', () => {
       }).success
     ).toBe(true);
     expect(
-      LspGetSemanticContentQuerySchema.safeParse({
+      LspGetSemanticsQuerySchema.safeParse({
         type: 'definition',
         uri: '/tmp/a.ts',
       }).success
@@ -68,7 +68,7 @@ describe('new public LSP tools', () => {
 
   it('bulk schemas parse minimal valid requests', () => {
     expect(
-      BulkLspGetSemanticContentQuerySchema.safeParse({
+      BulkLspGetSemanticsQuerySchema.safeParse({
         queries: [
           {
             type: 'definition',

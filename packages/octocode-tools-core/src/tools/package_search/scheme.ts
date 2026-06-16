@@ -14,24 +14,17 @@ const queryOverrides = {
   page: relaxedPageNumberField,
 } as const;
 
-export const PackageSearchQueryLocalSchema = describeQuerySchema(
+export const NpmSearchQueryLocalSchema = describeQuerySchema(
   NpmPackageQuerySchema,
   queryOverrides
 );
 
-export const PackageSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
+export const NpmSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
   createQueryShapeSchema(NpmPackageQuerySchema, queryOverrides),
   { maxQueries: 5 }
 );
 
-/**
- * Output: each result's `packages` is a list of strings in the form:
- *   "name repoUrl[ sourceRoot]"
- * e.g.
- *   "zod https://github.com/colinhacks/zod"
- *   "react https://github.com/facebook/react packages/react"
- */
-export const PackageSearchOutputLocalSchema = z
+export const NpmSearchOutputLocalSchema = z
   .object({
     results: z
       .array(

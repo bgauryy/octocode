@@ -10,7 +10,7 @@ import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core
 beforeAll(async () => {});
 
 describe('tool-owned structured pagination', () => {
-  it('paginates oversized githubSearchCode file matches instead of returning the full file payload', () => {
+  it('paginates oversized ghSearchCode file matches instead of returning the full file payload', () => {
     const fullMatch = 'x'.repeat(12000);
 
     const result = applyQueryOutputPagination(
@@ -49,7 +49,7 @@ describe('tool-owned structured pagination', () => {
     );
   });
 
-  it('paginates githubCloneRepo hints when they are the dominant payload', () => {
+  it('paginates ghCloneRepo hints when they are the dominant payload', () => {
     const hints = Array.from(
       { length: 20 },
       (_, index) => `Hint ${index}: ${'x'.repeat(250)}`
@@ -79,7 +79,7 @@ describe('tool-owned structured pagination', () => {
     expect(data.outputPagination?.charLength).toBeLessThanOrEqual(900);
   });
 
-  it('keeps packageSearch pagination deterministic across pages', () => {
+  it('keeps npmSearch pagination deterministic across pages', () => {
     const packages = Array.from({ length: 8 }, (_, index) => ({
       name: `pkg-${index}`,
       description: `package ${index} ${'x'.repeat(150)}`,
@@ -208,7 +208,7 @@ describe('tool-owned structured pagination', () => {
     for (const r of repos ?? []) expect(r.topics).toEqual(topics);
   });
 
-  it('githubViewRepoStructure: a directory node is item-atomic — files[] never sliced mid-list', () => {
+  it('ghViewRepoStructure: a directory node is item-atomic — files[] never sliced mid-list', () => {
     const allFiles = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts'];
     const response = applyBulkResponsePagination(
       {
@@ -286,7 +286,7 @@ describe('tool-owned structured pagination', () => {
     expect(ids.length).toBeGreaterThan(1);
   });
 
-  it('paginates githubSearchRepositories at the WHOLE-REPO level — topics never sliced', () => {
+  it('paginates ghSearchRepos at the WHOLE-REPO level — topics never sliced', () => {
     const mkRepo = (n: string) => ({
       owner: 'octo',
       repo: n,
@@ -321,7 +321,7 @@ describe('tool-owned structured pagination', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('paginates githubViewRepoStructure at the directory-NODE level — node files[] stay whole', () => {
+  it('paginates ghViewRepoStructure at the directory-NODE level — node files[] stay whole', () => {
     const mk = (p: string) =>
       ['1', '2', '3', '4'].map(n => `${p}/file-${n}.ts`);
     const result = applyQueryOutputPagination(
@@ -432,7 +432,7 @@ describe('tool-owned structured pagination', () => {
     expect(data.files).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
-  it('preserves githubGetFileContent content pagination instead of adding output pagination', () => {
+  it('preserves ghGetFileContent content pagination instead of adding output pagination', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'fetch_remote',
@@ -496,7 +496,7 @@ describe('tool-owned structured pagination', () => {
     expect(data.outputPagination).toBeUndefined();
   });
 
-  it('paginates githubSearchPullRequests through the pull_requests branch', () => {
+  it('paginates ghSearchPRs through the pull_requests branch', () => {
     const pullRequests = Array.from({ length: 25 }, (_, index) => ({
       number: index + 1,
       title: `Pull request ${index} ${'x'.repeat(80)}`,

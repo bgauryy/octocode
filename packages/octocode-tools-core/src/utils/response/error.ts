@@ -163,7 +163,6 @@ function getErrorTypeFromToolError(
       return 'size_limit';
     case 'fileAccessFailed':
     case 'fileReadFailed':
-      // EISDIR is not "not found" — the path exists but is a directory.
       return isDirectoryToolError(error) ? 'directory' : 'not_found';
     case 'pathValidationFailed':
       return 'permission';

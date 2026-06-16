@@ -203,7 +203,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.locations?.[0]?.content?.length).toBeGreaterThan(0);
   });
 
-  it('returns null itemPaginator path for githubSearchCode non-string/non-object text_matches (line 689/696)', () => {
+  it('returns null itemPaginator path for ghSearchCode non-string/non-object text_matches (line 689/696)', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-numeric-matches',
@@ -227,7 +227,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.files?.length ?? 0).toBeLessThan(40);
   });
 
-  it('returns null itemPaginator path for githubSearchRepositories non-string topics (line 715)', () => {
+  it('returns null itemPaginator path for ghSearchRepos non-string topics (line 715)', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-numeric-topics',
@@ -247,7 +247,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('returns null itemPaginator path for packageSearch non-string keywords (line 735)', () => {
+  it('returns null itemPaginator path for npmSearch non-string keywords (line 735)', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-numeric-kw',
@@ -268,7 +268,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('githubViewRepoStructure record entries are item-atomic — a node files[] is never sliced', () => {
+  it('ghViewRepoStructure record entries are item-atomic — a node files[] is never sliced', () => {
     const mk = (p: string) => ['1', '2', '3'].map(n => `${p}${n}.ts`);
     const result = applyQueryOutputPagination(
       {
@@ -294,7 +294,7 @@ describe('structuredPagination branch coverage', () => {
     }
   });
 
-  it('returns null itemPaginator path for githubCloneRepo non-string hints (line 871)', () => {
+  it('returns null itemPaginator path for ghCloneRepo non-string hints (line 871)', () => {
     const result = applyQueryOutputPagination(
       {
         id: 'q-clone-num',
@@ -379,7 +379,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('short-circuits githubSearchPullRequests when outputPagination already present', () => {
+  it('short-circuits ghSearchPRs when outputPagination already present', () => {
     const queryResult = {
       id: 'q-pr-already',
       data: {
@@ -951,7 +951,7 @@ describe('structuredPagination branch coverage', () => {
   });
 });
 
-describe('githubSearchPullRequests pagination fixes', () => {
+describe('ghSearchPRs pagination fixes', () => {
   it('sub-slices an oversized single PR by paginating fileChanges[].patch', () => {
     const bigPatch = 'P'.repeat(20000);
     const result = applyQueryOutputPagination(
@@ -1051,18 +1051,15 @@ describe('githubSearchPullRequests pagination fixes', () => {
       id: 'find-explicit',
       data: { files: ['a.ts', 'b.ts'], pagination: { hasMore: false } },
     };
-    // Explicit request triggers pageToolDataValue for LOCAL_FIND_FILES
     const result = applyQueryOutputPagination(
       queryResult,
       { charOffset: 0, charLength: 10000 },
       TOOL_NAMES.LOCAL_FIND_FILES
     );
-    // LOCAL_FIND_FILES is always returned as-is from pageToolDataValue
     expect(result).toBeDefined();
   });
 
   it('paginateFlatQueryResult fits-in-one-page branch: small data with explicit request that exceeds total (line 882)', () => {
-    // Small data that fits within the requested page length → returns non-paginated
     const result = applyQueryOutputPagination(
       {
         id: 'q-fits',
@@ -1075,7 +1072,6 @@ describe('githubSearchPullRequests pagination fixes', () => {
   });
 
   it('paginateFlatQueryResult offset-past-end branch: charOffset well beyond content size (line 892)', () => {
-    // charOffset bigger than totalChars of the wrapped object
     const result = applyQueryOutputPagination(
       {
         id: 'q-past-wrap',
@@ -1089,7 +1085,6 @@ describe('githubSearchPullRequests pagination fixes', () => {
   });
 
   it('paginateFlatQueryResult returns null for non-plain-object result value (line 856)', () => {
-    // A result with data that is not a plain object — paginateFlatQueryResult returns null
     const response = applyBulkResponsePagination(
       {
         results: [
@@ -1106,8 +1101,6 @@ describe('githubSearchPullRequests pagination fixes', () => {
   });
 
   it('paginateFlatQueryResult fits-in-one-page (line 882) — small items before a large item force pagination', () => {
-    // 3 tiny results + 1 huge result. Budget fits tiny results (each hits line 882) then
-    // truncates on the large one, marking the outer array as paginated.
     const smallResult = { id: 'qs', data: { packages: [{ name: 'x' }] } };
     const bigPackages = Array.from({ length: 100 }, (_, i) => ({
       name: `pkg-${i}`,

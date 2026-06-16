@@ -5,8 +5,6 @@ export { BASE_SCHEMA } from './baseSchema.js';
 
 import { completeMetadata } from '@octocodeai/octocode-core';
 
-// ── TOOL_HINTS ────────────────────────────────────────────────────────────────
-
 type HintsMap = Record<string, readonly string[]>;
 
 function resolveToolHints(toolName: string): HintsMap {
@@ -42,12 +40,8 @@ export const TOOL_HINTS = new Proxy({} as Record<string, HintsMap>, {
   },
 });
 
-// ── GENERIC_ERROR_HINTS ───────────────────────────────────────────────────────
-
 export const GENERIC_ERROR_HINTS = new Proxy([] as readonly string[], {
   get(_target, prop: PropertyKey) {
-    // readonly string[] does not carry an index signature — cast via unknown
-    // to allow Proxy-style PropertyKey access to array indices and methods.
     const hints = completeMetadata.genericErrorHints as unknown as Record<
       PropertyKey,
       unknown
@@ -56,12 +50,6 @@ export const GENERIC_ERROR_HINTS = new Proxy([] as readonly string[], {
   },
 });
 
-// ── Helper functions ──────────────────────────────────────────────────────────
-
-/**
- * Returns hints for the given tool and result status (`"hasResults"`, `"empty"`, …).
- * Returns `[]` when the tool or status key is absent.
- */
 export function getToolHintsSync(
   toolName: string,
   status: string
@@ -72,10 +60,6 @@ export function getToolHintsSync(
   return hints?.[status] ?? [];
 }
 
-/**
- * Returns dynamic hints for the given tool and key from `hints.dynamic`.
- * Returns `[]` when absent.
- */
 export function getDynamicHints(
   toolName: string,
   key: string
@@ -87,9 +71,6 @@ export function getDynamicHints(
   return dynamic?.[key] ?? [];
 }
 
-/**
- * Returns the generic error hints array.
- */
 export function getGenericErrorHintsSync(): readonly string[] {
   return completeMetadata.genericErrorHints;
 }

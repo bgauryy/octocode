@@ -7,10 +7,6 @@ import { securityRegistry } from './registry.js';
 import { normalizeCommandName } from './commandUtils.js';
 export { normalizeCommandName };
 
-// Matches plain `rg` and platform-suffixed names like `rg-darwin-arm64`
-// produced by the build:bin:* scripts and bundled in dist/runtime/rg/.
-// normalizeCommandName() strips the path prefix and `.exe` suffix before
-// we reach this check, so we only need to handle the base name.
 const RG_COMMAND_PATTERN = /^rg(-[a-z0-9-]+)?$/i;
 
 function isRgCommand(command: string): boolean {

@@ -381,7 +381,7 @@ localSearchCode(error message) → trace throw/catch → find root cause
 **Use when**: Finding the right library, comparing packages, evaluating options.
 
 ```
-packageSearch(keyword) → githubViewRepoStructure → githubGetFileContent(README)
+npmSearch(keyword) → ghViewRepoStructure → ghGetFileContent(README)
 ```
 
 **Steps:**
@@ -416,7 +416,7 @@ packageSearch(keyword) → githubViewRepoStructure → githubGetFileContent(READ
 **Use when**: Understanding how another project implements something.
 
 ```
-githubSearchRepositories → githubViewRepoStructure → githubSearchCode → githubGetFileContent
+ghSearchRepos → ghViewRepoStructure → ghSearchCode → ghGetFileContent
 ```
 
 **Steps:**
@@ -451,7 +451,7 @@ githubSearchRepositories → githubViewRepoStructure → githubSearchCode → gi
 **Use when**: Need to understand how an imported library works internally.
 
 ```
-packageSearch → get repo URL → githubViewRepoStructure → githubSearchCode → githubGetFileContent
+npmSearch → get repo URL → ghViewRepoStructure → ghSearchCode → ghGetFileContent
 ```
 
 **Steps:**
@@ -486,7 +486,7 @@ packageSearch → get repo URL → githubViewRepoStructure → githubSearchCode 
 **Use when**: Understanding why code changed, tracing regression origins, reviewing decisions.
 
 ```
-githubSearchPullRequests → read PR files → trace changes
+ghSearchPRs → read PR files → trace changes
 ```
 
 **Steps:**
@@ -515,7 +515,7 @@ githubSearchPullRequests → read PR files → trace changes
 
 ```
 LOCAL: localSearchCode(import) → lspGotoDefinition
-EXTERNAL: packageSearch → githubSearchCode → githubGetFileContent
+EXTERNAL: npmSearch → ghSearchCode → ghGetFileContent
 MERGE: Compare and document
 ```
 
@@ -532,7 +532,7 @@ MERGE: Compare and document
 
 // EXTERNAL — find source
 { "query": "next-auth", "registry": "npm" }
-// → then githubViewRepoStructure + githubSearchCode + githubGetFileContent
+// → then ghViewRepoStructure + ghSearchCode + ghGetFileContent
 
 // MERGE: Is local usage correct? Are there missed features? Breaking changes?
 ```
@@ -547,13 +547,13 @@ MERGE: Compare and document
 
 | Bad | Good |
 |-----|------|
-| **`gh api` for GitHub** | **`githubSearchCode` / `githubGetFileContent`** |
+| **`gh api` for GitHub** | **`ghSearchCode` / `ghGetFileContent`** |
 | **`WebFetch` for GitHub** | **Octocode GitHub tools** |
-| **`npm search` in shell** | **`packageSearch`** |
-| **Guessing owner/repo** | **`packageSearch` or `githubSearchRepositories` first** |
+| **`npm search` in shell** | **`npmSearch`** |
+| **Guessing owner/repo** | **`npmSearch` or `ghSearchRepos` first** |
 | **Reading entire large files** | **`matchString` targeting** |
 | **Broad GitHub search** | **Narrow to owner/repo ASAP** |
-| **Skipping structure** | **`githubViewRepoStructure` before reading** |
+| **Skipping structure** | **`ghViewRepoStructure` before reading** |
 
 ---
 
@@ -575,7 +575,7 @@ Before completing local research:
 Before completing external research:
 
 - [ ] **Repo/package found via search?** (Not guessed)
-- [ ] **Structure explored first?** (`githubViewRepoStructure`)
+- [ ] **Structure explored first?** (`ghViewRepoStructure`)
 - [ ] **References include full GitHub URLs?** (With line numbers)
 - [ ] **Source verified?** (Read actual code, not just metadata)
 - [ ] **Gaps documented?**

@@ -1,6 +1,6 @@
-export { executeLspGetSemanticContent } from './execution.js';
+export { executeLspGetSemantics } from './execution.js';
 export {
-  BulkLspGetSemanticContentQuerySchema,
-  LspGetSemanticContentOutputSchema,
-  LspGetSemanticContentQuerySchema,
+  BulkLspGetSemanticsQuerySchema,
+  LspGetSemanticsOutputSchema,
+  LspGetSemanticsQuerySchema,
 } from './scheme.js';

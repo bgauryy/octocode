@@ -9,9 +9,9 @@ import { GitHubCodeSearchBulkQueryLocalSchema } from '../../../octocode-tools-co
 import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/scheme.js';
 import { GitHubReposSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_repos/scheme.js';
 import { GitHubPullRequestSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/scheme.js';
-import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
+import { NpmSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 import { BulkCloneRepoLocalSchema } from '../../../octocode-tools-core/src/tools/github_clone_repo/scheme.js';
-import { BulkLspGetSemanticContentQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
+import { BulkLspGetSemanticsQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 
 const ALL_BULK_SCHEMAS = [
   ['LocalRipgrepBulkQuerySchema', LocalRipgrepBulkQuerySchema],
@@ -35,11 +35,11 @@ const ALL_BULK_SCHEMAS = [
     'GitHubPullRequestSearchBulkQueryLocalSchema',
     GitHubPullRequestSearchBulkQueryLocalSchema,
   ],
-  ['PackageSearchBulkQueryLocalSchema', PackageSearchBulkQueryLocalSchema],
+  ['NpmSearchBulkQueryLocalSchema', NpmSearchBulkQueryLocalSchema],
   ['BulkCloneRepoLocalSchema', BulkCloneRepoLocalSchema],
   [
-    'BulkLspGetSemanticContentQuerySchema',
-    BulkLspGetSemanticContentQuerySchema,
+    'BulkLspGetSemanticsQuerySchema',
+    BulkLspGetSemanticsQuerySchema,
   ],
 ] as const;
 

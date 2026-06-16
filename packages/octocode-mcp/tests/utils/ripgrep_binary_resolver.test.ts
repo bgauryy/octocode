@@ -116,7 +116,6 @@ describe('T3.3 — resolveRipgrepBinary sibling probe', () => {
     vi.resetModules();
     const { resolveRipgrepBinary } =
       await import('../../../octocode-tools-core/src/utils/exec/ripgrepBinary.js');
-    // Should not throw — falls through to @vscode/ripgrep in node_modules.
     expect(() => resolveRipgrepBinary()).not.toThrow();
     const result = resolveRipgrepBinary();
     expect(typeof result).toBe('string');
@@ -220,7 +219,6 @@ describe('T3.3 — resolveRipgrepBinary PATH probe', () => {
     vi.resetModules();
     const { resolveRipgrepBinary } =
       await import('../../../octocode-tools-core/src/utils/exec/ripgrepBinary.js');
-    // Sibling probe finds /opt/homebrew/bin/rg — no PATH probe needed.
     const result = resolveRipgrepBinary();
     expect(result).toBe(expectedRg);
   });
@@ -310,8 +308,6 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
   });
 
   it('platformKey returns null for an unsupported platform/arch — no suffixed path probed', async () => {
-    // Covers the `if (key) { ... }` false-branch inside resolveSiblingRg
-    // and the `return null` at the end of platformKey().
     vi.stubGlobal('process', {
       ...process,
       execPath: '/usr/local/bin/octocode-mcp-unknown',
@@ -320,19 +316,15 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
     });
 
     const { existsSync: mockExists } = await import('node:fs');
-    // No plain rg exists next to the binary.
     vi.mocked(mockExists).mockReturnValue(false);
 
     vi.resetModules();
     const { resolveRipgrepBinary } =
       await import('../../../octocode-tools-core/src/utils/exec/ripgrepBinary.js');
-    // Falls through sibling probe (key=null, plain rg absent) to bundled/@vscode or PATH.
-    // Should not throw in a normal environment with rg on PATH.
     expect(() => resolveRipgrepBinary()).not.toThrow();
   });
 
   it('throws when all three resolution strategies fail', async () => {
-    // Covers the `throw new Error` branch in computePath().
     vi.stubGlobal('process', {
       ...process,
       execPath: '/usr/local/bin/octocode-mcp-unknown',
@@ -344,7 +336,6 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
     vi.mocked(mockExists).mockReturnValue(false);
 
     const { spawnSync: mockSpawn } = await import('node:child_process');
-    // PATH probe returns nothing.
     vi.mocked(mockSpawn).mockReturnValue({
       status: 1,
       stdout: '',
@@ -365,7 +356,6 @@ describe('T3.3 — ripgrepBinary unknown platform / all-fail branches', () => {
   });
 
   it('resolveRgFromPath returns null when resolved path does not exist on disk', async () => {
-    // Covers the `existsSync(resolved)` false-branch — which exits stdout is non-empty.
     vi.stubGlobal('process', { ...process, platform: 'linux' });
 
     const { existsSync: mockExists } = await import('node:fs');

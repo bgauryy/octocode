@@ -10,9 +10,6 @@ import * as pathValidator from 'octocode-security/pathValidator';
 import * as fs from 'fs/promises';
 import type { CharPagination } from '@octocodeai/octocode-core/types';
 
-// `contextLines` carries a schema-level default (5) that is applied during
-// MCP input parsing; tests call fetchContent directly, so this thin wrapper
-// applies the same default while letting tests omit or override it.
 type FetchContentInput = Omit<
   Parameters<typeof fetchContentImpl>[0],
   'contextLines'
@@ -21,20 +18,17 @@ type FetchContentInput = Omit<
 const fetchContent = (query: FetchContentInput) =>
   fetchContentImpl({ ...query, contextLines: query.contextLines ?? 5 });
 
-// Narrows the `CharPagination | PaginationInfo` union to the char-cursor form.
 const charPagination = (
   pagination: Awaited<ReturnType<typeof fetchContentImpl>>['pagination']
 ): CharPagination | undefined =>
   pagination && 'charOffset' in pagination ? pagination : undefined;
 
-// Mock fs/promises
 vi.mock('fs/promises', () => ({
   open: vi.fn(),
   readFile: vi.fn(),
   stat: vi.fn(),
 }));
 
-// Mock pathValidator
 vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
@@ -50,7 +44,6 @@ describe('localGetFileContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockValidate.mockReturnValue({ isValid: true });
-    // Default: small file size (< 100KB)
     mockStat.mockResolvedValue({ size: 1024 } as unknown as Awaited<
       ReturnType<typeof fs.stat>
     >);
@@ -72,10 +65,9 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBe(testContent);
-      // isPartial is omitted when false — absence implies complete
       expect(result.isPartial).toBeUndefined();
       expect(result.totalLines).toBe(3);
-      expect(result.hints?.join('\n')).toContain('lspGetSemanticContent');
+      expect(result.hints?.join('\n')).toContain('lspGetSemantics');
     });
 
     it('returns raw content by default (minify omitted → no comment stripping)', async () => {
@@ -126,8 +118,7 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('MATCH');
       expect(result.content).toContain('line 4');
       expect(result.isPartial).toBe(true);
-      // Single-slice matchString: matchRanges omitted; hint guidance changed to LSP.
-      expect(result.hints?.join('\n')).toContain('lspGetSemanticContent');
+      expect(result.hints?.join('\n')).toContain('lspGetSemantics');
     });
 
     it('strips inline comments from JS files in the matchString slice with minify:"standard"', async () => {
@@ -197,7 +188,6 @@ describe('localGetFileContent', () => {
         sourceBytes?: number;
       };
       expect(sourceSize.sourceChars).toBe(SOURCE.length);
-      // sourceBytes is omitted for pure-ASCII files where byteLength == charLength
       expect(sourceSize.sourceBytes).toBeUndefined();
     });
 
@@ -214,13 +204,11 @@ describe('localGetFileContent', () => {
       } as Parameters<typeof fetchContent>[0]);
 
       expect(result.status).toBeUndefined();
-      // Skeletons are indexes — they must come back whole, with NO pagination block.
       expect(result.pagination).toBeUndefined();
       expect(result.content).toBeDefined();
       expect(result.content).toContain('fn0(');
       expect(result.content).toContain('fn799(');
       expect(result.content).not.toContain('doStuff');
-      // isPartial is omitted when false — absence implies complete
       expect(result.isPartial).toBeUndefined();
       expect(result.contentView).toBe('symbols');
       expect(result.isSkeleton).toBe(true);
@@ -260,7 +248,6 @@ describe('localGetFileContent', () => {
       } as Parameters<typeof fetchContentImpl>[0]);
 
       expect(result.status).toBeUndefined();
-      // contentView is omitted when 'standard' — absence implies standard
       expect(result.contentView).toBeUndefined();
       expect(result.isSkeleton).toBeUndefined();
       expect(result.content).toContain('name=octocode');
@@ -292,7 +279,6 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.pagination).toBeUndefined();
-      // Whole skeleton from the top — char cursor inputs are ignored.
       expect(result.content).toContain('fn0(');
       expect(result.content).toContain('fn799(');
     });
@@ -404,7 +390,6 @@ describe('localGetFileContent', () => {
       expect(result.content).toContain('export function');
     });
 
-    // Issue verification: export.*const patterns
     describe('regex .* pattern behavior', () => {
       it('should match export.*const when content has "export const" on same line', async () => {
         const testContent = 'line 1\nexport const foo = 1;\nline 3';
@@ -421,7 +406,6 @@ describe('localGetFileContent', () => {
       });
 
       it('should NOT match export.*const when file has export function only', async () => {
-        // This is the scenario from the issue - file has export function but not export const
         const testContent =
           'line 1\nexport function test() {}\nexport async function foo() {}\nline 4';
         mockReadFile.mockResolvedValue(testContent);
@@ -432,13 +416,11 @@ describe('localGetFileContent', () => {
           matchStringIsRegex: true,
         });
 
-        // Expected: no matches because file doesn't contain "export const"
         expect(result.status).toBe('empty');
         expect(result.errorCode).toBe(LOCAL_TOOL_ERROR_CODES.NO_MATCHES);
       });
 
       it('should match patterns line-by-line (not multiline)', async () => {
-        // Pattern won't match across lines even if keywords exist
         const testContent = 'export\nconst foo = 1;';
         mockReadFile.mockResolvedValue(testContent);
 
@@ -448,7 +430,6 @@ describe('localGetFileContent', () => {
           matchStringIsRegex: true,
         });
 
-        // export and const are on different lines - regex matches per line
         expect(result.status).toBe('empty');
       });
 
@@ -462,7 +443,6 @@ describe('localGetFileContent', () => {
           matchStringIsRegex: true,
         });
 
-        // "export" ... "const" on same line matches
         expect(result.status).toBeUndefined();
       });
     });
@@ -495,7 +475,6 @@ describe('localGetFileContent', () => {
     });
 
     it('should merge adjacent ranges and show omitted lines', async () => {
-      // Create content with widely spaced matches
       const lines = [];
       for (let i = 0; i < 100; i++) {
         if (i === 10 || i === 50 || i === 90) {
@@ -514,7 +493,6 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Should contain omitted lines indicator
       expect(result.content).toContain('lines omitted');
     });
   });
@@ -664,7 +642,6 @@ describe('localGetFileContent', () => {
     });
 
     it('should handle unexpected errors in main try-catch', async () => {
-      // Force an error by mocking validate to throw
       mockValidate.mockImplementation(() => {
         throw new Error('Unexpected validation error');
       });
@@ -729,14 +706,12 @@ describe('localGetFileContent', () => {
 
   describe('Large file handling', () => {
     it('should warn about large file without pagination options', async () => {
-      // Mock large file (150KB)
       mockStat.mockResolvedValue({ size: 150 * 1024 } as unknown as Awaited<
         ReturnType<typeof fs.stat>
       >);
 
       const result = await fetchContent({
         path: 'large-file.txt',
-        // No charLength or matchString
       });
 
       expect(result.status).toBe('error');
@@ -746,7 +721,6 @@ describe('localGetFileContent', () => {
     });
 
     it('should auto-paginate content exceeding MAX_OUTPUT_CHARS', async () => {
-      // Create content larger than MAX_OUTPUT_CHARS (10000)
       const largeContent = 'x'.repeat(15000);
       mockStat.mockResolvedValue({ size: 15000 } as unknown as Awaited<
         ReturnType<typeof fs.stat>
@@ -755,10 +729,8 @@ describe('localGetFileContent', () => {
 
       const result = await fetchContent({
         path: 'medium-file.txt',
-        // No charLength - should auto-paginate instead of error
       });
 
-      // Now auto-paginates instead of returning error
       expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
       expect(result.pagination?.hasMore).toBe(true);
@@ -804,7 +776,6 @@ describe('localGetFileContent', () => {
 
       const result = await fetchContent({
         path: 'small-file.txt',
-        // No pagination options
       });
 
       expect(result.status).toBeUndefined();
@@ -842,7 +813,6 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Auto-pagination kicks in for large content
       if (result.pagination) {
         expect(result.pagination.hasMore).toBe(true);
         expect(result.isPartial).toBe(true);
@@ -898,7 +868,6 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
-      // Should not have replacement character
       expect(result.content).not.toMatch(/\uFFFD/);
     });
 
@@ -912,7 +881,6 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
-      // Should not split UTF-8 characters
       expect(result.content).not.toMatch(/\uFFFD/);
     });
 
@@ -926,7 +894,6 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
-      // Should not split emoji
       expect(result.content).not.toMatch(/\uFFFD/);
     });
 
@@ -973,7 +940,6 @@ describe('localGetFileContent', () => {
     });
 
     it('should not split multi-byte chars at charOffset boundary', async () => {
-      // Position boundary right before a multi-byte char
       const content = 'aaaa' + 'é' + 'bbbb';
       mockReadFile.mockResolvedValue(content);
 
@@ -983,7 +949,6 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
-      // Should include the 'é' without splitting
       expect(result.content).not.toMatch(/\uFFFD/);
     });
 
@@ -997,12 +962,10 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.content).toBeDefined();
-      // Should not have replacement character indicating split
       expect(result.content).not.toMatch(/\uFFFD/);
     });
 
     it('should handle CJK content without corruption', async () => {
-      // In UTF-8, byte offset != character offset for multi-byte chars
       const content = '中文test'; // 中文 = 6 bytes, test = 4 bytes
       mockReadFile.mockResolvedValue(content);
 
@@ -1055,24 +1018,19 @@ describe('localGetFileContent', () => {
       const result = await fetchContent({
         path: 'huge.txt',
         matchString: 'MATCH',
-        // No charLength specified -> auto-paginates with a cursor (no match cap)
       });
 
       expect(result.status).toBeUndefined();
       expect(result.isPartial).toBe(true);
-      // Lossless: a pagination cursor reaches the rest — nothing is dropped.
       expect(result.pagination).toBeDefined();
       expect(result.warnings).toBeDefined();
       const joinedWarnings = (result.warnings ?? []).join(' | ');
-      // Occurrence summary first (with lineHint anchors), then the auto-pagination note.
       expect(result.warnings?.[0]).toContain('Found 2000 occurrences');
       expect(joinedWarnings).toContain('Auto-paginated');
-      // The old hard "first 50 matches" cap must be gone.
       expect(joinedWarnings).not.toContain('Truncated to first 50');
     });
 
     it('should auto-paginate when matchString result exceeds MAX_OUTPUT_CHARS without charLength (lines 206-212)', async () => {
-      // Build enough extracted context to exceed the shared 8000-char budget.
       const lineContent = 'x'.repeat(500);
       const lines = Array.from({ length: 50 }, (_, i) =>
         i % 2 === 0 ? lineContent : 'MATCH'
@@ -1087,7 +1045,6 @@ describe('localGetFileContent', () => {
         path: 'large-matches.txt',
         matchString: 'MATCH',
         contextLines: 2,
-        // No charLength - triggers auto-pagination when content > 8000
       });
 
       expect(result.status).toBeUndefined();
@@ -1110,15 +1067,12 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // MATCH is on line 3, with contextLines=1, should return lines 2-4
       expect(result.startLine).toBe(2);
       expect(result.endLine).toBe(4);
-      // matchRanges omitted for single-slice results (startLine/endLine carry the range).
       expect(result.matchRanges).toBeUndefined();
     });
 
     it('should return line numbers for multiple match ranges', async () => {
-      // Lines: 1=line1, 2=MATCH_A, 3=line3, 4=line4, 5=line5, 6=line6, 7=MATCH_B, 8=line8
       const testContent =
         'line1\nMATCH_A\nline3\nline4\nline5\nline6\nMATCH_B\nline8';
       mockReadFile.mockResolvedValue(testContent);
@@ -1130,8 +1084,6 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // First match at line 2 with context 1: range [1,3]
-      // Second match at line 7 with context 1: range [6,8]
       expect(result.startLine).toBe(1); // First range start
       expect(result.endLine).toBe(8); // Last range end
       expect(result.matchRanges).toEqual([
@@ -1206,7 +1158,6 @@ describe('localGetFileContent', () => {
     });
 
     it('should navigate content via the charOffset cursor (full-file read)', async () => {
-      // Content where each line is unique so pages are distinguishable
       const largeContent = Array.from(
         { length: 500 },
         (_, i) => `line-${String(i).padStart(4, '0')}:${'x'.repeat(30)}`
@@ -1227,7 +1178,6 @@ describe('localGetFileContent', () => {
 
       expect(page1.pagination?.hasMore).toBe(true);
       expect(page1.pagination?.currentPage).toBe(1);
-      // a later charOffset yields a genuinely different chunk
       expect(page2.content).not.toBe(page1.content);
       expect(page2.pagination?.currentPage).toBe(2);
     });
@@ -1369,7 +1319,6 @@ describe('localGetFileContent', () => {
         endLine: 40,
       });
 
-      // Pagination is orthogonal to output shaping — the continuation cursor must survive.
       expect(
         result.hints?.some(h =>
           h.includes('More content: use startLine=41 to continue')
@@ -1402,7 +1351,6 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Minification is always applied for token efficiency
     });
 
     it('should return extracted lines within a range', async () => {
@@ -1486,7 +1434,6 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Large content triggers auto-pagination
       if (result.pagination) {
         expect(result.pagination.hasMore).toBe(true);
         expect(charPagination(result.pagination)?.totalChars).toBeDefined();
@@ -1543,7 +1490,6 @@ describe('localGetFileContent', () => {
 
   describe('Smart auto-pagination (no charLength specified)', () => {
     it('should auto-paginate when extracted content exceeds MAX_OUTPUT_CHARS', async () => {
-      // Create content larger than MAX_OUTPUT_CHARS (10000)
       const largeContent = 'x'.repeat(15000);
       mockStat.mockResolvedValue({ size: 15000 } as unknown as Awaited<
         ReturnType<typeof fs.stat>
@@ -1552,10 +1498,8 @@ describe('localGetFileContent', () => {
 
       const result = await fetchContent({
         path: 'large-file.txt',
-        // NO charLength specified - should auto-paginate instead of error
       });
 
-      // Should NOT return error, should auto-paginate
       expect(result.status).toBeUndefined();
       expect(result.pagination).toBeDefined();
       expect(result.pagination?.hasMore).toBe(true);
@@ -1567,7 +1511,6 @@ describe('localGetFileContent', () => {
     });
 
     it('should auto-paginate line extraction when extracted lines exceed limit', async () => {
-      // Create content with many lines that exceeds limit
       const lines = Array.from(
         { length: 500 },
         (_, i) => `line ${i}: ${'x'.repeat(50)}`
@@ -1582,7 +1525,6 @@ describe('localGetFileContent', () => {
         path: 'test.txt',
         startLine: 1,
         endLine: 500,
-        // NO charLength - should auto-paginate extracted lines
       });
 
       expect(result.status).toBeUndefined();
@@ -1605,7 +1547,6 @@ describe('localGetFileContent', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
-      // Should have navigation hints
       expect(
         result.hints?.some(h => h.includes('charOffset') || h.includes('Next'))
       ).toBe(true);
@@ -1620,7 +1561,6 @@ describe('localGetFileContent', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Should NOT have pagination when content is small
       expect(result.pagination).toBeUndefined();
       expect(result.warnings).toBeUndefined();
     });
@@ -1633,7 +1573,6 @@ describe('localGetFileContent', () => {
       >);
       mockReadFile.mockResolvedValue(content);
 
-      // Content is ~1600 chars, under 10K - but let's test with larger
       const largeLines = Array.from(
         { length: 500 },
         (_, i) => `line ${i}: ${'data'.repeat(20)}`

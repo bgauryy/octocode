@@ -1,7 +1,4 @@
-/**
- * native.ts — ESM bridge to the Rust .node binary.
- * All other source files import Rust functions from here.
- */
+
 import { createRequire } from 'module';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -115,7 +112,6 @@ function loadNative(): NativeModule {
     candidates.push(process.env.OCTOCODE_SECURITY_NATIVE_PATH);
   }
 
-  // Preferred: load from the per-platform npm optionalDependency package.
   if (triple) {
     try {
       return _require(`octocode-security-${triple}`) as NativeModule;
@@ -125,20 +121,16 @@ function loadNative(): NativeModule {
     }
   }
 
-  // When octocode-security is bundled into octocode-mcp or octocode-cli, the
-  // native asset is copied into the owning package's runtime directory.
   for (const binaryName of binaryNames) {
     candidates.push(join(_dir, 'runtime', 'security', binaryName));
     candidates.push(join(_dir, '..', 'runtime', 'security', binaryName));
     candidates.push(join(_dir, '..', '..', 'runtime', 'security', binaryName));
   }
 
-  // Bun-compiled binaries keep native assets beside the executable/bundle.
   for (const binaryName of binaryNames) {
     candidates.push(join(_dir, binaryName));
   }
 
-  // Package-local fallback: dist/ is one level below package root.
   const pkgRoot = join(_dir, '..');
   for (const binaryName of binaryNames) {
     candidates.push(join(pkgRoot, binaryName));

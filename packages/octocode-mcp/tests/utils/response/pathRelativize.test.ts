@@ -210,7 +210,6 @@ describe('commonDirPrefix', () => {
     expect(commonDirPrefix(['/a/foobar.ts', '/a/foobaz.ts'])).toBe('/a');
   });
   it('breaks early when prefix becomes empty (line 10 break branch)', () => {
-    // paths with no common char → prefix collapses to '' and loop breaks early
     expect(commonDirPrefix(['abc', 'xyz', 'mno'])).toBe('');
   });
   it('handles sparse/undefined array items via ?? fallback (lines 3, 5)', () => {
@@ -225,7 +224,6 @@ describe('relativizeResultPaths — compact string element stripping', () => {
         data: {
           uri: '/w/src/a.ts',
           payload: {
-            // compact call rows: strings with embedded absolute paths
             calls: [
               'incoming fn function /w/src/b.ts:10-20 sel=10 ranges=15:4',
               'outgoing bar function /w/src/c.ts:5-8 sel=5',
@@ -236,9 +234,7 @@ describe('relativizeResultPaths — compact string element stripping', () => {
     ];
     const base = relativizeResultPaths(results);
     expect(base).toBe('/w/src');
-    // Structured field stripped as before
     expect(results[0]!.data.uri).toBe('a.ts');
-    // Embedded paths in compact strings also stripped to relative
     expect(results[0]!.data.payload.calls[0]).toBe(
       'incoming fn function b.ts:10-20 sel=10 ranges=15:4'
     );
@@ -266,8 +262,6 @@ describe('relativizeResultPaths — compact string element stripping', () => {
 
 describe('relativizeResultPaths — branch coverage extras', () => {
   it('handles paths where computed base does not expand to all holders', () => {
-    // When base is shorter than any holder path, all valid absolute paths starting with /
-    // and sharing the directory prefix get relativized
     const results = [
       {
         data: {
@@ -284,7 +278,6 @@ describe('relativizeResultPaths — branch coverage extras', () => {
 
 describe('hoistSharedFields — collectLeaves branch coverage', () => {
   it('skips null/undefined results and non-object data in collectLeaves (lines 64-66)', () => {
-    // null and { data: null } should trigger the continue branch
     expect(
       hoistSharedFields([
         null,

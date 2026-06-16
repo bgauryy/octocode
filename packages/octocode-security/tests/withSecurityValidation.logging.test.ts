@@ -1,11 +1,4 @@
-/**
- * withSecurityValidation.logging.test.ts
- *
- * Tests the logToolCall emission behavior of withSecurityValidation.
- * Uses the REAL ContentSanitizer (Rust-backed) — no mocks, no stubs.
- * Clean inputs pass the real sanitizer unchanged; the logging logic
- * reads owner/repo/research fields from the real sanitizedParams.
- */
+
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
@@ -215,12 +208,12 @@ describe('withSecurityValidation logging', () => {
         },
       ],
     };
-    await withSecurityValidation('packageSearch', mockHandler)(args, {
+    await withSecurityValidation('npmSearch', mockHandler)(args, {
       signal: new AbortController().signal,
     });
 
     expect(mockLogToolCall).toHaveBeenCalledWith(
-      'packageSearch',
+      'npmSearch',
       [],
       'Package lookup',
       'Find package metadata',

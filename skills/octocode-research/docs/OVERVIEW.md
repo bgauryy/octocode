@@ -51,11 +51,11 @@ The **octocode-research** skill is an Express.js HTTP server that wraps `octocod
 │              Local Tools            LSP Tools              GitHub Tools     │
 │              (ripgrep, fs)     (semantic analysis)           (API)          │
 │                                                                              │
-│              localSearchCode       lspGotoDefinition      githubSearchCode  │
+│              localSearchCode       lspGotoDefinition      ghSearchCode  │
 │              localGetFileContent   lspFindReferences      githubGetFile...  │
 │              localFindFiles        lspCallHierarchy       githubViewRepo... │
 │              localViewStructure                           githubSearchPR... │
-│                                                           packageSearch     │
+│                                                           npmSearch     │
 └─────────────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
@@ -118,14 +118,14 @@ Re-exports layer that maps `octocode-mcp` functions to skill-friendly names:
 
 | Export | Source |
 |--------|--------|
-| `githubSearchCode` | `searchMultipleGitHubCode` |
-| `githubGetFileContent` | `fetchMultipleGitHubFileContents` |
+| `ghSearchCode` | `searchMultipleGitHubCode` |
+| `ghGetFileContent` | `fetchMultipleGitHubFileContents` |
 | `localSearchCode` | `executeRipgrepSearch` |
 | `localGetFileContent` | `executeFetchContent` |
 | `lspGotoDefinition` | `executeGotoDefinition` |
 | `lspFindReferences` | `executeFindReferences` |
 | `lspCallHierarchy` | `executeCallHierarchy` |
-| `packageSearch` | `searchPackages` |
+| `npmSearch` | `searchPackages` |
 
 ### 4. Routes (`src/routes/`)
 
@@ -187,11 +187,11 @@ The `TOOL_REGISTRY` in `src/routes/tools.ts` maps tool names to their functions 
 ```typescript
 const TOOL_REGISTRY: Record<string, ToolEntry> = {
   // GitHub tools
-  githubSearchCode: { fn: githubSearchCode, resilience: withGitHubResilience, category: 'github' },
-  githubGetFileContent: { fn: githubGetFileContent, resilience: withGitHubResilience, category: 'github' },
-  githubViewRepoStructure: { fn: githubViewRepoStructure, resilience: withGitHubResilience, category: 'github' },
-  githubSearchRepositories: { fn: githubSearchRepositories, resilience: withGitHubResilience, category: 'github' },
-  githubSearchPullRequests: { fn: githubSearchPullRequests, resilience: withGitHubResilience, category: 'github' },
+  ghSearchCode: { fn: ghSearchCode, resilience: withGitHubResilience, category: 'github' },
+  ghGetFileContent: { fn: ghGetFileContent, resilience: withGitHubResilience, category: 'github' },
+  ghViewRepoStructure: { fn: ghViewRepoStructure, resilience: withGitHubResilience, category: 'github' },
+  ghSearchRepos: { fn: ghSearchRepos, resilience: withGitHubResilience, category: 'github' },
+  ghSearchPRs: { fn: ghSearchPRs, resilience: withGitHubResilience, category: 'github' },
 
   // Local tools
   localSearchCode: { fn: localSearchCode, resilience: withLocalResilience, category: 'local' },
@@ -205,7 +205,7 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
   lspCallHierarchy: { fn: lspCallHierarchy, resilience: withLspResilience, category: 'lsp' },
 
   // Package tools
-  packageSearch: { fn: packageSearch, resilience: withPackageResilience, category: 'package' },
+  npmSearch: { fn: npmSearch, resilience: withPackageResilience, category: 'package' },
 };
 ```
 
@@ -220,12 +220,12 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
 | `lspGotoDefinition` | LSP | Go to symbol definition |
 | `lspFindReferences` | LSP | Find all symbol references |
 | `lspCallHierarchy` | LSP | Get call hierarchy (incoming/outgoing) |
-| `githubSearchCode` | GitHub | Search code in repos |
-| `githubGetFileContent` | GitHub | Read file from repo |
-| `githubViewRepoStructure` | GitHub | View repo tree |
-| `githubSearchRepositories` | GitHub | Search repositories |
-| `githubSearchPullRequests` | GitHub | Search pull requests |
-| `packageSearch` | Package | Search npm |
+| `ghSearchCode` | GitHub | Search code in repos |
+| `ghGetFileContent` | GitHub | Read file from repo |
+| `ghViewRepoStructure` | GitHub | View repo tree |
+| `ghSearchRepos` | GitHub | Search repositories |
+| `ghSearchPRs` | GitHub | Search pull requests |
+| `npmSearch` | Package | Search npm |
 
 ---
 

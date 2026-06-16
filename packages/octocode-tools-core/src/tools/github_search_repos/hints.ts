@@ -30,7 +30,7 @@ export const hints: ToolHintGenerators = {
       /^@[\w-]+\/[\w.-]+$|^[a-z][\w]*[-.][\w.-]+$/.test(searchTerm)
     ) {
       out.push(
-        `"${searchTerm}" looks like a package — use \`packageSearch\` instead.`
+        `"${searchTerm}" looks like a package — use \`npmSearch\` instead.`
       );
     }
 

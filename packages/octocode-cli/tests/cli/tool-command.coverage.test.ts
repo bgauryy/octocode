@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
     toolNames: {},
     baseSchema: {},
     tools: {
-      githubSearchCode: {
-        name: 'githubSearchCode',
+      ghSearchCode: {
+        name: 'ghSearchCode',
         description: 'Search code.',
         schema: { keywordsToSearch: 'terms', owner: 'owner' },
         hints: { hasResults: [], empty: [] },
@@ -21,8 +21,8 @@ const mocks = vi.hoisted(() => ({
         schema: { path: 'dir', keywords: 'regex' },
         hints: { hasResults: [], empty: [] },
       },
-      githubCloneRepo: {
-        name: 'githubCloneRepo',
+      ghCloneRepo: {
+        name: 'ghCloneRepo',
         description: 'Clone a repo.',
         schema: { owner: 'owner', repo: 'repo' },
         hints: { hasResults: [], empty: [] },
@@ -70,7 +70,7 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
     if (toolName === 'localSearchCode') {
       return mocks.localSearchCode(input);
     }
-    if (toolName === 'githubCloneRepo') {
+    if (toolName === 'ghCloneRepo') {
       return mocks.cloneRepo(input);
     }
     return mocks.noop(input);
@@ -112,7 +112,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('Local');
     expect(output).toContain('LSP');
     expect(output).toContain('localSearchCode');
-    expect(output).toContain('githubSearchCode');
+    expect(output).toContain('ghSearchCode');
     expect(output).toContain('tools <name>');
     expect(process.exitCode).toBeUndefined();
   });
@@ -270,13 +270,13 @@ describe('tool-command coverage', () => {
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['githubSearchCode'],
+      args: ['ghSearchCode'],
       options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('mainResearchGoal');
-    expect(output).toContain('githubSearchCode');
+    expect(output).toContain('ghSearchCode');
     expect(output).toContain('keywordsToSearch');
   });
 
@@ -296,12 +296,12 @@ describe('tool-command coverage', () => {
     expect(output).not.toContain('mainResearchGoal');
   });
 
-  it('githubCloneRepo: executes with owner and repo fields', async () => {
+  it('ghCloneRepo: executes with owner and repo fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['githubCloneRepo', '{"owner":"bgauryy","repo":"octocode-mcp"}'],
+      args: ['ghCloneRepo', '{"owner":"bgauryy","repo":"octocode-mcp"}'],
       options: {},
     });
 
@@ -321,13 +321,13 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
-  it('githubCloneRepo: branch is forwarded correctly', async () => {
+  it('ghCloneRepo: branch is forwarded correctly', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
       args: [
-        'githubCloneRepo',
+        'ghCloneRepo',
         '{"owner":"bgauryy","repo":"octocode-mcp","branch":"main"}',
       ],
       options: {},
@@ -654,10 +654,10 @@ describe('tool-command coverage', () => {
       await import('../../src/cli/tool-command.js');
 
     const githubTool = TOOL_DEFINITIONS.find(
-      tool => tool.name === 'githubSearchCode'
+      tool => tool.name === 'ghSearchCode'
     );
     const packageTool = TOOL_DEFINITIONS.find(
-      tool => tool.name === 'packageSearch'
+      tool => tool.name === 'npmSearch'
     );
 
     expect(githubTool).toBeDefined();
@@ -680,47 +680,43 @@ describe('tool-command coverage', () => {
     expect(githubByName['reasoning']).toBeUndefined();
   });
 
-  it('packageSearch example includes the MCP-owned required fields', async () => {
+  it('npmSearch example includes the MCP-owned required fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['packageSearch'],
+      args: ['npmSearch'],
       options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"packageName"');
     expect(output).toContain('react');
-    // page has a schema default — optional from the input side, so it is
-    // excluded from the required-fields example.
     expect(output).not.toContain('"page":');
     expect(output).not.toContain('"limit"');
   });
 
-  it('githubSearchRepositories help includes MCP schema and required example fields', async () => {
+  it('ghSearchRepos help includes MCP schema and required example fields', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['githubSearchRepositories'],
+      args: ['ghSearchRepos'],
       options: { scheme: true },
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('keywordsToSearch');
-    // page is defaulted (optional input) so the example omits it; the schema
-    // listing still documents the field itself.
     expect(output).toContain('page (integer)');
     expect(output).toContain('sort');
   });
 
-  it('buildExampleValue: githubCloneRepo example includes owner=bgauryy', async () => {
+  it('buildExampleValue: ghCloneRepo example includes owner=bgauryy', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['githubCloneRepo'],
+      args: ['ghCloneRepo'],
       options: { scheme: true },
     });
 
@@ -753,8 +749,8 @@ describe('tool-command coverage', () => {
 
     const context = await getToolsContextString();
 
-    const ghIdx = context.indexOf('githubSearchCode');
-    const cloneIdx = context.indexOf('githubCloneRepo');
+    const ghIdx = context.indexOf('ghSearchCode');
+    const cloneIdx = context.indexOf('ghCloneRepo');
     expect(ghIdx).toBeGreaterThan(-1);
     expect(cloneIdx).toBeGreaterThan(-1);
 
@@ -767,7 +763,7 @@ describe('tool-command coverage', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: [
-        'githubSearchCode',
+        'ghSearchCode',
         JSON.stringify({
           id: 'my-id',
           mainResearchGoal: 'my main goal',
@@ -897,17 +893,17 @@ describe('tool-command coverage', () => {
     expect(parsed.structuredContent).toBe('just a string');
   });
 
-  it('buildExampleValue: lspGetSemanticContent example exercises semantic enum branches', async () => {
+  it('buildExampleValue: lspGetSemantics example exercises semantic enum branches', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
       command: 'tools',
-      args: ['lspGetSemanticContent'],
+      args: ['lspGetSemantics'],
       options: { scheme: true },
     });
 
     const out = consoleSpy.mock.calls.flat().join('\n');
-    expect(out).toContain('lspGetSemanticContent');
+    expect(out).toContain('lspGetSemantics');
     expect(out).toContain('Input Schema');
     expect(out).toContain('definition');
   });

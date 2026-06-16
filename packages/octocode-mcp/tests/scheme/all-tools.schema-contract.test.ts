@@ -101,10 +101,12 @@ function flattenJsonProperties(
     const fieldPath = prefix ? `${prefix}.${field}` : field;
     flattened[fieldPath] = property;
 
-    const nestedProperties =
+    const prop =
       property && typeof property === 'object'
-        ? (property as { properties?: unknown }).properties
+        ? (property as { properties?: unknown; items?: unknown })
         : undefined;
+
+    const nestedProperties = prop?.properties;
     if (
       nestedProperties &&
       typeof nestedProperties === 'object' &&
@@ -118,19 +120,28 @@ function flattenJsonProperties(
         )
       );
     }
+
+    const itemsProperties =
+      prop?.items && typeof prop.items === 'object'
+        ? (prop.items as { properties?: unknown }).properties
+        : undefined;
+    if (
+      itemsProperties &&
+      typeof itemsProperties === 'object' &&
+      !Array.isArray(itemsProperties)
+    ) {
+      Object.assign(
+        flattened,
+        flattenJsonProperties(
+          itemsProperties as Record<string, unknown>,
+          fieldPath
+        )
+      );
+    }
   }
   return flattened;
 }
 
-/**
- * Per-tool intentional deviations from the octocode-core schema contract.
- * - removedCoreFields: core-described fields intentionally omitted from the local schema
- *   (e.g. replaced by a better local alternative).
- * - addedLocalFields: local schema fields that extend core but are not yet described there
- *   (must carry an inline description in scheme.ts).
- * - overriddenDescriptions: fields whose upstream description is intentionally replaced
- *   with a more accurate local one (skips the description-match assertion).
- */
 const SCHEMA_EXCEPTIONS: Record<
   string,
   {

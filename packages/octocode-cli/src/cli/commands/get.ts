@@ -243,7 +243,7 @@ export const getCommand: CLICommand = {
 
     try {
       const toolName = isGithubRef(ref)
-        ? 'githubGetFileContent'
+        ? 'ghGetFileContent'
         : 'localGetFileContent';
       const query = isGithubRef(ref)
         ? {
@@ -266,7 +266,6 @@ export const getCommand: CLICommand = {
 
       const result = await executeDirectTool(toolName, { queries: [query] });
 
-      // Auto-reroute: if GitHub returns "Path is a directory", run tree instead
       if (
         result.isError &&
         isGithubRef(ref) &&
@@ -277,7 +276,7 @@ export const getCommand: CLICommand = {
             `  ${dim('Path is a directory — switching to tree view ...')}\n`
           );
         }
-        const treeResult = await executeDirectTool('githubViewRepoStructure', {
+        const treeResult = await executeDirectTool('ghViewRepoStructure', {
           queries: [
             {
               owner: ref.owner,

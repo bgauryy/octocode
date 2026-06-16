@@ -101,8 +101,8 @@ The **octocode-research** skill is a lightweight HTTP API server that wraps `oct
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │ localSearchCode, localGetFileContent, localFindFiles, localViewStructure│  │
 │  │ lspGotoDefinition, lspFindReferences, lspCallHierarchy                 │  │
-│  │ githubSearchCode, githubGetFileContent, githubViewRepoStructure, etc.  │  │
-│  │ packageSearch                                                          │  │
+│  │ ghSearchCode, ghGetFileContent, ghViewRepoStructure, etc.  │  │
+│  │ npmSearch                                                          │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
                                  │
@@ -519,12 +519,12 @@ curl -X POST http://localhost:1987/tools/call/lspGotoDefinition \
 | \`lspGotoDefinition\` | LSP | Go to symbol definition |
 | \`lspFindReferences\` | LSP | Find all symbol references |
 | \`lspCallHierarchy\` | LSP | Get call hierarchy |
-| \`githubSearchCode\` | GitHub | Search code in GitHub repos |
-| \`githubGetFileContent\` | GitHub | Read file from GitHub repo |
-| \`githubViewRepoStructure\` | GitHub | View GitHub repo tree |
-| \`githubSearchRepositories\` | GitHub | Search GitHub repositories |
-| \`githubSearchPullRequests\` | GitHub | Search pull requests |
-| \`packageSearch\` | Package | Search npm packages |
+| \`ghSearchCode\` | GitHub | Search code in GitHub repos |
+| \`ghGetFileContent\` | GitHub | Read file from GitHub repo |
+| \`ghViewRepoStructure\` | GitHub | View GitHub repo tree |
+| \`ghSearchRepos\` | GitHub | Search GitHub repositories |
+| \`ghSearchPRs\` | GitHub | Search pull requests |
+| \`npmSearch\` | Package | Search npm packages |
 
 ### Resilience Configuration
 

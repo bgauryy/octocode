@@ -31,7 +31,7 @@ import {
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
   type CompactLocation,
   type LspEvidence,
-  type LspGetSemanticContentQuery,
+  type LspGetSemanticsQuery,
   type LspSemanticEnvelope,
   type SemanticEmptyCategory,
   type SemanticContentType,
@@ -119,8 +119,8 @@ function semanticEvidence(
   };
 }
 
-export async function executeLspGetSemanticContent(
-  args: ToolExecutionArgs<LspGetSemanticContentQuery>
+export async function executeLspGetSemantics(
+  args: ToolExecutionArgs<LspGetSemanticsQuery>
 ): Promise<CallToolResult> {
   return executeBulkOperation(
     args.queries || [],
@@ -128,7 +128,7 @@ export async function executeLspGetSemanticContent(
       executeWithToolBoundary({
         toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
         query,
-        contextMessage: 'lspGetSemanticContent execution failed',
+        contextMessage: 'lspGetSemantics execution failed',
         execute: async () => {
           const result = await getSemanticContent(query);
           return attachSemanticRawEvidence(formatSemanticResult(query, result));
@@ -149,7 +149,7 @@ function attachSemanticRawEvidence<T extends object>(result: T): T {
 }
 
 function formatSemanticResult(
-  query: LspGetSemanticContentQuery,
+  query: LspGetSemanticsQuery,
   result: LspSemanticEnvelope | Record<string, unknown>
 ): LspSemanticEnvelope | Record<string, unknown> {
   if (query.format !== 'compact' || !isSemanticEnvelope(result)) return result;
@@ -341,7 +341,7 @@ function oneLine(value: string, maxLength: number): string {
 }
 
 async function getSemanticContent(
-  query: LspGetSemanticContentQuery
+  query: LspGetSemanticsQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
   if (query.type === 'documentSymbols') {
     return getDocumentSymbols(query);
@@ -500,7 +500,7 @@ async function getSemanticContent(
 }
 
 async function getDocumentSymbols(
-  query: LspGetSemanticContentQuery
+  query: LspGetSemanticsQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
   const anchor = await resolveFileAnchor(
     query,
@@ -674,8 +674,6 @@ function referencesEnvelope(
     ),
     payload: {
       kind: 'references',
-      // groupByFile is documented as a per-file summary INSTEAD OF the flat
-      // usage list — emitting both duplicates every location.
       ...(byFile ? { byFile: pageItems } : { locations: pageItems }),
       totalReferences: refs.length,
       totalFiles: new Set(refs.map(ref => ref.uri)).size,
@@ -769,8 +767,6 @@ async function callsEnvelope(
         )
       : emptyTraversal;
 
-  // Outgoing calls into TS/JS built-in declarations (Array.slice, String.join,
-  // …) are noise for code research — exclude them and report the count.
   const isStdlibTarget = (call: OutgoingCall): boolean =>
     /node_modules\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(call.to.uri);
   const stdlibCallsExcluded =
@@ -833,13 +829,9 @@ async function callsEnvelope(
       root: compactCallItem(root),
       direction,
       calls: pageItems,
-      // total count lives in pagination.totalResults; the incoming/outgoing
-      // split is the only unique aggregate worth emitting.
       incomingCalls: incomingResult.calls.length,
       outgoingCalls: projectOutgoingCalls.length,
       completeness: {
-        // Complete only when traversal exhausted every level and no
-        // sub-request failed — "found calls" is not completeness.
         complete: traversalComplete,
         truncatedByDepth:
           incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
@@ -867,11 +859,6 @@ async function callsEnvelope(
             'Calls exist beyond the traversal depth — increase depth to follow the chain further.',
           ]
         : []),
-      ...(query.contextLines && query.contextLines > 0
-        ? []
-        : [
-            'Set contextLines>0 to include source previews for returned calls.',
-          ]),
     ],
   };
 }
@@ -945,9 +932,6 @@ function flattenDocumentSymbol(
       ...(containerName ? { containerName } : {}),
     });
   }
-  // Recurse only into structural containers (class/interface/namespace/…) —
-  // children of functions and methods are local bindings, which are noise
-  // for file orientation. childCount still reports they exist.
   if (
     Array.isArray(symbol.children) &&
     STRUCTURAL_SYMBOL_KINDS.has(symbolKindName(symbol.kind))
@@ -1045,9 +1029,6 @@ function compactOutgoingCall(
 function compactCallItem(item: CallHierarchyItem): CompactCallTarget {
   return {
     name: item.name,
-    // LSP protocol sends numeric SymbolKind values (1–26); convert to a
-    // human-readable name so the result matches the z.string() schema
-    // expectation and is readable in structured and compact outputs.
     kind: symbolKindName(item.kind),
     uri: item.uri,
     line: item.range.start.line + 1,
@@ -1087,8 +1068,6 @@ function truncateContent(content: string): string {
 }
 
 function symbolKindName(kind: unknown): string {
-  // Pass through string kinds as-is (defensive: LSP client may evolve to
-  // return named kinds instead of numeric enum values).
   if (typeof kind === 'string') return kind;
   const numericKind = typeof kind === 'number' ? kind : undefined;
   switch (numericKind) {
@@ -1166,7 +1145,7 @@ function emptyCategoryForReason(
 }
 
 function failedAnchorEnvelope(
-  query: LspGetSemanticContentQuery,
+  query: LspGetSemanticsQuery,
   reason: string,
   hints?: string[]
 ): LspSemanticEnvelope {
@@ -1174,19 +1153,13 @@ function failedAnchorEnvelope(
   return {
     type: query.type,
     uri,
-    // serverAvailable is omitted: symbol resolution failed before reaching the LSP server,
-    // so server availability is unknown. Presence of reason conveys the real issue.
     lsp: {},
     evidence: semanticEvidence(query.type, 'low', false, reason, false),
-    // reason already lives in payload.reason + evidence.reason — repeating it
-    // a third time in warnings is pure noise.
     payload: {
       kind: 'empty',
       category: emptyCategoryForReason(query.type, reason),
       reason,
     },
-    // Anchor hints name the precise failure and recovery; the generic
-    // type-level hints would only repeat "rerun localSearchCode".
     hints: hints?.length ? hints : semanticHints(query.type, false),
   };
 }
@@ -1197,8 +1170,6 @@ function emptyEnvelope(
   reason: string,
   serverAvailable = false
 ): LspSemanticEnvelope {
-  // reason lives in evidence.reason (aggregated signal) and payload.reason
-  // (inline result); a separate warnings array would be a third copy.
   return {
     type,
     uri: anchor.uri,

@@ -9,18 +9,18 @@ Symmetric, n=10 per task per variant, 5 tasks, trials interleaved.
 
 ## Task design principle
 
-Tasks mirror the **real usage archetypes** observed in Claude Code chat history across hundreds of sessions: deep repo exploration, npm package investigation, library usage pattern search, PR archaeology, comparative multi-repo research. Earlier synthetic tasks (symbol lookup via LSP, call-chain trace) were moved to an appendix — they exercised tools (`lspGetSemanticContent(type="definition")`, `lspGetSemanticContent(type="callHierarchy")`) that have zero real-world invocations in observed sessions.
+Tasks mirror the **real usage archetypes** observed in Claude Code chat history across hundreds of sessions: deep repo exploration, npm package investigation, library usage pattern search, PR archaeology, comparative multi-repo research. Earlier synthetic tasks (symbol lookup via LSP, call-chain trace) were moved to an appendix — they exercised tools (`lspGetSemantics(type="definition")`, `lspGetSemantics(type="callHierarchy")`) that have zero real-world invocations in observed sessions.
 
 Tool coverage across the primary catalog:
 
 | Tool | R1 | R2 | R3 | R4 | R5 |
 |---|---|---|---|---|---|
-| `packageSearch` | ✓ | | | | |
-| `githubSearchCode` | | ✓ | | | ✓ |
-| `githubGetFileContent` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `githubViewRepoStructure` | ✓ | | ✓ | | ✓ |
-| `githubSearchPullRequests` | | | | ✓ | |
-| `githubSearchRepositories` | | | | | ✓ |
+| `npmSearch` | ✓ | | | | |
+| `ghSearchCode` | | ✓ | | | ✓ |
+| `ghGetFileContent` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `ghViewRepoStructure` | ✓ | | ✓ | | ✓ |
+| `ghSearchPRs` | | | | ✓ | |
+| `ghSearchRepos` | | | | | ✓ |
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ Use the wrapper name `bench-cli` (not `octocode-cli`). That keeps `--allowedTool
 ### 3. Verify MCP variant still works
 
 ```bash
-claude -p --allowedTools "mcp__octocode__githubSearchCode" \
+claude -p --allowedTools "mcp__octocode__ghSearchCode" \
   --output-format stream-json --verbose \
   "ping" >/dev/null && echo OK
 ```
@@ -99,7 +99,7 @@ Save the output into `/tmp/bench-ground-truth-YYYYMMDD.txt` and reference it dur
 
 > Research the npm package `zod`. Identify its source repository and the primary public entry point file in the repo. Respond with compact JSON only: `{"package":"zod","repo":"<owner/repo>","currentMajor":N,"entryFile":"<path-from-repo-root>"}`. Do not include any other text.
 
-**Expected tool shape:** `packageSearch` → `githubViewRepoStructure` and/or `githubGetFileContent` to confirm entry file.
+**Expected tool shape:** `npmSearch` → `ghViewRepoStructure` and/or `ghGetFileContent` to confirm entry file.
 
 **Scoring:**
 - `package` must equal `"zod"` exactly.
@@ -111,7 +111,7 @@ Save the output into `/tmp/bench-ground-truth-YYYYMMDD.txt` and reference it dur
 
 > In `colinhacks/zod` on its default branch, find three distinct test files that exercise `z.discriminatedUnion()`. Respond with compact JSON only: `{"examples":[{"file":"<path>","line":N},{"file":"<path>","line":N},{"file":"<path>","line":N}]}`. Each `file` must be a test file (path contains `test` or ends in `.test.ts`/`.spec.ts`). Each `line` is the line where `discriminatedUnion` is called. Do not include any other text.
 
-**Expected tool shape:** `githubSearchCode` with query `discriminatedUnion` + path filter → `githubGetFileContent` on 2–3 hits to confirm line.
+**Expected tool shape:** `ghSearchCode` with query `discriminatedUnion` + path filter → `ghGetFileContent` on 2–3 hits to confirm line.
 
 **Scoring:**
 - Exactly 3 entries.
@@ -123,7 +123,7 @@ Save the output into `/tmp/bench-ground-truth-YYYYMMDD.txt` and reference it dur
 
 > Research the GitHub repo `modelcontextprotocol/python-sdk` on its default branch. Respond with compact JSON only: `{"purpose":"<one-sentence description>","topDirs":[{"name":"<dir>","role":"<one-line>"},{"name":"<dir>","role":"<one-line>"},{"name":"<dir>","role":"<one-line>"}],"entryPoint":{"file":"<path-from-repo-root>","symbol":"<exported-function-or-class>"}}`. `topDirs` must contain exactly three entries chosen from the repo's top-level directories. Do not include any other text.
 
-**Expected tool shape:** `githubViewRepoStructure --depth 1` → `githubGetFileContent` on README → `githubGetFileContent` on the source entry file(s).
+**Expected tool shape:** `ghViewRepoStructure --depth 1` → `ghGetFileContent` on README → `ghGetFileContent` on the source entry file(s).
 
 **Scoring:**
 - `purpose` must be non-empty and substantively correct — reject if it says "a tool for X" when the repo is for Y. Human-scored rubric; accept plausible paraphrases.
@@ -135,7 +135,7 @@ Save the output into `/tmp/bench-ground-truth-YYYYMMDD.txt` and reference it dur
 
 > In `microsoft/TypeScript`, find the most recent merged pull request that modifies at least one file under the `src/compiler/` directory. Respond with compact JSON only: `{"prNumber":N,"title":"<exact title>","mergedAt":"<ISO-8601 date>","changedFile":"<one file path under src/compiler/ changed by the PR>"}`. Do not include any other text.
 
-**Expected tool shape:** `githubSearchPullRequests` with path filter → optional `githubGetFileContent` to confirm one changed file.
+**Expected tool shape:** `ghSearchPRs` with path filter → optional `ghGetFileContent` to confirm one changed file.
 
 **Scoring:**
 - `prNumber` must match the top result of `gh pr list --repo microsoft/TypeScript --state merged --search 'path:src/compiler' --limit 1` at batch pin time. Accept the top 3 results to tolerate race with merges during the batch.
@@ -147,7 +147,7 @@ Save the output into `/tmp/bench-ground-truth-YYYYMMDD.txt` and reference it dur
 
 > Compare how `vitejs/vite` and `webpack/webpack` expose their command-line entry point. For each repo, on its default branch, identify the file that serves as the CLI bin target and the name of the export or function that boots the CLI. Respond with compact JSON only: `{"repos":[{"name":"vitejs/vite","cliFile":"<path>","cliSymbol":"<exported function or identifier>"},{"name":"webpack/webpack","cliFile":"<path>","cliSymbol":"<exported function or identifier>"}]}`. Do not include any other text.
 
-**Expected tool shape:** `githubViewRepoStructure` × 2 → `githubGetFileContent` on each repo's `package.json` (to find the `bin` field) → `githubGetFileContent` on the referenced CLI files.
+**Expected tool shape:** `ghViewRepoStructure` × 2 → `ghGetFileContent` on each repo's `package.json` (to find the `bin` field) → `ghGetFileContent` on the referenced CLI files.
 
 **Scoring:**
 - Both repos present in order given.
@@ -172,12 +172,12 @@ LOG=/tmp/bench-<variant>-${TASK}-${TRIAL}
 /usr/bin/time -p claude -p \
   --permission-mode acceptEdits \
   --allowedTools \
-    "mcp__octocode__githubSearchCode" \
-    "mcp__octocode__githubGetFileContent" \
-    "mcp__octocode__githubViewRepoStructure" \
-    "mcp__octocode__githubSearchRepositories" \
-    "mcp__octocode__githubSearchPullRequests" \
-    "mcp__octocode__packageSearch" \
+    "mcp__octocode__ghSearchCode" \
+    "mcp__octocode__ghGetFileContent" \
+    "mcp__octocode__ghViewRepoStructure" \
+    "mcp__octocode__ghSearchRepos" \
+    "mcp__octocode__ghSearchPRs" \
+    "mcp__octocode__npmSearch" \
   --output-format stream-json --verbose \
   --include-partial-messages \
   "$TASK_PROMPT" \
@@ -303,7 +303,7 @@ Historical comparison tables (old T1–T4 synthetic benchmark) preserved in [PR 
 
 ## Appendix: Legacy synthetic micro-benchmark (T1–T4)
 
-The original benchmark ran 4 synthetic tasks against the octocode-mcp repo itself. These are kept as regression-smoke tests because they're cheap and deterministic, but they should not be used for headline claims: two of the four rely on LSP tools (`lspGetSemanticContent(type="definition")`, `lspGetSemanticContent(type="callHierarchy")`) that have zero real-world usage in observed chat history, and all four target a single repo the model may have partial training-data memory of.
+The original benchmark ran 4 synthetic tasks against the octocode-mcp repo itself. These are kept as regression-smoke tests because they're cheap and deterministic, but they should not be used for headline claims: two of the four rely on LSP tools (`lspGetSemantics(type="definition")`, `lspGetSemantics(type="callHierarchy")`) that have zero real-world usage in observed chat history, and all four target a single repo the model may have partial training-data memory of.
 
 <details>
 <summary>T1–T4 prompts (reference)</summary>

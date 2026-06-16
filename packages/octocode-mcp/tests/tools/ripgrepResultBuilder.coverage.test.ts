@@ -72,7 +72,7 @@ describe('buildSearchResult - exact localSearchCode output fields', () => {
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);
     const hints = (result.hints ?? []).join('\n');
     expect(hints).toContain('localGetFileContent');
-    expect(hints).toContain('lspGetSemanticContent');
+    expect(hints).toContain('lspGetSemantics');
   });
 });
 

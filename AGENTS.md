@@ -157,18 +157,18 @@ tests/  ←  index.*, serverConfig.*, session.*, errorCodes,
 
 | Tool | Type | Local | Description |
 |------|------|-------|-------------|
-| `githubSearchCode` | search | ❌ | Search code across GitHub |
-| `githubGetFileContent` | content | ❌ | Fetch file or directory (`type:"directory"` needs `ENABLE_CLONE`) |
-| `githubViewRepoStructure` | content | ❌ | Browse repo tree |
-| `githubCloneRepo` | content | ✅ | Clone GitHub repos/subtrees for local + LSP analysis (`ENABLE_CLONE`) |
-| `githubSearchRepositories` | search | ❌ | Search repositories |
-| `githubSearchPullRequests` | history | ❌ | Search PRs and view diffs |
-| `packageSearch` | search | ❌ | NPM package + repo URL lookup |
+| `ghSearchCode` | search | ❌ | Search code across GitHub |
+| `ghGetFileContent` | content | ❌ | Fetch file or directory (`type:"directory"` needs `ENABLE_CLONE`) |
+| `ghViewRepoStructure` | content | ❌ | Browse repo tree |
+| `ghCloneRepo` | content | ✅ | Clone GitHub repos/subtrees for local + LSP analysis (`ENABLE_CLONE`) |
+| `ghSearchRepos` | search | ❌ | Search repositories |
+| `ghSearchPRs` | history | ❌ | Search PRs and view diffs |
+| `npmSearch` | search | ❌ | NPM package + repo URL lookup |
 | `localSearchCode` | search | ✅ | ripgrep search |
 | `localViewStructure` | content | ✅ | Browse local directories |
 | `localFindFiles` | search | ✅ | Find files by metadata |
 | `localGetFileContent` | content | ✅ | Read local file content |
-| `lspGetSemanticContent` | LSP | ✅ | Unified semantic navigation: definition, references, callers, callees, callHierarchy, hover, documentSymbols, typeDefinition, implementation (8 types via `type` param) |
+| `lspGetSemantics` | LSP | ✅ | Unified semantic navigation: definition, references, callers, callees, callHierarchy, hover, documentSymbols, typeDefinition, implementation (8 types via `type` param) |
 
 The LSP tool is standalone (no IDE required); TS/JS bundled, 30+ other langs via installed servers; cross-platform.
 
@@ -197,7 +197,7 @@ Tools return `structuredContent` validated against `outputSchema`. Server advert
 | `GITHUB_TOKEN` / `OCTOCODE_TOKEN` / `GH_TOKEN` | GitHub auth (priority: OCTOCODE > GH > GITHUB) | – |
 | `GITHUB_API_URL` | GitHub API base URL | `https://api.github.com` |
 | `ENABLE_LOCAL` | Enable local FS tools | `true` |
-| `ENABLE_CLONE` | Enable `githubCloneRepo` + directory mode (requires `ENABLE_LOCAL`) | `false` |
+| `ENABLE_CLONE` | Enable `ghCloneRepo` + directory mode (requires `ENABLE_LOCAL`) | `false` |
 | `WORKSPACE_ROOT` | Root directory for resolving relative paths in local tools. Also configurable via `local.workspaceRoot` in `~/.octocode/.octocoderc` (env var takes priority) | `process.cwd()` |
 | `ALLOWED_PATHS` | Restrict local tools to these paths (comma-separated; empty = all) | `[]` |
 | `OCTOCODE_CACHE_TTL_MS` | Clone cache TTL (ms) | `86400000` |
@@ -259,7 +259,7 @@ octocode-cli --tool <name> --queries '<json>' [--json]
 
 ```bash
 octocode-cli --tool localSearchCode --queries '{"path":".","pattern":"runCLI"}'
-octocode-cli --tool githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
+octocode-cli --tool ghSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
 ```
 
 Output shape: `{ "content": [{ "type": "text", "text": "..." }], "structuredContent": {}, "isError": false }`

@@ -413,7 +413,7 @@ export const githubPRsSchema = z
   .transform(withResearchDefaults);
 
 
-export const packageSearchSchema = z
+export const npmSearchSchema = z
   .object({
     name: z.string().min(1, 'Package name is required'),
     ecosystem: z.enum(['npm', 'python']).optional().default('npm'),

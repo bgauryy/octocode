@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { LocalFetchContentQuerySchema } from '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.js';
 import { LocalRipgrepQuerySchema } from '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.js';
 import { FileContentQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_fetch_content/scheme.js';
-import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
+import { NpmSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 
 describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
   const baseQuery = { path: 'src/foo.ts' };
@@ -228,16 +228,16 @@ describe('LocalRipgrepQuerySchema mutex checks', () => {
   });
 });
 
-describe('PackageSearch schema', () => {
+describe('NpmSearch schema', () => {
   it('accepts packageName (npm only)', () => {
-    const result = PackageSearchBulkQueryLocalSchema.safeParse({
+    const result = NpmSearchBulkQueryLocalSchema.safeParse({
       queries: [{ packageName: 'react' }],
     });
     expect(result.success).toBe(true);
   });
 
   it('rejects when packageName is missing', () => {
-    const result = PackageSearchBulkQueryLocalSchema.safeParse({
+    const result = NpmSearchBulkQueryLocalSchema.safeParse({
       queries: [{}],
     });
     expect(result.success).toBe(false);

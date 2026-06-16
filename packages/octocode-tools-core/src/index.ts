@@ -1,10 +1,4 @@
-/**
- * octocode-tools-core public API
- *
- * Core tool implementations: execution functions, schemas, metadata,
- * server config, session, providers, and utilities.
- * No McpServer dependency — fully portable.
- */
+
 export * from './security/bridge.js';
 export * from './commands/BaseCommandBuilder.js';
 export * from './commands/RipgrepCommandBuilder.js';
@@ -160,7 +154,6 @@ export * from './utils/response/groupedFinalizer.js';
 export * from './utils/response/pathRelativize.js';
 export * from './utils/response/structuredPagination.js';
 
-// github/githubAPI — explicit exports excluding PullRequestItem (conflicts with providers/providerResults.ts)
 export type { GitHubPullRequestItem, Repository } from './github/githubAPI.js';
 export {
   isGitHubAPIError,
@@ -168,7 +161,6 @@ export {
   isRepository,
 } from './github/githubAPI.js';
 
-// providers/types — explicit exports excluding DirectoryEntry/PullRequestItem (conflicts with structureFilters.ts)
 export type {
   ProviderType,
   ProviderConfig,
@@ -194,7 +186,6 @@ export type {
 } from './providers/types.js';
 export { isProviderSuccess, isProviderError } from './providers/types.js';
 
-// github/githubAPI — remaining types not in the explicit block above
 export type {
   GitHubAPIError,
   GitHubAPISuccess,
@@ -218,10 +209,8 @@ export type {
   GitHubAPIResponse,
 } from './github/githubAPI.js';
 
-// hints/dynamic — HINTS constant (getDynamicHints is re-exported via proxies.ts)
 export { HINTS, hasDynamicHints } from './hints/dynamic.js';
 
-// structureResponse — all exports (DirectoryEntry is already canonical from structureFilters.ts)
 export {
   summarizeEntries,
   paginateEntries,
@@ -229,39 +218,29 @@ export {
   buildWalkWarnings,
 } from './tools/local_view_structure/structureResponse.js';
 
-// utils/core/types — ExecResult (PaginationInfo excluded to avoid conflict with types/toolResults.ts)
 export type { ExecResult } from './utils/core/types.js';
 
-// hints/index — getHints utility (hasDynamicHints is internal)
 export { getHints } from './hints/index.js';
 
-// Per-tool hints objects with unique export names (avoids 'hints' name collision between tools)
-export { hints as githubSearchCodeHints } from './tools/github_search_code/hints.js';
+export { hints as ghSearchCodeHints } from './tools/github_search_code/hints.js';
 export { hints as githubFetchContentHints } from './tools/github_fetch_content/hints.js';
-export { hints as githubViewRepoStructureHints } from './tools/github_view_repo_structure/hints.js';
+export { hints as ghViewRepoStructureHints } from './tools/github_view_repo_structure/hints.js';
 export { hints as githubSearchReposHints } from './tools/github_search_repos/hints.js';
-export { hints as githubSearchPullRequestsHints } from './tools/github_search_pull_requests/hints.js';
-export { hints as githubCloneRepoHints } from './tools/github_clone_repo/hints.js';
+export { hints as ghSearchPRsHints } from './tools/github_search_pull_requests/hints.js';
+export { hints as ghCloneRepoHints } from './tools/github_clone_repo/hints.js';
 export { hints as localRipgrepHints } from './tools/local_ripgrep/hints.js';
 export { hints as localViewStructureHints } from './tools/local_view_structure/hints.js';
 export { hints as localFindFilesHints } from './tools/local_find_files/hints.js';
 export { hints as localFetchContentHints } from './tools/local_fetch_content/hints.js';
 export { hints as lspSemanticContentHints } from './tools/lsp/semantic_content/hints.js';
-export { hints as packageSearchHints } from './tools/package_search/hints.js';
+export { hints as npmSearchHints } from './tools/package_search/hints.js';
 
-// hints/dynamic — 3-arg version distinct from proxies.ts getDynamicHints(toolName, key)
 export { getDynamicHints as getDynamicToolHints } from './hints/dynamic.js';
 
-// ---------------------------------------------------------------------------
-// Facade re-exports — consumers (e.g. octocode-mcp) depend only on tools-core
-// ---------------------------------------------------------------------------
-
-// Security primitives owned by octocode-security
 export { securityRegistry, ContentSanitizer } from 'octocode-security';
 export { maskSensitiveData } from 'octocode-security/mask';
 export { configureSecurity } from 'octocode-security/withSecurityValidation';
 
-// Shared OS/platform + credential utilities owned by octocode-shared
 export {
   getOctocodeDir,
   paths,
@@ -287,8 +266,6 @@ export {
 } from 'octocode-shared';
 export type { OAuthToken, StoredCredentials } from 'octocode-shared';
 
-// Core metadata owned by @octocodeai/octocode-core
 export { completeMetadata } from '@octocodeai/octocode-core';
 
-// Zod schema builder — tools-core owns zod; re-exported for MCP-layer schemas
 export { z } from 'zod';

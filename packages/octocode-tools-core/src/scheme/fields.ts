@@ -11,7 +11,6 @@ export function clampedInt(min: number, max: number) {
   );
 }
 
-/** View level for content-returning tools. */
 export type MinifyMode = 'none' | 'standard' | 'symbols';
 
 export const relaxedPageNumberField = clampedInt(1, MAX_PAGE_NUMBER)

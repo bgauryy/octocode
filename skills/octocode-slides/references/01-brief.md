@@ -78,9 +78,9 @@ If source file paths were given (in initial message or from Step 2 answer), read
 |-------------|-------------|
 | Local folder path | `localViewStructure` → identify key files → `localSearchCode` for key concepts → `localGetFileContent` for relevant sections |
 | Local file path(s) | `localGetFileContent` on each; read in parallel |
-| GitHub repo URL | `githubViewRepoStructure` → `githubSearchCode` for key patterns → `githubGetFileContent` for relevant files |
-| GitHub PR / commit | `githubSearchPullRequests` for context, then dive into changed files |
-| npm / pip / other package | `packageSearch` first to get repo URL, then treat as GitHub repo |
+| GitHub repo URL | `ghViewRepoStructure` → `ghSearchCode` for key patterns → `ghGetFileContent` for relevant files |
+| GitHub PR / commit | `ghSearchPRs` for context, then dive into changed files |
+| npm / pip / other package | `npmSearch` first to get repo URL, then treat as GitHub repo |
 | No path — description only | Skip this step; record as "Source: user description" in `request.md` |
 
 Read in parallel when possible. For any repo: view structure first, then search key concepts, then read 3–5 files most relevant to the deck topic. For code: extract architecture decisions, key APIs, real examples — not implementation minutiae.

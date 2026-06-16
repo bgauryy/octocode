@@ -177,7 +177,6 @@ describe('toMCPSchema — branch coverage', () => {
       _def: { typeName: 'ZodPipeline', schema: final },
     };
     const result = toMCPSchema(piped as never);
-    // After pipe unwrap, should get the ZodPipeline inner schema
     expect(result).toBe(final);
   });
 
@@ -188,7 +187,6 @@ describe('toMCPSchema — branch coverage', () => {
   });
 
   it('falls back to schema when s becomes falsy after pipe unwrap (line 25 ?? schema branch)', () => {
-    // If the piped chain's out is null/undefined, s becomes falsy and returns schema
     const original = {
       _zod: { def: { type: 'pipe', out: null } },
       _def: {},

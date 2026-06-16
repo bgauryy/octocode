@@ -73,14 +73,14 @@ This command orchestrates specialized AI agents in 6 phases to analyze your code
 </steps>
 
 <subagents>
-Use the host's subagent mechanism to explore code with MCP tools (`localSearchCode`, `lspGetSemanticContent(type=definition)`, `lspGetSemanticContent(type=callers/callees)`, `lspGetSemanticContent(type=references)`). Pick model tiers by capability, not by hard-coded model names.
+Use the host's subagent mechanism to explore code with MCP tools (`localSearchCode`, `lspGetSemantics(type=definition)`, `lspGetSemantics(type=callers/callees)`, `lspGetSemantics(type=references)`). Pick model tiers by capability, not by hard-coded model names.
 </subagents>
 
 <mcp_discovery>
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."

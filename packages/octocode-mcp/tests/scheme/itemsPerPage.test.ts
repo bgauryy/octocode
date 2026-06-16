@@ -11,7 +11,7 @@ import { LocalViewStructureBulkQuerySchema } from '../../../octocode-tools-core/
 import { GitHubReposSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_repos/scheme.js';
 import { GitHubCodeSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_search_code/scheme.js';
 import { GitHubViewRepoStructureBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/scheme.js';
-import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
+import { NpmSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 
 describe('Pagination config constants', () => {
   it('LOCAL_DEFAULT_FILES_PER_PAGE is 20', () => {
@@ -54,7 +54,6 @@ describe('GitHub search: page-based pagination, exact fields', () => {
     });
     const q = parsed.queries[0] as Record<string, unknown>;
     expect('githubAPILimit' in q).toBe(false);
-    // limit is now exposed so agents can set page size; undefined when not provided
     expect(q.limit).toBeUndefined();
   });
 });
@@ -102,7 +101,7 @@ describe('Local tools: page-based pagination, exact fields', () => {
     expect('entriesPerPage' in q).toBe(false);
   });
 
-  it('githubViewRepoStructure: accepts page + itemsPerPage; removed entriesPerPage stays absent', () => {
+  it('ghViewRepoStructure: accepts page + itemsPerPage; removed entriesPerPage stays absent', () => {
     const q = q0(GitHubViewRepoStructureBulkQueryLocalSchema, {
       owner: 'o',
       repo: 'r',
@@ -114,8 +113,8 @@ describe('Local tools: page-based pagination, exact fields', () => {
     expect('entriesPerPage' in q).toBe(false);
   });
 
-  it('packageSearch: accepts page; removed page-size fields stay absent', () => {
-    const q = q0(PackageSearchBulkQueryLocalSchema, {
+  it('npmSearch: accepts page; removed page-size fields stay absent', () => {
+    const q = q0(NpmSearchBulkQueryLocalSchema, {
       packageName: 'hono',
       page: 1,
     });

@@ -26,9 +26,6 @@ export async function searchContentRipgrep(
   query: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
   const configuredQuery = applyWorkflowMode(query);
-  // Default context AFTER workflow-mode resolution — a zod default would
-  // pre-fill the field and turn mode="detailed" (contextLines=3 when
-  // undefined) into a no-op.
   if (configuredQuery.contextLines === undefined) {
     configuredQuery.contextLines = 2;
   }

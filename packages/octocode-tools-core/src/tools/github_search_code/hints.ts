@@ -20,7 +20,7 @@ export const hints: ToolHintGenerators = {
       return [
         hasFilters
           ? 'Remove path/filename/extension first, then retry keywords.'
-          : `No results in ${owner}/${repo} — repo may be unindexed (new/private/recently renamed repos lag). Fall back to githubGetFileContent with a known path, or githubViewRepoStructure to discover paths.`,
+          : `No results in ${owner}/${repo} — repo may be unindexed (new/private/recently renamed repos lag). Fall back to ghGetFileContent with a known path, or ghViewRepoStructure to discover paths.`,
         'GitHub code search indexes the default branch only.',
       ];
     }
@@ -34,7 +34,7 @@ export const hints: ToolHintGenerators = {
       /^@[\w-]+\/[\w.-]+$|^[a-z][\w]*[-.][\w.-]+$/.test(keywords[0])
     ) {
       out.push(
-        `"${keywords[0]}" looks like a package name — try \`packageSearch\`.`
+        `"${keywords[0]}" looks like a package name — try \`npmSearch\`.`
       );
     }
 

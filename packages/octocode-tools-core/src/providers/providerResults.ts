@@ -106,7 +106,7 @@ export interface FileContentResult {
 
   endLine?: number;
 
-  /** Line ranges of returned slices when matchString hits multiple spots. */
+  
   matchRanges?: Array<{ start: number; end: number }>;
 
   warnings?: string[];
@@ -190,13 +190,13 @@ export interface PullRequestItem {
       hasMore: boolean;
       nextCharOffset?: number;
     };
-    /** 'discussion' = PR-level thread; 'review_inline' = code-level annotation */
+    
     commentType?: 'discussion' | 'review_inline';
-    /** File targeted by an inline review comment */
+    
     path?: string;
-    /** Line number targeted by an inline review comment */
+    
     line?: number;
-    /** For inline reply comments: id of the parent comment being replied to */
+    
     in_reply_to_id?: number;
   }>;
 
@@ -224,7 +224,7 @@ export interface PullRequestItem {
     patch?: string;
   }>;
 
-  /** Warnings from content sanitization and bot filtering — surface to agent. */
+  
   sanitizationWarnings?: string[];
 }
 

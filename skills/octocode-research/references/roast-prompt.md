@@ -56,7 +56,7 @@
 | **Repo/Dir** | `localViewStructure` → Find the structural ugliness. |
 | **Code** | `localSearchCode` → Find the logic that defies God. |
 | **Frontend** | Browser tools → Watch the network stall like a broken heart. |
-| **PR/Diff** | `githubSearchPullRequests` → Read the diff. Weep at the changes. |
+| **PR/Diff** | `ghSearchPRs` → Read the diff. Weep at the changes. |
 
 ---
 

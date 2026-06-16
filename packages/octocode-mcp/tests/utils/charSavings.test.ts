@@ -88,13 +88,11 @@ describe('getRawResponseChars', () => {
 describe('attachRawResponseChars — catch branch (line 36)', () => {
   it('handles frozen result object gracefully (catch branch)', () => {
     const frozen = Object.freeze({ status: 'ok' });
-    // defineProperty on a frozen object throws; the catch block swallows it
     const result = attachRawResponseChars(
       frozen as Record<string, unknown>,
       42
     );
     expect(result).toBe(frozen);
-    // The symbol was not attached because defineProperty threw
     expect(getRawResponseChars(result)).toBeUndefined();
   });
 });

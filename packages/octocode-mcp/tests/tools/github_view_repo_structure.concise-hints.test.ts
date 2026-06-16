@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildRepoStructureOutput } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/execution.js';
 
-describe('githubViewRepoStructure pass-through contract — data is preserved', () => {
+describe('ghViewRepoStructure pass-through contract — data is preserved', () => {
   const input = {
     data: {
       path: 'src',
@@ -27,7 +27,7 @@ describe('githubViewRepoStructure pass-through contract — data is preserved', 
   });
 });
 
-describe('githubViewRepoStructure entries — data structure preserved', () => {
+describe('ghViewRepoStructure entries — data structure preserved', () => {
   const structure = {
     '.': {
       folders: ['src', 'tests', 'docs', 'scripts', 'dist', 'coverage'],

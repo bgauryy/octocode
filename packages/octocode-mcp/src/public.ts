@@ -56,11 +56,11 @@ export type GitHubViewRepoStructureQuery = z.infer<
 >;
 export type RipgrepSearchQuery = z.infer<typeof RipgrepQuerySchema>;
 export type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
-export type PackageSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
+export type NpmSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
 
 export type {
   LspEvidence,
-  LspGetSemanticContentQuery,
+  LspGetSemanticsQuery,
   LspSemanticEnvelope,
   ResolvedSymbol,
   SemanticContentType,
@@ -85,7 +85,7 @@ export type {
   PaginationInfo as LSPPaginationInfo,
   LspRange as LSPRange,
   PackageItem as PackageResultWithRepo,
-  PackageSearchData as PackageSearchResult,
+  NpmSearchData as NpmSearchResult,
 } from '@octocodeai/octocode-core/types';
 
 export type {
@@ -112,7 +112,7 @@ export {
   executeFindFiles,
   executeRipgrepSearch,
   executeViewStructure,
-  executeLspGetSemanticContent,
+  executeLspGetSemantics,
   searchPackages,
   executeCloneRepo,
 } from '@octocodeai/octocode-tools-core';
@@ -153,14 +153,14 @@ export {
   FetchContentQuerySchema,
   FindFilesQuerySchema,
   ViewStructureQuerySchema,
-  NpmPackageQuerySchema as PackageSearchQuerySchema,
+  NpmPackageQuerySchema as NpmSearchQuerySchema,
   CloneRepoQuerySchema,
 } from '@octocodeai/octocode-core/schemas';
 
 export {
-  BulkLspGetSemanticContentQuerySchema,
-  LspGetSemanticContentQuerySchema,
-  LspGetSemanticContentOutputSchema,
+  BulkLspGetSemanticsQuerySchema,
+  LspGetSemanticsQuerySchema,
+  LspGetSemanticsOutputSchema,
   loadToolContent,
   createResult,
   createResponseFormat,

@@ -12,7 +12,7 @@ We collect **de-identified telemetry data** to maintain the stability and perfor
 
 ### What We Collect
 - **Command Usage**: Which commands (e.g., `octocode/research`, `octocode/plan`) are executed.
-- **Tool Usage**: Which specific tools (e.g., `githubSearchCode`) are utilized.
+- **Tool Usage**: Which specific tools (e.g., `ghSearchCode`) are utilized.
 - **Performance Metrics**: Execution time, success/failure rates, and error codes.
 - **Session IDs**: Randomly generated UUIDs used to group related events within a single session.
 

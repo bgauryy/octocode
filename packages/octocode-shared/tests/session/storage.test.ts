@@ -406,12 +406,12 @@ describe('Session Storage', () => {
     it('should increment character savings by tool', () => {
       getOrCreateSession();
 
-      incrementToolCharSavings('githubSearchCode', 1000, 250);
-      const result = incrementToolCharSavings('githubSearchCode', 500, 700);
+      incrementToolCharSavings('ghSearchCode', 1000, 250);
+      const result = incrementToolCharSavings('ghSearchCode', 500, 700);
 
       expect(result.success).toBe(true);
       expect(result.session?.stats.charsSavedByTool).toEqual({
-        githubSearchCode: {
+        ghSearchCode: {
           rawChars: 1500,
           responseChars: 950,
           savedChars: 750,

@@ -184,7 +184,6 @@ describe('ripgrepResultBuilder - _getStructuredResultSizeHints (lines 171-179)',
   });
 
   it('exposes totalFilesFound in pagination when results are capped by maxFiles', async () => {
-    // 20 real files but maxFiles=5 → wasLimited=true
     const files = makeFiles(20, 2);
     const query = {
       path: '/test',

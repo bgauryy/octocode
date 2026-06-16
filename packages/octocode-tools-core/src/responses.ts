@@ -364,17 +364,6 @@ function sortObjectKeys(obj: unknown, priority: string[]): unknown {
   return sorted;
 }
 
-/**
- * A pagination block earns its tokens only when it navigates somewhere:
- * single-page, exhausted results carry no information beyond the result
- * list itself (totals equal the visible count), so both render paths drop
- * them. Char-style cursors are trivial only at offset 0 with no more data.
- *
- * Detection is by full shape, not field name: every key must belong to the
- * pagination vocabulary and the block must report itself exhausted. An
- * object with any foreign key — or any non-trivial cursor — is never touched,
- * so renamed pagination fields are still pruned and tool data never is.
- */
 const PAGINATION_KEYS = new Set([
   'currentPage',
   'totalPages',

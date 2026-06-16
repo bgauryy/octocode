@@ -39,16 +39,16 @@
 
 ### Recipe 5: "Who calls this function?" (remote)
 ```
-1. githubSearchCode(keywordsToSearch=["functionName"], owner=X, repo=Y, match="file") → find files
-2. githubGetFileContent(matchString="functionName", matchStringContextLines=20) → see callers in context
+1. ghSearchCode(keywordsToSearch=["functionName"], owner=X, repo=Y, match="file") → find files
+2. ghGetFileContent(matchString="functionName", matchStringContextLines=20) → see callers in context
 3. Repeat for each file that imports/calls the function
 ```
 
 ### Recipe 6: "Trace import chain" (remote)
 ```
 1. From diff: identify changed exports
-2. githubSearchCode(keywordsToSearch=["import.*functionName"], match="file") → consumers
-3. githubGetFileContent for each consumer → verify compatibility
+2. ghSearchCode(keywordsToSearch=["import.*functionName"], match="file") → consumers
+3. ghGetFileContent for each consumer → verify compatibility
 ```
 
 ---
@@ -59,6 +59,6 @@
 |-------------|--------|-------|
 | Function signature changed | Recipe 1 (incoming callers) | `lspCallHierarchy(incoming)` or Recipe 5 |
 | New function added | Recipe 2 (outgoing deps) | `lspCallHierarchy(outgoing)` |
-| Type/Interface changed | Recipe 3 (all usages) | `lspFindReferences` or `githubSearchCode` |
+| Type/Interface changed | Recipe 3 (all usages) | `lspFindReferences` or `ghSearchCode` |
 | Data transformation changed | Recipe 4 (trace chain) | Chain `lspCallHierarchy` hops |
-| Export changed | Recipe 6 (import chain) | `githubSearchCode` for consumers |
+| Export changed | Recipe 6 (import chain) | `ghSearchCode` for consumers |

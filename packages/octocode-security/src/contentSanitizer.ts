@@ -13,9 +13,6 @@ const MAX_ARRAY_LENGTH = 100;
 const MAX_DEPTH = 20;
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-// ---------------------------------------------------------------------------
-// Extra-pattern JS processing (for patterns added via securityRegistry at runtime)
-// ---------------------------------------------------------------------------
 function shouldApplyExtraPattern(
   fileContext: RegExp | undefined,
   filePath: string | undefined
@@ -65,10 +62,8 @@ export const ContentSanitizer: ISanitizer = {
       };
     }
 
-    // Rust fast path (built-in patterns)
     const rustResult = nativeSanitizeContent(content, filePath ?? null);
 
-    // Apply any extra patterns registered at runtime via securityRegistry
     const extraPatterns = securityRegistry.extraSecretPatterns;
     if (extraPatterns.length > 0) {
       const { sanitized: finalContent, secrets: extraSecrets } =
@@ -97,10 +92,6 @@ export const ContentSanitizer: ISanitizer = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Recursive parameter validation — structural checks delegating to Rust for
-// per-string secret detection.
-// ---------------------------------------------------------------------------
 function validateRecursive(
   params: Record<string, unknown>,
   depth: number,
@@ -122,9 +113,6 @@ function validateRecursive(
       warnings: ['Maximum nesting depth exceeded'],
     };
   }
-  // `ancestorStack` tracks only the CURRENT recursion path (entries removed on
-  // exit), so a DAG — the same object appearing under two sibling keys — is
-  // legal while a true cycle is still caught.
   if (ancestorStack.has(params)) {
     return {
       sanitizedParams: {},

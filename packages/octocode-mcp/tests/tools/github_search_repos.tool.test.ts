@@ -141,7 +141,6 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       expect(responseText).toContain('react');
       expect(responseText).toContain('vercel');
 
-      // Lean mode returns compact strings, not objects.
       const repos = result.structuredContent as {
         results?: Array<{ data?: { repositories?: string[] } }>;
       };
@@ -555,7 +554,6 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         { queries: [{ keywordsToSearch: ['repo'] }] }
       );
 
-      // Lean mode returns compact strings, not objects.
       const firstStructured = firstResult.structuredContent as {
         results: Array<{ data: { repositories?: string[] } }>;
       };

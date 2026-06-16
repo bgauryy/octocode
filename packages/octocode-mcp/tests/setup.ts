@@ -238,7 +238,7 @@ const mockToolSchema = {
 };
 
 const githubFetchContentSchema = {
-  name: 'githubGetFileContent',
+  name: 'ghGetFileContent',
   description: 'Read file content from GitHub',
   schema: {
     owner: 'GitHub owner',
@@ -273,15 +273,15 @@ const mockDynamicHints = {
   batchParallel: ['Use parallel queries for batch operations'],
   manyResults: ['Many results found - consider filtering'],
   configFiles: ['Config files found - check for project settings'],
-  singleRepo: ['Searching single repo: use githubGetFileContent for details'],
+  singleRepo: ['Searching single repo: use ghGetFileContent for details'],
   multiRepo: ['Searching multiple repos: narrow with owner/repo'],
   pathEmpty: ['Path search empty - try match="file" instead'],
   crossRepoEmpty: ['Cross-repo search empty - specify owner/repo'],
   fileTooLarge: ['File too large - use matchString or line range'],
 };
 
-const lspGetSemanticContentSchema = {
-  name: 'lspGetSemanticContent',
+const lspGetSemanticsSchema = {
+  name: 'lspGetSemantics',
   description: 'Get semantic code intelligence using Language Server Protocol',
   schema: {
     uri: 'File URI',
@@ -343,8 +343,8 @@ const localFindFilesSchema = {
   },
 };
 
-const githubSearchCodeSchema = {
-  name: 'githubSearchCode',
+const ghSearchCodeSchema = {
+  name: 'ghSearchCode',
   description: 'Search code across GitHub',
   schema: {},
   hints: {
@@ -357,18 +357,18 @@ const mockContent = {
   instructions: 'Test instructions',
   prompts: {},
   toolNames: {
-    GITHUB_FETCH_CONTENT: 'githubGetFileContent',
-    GITHUB_SEARCH_CODE: 'githubSearchCode',
-    GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
-    GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
-    GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
-    PACKAGE_SEARCH: 'packageSearch',
-    GITHUB_CLONE_REPO: 'githubCloneRepo',
+    GITHUB_FETCH_CONTENT: 'ghGetFileContent',
+    GITHUB_SEARCH_CODE: 'ghSearchCode',
+    GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+    GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
+    GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
+    PACKAGE_SEARCH: 'npmSearch',
+    GITHUB_CLONE_REPO: 'ghCloneRepo',
     LOCAL_RIPGREP: 'localSearchCode',
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
     LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
-    LSP_GET_SEMANTIC_CONTENT: 'lspGetSemanticContent',
+    LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
   },
   baseSchema: {
     id: 'Stable query identifier.',
@@ -377,14 +377,14 @@ const mockContent = {
     reasoning: 'Reasoning description',
   },
   tools: {
-    githubGetFileContent: githubFetchContentSchema,
-    githubSearchCode: githubSearchCodeSchema,
-    githubSearchPullRequests: mockToolSchema,
-    githubSearchRepositories: mockToolSchema,
-    githubViewRepoStructure: mockToolSchema,
-    packageSearch: mockToolSchema,
-    githubCloneRepo: {
-      name: 'githubCloneRepo',
+    ghGetFileContent: githubFetchContentSchema,
+    ghSearchCode: ghSearchCodeSchema,
+    ghSearchPRs: mockToolSchema,
+    ghSearchRepos: mockToolSchema,
+    ghViewRepoStructure: mockToolSchema,
+    npmSearch: mockToolSchema,
+    ghCloneRepo: {
+      name: 'ghCloneRepo',
       description: 'Clone GitHub repository to local filesystem',
       schema: {
         owner: 'Repository owner (user or org)',
@@ -401,7 +401,7 @@ const mockContent = {
     localGetFileContent: localFetchContentSchema,
     localFindFiles: localFindFilesSchema,
     localViewStructure: localViewStructureSchema,
-    lspGetSemanticContent: lspGetSemanticContentSchema,
+    lspGetSemantics: lspGetSemanticsSchema,
   },
   baseHints: {
     hasResults: ['Base hint for hasResults'],
@@ -468,33 +468,33 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     BulkCloneRepoSchema: stubBulkSchema(),
     GitHubCloneRepoOutputSchema: passthrough(),
     NpmPackageQuerySchema: passthrough(),
-    PackageSearchBulkQuerySchema: stubBulkSchema(),
-    PackageSearchOutputSchema: passthrough(),
+    NpmSearchBulkQuerySchema: stubBulkSchema(),
+    NpmSearchOutputSchema: passthrough(),
     BaseQuerySchema: passthrough(),
     BaseQuerySchemaLocal: passthrough(),
     ErrorDataSchema: passthrough(),
     BulkFetchContentSchema: stubBulkSchema(),
     BulkViewStructureSchema: stubBulkSchema(),
     BulkFindFilesSchema: stubBulkSchema(),
-    GITHUB_FETCH_CONTENT: 'githubGetFileContent',
-    GITHUB_SEARCH_CODE: 'githubSearchCode',
-    GITHUB_SEARCH_PULL_REQUESTS: 'githubSearchPullRequests',
-    GITHUB_SEARCH_REPOSITORIES: 'githubSearchRepositories',
-    GITHUB_VIEW_REPO_STRUCTURE: 'githubViewRepoStructure',
-    GITHUB_CLONE_REPO: 'githubCloneRepo',
-    PACKAGE_SEARCH: 'packageSearch',
+    GITHUB_FETCH_CONTENT: 'ghGetFileContent',
+    GITHUB_SEARCH_CODE: 'ghSearchCode',
+    GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+    GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
+    GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
+    GITHUB_CLONE_REPO: 'ghCloneRepo',
+    PACKAGE_SEARCH: 'npmSearch',
     LOCAL_RIPGREP: 'localSearchCode',
     LOCAL_FETCH_CONTENT: 'localGetFileContent',
     LOCAL_FIND_FILES: 'localFindFiles',
     LOCAL_VIEW_STRUCTURE: 'localViewStructure',
-    LSP_GET_SEMANTIC_CONTENT: 'lspGetSemanticContent',
+    LSP_GET_SEMANTIC_CONTENT: 'lspGetSemantics',
     validateRipgrepQuery: identityValidator,
     validateFindFilesQuery: identityValidator,
     validateViewStructureQuery: identityValidator,
     validateFetchContentQuery: identityValidator,
     applyWorkflowMode: identityValidator,
     createBulkQuerySchema: stubBulkSchema,
-    PackageSearchQuerySchema: passthrough(),
+    NpmSearchQuerySchema: passthrough(),
     LocalSearchCodeDataSchema: passthrough(),
     LocalFindFilesDataSchema: passthrough(),
     LocalViewStructureDataSchema: passthrough(),
@@ -505,7 +505,7 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     GitHubSearchRepositoriesDataSchema: passthrough(),
     GitHubViewRepoStructureDataSchema: passthrough(),
     GitHubCloneRepoDataSchema: passthrough(),
-    PackageSearchDataSchema: passthrough(),
+    NpmSearchDataSchema: passthrough(),
   };
 
   return {

@@ -4,8 +4,6 @@ import { resolveRef, isGithubRef, refLabel } from '../routing.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { executeDirectTool } from '@octocodeai/octocode-tools-core/direct';
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 interface TreeEntry {
   files?: string[];
   folders?: string[];
@@ -15,12 +13,10 @@ interface TreeEntry {
 interface StructureResult {
   results?: Array<{
     data?: {
-      // local shape
       path?: string;
       files?: string[];
       folders?: string[];
       summary?: string;
-      // github shape
       structure?: Record<string, TreeEntry>;
     };
   }>;
@@ -61,7 +57,7 @@ async function fetchGithubTree(
   branch?: string,
   depth?: number
 ): Promise<GithubStructureResult> {
-  const result = await executeDirectTool('githubViewRepoStructure', {
+  const result = await executeDirectTool('ghViewRepoStructure', {
     queries: [
       {
         owner,
@@ -97,7 +93,6 @@ function renderTree(data: Record<string, unknown> | undefined): string {
   if (!data) return '(empty)';
   const lines: string[] = [];
 
-  // GitHub shape: data.structure is a map of dirPath → { files, folders }
   if ('structure' in data && data.structure) {
     for (const [dirPath, entry] of Object.entries(
       data.structure as Record<string, TreeEntry>
@@ -111,7 +106,6 @@ function renderTree(data: Record<string, unknown> | undefined): string {
     return lines.join('\n');
   }
 
-  // Local shape: data.{path, files, folders, summary}
   if ('path' in data && data.path) lines.push(bold(data.path as string) + '/');
   ((data.folders as string[] | undefined) ?? []).forEach(f =>
     lines.push(`  ${c('cyan', '📁')} ${f}/`)
@@ -123,8 +117,6 @@ function renderTree(data: Record<string, unknown> | undefined): string {
     lines.push(`\n  ${dim(data.summary as string)}`);
   return lines.join('\n');
 }
-
-// ── command ───────────────────────────────────────────────────────────────────
 
 export const treeCommand: CLICommand = {
   name: 'tree',
@@ -154,8 +146,6 @@ export const treeCommand: CLICommand = {
     const target = args.args[0] ?? '';
     const branchOverride = getString(options, 'branch');
     const rawDepth = getString(options, 'depth');
-    // GitHub defaults to depth 2 so agents get meaningful structure in one call;
-    // local tools default to undefined (server decides, typically 1).
     const depthExplicit = rawDepth ? parseInt(rawDepth, 10) : undefined;
     const jsonOutput = getBool(options, 'json');
 

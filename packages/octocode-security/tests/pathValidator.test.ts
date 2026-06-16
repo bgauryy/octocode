@@ -495,8 +495,6 @@ describe('PathValidator', () => {
     let outside: string;
 
     beforeEach(() => {
-      // os.tmpdir() resolves into /private/var/… which the ignored-path
-      // filter rejects — use dirs under the package cwd instead.
       tmpRoot = fs.realpathSync(fs.mkdtempSync(`${process.cwd()}/pv-root-`));
       outside = fs.realpathSync(fs.mkdtempSync(`${process.cwd()}/pv-outside-`));
       fs.symlinkSync(outside, `${tmpRoot}/evil`);

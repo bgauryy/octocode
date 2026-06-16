@@ -26,8 +26,8 @@ import {
   GitHubViewRepoStructureBulkQueryLocalSchema,
 } from './github_view_repo_structure/scheme.js';
 import {
-  PackageSearchQueryLocalSchema,
-  PackageSearchBulkQueryLocalSchema,
+  NpmSearchQueryLocalSchema,
+  NpmSearchBulkQueryLocalSchema,
 } from './package_search/scheme.js';
 import {
   LocalFetchContentQuerySchema,
@@ -46,8 +46,8 @@ import {
   LocalViewStructureBulkQuerySchema,
 } from './local_view_structure/scheme.js';
 import {
-  BulkLspGetSemanticContentQuerySchema,
-  LspGetSemanticContentQueryDisplaySchema,
+  BulkLspGetSemanticsQuerySchema,
+  LspGetSemanticsQueryDisplaySchema,
 } from './lsp/semantic_content/scheme.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
@@ -60,7 +60,7 @@ import { executeFetchContent } from './local_fetch_content/execution.js';
 import { executeFindFiles } from './local_find_files/execution.js';
 import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
-import { executeLspGetSemanticContent } from './lsp/semantic_content/execution.js';
+import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
@@ -232,8 +232,8 @@ function createToolCatalog(
     isLocal: false,
     type: 'search',
     direct: {
-      schema: PackageSearchQueryLocalSchema,
-      inputSchema: PackageSearchBulkQueryLocalSchema,
+      schema: NpmSearchQueryLocalSchema,
+      inputSchema: NpmSearchBulkQueryLocalSchema,
       executionFn: searchPackages,
       security: 'remote',
       requiresServerRuntime: true,
@@ -312,9 +312,9 @@ function createToolCatalog(
     skipMetadataCheck: true,
     type: 'content',
     direct: {
-      schema: LspGetSemanticContentQueryDisplaySchema,
-      inputSchema: BulkLspGetSemanticContentQuerySchema,
-      executionFn: executeLspGetSemanticContent,
+      schema: LspGetSemanticsQueryDisplaySchema,
+      inputSchema: BulkLspGetSemanticsQuerySchema,
+      executionFn: executeLspGetSemantics,
       security: 'basic',
       requiresServerRuntime: true,
     },

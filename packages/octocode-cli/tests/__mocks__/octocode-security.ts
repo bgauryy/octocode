@@ -1,8 +1,4 @@
-/**
- * Test-only stub for octocode-security.
- * Replaces the native Rust binary with pure-JS no-ops so vitest can import
- * the CLI and octocode-mcp sources without a compiled .node binary.
- */
+
 
 export const maskSensitiveData = (text: string) => text;
 export const nativeMaskSensitiveData = (text: string) => text;

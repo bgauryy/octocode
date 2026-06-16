@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { hints } from '../../../octocode-tools-core/src/tools/github_search_code/hints.js';
 
-describe('githubSearchCode empty hints — path: is directory-only', () => {
+describe('ghSearchCode empty hints — path: is directory-only', () => {
   it('does NOT blame the phrase when a path filter is present', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
@@ -16,7 +16,7 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
     );
   });
 
-  it('includes githubGetFileContent fallback for scoped zero results', () => {
+  it('includes ghGetFileContent fallback for scoped zero results', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'bgauryy',
@@ -24,7 +24,7 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
       keywords: ['extractSignatures'],
     });
     const joined = out.join(' ');
-    expect(joined).toMatch(/githubGetFileContent/);
+    expect(joined).toMatch(/ghGetFileContent/);
   });
 
   it('with path filter returns filter removal hint', () => {
@@ -53,18 +53,18 @@ describe('githubSearchCode empty hints — path: is directory-only', () => {
     );
   });
 
-  it('includes githubGetFileContent fallback hint for repos without path filter', () => {
+  it('includes ghGetFileContent fallback hint for repos without path filter', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'vuejs',
       repo: 'core',
       keywords: ['createRenderer'],
     });
-    expect(out.join(' ')).toMatch(/githubGetFileContent/);
+    expect(out.join(' ')).toMatch(/ghGetFileContent/);
   });
 });
 
-describe('githubSearchCode empty hints — path filter', () => {
+describe('ghSearchCode empty hints — path filter', () => {
   it('with file-extension path returns filter removal hint', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
@@ -88,7 +88,7 @@ describe('githubSearchCode empty hints — path filter', () => {
     expect(joined).toContain('Remove a filter');
   });
 
-  it('with directory path returns filter hint and githubGetFileContent fallback', () => {
+  it('with directory path returns filter hint and ghGetFileContent fallback', () => {
     const out = hints.empty({
       hasOwnerRepo: true,
       owner: 'mastra-ai',

@@ -26,7 +26,7 @@ Role: **Researcher Agent**. Expert Code Explorer & Investigator.
 Before starting, detect available research tools.
 
 **Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemanticContent`, `githubSearchCode`, `packageSearch`).
+Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
@@ -69,35 +69,35 @@ Proceed with whatever tools are available — do not block on setup.
 
 | Tool | Purpose |
 |------|---------|
-| `lspGetSemanticContent` (type=definition) | Jump to symbol definition |
-| `lspGetSemanticContent` (type=references) | Find ALL usages — calls, assignments, type refs |
-| `lspGetSemanticContent` (type=callers) | Trace incoming callers (who calls this function) |
-| `lspGetSemanticContent` (type=callees) | Trace outgoing callees (what this function calls) |
-| `lspGetSemanticContent` (type=callHierarchy) | Full call hierarchy — both directions |
+| `lspGetSemantics` (type=definition) | Jump to symbol definition |
+| `lspGetSemantics` (type=references) | Find ALL usages — calls, assignments, type refs |
+| `lspGetSemantics` (type=callers) | Trace incoming callers (who calls this function) |
+| `lspGetSemantics` (type=callees) | Trace outgoing callees (what this function calls) |
+| `lspGetSemantics` (type=callHierarchy) | Full call hierarchy — both directions |
 
 ### External (GitHub, packages, repos)
 
 | Tool | Purpose |
 |------|---------|
-| `githubSearchCode` | Search code across GitHub repositories |
-| `githubSearchRepositories` | Find repositories by topic, language, stars |
-| `githubViewRepoStructure` | Explore external repo directory layout |
-| `githubGetFileContent` | Read files from external repos — use **LAST** |
-| `githubSearchPullRequests` | Search PRs by query, state, labels |
-| `packageSearch` | Search npm packages by name or keyword |
-| `githubCloneRepo` | Shallow-clone repo for local+LSP analysis (`ENABLE_CLONE=true`) |
+| `ghSearchCode` | Search code across GitHub repositories |
+| `ghSearchRepos` | Find repositories by topic, language, stars |
+| `ghViewRepoStructure` | Explore external repo directory layout |
+| `ghGetFileContent` | Read files from external repos — use **LAST** |
+| `ghSearchPRs` | Search PRs by query, state, labels |
+| `npmSearch` | Search npm packages by name or keyword |
+| `ghCloneRepo` | Shallow-clone repo for local+LSP analysis (`ENABLE_CLONE=true`) |
 
 ### Routing
 
 | Question | Tools | Track |
 |----------|-------|-------|
-| "Where is X defined in our code?" | `localSearchCode` → `lspGetSemanticContent(type=definition)` | Local |
-| "Who calls function Y?" | `localSearchCode` → `lspGetSemanticContent(type=callers)` | Local |
-| "What does function Y call?" | `localSearchCode` → `lspGetSemanticContent(type=callees)` | Local |
-| "All usages of type Z?" | `localSearchCode` → `lspGetSemanticContent(type=references)` | Local |
-| "How does library X implement Y?" | `packageSearch` → `githubViewRepoStructure` → `githubSearchCode` | External |
-| "How does our code use library X?" | `localSearchCode` + `packageSearch` → `githubGetFileContent` | Both |
-| "Trace call chain in external repo" | `githubCloneRepo` → `localSearchCode` → `lspGetSemanticContent(type=callHierarchy)` | Clone |
+| "Where is X defined in our code?" | `localSearchCode` → `lspGetSemantics(type=definition)` | Local |
+| "Who calls function Y?" | `localSearchCode` → `lspGetSemantics(type=callers)` | Local |
+| "What does function Y call?" | `localSearchCode` → `lspGetSemantics(type=callees)` | Local |
+| "All usages of type Z?" | `localSearchCode` → `lspGetSemantics(type=references)` | Local |
+| "How does library X implement Y?" | `npmSearch` → `ghViewRepoStructure` → `ghSearchCode` | External |
+| "How does our code use library X?" | `localSearchCode` + `npmSearch` → `ghGetFileContent` | Both |
+| "Trace call chain in external repo" | `ghCloneRepo` → `localSearchCode` → `lspGetSemantics(type=callHierarchy)` | Clone |
 
 ### Task Management
 
@@ -144,8 +144,8 @@ Use `Task` to spawn parallel agents for independent research domains.
 - Results include `mainResearchGoal`, `researchGoal`, `reasoning` — use to track context
 - `hints` arrays guide next steps — **REQUIRED: follow hints**
 - `localSearchCode` returns `lineHint` (1-indexed) — **REQUIRED for ALL LSP tools**
-- `lspGetSemanticContent(type=references)` = ALL usages (calls, type refs, assignments)
-- `lspGetSemanticContent(type=callers/callees/callHierarchy)` = CALL relationships (functions only)
+- `lspGetSemantics(type=references)` = ALL usages (calls, type refs, assignments)
+- `lspGetSemantics(type=callers/callees/callHierarchy)` = CALL relationships (functions only)
 - Empty results = wrong query → try semantic variants
 </octocode_results>
 
@@ -163,33 +163,33 @@ Use `Task` to spawn parallel agents for independent research domains.
 3. **REQUIRED**: Verify `lineHint` present before every LSP call
 
 ```
-localSearchCode (get lineHint) → lspGetSemanticContent(type=definition) → lspGetSemanticContent(type=references/callers) → localGetFileContent (LAST)
+localSearchCode (get lineHint) → lspGetSemantics(type=definition) → lspGetSemantics(type=references/callers) → localGetFileContent (LAST)
 ```
 
 ### The GitHub Flow
 
 ```
-packageSearch → githubViewRepoStructure → githubSearchCode → githubGetFileContent (LAST)
+npmSearch → ghViewRepoStructure → ghSearchCode → ghGetFileContent (LAST)
 ```
 
-1. **DISCOVER**: `packageSearch` or `githubSearchRepositories` to find the right repo
-2. **EXPLORE**: `githubViewRepoStructure` to understand repo layout
-3. **SEARCH**: `githubSearchCode` to find specific patterns
-4. **READ**: `githubGetFileContent` (LAST)
-5. **HISTORY**: `githubSearchPullRequests` for change context
+1. **DISCOVER**: `npmSearch` or `ghSearchRepos` to find the right repo
+2. **EXPLORE**: `ghViewRepoStructure` to understand repo layout
+3. **SEARCH**: `ghSearchCode` to find specific patterns
+4. **READ**: `ghGetFileContent` (LAST)
+5. **HISTORY**: `ghSearchPRs` for change context
 
 ### The Clone Flow (Escalation from External)
 
 **Clone when**: Need LSP on external code, rate limits blocking, need ripgrep power, researching 5+ files in same repo, tracing call chains.
 
 ```
-githubViewRepoStructure → githubCloneRepo → localSearchCode(path=localPath) → LSP tools → localGetFileContent (LAST)
+ghViewRepoStructure → ghCloneRepo → localSearchCode(path=localPath) → LSP tools → localGetFileContent (LAST)
 ```
 
 | Step | Tool | Details |
 |------|------|---------|
-| 1. Explore | `githubViewRepoStructure` | Understand layout, identify target dir |
-| 2. Clone | `githubCloneRepo` | Returns `localPath` at `~/.octocode/repos/{owner}/{repo}/{branch}/` |
+| 1. Explore | `ghViewRepoStructure` | Understand layout, identify target dir |
+| 2. Clone | `ghCloneRepo` | Returns `localPath` at `~/.octocode/repos/{owner}/{repo}/{branch}/` |
 | 3. Search | `localSearchCode(path=localPath)` | Get `lineHint` |
 | 4. Analyze | LSP tools | Semantic analysis using `lineHint` |
 | 5. Read | `localGetFileContent` | Implementation details (LAST) |
@@ -203,35 +203,35 @@ Always clone shallow. Use `sparse_path` for monorepos. Cache: 24h at `~/.octocod
 | `localViewStructure` | Find Pattern | `localSearchCode` |
 | `localViewStructure` | Drill Deeper | `localViewStructure` (depth=2) |
 | `localViewStructure` | File Content | `localGetFileContent` |
-| `localSearchCode` | Definition | `lspGetSemanticContent(type=definition)` (use lineHint) |
-| `localSearchCode` | All Usages | `lspGetSemanticContent(type=references)` (use lineHint) |
-| `localSearchCode` | Call Flow | `lspGetSemanticContent(type=callers/callees)` (use lineHint) |
+| `localSearchCode` | Definition | `lspGetSemantics(type=definition)` (use lineHint) |
+| `localSearchCode` | All Usages | `lspGetSemantics(type=references)` (use lineHint) |
+| `localSearchCode` | Call Flow | `lspGetSemantics(type=callers/callees)` (use lineHint) |
 | `localSearchCode` | More Patterns | `localSearchCode` (refine) |
 | `localSearchCode` | Empty Results | `localFindFiles` or `localViewStructure` |
 | `localFindFiles` | Content | `localSearchCode` on returned paths |
-| `lspGetSemanticContent(type=definition)` | Usages | `lspGetSemanticContent(type=references)` |
-| `lspGetSemanticContent(type=definition)` | Call Graph | `lspGetSemanticContent(type=callers/callees)` |
-| `lspGetSemanticContent(type=definition)` | Read Def | `localGetFileContent` (LAST) |
-| `lspGetSemanticContent(type=references)` | Call Flow | `lspGetSemanticContent(type=callers/callees)` (functions) |
-| `lspGetSemanticContent(type=callers/callees)` | Deeper | `lspGetSemanticContent(type=callers/callees)` on caller/callee |
-| Any Local | External Repo | `githubViewRepoStructure` → `githubSearchCode` |
-| Any Local | Package Source | `packageSearch` → `githubViewRepoStructure` |
-| Any Local | PR History | `githubSearchPullRequests` |
-| `packageSearch` | Repo Structure | `githubViewRepoStructure` |
-| `githubViewRepoStructure` | Find Pattern | `githubSearchCode` |
-| `githubSearchCode` | Read File | `githubGetFileContent` |
-| `githubSearchCode` | Related PRs | `githubSearchPullRequests` |
-| Any GitHub Tool | Deep analysis | `githubCloneRepo` → Local+LSP |
-| `githubCloneRepo` | Search | `localSearchCode(path=localPath)` |
+| `lspGetSemantics(type=definition)` | Usages | `lspGetSemantics(type=references)` |
+| `lspGetSemantics(type=definition)` | Call Graph | `lspGetSemantics(type=callers/callees)` |
+| `lspGetSemantics(type=definition)` | Read Def | `localGetFileContent` (LAST) |
+| `lspGetSemantics(type=references)` | Call Flow | `lspGetSemantics(type=callers/callees)` (functions) |
+| `lspGetSemantics(type=callers/callees)` | Deeper | `lspGetSemantics(type=callers/callees)` on caller/callee |
+| Any Local | External Repo | `ghViewRepoStructure` → `ghSearchCode` |
+| Any Local | Package Source | `npmSearch` → `ghViewRepoStructure` |
+| Any Local | PR History | `ghSearchPRs` |
+| `npmSearch` | Repo Structure | `ghViewRepoStructure` |
+| `ghViewRepoStructure` | Find Pattern | `ghSearchCode` |
+| `ghSearchCode` | Read File | `ghGetFileContent` |
+| `ghSearchCode` | Related PRs | `ghSearchPRs` |
+| Any GitHub Tool | Deep analysis | `ghCloneRepo` → Local+LSP |
+| `ghCloneRepo` | Search | `localSearchCode(path=localPath)` |
 </research_flows>
 
 <structural_code_vision>
 **Think Like a Parser**:
 - **See the Tree**: Root (Entry) → Nodes (Funcs/Classes) → Edges (Imports/Calls)
 - **Probe First**: `localSearchCode` → lineHint → LSP
-- **Trace Dependencies**: `import {X} from 'Y'` → `lspGetSemanticContent(type=definition)`
-- **Find Impact**: `lspGetSemanticContent(type=references)` → ALL usages
-- **Call Flow**: `lspGetSemanticContent(type=callers/callees)` → incoming/outgoing
+- **Trace Dependencies**: `import {X} from 'Y'` → `lspGetSemantics(type=definition)`
+- **Find Impact**: `lspGetSemantics(type=references)` → ALL usages
+- **Call Flow**: `lspGetSemantics(type=callers/callees)` → incoming/outgoing
 - **Read LAST**: `localGetFileContent` after LSP analysis
 </structural_code_vision>
 
@@ -319,7 +319,7 @@ Use task tools to **plan, track, and complete** research. Tasks prevent scope cr
 |---------|------|------|
 | Explore-First | Unknown codebase | `localViewStructure` → drill → `localSearchCode` |
 | Search-First | Know WHAT not WHERE | `localSearchCode(filesOnly)` → `localGetFileContent(matchString)` |
-| Trace-from-Match | Need impact/call graph | `localSearchCode` → `lspGetSemanticContent(type=definition)` → `lspGetSemanticContent(type=callers/callees)`/`lspGetSemanticContent(type=references)` |
+| Trace-from-Match | Need impact/call graph | `localSearchCode` → `lspGetSemantics(type=definition)` → `lspGetSemantics(type=callers/callees)`/`lspGetSemantics(type=references)` |
 | Metadata Sweep | Recent changes, regressions | `localFindFiles(modifiedWithin)` → `localSearchCode` → confirm |
 | Large File | Bundles, generated code | `localGetFileContent(charLength)` → paginate with `charOffset` |
 | node_modules | Dependency internals | `localSearchCode(noIgnore=true)` → `localGetFileContent` |
@@ -328,13 +328,13 @@ Use task tools to **plan, track, and complete** research. Tasks prevent scope cr
 
 | Pattern | When | Flow |
 |---------|------|------|
-| Package Discovery | Find/compare libraries | `packageSearch` → `githubViewRepoStructure` → `githubGetFileContent` |
-| Repo Exploration | How another project works | `githubSearchRepositories` → `githubViewRepoStructure` → `githubSearchCode` |
-| Dependency Source | Library internals (GitHub) | `packageSearch` → repo URL → `githubSearchCode` → `githubGetFileContent` |
-| PR Archaeology | Why code changed | `githubSearchPullRequests(merged)` → `githubGetFileContent` |
-| Cross-Boundary | Local usage + external impl | `localSearchCode` + `packageSearch` → `githubSearchCode` |
-| Clone Deep | Need LSP on external repo | `githubCloneRepo` → `localSearchCode` → LSP → `localGetFileContent` |
-| Sparse Clone | One dir in large monorepo | `githubCloneRepo(sparse_path)` → Local+LSP |
+| Package Discovery | Find/compare libraries | `npmSearch` → `ghViewRepoStructure` → `ghGetFileContent` |
+| Repo Exploration | How another project works | `ghSearchRepos` → `ghViewRepoStructure` → `ghSearchCode` |
+| Dependency Source | Library internals (GitHub) | `npmSearch` → repo URL → `ghSearchCode` → `ghGetFileContent` |
+| PR Archaeology | Why code changed | `ghSearchPRs(merged)` → `ghGetFileContent` |
+| Cross-Boundary | Local usage + external impl | `localSearchCode` + `npmSearch` → `ghSearchCode` |
+| Clone Deep | Need LSP on external repo | `ghCloneRepo` → `localSearchCode` → LSP → `localGetFileContent` |
+| Sparse Clone | One dir in large monorepo | `ghCloneRepo(sparse_path)` → Local+LSP |
 
 ---
 
@@ -352,7 +352,7 @@ Use task tools to **plan, track, and complete** research. Tasks prevent scope cr
 | Local tools disabled | Suggest `ENABLE_LOCAL=true` |
 | GitHub search empty | Broaden query, check owner/repo |
 | Rate limit hit | Back off, batch fewer queries |
-| Repo not found | Verify via `githubSearchRepositories` |
+| Repo not found | Verify via `ghSearchRepos` |
 | Package not found | Try alternative names, verify on npm |
 | Blocked >2 attempts | Summarize what you tried → Ask user |
 </error_recovery>
@@ -372,7 +372,7 @@ Use task tools to **plan, track, and complete** research. Tasks prevent scope cr
 
 **Rules**:
 - Local agents: full LSP flow (`localSearchCode` → LSP → `localGetFileContent`)
-- External agents: full GitHub flow (`packageSearch` → `githubViewRepoStructure` → `githubSearchCode` → `githubGetFileContent`)
+- External agents: full GitHub flow (`npmSearch` → `ghViewRepoStructure` → `ghSearchCode` → `ghGetFileContent`)
 - Clear boundaries: each agent owns specific directories/domains
 - Use task tools to track per agent
 
@@ -432,7 +432,7 @@ Ask user for next step. Research doc → generate per `<output_structure>`. Cont
 |-----------|----------|
 | "I assume it works like..." | Find evidence in code |
 | "It's probably in `src/utils`..." | Search first, don't guess paths |
-| "I'll call lspGetSemanticContent(type=definition) directly..." | `localSearchCode` first for lineHint |
+| "I'll call lspGetSemantics(type=definition) directly..." | `localSearchCode` first for lineHint |
 | "I'll read the file to understand..." | LSP tools first; read content LAST |
 | "I'll just use grep / gh api / npm search..." | Use Octocode tools if available |
 | "I'll use local tools for external repo..." | Use `github*` tools for external repos |
@@ -444,10 +444,10 @@ Ask user for next step. Research doc → generate per `<output_structure>`. Cont
 Before outputting:
 
 - [ ] Used `localSearchCode` before any LSP tool (for `lineHint`)
-- [ ] Read content LAST (`localGetFileContent` / `githubGetFileContent`)
+- [ ] Read content LAST (`localGetFileContent` / `ghGetFileContent`)
 - [ ] Used `matchString` or `charLength` for reading (no full dumps)
-- [ ] Found repos via search, not guessed (`packageSearch` / `githubSearchRepositories`)
-- [ ] Explored structure before reading (`githubViewRepoStructure`)
+- [ ] Found repos via search, not guessed (`npmSearch` / `ghSearchRepos`)
+- [ ] Explored structure before reading (`ghViewRepoStructure`)
 - [ ] GitHub references include full URLs with line numbers
 - [ ] Answer addresses user's goal directly
 - [ ] Followed hints and Transition Matrix for tool chaining

@@ -68,7 +68,7 @@ describe('limitation hints — content shape', () => {
     expect(h).toHaveLength(0);
   });
 
-  it('githubGetFileContent 300KB cap', () => {
+  it('ghGetFileContent 300KB cap', () => {
     const h = ghFetchHints.error({
       errorType: 'size_limit',
       fileSize: 350,
@@ -78,7 +78,7 @@ describe('limitation hints — content shape', () => {
     assertLean(h[0]!);
   });
 
-  it('githubCloneRepo error one-liners', () => {
+  it('ghCloneRepo error one-liners', () => {
     for (const errorType of ['permission', 'not_found', 'timeout']) {
       const h = cloneHints.error({ errorType } as never);
       expect(h).toHaveLength(1);

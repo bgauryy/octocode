@@ -156,8 +156,6 @@ describe('directToolCatalog', () => {
     expect(localByName['id']).toBeUndefined();
     expect(localByName['keywords']?.required).toBe(true);
     expect(localByName['include']?.type).toBe('array<string>');
-    // Fields with schema defaults are optional from the input side, even
-    // though Zod's JSON Schema output lists them as required.
     expect(localByName['matchContentLength']?.required).toBe(false);
     expect(localByName['page']?.required).toBe(false);
     expect(getDirectToolDisplayFields('missingTool')).toEqual([]);

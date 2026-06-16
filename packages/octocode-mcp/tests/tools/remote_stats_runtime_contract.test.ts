@@ -102,7 +102,7 @@ import { registerViewGitHubRepoStructureTool } from '../../src/tools/github_view
 import { registerSearchGitHubReposTool } from '../../src/tools/github_search_repos/github_search_repos.js';
 import { registerSearchGitHubPullRequestsTool } from '../../src/tools/github_search_pull_requests/github_search_pull_requests.js';
 import { registerGitHubCloneRepoTool } from '../../src/tools/github_clone_repo/github_clone_repo.js';
-import { registerPackageSearchTool } from '../../src/tools/package_search/package_search.js';
+import { registerNpmSearchTool } from '../../src/tools/package_search/package_search.js';
 
 describe('remote tool stats runtime contract', () => {
   beforeEach(() => {
@@ -205,7 +205,7 @@ describe('remote tool stats runtime contract', () => {
     });
   });
 
-  it('records charsSavedByTool for every GitHub tool and packageSearch when the tool runs', async () => {
+  it('records charsSavedByTool for every GitHub tool and npmSearch when the tool runs', async () => {
     const mockServer = createMockMcpServer();
 
     registerGitHubSearchCodeTool(mockServer.server);
@@ -214,14 +214,14 @@ describe('remote tool stats runtime contract', () => {
     registerSearchGitHubReposTool(mockServer.server);
     registerSearchGitHubPullRequestsTool(mockServer.server);
     registerGitHubCloneRepoTool(mockServer.server);
-    await registerPackageSearchTool(mockServer.server);
+    await registerNpmSearchTool(mockServer.server);
 
     await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
       queries: [
         {
           id: 'code',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise githubSearchCode stats',
+          researchGoal: 'exercise ghSearchCode stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
@@ -234,7 +234,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'content',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise githubGetFileContent stats',
+          researchGoal: 'exercise ghGetFileContent stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
@@ -247,7 +247,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'structure',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise githubViewRepoStructure stats',
+          researchGoal: 'exercise ghViewRepoStructure stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
@@ -260,7 +260,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'repos',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise githubSearchRepositories stats',
+          researchGoal: 'exercise ghSearchRepos stats',
           reasoning: 'prove runtime char savings emission',
           keywordsToSearch: ['repo'],
           owner: 'owner',
@@ -272,7 +272,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'prs',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise githubSearchPullRequests stats',
+          researchGoal: 'exercise ghSearchPRs stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
@@ -285,7 +285,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'clone',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise githubCloneRepo stats',
+          researchGoal: 'exercise ghCloneRepo stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
@@ -298,7 +298,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'pkg',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise packageSearch stats',
+          researchGoal: 'exercise npmSearch stats',
           reasoning: 'prove runtime char savings emission',
           packageName: 'lodash',
         },

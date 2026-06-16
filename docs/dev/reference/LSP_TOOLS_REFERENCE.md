@@ -6,18 +6,18 @@ Octocode exposes **one** public LSP tool:
 
 | Tool | Use it for |
 |------|------------|
-| `lspGetSemanticContent` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
+| `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
 
 LSP tools are local-only. They require `ENABLE_LOCAL=true` and a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`.
 
 ## Workflow
 
 1. Search textually with `localSearchCode` and capture the exact `lineHint`.
-2. Query `lspGetSemanticContent` with `uri`, `type`, `symbolName`, and `lineHint`.
+2. Query `lspGetSemantics` with `uri`, `type`, `symbolName`, and `lineHint`.
 3. Page large symbol or call-flow results with `page` and `itemsPerPage`.
 4. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
 
-## `lspGetSemanticContent`
+## `lspGetSemantics`
 
 Required fields:
 

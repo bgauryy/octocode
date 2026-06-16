@@ -14,8 +14,8 @@ vi.mock('../../mcpCache.js', () => ({
         schema: { type: 'object', properties: { pattern: { type: 'string' } } },
         hints: { hasResults: ['Use lineHint'], empty: ['Try broader search'] },
       },
-      githubSearchCode: {
-        name: 'githubSearchCode',
+      ghSearchCode: {
+        name: 'ghSearchCode',
         description: 'Search GitHub code',
         schema: { type: 'object', properties: { keywordsToSearch: { type: 'string' } } },
         hints: { hasResults: ['Check results'], empty: ['Try other keywords'] },
@@ -47,28 +47,28 @@ vi.mock('../../index.js', () => ({
   localViewStructure: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      structuredOutput: ""' }],
   }),
-  githubSearchCode: vi.fn().mockResolvedValue({
+  ghSearchCode: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      files: []' }],
   }),
-  githubGetFileContent: vi.fn().mockResolvedValue({
+  ghGetFileContent: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      content: "test"' }],
   }),
-  githubSearchRepositories: vi.fn().mockResolvedValue({
+  ghSearchRepos: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      repositories: []' }],
   }),
-  githubViewRepoStructure: vi.fn().mockResolvedValue({
+  ghViewRepoStructure: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      structure: {}' }],
   }),
-  githubSearchPullRequests: vi.fn().mockResolvedValue({
+  ghSearchPRs: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      pull_requests: []' }],
   }),
-  githubCloneRepo: vi.fn().mockResolvedValue({
+  ghCloneRepo: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      clonePath: /tmp/repo' }],
   }),
-  lspGetSemanticContent: vi.fn().mockResolvedValue({
+  lspGetSemantics: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      definition: null' }],
   }),
-  packageSearch: vi.fn().mockResolvedValue({
+  npmSearch: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'results:\n  - status: hasResults\n    data:\n      packages: []' }],
   }),
   logToolCall: vi.fn().mockResolvedValue(undefined),
@@ -131,9 +131,9 @@ describe('Tools Routes', () => {
       const res = await request(app).get('/tools/list');
       const names = res.body.data.tools.map((t: any) => t.name);
       expect(names).toContain('localSearchCode');
-      expect(names).toContain('githubSearchCode');
-      expect(names).toContain('lspGetSemanticContent');
-      expect(names).toContain('packageSearch');
+      expect(names).toContain('ghSearchCode');
+      expect(names).toContain('lspGetSemantics');
+      expect(names).toContain('npmSearch');
     });
 
     it('includes hints', async () => {

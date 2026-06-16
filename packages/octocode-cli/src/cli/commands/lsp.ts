@@ -161,7 +161,7 @@ export const lspCommand: CLICommand = {
     }
 
     try {
-      const result = await executeDirectTool('lspGetSemanticContent', {
+      const result = await executeDirectTool('lspGetSemantics', {
         queries: [
           {
             uri,

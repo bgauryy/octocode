@@ -23,7 +23,7 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
-import { buildGithubSearchCodeFinalizer } from './finalizer.js';
+import { buildGhSearchCodeFinalizer } from './finalizer.js';
 
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
@@ -47,7 +47,7 @@ function validateCodeSearchScope(
         'Repository scope requires owner. Provide both owner and repo, or omit repo for a broader search.',
       hints: [
         'Use owner="<org-or-user>" with repo="<repository>" — GitHub code search cannot scope to a bare repository name.',
-        'If you only know the repo name, first use githubSearchRepositories with keywordsToSearch=["<repo>"] to find its owner.',
+        'If you only know the repo name, first use ghSearchRepos with keywordsToSearch=["<repo>"] to find its owner.',
       ],
     };
   }
@@ -124,12 +124,9 @@ export async function searchMultipleGitHubCode(
               ? query.keywordsToSearch[0]
               : '<keyword>';
           successHints.push(
-            `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — read with githubGetFileContent(path, matchString="${firstKeyword}") to land on the matched lines (matchIndices are char offsets inside snippet values, not line numbers).`
+            `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — read with ghGetFileContent(path, matchString="${firstKeyword}") to land on the matched lines (matchIndices are char offsets inside snippet values, not line numbers).`
           );
         }
-        // GitHub caps reachable code-search results (totalPages * perPage,
-        // e.g. 10 pages x 20). When the reported total exceeds that, the
-        // surplus matches can never be paged to — say so on every page.
         if (flat.pagination) {
           const {
             totalPages,
@@ -163,8 +160,6 @@ export async function searchMultipleGitHubCode(
         }
         return createSuccessResult(
           query,
-          // CodeSearchFlatResult mirrors GitHubSearchCodeData structurally;
-          // the local type is not imported from core to avoid a circular dep.
           flat as GitHubSearchCodeData,
           flat.results.length > 0,
           TOOL_NAMES.GITHUB_SEARCH_CODE,
@@ -182,7 +177,7 @@ export async function searchMultipleGitHubCode(
       toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
       peerHints: true,
       peerEvidence: true,
-      finalize: buildGithubSearchCodeFinalizer<PartialCodeSearchQuery>(),
+      finalize: buildGhSearchCodeFinalizer<PartialCodeSearchQuery>(),
     },
     args
   );

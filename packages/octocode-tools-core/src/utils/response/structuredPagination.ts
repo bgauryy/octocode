@@ -357,12 +357,6 @@ function paginateSegments(
   };
 }
 
-/**
- * Shared short-circuit for the paginate* helpers: returns the full value when
- * paging is unnecessary, an empty value when the offset is past the end, or
- * null when real pagination work is required. Pass hasContent=false to force
- * the "nothing to paginate" branch (e.g. zero collection segments).
- */
 function shortCircuitPagination<T>(
   request: ResolvedPaginationRequest,
   totalChars: number,

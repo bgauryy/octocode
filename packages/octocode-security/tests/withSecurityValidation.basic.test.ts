@@ -1,15 +1,4 @@
-/**
- * withSecurityValidation.basic.test.ts
- *
- * Additional coverage tests for withSecurityValidation and withBasicSecurityValidation.
- * Uses the REAL ContentSanitizer (Rust-backed) — no mocks, no stubs.
- *
- * Real rejection triggers:
- *   - `{ constructor: 'evil' }`    → Dangerous parameter key blocked
- *   - 22-level deep nested object  → Maximum nesting depth exceeded
- *   - circular reference           → Circular reference detected
- *   - handler rejection            → tests middleware error handling
- */
+
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
@@ -31,8 +20,8 @@ function makeCircularObject(): Record<string, unknown> {
 const mockLogToolCall = vi.fn().mockResolvedValue(undefined);
 const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
 const mockIsLoggingEnabled = vi.fn().mockReturnValue(false);
-const GITHUB_SEARCH_CODE = 'githubSearchCode';
-const GITHUB_SEARCH_REPOSITORIES = 'githubSearchRepositories';
+const GITHUB_SEARCH_CODE = 'ghSearchCode';
+const GITHUB_SEARCH_REPOSITORIES = 'ghSearchRepos';
 
 describe('withSecurityValidation - Additional Coverage', () => {
   beforeEach(() => {
@@ -67,7 +56,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
         { signal: new AbortController().signal }
       );
 
-      // Real sanitizer passes clean input through — handler receives exact same params
       expect(mockHandler).toHaveBeenCalledWith({ query: 'test' });
       expect(result).toHaveProperty('content');
     });
@@ -315,7 +303,6 @@ describe('withSecurityValidation - Additional Coverage', () => {
       expect(result.isError).toBe(true);
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('handler failed');
-      // withToolTimeout swallows rejected handlers — logSessionError must NOT fire
       await Promise.resolve();
       expect(mockLogSessionError).not.toHaveBeenCalled();
     });

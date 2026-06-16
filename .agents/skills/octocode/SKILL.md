@@ -42,12 +42,12 @@ octocode-mcp-host/ (SEPARATE REPO — tool metadata source)
 
 | Tool | When to use |
 |------|-------------|
-| `githubSearchCode` | Find code snippets across GitHub by keywords, owner, repo, extension, language, path |
-| `githubGetFileContent` | Read a specific file (or region) from a GitHub repo |
-| `githubViewRepoStructure` | Browse a repo's directory tree |
-| `githubCloneRepo` | Clone a repo/subtree to disk for local + LSP work (`ENABLE_CLONE=true` required) |
-| `githubSearchRepositories` | Discover repos by name, keywords, topic, language, stars |
-| `githubSearchPullRequests` | Search PRs, review diffs, fetch patches/comments/reviews |
+| `ghSearchCode` | Find code snippets across GitHub by keywords, owner, repo, extension, language, path |
+| `ghGetFileContent` | Read a specific file (or region) from a GitHub repo |
+| `ghViewRepoStructure` | Browse a repo's directory tree |
+| `ghCloneRepo` | Clone a repo/subtree to disk for local + LSP work (`ENABLE_CLONE=true` required) |
+| `ghSearchRepos` | Discover repos by name, keywords, topic, language, stars |
+| `ghSearchPRs` | Search PRs, review diffs, fetch patches/comments/reviews |
 
 ### Local Tools (filesystem, `ENABLE_LOCAL=true` by default)
 
@@ -62,31 +62,31 @@ octocode-mcp-host/ (SEPARATE REPO — tool metadata source)
 
 | Tool | When to use |
 |------|-------------|
-| `lspGetSemanticContent` | Typed semantic navigation: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation` |
+| `lspGetSemantics` | Typed semantic navigation: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation` |
 
 ### Package
 
 | Tool | When to use |
 |------|-------------|
-| `packageSearch` | npm package lookup with metadata and source-repo handoff |
+| `npmSearch` | npm package lookup with metadata and source-repo handoff |
 
 ### Routing decision tree
 
 ```
 Is the target a local path / workspace?
-  → local tools (localSearchCode → localGetFileContent → lspGetSemanticContent)
+  → local tools (localSearchCode → localGetFileContent → lspGetSemantics)
 
 Is it a symbol you need to understand semantically?
-  → localSearchCode first (get uri + lineHint) → lspGetSemanticContent
+  → localSearchCode first (get uri + lineHint) → lspGetSemantics
 
 Is it an npm package?
-  → packageSearch → githubViewRepoStructure → githubSearchCode
+  → npmSearch → ghViewRepoStructure → ghSearchCode
 
 Is it GitHub code / history?
-  → githubSearchRepositories → githubViewRepoStructure → githubSearchCode → githubGetFileContent
+  → ghSearchRepos → ghViewRepoStructure → ghSearchCode → ghGetFileContent
 
 Need deep cross-package LSP analysis?
-  → githubCloneRepo → local + LSP on localPath
+  → ghCloneRepo → local + LSP on localPath
 ```
 
 ### LSP type routing
@@ -134,7 +134,7 @@ Every tool call uses a **bulk queries envelope**:
 | `"standard"` | Strips comments + blank lines — token-efficient reads |
 | `"symbols"` | Skeleton/gutter only — fastest orientation, skips matchString/charLength |
 
-Default is `"standard"` for `localGetFileContent`, `githubGetFileContent`, and `githubSearchPullRequests`. Use `"none"` explicitly when you need exact text, comments, or raw diffs.
+Default is `"standard"` for `localGetFileContent`, `ghGetFileContent`, and `ghSearchPRs`. Use `"none"` explicitly when you need exact text, comments, or raw diffs.
 
 ---
 
@@ -247,7 +247,7 @@ Note: the CLI command is `octocode tools <name>` (not `octocode <name>` directly
 |----------|---------|-------|
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | — | GitHub auth (priority: OCTOCODE > GH > GITHUB) |
 | `ENABLE_LOCAL` | `true` | Enables local filesystem tools |
-| `ENABLE_CLONE` | `false` | Enables `githubCloneRepo` + directory mode |
+| `ENABLE_CLONE` | `false` | Enables `ghCloneRepo` + directory mode |
 | `WORKSPACE_ROOT` | `process.cwd()` | Root for resolving relative paths |
 | `ALLOWED_PATHS` | `[]` (all) | Restrict local tools to comma-separated paths |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | `yaml` or `json` |
@@ -278,25 +278,25 @@ documentSymbols only needs uri
 
 **Local symbol investigation**
 ```
-localViewStructure → localSearchCode → localGetFileContent → lspGetSemanticContent
+localViewStructure → localSearchCode → localGetFileContent → lspGetSemantics
 ```
 
 **GitHub code investigation**
 ```
-githubSearchRepositories → githubViewRepoStructure → githubSearchCode → githubGetFileContent
+ghSearchRepos → ghViewRepoStructure → ghSearchCode → ghGetFileContent
 ```
 
 **Package → source**
 ```
-packageSearch → githubViewRepoStructure → githubSearchCode → githubGetFileContent
+npmSearch → ghViewRepoStructure → ghSearchCode → ghGetFileContent
 ```
 
 **Deep cross-package LSP**
 ```
-githubCloneRepo → localViewStructure(localPath) → localSearchCode → lspGetSemanticContent
+ghCloneRepo → localViewStructure(localPath) → localSearchCode → lspGetSemantics
 ```
 
 **PR review**
 ```
-githubSearchPullRequests(prNumber, reviewMode="full") → githubGetFileContent for current source
+ghSearchPRs(prNumber, reviewMode="full") → ghGetFileContent for current source
 ```

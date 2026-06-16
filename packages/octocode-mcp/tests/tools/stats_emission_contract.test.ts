@@ -8,12 +8,12 @@ const CORE_ROOT = resolve(ROOT, '../octocode-tools-core');
 
 const registeredTools = [
   {
-    name: 'githubSearchCode',
+    name: 'ghSearchCode',
     executionFiles: ['src/tools/github_search_code/execution.ts'],
     rawEvidence: [/rawResponse:\s*providerResult\.response\.rawResponseChars/],
   },
   {
-    name: 'githubGetFileContent',
+    name: 'ghGetFileContent',
     executionFiles: ['src/tools/github_fetch_content/execution.ts'],
     rawEvidence: [
       /rawResponse:\s*providerResult\.response\.rawResponseChars/,
@@ -21,27 +21,27 @@ const registeredTools = [
     ],
   },
   {
-    name: 'githubViewRepoStructure',
+    name: 'ghViewRepoStructure',
     executionFiles: ['src/tools/github_view_repo_structure/execution.ts'],
     rawEvidence: [/rawResponse:\s*providerResult\.response\.rawResponseChars/],
   },
   {
-    name: 'githubSearchRepositories',
+    name: 'ghSearchRepos',
     executionFiles: ['src/tools/github_search_repos/execution.ts'],
     rawEvidence: [/rawResponse:\s*sumVariantRawResponseChars\(/],
   },
   {
-    name: 'githubSearchPullRequests',
+    name: 'ghSearchPRs',
     executionFiles: ['src/tools/github_search_pull_requests/execution.ts'],
     rawEvidence: [/rawResponse:\s*providerResult\.response\.rawResponseChars/],
   },
   {
-    name: 'packageSearch',
+    name: 'npmSearch',
     executionFiles: ['src/tools/package_search/execution.ts'],
     rawEvidence: [/rawResponse:\s*apiResult/],
   },
   {
-    name: 'githubCloneRepo',
+    name: 'ghCloneRepo',
     executionFiles: ['src/tools/github_clone_repo/execution.ts'],
     rawEvidence: [/rawResponse:\s*getDirectorySizeBytes\(result\.localPath\)/],
   },
@@ -90,7 +90,7 @@ const registeredTools = [
     ],
   },
   {
-    name: 'lspGetSemanticContent',
+    name: 'lspGetSemantics',
     executionFiles: ['src/tools/lsp/semantic_content/execution.ts'],
     rawEvidence: [
       /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
@@ -99,7 +99,6 @@ const registeredTools = [
 ] as const;
 
 async function readProjectFile(relativePath: string): Promise<string> {
-  // Files starting with 'src/tools/' or 'src/utils/' moved to octocode-tools-core
   const isMcpOnly =
     relativePath.startsWith('src/index.ts') ||
     relativePath.startsWith('src/public') ||
@@ -160,16 +159,12 @@ describe('tool stats emission contract', () => {
       '../octocode-security/src/withSecurityValidation.ts'
     );
 
-    // Both wrappers now log uniformly when isLoggingEnabled() — no isLocalTool gate.
     expect(indexSource).toMatch(/configureSecurity\(\{[\s\S]*logToolCall/);
     expect(indexSource).not.toMatch(/configureSecurity\(\{[\s\S]*isLocalTool/);
-    // handleBulk lives in runSecure, which both public wrappers delegate to.
     expect(securitySource).toMatch(
       /runSecure[\s\S]*handleBulk\(toolName, sanitizedParams\)/
     );
-    // withSecurityValidation delegates to runSecure
     expect(securitySource).toMatch(/withSecurityValidation[\s\S]*runSecure\(/);
-    // withBasicSecurityValidation now logs the same way — no isLocalTool gate.
     expect(securitySource).toMatch(
       /withBasicSecurityValidation[\s\S]*runSecure\(/
     );

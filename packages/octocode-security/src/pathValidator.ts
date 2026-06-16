@@ -185,12 +185,7 @@ export class PathValidator {
     }
   }
 
-  /**
-   * A path that does not exist yet can still escape the allowed roots through
-   * a symlinked PARENT — realpathSync(fullPath) throws ENOENT before it ever
-   * resolves the ancestors. Resolve the deepest existing ancestor, rebuild the
-   * path, and re-run the root/ignore checks on the resolved form.
-   */
+  
   private validateNonExistentPath(
     absolutePath: string,
     inputPath: string
@@ -207,7 +202,6 @@ export class PathValidator {
     try {
       resolvedAncestor = fs.realpathSync(ancestor);
     } catch {
-      // Broken symlink ancestor or racing deletion — fail closed.
       return {
         isValid: false,
         error: `Unexpected error validating path: ${redactPath(inputPath)}`,
@@ -224,10 +218,6 @@ export class PathValidator {
       };
     }
 
-    // Use the original absolutePath for the ignore check — the resolved form may
-    // land in a system directory that is itself a symlink target (e.g. /tmp →
-    // /private/tmp on macOS), but the user-visible path was already verified as
-    // non-ignored in validate() before this function was called.
     if (shouldIgnore(absolutePath)) {
       return {
         isValid: false,
@@ -285,13 +275,6 @@ export class PathValidator {
 
 export const pathValidator = new PathValidator();
 
-/**
- * Resets the shared `pathValidator` singleton's allowed roots to those derived
- * from `options` and returns the (mutated) singleton.
- *
- * Named `resetPathValidator` to make clear this mutates the singleton in-place
- * rather than creating a new instance.
- */
 export function resetPathValidator(
   options?: PathValidatorOptions
 ): PathValidator {

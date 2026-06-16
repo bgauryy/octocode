@@ -1,6 +1,6 @@
 # Clone & Local Tools Workflow
 
-> How to use `githubCloneRepo` and `githubGetFileContent` (directory mode) to bridge GitHub repositories with local + LSP tools for deep code analysis.
+> How to use `ghCloneRepo` and `ghGetFileContent` (directory mode) to bridge GitHub repositories with local + LSP tools for deep code analysis.
 
 > **Prerequisites:** Requires `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
 
@@ -12,15 +12,15 @@ Octocode MCP has two worlds of tools:
 
 | World | Tools | Strengths | Limitations |
 |-------|-------|-----------|-------------|
-| **GitHub** | `githubSearchCode`, `githubGetFileContent`, `githubViewRepoStructure` | Fast, no disk usage, works on any repo | No LSP, no semantic analysis, API rate limits |
-| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemanticContent` | Semantic navigation, call tracing, full ripgrep power | Only works on files on disk |
+| **GitHub** | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure` | Fast, no disk usage, works on any repo | No LSP, no semantic analysis, API rate limits |
+| **Local + LSP** | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `lspGetSemantics` | Semantic navigation, call tracing, full ripgrep power | Only works on files on disk |
 
 **Two tools bridge these worlds** — they download content to `~/.octocode/repos/` so local and LSP tools can analyze it:
 
 | Bridge Tool | When to Use | How it Works |
 |-------------|-------------|--------------|
-| **`githubCloneRepo`** | Full repo or sparse subtree | Uses `git clone` (requires git) |
-| **`githubGetFileContent`** (type: `"directory"`) | Single directory of files | Uses GitHub API + `download_url` (no git needed) |
+| **`ghCloneRepo`** | Full repo or sparse subtree | Uses `git clone` (requires git) |
+| **`ghGetFileContent`** (type: `"directory"`) | Single directory of files | Uses GitHub API + `download_url` (no git needed) |
 
 Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) with 24-hour TTL. Fetching a directory and then cloning the same repo reuses the cache location.
 
@@ -30,11 +30,11 @@ Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) wit
 ┌─────────────────────┐       ┌────────────────────────────┐       ┌──────────────────────────┐
 │  GitHub (remote)     │       │  Bridge Tools              │       │  Local + LSP (on disk)   │
 │                      │       │                            │       │                          │
-│  githubSearchCode    │──────▶│  githubCloneRepo           │──────▶│  localSearchCode         │
+│  ghSearchCode    │──────▶│  ghCloneRepo           │──────▶│  localSearchCode         │
 │  githubViewStructure │       │  (full/sparse clone)       │       │  localViewStructure      │
-│  githubGetFileContent│       │                            │       │  localGetFileContent     │
-│                      │       │  githubGetFileContent      │       │  localFindFiles          │
-│                      │       │  (type: "directory")       │       │  lspGetSemanticContent   │
+│  ghGetFileContent│       │                            │       │  localGetFileContent     │
+│                      │       │  ghGetFileContent      │       │  localFindFiles          │
+│                      │       │  (type: "directory")       │       │  lspGetSemantics   │
 │                      │       │  (lightweight, no git)     │       │                          │
 │                      │       │  Both return: localPath    │       │                          │
 └─────────────────────┘       └────────────────────────────┘       └──────────────────────────┘
@@ -46,21 +46,21 @@ Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) wit
 
 | Scenario | Use GitHub Tools | Use Directory Fetch | Use Clone |
 |----------|-----------------|--------------------|----|
-| Quick file read | ✅ `githubGetFileContent` | Overkill | Overkill |
-| Browse repo tree | ✅ `githubViewRepoStructure` | Overkill | Overkill |
-| Find code pattern across repos | ✅ `githubSearchCode` | Overkill | Overkill |
+| Quick file read | ✅ `ghGetFileContent` | Overkill | Overkill |
+| Browse repo tree | ✅ `ghViewRepoStructure` | Overkill | Overkill |
+| Find code pattern across repos | ✅ `ghSearchCode` | Overkill | Overkill |
 | **Read all files in a directory** | ❌ One-by-one | ✅ `type: "directory"` | Overkill |
 | **Search within a directory** | Limited | ✅ Directory fetch → `localSearchCode` | Also works |
-| **Trace function call chains** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemanticContent(type="callers")` / `type="callees"` |
-| **Jump to symbol definitions** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemanticContent(type="definition")` |
-| **Find all usages of a type** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemanticContent(type="references")` |
+| **Trace function call chains** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemantics(type="callers")` / `type="callees"` |
+| **Jump to symbol definitions** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemantics(type="definition")` |
+| **Find all usages of a type** | ❌ Not possible | ❌ Partial context | ✅ Clone → `lspGetSemantics(type="references")` |
 | **Deep code search with regex** | Limited | ✅ If scope is small | ✅ Clone → `localSearchCode` |
 | **Explore monorepo subtree** | Slow (many API calls) | ✅ For small dirs | ✅ Sparse clone for large dirs |
 
 **Rule of thumb:**
-- Need a **single directory**? → `githubGetFileContent` with `type: "directory"` (no git required)
-- Need **semantic analysis** (definitions, references, call hierarchy)? → `githubCloneRepo` first
-- Need a **large subtree or full project context**? → `githubCloneRepo` with `sparse_path`
+- Need a **single directory**? → `ghGetFileContent` with `type: "directory"` (no git required)
+- Need **semantic analysis** (definitions, references, call hierarchy)? → `ghCloneRepo` first
+- Need a **large subtree or full project context**? → `ghCloneRepo` with `sparse_path`
 
 ---
 
@@ -71,7 +71,7 @@ Both share the **same cache** (`~/.octocode/repos/{owner}/{repo}/{branch}/`) wit
 Best for general exploration where you need full project context (LSP works best with full repos).
 
 ```
-githubCloneRepo:
+ghCloneRepo:
   owner: "vercel"
   repo: "next.js"
   # branch omitted → auto-detects default branch
@@ -90,7 +90,7 @@ localPath: ~/.octocode/repos/vercel/next.js/main
 Best for large monorepos where you only need one package/directory. Dramatically faster.
 
 ```
-githubCloneRepo:
+ghCloneRepo:
   owner: "microsoft"
   repo: "TypeScript"
   sparse_path: "src/compiler"
@@ -117,7 +117,7 @@ sparse_path: "src/compiler"
 
 ```
 Step 1: Clone the repo
-  githubCloneRepo(owner="facebook", repo="react")
+  ghCloneRepo(owner="facebook", repo="react")
   → localPath = "~/.octocode/repos/facebook/react/main"
 
 Step 2: Browse the tree
@@ -135,7 +135,7 @@ Step 3: Drill into a directory
 
 ```
 Step 1: Clone the repo
-  githubCloneRepo(owner="vercel", repo="next.js", sparse_path="packages/next/src")
+  ghCloneRepo(owner="vercel", repo="next.js", sparse_path="packages/next/src")
   → localPath
 
 Step 2: Search for the function
@@ -143,11 +143,11 @@ Step 2: Search for the function
   → Get file paths and lineHint values
 
 Step 3: Jump to definition
-  lspGetSemanticContent(type="definition", uri=localPath+"/server/router.ts", symbolName="handleRequest", lineHint=42)
+  lspGetSemantics(type="definition", uri=localPath+"/server/router.ts", symbolName="handleRequest", lineHint=42)
   → See the function definition
 
 Step 4: Trace callers
-  lspGetSemanticContent(type="callers", uri=..., symbolName="handleRequest", lineHint=42)
+  lspGetSemantics(type="callers", uri=..., symbolName="handleRequest", lineHint=42)
   → See all functions that call handleRequest
 ```
 
@@ -157,11 +157,11 @@ Step 4: Trace callers
 
 ```
 Step 1: Browse on GitHub first (quick)
-  githubViewRepoStructure(owner="pallets", repo="flask", depth=2)
+  ghViewRepoStructure(owner="pallets", repo="flask", depth=2)
   → See the tree, find interesting directory "src/flask"
 
 Step 2: Clone for deep analysis
-  githubCloneRepo(owner="pallets", repo="flask")
+  ghCloneRepo(owner="pallets", repo="flask")
   → localPath
 
 Step 3: Use full ripgrep power
@@ -169,7 +169,7 @@ Step 3: Use full ripgrep power
   → Full regex search, file type filtering, match context
 
 Step 4: Use LSP
-  lspGetSemanticContent(type="references", uri=localPath+"/src/flask/app.py", symbolName="route", lineHint=...)
+  lspGetSemantics(type="references", uri=localPath+"/src/flask/app.py", symbolName="route", lineHint=...)
   → Find every file that uses the @route decorator
 ```
 
@@ -179,11 +179,11 @@ Step 4: Use LSP
 
 ```
 Step 1: Browse the monorepo structure on GitHub (quick discovery)
-  githubViewRepoStructure(owner="microsoft", repo="TypeScript", path="src", depth=1)
+  ghViewRepoStructure(owner="microsoft", repo="TypeScript", path="src", depth=1)
   → See packages: compiler, services, harness, ...
 
 Step 2: Clone only the compiler
-  githubCloneRepo(owner="microsoft", repo="TypeScript", sparse_path="src/compiler")
+  ghCloneRepo(owner="microsoft", repo="TypeScript", sparse_path="src/compiler")
   → localPath (only downloads src/compiler, much faster)
 
 Step 3: Search within the fetched subtree
@@ -222,7 +222,7 @@ Local tools validate all paths against allowed roots. Cloned repos are accessibl
 1. **Clone destination**: `~/.octocode/repos/...` is under the octocode home directory
 2. **PathValidator & ExecutionContextValidator**: Both automatically add `~/.octocode/` as an allowed root alongside the workspace directory
 3. **Workspace root resolution**: Local tools validate paths against allowed roots, and LSP tools automatically choose project context from the target file path. If a cloned file is inside `WORKSPACE_ROOT`, Octocode keeps that root; otherwise it walks up from the file to the nearest project marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`, etc.)
-4. **Result**: Any `localPath` returned by `githubCloneRepo` or `githubGetFileContent` (directory mode) is automatically valid for all local + LSP tools, even when the cloned repo lives outside your current shell workspace
+4. **Result**: Any `localPath` returned by `ghCloneRepo` or `ghGetFileContent` (directory mode) is automatically valid for all local + LSP tools, even when the cloned repo lives outside your current shell workspace
 
 No extra configuration is needed beyond `ENABLE_LOCAL=true` (the default) and `ENABLE_CLONE=true`.
 
@@ -238,23 +238,23 @@ For TypeScript/JavaScript LSP:
 
 | Action | Tool | Key Parameter |
 |--------|------|---------------|
-| Clone entire repo | `githubCloneRepo` | `owner`, `repo` (branch auto-detected) |
-| Clone specific branch | `githubCloneRepo` | `owner`, `repo`, `branch` |
-| Clone one folder | `githubCloneRepo` | `owner`, `repo`, `sparse_path` (branch auto-detected) |
-| Force re-clone | `githubCloneRepo` | `forceRefresh: true` (bypasses valid cache) |
+| Clone entire repo | `ghCloneRepo` | `owner`, `repo` (branch auto-detected) |
+| Clone specific branch | `ghCloneRepo` | `owner`, `repo`, `branch` |
+| Clone one folder | `ghCloneRepo` | `owner`, `repo`, `sparse_path` (branch auto-detected) |
+| Force re-clone | `ghCloneRepo` | `forceRefresh: true` (bypasses valid cache) |
 | Browse cloned tree | `localViewStructure` | `path` = `localPath` |
 | Search cloned code | `localSearchCode` | `path` = `localPath` |
 | Read cloned file | `localGetFileContent` | `path` = `localPath + "/file.ts"` |
 | Find files in clone | `localFindFiles` | `path` = `localPath` |
-| Jump to definition | `lspGetSemanticContent` with `type="definition"` | `uri` = file in `localPath` |
-| Find all references | `lspGetSemanticContent` with `type="references"` | `uri` = file in `localPath` |
-| Trace callers/callees | `lspGetSemanticContent` with `type="callers"` or `type="callees"` | `uri` = file in `localPath` |
+| Jump to definition | `lspGetSemantics` with `type="definition"` | `uri` = file in `localPath` |
+| Find all references | `lspGetSemantics` with `type="references"` | `uri` = file in `localPath` |
+| Trace callers/callees | `lspGetSemantics` with `type="callers"` or `type="callees"` | `uri` = file in `localPath` |
 
 ---
 
 ## Related Documentation
 
-- [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — Full `githubCloneRepo` parameter reference
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/GITHUB_TOOLS_REFERENCE.md) — Full `ghCloneRepo` parameter reference
 - [Local Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LOCAL_TOOLS_REFERENCE.md) — Local filesystem search, structure, metadata, and content tools
 - [LSP Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/dev/reference/LSP_TOOLS_REFERENCE.md) — Semantic content tool
 - [Configuration Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/configuration/CONFIGURATION_REFERENCE.md) — `ENABLE_LOCAL`, `ENABLE_CLONE`, and other settings

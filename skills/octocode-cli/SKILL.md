@@ -1,6 +1,6 @@
 ---
 name: octocode-cli
-description: Use `octocode-cli` subcommands to execute Octocode MCP tools from a terminal without wiring MCP. Use when the user asks to "run octocode from shell", "use octocode without MCP", "call githubSearchCode from CLI", or wants a one-off GitHub code/file/PR search in the terminal.
+description: Use `octocode-cli` subcommands to execute Octocode MCP tools from a terminal without wiring MCP. Use when the user asks to "run octocode from shell", "use octocode without MCP", "call ghSearchCode from CLI", or wants a one-off GitHub code/file/PR search in the terminal.
 ---
 
 # Octocode CLI — Agent Playbook

@@ -640,7 +640,7 @@ describe('Index Module', () => {
     });
 
     it('should disable tools with DISABLE_TOOLS', async () => {
-      process.env.DISABLE_TOOLS = 'githubSearchCode,githubGetFileContent';
+      process.env.DISABLE_TOOLS = 'ghSearchCode,ghGetFileContent';
 
       await import('../src/index.js');
       await waitForAsyncOperations();
@@ -659,8 +659,8 @@ describe('Index Module', () => {
     });
 
     it('should handle whitespace in tool configuration', async () => {
-      process.env.ENABLE_TOOLS = ' githubSearchPullRequests ';
-      process.env.DISABLE_TOOLS = ' githubSearchCode ';
+      process.env.ENABLE_TOOLS = ' ghSearchPRs ';
+      process.env.DISABLE_TOOLS = ' ghSearchCode ';
 
       await import('../src/index.js');
       await waitForAsyncOperations();
@@ -669,7 +669,7 @@ describe('Index Module', () => {
     });
 
     it('should handle invalid tool names gracefully', async () => {
-      process.env.ENABLE_TOOLS = 'githubSearchPullRequests,invalidTool';
+      process.env.ENABLE_TOOLS = 'ghSearchPRs,invalidTool';
       process.env.DISABLE_TOOLS = 'nonExistentTool';
 
       await import('../src/index.js');

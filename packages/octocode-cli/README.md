@@ -68,18 +68,18 @@ Call any tool directly from the terminal. Great for scripts, pipelines, and one-
 
 | Group | Tool | What it does |
 |-------|------|--------------|
-| **GitHub** | `githubSearchCode` | Search code across GitHub `[EXTERNAL]` |
-| | `githubSearchRepositories` | Search repositories by keywords/topics `[EXTERNAL]` |
-| | `githubSearchPullRequests` | Search pull requests `[EXTERNAL]` |
-| | `githubGetFileContent` | Read file content (matchString, line ranges) `[EXTERNAL]` |
-| | `githubViewRepoStructure` | List a repo's directory tree `[EXTERNAL]` |
-| | `githubCloneRepo` | Clone a repo/subtree to disk for local + LSP analysis |
+| **GitHub** | `ghSearchCode` | Search code across GitHub `[EXTERNAL]` |
+| | `ghSearchRepos` | Search repositories by keywords/topics `[EXTERNAL]` |
+| | `ghSearchPRs` | Search pull requests `[EXTERNAL]` |
+| | `ghGetFileContent` | Read file content (matchString, line ranges) `[EXTERNAL]` |
+| | `ghViewRepoStructure` | List a repo's directory tree `[EXTERNAL]` |
+| | `ghCloneRepo` | Clone a repo/subtree to disk for local + LSP analysis |
 | **Local** | `localSearchCode` | Search code patterns with ripgrep (PCRE2) |
 | | `localFindFiles` | Find files by name/metadata |
 | | `localGetFileContent` | Read local file content |
 | | `localViewStructure` | View a local directory tree |
-| **LSP** | `lspGetSemanticContent` | Definitions, references, call flow, hover, symbols, type definitions, implementations |
-| **Package** | `packageSearch` | Resolve an npm package to its source repo + metadata |
+| **LSP** | `lspGetSemantics` | Definitions, references, call flow, hover, symbols, type definitions, implementations |
+| **Package** | `npmSearch` | Resolve an npm package to its source repo + metadata |
 
 ```bash
 # Discover
@@ -87,11 +87,11 @@ octocode context                                  # agent bootstrap: protocol + 
 octocode context --full                           # …plus every tool's full JSON schema inline
 octocode tools                                    # list all tools
 octocode tools localSearchCode --scheme           # show one tool's schema
-octocode tools localSearchCode githubSearchCode   # batch schemas
+octocode tools localSearchCode ghSearchCode   # batch schemas
 
 # Run
 octocode tools localSearchCode --queries '{"path":".","keywords":"TODO"}'
-octocode tools githubSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
+octocode tools ghSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
 octocode tools localSearchCode --queries '{"path":".","keywords":"TODO"}' --json     # full MCP envelope
 octocode tools localSearchCode --queries '{"path":".","keywords":"TODO"}' --compact  # leanest (structuredContent only)
 ```

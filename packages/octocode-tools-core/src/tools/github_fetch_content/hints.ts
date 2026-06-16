@@ -6,7 +6,7 @@ export const hints: ToolHintGenerators = {
     const path = typeof c.path === 'string' ? c.path : undefined;
     if (!path) return [];
     return [
-      "Verify it's a file, not a directory — use `githubViewRepoStructure`.",
+      "Verify it's a file, not a directory — use `ghViewRepoStructure`.",
     ];
   },
 
@@ -30,7 +30,7 @@ export const hints: ToolHintGenerators = {
       const c = ctx as Record<string, unknown>;
       const branch = typeof c.branch === 'string' ? c.branch : undefined;
       return [
-        'Verify path with `githubViewRepoStructure`.',
+        'Verify path with `ghViewRepoStructure`.',
         ...(branch ? ['Omit `branch` to use the default branch.'] : []),
       ];
     }

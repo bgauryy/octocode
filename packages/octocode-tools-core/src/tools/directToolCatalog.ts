@@ -88,11 +88,7 @@ type DirectToolAutoFilledField =
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;
-  /**
-   * Called once per query that contains fields not present in the tool's
-   * schema. Schema parsing strips unknown fields silently, so without this
-   * callback the caller never learns a field was ignored.
-   */
+  
   onUnknownFields?: (unknownFields: string[], queryIndex: number) => void;
 }
 
@@ -187,7 +183,7 @@ export function findDirectToolDefinition(
 }
 
 export function getDirectToolCategory(toolName: string): DirectToolCategory {
-  if (toolName.startsWith('github')) {
+  if (toolName.startsWith('gh')) {
     return 'GitHub';
   }
 
@@ -303,9 +299,6 @@ export function getDirectToolDisplayFields(
     ? jsonSchema.properties
     : {};
 
-  // Zod marks `.default()` fields as required in JSON Schema output (they are
-  // always present after parsing) — but callers may omit them, so they are
-  // optional from the input side and must not display as required.
   const requiredFields = new Set(
     Array.isArray(jsonSchema.required)
       ? jsonSchema.required.filter(
@@ -419,8 +412,6 @@ function buildDirectToolPayload(
     throw new DirectToolInputError('At least one query is required.');
   }
 
-  // Preserve envelope-level fields (e.g. responseCharOffset/responseCharLength)
-  // when the caller passed { queries: [...], ... } — only `queries` is rebuilt.
   const envelopeFields =
     isRecord(rawPayload) && Array.isArray(rawPayload.queries)
       ? Object.fromEntries(

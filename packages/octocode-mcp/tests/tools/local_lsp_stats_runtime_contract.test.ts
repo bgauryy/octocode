@@ -52,7 +52,7 @@ import { registerLocalRipgrepTool } from '../../src/tools/local_ripgrep/register
 import { registerLocalViewStructureTool } from '../../src/tools/local_view_structure/register.js';
 import { registerLocalFindFilesTool } from '../../src/tools/local_find_files/register.js';
 import { registerLocalFetchContentTool } from '../../src/tools/local_fetch_content/register.js';
-import { registerLspGetSemanticContentTool } from '../../src/tools/lsp/semantic_content/register.js';
+import { registerLspGetSemanticsTool } from '../../src/tools/lsp/semantic_content/register.js';
 
 const RAW_BY_TOOL: Record<string, number> = {
   [TOOL_NAMES.LOCAL_RIPGREP]: 11_111,
@@ -133,7 +133,7 @@ describe('local + LSP tool stats runtime contract', () => {
     registerLocalViewStructureTool(mockServer.server);
     registerLocalFindFilesTool(mockServer.server);
     registerLocalFetchContentTool(mockServer.server);
-    registerLspGetSemanticContentTool(mockServer.server);
+    registerLspGetSemanticsTool(mockServer.server);
 
     await mockServer.callTool(TOOL_NAMES.LOCAL_RIPGREP, {
       queries: [
@@ -184,7 +184,7 @@ describe('local + LSP tool stats runtime contract', () => {
       queries: [
         {
           id: 'semantic',
-          researchGoal: 'exercise lspGetSemanticContent stats',
+          researchGoal: 'exercise lspGetSemantics stats',
           reasoning: 'prove runtime char savings emission',
           uri: `${process.cwd()}/package.json`,
           type: 'documentSymbols',

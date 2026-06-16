@@ -5,8 +5,6 @@ import {
   snapToSemanticBoundary,
 } from '@octocodeai/octocode-tools-core';
 
-// ── isMidBlockCut ─────────────────────────────────────────────────────────────
-
 describe('isMidBlockCut', () => {
   it('returns true when last meaningful line is indented (mid-function)', () => {
     const page = 'function foo() {\n  const a = 1;\n  const b =';
@@ -32,8 +30,6 @@ describe('isMidBlockCut', () => {
     expect(isMidBlockCut('')).toBe(false);
   });
 });
-
-// ── snapToSemanticBoundary ───────────────────────────────────────────────────
 
 describe('snapToSemanticBoundary', () => {
   it('extends supported code pages to the next semantic boundary', () => {
@@ -121,8 +117,6 @@ describe('snapToSemanticBoundary', () => {
   });
 });
 
-// ── findNextBlockBoundary — TypeScript / JavaScript ───────────────────────────
-
 describe('findNextBlockBoundary — TS/JS', () => {
   const content = [
     'function foo() {',
@@ -138,7 +132,6 @@ describe('findNextBlockBoundary — TS/JS', () => {
   ].join('\n');
 
   it('finds export function after a cut inside foo()', () => {
-    // Cut inside foo body (after the opening line)
     const cutPos = content.indexOf('  const a');
     const result = findNextBlockBoundary(content, cutPos, 'file.ts');
     expect(result).toBeDefined();
@@ -155,7 +148,6 @@ describe('findNextBlockBoundary — TS/JS', () => {
   });
 
   it('returns undefined when no boundary exists after cut', () => {
-    // Cut at the very end — no more top-level definitions
     const result = findNextBlockBoundary(
       content,
       content.length - 2,
@@ -164,8 +156,6 @@ describe('findNextBlockBoundary — TS/JS', () => {
     expect(result).toBeUndefined();
   });
 });
-
-// ── findNextBlockBoundary — Python ───────────────────────────────────────────
 
 describe('findNextBlockBoundary — Python', () => {
   const content = [
@@ -196,8 +186,6 @@ describe('findNextBlockBoundary — Python', () => {
     expect(boundary.startsWith('class Baz')).toBe(true);
   });
 });
-
-// ── findNextBlockBoundary — Go ───────────────────────────────────────────────
 
 describe('findNextBlockBoundary — Go', () => {
   const content = [
@@ -233,8 +221,6 @@ describe('findNextBlockBoundary — Go', () => {
     ).toBe(true);
   });
 });
-
-// ── findNextBlockBoundary — Rust ─────────────────────────────────────────────
 
 describe('findNextBlockBoundary — Rust', () => {
   const content = [
@@ -272,8 +258,6 @@ describe('findNextBlockBoundary — Rust', () => {
   });
 });
 
-// ── findNextBlockBoundary — Java ─────────────────────────────────────────────
-
 describe('findNextBlockBoundary — Java', () => {
   const content = [
     'public class MyClass {',
@@ -310,8 +294,6 @@ describe('findNextBlockBoundary — Java', () => {
   });
 });
 
-// ── findNextBlockBoundary — Kotlin ───────────────────────────────────────────
-
 describe('findNextBlockBoundary — Kotlin', () => {
   const content = [
     'class Calculator {',
@@ -345,8 +327,6 @@ describe('findNextBlockBoundary — Kotlin', () => {
     expect(boundary.startsWith('companion object')).toBe(true);
   });
 });
-
-// ── findNextBlockBoundary — Scala ─────────────────────────────────────────────
 
 describe('findNextBlockBoundary — Scala', () => {
   const content = [
@@ -391,13 +371,9 @@ describe('findNextBlockBoundary — Scala', () => {
   it('finds companion object after the class', () => {
     const cutPos = content.indexOf('  def apply()');
     const result = findNextBlockBoundary(content, cutPos, 'Counter.scala');
-    // No more boundaries after last def
-    // Just verify it doesn't crash
     expect(typeof result === 'number' || result === undefined).toBe(true);
   });
 });
-
-// ── findNextBlockBoundary — C# ───────────────────────────────────────────────
 
 describe('findNextBlockBoundary — C#', () => {
   const content = [
@@ -422,8 +398,6 @@ describe('findNextBlockBoundary — C#', () => {
     expect(boundary.startsWith('private void Process')).toBe(true);
   });
 });
-
-// ── findNextBlockBoundary — generic fallback ─────────────────────────────────
 
 describe('findNextBlockBoundary — generic (unknown extension)', () => {
   const content = [

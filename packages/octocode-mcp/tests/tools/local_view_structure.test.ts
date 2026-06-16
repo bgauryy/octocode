@@ -6,9 +6,6 @@ import { checkCommandAvailability } from '../../../octocode-tools-core/src/utils
 import * as pathValidator from 'octocode-security/pathValidator';
 import type { Stats } from 'fs';
 
-// The MCP overlay schema (scheme.ts) layers pagination/output fields on top
-// of the upstream query type; viewStructure reads them via runtime casts.
-// This wrapper exposes those overlay fields to the direct-call tests.
 type ViewStructureInput = Parameters<typeof viewStructureImpl>[0] & {
   page?: number;
   itemsPerPage?: number;
@@ -19,8 +16,6 @@ type ViewStructureInput = Parameters<typeof viewStructureImpl>[0] & {
 
 const viewStructure = (query: ViewStructureInput) => viewStructureImpl(query);
 
-// Lean default output is flat grouped name lists (files/folders/links).
-// Helper to assert across all lists regardless of entry kind.
 const flatNames = (result: {
   files?: string[];
   folders?: string[];
@@ -129,7 +124,6 @@ describe('localViewStructure', () => {
     });
 
     expect(result.status).toBeUndefined();
-    // Active-filters hint removed — the agent set those params itself.
     expect((result.hints ?? []).some(h => h.includes('localSearchCode'))).toBe(
       true
     );
@@ -179,7 +173,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Lean default: flat grouped name lists, no per-entry objects.
       expect(result.entries).toBeUndefined();
       expect(result.path).toBe('/test/path');
       expect(result.files).toEqual(
@@ -245,7 +238,6 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
-      // path is base-joined inside the tool; the bulk layer relativizes it
       expect(result.entries!.some(e => e.path?.endsWith('/file1.txt'))).toBe(
         true
       );
@@ -304,7 +296,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Lean flat lists; names carry relative subpaths in recursive mode.
       expect(result.folders).toContain('dir1');
       expect(result.files!.some(f => f.includes('subfile.txt'))).toBe(true);
     });
@@ -337,7 +328,6 @@ describe('localViewStructure', () => {
         stderr: '',
       });
 
-      // humanReadable removed from schema — formatFileSize always applies.
       const result = await viewStructure({
         path: '/test/path',
         details: true,
@@ -609,7 +599,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Lean default: symlinks surface in the flat `links` list.
       expect(result.links).toContain('link');
       expect(result.files).toContain('file.txt');
     });
@@ -716,7 +705,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Lean default: no rich entries at all — just flat name lists.
       expect(result.entries).toBeUndefined();
       expect(result.files).toEqual(['file.txt']);
     });
@@ -744,7 +732,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Time sort works without rich output: oldest first (ascending).
       expect(result.entries).toBeUndefined();
       expect(result.files).toEqual(['old.txt', 'new.txt']);
     });
@@ -795,7 +782,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Explicit false keeps the lean flat output — no rich entries.
       expect(result.entries).toBeUndefined();
       expect(result.files).toEqual(['file.txt']);
     });
@@ -1190,7 +1176,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Lean output hoists the base dir to a single `path` field.
       expect(result.path).toBe('/test/path');
       expect(result.files).toContain('file.txt');
     });
@@ -1531,7 +1516,6 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.files?.length).toBe(5);
       expect(result.summary).toContain('5 entries');
-      // Single complete page — pagination suppressed; count is in summary.
       expect(result.pagination).toBeUndefined();
     });
   });
@@ -1974,7 +1958,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Single-page result — pagination suppressed; page is implicitly 1.
       expect(result.pagination?.currentPage ?? 1).toBe(1);
     });
 
@@ -2454,7 +2437,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Exact boundary — single page, pagination suppressed.
       expect(result.pagination).toBeUndefined();
     });
 
@@ -2504,7 +2486,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Single entry — single page, pagination suppressed.
       expect(result.pagination).toBeUndefined();
     });
   });
@@ -2530,8 +2511,6 @@ describe('localViewStructure', () => {
       const result = await viewStructure({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
-      // 100 files, 100/page default — exact single page, pagination suppressed.
-      // Count is in summary; charPagination never set on entry pagination.
       expect(result.summary).toContain('100');
       expect(
         (result as Record<string, unknown>).charPagination
@@ -2702,7 +2681,6 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      // Single complete page — pagination suppressed; count is in summary.
       expect(result.summary).toMatch(/\d+ entries/);
     });
 

@@ -12,7 +12,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'options: --mode enum(none|standard|symbols, default standard), --branch string, --content-type enum(file|directory).',
       'slice options: --match-string string, --match-regex boolean, --match-case-sensitive boolean, --start-line int, --end-line int, --context-lines int.',
       'page options: --page-size int chars, --page int, --char-offset int, --char-length int, --full-content boolean.',
-      'runtime: local target -> localGetFileContent; GitHub target -> githubGetFileContent.',
+      'runtime: local target -> localGetFileContent; GitHub target -> ghGetFileContent.',
       'output: YAML content by default; --json returns the raw tool envelope.',
     ],
     whenToUse: [
@@ -96,7 +96,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     scheme: [
       'arg[0] target: required string; local directory path OR owner/repo[/subpath] GitHub ref.',
       'options: --depth positive int, --branch string for GitHub refs, --json boolean.',
-      'runtime: local target -> localViewStructure; GitHub target -> githubViewRepoStructure.',
+      'runtime: local target -> localViewStructure; GitHub target -> ghViewRepoStructure.',
       'output: YAML tree by default; --json returns the raw tool envelope.',
     ],
     whenToUse: [
@@ -126,7 +126,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'arg[0] pattern: required string; code text, regex-ish text, symbol name, error text, or import.',
       'arg[1] target: required string; local path OR owner/repo[/path] GitHub ref.',
       'options: --type extension/language string, --branch string, --limit int, --page int, --page-size int, --json boolean.',
-      'runtime: local target -> localSearchCode; GitHub target -> githubSearchCode.',
+      'runtime: local target -> localSearchCode; GitHub target -> ghSearchCode.',
       'output: YAML search hits by default; snippets are discovery, then use get for evidence.',
     ],
     whenToUse: [
@@ -180,7 +180,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'GitHub filters: --owner string, --repo string, --filename string, --branch not supported here.',
       'local path filters: --name, --path-pattern, --regex, --entry enum(f|d), --min-depth int, --max-depth int, size/time/permission flags.',
       'local content filters: --include/--exclude globs, --mode enum(paginated|discovery|detailed), rg booleans, context/count/page controls.',
-      'runtime: path search -> localFindFiles or githubSearchCode(match:path); content search -> localSearchCode or githubSearchCode(match:file).',
+      'runtime: path search -> localFindFiles or ghSearchCode(match:path); content search -> localSearchCode or ghSearchCode(match:file).',
       'output: YAML file hits by default; --json returns raw combined tool results.',
     ],
     whenToUse: [
@@ -388,7 +388,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'selection: --pr int selects one PR; #N or PR URL also selects one PR.',
       'list filters: --query string, --state enum(open|closed|merged), --author string, --label string, --base string, --limit int, --page int, --page-size int.',
       'content flags: --patches, --comments, --commits, --deep booleans; --file path narrows patches; --match-string narrows returned content.',
-      'runtime: githubSearchPullRequests; broad target lists PRs, selected PR fetches requested surfaces.',
+      'runtime: ghSearchPRs; broad target lists PRs, selected PR fetches requested surfaces.',
       'output: YAML PR metadata/content by default; --json returns raw tool envelope.',
     ],
     whenToUse: [
@@ -442,7 +442,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'range filters: --stars, --forks, --good-first-issues, --created, --updated, --size use GitHub search range syntax.',
       'match/sort: --match comma-list(name|description|readme), --sort enum(stars|forks|help-wanted-issues|updated|best-match), --archived boolean string.',
       'pagination/output: --limit int, --page int, --verbose boolean, --json boolean.',
-      'runtime: githubSearchRepositories.',
+      'runtime: ghSearchRepos.',
       'output: YAML repo list by default; verbose/json exposes richer repository fields.',
     ],
     whenToUse: [
@@ -503,7 +503,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
     scheme: [
       'arg[0] package: required npm package name or keyword query.',
       'options: --page int, --json boolean.',
-      'runtime: packageSearch.',
+      'runtime: npmSearch.',
       'output: YAML package metadata; exact package includes repository handoff when available.',
     ],
     whenToUse: [
@@ -531,7 +531,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'required option: --type enum(definition|references|callers|callees|callHierarchy|hover|documentSymbols|typeDefinition|implementation).',
       'symbol options: --symbol string and --line int are required except when --type documentSymbols.',
       'context options: --workspace-root path, --page int, --page-size int, --context-lines int, --depth int, --format enum(structured|compact).',
-      'runtime: lspGetSemanticContent with uri=file path.',
+      'runtime: lspGetSemantics with uri=file path.',
       'output: YAML semantic locations/content by default; --json returns raw tool envelope.',
     ],
     whenToUse: [
@@ -593,7 +593,7 @@ export const COMMAND_SPECS: readonly CLICommandSpec[] = [
       'arg[0] target: required local source file or directory path.',
       'directory options: --ext comma-list, --limit int files, --depth int directory depth.',
       'render options: --kind string symbol kind filter, --page-size int symbols per file, --json boolean.',
-      'runtime: file -> lspGetSemanticContent(documentSymbols); directory -> localFindFiles then batched documentSymbols.',
+      'runtime: file -> lspGetSemantics(documentSymbols); directory -> localFindFiles then batched documentSymbols.',
       'output: compact YAML-like outline by default; --json returns file list and raw LSP results.',
     ],
     whenToUse: [

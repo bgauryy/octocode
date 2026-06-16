@@ -167,8 +167,8 @@ The `routes/tools.ts` file contains a `TOOL_REGISTRY` that maps tool names to th
 ```typescript
 const TOOL_REGISTRY: Record<string, ToolEntry> = {
   // GitHub tools
-  githubSearchCode: { fn: githubSearchCode, resilience: withGitHubResilience, category: 'github' },
-  githubGetFileContent: { fn: githubGetFileContent, resilience: withGitHubResilience, category: 'github' },
+  ghSearchCode: { fn: ghSearchCode, resilience: withGitHubResilience, category: 'github' },
+  ghGetFileContent: { fn: ghGetFileContent, resilience: withGitHubResilience, category: 'github' },
   // ... more github tools
 
   // Local tools
@@ -182,7 +182,7 @@ const TOOL_REGISTRY: Record<string, ToolEntry> = {
   lspCallHierarchy: { fn: lspCallHierarchy, resilience: withLspResilience, category: 'lsp' },
 
   // Package tools
-  packageSearch: { fn: packageSearch, resilience: withPackageResilience, category: 'package' },
+  npmSearch: { fn: npmSearch, resilience: withPackageResilience, category: 'package' },
 };
 ```
 
@@ -251,12 +251,12 @@ createRouteHandler({
 | `lspGotoDefinition` | LSP | Go to symbol definition |
 | `lspFindReferences` | LSP | Find all references |
 | `lspCallHierarchy` | LSP | Call hierarchy |
-| `githubSearchCode` | GitHub | Search code |
-| `githubGetFileContent` | GitHub | Read file |
-| `githubViewRepoStructure` | GitHub | Repo tree |
-| `githubSearchRepositories` | GitHub | Search repos |
-| `githubSearchPullRequests` | GitHub | Search PRs |
-| `packageSearch` | Package | Search npm |
+| `ghSearchCode` | GitHub | Search code |
+| `ghGetFileContent` | GitHub | Read file |
+| `ghViewRepoStructure` | GitHub | Repo tree |
+| `ghSearchRepos` | GitHub | Search repos |
+| `ghSearchPRs` | GitHub | Search PRs |
+| `npmSearch` | Package | Search npm |
 
 ## Research Context Parameters
 

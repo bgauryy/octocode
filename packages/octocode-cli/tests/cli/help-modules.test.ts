@@ -20,10 +20,10 @@ describe('main-help', () => {
     const output = stdoutSpy.mock.calls
       .map((c: unknown[]) => String(c[0]))
       .join('');
-    expect(output).toContain('githubSearchCode');
+    expect(output).toContain('ghSearchCode');
     expect(output).toContain('localSearchCode');
-    expect(output).toContain('lspGetSemanticContent');
-    expect(output).toContain('packageSearch');
+    expect(output).toContain('lspGetSemantics');
+    expect(output).toContain('npmSearch');
     expect(output).toContain('install');
     expect(output).toContain('SMART COMMANDS');
     expect(output).toContain('TOOLS');
@@ -193,7 +193,7 @@ describe('command-help-specs', () => {
     expect(output).toContain(
       'required option: --type enum(definition|references'
     );
-    expect(output).toContain('runtime: lspGetSemanticContent');
+    expect(output).toContain('runtime: lspGetSemantics');
     expect(output).toContain('after search or symbols');
     expect(output).toContain('octocode lsp src/index.ts --type references');
 

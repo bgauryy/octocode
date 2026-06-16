@@ -83,7 +83,7 @@ export ENABLE_LOCAL=true
 export ENABLE_CLONE=true
 ```
 
-This enables `githubCloneRepo` and `githubGetFileContent` with `type: "directory"`.
+This enables `ghCloneRepo` and `ghGetFileContent` with `type: "directory"`.
 
 ## Checks
 

@@ -28,9 +28,6 @@ export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
     typeof result === 'object' && result !== null
       ? (result as Record<string, unknown>)
       : {};
-  // Lean mode emits string[] for files/folders; details mode emits object[]
-  // for entries. records() filters to objects only, so it cannot be used
-  // for string arrays. Check array length directly.
   const hasResults =
     (Array.isArray(data.files) && data.files.length > 0) ||
     (Array.isArray(data.folders) && data.folders.length > 0) ||
@@ -79,8 +76,6 @@ export async function executeViewStructure(
       }),
     {
       toolName: TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-      // Hoist compact metadata before the file/folder lists so the agent
-      // sees scope and pagination status before scanning names.
       keysPriority: [
         'path',
         'summary',

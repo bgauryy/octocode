@@ -11,7 +11,7 @@ export interface LanguageServerConfig {
 
   initializationOptions?: InitializationOptions;
 
-  /** Extra environment variables injected into the language server process. */
+  
   env?: Record<string, string>;
 }
 
@@ -42,7 +42,7 @@ export interface LanguageServerCommand {
 export interface FuzzyPosition {
   symbolName: string;
 
-  /** Optional — when omitted, the resolver scans the whole file for the symbol. */
+  
   lineHint?: number;
 
   orderHint?: number;

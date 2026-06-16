@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { packageSearch } from '../index.js';
+import { npmSearch } from '../index.js';
 import { parseAndValidate } from '../middleware/queryParser.js';
-import { packageSearchSchema } from '../validation/index.js';
+import { npmSearchSchema } from '../validation/index.js';
 import { ResearchResponse } from '../utils/responseBuilder.js';
 import { parseToolResponse } from '../utils/responseParser.js';
 import { withPackageResilience } from '../utils/resilience.js';
@@ -12,17 +12,17 @@ import { isObject, hasProperty, hasStringProperty } from '../types/guards.js';
 export const packageRoutes = Router();
 
 packageRoutes.get(
-  '/packageSearch',
+  '/npmSearch',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const queries = parseAndValidate(
         req.query as Record<string, unknown>,
-        packageSearchSchema
+        npmSearchSchema
       );
-      type PackageSearchParams = Parameters<typeof packageSearch>[0];
+      type NpmSearchParams = Parameters<typeof npmSearch>[0];
       const rawResult = await withPackageResilience(
-        () => packageSearch({ queries } as PackageSearchParams),
-        'packageSearch'
+        () => npmSearch({ queries } as NpmSearchParams),
+        'npmSearch'
       );
       const { data, isError, hints, research } = parseToolResponse(rawResult);
 
@@ -30,7 +30,7 @@ packageRoutes.get(
       const query = queries[0] as Record<string, unknown>;
       const registry = 'npm';
 
-      const response = ResearchResponse.packageSearch({
+      const response = ResearchResponse.npmSearch({
         packages,
         registry,
         query: safeString(query, 'name'),

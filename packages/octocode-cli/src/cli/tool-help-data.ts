@@ -13,32 +13,32 @@ export const HELP_TOOL_CATEGORIES = [
 
 export const HELP_TOOL_DEFINITIONS: readonly HelpToolDefinition[] = [
   {
-    name: 'githubSearchCode',
+    name: 'ghSearchCode',
     category: 'GitHub',
     fields: '[keywordsToSearch*, owner?, repo?]',
   },
   {
-    name: 'githubGetFileContent',
+    name: 'ghGetFileContent',
     category: 'GitHub',
     fields: '[owner*, repo*, path?]',
   },
   {
-    name: 'githubViewRepoStructure',
+    name: 'ghViewRepoStructure',
     category: 'GitHub',
     fields: '[owner*, repo*, path?]',
   },
   {
-    name: 'githubSearchRepositories',
+    name: 'ghSearchRepos',
     category: 'GitHub',
     fields: '[keywordsToSearch?, owner?, language?]',
   },
   {
-    name: 'githubSearchPullRequests',
+    name: 'ghSearchPRs',
     category: 'GitHub',
     fields: '[owner*, repo?, prNumber?]',
   },
   {
-    name: 'githubCloneRepo',
+    name: 'ghCloneRepo',
     category: 'GitHub',
     fields: '[owner*, repo*, branch?]',
   },
@@ -63,12 +63,12 @@ export const HELP_TOOL_DEFINITIONS: readonly HelpToolDefinition[] = [
     fields: '[path*, matchString?, startLine?]',
   },
   {
-    name: 'lspGetSemanticContent',
+    name: 'lspGetSemantics',
     category: 'LSP',
     fields: '[uri*, type, symbolName?, lineHint?]',
   },
   {
-    name: 'packageSearch',
+    name: 'npmSearch',
     category: 'Package',
     fields: '[packageName?, keywords?]',
   },

@@ -43,8 +43,8 @@ If source files were listed in `request.md` but not yet fully read, go deeper no
 | Source type | Deeper research approach |
 |-------------|-------------------------|
 | Local workspace / folder | `localSearchCode` for key concepts and patterns → `localGetFileContent` on specific files → `lspGotoDefinition` to trace a function to its definition → `lspFindReferences` to see where a type/function is used → `lspCallHierarchy` to trace call chains (for code-flow slides) |
-| GitHub repo | `githubSearchCode` for key API patterns or architecture → `githubGetFileContent` for specific files/sections → `githubSearchPullRequests` for context on design decisions |
-| Package / library | `packageSearch` → check deprecation, repo URL → dive into repo with GitHub tools |
+| GitHub repo | `ghSearchCode` for key API patterns or architecture → `ghGetFileContent` for specific files/sections → `ghSearchPRs` for context on design decisions |
+| Package / library | `npmSearch` → check deprecation, repo URL → dive into repo with GitHub tools |
 
 For code repos: search key concepts, trace function call chains with LSP tools, and read 3–5 files that directly support the slide content. Extract: real code patterns (≤20 lines), architecture decisions, API signatures, error handling examples, benchmarks.
 
@@ -82,11 +82,11 @@ For each finding: record the exact URL and which slide it will support.
 
 | Goal | Tool chain |
 |------|-----------|
-| Find repos for a topic | `githubSearchCode(match="path", keywords)` → pick 1-2 credible results → `githubViewRepoStructure` → `githubGetFileContent` |
-| Find a code pattern in a known repo | `githubSearchCode(match="file", owner, repo, keywords)` → `githubGetFileContent(matchString=...)` for the relevant section |
-| Research a library / package | `packageSearch(name)` → check repo URL → `githubViewRepoStructure` → read README + key source files |
-| Trace how a function is used | Clone repo locally with `githubCloneRepo` → `localSearchCode` → `lspFindReferences` or `lspCallHierarchy` |
-| Find real-world examples of a pattern | `githubSearchCode(match="file", keywords=["pattern", "example"])` across GitHub |
+| Find repos for a topic | `ghSearchCode(match="path", keywords)` → pick 1-2 credible results → `ghViewRepoStructure` → `ghGetFileContent` |
+| Find a code pattern in a known repo | `ghSearchCode(match="file", owner, repo, keywords)` → `ghGetFileContent(matchString=...)` for the relevant section |
+| Research a library / package | `npmSearch(name)` → check repo URL → `ghViewRepoStructure` → read README + key source files |
+| Trace how a function is used | Clone repo locally with `ghCloneRepo` → `localSearchCode` → `lspFindReferences` or `lspCallHierarchy` |
+| Find real-world examples of a pattern | `ghSearchCode(match="file", keywords=["pattern", "example"])` across GitHub |
 
 **Code quality criteria — feature only code that is:**
 - From a credible, maintained repo (known org, recent commits, reasonable star count)

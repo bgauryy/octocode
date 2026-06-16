@@ -47,9 +47,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
 
   describe('fetchGitHubFileContentAPI - File Size and Encoding', () => {
     it('should decode files larger than 300KB that have inline content', async () => {
-      // GitHub Contents API returns inline base64 for files up to ~1 MB.
-      // The 300 KB gate has been removed — files with inline content are
-      // decoded normally regardless of the reported size field.
       const mockOctokit = {
         rest: {
           repos: {
@@ -161,7 +158,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       const content = result.data.content;
       const rawSigs = extractSignatures(SOURCE, 'sample.ts')!;
       expect(content).toBe(applyContentViewMinification(rawSigs, 'sample.ts'));
-      // Signatures present, body dropped.
       expect(content).toContain('interface Foo');
       expect(content).toContain('id: string;');
       expect(content).toContain('a: string,');
@@ -202,7 +198,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
         repo: 'repo',
         path: 'big.ts',
         minify: 'symbols',
-        // Char cursor inputs must be IGNORED for minify:"symbols".
         charOffset: 3000,
         charLength: 100,
       } as unknown as Parameters<typeof fetchGitHubFileContentAPI>[0])) as {
@@ -216,15 +211,12 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
       };
 
       expect('error' in result).toBe(false);
-      // Skeletons are indexes — whole response, NO pagination block attached.
       expect(result.data.pagination).toBeUndefined();
       expect(result.data.content).toContain('fn0(');
       expect(result.data.content).toContain('fn399(');
-      // Extraction ran (signatures present), not full bodies.
       expect(result.data.content).not.toContain('doStuff');
       expect(result.data.isPartial).toBe(false);
       expect(result.data.sourceChars).toBe(src.length);
-      // Internal bypass flag must not leak into the API result.
       expect(result.data.signaturesExtracted).toBeUndefined();
     });
 
@@ -937,8 +929,6 @@ describe('GitHub File Operations - processFileContentAPI coverage', () => {
   describe('fetchGitHubFileContentAPI - JSON content is minified by applyContentViewMinification', () => {
     it('minifies JSON content (sync inline minification, not async minifyContent)', async () => {
       const fileContent = '{\n  "name": "demo",\n  "version": "1.0.0"\n}';
-      // JSON standard now returns readable pretty-printed output (original,
-      // since clean JSON is already the same length after re-formatting).
       const minifiedJson = fileContent;
 
       const mockOctokit = {

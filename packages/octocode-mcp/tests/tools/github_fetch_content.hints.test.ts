@@ -5,7 +5,7 @@ vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 
-describe('githubGetFileContent Tool Handler - Hints Fix', () => {
+describe('ghGetFileContent Tool Handler - Hints Fix', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

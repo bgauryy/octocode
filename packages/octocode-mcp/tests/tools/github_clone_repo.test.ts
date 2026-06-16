@@ -553,9 +553,6 @@ describe('cloneRepo', () => {
             mkdirSync(targetDir, { recursive: true });
           }
         }
-        // sparse-checkout set: materialize the sparse path inside the clone
-        // dir, mirroring git behavior for an existing directory — cloneRepo
-        // verifies the path exists after checkout.
         if (args.includes('sparse-checkout')) {
           const cIdx = args.indexOf('-C');
           const targetDir = cIdx !== -1 ? args[cIdx + 1] : undefined;
@@ -1314,7 +1311,7 @@ describe('registerGitHubCloneRepoTool', () => {
     expect(mockServer.server.registerTool).toHaveBeenCalledTimes(1);
     const [toolName, options] = (mockServer.server.registerTool as any).mock
       .calls[0];
-    expect(toolName).toBe('githubCloneRepo');
+    expect(toolName).toBe('ghCloneRepo');
     expect(options.description).toContain('Clone');
     expect(options.annotations.idempotentHint).toBe(true);
     expect(options.annotations.readOnlyHint).toBe(false);
@@ -1355,7 +1352,7 @@ describe('registerGitHubCloneRepoTool', () => {
     const mockServer = createMockMcpServer();
     registerGitHubCloneRepoTool(mockServer.server);
 
-    const result = await mockServer.callTool('githubCloneRepo', {
+    const result = await mockServer.callTool('ghCloneRepo', {
       queries: [
         {
           mainResearchGoal: 'test',

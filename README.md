@@ -207,7 +207,7 @@ Full command reference: [CLI Reference](https://github.com/bgauryy/octocode-mcp/
 octocode tools
 octocode tools localSearchCode --scheme
 octocode tools localSearchCode --queries '{"path":".","pattern":"TODO"}'
-octocode tools githubSearchCode --queries '{"keywordsToSearch":["useState"],"owner":"facebook","repo":"react"}'
+octocode tools ghSearchCode --queries '{"keywordsToSearch":["useState"],"owner":"facebook","repo":"react"}'
 ```
 
 Direct CLI tool runs auto-fill `id`, `mainResearchGoal`, `researchGoal`, and `reasoning` when omitted. MCP clients should provide those research fields explicitly.
@@ -218,18 +218,18 @@ Direct CLI tool runs auto-fill `id`, `mainResearchGoal`, `researchGoal`, and `re
 
 | Tool | Interface | What it is for |
 |------|-----------|----------------|
-| `githubSearchCode` | MCP + CLI | Search code or paths across GitHub with owner, repo, path, filename, extension, and match filters. |
-| `githubGetFileContent` | MCP + CLI | Read exact GitHub file content by full file, line range, match slice, char page, or signature skeleton. |
-| `githubViewRepoStructure` | MCP + CLI | Browse a GitHub repository tree before reading files. |
-| `githubSearchRepositories` | MCP + CLI | Discover repositories by keywords, owner, topics, language, stars, size, dates, and archive state. |
-| `githubSearchPullRequests` | MCP + CLI | Search PR history or inspect one PR's metadata, changed files, patches, comments, reviews, and commits. |
-| `githubCloneRepo` | MCP + CLI | Clone a repository or sparse subtree into Octocode's local cache for local/LSP analysis. |
-| `packageSearch` | MCP + CLI | Resolve npm packages to metadata and source repositories. |
+| `ghSearchCode` | MCP + CLI | Search code or paths across GitHub with owner, repo, path, filename, extension, and match filters. |
+| `ghGetFileContent` | MCP + CLI | Read exact GitHub file content by full file, line range, match slice, char page, or signature skeleton. |
+| `ghViewRepoStructure` | MCP + CLI | Browse a GitHub repository tree before reading files. |
+| `ghSearchRepos` | MCP + CLI | Discover repositories by keywords, owner, topics, language, stars, size, dates, and archive state. |
+| `ghSearchPRs` | MCP + CLI | Search PR history or inspect one PR's metadata, changed files, patches, comments, reviews, and commits. |
+| `ghCloneRepo` | MCP + CLI | Clone a repository or sparse subtree into Octocode's local cache for local/LSP analysis. |
+| `npmSearch` | MCP + CLI | Resolve npm packages to metadata and source repositories. |
 | `localSearchCode` | MCP + CLI | Search local file contents with ripgrep-style filtering, pagination, snippets, and count modes. |
 | `localViewStructure` | MCP + CLI | Browse local directories with depth, filters, pagination, and metadata. |
 | `localFindFiles` | MCP + CLI | Find local files or directories by name, path, regex, extension, size, time, permissions, and type. |
 | `localGetFileContent` | MCP + CLI | Read targeted local file content by exact slice, match, symbols, line range, or char page. |
-| `lspGetSemanticContent` | MCP + CLI | Ask local language servers for definitions, references, callers, callees, call hierarchy, hover, document symbols, type definitions, and implementations. |
+| `lspGetSemantics` | MCP + CLI | Ask local language servers for definitions, references, callers, callees, call hierarchy, hover, document symbols, type definitions, and implementations. |
 
 Tool behavior references:
 

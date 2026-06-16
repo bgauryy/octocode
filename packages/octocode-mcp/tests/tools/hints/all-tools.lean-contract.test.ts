@@ -24,14 +24,14 @@ const ALL_HINTS = {
   localFindFiles: findFilesHints,
   localViewStructure: viewStructureHints,
   localGetFileContent: fetchContentHints,
-  githubSearchCode: ghCodeHints,
-  githubGetFileContent: ghFetchHints,
-  githubSearchPullRequests: ghPrHints,
-  githubSearchRepositories: ghReposHints,
-  githubViewRepoStructure: ghViewHints,
-  githubCloneRepo: cloneHints,
-  packageSearch: pkgHints,
-  lspGetSemanticContent: semanticContentHints,
+  ghSearchCode: ghCodeHints,
+  ghGetFileContent: ghFetchHints,
+  ghSearchPRs: ghPrHints,
+  ghSearchRepos: ghReposHints,
+  ghViewRepoStructure: ghViewHints,
+  ghCloneRepo: cloneHints,
+  npmSearch: pkgHints,
+  lspGetSemantics: semanticContentHints,
 };
 
 describe('per-tool hints — structural contract', () => {
@@ -186,7 +186,7 @@ describe('localGetFileContent — empty + error', () => {
   });
 });
 
-describe('githubSearchCode — empty + error', () => {
+describe('ghSearchCode — empty + error', () => {
   it('empty + owner/repo returns an actionable hint', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
@@ -215,22 +215,22 @@ describe('githubSearchCode — empty + error', () => {
     expect(h.some(s => s?.includes('Remove a filter'))).toBe(true);
   });
 
-  it('empty + single package-name keyword pivots to packageSearch', () => {
+  it('empty + single package-name keyword pivots to npmSearch', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: false,
       keywords: ['@modelcontextprotocol/sdk'],
     } as never);
-    expect(h.some(s => s?.includes('packageSearch'))).toBe(true);
+    expect(h.some(s => s?.includes('npmSearch'))).toBe(true);
   });
 
-  it('empty + owner/repo includes githubGetFileContent fallback hint', () => {
+  it('empty + owner/repo includes ghGetFileContent fallback hint', () => {
     const h = ghCodeHints.empty({
       hasOwnerRepo: true,
       owner: 'facebookexperimental',
       repo: 'Recoil',
       keywords: ['useSyncExternalStore'],
     } as never);
-    expect(h.some(s => s?.includes('githubGetFileContent'))).toBe(true);
+    expect(h.some(s => s?.includes('ghGetFileContent'))).toBe(true);
   });
 
   it('empty + nonExistentScope: one concise scope hint, no archived noise', () => {
@@ -308,7 +308,7 @@ describe('githubSearchCode — empty + error', () => {
   });
 });
 
-describe('githubGetFileContent — error', () => {
+describe('ghGetFileContent — error', () => {
   it('size_limit with KB', () => {
     const h = ghFetchHints.error({
       errorType: 'size_limit',
@@ -333,7 +333,7 @@ describe('githubGetFileContent — error', () => {
       branch: 'main',
     } as never);
     expect(h.some(s => s?.includes('branch'))).toBe(true);
-    expect(h[0]).toContain('githubViewRepoStructure');
+    expect(h[0]).toContain('ghViewRepoStructure');
   });
 
   it('not_found without branch is still actionable', () => {
@@ -341,7 +341,7 @@ describe('githubGetFileContent — error', () => {
       errorType: 'not_found',
       path: 'README.md',
     } as never);
-    expect(h[0]).toContain('githubViewRepoStructure');
+    expect(h[0]).toContain('ghViewRepoStructure');
   });
 
   it('rate-limited with retryAfter', () => {
@@ -368,7 +368,7 @@ describe('githubGetFileContent — error', () => {
   });
 });
 
-describe('githubSearchPullRequests — empty permutations', () => {
+describe('ghSearchPRs — empty permutations', () => {
   it('prNumber not found gives recovery hint', () => {
     const h = ghPrHints.empty({
       prNumber: 999,
@@ -438,7 +438,7 @@ describe('githubSearchPullRequests — empty permutations', () => {
   });
 });
 
-describe('githubSearchPullRequests — error permutations', () => {
+describe('ghSearchPRs — error permutations', () => {
   it('rate-limited with retryAfter includes retry time', () => {
     const h = ghPrHints.error({
       isRateLimited: true,
@@ -478,7 +478,7 @@ describe('githubSearchPullRequests — error permutations', () => {
   });
 });
 
-describe('githubSearchRepositories — hints coverage', () => {
+describe('ghSearchRepos — hints coverage', () => {
   it('empty returns [] when no query and no filters', () => {
     expect(ghReposHints.empty({} as never)).toEqual([]);
   });
@@ -498,35 +498,34 @@ describe('githubSearchRepositories — hints coverage', () => {
     expect(h[0]).toContain('Remove a filter');
   });
 
-  it('empty suggests packageSearch for package-like terms', () => {
+  it('empty suggests npmSearch for package-like terms', () => {
     const h = ghReposHints.empty({ query: '@babel/core' } as never);
-    expect(h.some(s => (s ?? '').includes('use `packageSearch`'))).toBe(true);
+    expect(h.some(s => (s ?? '').includes('use `npmSearch`'))).toBe(true);
   });
 
-  it('empty does NOT suggest packageSearch for camelCase identifiers', () => {
-    // camelCase/PascalCase identifiers must not be mistaken for package names
+  it('empty does NOT suggest npmSearch for camelCase identifiers', () => {
     const camelCases = [
-      'lspGetSemanticContent',
+      'lspGetSemantics',
       'withSecurityValidation',
       'executeCloneRepo',
       'MyComponent',
     ];
     for (const term of camelCases) {
       const h = ghReposHints.empty({ query: term } as never);
-      expect(h.some(s => (s ?? '').includes('packageSearch'))).toBe(
+      expect(h.some(s => (s ?? '').includes('npmSearch'))).toBe(
         false,
-        `"${term}" should NOT trigger packageSearch hint`
+        `"${term}" should NOT trigger npmSearch hint`
       );
     }
   });
 
-  it('empty DOES suggest packageSearch for kebab/dot/scoped package names', () => {
+  it('empty DOES suggest npmSearch for kebab/dot/scoped package names', () => {
     const packageLike = ['react-query', 'lodash.get', '@scope/pkg'];
     for (const term of packageLike) {
       const h = ghReposHints.empty({ query: term } as never);
-      expect(h.some(s => (s ?? '').includes('packageSearch'))).toBe(
+      expect(h.some(s => (s ?? '').includes('npmSearch'))).toBe(
         true,
-        `"${term}" should trigger packageSearch hint`
+        `"${term}" should trigger npmSearch hint`
       );
     }
   });
@@ -554,7 +553,7 @@ describe('githubSearchRepositories — hints coverage', () => {
   });
 });
 
-describe('githubViewRepoStructure — empty', () => {
+describe('ghViewRepoStructure — empty', () => {
   it('cites path when set', () => {
     const h = ghViewHints.empty({ path: 'src', branch: 'dev' } as never);
     expect(h.length).toBeGreaterThan(0);
@@ -571,7 +570,7 @@ describe('githubViewRepoStructure — empty', () => {
   });
 });
 
-describe('githubCloneRepo — error', () => {
+describe('ghCloneRepo — error', () => {
   it('permission', () => {
     expect(cloneHints.error({ errorType: 'permission' } as never)[0]).toContain(
       'Token'
@@ -608,7 +607,7 @@ describe('githubCloneRepo — error', () => {
   });
 });
 
-describe('githubCloneRepo — empty', () => {
+describe('ghCloneRepo — empty', () => {
   it('returns [] when no sparsePath', () => {
     expect(cloneHints.empty({} as never)).toEqual([]);
   });
@@ -616,11 +615,11 @@ describe('githubCloneRepo — empty', () => {
   it('returns guidance when sparsePath provided but matched nothing', () => {
     const h = cloneHints.empty({ sparsePath: 'src/utils' } as never);
     expect(h[0]).toContain('sparsePath');
-    expect(h[1]).toContain('githubViewRepoStructure');
+    expect(h[1]).toContain('ghViewRepoStructure');
   });
 });
 
-describe('packageSearch — hints coverage', () => {
+describe('npmSearch — hints coverage', () => {
   it('empty returns [] when no name context', () => {
     expect(pkgHints.empty({} as never)).toEqual([]);
   });
@@ -633,7 +632,7 @@ describe('packageSearch — hints coverage', () => {
 
   it('empty includes npm alternative hint', () => {
     const h = pkgHints.empty({ name: 'lodash' } as never);
-    expect(h.some(s => s?.includes('githubSearchRepositories'))).toBe(true);
+    expect(h.some(s => s?.includes('ghSearchRepos'))).toBe(true);
   });
 
   it('error rate-limited includes retryAfter when present', () => {
@@ -654,7 +653,7 @@ describe('packageSearch — hints coverage', () => {
   });
 });
 
-describe('lspGetSemanticContent — empty + error', () => {
+describe('lspGetSemantics — empty + error', () => {
   it('empty with symbolName returns a recovery hint', () => {
     const h = semanticContentHints.empty({
       symbolName: 'handleAuth',

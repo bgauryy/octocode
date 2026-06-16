@@ -41,7 +41,7 @@ export function detectHardcodedSecrets(
             lineStart: s.lineStart,
             lineEnd: s.lineEnd,
             title: `Potential hardcoded secret${s.snippet ? `: ${s.snippet.slice(0, 20)}…` : ''}`,
-            reason: `String literal matches a secret pattern (password, API key, token, high-entropy string). Secrets in source code risk credential leaks. Validate: use localSearchCode to find the variable, then lspGetSemanticContent(type=references) to check if it is used in auth or network calls.`,
+            reason: `String literal matches a secret pattern (password, API key, token, high-entropy string). Secrets in source code risk credential leaks. Validate: use localSearchCode to find the variable, then lspGetSemantics(type=references) to check if it is used in auth or network calls.`,
             files: [entry.file],
             suggestedFix: {
               strategy:
@@ -57,7 +57,7 @@ export function detectHardcodedSecrets(
             tags: ['security', 'secrets'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'references',
+                tool: 'lspGetSemantics', semanticType: 'references',
                 symbolName: s.snippet?.split(/[=:]/)[0]?.trim() || 'secret',
                 lineHint: s.lineStart,
                 file: entry.file,
@@ -112,7 +112,7 @@ export function detectEvalUsage(fileSummaries: FileEntry[]): FindingDraft[] {
             tags: ['security', 'injection', 'critical'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'callers',
+                tool: 'lspGetSemantics', semanticType: 'callers',
                 symbolName: 'eval',
                 lineHint: loc.lineStart,
                 file: entry.file,
@@ -255,7 +255,7 @@ export function detectUnsafeRegex(fileSummaries: FileEntry[]): FindingDraft[] {
               tags: ['security', 'regex', 'performance'],
               lspHints: [
                 {
-                  tool: 'lspGetSemanticContent', semanticType: 'references',
+                  tool: 'lspGetSemantics', semanticType: 'references',
                   symbolName: re.pattern.slice(0, 20),
                   lineHint: re.lineStart,
                   file: entry.file,
@@ -331,7 +331,7 @@ export function detectPrototypePollutionRisk(
             tags: ['security', 'prototype-pollution', 'injection'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'callers',
+                tool: 'lspGetSemantics', semanticType: 'callers',
                 symbolName:
                   site.kind === 'computed-property-write'
                     ? 'bracket-assignment'
@@ -384,7 +384,7 @@ export function detectUnvalidatedInputSink(
               steps: [
                 'Add schema validation (e.g. zod, joi) for input parameters.',
                 'Use parameterized APIs instead of template interpolation for SQL/exec.',
-                `Trace data flow: lspGetSemanticContent(type=callees) on ${src.functionName}.`,
+                `Trace data flow: lspGetSemantics(type=callees) on ${src.functionName}.`,
               ],
             },
             impact:
@@ -392,14 +392,14 @@ export function detectUnvalidatedInputSink(
             tags: ['security', 'input-validation', 'injection'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'callers',
+                tool: 'lspGetSemantics', semanticType: 'callers',
                 symbolName: src.functionName,
                 lineHint: src.lineStart,
                 file: entry.file,
                 expectedResult: `trace outgoing calls to see where ${src.sourceParams.join(', ')} data flows`,
               },
               {
-                tool: 'lspGetSemanticContent', semanticType: 'references',
+                tool: 'lspGetSemantics', semanticType: 'references',
                 symbolName: src.sourceParams[0],
                 lineHint: src.lineStart,
                 file: entry.file,
@@ -453,7 +453,7 @@ export function detectInputPassthroughRisk(
                 'Validate input before passing to downstream functions.',
               steps: [
                 'Add schema validation (e.g. zod, joi) at the entry point.',
-                `Trace downstream: lspGetSemanticContent(type=callees) on ${src.functionName} to verify callees validate.`,
+                `Trace downstream: lspGetSemantics(type=callees) on ${src.functionName} to verify callees validate.`,
                 'Search for validation middleware: localSearchCode for guard/validate/sanitize patterns.',
               ],
             },
@@ -462,14 +462,14 @@ export function detectInputPassthroughRisk(
             tags: ['security', 'input-validation', 'passthrough'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'callers',
+                tool: 'lspGetSemantics', semanticType: 'callers',
                 symbolName: src.functionName,
                 lineHint: src.lineStart,
                 file: entry.file,
                 expectedResult: `trace outgoing calls to verify downstream validation of ${src.sourceParams.join(', ')}`,
               },
               {
-                tool: 'lspGetSemanticContent', semanticType: 'references',
+                tool: 'lspGetSemantics', semanticType: 'references',
                 symbolName: src.sourceParams[0],
                 lineHint: src.lineStart,
                 file: entry.file,
@@ -537,7 +537,7 @@ export function detectPathTraversalRisk(
             tags: ['security', 'path-traversal', 'agentic'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'callers',
+                tool: 'lspGetSemantics', semanticType: 'callers',
                 symbolName: src.functionName,
                 lineHint: src.lineStart,
                 file: entry.file,
@@ -609,7 +609,7 @@ export function detectCommandInjectionRisk(
               tags: ['security', 'command-injection', 'critical', 'agentic'],
               lspHints: [
                 {
-                  tool: 'lspGetSemanticContent', semanticType: 'callers',
+                  tool: 'lspGetSemantics', semanticType: 'callers',
                   symbolName: src.functionName,
                   lineHint: src.lineStart,
                   file: entry.file,
@@ -657,7 +657,7 @@ export function detectCommandInjectionRisk(
               tags: ['security', 'command-injection', 'agentic'],
               lspHints: [
                 {
-                  tool: 'lspGetSemanticContent', semanticType: 'callers',
+                  tool: 'lspGetSemantics', semanticType: 'callers',
                   symbolName: src.functionName,
                   lineHint: src.lineStart,
                   file: entry.file,
@@ -744,7 +744,7 @@ export function detectDebugLogLeakage(
               tags: ['security', 'debug', 'information-disclosure'],
               lspHints: [
                 {
-                  tool: 'lspGetSemanticContent', semanticType: 'references',
+                  tool: 'lspGetSemantics', semanticType: 'references',
                   symbolName: `console.${log.method}`,
                   lineHint: log.lineStart,
                   file: entry.file,
@@ -797,7 +797,7 @@ export function detectSensitiveDataLogging(
             tags: ['security', 'sensitive-data', 'credential-leak', 'compliance'],
             lspHints: [
               {
-                tool: 'lspGetSemanticContent', semanticType: 'callers',
+                tool: 'lspGetSemantics', semanticType: 'callers',
                 symbolName: log.method,
                 lineHint: log.lineStart,
                 file: entry.file,

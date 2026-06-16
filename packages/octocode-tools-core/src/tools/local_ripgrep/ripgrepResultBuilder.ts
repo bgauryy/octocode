@@ -29,8 +29,6 @@ export async function buildSearchResult(
   }
 
   const totalFiles = limitedFiles.length;
-  // Path-list mode (rg -l / -L): ripgrep reports NO per-file counts — any
-  // matchCount would be fabricated. Count mode (rg -c): counts are real.
   const isPathListMode = Boolean(
     configuredQuery.filesOnly || configuredQuery.filesWithoutMatch
   );
@@ -80,14 +78,11 @@ export async function buildSearchResult(
 
       const result = {
         path: file.path,
-        // matchCount omitted in filesOnly/discovery mode — rg -l reports no
-        // counts, so any number here would be fabricated.
         ...(isPathListMode
           ? {}
           : {
               matchCount: isCountMode ? file.matchCount || 1 : totalFileMatches,
             }),
-        // omitted in discovery/filesOnly mode — empty arrays are noise
         ...(paginatedMatches !== undefined && { matches: paginatedMatches }),
         pagination:
           !isFileListMode && totalFileMatches > matchesPerPage
@@ -163,7 +158,6 @@ export async function buildSearchResult(
       totalPages: totalFilePages,
       filesPerPage,
       totalFiles,
-      // Omitted in filesOnly/discovery mode — rg -l reports no match counts.
       ...(isPathListMode ? {} : { totalMatches }),
       hasMore: currentPage < totalFilePages,
       ...(wasLimited ? { totalFilesFound: filesWithMetadata.length } : {}),
@@ -173,7 +167,7 @@ export async function buildSearchResult(
       ...(totalFiles > 0 && !isFileListMode
         ? [
             'Use localGetFileContent with the full path (prepend base to each returned path) and line numbers to read surrounding code.',
-            'Pass line numbers as lineHint to lspGetSemanticContent for definitions, references, or call flow.',
+            'Pass line numbers as lineHint to lspGetSemantics for definitions, references, or call flow.',
           ]
         : []),
       ...(totalFiles > 0 && isFileListMode
@@ -192,10 +186,6 @@ export async function buildSearchResult(
   });
 }
 
-// Extension hook — called as the last step of buildSearchResult so callers
-// can post-process the final payload (e.g. inject extra metadata, strip
-// fields, or override pagination) without modifying the core builder logic.
-// Currently a transparent pass-through; override in tests or subclasses.
 export function finalizeRipgrepResult(
   result: LocalSearchCodeToolResult,
   _query: RipgrepQuery,

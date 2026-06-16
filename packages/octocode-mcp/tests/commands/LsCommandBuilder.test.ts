@@ -90,9 +90,6 @@ describe('LsCommandBuilder', () => {
     });
 
     it('fromQuery does not add -h (humanReadable removed from schema)', () => {
-      // humanReadable was removed from the MCP schema — fromQuery never emits
-      // -h. The humanReadable() chain method is still available for programmatic
-      // builder use (tested separately in the chain methods section).
       const builder = new LsCommandBuilder();
       const { args } = builder.fromQuery({ path: '/test' }).build();
 

@@ -137,16 +137,13 @@ export interface PRCommentItem {
   body: string;
   created_at: string;
   updated_at: string;
-  /** 'discussion' = PR-level thread; 'review_inline' = code-level thread */
+  
   commentType?: 'discussion' | 'review_inline';
-  /** File path targeted by an inline review comment */
+  
   path?: string;
-  /** Line number in the file targeted by an inline review comment */
+  
   line?: number;
-  /**
-   * For inline review reply comments: the id of the parent comment this is
-   * replying to. Null / undefined for top-level inline comments.
-   */
+  
   in_reply_to_id?: number | null;
 }
 
@@ -166,7 +163,7 @@ export type GitHubPullRequestItem = Pick<
   labels: string[];
   merged_at?: string;
   comments?: PRCommentItem[];
-  /** Total comment count from GitHub API — captured from broad-search results. */
+  
   total_comment_count?: number;
   reactions: number;
   head?: string;

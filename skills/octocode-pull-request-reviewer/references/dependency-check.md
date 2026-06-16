@@ -7,7 +7,7 @@
 - [ ] Review target determined (PR Mode or Local Mode — see Review Target Detection)
 
 ### Actions — PR Mode (REQUIRED when reviewing a remote PR)
-1. **Test MCP availability**: Call `githubSearchPullRequests` with a minimal query
+1. **Test MCP availability**: Call `ghSearchPRs` with a minimal query
    - **IF** tool responds successfully → **THEN** proceed
    - **IF** tool fails or is not found → **THEN** STOP and inform user:
      ```
@@ -28,11 +28,11 @@
 
 | Tool | Fallback |
 |------|----------|
-| `githubSearchPullRequests` | NONE — review cannot proceed |
-| `githubGetFileContent` | NONE — review cannot proceed |
-| `githubSearchCode` | NONE — review cannot proceed |
-| `githubViewRepoStructure` | NONE — review cannot proceed |
-| `packageSearch` | Skip external package analysis |
+| `ghSearchPRs` | NONE — review cannot proceed |
+| `ghGetFileContent` | NONE — review cannot proceed |
+| `ghSearchCode` | NONE — review cannot proceed |
+| `ghViewRepoStructure` | NONE — review cannot proceed |
+| `npmSearch` | Skip external package analysis |
 
 ### Required Tools — Local Mode
 
@@ -48,7 +48,7 @@
 | Shell: `git status`, `git diff` | NONE — review cannot proceed |
 
 ### Gate Check — PR Mode
-- [ ] `githubSearchPullRequests` responded successfully
+- [ ] `ghSearchPRs` responded successfully
 - [ ] PR number/URL is valid and accessible
 
 ### Gate Check — Local Mode
@@ -57,7 +57,7 @@
 - [ ] At least one of: staged changes, unstaged changes, or untracked files exist
 
 ### FORBIDDEN
-- **PR Mode**: Proceeding if `githubSearchPullRequests` is unavailable
+- **PR Mode**: Proceeding if `ghSearchPRs` is unavailable
 - **Local Mode**: Proceeding if local tools are disabled (`ENABLE_LOCAL=false`)
 - Using shell commands for code reading/search when Octocode MCP tools are available
 

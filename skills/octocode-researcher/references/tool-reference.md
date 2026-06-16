@@ -263,7 +263,7 @@ Parallelize independent searches (max 5 queries per call):
 
 # Part 2: External Tools (GitHub & Packages)
 
-## githubSearchCode
+## ghSearchCode
 
 Search code across GitHub repositories.
 
@@ -285,11 +285,11 @@ Search code across GitHub repositories.
 - Narrow to `owner`/`repo` ASAP for faster, more relevant results
 - Use `path` to scope searches (e.g., `path:src/auth`)
 - Use `extension` to filter by file type
-- Combine with `githubGetFileContent` to read matched files
+- Combine with `ghGetFileContent` to read matched files
 
 ---
 
-## githubSearchRepositories
+## ghSearchRepos
 
 Find repositories by topic, language, stars.
 
@@ -311,7 +311,7 @@ Find repositories by topic, language, stars.
 
 ---
 
-## githubViewRepoStructure
+## ghViewRepoStructure
 
 Explore external repo directory layout.
 
@@ -326,13 +326,13 @@ Explore external repo directory layout.
 ```
 
 **Tips:**
-- Use BEFORE `githubGetFileContent` to understand layout
+- Use BEFORE `ghGetFileContent` to understand layout
 - Start `depth: 1` at root, drill with `depth: 2` on specific dirs
 - Identify `src/`, `lib/`, `packages/` for entry points
 
 ---
 
-## githubGetFileContent
+## ghGetFileContent
 
 Read files from external GitHub repos.
 
@@ -354,7 +354,7 @@ Read files from external GitHub repos.
 
 ---
 
-## githubSearchPullRequests
+## ghSearchPRs
 
 Search PRs by query, state, labels.
 
@@ -373,12 +373,12 @@ Search PRs by query, state, labels.
 
 **Tips:**
 - Use `state: "merged"` for understanding change history
-- Combine with `githubGetFileContent` to read files from specific commits
+- Combine with `ghGetFileContent` to read files from specific commits
 - Narrow to `owner`/`repo` for relevant results
 
 ---
 
-## packageSearch
+## npmSearch
 
 Search npm packages by name or keyword.
 
@@ -390,7 +390,7 @@ Search npm packages by name or keyword.
 ```
 
 **Tips:**
-- Use to find repo URL for a package, then follow with `githubViewRepoStructure`
+- Use to find repo URL for a package, then follow with `ghViewRepoStructure`
 - Returns package metadata: name, description, version, repo URL, downloads
 - Use FIRST when investigating an external dependency
 

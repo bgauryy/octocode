@@ -64,7 +64,6 @@ describe('trimDiffContext', () => {
   });
 
   it('trims excess context lines around changes in a long diff', () => {
-    // 35 lines: 15 context, 1 addition, 19 more context
     const lines: string[] = [];
     for (let i = 0; i < 15; i++) lines.push(` ctx${i}`);
     lines.push('+added');
@@ -72,14 +71,10 @@ describe('trimDiffContext', () => {
     const patch = lines.join('\n');
 
     const result = trimDiffContext(patch);
-    // Result must be shorter than original (far-away context trimmed)
     expect(result.length).toBeLessThan(patch.length);
-    // The changed line is retained
     expect(result).toContain('+added');
-    // Lines within DIFF_CONTEXT_LINES=2 of change are kept (indices 13,14 = ctx13,ctx14)
     expect(result).toContain('ctx13');
     expect(result).toContain('ctx14');
-    // Lines far from change become '...'
     expect(result).toContain('...');
   });
 
@@ -96,8 +91,6 @@ describe('trimDiffContext', () => {
   });
 
   it('returns original patch when trimmed version is not shorter', () => {
-    // A diff where every line is changed — no context to trim,
-    // so '...' lines are never inserted and trimmed equals original.
     const lines: string[] = [];
     for (let i = 0; i < 35; i++)
       lines.push(i % 2 === 0 ? `+add${i}` : `-del${i}`);

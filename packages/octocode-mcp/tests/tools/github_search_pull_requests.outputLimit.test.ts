@@ -101,7 +101,7 @@ function createLargePRProviderResponse(prCount: number, contentSize: number) {
   };
 }
 
-describe('githubSearchPullRequests output size limits', () => {
+describe('ghSearchPRs output size limits', () => {
   let mockServer: MockMcpServer;
   let mockProvider: {
     searchCode: ReturnType<typeof vi.fn>;

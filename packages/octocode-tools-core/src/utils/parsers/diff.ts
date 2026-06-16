@@ -17,9 +17,6 @@ export function filterPatch(
   return contextUtils.filterPatch(patch, options);
 }
 
-/**
- * Trim a raw unified diff to at most 2 context lines around each changed block.
- */
 export function trimDiffContext(patch: string): string {
   if (!patch) return '';
   return contextUtils.filterPatch(patch, {

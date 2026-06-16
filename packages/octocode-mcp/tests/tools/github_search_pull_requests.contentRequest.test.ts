@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizePullRequestContentRequest } from '../../../octocode-tools-core/src/tools/github_search_pull_requests/contentRequest.js';
 
-describe('githubSearchPullRequests content request normalization', () => {
+describe('ghSearchPRs content request normalization', () => {
   it('keeps request lean by default', () => {
     const request = normalizePullRequestContentRequest({});
     expect(request).toMatchObject({
@@ -11,7 +11,6 @@ describe('githubSearchPullRequests content request normalization', () => {
       comments: false,
       commits: false,
     });
-    // metadata field was removed — confirm it no longer exists
     expect('metadata' in request).toBe(false);
   });
 

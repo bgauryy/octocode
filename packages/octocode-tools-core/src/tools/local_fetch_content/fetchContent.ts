@@ -41,9 +41,6 @@ interface ExtractionState {
 }
 
 function sourceSizeFields(sourceChars: number, sourceBytes: number) {
-  // Omit sourceBytes when it equals sourceChars (pure ASCII) or the diff is
-  // negligible (< 2% and < 50 bytes). Only meaningful for files with heavy
-  // Unicode where byte-length diverges from char-length.
   const bytesDiff = Math.abs(sourceBytes - sourceChars);
   const significant = bytesDiff >= 50 && bytesDiff / sourceChars >= 0.02;
   return significant ? { sourceChars, sourceBytes } : { sourceChars };
@@ -142,7 +139,6 @@ async function getFileStatsOrError(
       fileStats: await stat(absolutePath),
     };
   } catch (error) {
-    // query.path is non-null: validated by validateToolPath before this runs.
     const toolError = ToolErrors.fileAccessFailed(
       query.path!,
       error instanceof Error ? error : undefined
@@ -177,7 +173,6 @@ function createLargeFileErrorResult(
   absolutePath: string,
   fileSizeKB: number
 ): LocalGetFileContentToolResult {
-  // query.path is non-null: validated by validateToolPath before this runs.
   const toolError = ToolErrors.fileTooLarge(
     query.path!,
     fileSizeKB,
@@ -195,7 +190,6 @@ function createBinaryFileErrorResult(
   query: FetchContentQuery,
   absolutePath: string
 ): LocalGetFileContentToolResult {
-  // query.path is non-null: validated by validateToolPath before this runs.
   const toolError = ToolErrors.binaryFileUnsupported(query.path!);
 
   return createErrorResult(toolError, query, {
@@ -232,7 +226,6 @@ async function isLikelyBinaryFile(filePath: string): Promise<boolean> {
     let controlBytes = 0;
     let index = 0;
     while (index < sample.length) {
-      // index < sample.length is guaranteed by the loop condition above.
       const byte = sample[index]!;
 
       if (
@@ -282,9 +275,6 @@ async function readFileContentOrError(
   } catch (error) {
     const cause = error instanceof Error ? error : undefined;
     const causeCode = (cause as (Error & { code?: string }) | undefined)?.code;
-    // query.path is non-null: validated by validateToolPath before this runs.
-    // EISDIR (path is a directory) gets the access-specific message —
-    // "Path is a directory … use localViewStructure" — not "failed to read".
     const toolError =
       causeCode === 'EISDIR'
         ? ToolErrors.fileAccessFailed(query.path!, cause)
@@ -332,7 +322,6 @@ function buildMatchExtractionState(
 ): ExtractionState {
   const result = extractMatchingLines(
     lines,
-    // matchString is present: this builder runs only on the matchString branch.
     query.matchString!,
     (query as { contextLines?: number }).contextLines ?? 5,
     query.matchStringIsRegex ?? false,
@@ -347,15 +336,13 @@ function buildMatchExtractionState(
   }
 
   const resultContent = result.lines.join('\n');
-  // GitHub-fetch parity summary; on the local surface the matched line
-  // numbers double as lspGetSemanticContent lineHint anchors.
   const contextLines = (query as { contextLines?: number }).contextLines ?? 5;
   const shownLines = result.matchingLines.slice(0, 10).join(', ');
   const extraCount =
     result.matchingLines.length > 10
       ? ` (+${result.matchingLines.length - 10} more)`
       : '';
-  const matchSummary = `Found ${result.matchCount} occurrence${result.matchCount === 1 ? '' : 's'} of "${query.matchString}" on line${result.matchingLines.length === 1 ? '' : 's'} ${shownLines}${extraCount} — all shown as ${result.matchRanges.length} slice${result.matchRanges.length === 1 ? '' : 's'}, ±${contextLines} lines of context each; these lines are lineHint anchors for lspGetSemanticContent.`;
+  const matchSummary = `Found ${result.matchCount} occurrence${result.matchCount === 1 ? '' : 's'} of "${query.matchString}" on line${result.matchingLines.length === 1 ? '' : 's'} ${shownLines}${extraCount} — all shown as ${result.matchRanges.length} slice${result.matchRanges.length === 1 ? '' : 's'}, ±${contextLines} lines of context each; these lines are lineHint anchors for lspGetSemantics.`;
   let actualStartLine: number | undefined;
   let actualEndLine: number | undefined;
   let matchRanges: Array<{ start: number; end: number }> | undefined;
@@ -366,9 +353,6 @@ function buildMatchExtractionState(
     if (firstRange && lastRange) {
       actualStartLine = firstRange.start;
       actualEndLine = lastRange.end;
-      // Omit matchRanges for a single slice — startLine/endLine already carry
-      // the range, and the field only adds value when navigating multiple hits.
-      // Mirrors githubGetFileContent behaviour.
       if (result.matchRanges.length > 1) {
         matchRanges = result.matchRanges;
       }
@@ -394,7 +378,6 @@ function buildLineRangeExtractionState(
   lines: string[],
   totalLines: number
 ): ExtractionState {
-  // Both are defined here — this builder runs only when hasLineRangeRequest() is true.
   const requestedStartLine = query.startLine!;
   const requestedEndLine = query.endLine!;
   const effectiveStartLine = Math.max(1, requestedStartLine);
@@ -501,7 +484,7 @@ function buildContentNextStepHints(
 ): string[] {
   if (extraction.matchRanges !== undefined) {
     return [
-      'Use the matched line numbers as lineHint anchors for lspGetSemanticContent, or increase contextLines for more surrounding code.',
+      'Use the matched line numbers as lineHint anchors for lspGetSemantics, or increase contextLines for more surrounding code.',
     ];
   }
 
@@ -510,7 +493,7 @@ function buildContentNextStepHints(
   }
 
   return [
-    'Use localSearchCode to find related occurrences, or lspGetSemanticContent with a symbolName + lineHint from this file.',
+    'Use localSearchCode to find related occurrences, or lspGetSemantics with a symbolName + lineHint from this file.',
   ];
 }
 
@@ -559,8 +542,6 @@ function buildSuccessResult(
     );
   }
 
-  // Proactive semantic chunking: snap the page end to the nearest block
-  // boundary before serving, so the agent gets a complete semantic unit.
   let chunkMode: 'semantic' | 'char-limit' = 'char-limit';
   let resolvedCharLength = effectiveCharLength;
   if (effectiveCharLength !== undefined) {
@@ -598,8 +579,6 @@ function buildSuccessResult(
         })
       : [];
 
-  // Reactive fallback: only needed when semantic snapping wasn't possible
-  // (char-limit mode) and the cut landed mid-block.
   let nextBlockChar: number | undefined;
   const midBlockHints: string[] = [];
   if (
@@ -620,10 +599,6 @@ function buildSuccessResult(
     }
   }
 
-  // Large-file navigation hints: when the file is large and no narrowing was
-  // requested, guide agents to use startLine for tail access and
-  // minify:"symbols" for an export index — prevents agents giving up on
-  // navigable large files.
   const largeFileHints: string[] = [];
   if (
     totalLines > 2000 &&
@@ -640,9 +615,6 @@ function buildSuccessResult(
     );
   }
 
-  // Comment-stripping hint: when minify is "standard" or "symbols" and the
-  // file has inline comments, alert agents that exact comment text requires
-  // minify:"none" + matchString to avoid false negatives.
   if (query.minify !== 'none' && totalLines > 300 && !query.matchString) {
     largeFileHints.push(
       'If you need exact comment text (// … or /* … */), test assertions, or doc-strings, re-fetch with minify:"none" and add matchString to anchor on the relevant section.'
@@ -652,9 +624,7 @@ function buildSuccessResult(
   return {
     path: queryPath,
     content: pagination.paginatedContent,
-    // Omit contentView when 'standard' (default) — absence implies standard.
     ...(contentView !== 'standard' && { contentView }),
-    // Omit isPartial when false — absence implies complete.
     ...(isPartial && { isPartial }),
     totalLines,
     ...(extraction.actualStartLine !== undefined &&
@@ -752,9 +722,6 @@ export async function fetchContent(
       return readError as LocalGetFileContentToolResult;
     }
 
-    // Redact secrets once at read so every downstream output (signatures,
-    // match/range slices, full content) is sanitized — mirrors the GitHub
-    // path's ContentSanitizer pass.
     const sanitized = ContentSanitizer.sanitizeContent(rawContent, queryPath);
     const content = sanitized.content;
     const sourceChars = content.length;
@@ -764,8 +731,6 @@ export async function fetchContent(
       : undefined;
 
     const minifyMode = query.minify;
-    // "symbols" implies the standard comment/whitespace strip on whatever
-    // content is returned (skeleton, or full-content fallback).
     const shouldMinify = minifyMode === 'standard' || minifyMode === 'symbols';
     const fallbackContentView: ContentView = shouldMinify ? 'standard' : 'none';
 
@@ -782,11 +747,6 @@ export async function fetchContent(
           queryPath
         );
 
-        // Skeletons are indexes — they always come back WHOLE in one response
-        // (paging an index is confusing). charOffset/charLength inputs are
-        // intentionally ignored for minify:"symbols", mirroring the GitHub path.
-        // isSkeleton carries the lossy "bodies omitted" signal; isPartial stays
-        // false so agents do not try to paginate a complete skeleton index.
         const symbolsHints: string[] = [contextUtils.SIGNATURES_ONLY_HINT];
         if (query.matchString) {
           symbolsHints.push(
@@ -816,8 +776,6 @@ export async function fetchContent(
       defaultOutputCharLength
     );
 
-    // Surface the redaction warning alongside whatever warnings each path
-    // already produced (content is already sanitized above).
     const withSecretWarning = (
       r: LocalGetFileContentToolResult
     ): LocalGetFileContentToolResult => {
@@ -831,9 +789,6 @@ export async function fetchContent(
     };
 
     if (extraction.earlyResult) {
-      // Apply minification to the overflow match-pagination earlyResult (has
-      // a content string) — no-matches and line-range error earlyResults have
-      // no content so the typeof guard makes this a no-op for those cases.
       const earlyContent = (extraction.earlyResult as { content?: string })
         .content;
       const minifiedEarlyResult =

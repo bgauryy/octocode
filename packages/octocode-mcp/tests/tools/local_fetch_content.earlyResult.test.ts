@@ -1,12 +1,4 @@
-/**
- * Explicit coverage for the earlyResult minification path in fetchContent.
- *
- * The earlyResult path fires when matchString extraction produces content
- * longer than the output char budget.  The minification step must apply
- * AFTER pagination (same order as the normal path) so the caller gets a
- * clean first page with comments already stripped (minify:true) or the raw
- * paginated slice (minify:false).
- */
+
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { fetchContent } from '../../../octocode-tools-core/src/tools/local_fetch_content/fetchContent.js';
 import * as fs from 'fs/promises';
@@ -24,12 +16,6 @@ vi.mock('octocode-security/pathValidator', () => ({
   },
 }));
 
-/**
- * Build a TypeScript file where EVERY line contains the token EARLYMARKER
- * AND an inline comment.  ~50 chars per line raw; minifier combines const
- * declarations (~20 chars each), so use 500 lines to exceed the test budget
- * (8 000 chars) even after minification.
- */
 function buildHugeCommentedContent(lineCount = 500): string {
   return Array.from(
     { length: lineCount },
@@ -67,7 +53,6 @@ describe('fetchContent — earlyResult minification path', () => {
       contextLines: 0,
     });
 
-    // The result is a first-page slice — pagination info must be present.
     expect(result.pagination).toBeDefined();
     expect(result.pagination?.hasMore).toBe(true);
   });
@@ -84,9 +69,7 @@ describe('fetchContent — earlyResult minification path', () => {
     });
 
     expect(result.pagination?.hasMore).toBe(true);
-    // Comments should have been stripped by minification.
     expect(result.content).not.toContain('// inline comment');
-    // The identifier itself must still be present.
     expect(result.content).toContain('EARLYMARKER');
   });
 
@@ -101,7 +84,6 @@ describe('fetchContent — earlyResult minification path', () => {
     });
 
     expect(result.pagination?.hasMore).toBe(true);
-    // Without explicit minify, comments are preserved in the raw slice.
     expect(result.content).toContain('// inline comment');
     expect(result.content).toContain('EARLYMARKER');
   });
@@ -127,7 +109,6 @@ describe('fetchContent — earlyResult minification path', () => {
     });
 
     expect(withMinify.content).not.toBe(withoutMinify.content);
-    // The minified version has comments stripped; the raw version retains them.
     expect(withMinify.content).not.toContain('// inline comment');
     expect(withoutMinify.content).toContain('// inline comment');
   });

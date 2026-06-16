@@ -76,9 +76,6 @@ export async function fetchGitHubFileContentAPI(
     };
   }
 
-  // Paginate when the content exceeds the output char budget — EXCEPT for
-  // successful minify:"symbols" skeletons: skeletons are indexes and are
-  // always returned whole (charOffset/charLength inputs are ignored for them).
   const { signaturesExtracted, ...processedData } = processedResult;
   const charOffset = params.charOffset ?? 0;
   const charLength = params.charLength;
@@ -86,15 +83,10 @@ export async function fetchGitHubFileContentAPI(
     ? processedData
     : applyContentPagination(processedData, charOffset, charLength);
 
-  // Continuation pages (charOffset > 0) skip the timestamp lookup entirely —
-  // the agent already received it on page 1, and omitting it removes per-page
-  // overhead without any loss of information.
   const isContinuationPage = (params.charOffset ?? 0) > 0;
   if (!params.noTimestamp && !isContinuationPage) {
     try {
       const octokit = await getOctokit(authInfo);
-      // Cached separately from raw content: every read variant of the same
-      // file (matchString/lines/minify modes) reuses one commits lookup.
       const timestampInfo = await withDataCache(
         generateCacheKey(
           'gh-api-file-content',

@@ -64,7 +64,7 @@ function buildStructureNavigationHint(input: {
       ? 'Structure page is partial'
       : 'Structure complete';
 
-  return `${prefix} - use githubSearchCode(owner="${input.owner}", repo="${input.repo}") to find patterns, or githubGetFileContent to read specific files.`;
+  return `${prefix} - use ghSearchCode(owner="${input.owner}", repo="${input.repo}") to find patterns, or ghGetFileContent to read specific files.`;
 }
 
 function buildNextPathHints(
@@ -185,7 +185,6 @@ export async function exploreMultipleRepositoryStructures(
           providerResult.response.data.structure
         );
         const hasContent = Object.keys(filteredStructure).length > 0;
-        // Extract truncation flag from raw provider data before mapping strips it.
         const wasTruncated = Boolean(
           providerResult.response.data.summary?.truncated
         );
@@ -224,8 +223,6 @@ export async function exploreMultipleRepositoryStructures(
         ).pagination;
         const hasMorePages = Boolean(pagination?.hasMore);
 
-        // When paginating, evidence.reason already carries "use page=N" -
-        // the provider apiHints and navigation hint would just duplicate it.
         const navigationHint =
           hasContent && !hasMorePages
             ? buildStructureNavigationHint({
@@ -241,8 +238,6 @@ export async function exploreMultipleRepositoryStructures(
 
         const truncatedReasons: string[] = [];
         if (hasMorePages) {
-          // Page-driven truncation: the next page completes the tree - a
-          // "deeper depth" suggestion would mislead the agent.
           const currentPage = pagination?.currentPage ?? 1;
           const totalPages = pagination?.totalPages;
           truncatedReasons.push(
@@ -304,8 +299,6 @@ export async function exploreMultipleRepositoryStructures(
     },
     {
       toolName: TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
-      // Hoist summary + pagination before structure so the agent sees
-      // counts and hasMore/page info before reading the full file list.
       keysPriority: [
         'resolvedBranch',
         'branchFallback',

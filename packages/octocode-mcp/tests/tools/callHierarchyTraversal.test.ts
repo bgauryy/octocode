@@ -198,9 +198,6 @@ describe('gatherIncomingCallsRecursive with contextLines', () => {
   });
 
   it('anchors content preview on the call-site line from fromRanges, not the function start', async () => {
-    // File: line0 … line4. Caller function starts at line 0.
-    // The actual call happens at line 3 (fromRanges[0].start.line = 3).
-    // With contextLines=1, preview should be centered on line 3, not line 0.
     const caller = makeItem('callerFn', filePath, 0); // function starts at line 0
     const callSiteRange = {
       start: { line: 3, character: 0 },
@@ -221,10 +218,8 @@ describe('gatherIncomingCallsRecursive with contextLines', () => {
     expect(result.calls).toHaveLength(1);
     const preview =
       (result.calls[0] as { from: CallHierarchyItem }).from.content ?? '';
-    // line3 (0-based) is "line3" — must appear, and must be marked as target (">")
     expect(preview).toContain('line3');
     expect(preview).toMatch(/>\s+4\| line3/); // 1-based line 4 = 0-based line 3
-    // line0 (function start) must NOT appear (it's outside the context window)
     expect(preview).not.toContain('line0');
   });
 

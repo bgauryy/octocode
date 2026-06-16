@@ -674,8 +674,6 @@ describe('GitHub Search Pull Requests Tool', () => {
       );
 
       const text = getTextContent(result.content);
-      // Broad (no prNumber) list results must NOT repeat the per-PR next.*
-      // menu — escalation guidance lives in the hints instead.
       expect(text).not.toContain('getBody');
       expect(text).not.toContain('getChangedFiles');
       expect(text).not.toContain('Patches not included');
@@ -759,8 +757,6 @@ describe('GitHub Search Pull Requests Tool', () => {
       expect(text).toContain('path: src/a.ts');
       expect(text).toContain('patch: patch-a');
       expect(text).not.toContain('patch-b');
-      // patches.files narrows 2 changes to 1 and the single comment fits one
-      // page — both pagination blocks are exhausted, so render drops them.
       expect(text).not.toContain('filePagination');
       expect(text).not.toContain('commentPagination');
     });

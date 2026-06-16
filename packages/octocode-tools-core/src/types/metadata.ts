@@ -78,7 +78,7 @@ export interface HintContext {
 
   language?: string;
   topic?: string;
-  /** PR tool: which fields keywordsToSearch is scoped to (title/body/comments) */
+  
   prMatch?: string[];
 }
 

@@ -43,7 +43,7 @@ describe('GitHub API Caching', () => {
     );
   });
 
-  describe('githubSearchCode caching', () => {
+  describe('ghSearchCode caching', () => {
     beforeEach(() => {
       mockOctokit.rest.search.code.mockResolvedValue({
         data: {
@@ -139,7 +139,7 @@ describe('GitHub API Caching', () => {
     });
   });
 
-  describe('githubSearchRepositories caching', () => {
+  describe('ghSearchRepos caching', () => {
     beforeEach(() => {
       mockOctokit.rest.search.repos.mockResolvedValue({
         data: {
@@ -207,7 +207,7 @@ describe('GitHub API Caching', () => {
     });
   });
 
-  describe('githubSearchPullRequests caching', () => {
+  describe('ghSearchPRs caching', () => {
     beforeEach(() => {
       mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
         data: {
@@ -280,7 +280,7 @@ describe('GitHub API Caching', () => {
     });
   });
 
-  describe('githubGetFileContent caching', () => {
+  describe('ghGetFileContent caching', () => {
     const fileContent = 'line 1\nline 2\nline 3\nline 4\nline 5';
 
     beforeEach(() => {
@@ -395,7 +395,7 @@ describe('GitHub API Caching', () => {
     });
   });
 
-  describe('githubViewRepoStructure caching', () => {
+  describe('ghViewRepoStructure caching', () => {
     beforeEach(() => {
       mockOctokit.rest.repos.getContent.mockResolvedValue({
         data: [

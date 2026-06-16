@@ -52,12 +52,9 @@ describe('pagination core', () => {
 
   it('slices from the containing line and extends through the next newline', () => {
     const text = 'first\n  second\nthird\nfourth';
-    // sliceByCharRespectLines replaced by Rust sliceContent with snapToLineBoundary
     const slice = sliceContent(text, 8, 5, { snapToLineBoundary: true });
 
-    // char 8 is inside "  second" (line starts at 6), snap start → 6
     expect(slice.charOffset).toBe(6);
-    // snap to line boundary: sliced text starts at line start
     expect(slice.text.startsWith('  second')).toBe(true);
     expect(slice.hasMore).toBe(true);
     expect(slice.nextCharOffset).toBeDefined();

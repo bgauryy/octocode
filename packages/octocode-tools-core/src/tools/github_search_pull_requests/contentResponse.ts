@@ -16,9 +16,6 @@ type QueryLike = {
   matchString?: string;
 };
 
-// Case-insensitive keyword filter applied to cached PR content BEFORE
-// pagination — lets agents search inside a large PR (file paths, patch text,
-// comment/review bodies) the same way matchString narrows file reads.
 function matchStringNeedle(query: QueryLike): string | undefined {
   const raw = query.matchString;
   if (typeof raw !== 'string') return undefined;
@@ -190,8 +187,6 @@ function pageContinuationQuery(
   });
 }
 
-// Entries already delivered in THIS response are omitted — the menu only
-// offers escalations the agent does not have yet.
 function nextCalls(
   query: QueryLike,
   prNumber: number,
@@ -284,8 +279,6 @@ function shapeComments(
   );
   return {
     comments: items.map(comment => {
-      // Each comment body always starts at offset 0 — charOffset from the
-      // query is for the PR body continuation only, not per-comment pagination.
       const body = paginateText(
         typeof comment.body === 'string' ? comment.body : '',
         0,
@@ -300,8 +293,6 @@ function shapeComments(
         ...(comment.in_reply_to_id != null
           ? { in_reply_to_id: comment.in_reply_to_id }
           : {}),
-        // bodyPreview is only a fallback — when the full (paginated) body is
-        // included it would duplicate the same text verbatim.
         ...(body
           ? { body: body.content, bodyPagination: body.pagination }
           : {
@@ -332,8 +323,6 @@ function shapeReviews(
     : allReviews;
   return {
     reviews: reviews.map(review => {
-      // Paginate the review body. charOffset=0 always (review bodies start
-      // fresh — charOffset is for PR body continuation only).
       const rawBody = typeof review.body === 'string' ? review.body : '';
       const paginated = paginateText(
         rawBody || undefined,
@@ -413,9 +402,6 @@ function shapeFileSurfaces(
   );
 
   const includePatch = request.patches.mode !== 'none';
-  // When matchString is active, skip minification so the displayed patch
-  // contains the matched text. Minification could otherwise strip the very
-  // lines that caused the file to match (e.g. comment-only diff lines).
   const effectiveMinify = shouldMinify && !needle;
   const shaped = items.map(change => {
     const base = shapeFileChange(change, false);
@@ -622,7 +608,6 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
-  // shouldMinify defaults false here — callers pass the schema-resolved minify value.
   shouldMinify = false,
   showContentMap?: boolean
 ): Record<string, unknown> {
@@ -632,8 +617,6 @@ export function shapePullRequestForContent(
         (() => {
           const raw = typeof pr.body === 'string' ? pr.body : undefined;
           if (!raw) return undefined;
-          // Apply markdown minification when the standard (token-saving) view
-          // is requested. minify:"none" opts out for exact-text quoting.
           return shouldMinify ? contextUtils.minifyMarkdownCore(raw) : raw;
         })(),
         query.charOffset ?? 0,
@@ -650,10 +633,6 @@ export function shapePullRequestForContent(
   const emitContentMap =
     showContentMap !== undefined ? showContentMap : hasContent;
 
-  // List searches are lean unless verbose=true: url is derivable from
-  // owner/repo/number, bodyPreview belongs to the detail view, updatedAt and
-  // closedAt-when-merged are near-duplicates of mergedAt. prNumber detail
-  // fetches always emit the full shape.
   const isDetailFetch = (query as { prNumber?: number }).prNumber !== undefined;
   const fullShape =
     isDetailFetch || (query as { verbose?: boolean }).verbose === true;
@@ -663,18 +642,15 @@ export function shapePullRequestForContent(
     title: pr.title,
     ...(fullShape ? { url: pr.url } : {}),
     state: pr.state,
-    // draft only emitted when true (false is the normal case, wastes tokens)
     ...(pr.draft ? { draft: pr.draft } : {}),
     author: pr.author,
     ...(Array.isArray(pr.assignees) && pr.assignees.length
       ? { assignees: pr.assignees }
       : {}),
-    // labels omitted when empty
     ...(Array.isArray(pr.labels) && (pr.labels as unknown[]).length
       ? { labels: pr.labels }
       : {}),
     targetBranch: pr.targetBranch,
-    // verbose: expose branch details and SHA for precise checkout/diff context
     ...(fullShape
       ? {
           sourceBranch: pr.sourceBranch,
@@ -687,11 +663,8 @@ export function shapePullRequestForContent(
     mergedAt: pr.mergedAt,
     ...(pr.commentsCount ? { commentsCount: pr.commentsCount } : {}),
     changedFilesCount: pr.changedFilesCount,
-    // additions/deletions omitted when zero
     ...(pr.additions ? { additions: pr.additions } : {}),
     ...(pr.deletions ? { deletions: pr.deletions } : {}),
-    // bodyPreview is only a fallback — omitted when the full (paginated)
-    // body is part of this response.
     ...(fullShape && !body
       ? {
           bodyPreview: compactBody(
@@ -704,8 +677,6 @@ export function shapePullRequestForContent(
 
   const shaped: Record<string, unknown> = {
     ...metadata,
-    // When body was explicitly requested but the PR has no description,
-    // emit bodyEmpty:true so the agent knows it was fetched (not just missing).
     ...(request.body
       ? body
         ? { body: body.content, bodyPagination: body.pagination }
@@ -716,7 +687,6 @@ export function shapePullRequestForContent(
     ...shapeReviews(pr, query, request),
     ...shapeCommits(pr, query, request),
     ...(pr.reviewSummary ? { reviewSummary: pr.reviewSummary } : {}),
-    // Warnings from bot filtering, secret redaction — must reach agent output.
     ...(Array.isArray(pr.sanitizationWarnings) &&
     (pr.sanitizationWarnings as unknown[]).length > 0
       ? { sanitizationWarnings: pr.sanitizationWarnings }

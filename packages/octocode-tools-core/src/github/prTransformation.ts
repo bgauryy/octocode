@@ -23,7 +23,7 @@ interface RawPRData {
   merged_at?: string | null;
   head?: { ref?: string; sha?: string };
   base?: { ref?: string; sha?: string };
-  /** Total PR comment count from GitHub API (broad search results) */
+  
   comments?: number | null;
 }
 
@@ -32,8 +32,6 @@ export function createBasePRTransformation(item: RawPRData): {
   sanitizationWarnings: Set<string>;
 } {
   const titleSanitized = ContentSanitizer.sanitizeContent(item.title ?? '');
-  // Body is sanitized but NOT minified here — callers apply minifyMarkdownCore
-  // based on the minify setting so minify:"none" can return the raw text.
   const bodySanitized = item.body
     ? ContentSanitizer.sanitizeContent(item.body)
     : { content: undefined, warnings: [] };
@@ -60,7 +58,6 @@ export function createBasePRTransformation(item: RawPRData): {
     closed_at: item.closed_at ?? null,
     url: item.html_url,
     comments: [],
-    // Capture the total from GitHub API (search results have this as a number)
     ...(typeof item.comments === 'number' && item.comments > 0
       ? { total_comment_count: item.comments }
       : {}),
@@ -76,9 +73,6 @@ export function createBasePRTransformation(item: RawPRData): {
   return { prData, sanitizationWarnings };
 }
 
-// Use the configurable output limit so broad-search previews match the
-// same default as other content tools (20 000 chars). Avoids spurious
-// "body paginated" warnings for normal-sized PR descriptions.
 import { getOutputCharLimit } from '../utils/pagination/charLimit.js';
 const SEARCH_RESULT_BODY_CHAR_LENGTH = getOutputCharLimit();
 const SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH = Math.round(
@@ -141,9 +135,6 @@ export function formatPRForResponse(
   const bodyCharLength = options.charLength ?? SEARCH_RESULT_BODY_CHAR_LENGTH;
   const commentCharLength =
     options.charLength ?? SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH;
-  // Broad-search results are always minified (summary view, agent has no per-PR
-  // minify control here). minify:"none" only takes effect in the detail path
-  // via shapePullRequestForContent.
   const rawBody =
     typeof pr.body === 'string'
       ? contextUtils.minifyMarkdownCore(pr.body)
@@ -154,18 +145,12 @@ export function formatPRForResponse(
     bodyCharLength,
     !options.includeFullBody
   );
-  // Sort so review_inline comments appear before discussion comments — they are
-  // the most semantically rich (include file + line) and most often confused
-  // with the total comment count.
   const comments = (pr.comments ?? []).sort((a, b) => {
     const aIsInline = a.commentType === 'review_inline' ? 0 : 1;
     const bIsInline = b.commentType === 'review_inline' ? 0 : 1;
     return aIsInline - bIsInline;
   });
 
-  // Pre-compute breakdown so it can be surfaced immediately in the output —
-  // before the flat comment_details array — preventing agents from confusing
-  // the total count with the inline review count.
   const inlineReviewCount = comments.filter(
     c => c.commentType === 'review_inline'
   ).length;
@@ -195,9 +180,6 @@ export function formatPRForResponse(
     (comments.length > visibleComments.length ||
       commentDetails.some(comment => 'body_pagination' in comment));
   const paginationWarnings = [
-    // Only warn about body pagination when the full body was explicitly
-    // requested (includeFullBody:true). Broad-search previews are intentionally
-    // partial — agents should use prNumber to get the full body.
     ...(body.pagination && options.includeFullBody
       ? [
           `PR body paginated at charOffset=${body.pagination.charOffset}, charLength=${body.pagination.charLength}, totalChars=${body.pagination.totalChars}. Re-call with prNumber and charOffset=${body.pagination.nextCharOffset ?? body.pagination.totalChars} to continue this body.`,
@@ -222,7 +204,6 @@ export function formatPRForResponse(
     closed_at: pr.closed_at ?? undefined,
     merged_at: pr.merged_at,
     author: pr.author,
-    // Omit labels when empty — no labels is the normal case and wastes tokens
     ...(pr.labels?.length
       ? { labels: pr.labels.map(name => ({ id: 0, name, color: '' })) }
       : {}),
@@ -232,10 +213,7 @@ export function formatPRForResponse(
     ...(pr.base_sha ? { base_sha: pr.base_sha } : {}),
     body: body.value,
     ...(body.pagination ? { body_pagination: body.pagination } : {}),
-    // Prefer the total from GitHub API; fall back to fetched comment count.
     comments: pr.total_comment_count ?? comments.length,
-    // Breakdown of comment types — prevents confusing the total with the
-    // inline review count. Omitted when there are no comments at all.
     ...(comments.length > 0 && {
       comment_details_breakdown: {
         inline_review: inlineReviewCount,
@@ -313,9 +291,6 @@ export function applyPartialContentFilter(
       }
     | undefined;
   const patches = content?.patches;
-  // reviewMode:'full' implies all patches when no explicit patches mode is
-  // set — mirrors normalizePatches() in contentRequest.ts so the fetch,
-  // filter, and render layers agree.
   const mode = patches?.mode ?? (params.reviewMode === 'full' ? 'all' : 'none');
   const metadataMap = new Map(
     patches?.ranges?.map(range => [range.file, range]) || []

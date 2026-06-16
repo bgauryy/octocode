@@ -23,7 +23,7 @@ export const hints: ToolHintGenerators = {
     const variations = buildVariations(name);
     return [
       'Check spelling and remove any version suffix.',
-      'Not on npm? Use `githubSearchRepositories` instead.',
+      'Not on npm? Use `ghSearchRepos` instead.',
       ...(variations.length ? [`Try: ${variations.join(', ')}`] : []),
     ];
   },
@@ -36,7 +36,7 @@ export const hints: ToolHintGenerators = {
     }
     if (ctx.originalError) {
       return [
-        'npm registry unreachable — use `githubSearchRepositories` instead.',
+        'npm registry unreachable — use `ghSearchRepos` instead.',
       ];
     }
     return [];

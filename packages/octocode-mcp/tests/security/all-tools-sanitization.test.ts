@@ -73,8 +73,7 @@ function createProxyChain() {
 }
 
 const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
-  // GitHub tools
-  githubSearchCode: () => ({
+  ghSearchCode: () => ({
     content: [
       {
         type: 'text',
@@ -106,7 +105,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  githubGetFileContent: () => ({
+  ghGetFileContent: () => ({
     content: [
       {
         type: 'text',
@@ -135,7 +134,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  githubViewRepoStructure: () => ({
+  ghViewRepoStructure: () => ({
     content: [
       {
         type: 'text',
@@ -155,7 +154,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  githubSearchRepositories: () => ({
+  ghSearchRepos: () => ({
     content: [
       {
         type: 'text',
@@ -175,7 +174,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  githubSearchPullRequests: () => ({
+  ghSearchPRs: () => ({
     content: [
       {
         type: 'text',
@@ -219,7 +218,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  packageSearch: () => ({
+  npmSearch: () => ({
     content: [
       {
         type: 'text',
@@ -238,7 +237,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  githubCloneRepo: () => ({
+  ghCloneRepo: () => ({
     content: [
       {
         type: 'text',
@@ -251,7 +250,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  // Local tools
   localSearchCode: () => ({
     content: [
       {
@@ -359,8 +357,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  // LSP tools
-  lspGetSemanticContent: () => ({
+  lspGetSemantics: () => ({
     content: [
       {
         type: 'text',
@@ -584,7 +581,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
         ],
       } satisfies CallToolResult);
 
-      const result = await registerAndCall('githubSearchCode', handler);
+      const result = await registerAndCall('ghSearchCode', handler);
       assertNoSecrets(
         (result.content[0] as { type: 'text'; text: string }).text,
         'first text'

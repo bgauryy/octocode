@@ -350,9 +350,9 @@ describe('ResearchResponse.repoStructure', () => {
   });
 });
 
-describe('ResearchResponse.packageSearch', () => {
+describe('ResearchResponse.npmSearch', () => {
   it('formats npm package results', () => {
-    const result = ResearchResponse.packageSearch({
+    const result = ResearchResponse.npmSearch({
       packages: [
         { name: 'express', version: '4.18.2', description: 'Fast web framework' },
         { name: 'koa', version: '2.14.1', description: 'Expressive middleware' },
@@ -367,7 +367,7 @@ describe('ResearchResponse.packageSearch', () => {
   });
 
   it('handles empty results', () => {
-    const result = ResearchResponse.packageSearch({
+    const result = ResearchResponse.npmSearch({
       packages: [],
       registry: 'npm',
       query: 'nonexistent-package',
@@ -378,7 +378,7 @@ describe('ResearchResponse.packageSearch', () => {
   });
 
   it('handles non-string description gracefully', () => {
-    const result = ResearchResponse.packageSearch({
+    const result = ResearchResponse.npmSearch({
       packages: [
         { name: 'test-pkg', version: '1.0.0', description: undefined },
       ],
@@ -389,7 +389,7 @@ describe('ResearchResponse.packageSearch', () => {
   });
 
   it('handles numeric description gracefully', () => {
-    const result = ResearchResponse.packageSearch({
+    const result = ResearchResponse.npmSearch({
       packages: [
         { name: 'test-pkg', version: '1.0.0', description: 123 as unknown as string },
       ],

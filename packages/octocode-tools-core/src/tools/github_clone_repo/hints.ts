@@ -12,7 +12,7 @@ export const hints: ToolHintGenerators = {
     if (sparsePath) {
       return [
         'Omit `sparsePath` to check out the full repo.',
-        'Confirm path with `githubViewRepoStructure` before cloning sparse.',
+        'Confirm path with `ghViewRepoStructure` before cloning sparse.',
       ];
     }
     return [];
@@ -22,7 +22,7 @@ export const hints: ToolHintGenerators = {
     if (ctx.isRateLimited) {
       return [
         `GitHub API rate limited.${ctx.retryAfter ? ` Retry after ${ctx.retryAfter}s.` : ' Wait before retrying.'}`,
-        'Use `githubViewRepoStructure` to inspect the tree without cloning.',
+        'Use `ghViewRepoStructure` to inspect the tree without cloning.',
       ];
     }
     if (ctx.errorType === 'permission') {

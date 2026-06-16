@@ -28,7 +28,6 @@ const OPTIONS_WITH_VALUES = new Set([
   'responseCharOffset',
   'target',
   'backup-path',
-  // Research command options (get, search, tree, files, pr, repo)
   'query',
   'state',
   'author',

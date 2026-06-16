@@ -648,13 +648,13 @@ describe('Tools Utils', () => {
         error,
         query,
         'Package search failed',
-        'packageSearch'
+        'npmSearch'
       );
 
       expect(result.status).toBe('error');
       expect(result.error).toBe('Package search failed: Tool execution failed');
       expect(logSessionError).toHaveBeenCalledWith(
-        'packageSearch',
+        'npmSearch',
         expect.any(String)
       );
     });

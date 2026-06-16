@@ -88,7 +88,7 @@ describe('research-output', () => {
 
     it('should format finding as markdown', async () => {
       const finding: ResearchFinding = {
-        tool: 'mcp__octocode-local__githubSearchCode',
+        tool: 'mcp__octocode-local__ghSearchCode',
         timestamp: '2025-01-05T10:00:00.000Z',
         query: 'pattern search',
         summary: 'Found 10 matches',
@@ -97,7 +97,7 @@ describe('research-output', () => {
       await appendResearchFinding(tempDir, finding);
 
       const content = readFindings(tempDir);
-      expect(content).toContain('## githubSearchCode');
+      expect(content).toContain('## ghSearchCode');
       expect(content).toContain('**Time:**');
       expect(content).toContain('**Query:**');
       expect(content).toContain('**Result:**');
@@ -294,8 +294,8 @@ describe('research-output', () => {
         'localSearchCode'
       );
       expect(
-        getShortToolName('mcp__octocode-local__githubGetFileContent')
-      ).toBe('githubGetFileContent');
+        getShortToolName('mcp__octocode-local__ghGetFileContent')
+      ).toBe('ghGetFileContent');
     });
 
     it('should return original name if not MCP format', () => {

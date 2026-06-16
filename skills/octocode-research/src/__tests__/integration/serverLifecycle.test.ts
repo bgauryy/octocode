@@ -31,14 +31,14 @@ vi.mock('../../index.js', () => {
     localGetFileContent: vi.fn().mockResolvedValue(r),
     localFindFiles: vi.fn().mockResolvedValue(r),
     localViewStructure: vi.fn().mockResolvedValue(r),
-    githubSearchCode: vi.fn().mockResolvedValue(r),
-    githubGetFileContent: vi.fn().mockResolvedValue(r),
-    githubViewRepoStructure: vi.fn().mockResolvedValue(r),
-    githubSearchRepositories: vi.fn().mockResolvedValue(r),
-    githubSearchPullRequests: vi.fn().mockResolvedValue(r),
-    githubCloneRepo: vi.fn().mockResolvedValue(r),
-    lspGetSemanticContent: vi.fn().mockResolvedValue(r),
-    packageSearch: vi.fn().mockResolvedValue(r),
+    ghSearchCode: vi.fn().mockResolvedValue(r),
+    ghGetFileContent: vi.fn().mockResolvedValue(r),
+    ghViewRepoStructure: vi.fn().mockResolvedValue(r),
+    ghSearchRepos: vi.fn().mockResolvedValue(r),
+    ghSearchPRs: vi.fn().mockResolvedValue(r),
+    ghCloneRepo: vi.fn().mockResolvedValue(r),
+    lspGetSemantics: vi.fn().mockResolvedValue(r),
+    npmSearch: vi.fn().mockResolvedValue(r),
   };
 });
 

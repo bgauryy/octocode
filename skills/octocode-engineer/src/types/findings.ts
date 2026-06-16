@@ -18,7 +18,7 @@ interface SuggestedFix {
 }
 
 interface LspHint {
-  tool: 'lspGetSemanticContent';
+  tool: 'lspGetSemantics';
   semanticType: 'definition' | 'references' | 'callers' | 'callees' | 'callHierarchy';
   symbolName: string;
   lineHint: number;

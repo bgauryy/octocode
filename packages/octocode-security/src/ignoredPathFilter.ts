@@ -6,10 +6,6 @@ let _compiledPathRegex: RegExp | null = null;
 let _compiledFileRegex: RegExp | null = null;
 let _cachedVersion = -1;
 
-// Named capture groups (e.g. `(?<name>...)`) cannot be combined with `|` when
-// two or more patterns share the same group name — JavaScript throws a
-// SyntaxError at construction time.  Strip named captures to anonymous groups
-// before joining so the mega-regex is always safe to construct.
 function stripNamedGroups(source: string): string {
   return source.replace(/\(\?<[^>]+>/g, '(?:');
 }
@@ -72,8 +68,6 @@ export function shouldIgnorePath(pathToCheck: string): boolean {
 }
 
 function normalizePathForIgnoreMatching(normalizedPath: string): string {
-  // macOS canonicalizes /var/... to /private/var/..., but "private" here is a
-  // system path prefix, not a user secret directory named "private".
   if (normalizedPath === '/private/var') return '/var';
   if (normalizedPath.startsWith('/private/var/')) {
     return normalizedPath.slice('/private'.length);

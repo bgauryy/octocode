@@ -235,7 +235,7 @@ async function fetchDocumentSymbols(
   }> = [];
 
   for (const batch of chunk(filePaths, 5)) {
-    const result = await executeDirectTool('lspGetSemanticContent', {
+    const result = await executeDirectTool('lspGetSemantics', {
       queries: batch.map(filePath => ({
         uri: path.resolve(filePath),
         type: 'documentSymbols',

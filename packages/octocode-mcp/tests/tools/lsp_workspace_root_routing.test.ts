@@ -32,7 +32,7 @@ describe('LSP workspace root routing', () => {
   });
 
   it.each([['definition'], ['references'], ['callers']] as const)(
-    'passes the inferred root to lspGetSemanticContent type=%s',
+    'passes the inferred root to lspGetSemantics type=%s',
     async type => {
       const managerModule = await import('octocode-lsp/manager');
 
@@ -41,10 +41,10 @@ describe('LSP workspace root routing', () => {
       );
       vi.spyOn(managerModule, 'acquirePooledClient').mockResolvedValue(null);
 
-      const { executeLspGetSemanticContent } =
+      const { executeLspGetSemantics } =
         await import('../../../octocode-tools-core/src/tools/lsp/semantic_content/execution.js');
 
-      await executeLspGetSemanticContent({
+      await executeLspGetSemantics({
         queries: [
           {
             uri: externalFile,

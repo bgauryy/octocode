@@ -24,7 +24,7 @@ describe('bulk schemas defer mutex to per-query (no whole-batch rejection)', () 
     expect(r.success).toBe(true);
   });
 
-  it('githubGetFileContent bulk accepts a mutex-violating query alongside valid ones', () => {
+  it('ghGetFileContent bulk accepts a mutex-violating query alongside valid ones', () => {
     const r = FileContentBulkQueryLocalSchema.safeParse({
       queries: [
         {

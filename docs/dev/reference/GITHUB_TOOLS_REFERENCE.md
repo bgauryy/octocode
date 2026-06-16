@@ -11,7 +11,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
 | `ENABLE_LOCAL` | Required for clone and directory fetch workflows. |
-| `ENABLE_CLONE` | Enables `githubCloneRepo` and `githubGetFileContent(type="directory")`. |
+| `ENABLE_CLONE` | Enables `ghCloneRepo` and `ghGetFileContent(type="directory")`. |
 
 ## Common Contract
 
@@ -38,15 +38,15 @@ Most tools accept up to 5 queries per call. Use `octocode tools <toolName>` for 
 
 | Need | Tool |
 |------|------|
-| Search code across GitHub | `githubSearchCode` |
-| Read a file or fetch a directory | `githubGetFileContent` |
-| Browse a repository tree | `githubViewRepoStructure` |
-| Discover repositories | `githubSearchRepositories` |
-| Search PR history or inspect a PR | `githubSearchPullRequests` |
-| Materialize a repo/subtree locally | `githubCloneRepo` |
-| Resolve npm package to source repo | `packageSearch` |
+| Search code across GitHub | `ghSearchCode` |
+| Read a file or fetch a directory | `ghGetFileContent` |
+| Browse a repository tree | `ghViewRepoStructure` |
+| Discover repositories | `ghSearchRepos` |
+| Search PR history or inspect a PR | `ghSearchPRs` |
+| Materialize a repo/subtree locally | `ghCloneRepo` |
+| Resolve npm package to source repo | `npmSearch` |
 
-## `githubSearchCode`
+## `ghSearchCode`
 
 Search code or paths across GitHub.
 
@@ -76,7 +76,7 @@ Rules:
 - Use a few distinctive identifiers.
 - Avoid stacking too many filters at once.
 
-## `githubGetFileContent`
+## `ghGetFileContent`
 
 Read one GitHub file or fetch a directory to disk.
 
@@ -110,7 +110,7 @@ Examples:
 { "owner": "vercel", "repo": "next.js", "path": "packages/next/src", "type": "directory" }
 ```
 
-## `githubViewRepoStructure`
+## `ghViewRepoStructure`
 
 Browse a repository tree.
 
@@ -132,7 +132,7 @@ Examples:
 { "owner": "facebook", "repo": "react", "path": "packages", "depth": 2, "itemsPerPage": 100 }
 ```
 
-## `githubSearchRepositories`
+## `ghSearchRepos`
 
 Discover repositories.
 
@@ -157,7 +157,7 @@ Examples:
 { "owner": "openai" }
 ```
 
-## `githubSearchPullRequests`
+## `ghSearchPRs`
 
 Find PRs or inspect one PR.
 
@@ -202,7 +202,7 @@ Rules:
 - Avoid broad comment searches until title/body search fails.
 - Request selected patches instead of full PR content for large PRs.
 
-## `githubCloneRepo`
+## `ghCloneRepo`
 
 Clone a repository or sparse subtree into Octocode's local cache.
 
@@ -228,10 +228,10 @@ Examples:
 Rules:
 
 - Use `sparse_path` for large monorepos.
-- Use `githubGetFileContent` when you only need one file.
+- Use `ghGetFileContent` when you only need one file.
 - Cached clones are reused.
 
-## `packageSearch`
+## `npmSearch`
 
 Resolve npm packages to metadata and source repositories.
 
@@ -250,26 +250,26 @@ Examples:
 { "name": "typescript eslint", "page": 2 }
 ```
 
-Use `packageSearch` before GitHub repo search when the user gives a package name.
+Use `npmSearch` before GitHub repo search when the user gives a package name.
 
 ## Workflows
 
 | Task | Flow |
 |------|------|
-| Understand a package | `packageSearch` -> `githubViewRepoStructure` -> `githubSearchCode` -> `githubGetFileContent` |
-| Find examples of a pattern | `githubSearchCode` -> `githubGetFileContent` |
-| Explore a repo | `githubViewRepoStructure` -> `githubGetFileContent(README)` -> `githubSearchCode` |
-| Explain why code changed | `githubSearchCode` -> `githubSearchPullRequests` -> direct `prNumber` content |
-| Deep local analysis | `githubCloneRepo` -> local tools |
+| Understand a package | `npmSearch` -> `ghViewRepoStructure` -> `ghSearchCode` -> `ghGetFileContent` |
+| Find examples of a pattern | `ghSearchCode` -> `ghGetFileContent` |
+| Explore a repo | `ghViewRepoStructure` -> `ghGetFileContent(README)` -> `ghSearchCode` |
+| Explain why code changed | `ghSearchCode` -> `ghSearchPRs` -> direct `prNumber` content |
+| Deep local analysis | `ghCloneRepo` -> local tools |
 
 ## Rules
 
 - Use GitHub tools for remote repositories, not files already on disk.
-- Use `packageSearch` for known npm package names.
-- Use `githubViewRepoStructure` before reading unknown paths.
+- Use `npmSearch` for known npm package names.
+- Use `ghViewRepoStructure` before reading unknown paths.
 - Use `matchString`, line ranges, or `signaturesOnly` instead of `fullContent` for large files.
 - Use PR metadata first, then selected content.
-- Use `githubCloneRepo` only when local analysis is worth the clone cost.
+- Use `ghCloneRepo` only when local analysis is worth the clone cost.
 
 Related docs:
 

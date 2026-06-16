@@ -20,7 +20,6 @@ import { GITHUB_STRUCTURE_DEFAULTS } from './github_view_repo_structure/constant
 import { FileContentQueryLocalSchema } from './github_fetch_content/scheme.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-// `minify` defaults to 'standard' via the Zod schema; the mapper passes it through.
 type LocalFileContentQuery = z.infer<typeof FileContentQueryLocalSchema> & {
   minify: import('../scheme/fields.js').MinifyMode;
 };
@@ -127,7 +126,7 @@ export interface CodeSearchGroupedMatch {
 
   matchIndices?: Array<{ start: number; end: number }>;
 
-  /** verbose mode: html URL of the matched file. */
+  
   url?: string;
 }
 
@@ -235,8 +234,6 @@ export function mapCodeSearchProviderResult(
     let firstMatchForItem = true;
     let emittedMatchForItem = false;
     for (const m of item.matches) {
-      // Empty snippet text: matchIndices would point into nothing — drop the
-      // match entry entirely (the file falls back to a pathOnly entry below).
       if (!m.context) continue;
       const match: CodeSearchGroupedMatch = {
         path: item.path,
@@ -248,7 +245,6 @@ export function mapCodeSearchProviderResult(
           end,
         }));
       }
-      // verbose: emit the file URL once per file, not per fragment
       if (verbose && firstMatchForItem && itemExtra.url) {
         match.url = itemExtra.url;
         firstMatchForItem = false;
@@ -358,11 +354,6 @@ export function mapRepoSearchProviderRepositories(
   });
 }
 
-/**
- * Quote a PR keyword for GitHub search if it contains whitespace and is not
- * already double-quoted. GitHub treats space-separated bare words as AND
- * (not a phrase); wrapping in quotes produces an exact-phrase search.
- */
 function quotePRKeyword(kw: string): string {
   if (kw.startsWith('"')) return kw; // already quoted
   if (/\s/.test(kw)) return `"${kw.replace(/"/g, '\\"')}"`;
@@ -370,10 +361,6 @@ function quotePRKeyword(kw: string): string {
 }
 
 export function mapPullRequestToolQuery(query: PartialPRQuery) {
-  // Build the free-text portion:
-  //   1. keywordsToSearch terms — each multi-word keyword is phrase-quoted.
-  //   2. query (raw GitHub syntax) — appended verbatim so agents can pass
-  //      pre-formatted qualifiers like '"Partial Prerendering"'.
   const keywordParts = (query.keywordsToSearch ?? [])
     .filter(k => k.trim())
     .map(quotePRKeyword);
@@ -592,8 +579,6 @@ export function mapPullRequestProviderResultData(
     pullRequests,
     resultData: {
       pull_requests: pullRequests,
-      // pagination.totalMatches already carries the count — only emit
-      // total_count when there is no pagination block to read it from.
       ...(pagination
         ? { pagination }
         : { total_count: data.totalCount || pullRequests.length }),
@@ -716,10 +701,6 @@ export function mapRepoStructureProviderResult(
     requestedBranch !== actualBranch &&
     requestedBranch !== 'HEAD';
 
-  // Convert the directory map to a sorted array so that:
-  // (a) '.' (root) is always first,
-  // (b) directory names (e.g. 'hints') can never collide with top-level
-  //     YAML keys that share names with response fields.
   const structureArray = Object.entries(filteredStructure)
     .sort(([a], [b]) => (a === '.' ? -1 : b === '.' ? 1 : a.localeCompare(b)))
     .map(([dir, entry]) => ({
@@ -730,15 +711,12 @@ export function mapRepoStructureProviderResult(
 
   const resultData: Record<string, unknown> = {
     structure: structureArray,
-    // Emit only the counts — truncated/filtered are surfaced via evidence, not here
     summary: {
       totalFiles: data.summary.totalFiles,
       totalFolders: data.summary.totalFolders,
     },
   };
 
-  // Echo the served ref consistently — also when the caller passed an
-  // explicit branch/tag/SHA, so every response states which ref it reflects.
   if (actualBranch) {
     resultData.resolvedBranch = actualBranch;
   }
@@ -754,8 +732,6 @@ export function mapRepoStructureProviderResult(
     };
   }
 
-  // Only emit pagination when there are actually multiple pages — a single complete
-  // page adds no information beyond summary.totalFiles / totalFolders.
   if (
     data.pagination &&
     (data.pagination.hasMore || data.pagination.totalPages > 1)

@@ -29,8 +29,6 @@ import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
 type FileContentInputQuery = z.input<typeof FileContentQueryLocalSchema>;
 
-// `minify` and `contextLines` default via the Zod schema; callers may omit
-// them, but execution after safeParse always uses the parsed/defaulted query.
 type PartialFileContentQuery = z.output<typeof FileContentQueryLocalSchema> & {
   minify: MinifyMode;
 };
@@ -88,7 +86,7 @@ async function handleDirectoryFetch(
     return handleCatchError(
       new Error(
         'Directory fetch requires ENABLE_LOCAL=true and ENABLE_CLONE=true. ' +
-          'Directory mode saves files to disk using the same cache as githubCloneRepo.'
+          'Directory mode saves files to disk using the same cache as ghCloneRepo.'
       ),
       query,
       'Clone not enabled',

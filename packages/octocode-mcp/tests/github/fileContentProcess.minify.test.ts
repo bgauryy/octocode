@@ -103,8 +103,6 @@ describe('processFileContentAPI — minify mode', () => {
   });
 
   it('minify:"symbols" strips inline comments from import lines in the skeleton', async () => {
-    // Import lines are always kept verbatim by extractSignatures; the symbols
-    // view applies standard minification on top (legacy default behavior).
     const content = [
       'import { useState } from "react"; // state hook',
       'import { useEffect } from "react"; // effect hook',
@@ -135,8 +133,6 @@ describe('processFileContentAPI — minify mode', () => {
   });
 
   it('minify:"symbols" keeps the shebang in a shell skeleton', async () => {
-    // The skeleton gutter (`NNN| #!/usr/bin/env bash`) puts the shebang
-    // mid-line; the hash inline-comment stripper must not eat it.
     const shContent = [
       '#!/usr/bin/env bash',
       '',
@@ -183,7 +179,6 @@ describe('processFileContentAPI — minify mode', () => {
       'symbols'
     );
     expect(result.signaturesExtracted).toBeUndefined();
-    // contentView omitted when 'standard' — absence implies standard
     expect(result.contentView).toBeUndefined();
     expect(result.isSkeleton).toBeUndefined();
     expect(result.content).toContain('name=octocode');
@@ -203,9 +198,6 @@ describe('processFileContentAPI — minify mode', () => {
 
 describe('applyContentPagination — chars mode (not bytes)', () => {
   it('does NOT paginate when charCount <= limit even if byteCount > limit', () => {
-    // '中' is a BMP character: 1 UTF-16 code unit (JS .length = 1) but 3 UTF-8 bytes.
-    // 50 CJK chars = 50 JS chars (< limit=100) but 150 UTF-8 bytes (> limit=100).
-    // Old (bytes) code would have paginated; new (chars) code must NOT.
     const cjk = '中';
     const content = cjk.repeat(50);
     expect(content.length).toBe(50); // 50 JS chars
@@ -243,9 +235,6 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
   });
 
   it('pagination output contains only char fields — no byteOffset/byteLength/totalBytes', () => {
-    // Byte fields must be absent: consumers must use charOffset as continuation
-    // cursor, not byteOffset (which would silently produce wrong results on
-    // CJK/emoji content where chars ≠ bytes).
     const content = 'x'.repeat(200);
     const data = {
       owner: 'test',
@@ -267,8 +256,6 @@ describe('applyContentPagination — chars mode (not bytes)', () => {
   });
 
   it('charOffset advances by chars, not bytes', () => {
-    // Build content: 30 CJK chars (3 bytes each) then 100 ASCII chars.
-    // charOffset=30 should skip exactly the 30 CJK chars.
     const cjk = '中'.repeat(30); // 30 chars, 90 bytes
     const ascii = 'x'.repeat(100);
     const content = cjk + ascii;

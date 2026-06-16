@@ -87,8 +87,6 @@ function buildFindFilesHints(ctx: {
     activeFilters.push(
       `entryType: ${q.entryType === 'f' ? 'files' : q.entryType === 'd' ? 'directories' : String(q.entryType)}`
     );
-  // Time filters with an invalid format are skipped by the command builder —
-  // annotate them so the hint doesn't assert a filter that never ran.
   const timeFilterNote = (value: unknown): string =>
     typeof value === 'string' && !VALID_TIME_STRING_RE.test(value)
       ? ' (skipped: invalid format)'
@@ -346,8 +344,6 @@ function formatForOutput(
       }
       if (f.permissions) result.permissions = f.permissions;
     }
-    // `modified` may be collected solely to drive sortBy=modified (the
-    // default sort) — display stays gated on showFileLastModified.
     if (showLastModified && f.modified) {
       result.modified = f.modified;
     }

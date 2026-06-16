@@ -55,7 +55,6 @@ describe('Response Utilities', () => {
       const result = createResult({ data });
 
       const yaml = getTextContent(result.content);
-      // Empty hints array is removed
       const expectedYaml = `data:\n  message: Hello\n`;
 
       expect(yaml).toEqual(expectedYaml);
@@ -79,7 +78,6 @@ describe('Response Utilities', () => {
       });
 
       const yaml = getTextContent(result.content);
-      // Empty hints array is removed
       const expectedYaml = `data:\n  error: Something went wrong\n`;
 
       expect(yaml).toEqual(expectedYaml);
@@ -102,7 +100,6 @@ describe('Response Utilities', () => {
       });
 
       const yaml = getTextContent(result.content);
-      // Empty hints array is removed
       const expectedYaml = `data:\n  error: Not found\n`;
 
       expect(yaml).toEqual(expectedYaml);
@@ -126,7 +123,6 @@ describe('Response Utilities', () => {
       });
 
       const yaml = getTextContent(result.content);
-      // Empty hints array is removed
       const expectedYaml = `data:\n  error: Test error\n`;
 
       expect(yaml).toEqual(expectedYaml);
@@ -147,7 +143,6 @@ describe('Response Utilities', () => {
       const result = createResult({ data });
 
       const yaml = getTextContent(result.content);
-      // Empty hints array is removed
       const expectedYaml = `data:\n  test: value\n`;
       expect(yaml).toEqual(expectedYaml);
 
@@ -226,9 +221,6 @@ describe('Response Utilities', () => {
       const result = createResult({ data: dirtyData });
       const yaml = getTextContent(result.content);
 
-      // Empty arrays are now removed during cleaning
-      // Keys are in original insertion order (not alphabetical)
-      // Rust YAML: non-priority keys sorted alphabetically, list items unindented.
       const expectedYaml =
         'data:\n  arrayWithMixed:\n  - valid\n  - valid: keep\n  nestedObject:\n    deepNested:\n      valid: keep\n    nestedArray:\n    - 1\n    - 2\n    validProp: test\n  validArray:\n  - 1\n  - 2\n  - 3\n  validBoolean: true\n  validNumber: 42\n  validString: hello\n';
 
@@ -245,7 +237,6 @@ describe('Response Utilities', () => {
       const result = createResult({ data });
       const yaml = getTextContent(result.content);
 
-      // Empty arrays are now removed (including hints and results)
       const expectedYaml = `data:\n  validData: test\n`;
       expect(yaml).toEqual(expectedYaml);
     });
@@ -268,7 +259,6 @@ describe('Response Utilities', () => {
       const result = createResult({ data });
       const yaml = getTextContent(result.content);
 
-      // Empty hints array is removed
       const expectedYaml = `data:\n  level1:\n    level2:\n      level3:\n        valid: keep\n`;
       expect(yaml).toEqual(expectedYaml);
     });
@@ -277,8 +267,6 @@ describe('Response Utilities', () => {
   describe('createResponseFormat', () => {
     it('should prioritize live bulk fields ahead of legacy status-hint fields by default', () => {
       const serialized = createResponseFormat({
-        // Success path is signaled by ABSENT status. Pass an explicit empty
-        // status so the YAML still emits the `status:` key for ordering.
         status: 'empty',
         data: { value: 1 },
         hasResultsStatusHints: ['legacy'],
@@ -347,7 +335,6 @@ describe('Response Utilities', () => {
           ],
         });
 
-        // Rust YAML: top-level list items unindented; `:` strings single-quoted.
         const expectedYaml = `data:\n- queryId: react_hooks_repos\n  reasoning: Find popular React repositories that demonstrate useState usage patterns\n  repositories:\n  - repository: getify/TNG-Hooks\n    description: Provides React-inspired hooks like useState(..) for stand-alone functions\n    url: https://github.com/getify/TNG-Hooks\n    stars: 1010\n    updatedAt: 31/08/2025\n  - repository: the-road-to-learn-react/use-state-with-callback\n    description: Custom hook to include a callback function for useState.\n    url: https://github.com/the-road-to-learn-react/use-state-with-callback\n    stars: 277\n    updatedAt: 18/04/2025\nhints:\n- 'Chain tools strategically: start broad with repository search, then structure view, code search, and content fetch for deep analysis'\n- Use github_view_repo_structure first to understand project layout, then target specific files\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
@@ -363,7 +350,6 @@ describe('Response Utilities', () => {
           keysPriority: ['id', 'name', 'type', 'owner', 'repo', 'path', 'url'],
         });
 
-        // List items unindented, simple strings unquoted.
         const expectedYaml = `data: []\nhints:\n- No repositories found matching your criteria\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
@@ -406,7 +392,6 @@ describe('Response Utilities', () => {
           keysPriority: ['queryId', 'reasoning', 'repository', 'files'],
         });
 
-        // Multi-line strings use block literal (|-); list items unindented.
         const expectedYaml = `data:\n- queryId: usestate_examples\n  reasoning: Find diverse code examples showing useState implementation patterns\n  repository: yyl134934/react-mini\n  files:\n  - path: App.js\n    text_matches:\n    - |-\n      function useState(initial) {\n        const oldHook = wipFiber?.alternate?.hooks?.shift();\n    - |-\n      function Counter() {\n        const [targetCount, setTargetCount] = React.useState(1);\n  - path: static/examples/7.x/auth-flow.js\n    text_matches:\n    - |-\n      function SignInScreen() {\n        const [username, setUsername] = React.useState('');\nhints:\n- 'Chain tools strategically: start broad with repository search, then structure view, code search, and content fetch for deep analysis'\n- Use github_fetch_content with matchString from search results for precise context extraction\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
@@ -445,7 +430,6 @@ describe('Response Utilities', () => {
           ],
         });
 
-        // List items unindented; multi-line content uses block literal (|-).
         const expectedYaml = `data:\n- queryId: tng_hooks_readme\n  reasoning: Get documentation for TNG-Hooks which provides React-inspired useState for standalone functions\n  repository: getify/TNG-Hooks\n  path: README.md\n  contentLength: 126\n  content: |-\n    # TNG-Hooks\n\n    [\x21[Build Status](https://travis-ci.org/getify/TNG-Hooks.svg?branch=master)](https://travis-ci.org/getify/TNG-Hooks)\nhints:\n- Rich dataset available - analyze patterns, compare implementations, identify best practices\n- Compare implementations across 3-5 repositories to identify best practices\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
@@ -476,9 +460,6 @@ describe('Response Utilities', () => {
           keysPriority: ['id', 'name', 'type', 'owner', 'repo', 'path', 'url'],
         });
 
-        // Keys preserve original insertion order (repositories before pagination)
-        // Nested objects have priority keys first (id, name, owner, url)
-        // Non-priority keys alphabetical: `pagination` before `repositories`.
         const expectedYaml = `data:\n  pagination:\n    page: 1\n    total: 50\n  repositories:\n  - id: repo-123\n    name: test-repo\n    owner: testuser\n    url: https://github.com/testuser/test-repo\nhints:\n- Use pagination for large result sets\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
@@ -502,9 +483,6 @@ describe('Response Utilities', () => {
           keysPriority: ['id', 'name', 'type', 'owner', 'repo', 'path', 'url'],
         });
 
-        // Keys preserve original insertion order
-        // Direct jsonToYamlString call (no cleanJsonObject) preserves null/empty.
-        // Keys sorted alphabetically: emptyArray, emptyObject, nullField, validField.
         const expectedYaml = `data:\n  emptyArray: []\n  emptyObject: {}\n  nullField: null\n  validField: test\nhints: []\n`;
 
         expect(yamlResult).toEqual(expectedYaml);
@@ -524,16 +502,12 @@ describe('Response Utilities', () => {
           keysPriority: ['id', 'name', 'type', 'owner', 'repo', 'path', 'url'],
         });
 
-        // 'path' is a priority key (first); remaining keys alphabetical: code, message.
         const expectedYaml =
           'data:\n  path: src/components/Button.tsx\n  code: const [state, setState] = useState("initial");\n  message: |-\n    Hello "world" with \'quotes\' and\n    newlines\nhints:\n- Handle special characters properly\n';
 
         expect(yamlResult).toEqual(expectedYaml);
       });
 
-      // Circular reference test removed: passing a circular structure to the
-      // native Rust YAML addon causes a process-level panic, crashing the worker.
-      // Graceful fallback belongs in createResponseFormat, not the addon.
     });
 
     describe('Priority Key Ordering', () => {
@@ -553,16 +527,13 @@ describe('Response Utilities', () => {
 
         const lines = yamlResult.split('\n').filter(line => line.trim());
 
-        // Find the positions of priority keys
         const idLine = lines.findIndex(line => line.includes('id:'));
         const nameLine = lines.findIndex(line => line.includes('name:'));
         const typeLine = lines.findIndex(line => line.includes('type:'));
 
-        // Priority keys should appear first and in order
         expect(idLine).toBeLessThan(nameLine);
         expect(nameLine).toBeLessThan(typeLine);
 
-        // Non-priority keys should come after priority keys
         const appleLine = lines.findIndex(line => line.includes('apple:'));
         const bananaLine = lines.findIndex(line => line.includes('banana:'));
 
@@ -581,8 +552,6 @@ describe('Response Utilities', () => {
           keysPriority: ['id', 'name', 'type', 'nonexistent'],
         });
 
-        // Should still produce valid YAML with original insertion order
-        // Without matching priority keys the Rust serializer sorts alphabetically.
         expect(yamlResult).toEqual(`apple: value2
 banana: value3
 zebra: value1
@@ -668,7 +637,6 @@ zebra: value1
         keysPriority: ['queryId', 'reasoning', 'repository', 'files'],
       });
 
-      // Verify key structure - priority keys first, then remaining keys
       expect(yamlResult).toContain(
         'reasoning: Understanding the overall structure'
       );
@@ -684,7 +652,6 @@ zebra: value1
       expect(yamlResult).toContain('successful:');
       expect(yamlResult).toContain('researchSuggestions:');
 
-      // Verify priority keys come before non-priority keys
       const reasoningIndex = yamlResult.indexOf('reasoning:');
       const filesIndex = yamlResult.indexOf('files:');
       const researchGoalIndex = yamlResult.indexOf('researchGoal:');
@@ -752,7 +719,6 @@ zebra: value1
         ],
       });
 
-      // Verify key structure - priority keys first, then remaining keys
       expect(yamlResult).toContain(
         'researchGoal: Read the end of ReactFiberHooks.js'
       );
@@ -778,7 +744,6 @@ zebra: value1
       expect(yamlResult).toContain('hints:');
       expect(yamlResult).toContain('successful:');
 
-      // Verify priority keys come before non-priority keys
       const researchGoalIndex = yamlResult.indexOf('researchGoal:');
       const reasoningIndex = yamlResult.indexOf('reasoning:');
       const contentIndex = yamlResult.indexOf('content:');
@@ -848,7 +813,6 @@ zebra: value1
         ],
       });
 
-      // Verify key structure - priority keys first, then remaining keys
       expect(yamlResult).toContain(
         'researchGoal: Find the mountState function'
       );
@@ -874,7 +838,6 @@ zebra: value1
       expect(yamlResult).toContain('hints:');
       expect(yamlResult).toContain('successful:');
 
-      // Verify priority keys come before non-priority keys
       const researchGoalIndex = yamlResult.indexOf('researchGoal:');
       const reasoningIndex = yamlResult.indexOf('reasoning:');
       const contentIndex = yamlResult.indexOf('content:');

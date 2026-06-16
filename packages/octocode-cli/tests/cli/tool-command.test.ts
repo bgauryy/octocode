@@ -14,8 +14,8 @@ const publicMocks = vi.hoisted(() => ({
       bulkQuery: (toolName: string) => `queries for ${toolName}`,
     },
     tools: {
-      githubSearchCode: {
-        name: 'githubSearchCode',
+      ghSearchCode: {
+        name: 'ghSearchCode',
         description: 'Search code in GitHub repositories.',
         schema: {
           keywordsToSearch: 'Search terms',
@@ -32,8 +32,8 @@ const publicMocks = vi.hoisted(() => ({
         },
         hints: { hasResults: [], empty: [] },
       },
-      githubCloneRepo: {
-        name: 'githubCloneRepo',
+      ghCloneRepo: {
+        name: 'ghCloneRepo',
         description: 'Clone a repository locally.',
         schema: {
           owner: 'Repository owner',
@@ -48,7 +48,7 @@ const publicMocks = vi.hoisted(() => ({
   localSearchCode: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'tool output' }],
   }),
-  githubSearchCode: vi.fn().mockResolvedValue({
+  ghSearchCode: vi.fn().mockResolvedValue({
     content: [{ type: 'text', text: 'github output' }],
   }),
   noop: vi.fn().mockResolvedValue({
@@ -70,8 +70,8 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
     if (toolName === 'localSearchCode') {
       return publicMocks.localSearchCode(input);
     }
-    if (toolName === 'githubSearchCode') {
-      return publicMocks.githubSearchCode(input);
+    if (toolName === 'ghSearchCode') {
+      return publicMocks.ghSearchCode(input);
     }
     return publicMocks.noop(input);
   });
@@ -139,7 +139,7 @@ describe('toolCommand', () => {
     await toolCommand.handler!({
       command: 'tools',
       args: [
-        'githubSearchCode',
+        'ghSearchCode',
         '{"queries":[{"keywordsToSearch":["tool"],"owner":"bgauryy","repo":"octocode-mcp"}],"responseCharLength":1200}',
       ],
       options: {},
@@ -147,15 +147,15 @@ describe('toolCommand', () => {
 
     expect(publicMocks.initialize).toHaveBeenCalledTimes(1);
     expect(publicMocks.initializeProviders).toHaveBeenCalledTimes(1);
-    expect(publicMocks.githubSearchCode).toHaveBeenCalledWith(
+    expect(publicMocks.ghSearchCode).toHaveBeenCalledWith(
       expect.objectContaining({
         queries: [
           expect.objectContaining({
             keywordsToSearch: ['tool'],
             owner: 'bgauryy',
             repo: 'octocode-mcp',
-            mainResearchGoal: 'Execute githubSearchCode via octocode-cli',
-            researchGoal: 'Execute githubSearchCode via octocode-cli',
+            mainResearchGoal: 'Execute ghSearchCode via octocode-cli',
+            researchGoal: 'Execute ghSearchCode via octocode-cli',
             reasoning: 'Executed via octocode-cli tool command',
           }),
         ],
@@ -376,8 +376,8 @@ describe('toolCommand', () => {
     expect(context).toContain('CLI Usage:');
     expect(context).toContain('octocode tools');
     expect(context).toContain('Use Octocode tools carefully.');
-    expect(context).toContain('1. githubSearchCode');
-    expect(context).toContain('2. githubCloneRepo');
+    expect(context).toContain('1. ghSearchCode');
+    expect(context).toContain('2. ghCloneRepo');
     expect(context).toContain('3. localSearchCode');
     expect(context).toContain('Input schema:');
     expect(context).toContain('"keywordsToSearch"');
@@ -393,6 +393,6 @@ describe('toolCommand', () => {
 
     expect(context).toContain('Input fields:');
     expect(context).not.toContain('"$schema"');
-    expect(context).toContain('1. githubSearchCode');
+    expect(context).toContain('1. ghSearchCode');
   });
 });

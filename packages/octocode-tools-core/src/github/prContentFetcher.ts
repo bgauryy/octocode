@@ -66,7 +66,6 @@ function shouldFetchDiscussionComments(
 ): boolean {
   const cfg = getCommentsConfig(params);
   if (!cfg) return false;
-  // Default true when the comments block is present but the field is unset
   return cfg.discussion !== false;
 }
 
@@ -75,7 +74,6 @@ function shouldFetchInlineComments(
 ): boolean {
   const cfg = getCommentsConfig(params);
   if (!cfg) return false;
-  // Default true when the comments block is present but the field is unset
   return cfg.reviewInline !== false;
 }
 
@@ -185,12 +183,6 @@ async function fetchPRComments(
   }
 }
 
-/**
- * Fetches inline review thread comments (code-level annotations) for a PR.
- * These are distinct from PR-level discussion comments — they live at
- * GET /repos/{owner}/{repo}/pulls/{pull_number}/comments and include the
- * file path and line number the reviewer annotated.
- */
 async function fetchPRReviews(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
@@ -466,8 +458,6 @@ export async function transformPullRequestItemFromSearch(
   return attachRawResponseChars(result, rawResponseChars);
 }
 
-// Fetch every page of a 100-per-page Octokit list endpoint, accumulating the
-// items and the serialized-char count. Shared by the PR file/commit fetchers.
 async function fetchAllPaginated<T>(
   fetchPage: (page: number) => Promise<{ data: T[] }>
 ): Promise<{ items: T[]; rawResponseChars: number }> {

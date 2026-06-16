@@ -12,7 +12,7 @@ import type {
   LocalSearchCodeFile,
   LocalSearchCodeMatch,
   PackageItem,
-  PackageSearchData,
+  NpmSearchData,
 } from '@octocodeai/octocode-core/types';
 import type {
   GitHubFetchContentToolResult,
@@ -48,9 +48,9 @@ import type {
   RipgrepFileMatches,
   RipgrepMatch,
   ViewStructureResult,
-  LspGetSemanticContentQuery,
+  LspGetSemanticsQuery,
   SemanticContentType,
-  PackageSearchResult,
+  NpmSearchResult,
   PackageResultWithRepo,
 } from '../../src/public.js';
 
@@ -139,14 +139,14 @@ describe('Output type alignment', () => {
       | 'implementation'
     >();
     expectTypeOf<
-      LspGetSemanticContentQuery['type']
+      LspGetSemanticsQuery['type']
     >().toEqualTypeOf<SemanticContentType>();
   });
 
   it('derives package output types from the output schemas', () => {
     expectTypeOf<PackageResultWithRepo>().toEqualTypeOf<PackageItem>();
-    expectTypeOf<PackageSearchResult>().toEqualTypeOf<PackageSearchData>();
-    expectTypeOf<PackageSearchResult['packages']>().toEqualTypeOf<
+    expectTypeOf<NpmSearchResult>().toEqualTypeOf<NpmSearchData>();
+    expectTypeOf<NpmSearchResult['packages']>().toEqualTypeOf<
       readonly PackageItem[]
     >();
   });

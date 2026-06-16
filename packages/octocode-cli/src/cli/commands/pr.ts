@@ -3,15 +3,11 @@ import { getBool, getString } from '../options.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { executeDirectTool } from '@octocodeai/octocode-tools-core/direct';
 
-// ── types ─────────────────────────────────────────────────────────────────────
-// Field names mirror the actual API output (camelCase throughout).
-
 interface PRLabel {
   name?: string;
 }
 
 interface PRFileChange {
-  // API returns `path`, not `filename`
   path?: string;
   filename?: string; // fallback field name
   additions?: number;
@@ -46,14 +42,12 @@ interface PRPagination {
   totalPages?: number;
   totalMatches?: number;
   hasMore?: boolean;
-  // snake_case fallback field names
   page?: number;
 }
 
 interface PRItem {
   number?: number;
   title?: string;
-  // `state` is present in detail mode; absent in list mode (infer from flags below)
   state?: string;
   draft?: boolean;
   author?: string | { login?: string };
@@ -65,24 +59,19 @@ interface PRItem {
     totalChars?: number;
     hasMore?: boolean;
   };
-  // Date fields — camelCase in real output
   createdAt?: string;
   updatedAt?: string;
   mergedAt?: string;
   closedAt?: string;
-  // Refs
   targetBranch?: string; // base branch
   sourceBranch?: string; // head branch (may be absent)
   base?: string | { ref?: string }; // fallback field name
   head?: string | { ref?: string }; // fallback field name
-  // Counts
   changedFilesCount?: number;
   changed_files?: number; // fallback field name
   additions?: number;
   deletions?: number;
-  // Labels
   labels?: Array<string | PRLabel>;
-  // Detail content fields
   changedFiles?: PRFileChange[];
   file_changes?: PRFileChange[]; // fallback field name
   filePagination?: PRPagination;
@@ -92,24 +81,19 @@ interface PRItem {
 }
 
 interface PRSearchResult {
-  // Actual shape: results[0].data.pull_requests (same nesting as localSearchCode)
   results?: Array<{
     id?: string;
     data?: {
       pull_requests?: PRItem[];
       pagination?: PRPagination;
     };
-    // Flat fallback (some queries return at this level)
     pull_requests?: PRItem[];
     pagination?: PRPagination;
   }>;
-  // Top-level flat fallback
   pull_requests?: PRItem[];
   pagination?: PRPagination;
   total_count?: number;
 }
-
-// ── target parsing ─────────────────────────────────────────────────────────────
 
 interface PrTarget {
   owner: string;
@@ -118,7 +102,6 @@ interface PrTarget {
 }
 
 function parsePrTarget(input: string, prOverride?: string): PrTarget | null {
-  // Full GitHub PR URL: https://github.com/owner/repo/pull/123
   const urlMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   if (urlMatch) {
     return {
@@ -128,7 +111,6 @@ function parsePrTarget(input: string, prOverride?: string): PrTarget | null {
     };
   }
 
-  // owner/repo#123
   const hashMatch = input.match(/^([^/]+)\/([^#/]+)#(\d+)$/);
   if (hashMatch) {
     return {
@@ -138,7 +120,6 @@ function parsePrTarget(input: string, prOverride?: string): PrTarget | null {
     };
   }
 
-  // owner/repo (list mode, optionally with --pr override)
   const repoMatch = input.match(/^([^/]+)\/([^/]+)$/);
   if (repoMatch) {
     const base = { owner: repoMatch[1], repo: repoMatch[2] };
@@ -152,14 +133,11 @@ function parsePrTarget(input: string, prOverride?: string): PrTarget | null {
   return null;
 }
 
-// ── data extractors ───────────────────────────────────────────────────────────
-
 function extractPRs(sc: PRSearchResult): {
   prs: PRItem[];
   total: number;
   pagination: PRPagination | undefined;
 } {
-  // Primary shape: results[0].data.pull_requests (matches actual tool output)
   const firstResult = sc?.results?.[0];
   if (firstResult?.data?.pull_requests) {
     return {
@@ -170,7 +148,6 @@ function extractPRs(sc: PRSearchResult): {
       pagination: firstResult.data.pagination,
     };
   }
-  // Fallback: results[0].pull_requests (no data wrapper)
   if (firstResult?.pull_requests) {
     return {
       prs: firstResult.pull_requests,
@@ -180,7 +157,6 @@ function extractPRs(sc: PRSearchResult): {
       pagination: firstResult.pagination,
     };
   }
-  // Fallback: top-level flat
   if (sc?.pull_requests) {
     return {
       prs: sc.pull_requests,
@@ -190,8 +166,6 @@ function extractPRs(sc: PRSearchResult): {
   }
   return { prs: [], total: 0, pagination: undefined };
 }
-
-// ── render helpers ────────────────────────────────────────────────────────────
 
 function authorName(a: string | { login?: string } | undefined): string {
   if (!a) return '?';
@@ -223,20 +197,16 @@ function relativeTime(dateStr: string | undefined): string {
 }
 
 function stateBadge(pr: PRItem): string {
-  // `state` is present in detail mode; in list mode infer from dates/draft
   if (pr.state === 'merged' || pr.mergedAt) return c('magenta', 'merged');
   if (pr.state === 'closed' || pr.closedAt) return c('red', 'closed');
   if (pr.draft) return c('yellow', 'draft');
   if (pr.state === 'open') return c('green', 'open');
-  // List mode has no state field — rely on draft flag, default open
   return pr.draft ? c('yellow', 'draft') : c('green', 'open');
 }
 
 function fileChangePath(f: PRFileChange): string {
   return f.path ?? f.filename ?? '';
 }
-
-// ── list renderer ─────────────────────────────────────────────────────────────
 
 function renderList(sc: PRSearchResult, limit: number): string {
   const { prs, total, pagination } = extractPRs(sc);
@@ -269,8 +239,6 @@ function renderList(sc: PRSearchResult, limit: number): string {
   return lines.join('\n');
 }
 
-// ── detail renderer ───────────────────────────────────────────────────────────
-
 function renderDetail(sc: PRSearchResult): string {
   const { prs, pagination } = extractPRs(sc);
   const pr = prs[0];
@@ -278,7 +246,6 @@ function renderDetail(sc: PRSearchResult): string {
 
   const lines: string[] = [];
 
-  // ── header ──
   lines.push(`  ${bold(`PR #${pr.number ?? '?'}`)}  ${pr.title ?? ''}`);
 
   const base = pr.targetBranch ?? branchRef(pr.base);
@@ -299,7 +266,6 @@ function renderDetail(sc: PRSearchResult): string {
 
   if (pr.url) lines.push(`  ${dim(pr.url)}`);
 
-  // diff stats
   const fileCount = pr.changedFilesCount ?? pr.changed_files;
   if (fileCount != null || pr.additions != null || pr.deletions != null) {
     const stats = [
@@ -313,7 +279,6 @@ function renderDetail(sc: PRSearchResult): string {
   }
   lines.push('');
 
-  // ── body ──
   if (pr.body) {
     const bodyLines = pr.body.trim().split('\n');
     const MAX_BODY = 40;
@@ -331,7 +296,6 @@ function renderDetail(sc: PRSearchResult): string {
     lines.push('');
   }
 
-  // ── changed files + patches ──
   const files = pr.changedFiles ?? pr.file_changes ?? [];
   if (files.length > 0) {
     const totalFiles = pr.changedFilesCount ?? pr.changed_files ?? files.length;
@@ -368,7 +332,6 @@ function renderDetail(sc: PRSearchResult): string {
     lines.push('');
   }
 
-  // ── comments ──
   if (pr.comment_details && pr.comment_details.length > 0) {
     lines.push(
       `  ${bold('Comments')} ${dim(`(${pr.comment_details.length})`)}`
@@ -392,7 +355,6 @@ function renderDetail(sc: PRSearchResult): string {
     lines.push('');
   }
 
-  // ── commits ──
   if (pr.commit_details && pr.commit_details.length > 0) {
     lines.push(`  ${bold('Commits')} ${dim(`(${pr.commit_details.length})`)}`);
     const MAX_COMMITS = 15;
@@ -410,7 +372,6 @@ function renderDetail(sc: PRSearchResult): string {
     lines.push('');
   }
 
-  // ── reviews ──
   if (pr.reviews && pr.reviews.length > 0) {
     lines.push(`  ${bold('Reviews')}`);
     for (const rv of pr.reviews) {
@@ -430,7 +391,6 @@ function renderDetail(sc: PRSearchResult): string {
     lines.push('');
   }
 
-  // ── pagination footer ──
   if (pagination?.totalPages && pagination.totalPages > 1) {
     const cur = pagination.currentPage ?? pagination.page ?? 1;
     lines.push(
@@ -440,8 +400,6 @@ function renderDetail(sc: PRSearchResult): string {
 
   return lines.join('\n');
 }
-
-// ── fetch helpers ─────────────────────────────────────────────────────────────
 
 interface ListOpts {
   query?: string;
@@ -458,7 +416,7 @@ async function fetchPRList(
   repo: string,
   opts: ListOpts
 ): Promise<PRSearchResult> {
-  const result = await executeDirectTool('githubSearchPullRequests', {
+  const result = await executeDirectTool('ghSearchPRs', {
     queries: [
       {
         owner,
@@ -532,7 +490,7 @@ async function fetchPRDetail(
     content['reviews'] = true;
   }
 
-  const result = await executeDirectTool('githubSearchPullRequests', {
+  const result = await executeDirectTool('ghSearchPRs', {
     queries: [
       {
         owner,
@@ -568,8 +526,6 @@ async function fetchPRDetail(
 
   return result.structuredContent as PRSearchResult;
 }
-
-// ── command ───────────────────────────────────────────────────────────────────
 
 export const prCommand: CLICommand = {
   name: 'pr',

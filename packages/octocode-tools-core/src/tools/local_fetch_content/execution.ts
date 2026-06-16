@@ -31,10 +31,6 @@ function buildFetchContentEvidence(result: unknown): EvidenceMetadata {
       : typeof data.totalLines === 'number';
   const reasons: string[] = [];
 
-  // matchString reads return every occurrence as a slice — intentionally
-  // partial, so they don't reduce evidence completeness.
-  // matchRanges is omitted for a single-slice result (mirrors GitHub), so also
-  // treat any result that carries a match-summary warning as a match slice.
   const isMatchSlice =
     (Array.isArray(data.matchRanges) && data.matchRanges.length > 0) ||
     (Array.isArray(data.warnings) && data.warnings.length > 0);

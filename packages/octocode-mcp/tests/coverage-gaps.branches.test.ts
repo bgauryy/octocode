@@ -1,13 +1,6 @@
-/**
- * Targeted branch-coverage tests for the files that were below the 88% threshold.
- * Each describe block documents the exact uncovered branch it closes.
- */
+
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-
-// ─── semanticTypes.ts ─────────────────────────────────────────────────────────
-// Uncovered lines 77, 99-100: spread-conditional short-circuit branches when
-// optional fields are absent (orderHint, content, displayRange, isDefinition).
 
 import {
   compactResolvedSymbol,
@@ -98,14 +91,9 @@ describe('semanticTypes — compactLocation branch coverage', () => {
   });
 });
 
-// ─── hints/dynamic.ts ─────────────────────────────────────────────────────────
-// Uncovered line 46: `hintGenerator(context || {})` — the truthy branch where
-// a real context object is passed (context is not undefined/falsy).
-
 vi.mock(
   '../../octocode-tools-core/src/hints/dynamic.js',
   async importOriginal => {
-    // Use real implementation so coverage is tracked.
     return importOriginal();
   }
 );
@@ -115,8 +103,6 @@ describe('hints/dynamic — getDynamicHints with explicit context (line 46)', ()
     const { getDynamicHints } =
       await import('../../octocode-tools-core/src/hints/dynamic.js');
 
-    // localSearchCode has a real hints generator registered in HINTS.
-    // Passing a non-empty context object exercises the left-side of `context || {}`.
     const hints = getDynamicHints('localSearchCode', 'hasResults', {
       hasResults: true,
       resultCount: 3,
@@ -133,10 +119,6 @@ describe('hints/dynamic — getDynamicHints with explicit context (line 46)', ()
     expect(hints).toEqual([]);
   });
 });
-
-// ─── tools/toolMetadata/gateway.ts ────────────────────────────────────────────
-// Uncovered line 19: `DESCRIPTIONS[toolName] ?? ''` — the nullish fallback
-// branch when the tool name is not found in DESCRIPTIONS.
 
 describe('toolMetadata/gateway — getDescription unknown tool (line 19)', () => {
   it('returns empty string for a tool not in DESCRIPTIONS', async () => {

@@ -5,7 +5,7 @@ import {
   GitHubPullRequestSearchQueryLocalSchema,
 } from '../../../src/tools/github_search_pull_requests/scheme.js';
 
-describe('githubSearchPullRequests schema', () => {
+describe('ghSearchPRs schema', () => {
   const baseQuery = { owner: 'octo', repo: 'repo', prNumber: 1 };
 
   it('rejects selected patch mode without files or ranges', () => {

@@ -126,7 +126,7 @@ import type { CodeSnippet } from 'octocode-lsp/types';
 The Octocode tool path is:
 
 ```text
-octocode-tools-core lspGetSemanticContent
+octocode-tools-core lspGetSemantics
   -> octocode-lsp public exports
     -> local stdio language server
 ```

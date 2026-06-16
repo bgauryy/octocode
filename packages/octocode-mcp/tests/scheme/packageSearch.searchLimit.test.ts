@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { PackageSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
+import { NpmSearchBulkQueryLocalSchema } from '../../../octocode-tools-core/src/tools/package_search/scheme.js';
 
 function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
-  const parsed = PackageSearchBulkQueryLocalSchema.parse({ queries: [query] });
+  const parsed = NpmSearchBulkQueryLocalSchema.parse({ queries: [query] });
   return parsed.queries[0] as Record<string, unknown>;
 }
 
-describe('packageSearch schema', () => {
+describe('npmSearch schema', () => {
   it('defaults page to 1 when omitted', () => {
     expect(parsedQuery({ packageName: 'lodash' }).page).toBe(1);
   });
@@ -23,7 +23,7 @@ describe('packageSearch schema', () => {
     expect('verbose' in q).toBe(false);
   });
 
-  it('accepts mode from the core packageSearch schema', () => {
+  it('accepts mode from the core npmSearch schema', () => {
     const q = parsedQuery({
       packageName: 'lodash',
       mode: 'lean',

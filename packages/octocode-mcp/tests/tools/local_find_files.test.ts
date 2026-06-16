@@ -3,9 +3,6 @@ import { LOCAL_TOOL_ERROR_CODES } from '../../../octocode-tools-core/src/errors/
 import { findFiles as findFilesImpl } from '../../../octocode-tools-core/src/tools/local_find_files/findFiles.js';
 import type { LocalFindFilesToolResult as FindFilesResult } from '@octocodeai/octocode-core/extra-types';
 
-// The MCP overlay schema (scheme.ts) layers `page`/`itemsPerPage` on top of
-// the upstream query type; findFiles reads them via runtime casts. This
-// wrapper exposes those overlay fields to the direct-call tests.
 type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
   page?: number;
   itemsPerPage?: number;
@@ -804,8 +801,6 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files.length).toBe(3);
-      // Default sortBy=modified is honored even without showFileLastModified:
-      // newest first, while `modified` stays out of the output.
       expect(files[0]!.path).toBe('/test/a.txt');
       expect(files[1]!.path).toBe('/test/b.txt');
       expect(files[2]!.path).toBe('/test/c.txt');

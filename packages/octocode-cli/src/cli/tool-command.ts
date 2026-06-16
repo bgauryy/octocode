@@ -144,7 +144,6 @@ export function truncateDescription(desc: string, maxLen: number): string {
 }
 
 export function formatRequiredFields(toolName: string): string {
-  // lspGetSemanticContent validates required fields via superRefine, not Zod required markers
   if (toolName === LSP_TOOL_NAME) {
     return '[uri*, type, symbolName?, lineHint?]';
   }
@@ -155,12 +154,10 @@ export function formatRequiredFields(toolName: string): string {
   const required = fields.filter(f => f.required).map(f => `${f.name}*`);
   const optional = fields.filter(f => !f.required);
   if (required.length > 0) {
-    // Show all required + first 2 optional as hint
     const optHint = optional.slice(0, 2).map(f => `${f.name}?`);
     const parts = optHint.length > 0 ? [...required, ...optHint] : required;
     return `[${parts.join(', ')}]`;
   }
-  // No required fields — show first 3 optional as guidance
   return `[${optional
     .slice(0, 3)
     .map(f => `${f.name}?`)
@@ -179,15 +176,13 @@ function formatFullDescription(fullDescription: string): string {
   const rest = fullDescription.slice(short.length).trim();
   if (!rest) return '';
 
-  // Strip XML-like section tags (<types>, <format>, <next>, etc.) while
-  // preserving their inner content — callers see clean readable lines.
   return rest
     .replace(/<\/?[a-z][a-z0-9]*>/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-const LSP_TOOL_NAME = 'lspGetSemanticContent';
+const LSP_TOOL_NAME = 'lspGetSemantics';
 
 const LSP_TYPE_EXAMPLES: Array<[string, Record<string, unknown>]> = [
   [

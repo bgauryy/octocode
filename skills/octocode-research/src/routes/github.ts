@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import {
-  githubSearchCode,
-  githubGetFileContent,
-  githubSearchRepositories,
-  githubViewRepoStructure,
-  githubSearchPullRequests,
+  ghSearchCode,
+  ghGetFileContent,
+  ghSearchRepos,
+  ghViewRepoStructure,
+  ghSearchPRs,
 } from '../index.js';
 import {
   githubSearchSchema,
@@ -28,11 +28,11 @@ import { isObject, hasProperty, hasNumberProperty } from '../types/guards.js';
 export const githubRoutes = Router();
 
 githubRoutes.get(
-  '/githubSearchCode',
+  '/ghSearchCode',
   createRouteHandler({
     schema: githubSearchSchema,
-    toolFn: githubSearchCode,
-    toolName: 'githubSearchCode',
+    toolFn: ghSearchCode,
+    toolName: 'ghSearchCode',
     resilience: withGitHubResilience,
     transform: (parsed, queries) => {
       const { data, hints, research } = parsed;
@@ -62,22 +62,22 @@ githubRoutes.get(
 );
 
 githubRoutes.get(
-  '/githubGetFileContent',
+  '/ghGetFileContent',
   createRouteHandler({
     schema: githubContentSchema,
-    toolFn: githubGetFileContent,
-    toolName: 'githubGetFileContent',
+    toolFn: ghGetFileContent,
+    toolName: 'ghGetFileContent',
     resilience: withGitHubResilience,
     transform: transformFileContentResponse,
   })
 );
 
 githubRoutes.get(
-  '/githubSearchRepositories',
+  '/ghSearchRepos',
   createRouteHandler({
     schema: githubReposSchema,
-    toolFn: githubSearchRepositories,
-    toolName: 'githubSearchRepositories',
+    toolFn: ghSearchRepos,
+    toolName: 'ghSearchRepos',
     resilience: withGitHubResilience,
     transform: (parsed) => {
       const { data, hints: mcpHints } = parsed;
@@ -100,19 +100,19 @@ githubRoutes.get(
             'Use topicsToSearch for topic-based search',
           ])
         : QuickResult.success(summary, data, hints.length > 0 ? hints : [
-            'Use githubViewRepoStructure to explore repo',
-            'Use githubSearchCode to search within repo',
+            'Use ghViewRepoStructure to explore repo',
+            'Use ghSearchCode to search within repo',
           ]);
     },
   })
 );
 
 githubRoutes.get(
-  '/githubViewRepoStructure',
+  '/ghViewRepoStructure',
   createRouteHandler({
     schema: githubStructureSchema,
-    toolFn: githubViewRepoStructure,
-    toolName: 'githubViewRepoStructure',
+    toolFn: ghViewRepoStructure,
+    toolName: 'ghViewRepoStructure',
     resilience: withGitHubResilience,
     transform: (parsed, queries) => {
       const { data, hints, research } = parsed;
@@ -139,11 +139,11 @@ githubRoutes.get(
 );
 
 githubRoutes.get(
-  '/githubSearchPullRequests',
+  '/ghSearchPRs',
   createRouteHandler({
     schema: githubPRsSchema,
-    toolFn: githubSearchPullRequests,
-    toolName: 'githubSearchPullRequests',
+    toolFn: ghSearchPRs,
+    toolName: 'ghSearchPRs',
     resilience: withGitHubResilience,
     transform: (parsed, queries) => {
       const { data, hints, research } = parsed;

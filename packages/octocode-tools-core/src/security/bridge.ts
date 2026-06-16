@@ -6,11 +6,6 @@ import {
   withBasicSecurityValidation as _wbsv,
 } from 'octocode-security';
 
-// ToolResult (octocode-security) and CallToolResult (MCP SDK) are structurally
-// identical at runtime. We bridge with single-level casts at each boundary:
-//   CallToolResult → ToolResult  : narrowing cast (CallToolResult ⊆ ToolResult)
-//   ToolResult     → CallToolResult : widening cast (same Promise<T> shape)
-
 export function withSecurityValidation<T extends Record<string, unknown>>(
   toolName: string,
   toolHandler: (

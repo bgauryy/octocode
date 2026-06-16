@@ -1,4 +1,4 @@
-export interface PackageSearchInput {
+export interface NpmSearchInput {
   name: string;
   itemsPerPage?: number;
   page?: number;
@@ -48,13 +48,13 @@ export interface NpmPackageResult {
 
 export type PackageResult = MinimalPackageResult | NpmPackageResult;
 
-export interface PackageSearchAPIResult {
+export interface NpmSearchAPIResult {
   packages: PackageResult[];
   totalFound: number;
   rawResponseChars?: number;
 }
 
-export interface PackageSearchError {
+export interface NpmSearchError {
   error: string;
   hints?: string[];
 }

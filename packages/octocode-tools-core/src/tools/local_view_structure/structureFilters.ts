@@ -133,8 +133,6 @@ export function formatEntryString(
   }
 }
 
-// No `name` field: the emitted `path` (relativized against the hoisted base)
-// carries the same value, and `type` already distinguishes directories.
 interface EntryOutput {
   type: 'file' | 'dir' | 'link';
   depth?: number;
@@ -143,11 +141,6 @@ interface EntryOutput {
   permissions?: string;
 }
 
-/**
- * Flat name lists grouped by kind — the lean default output shape, matching
- * githubViewRepoStructure. Entry names carry relative subpaths in recursive
- * mode; sort order is preserved.
- */
 export function toGroupedLists(entries: DirectoryEntry[]): {
   files?: string[];
   folders?: string[];
@@ -178,7 +171,6 @@ export function toEntryObject(entry: DirectoryEntry): EntryOutput {
           : 'file',
   };
   if (entry.depth !== undefined && entry.depth > 0) obj.depth = entry.depth;
-  // Directory/symlink inode sizes (e.g. "320.0B") are filesystem noise.
   if (entry.size && entry.type === 'file') obj.size = entry.size;
   if (entry.modified) obj.modified = entry.modified;
   if (entry.permissions) obj.permissions = entry.permissions;

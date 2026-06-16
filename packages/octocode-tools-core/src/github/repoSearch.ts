@@ -29,12 +29,6 @@ import {
 
 const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
 
-/**
- * Extract license (SPDX key) and homepage from raw API item.
- * Both fields are absent from the shared RepoSearchResultItem type but are
- * returned by the GitHub API and available at runtime via the `license` and
- * `homepage` properties on the raw response object.
- */
 function extractLicenseHomepage(repo: Record<string, unknown>): {
   license?: string;
   homepage?: string;
@@ -106,11 +100,6 @@ export async function searchGitHubReposAPI(
   return result;
 }
 
-/**
- * Lists all repositories for an owner (org or user) using the REST listing
- * endpoint. Unlike the search API (capped at 1 000 results), this endpoint
- * paginates without a hard limit, enabling full enumeration of large orgs.
- */
 async function listGitHubOrgReposAPIInternal(
   params: {
     owner: string;
@@ -126,9 +115,6 @@ async function listGitHubOrgReposAPIInternal(
   );
   const currentPage = params.page || 1;
 
-  // Accepted sort values differ between org and user listing endpoints.
-  // 'stars' is not a valid listing sort (only search supports it); fall back
-  // to 'updated' as the nearest equivalent.
   const listSort =
     params.sort === 'updated' ? 'updated' : ('full_name' as const);
 
@@ -143,11 +129,8 @@ async function listGitHubOrgReposAPIInternal(
       sort: listSort,
     });
     repoItems = orgResult.data as RepoSearchResultItem[];
-    // The listing endpoints don't return a total_count — use the Link header
-    // heuristic: if we got a full page there are likely more results.
     totalCount = undefined;
   } catch {
-    // Not an org (or no access) — try the user listing endpoint.
     try {
       const userResult = await octokit.rest.repos.listForUser({
         username: params.owner,
@@ -226,11 +209,6 @@ async function searchGitHubReposAPIInternal(
   try {
     const octokit = await getOctokit(authInfo);
 
-    // Owner-only mode: when the caller supplies just owner (no keywords or
-    // topics), use the REST listing endpoint instead of the search API.
-    // The search API is capped at 1 000 results and cannot enumerate every
-    // repository in a large organisation. repos.listForOrg / listForUser
-    // paginates exhaustively with no hard cap.
     const hasSearchTerms =
       (params.keywordsToSearch?.length ?? 0) > 0 ||
       (params.topicsToSearch?.length ?? 0) > 0;

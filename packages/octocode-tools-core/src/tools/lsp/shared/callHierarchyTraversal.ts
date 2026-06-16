@@ -36,9 +36,6 @@ async function enhanceCallItem(
 
   const lines = content.split(/\r?\n/);
 
-  // When call-site ranges are provided (incoming call), anchor the preview on
-  // the first actual call site rather than the function's start, so the
-  // snippet shows WHERE the call happens, not the beginning of the caller.
   const anchorLine = callSiteRanges?.[0]?.start.line ?? item.range.start.line;
   const startLine = Math.max(0, anchorLine - contextLines);
   const endLine = Math.min(lines.length - 1, anchorLine + contextLines);

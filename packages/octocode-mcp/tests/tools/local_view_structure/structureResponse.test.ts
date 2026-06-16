@@ -119,7 +119,6 @@ describe('structureResponse.buildEntryPaginationHints', () => {
     expect(hints[0]).toContain('Page 1/2');
     expect(hints[0]).toContain('page=2');
     expect(hints[0]).toContain('starts with: f5');
-    // Second "paginated" hint removed — evidence.reason carries that signal.
   });
 
   it('omits "starts with" preview when the next-page window is empty', () => {
@@ -137,7 +136,6 @@ describe('structureResponse.buildEntryPaginationHints', () => {
     expect(hints.length).toBeGreaterThanOrEqual(1);
     expect(hints[0]).toContain('page=2');
     expect(hints[0]).not.toContain('starts with:');
-    // Second "paginated" hint removed — evidence.reason carries that signal.
   });
 
   it('emits no hint on the final page (no "Final page" tautology)', () => {

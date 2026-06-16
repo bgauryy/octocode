@@ -1,10 +1,5 @@
-/**
- * Targeted branch coverage for hints modules that had low branch coverage.
- * Each describe block tests the uncovered branches identified in the v8 report.
- */
-import { describe, it, expect } from 'vitest';
 
-// ── github_view_repo_structure/hints.ts (was 60.52%) ────────────────────────
+import { describe, it, expect } from 'vitest';
 
 describe('github_view_repo_structure hints — uncovered branches', () => {
   let hints: (typeof import('../../../octocode-tools-core/src/tools/github_view_repo_structure/hints.js'))['hints'];
@@ -71,8 +66,6 @@ describe('github_view_repo_structure hints — uncovered branches', () => {
   });
 });
 
-// ── local_fetch_content/hints.ts (was 70.83%) ───────────────────────────────
-
 describe('local_fetch_content hints — uncovered branches', () => {
   let hints: (typeof import('../../../octocode-tools-core/src/tools/local_fetch_content/hints.js'))['hints'];
 
@@ -126,8 +119,6 @@ describe('local_fetch_content hints — uncovered branches', () => {
   });
 });
 
-// ── local_find_files/hints.ts (was 78.12%) ──────────────────────────────────
-
 describe('local_find_files hints — uncovered branches', () => {
   let hints: (typeof import('../../../octocode-tools-core/src/tools/local_find_files/hints.js'))['hints'];
 
@@ -172,8 +163,6 @@ describe('local_find_files hints — uncovered branches', () => {
   });
 });
 
-// ── local_view_structure/hints.ts (was 82.14%) ──────────────────────────────
-
 describe('local_view_structure hints — uncovered branches', () => {
   let lvsHints: (typeof import('../../../octocode-tools-core/src/tools/local_view_structure/hints.js'))['hints'];
 
@@ -210,8 +199,6 @@ describe('local_view_structure hints — uncovered branches', () => {
     expect(result[0]).toContain('filter');
   });
 });
-
-// ── github_search_code/hints.ts line 27 — looksLikeTestInfrastructureQuery ─
 
 describe('github_search_code hints — single keyword fallback', () => {
   let scHints: (typeof import('../../../octocode-tools-core/src/tools/github_search_code/hints.js'))['hints'];

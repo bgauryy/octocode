@@ -78,7 +78,7 @@ export function detectDependencyCycles(
       tags: ['cycle', 'coupling', 'dependency', 'change-risk'],
       lspHints: [
         {
-          tool: 'lspGetSemanticContent', semanticType: 'definition',
+          tool: 'lspGetSemantics', semanticType: 'definition',
           symbolName: cycle.path[1],
           lineHint: cycleLine.lineStart,
           file: cycle.path[0],
@@ -236,7 +236,7 @@ export function detectDeadFiles(
       tags: ['dead-code', 'cleanup', 'hygiene'],
       lspHints: [
         {
-          tool: 'lspGetSemanticContent', semanticType: 'references',
+          tool: 'lspGetSemantics', semanticType: 'references',
           symbolName: file.split('/').pop() || file,
           lineHint: 1,
           file,

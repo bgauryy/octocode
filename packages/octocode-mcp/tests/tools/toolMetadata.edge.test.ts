@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Tests use the real @octocodeai/octocode-core data (mock interception across
-// package boundaries is not reliable in Vitest 4 for cross-package imports).
-
 describe('toolMetadata - Final Edge Cases', () => {
   beforeEach(() => {
     vi.clearAllMocks();

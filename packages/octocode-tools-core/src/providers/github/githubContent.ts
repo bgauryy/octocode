@@ -48,7 +48,6 @@ function buildContentWarnings(
 ): string[] | undefined {
   if (data.matchNotFound === true) {
     const result = data as { hints?: string[] };
-    // If processFileContentAPI already generated specific not-found hints, use them.
     if (Array.isArray(result.hints) && result.hints.length > 0) {
       const scanned =
         typeof data.totalLines === 'number'

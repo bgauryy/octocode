@@ -456,7 +456,6 @@ describe('GitHub Search Code - match Parameter Modes', () => {
       });
 
       const providerQuery = mockProvider.searchCode.mock.calls[0]?.[0];
-      // limit is undefined when not set — codeSearch.ts applies GITHUB_SEARCH_DEFAULT_LIMIT
       expect(providerQuery.limit).toBeUndefined();
     });
 

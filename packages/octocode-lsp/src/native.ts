@@ -136,14 +136,11 @@ function getPlatformKey(): string {
 function loadNativeBinding(): NativeBinding {
   const key = getPlatformKey();
 
-  // 1. Prefer the per-platform optional npm sub-package (installed by npm/yarn).
   try {
     return require(`${packageName}-${key}`) as NativeBinding;
   } catch {
-    // not installed — fall through to local file candidates
   }
 
-  // 2. Local file candidates: compiled-in-place (dev) or adjacent to dist/ (bundled).
   const candidates = [
     join(__dirname, `${binaryName}.${key}.node`),
     join(__dirname, '..', `${binaryName}.${key}.node`),

@@ -74,8 +74,6 @@ function withToolTimeout(
 
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    // Re-check after listener registration to close the race window between
-    // the pre-check above and the addEventListener call.
     if (signal?.aborted) {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
@@ -102,10 +100,6 @@ function withToolTimeout(
       });
   });
 }
-
-// ---------------------------------------------------------------------------
-// Shared core — both public wrappers delegate here.
-// ---------------------------------------------------------------------------
 
 interface RunSecureOptions<T extends Record<string, unknown>, TAuth> {
   toolName: string;
@@ -162,10 +156,6 @@ async function runSecure<T extends Record<string, unknown>, TAuth>(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 export function withSecurityValidation<
   T extends Record<string, unknown>,
   TAuth = unknown,
@@ -205,7 +195,6 @@ export function withBasicSecurityValidation<T extends object>(
   toolName?: string,
   options?: { timeoutMs?: number }
 ): (args: unknown, extra?: { signal?: AbortSignal }) => Promise<ToolResult> {
-  // Adapt the no-auth handler to the generic signature expected by runSecure.
   const handler = (sanitizedArgs: Record<string, unknown>) =>
     toolHandler(sanitizedArgs as T);
   const effectiveName = toolName ?? 'tool';

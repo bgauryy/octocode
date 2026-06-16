@@ -359,7 +359,6 @@ describe('GitHub Search Repositories Query Splitting', () => {
         }
       );
 
-      // Lean mode returns compact strings.
       const repos = result.structuredContent as {
         results?: Array<{ data?: { repositories?: string[] } }>;
       };

@@ -12,7 +12,7 @@ import {
   githubReposSchema,
   githubStructureSchema,
   githubPRsSchema,
-  packageSearchSchema,
+  npmSearchSchema,
 } from '../../validation/schemas.js';
 
 
@@ -450,9 +450,9 @@ describe('githubPRsSchema', () => {
 });
 
 
-describe('packageSearchSchema', () => {
+describe('npmSearchSchema', () => {
   it('parses minimal input with defaults', () => {
-    const result = packageSearchSchema.safeParse({ name: 'express' });
+    const result = npmSearchSchema.safeParse({ name: 'express' });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.name).toBe('express');
@@ -461,7 +461,7 @@ describe('packageSearchSchema', () => {
   });
 
   it('accepts python ecosystem', () => {
-    const result = packageSearchSchema.safeParse({
+    const result = npmSearchSchema.safeParse({
       name: 'requests',
       ecosystem: 'python',
     });
@@ -472,12 +472,12 @@ describe('packageSearchSchema', () => {
   });
 
   it('rejects empty name', () => {
-    const result = packageSearchSchema.safeParse({ name: '' });
+    const result = npmSearchSchema.safeParse({ name: '' });
     expect(result.success).toBe(false);
   });
 
   it('rejects invalid ecosystem', () => {
-    const result = packageSearchSchema.safeParse({
+    const result = npmSearchSchema.safeParse({
       name: 'test',
       ecosystem: 'rubygems',
     });

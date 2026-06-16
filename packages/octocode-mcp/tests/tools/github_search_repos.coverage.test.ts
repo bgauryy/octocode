@@ -420,7 +420,6 @@ describe('GitHub Search Repositories Coverage', () => {
 
   describe('noisy results hint — no owner/language/stars filter', () => {
     it('emits narrowing hint when results are returned but no owner/language/stars given', async () => {
-      // totalMatches must exceed the LARGE_RESULT_THRESHOLD (100) for the hint to fire.
       mockProvider.searchRepos.mockResolvedValue(
         okResponse(
           [repo({ fullPath: 'a/repo1' }), repo({ fullPath: 'b/repo2' })],

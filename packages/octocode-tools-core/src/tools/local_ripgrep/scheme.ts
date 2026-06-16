@@ -40,8 +40,6 @@ export const LocalRipgrepQuerySchema = describeQuerySchema(
 
 export type RipgrepQuery = z.infer<typeof LocalRipgrepQuerySchema>;
 
-// Bulk uses the base shape (no mutex superRefine) so one invalid query
-// does not reject the whole batch. Per-query mutex checks run at execution.
 export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
   RipgrepQueryShape,
   { maxQueries: 5 }

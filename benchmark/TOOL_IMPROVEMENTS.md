@@ -5,7 +5,7 @@
 
 ---
 
-## `githubGetFileContent`
+## `ghGetFileContent`
 
 ### Current Issues
 
@@ -43,16 +43,16 @@ Re-reads happen because the agent finds `isRedirectError` at line 3976 but doesn
 
 ```
 BEFORE (4 calls, 11,620 out_chars)
-  call 1: githubGetFileContent path=app-render.tsx                       →  906 chars  (probing)
-  call 2: githubGetFileContent path=app-render.tsx charOffset=X          → 3,519 chars
-  call 3: githubGetFileContent path=app-render.tsx charOffset=Y          → 5,662 chars
-  call 4: githubGetFileContent path=app-render.tsx startLine=2979 end=3010 → 1,533 chars
+  call 1: ghGetFileContent path=app-render.tsx                       →  906 chars  (probing)
+  call 2: ghGetFileContent path=app-render.tsx charOffset=X          → 3,519 chars
+  call 3: ghGetFileContent path=app-render.tsx charOffset=Y          → 5,662 chars
+  call 4: ghGetFileContent path=app-render.tsx startLine=2979 end=3010 → 1,533 chars
   TOTAL: 11,620 out_chars
 
 AFTER (2 calls, ~2,200 out_chars)
-  call 1: githubGetFileContent path=app-render.tsx minify="symbols"      → ~1,600 chars
+  call 1: ghGetFileContent path=app-render.tsx minify="symbols"      → ~1,600 chars
          (agent sees: "renderToHTMLOrFlight: 2990, AppPageRender: 2979")
-  call 2: githubGetFileContent path=app-render.tsx startLine=2979 end=3012 →  ~600 chars
+  call 2: ghGetFileContent path=app-render.tsx startLine=2979 end=3012 →  ~600 chars
   TOTAL: ~2,200 out_chars  →  81% reduction
 ```
 
@@ -60,12 +60,12 @@ AFTER (2 calls, ~2,200 out_chars)
 
 ```
 BEFORE (4 calls, wrong enclosing function name)
-  call 3: githubGetFileContent path=app-render.tsx  → 2,802 chars  (isRedirectError found)
-  call 4: githubGetFileContent path=app-render.tsx  → 3,113 chars  (looking for function name)
+  call 3: ghGetFileContent path=app-render.tsx  → 2,802 chars  (isRedirectError found)
+  call 4: ghGetFileContent path=app-render.tsx  → 3,113 chars  (looking for function name)
   agent concludes: "within renderToHTMLOrFlight" ← WRONG (actual: renderToStream)
 
 AFTER (2 calls + enclosingFunction hint, correct answer)
-  call 1: githubGetFileContent matchString="isRedirectError" enclosingFunction=true
+  call 1: ghGetFileContent matchString="isRedirectError" enclosingFunction=true
          → response includes: "enclosingFunction: renderToStream (line 3147)"
   call 2: optional targeted read for verification
   agent concludes: "caught in renderToStream" ← CORRECT
@@ -80,7 +80,7 @@ AFTER (2 calls + enclosingFunction hint, correct answer)
 
 ---
 
-## `githubSearchCode`
+## `ghSearchCode`
 
 ### Current Issues
 
@@ -104,7 +104,7 @@ GitHub's code search API returns rich context by design — it's built for human
 | A | **Default `verbose: false`** when `limit ≤ 5` and `filename` or tight `path` is provided — strong signal the agent wants an exact match, not a survey. | execution |
 | B | **Add `lineOnly: true` parameter** (or rename `verbose: false` to be explicit): returns only `{path, lineNumber, line}` per match — no fragment context, no URL. | scheme / execution |
 | C | **In tool description**, add: *"For exact declaration lookups use an anchored keyword like `export class Foo` to eliminate import/re-export noise."* | description |
-| D | **Auto-suggest `lspGetSemanticContent type=definition`** in the response hints when the query looks like a symbol name (CamelCase, no spaces, `path` scoped to one file). | hints |
+| D | **Auto-suggest `lspGetSemantics type=definition`** in the response hints when the query looks like a symbol name (CamelCase, no spaces, `path` scoped to one file). | hints |
 | E | **Batch-aware deduplication**: when 3+ `keywordsToSearch` are symbols in the same repo, suggest a single regex alternation query rather than 3 separate calls. | hints / description |
 
 ### Before / After
@@ -113,23 +113,23 @@ GitHub's code search API returns rich context by design — it's built for human
 
 ```
 BEFORE (2 calls, 11,567 total chars)
-  call 1: githubSearchCode keywords=["NextRequest","NextResponse","ImageResponse"]
+  call 1: ghSearchCode keywords=["NextRequest","NextResponse","ImageResponse"]
          → 5,084 out_chars  (text fragments, URLs, repo info for 3 symbols)
-  call 2: githubGetFileContent (verification read)
+  call 2: ghGetFileContent (verification read)
          → 3,851 out_chars
   TOTAL: 11,567 chars
 
 AFTER option A — lineOnly=true (1 call, ~300 chars)
-  call 1: githubSearchCode keywords=["export class NextRequest","export class NextResponse",
+  call 1: ghSearchCode keywords=["export class NextRequest","export class NextResponse",
                                      "export class ImageResponse"]
           lineOnly=true
          → ~300 out_chars  (3 lines: path + lineNumber + declaration)
   TOTAL: ~300 chars  →  97% reduction, same quality
 
-AFTER option B — lspGetSemanticContent (3 calls, ~600 chars total)
-  call 1: lspGetSemanticContent type="definition" symbolName="NextRequest"   → ~200 chars
-  call 2: lspGetSemanticContent type="definition" symbolName="NextResponse"  → ~200 chars
-  call 3: lspGetSemanticContent type="definition" symbolName="ImageResponse" → ~200 chars
+AFTER option B — lspGetSemantics (3 calls, ~600 chars total)
+  call 1: lspGetSemantics type="definition" symbolName="NextRequest"   → ~200 chars
+  call 2: lspGetSemantics type="definition" symbolName="NextResponse"  → ~200 chars
+  call 3: lspGetSemantics type="definition" symbolName="ImageResponse" → ~200 chars
   TOTAL: ~600 chars  →  95% reduction, exact file:line:col
 ```
 
@@ -141,7 +141,7 @@ AFTER option B — lspGetSemanticContent (3 calls, ~600 chars total)
 
 ---
 
-## `lspGetSemanticContent`
+## `lspGetSemantics`
 
 ### Current Issues
 
@@ -155,18 +155,18 @@ AFTER option B — lspGetSemanticContent (3 calls, ~600 chars total)
    Most LSP operations (except `documentSymbols`) require an accurate `lineHint`, which the agent must discover first via a search call. The tool description should clarify that one search call to get `lineHint` → one LSP call is the intended 2-step flow.
 
 4. **`documentSymbols` is underused as a structure map.**  
-   For large files, `documentSymbols` returns all exported symbols with line numbers — equivalent to `minify: "symbols"` on `githubGetFileContent` but semantically richer (includes type, kind, range).
+   For large files, `documentSymbols` returns all exported symbols with line numbers — equivalent to `minify: "symbols"` on `ghGetFileContent` but semantically richer (includes type, kind, range).
 
 ### Reasoning
 
-Without a local clone, LSP is unavailable. But for deep research sessions on a target repo, the cost of `githubCloneRepo` is amortized across all subsequent LSP calls. The agent doesn't have a heuristic like "if I need >3 exact file:line lookups in the same repo, clone first."
+Without a local clone, LSP is unavailable. But for deep research sessions on a target repo, the cost of `ghCloneRepo` is amortized across all subsequent LSP calls. The agent doesn't have a heuristic like "if I need >3 exact file:line lookups in the same repo, clone first."
 
 ### Improvement Possibilities
 
 | # | Change | Scope |
 |---|--------|-------|
-| A | **Add clone-amortization hint**: after 2+ `githubSearchCode` calls on the same repo, emit: *"You've made N targeted lookups on owner/repo. Consider `githubCloneRepo` to unlock `lspGetSemanticContent` and `localSearchCode` for 10–40× leaner subsequent calls."* | hints |
-| B | **Clarify `lineHint` sourcing in description**: *"Get `lineHint` from a prior `localSearchCode` or `githubSearchCode` hit on the same symbol."* | description |
+| A | **Add clone-amortization hint**: after 2+ `ghSearchCode` calls on the same repo, emit: *"You've made N targeted lookups on owner/repo. Consider `ghCloneRepo` to unlock `lspGetSemantics` and `localSearchCode` for 10–40× leaner subsequent calls."* | hints |
+| B | **Clarify `lineHint` sourcing in description**: *"Get `lineHint` from a prior `localSearchCode` or `ghSearchCode` hit on the same symbol."* | description |
 | C | **Expose `documentSymbols` as a recommended first step** for any large-file question: *"Use `type=documentSymbols` to get the file's function map before targeted reads."* | description / hints |
 | D | **Add `type="enclosingFunction"`** — given a file + line number, return the name, start line, and signature of the innermost enclosing function/method. Directly solves the Q5 catch-site misidentification. | scheme / execution |
 
@@ -176,18 +176,18 @@ Without a local clone, LSP is unavailable. But for deep research sessions on a t
 
 ```
 BEFORE (4 calls, 15,665 chars, D=2 due to minor line-number drift + wrong consumer)
-  call 1: githubGetFileContent path=revalidate.ts        → 3,772 chars
-  call 2: githubSearchCode keywords=["pendingRevalidatedTags"] → 4,825 chars
-  call 3: githubGetFileContent path=work-async-storage.ts → 1,930 chars
-  call 4: githubGetFileContent path=revalidation-utils.ts → 3,010 chars
+  call 1: ghGetFileContent path=revalidate.ts        → 3,772 chars
+  call 2: ghSearchCode keywords=["pendingRevalidatedTags"] → 4,825 chars
+  call 3: ghGetFileContent path=work-async-storage.ts → 1,930 chars
+  call 4: ghGetFileContent path=revalidation-utils.ts → 3,010 chars
   Result: line 36 (off by 2), cited incremental-cache.ts instead of executeRevalidates
 
 AFTER with LSP (4 calls, ~1,800 chars, D=3)
   call 1: localSearchCode pattern="export function revalidateTag" path=revalidate.ts
          → ~80 chars  (lineHint: 34)
-  call 2: lspGetSemanticContent type="definition" symbolName="revalidateTag" lineHint=34
+  call 2: lspGetSemantics type="definition" symbolName="revalidateTag" lineHint=34
          → ~200 chars  (exact file:line:col, signature)
-  call 3: lspGetSemanticContent type="references" symbolName="pendingRevalidatedTags" lineHint=67
+  call 3: lspGetSemantics type="references" symbolName="pendingRevalidatedTags" lineHint=67
          → ~800 chars  (all write + read sites grouped by file)
   call 4: localSearchCode pattern="executeRevalidates" path=revalidation-utils.ts
          → ~60 chars  (confirm consumer)
@@ -197,7 +197,7 @@ AFTER with LSP (4 calls, ~1,800 chars, D=3)
 ### Agent / Research Impact
 
 - Enables **exact definition lookup** with zero false positives (Q2, Q5, Q7, Q8).
-- **`type="references"`** replaces multi-file `githubSearchCode` sweeps for symbol usage.
+- **`type="references"`** replaces multi-file `ghSearchCode` sweeps for symbol usage.
 - **`documentSymbols`** replaces the `minify="symbols"` workaround for file structure navigation.
 - Potential savings: **Q2–Q8 combined: ~95 k chars → ~15 k chars** if LSP is used after a single clone.
 
@@ -207,21 +207,21 @@ AFTER with LSP (4 calls, ~1,800 chars, D=3)
 
 ### Current Issues
 
-1. **Underused compared to `githubSearchCode`** even when a local clone is available.  
+1. **Underused compared to `ghSearchCode`** even when a local clone is available.  
    Benchmark Q1–Q10 were remote-only, but when a clone exists, `rg` output is 10–100× leaner than GitHub search results (no fragment context, no repo metadata, pure `file:line:content`).
 
 2. **No auto-suggestion to use local search when a clone is detected.**  
-   After `githubCloneRepo`, the agent continues using `githubSearchCode` for pattern matching instead of switching to `localSearchCode`.
+   After `ghCloneRepo`, the agent continues using `ghSearchCode` for pattern matching instead of switching to `localSearchCode`.
 
 ### Reasoning
 
-`githubSearchCode` is the natural first tool in the agent's routing. After cloning, there's no friction point that redirects the agent to the local variant. The hint system should surface "clone is cached → use localSearchCode" automatically.
+`ghSearchCode` is the natural first tool in the agent's routing. After cloning, there's no friction point that redirects the agent to the local variant. The hint system should surface "clone is cached → use localSearchCode" automatically.
 
 ### Improvement Possibilities
 
 | # | Change | Scope |
 |---|--------|-------|
-| A | **Post-clone hint**: after any successful `githubCloneRepo`, inject into subsequent responses: *"Repo is cloned at `localPath`. Prefer `localSearchCode` over `githubSearchCode` for pattern matching — output is 10–100× leaner."* | hints |
+| A | **Post-clone hint**: after any successful `ghCloneRepo`, inject into subsequent responses: *"Repo is cloned at `localPath`. Prefer `localSearchCode` over `ghSearchCode` for pattern matching — output is 10–100× leaner."* | hints |
 | B | **Pattern recommendation**: in `localSearchCode` description add: *"Use `^export class`, `^export function`, `^export const` anchors for declaration lookups — eliminates import/re-export noise without needing `filename` filter."* | description |
 
 ### Before / After
@@ -229,8 +229,8 @@ AFTER with LSP (4 calls, ~1,800 chars, D=3)
 **Q5 — redirect() enclosing function discovery**
 
 ```
-BEFORE (githubSearchCode, expensive + wrong answer)
-  githubSearchCode keywords=["isRedirectError"] path=app-render.tsx → 3,107 chars
+BEFORE (ghSearchCode, expensive + wrong answer)
+  ghSearchCode keywords=["isRedirectError"] path=app-render.tsx → 3,107 chars
   → match at line 3976 but no enclosing function info
 
 AFTER (localSearchCode, lean + correct)
@@ -242,7 +242,7 @@ AFTER (localSearchCode, lean + correct)
 ### Agent / Research Impact
 
 - Per-pattern search: **~200–5,000 chars → ~20–200 chars** (10–100× reduction).
-- Eliminates the `githubSearchCode` fragment-context overhead entirely for code-tracing questions.
+- Eliminates the `ghSearchCode` fragment-context overhead entirely for code-tracing questions.
 - Fixes Q5 quality issue with one 35-char call.
 
 ---
@@ -251,18 +251,18 @@ AFTER (localSearchCode, lean + correct)
 
 | Tool | Primary Issue | Severity | Estimated Savings | Fixes Q |
 |------|--------------|----------|------------------|---------|
-| `githubGetFileContent` | `minify` defaults to `"none"` | **Critical** | 5–10× per large-file read | Q5 (quality), Q6, Q8 |
-| `githubGetFileContent` | No enclosing-function info at catch sites | **High** | Prevents wrong answers | Q5 |
-| `githubSearchCode` | Returns full text-match fragments for simple lookups | **High** | 14× for symbol declarations | Q2, Q7 |
-| `githubSearchCode` | No anchored-pattern guidance | **Medium** | 2–5× noise reduction | Q2, Q5, Q7 |
-| `lspGetSemanticContent` | Unused; no clone-then-LSP routing rule | **High** | 10–40× for definition/reference | Q2, Q5, Q7, Q8 |
-| `lspGetSemanticContent` | Missing `type="enclosingFunction"` | **Medium** | Prevents misidentification | Q5 |
+| `ghGetFileContent` | `minify` defaults to `"none"` | **Critical** | 5–10× per large-file read | Q5 (quality), Q6, Q8 |
+| `ghGetFileContent` | No enclosing-function info at catch sites | **High** | Prevents wrong answers | Q5 |
+| `ghSearchCode` | Returns full text-match fragments for simple lookups | **High** | 14× for symbol declarations | Q2, Q7 |
+| `ghSearchCode` | No anchored-pattern guidance | **Medium** | 2–5× noise reduction | Q2, Q5, Q7 |
+| `lspGetSemantics` | Unused; no clone-then-LSP routing rule | **High** | 10–40× for definition/reference | Q2, Q5, Q7, Q8 |
+| `lspGetSemantics` | Missing `type="enclosingFunction"` | **Medium** | Prevents misidentification | Q5 |
 | `localSearchCode` | Not switched to after clone; no anchor guidance | **Medium** | 10–100× vs GitHub search | Q5, Q7, Q8 |
 
 ### Highest ROI changes (effort vs. impact)
 
-1. **Change `githubGetFileContent` default `minify` to `"standard"` for files >5 k chars** — one-line schema change, fixes Q6 + Q8 cost in every future run.
+1. **Change `ghGetFileContent` default `minify` to `"standard"` for files >5 k chars** — one-line schema change, fixes Q6 + Q8 cost in every future run.
 2. **Add large-file hint + `minify="symbols"` prompt** — zero schema change, immediate agent guidance.
-3. **Add `lineOnly: true` to `githubSearchCode`** — fixes Q2 overhead, benefits every symbol-declaration query.
-4. **Add `enclosingFunction: true` to `githubGetFileContent`** — fixes Q5 quality bug, applies to any catch-site / callback research.
+3. **Add `lineOnly: true` to `ghSearchCode`** — fixes Q2 overhead, benefits every symbol-declaration query.
+4. **Add `enclosingFunction: true` to `ghGetFileContent`** — fixes Q5 quality bug, applies to any catch-site / callback research.
 5. **Post-clone routing hint to prefer `localSearchCode`** — zero tool change, purely a hint injection.

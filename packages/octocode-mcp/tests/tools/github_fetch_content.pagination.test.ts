@@ -47,7 +47,7 @@ type FlatResponse = {
   hints?: string[];
 };
 
-describe('githubGetFileContent — content-truncated structured warning', () => {
+describe('ghGetFileContent — content-truncated structured warning', () => {
   let mockServer: MockMcpServer;
   let mockProvider: {
     searchCode: ReturnType<typeof vi.fn>;

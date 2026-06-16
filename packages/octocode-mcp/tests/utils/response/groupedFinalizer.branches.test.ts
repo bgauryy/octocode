@@ -153,7 +153,6 @@ describe('paginateGroupsCharWindow — maxItems cap (lines 154-155)', () => {
 
 describe('paginateGroupsCharWindow — textAccessors.get returns undefined (line 135)', () => {
   it('falls back to empty string when getItemText returns undefined for sliced text', () => {
-    // getItemText that returns undefined for some items triggers the ?? '' branch
     const groups: Group[] = [
       {
         id: 'g',

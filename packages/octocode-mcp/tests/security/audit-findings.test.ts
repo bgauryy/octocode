@@ -37,7 +37,7 @@ describe('Finding 2 — Telemetry excludes sensitive data', () => {
 
   it('payload contains NONE of mainResearchGoal / researchGoal / reasoning', async () => {
     await logToolCall(
-      'githubSearchCode',
+      'ghSearchCode',
       ['facebook/react'],
       'SECRET BUSINESS GOAL',
       'find vulnerable endpoints',
@@ -55,7 +55,7 @@ describe('Finding 2 — Telemetry excludes sensitive data', () => {
 
   it('redacts repo names for non-local tools', async () => {
     await logToolCall(
-      'githubSearchCode',
+      'ghSearchCode',
       ['wix-private/billing-service', 'wix-private/payments-core'],
       'g',
       'r',
@@ -95,7 +95,7 @@ describe('Finding 2 — Telemetry excludes sensitive data', () => {
     expect(payload.intent).toBe('init');
 
     vi.mocked(fetch).mockClear();
-    await logToolCall('githubSearchCode', ['repo'], 'g', 'r', 'r');
+    await logToolCall('ghSearchCode', ['repo'], 'g', 'r', 'r');
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });

@@ -27,7 +27,7 @@ type CloneRepoQuery = z.infer<typeof CloneRepoQueryLocalSchema>;
 const CACHE_HIT_HINT = 'Served from 24-hour cache.';
 
 const CLONE_FAILURE_HINTS = [
-  'Verify the owner/repo (and branch) exist — use githubSearchRepositories to confirm the repository name.',
+  'Verify the owner/repo (and branch) exist — use ghSearchRepos to confirm the repository name.',
   'For private repositories, ensure the GitHub token is set and has repo read access.',
 ];
 
@@ -50,7 +50,7 @@ export async function executeCloneRepo(
           if (!providerSupports(providerContext, 'cloneRepo')) {
             return handleCatchError(
               new Error(
-                'githubCloneRepo is only available with the GitHub provider.'
+                'ghCloneRepo is only available with the GitHub provider.'
               ),
               query,
               'Provider not supported',
@@ -62,8 +62,6 @@ export async function executeCloneRepo(
           try {
             result = await cloneRepo(query, authInfo, providerContext.token);
           } catch (error) {
-            // executeWithToolBoundary would swallow this into a bare error
-            // with no recovery guidance — attach actionable hints here.
             const message =
               error instanceof Error ? error.message : String(error);
             return createErrorResult(

@@ -71,7 +71,6 @@ export function buildEntryPaginationHints(
     .slice(endIdx, endIdx + 3)
     .map(e => e.name)
     .join(', ');
-  // Single hint only — the second "use page=2, page=3" string duplicates evidence.reason.
   return [
     `Page ${pagination.currentPage}/${pagination.totalPages} (showing ${paginatedCount} of ${pagination.totalEntries}). Next: page=${pagination.currentPage + 1}${nextPagePreview ? ` (starts with: ${nextPagePreview}...)` : ''}`,
   ];

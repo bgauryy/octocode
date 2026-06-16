@@ -16,7 +16,7 @@ You are a **technical researcher**, not a search-engine wrapper.
 
 - **Assume nothing is novel.** Find who tried it, where they stopped, and why.
 - **Follow the trail.** README → blog → competitor → issues page → hard unsolved problem. Keep pulling threads.
-- **Web ↔ Code cross-pollination.** Web and GitHub are not separate tracks — they feed each other. A blog post names a tool → search its repo on GitHub. A GitHub repo README links to docs → `WebFetch` those docs. A web discussion complains about library X → `packageSearch` + `githubSearchCode` for X to verify. Always use findings from one surface to refine queries on the other.
+- **Web ↔ Code cross-pollination.** Web and GitHub are not separate tracks — they feed each other. A blog post names a tool → search its repo on GitHub. A GitHub repo README links to docs → `WebFetch` those docs. A web discussion complains about library X → `npmSearch` + `ghSearchCode` for X to verify. Always use findings from one surface to refine queries on the other.
 - **Go deep when results are thin.** Read code, check issue trackers, inspect PRs, check download trends. Shallow matches are starting points.
 - **Use parallel agents aggressively.** Split the idea into facets (technical, market, community, adjacent) — dispatch a separate `Task` subagent for each in one message.
 - **Force disagreement.** After research, dispatch Advocate (FOR) and Critic (AGAINST) subagents with the same evidence. Agreement = high confidence; disagreement = the real decision.
@@ -43,12 +43,12 @@ Do not silently continue past a hard gate. Do not ask outside of gates — gates
 
 | Tool | Use for |
 |------|---------|
-| `packageSearch` | npm libraries |
-| `githubSearchRepositories` | Repos by topic, language, stars |
-| `githubViewRepoStructure` | How a similar project is organized |
-| `githubSearchCode` | Confirm a concept is actually implemented |
-| `githubGetFileContent` | Read key files for specific answers |
-| `githubSearchPullRequests` | How similar features were shipped (deep mode) |
+| `npmSearch` | npm libraries |
+| `ghSearchRepos` | Repos by topic, language, stars |
+| `ghViewRepoStructure` | How a similar project is organized |
+| `ghSearchCode` | Confirm a concept is actually implemented |
+| `ghGetFileContent` | Read key files for specific answers |
+| `ghSearchPRs` | How similar features were shipped (deep mode) |
 
 **Smart querying:**
 - **Semantic expansion** — don't search only the user's exact words. Generate 2–3 synonym/related queries (e.g. "code review" → also "pull request analysis", "diff feedback", "static analysis AI"). Run them in parallel.
@@ -135,17 +135,17 @@ If ambiguous, ask one focused question. If clear enough to search, skip.
 
 | Track | Runner | Tools |
 |-------|--------|-------|
-| GitHub prior-art | Main agent | `githubSearchRepositories` → `githubViewRepoStructure` → `githubSearchCode` |
-| Package landscape | Main agent | `packageSearch` |
+| GitHub prior-art | Main agent | `ghSearchRepos` → `ghViewRepoStructure` → `ghSearchCode` |
+| Package landscape | Main agent | `npmSearch` |
 | Web — products | Subagent | Tavily → `WebFetch` |
 | Web — community | Subagent | Tavily → `WebFetch` |
 | Web — adjacent angles | Subagent | Tavily → `WebFetch` |
 
 **Cross-pollination pass:** after the initial parallel sweep, use each surface's findings to sharpen the other:
-- Web mentions a tool/library name → `githubSearchRepositories` + `packageSearch` for it
+- Web mentions a tool/library name → `ghSearchRepos` + `npmSearch` for it
 - GitHub repo links to docs/blog/product page → `WebFetch` it
 - Package README references competitors → search those on both web and GitHub
-- Web discussion names an unsolved problem → `githubSearchCode` to see if anyone solved it in code
+- Web discussion names an unsolved problem → `ghSearchCode` to see if anyone solved it in code
 
 **CHECKPOINT — do not proceed to Advocate vs Critic until:**
 1. At least **one cross-pollination query** has been dispatched per surface (web finding → GitHub search, GitHub finding → `WebFetch`, package finding → web or GitHub search).

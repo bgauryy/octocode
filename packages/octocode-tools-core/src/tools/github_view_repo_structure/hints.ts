@@ -22,7 +22,7 @@ export const hints: ToolHintGenerators = {
       const repo = typeof c.repo === 'string' ? c.repo : undefined;
       const scope = owner && repo ? `'${owner}/${repo}'` : 'the repository';
       return [
-        `${scope} not found — check spelling or use \`githubSearchRepositories\`.`,
+        `${scope} not found — check spelling or use \`ghSearchRepos\`.`,
       ];
     }
     return [];

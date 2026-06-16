@@ -57,7 +57,7 @@ export const pkgCommand: CLICommand = {
     }
 
     try {
-      const result = await executeDirectTool('packageSearch', {
+      const result = await executeDirectTool('npmSearch', {
         queries: [
           {
             packageName,

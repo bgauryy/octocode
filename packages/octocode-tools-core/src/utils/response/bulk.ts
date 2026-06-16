@@ -386,9 +386,6 @@ function queryPaginationReasons(data: Record<string, unknown>): string[] {
   if (hasMorePagination(data.outputPagination)) {
     reasons.push('One or more query-level output pages have more data.');
   }
-  // data.pagination is display pagination — the tool has all its data and
-  // chooses to surface it across pages. It does not affect data completeness;
-  // the tool's own evidence.complete already reflects LSP data availability.
   return reasons;
 }
 
@@ -461,9 +458,6 @@ export function aggregatePeerEvidence(
     sawAny = true;
     if (!combinedKind && raw.kind) combinedKind = raw.kind;
     if (typeof raw.answerReady === 'boolean') {
-      // OR, not AND: the bulk call is answer-ready when ANY query produced
-      // usable evidence — per-query status/empty markers identify failures,
-      // and `complete` (ANDed below) flags that not everything landed.
       answerReadyAll =
         answerReadyAll === undefined
           ? raw.answerReady

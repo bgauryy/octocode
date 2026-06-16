@@ -105,9 +105,6 @@ export function validateToolPath(
     };
   }
 
-  // A successful validation always carries a sanitizedPath; resolvedPath is a
-  // defensive fallback so the success variant can guarantee a string (lets
-  // callers use sanitizedPath without a non-null assertion).
   return {
     isValid: true,
     sanitizedPath: validation.sanitizedPath ?? resolvedPath,

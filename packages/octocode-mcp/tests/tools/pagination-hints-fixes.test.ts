@@ -15,7 +15,7 @@ describe('Pagination and Hints Fixes', () => {
     clearAllCache();
   });
 
-  describe('Fix 3: githubSearchCode - repositoryContext with branch', () => {
+  describe('Fix 3: ghSearchCode - repositoryContext with branch', () => {
     const createMockOctokit = (searchCodeMock: ReturnType<typeof vi.fn>) => ({
       rest: {
         search: {

@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Tests use the real @octocodeai/octocode-core data (mock interception across
-// package boundaries is not reliable in Vitest 4 for cross-package imports).
-
 describe('toolMetadata/state', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -63,8 +60,8 @@ describe('toolMetadata/state', () => {
       const { DESCRIPTIONS } =
         await import('../../../../octocode-tools-core/src/tools/toolMetadata/descriptions.js');
 
-      expect(typeof DESCRIPTIONS['githubSearchCode']).toBe('string');
-      expect(DESCRIPTIONS['githubSearchCode'].length).toBeGreaterThan(0);
+      expect(typeof DESCRIPTIONS['ghSearchCode']).toBe('string');
+      expect(DESCRIPTIONS['ghSearchCode'].length).toBeGreaterThan(0);
       expect(DESCRIPTIONS['unknownTool']).toBe('');
     });
   });
