@@ -213,9 +213,9 @@ describe('ghSearchCode — empty + error', () => {
       extension: 'ts',
       path: 'src',
     } as never);
-    expect(
-      h.some(s => s?.includes('Remove path/filename/extension'))
-    ).toBe(true);
+    expect(h.some(s => s?.includes('Remove path/filename/extension'))).toBe(
+      true
+    );
   });
 
   it('empty + single package-name keyword pivots to npmSearch', () => {
@@ -258,9 +258,9 @@ describe('ghSearchCode — empty + error', () => {
       path: 'src',
       keywords: ['foo'],
     } as never);
-    expect(
-      h.some(s => s?.includes('Remove path/filename/extension'))
-    ).toBe(true);
+    expect(h.some(s => s?.includes('Remove path/filename/extension'))).toBe(
+      true
+    );
     expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
       false
     );

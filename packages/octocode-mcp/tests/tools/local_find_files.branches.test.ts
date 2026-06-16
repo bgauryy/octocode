@@ -195,9 +195,7 @@ describe('findFiles sortBy branches', () => {
   });
 
   it('should return error when the native layer fails (find traversal fails)', async () => {
-    setNativeError(
-      new Error('find: /nonexistent: No such file or directory')
-    );
+    setNativeError(new Error('find: /nonexistent: No such file or directory'));
 
     const result = await findFiles({
       path: '/test',
@@ -209,8 +207,18 @@ describe('findFiles sortBy branches', () => {
 
   it('should sort by modified when showLastModified and both files have modified (line 158)', async () => {
     setNativeEntries([
-      { path: '/test/old.ts', type: 'file', size: 100, modifiedMs: new Date('2020-01-01').getTime() },
-      { path: '/test/new.ts', type: 'file', size: 100, modifiedMs: new Date('2024-06-01').getTime() },
+      {
+        path: '/test/old.ts',
+        type: 'file',
+        size: 100,
+        modifiedMs: new Date('2020-01-01').getTime(),
+      },
+      {
+        path: '/test/new.ts',
+        type: 'file',
+        size: 100,
+        modifiedMs: new Date('2024-06-01').getTime(),
+      },
     ]);
 
     const result = await findFiles({
@@ -228,8 +236,18 @@ describe('findFiles sortBy branches', () => {
 
   it('honors sortBy="modified" without showFileLastModified (no warning, modified hidden)', async () => {
     setNativeEntries([
-      { path: '/test/b.ts', type: 'file', size: 100, modifiedMs: new Date('2024-06-01').getTime() },
-      { path: '/test/a.ts', type: 'file', size: 100, modifiedMs: new Date('2020-01-01').getTime() },
+      {
+        path: '/test/b.ts',
+        type: 'file',
+        size: 100,
+        modifiedMs: new Date('2024-06-01').getTime(),
+      },
+      {
+        path: '/test/a.ts',
+        type: 'file',
+        size: 100,
+        modifiedMs: new Date('2020-01-01').getTime(),
+      },
     ]);
 
     const result = await findFiles({

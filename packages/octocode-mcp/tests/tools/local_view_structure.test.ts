@@ -165,9 +165,7 @@ describe('localViewStructure', () => {
   });
 
   it('emits active filter echo-back for successful listings', async () => {
-    setNativeEntries([
-      { path: '/test/path/file.ts', type: 'file', size: 10 },
-    ]);
+    setNativeEntries([{ path: '/test/path/file.ts', type: 'file', size: 10 }]);
 
     const result = await viewStructure({
       path: '/test/path',
@@ -267,7 +265,12 @@ describe('localViewStructure', () => {
     it('should respect depth parameter', async () => {
       setNativeEntries([
         { path: '/test/path/dir1', type: 'directory', depth: 0 },
-        { path: '/test/path/dir1/subfile.txt', type: 'file', size: 512, depth: 1 },
+        {
+          path: '/test/path/dir1/subfile.txt',
+          type: 'file',
+          size: 512,
+          depth: 1,
+        },
       ]);
 
       const result = await viewStructure({

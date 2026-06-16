@@ -16,12 +16,10 @@ vi.mock('octocode-security/pathValidator', () => ({
   },
 }));
 
-const { viewStructure } = await import(
-  '../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js'
-);
-const { LocalViewStructureQuerySchema } = await import(
-  '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js'
-);
+const { viewStructure } =
+  await import('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js');
+const { LocalViewStructureQuerySchema } =
+  await import('../../../octocode-tools-core/src/tools/local_view_structure/scheme.js');
 
 const mockValidate = vi.mocked(pathValidator.pathValidator.validate);
 
@@ -56,8 +54,7 @@ function toEntryType(type: MockEntryInput['type']): string {
 }
 
 function buildEntry(input: MockEntryInput, basePath: string): FileSystemEntry {
-  const path =
-    input.path ?? `${basePath.replace(/\/$/, '')}/${input.name}`;
+  const path = input.path ?? `${basePath.replace(/\/$/, '')}/${input.name}`;
   const ext = input.name.includes('.')
     ? input.name.split('.').pop()
     : undefined;
