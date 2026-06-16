@@ -18,7 +18,6 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 
-const minifyField = z.enum(['none', 'standard']).optional().default('standard');
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 
 const queryOverrides = {
@@ -35,7 +34,6 @@ const queryOverrides = {
     .default(PR_CONTENT_DEFAULT_ITEMS_PER_PAGE),
   charOffset: clampedInt(0, 100_000_000).optional(),
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
-  minify: minifyField,
 } as const;
 
 const GitHubPullRequestSearchQueryShape = createQueryShapeSchema(

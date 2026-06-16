@@ -27,6 +27,13 @@ export interface ApplyPaginationOptions {
   actualOffset?: number;
 
   mode?: 'characters' | 'bytes';
+
+  // Stable page size for the currentPage/totalPages math. When pages are
+  // snapped to semantic boundaries, the per-page slice length varies, which
+  // makes `Math.floor(offset / sliceLength) + 1` report a relative counter
+  // (e.g. "Page 1/21" on a continuation). Passing the original requested page
+  // size keeps the page counter absolute and monotonic. Falls back to `length`.
+  pageSize?: number;
 }
 
 export interface GeneratePaginationHintsOptions {

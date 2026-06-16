@@ -504,8 +504,9 @@ function normalizeQueryObject(
       exactQuery[key] = value;
       continue;
     }
+    // Drop unknown fields (legacy/removed/typo) so the schema never hard-fails
+    // the call; the agent is still warned via onUnknownFields below.
     unknownFields.push(key);
-    exactQuery[key] = value;
   }
 
   if (unknownFields.length > 0 && schemaFields.size > 0) {

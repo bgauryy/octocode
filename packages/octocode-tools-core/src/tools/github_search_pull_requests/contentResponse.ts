@@ -111,23 +111,6 @@ function compactBody(value: unknown, max = 500): string | undefined {
   return value.length <= max ? value : `${value.slice(0, max - 3)}...`;
 }
 
-function stripDiffCommentOnlyLines(patch: string): string {
-  return patch
-    .split('\n')
-    .filter(line => {
-      if (line.startsWith('+++') || line.startsWith('---')) return true;
-      return !/^[+\- ]\s*(?:\/\/|#(?!!)|--|;|%).*$/.test(line);
-    })
-    .join('\n');
-}
-
-function minifyPatchView(patch: string, filePath: string): string {
-  return contextUtils.applyContentViewMinification(
-    stripDiffCommentOnlyLines(patch),
-    filePath
-  );
-}
-
 function baseQuery(query: QueryLike, prNumber: number) {
   return {
     owner: query.owner,
@@ -376,8 +359,7 @@ function shapeCommits(
 function shapeFileSurfaces(
   pr: Record<string, unknown>,
   query: QueryLike,
-  request: NormalizedPrContentRequest,
-  shouldMinify = true
+  request: NormalizedPrContentRequest
 ) {
   const allChanges = Array.isArray(pr.fileChanges)
     ? (pr.fileChanges as Array<Record<string, unknown>>)
@@ -402,17 +384,12 @@ function shapeFileSurfaces(
   );
 
   const includePatch = request.patches.mode !== 'none';
-  const effectiveMinify = shouldMinify && !needle;
   const shaped = items.map(change => {
     const base = shapeFileChange(change, false);
     if (!includePatch || typeof change.patch !== 'string') return base;
-    const rawPatch = change.patch;
-    const processedPatch =
-      effectiveMinify && typeof rawPatch === 'string'
-        ? minifyPatchView(rawPatch, filePathOf(change))
-        : rawPatch;
+    // PR diffs are always returned raw/exact — no minify on PR content.
     const patch = paginateText(
-      processedPatch,
+      change.patch,
       query.charOffset ?? 0,
       query.charLength ?? 12_000
     );
@@ -608,17 +585,12 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
-  shouldMinify = false,
   showContentMap?: boolean
 ): Record<string, unknown> {
   const prNumber = Number(pr.number);
   const body = request.body
     ? paginateText(
-        (() => {
-          const raw = typeof pr.body === 'string' ? pr.body : undefined;
-          if (!raw) return undefined;
-          return shouldMinify ? contextUtils.minifyMarkdownCore(raw) : raw;
-        })(),
+        typeof pr.body === 'string' ? pr.body : undefined,
         query.charOffset ?? 0,
         query.charLength ?? 12_000
       )
@@ -682,7 +654,7 @@ export function shapePullRequestForContent(
         ? { body: body.content, bodyPagination: body.pagination }
         : { bodyEmpty: true }
       : {}),
-    ...shapeFileSurfaces(pr, query, request, shouldMinify),
+    ...shapeFileSurfaces(pr, query, request),
     ...shapeComments(pr, query, request),
     ...shapeReviews(pr, query, request),
     ...shapeCommits(pr, query, request),

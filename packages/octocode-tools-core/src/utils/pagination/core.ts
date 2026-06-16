@@ -35,6 +35,11 @@ export function applyPagination(
     };
   }
 
+  // Page counter divisor: use the caller's stable requested page size when
+  // provided so the counter stays absolute even if each page's slice length
+  // varies (semantic-boundary snapping). Falls back to the slice length.
+  const pageSize = Math.max(1, options.pageSize ?? length);
+
   let paginatedContent: string;
   let startBytePos: number;
   let endBytePos: number;
@@ -71,8 +76,8 @@ export function applyPagination(
 
     hasMore = endBytePos < totalBytes;
     const pageOffset = options.actualOffset ?? requestedStartByte;
-    currentPage = Math.floor(pageOffset / length) + 1;
-    totalPages = Math.ceil(totalBytes / length);
+    currentPage = Math.floor(pageOffset / pageSize) + 1;
+    totalPages = Math.max(currentPage, Math.ceil(totalBytes / pageSize));
   } else {
     const slice = sliceContent(content, offset, length);
     paginatedContent = slice.text;
@@ -83,8 +88,8 @@ export function applyPagination(
 
     hasMore = endCharPos < totalChars;
     const pageOffset = options.actualOffset ?? startCharPos;
-    currentPage = Math.floor(pageOffset / length) + 1;
-    totalPages = Math.ceil(totalChars / length);
+    currentPage = Math.floor(pageOffset / pageSize) + 1;
+    totalPages = Math.max(currentPage, Math.ceil(totalChars / pageSize));
   }
 
   return {

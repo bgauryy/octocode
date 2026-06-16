@@ -57,7 +57,9 @@ export function createQueryShapeSchema<T extends AnyZodObject>(
   coreSchema: T,
   overrides: QueryShape = {}
 ): AnyZodObject {
-  return z.strictObject({
+  // Strip unknown query keys instead of rejecting them — a legacy/removed/typo
+  // field must never hard-fail the whole MCP call with a schema mismatch.
+  return z.object({
     ...coreSchema.shape,
     ...describeOverridesFromCore(coreSchema, overrides),
   });

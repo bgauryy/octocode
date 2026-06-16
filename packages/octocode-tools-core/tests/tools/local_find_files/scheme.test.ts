@@ -33,18 +33,16 @@ describe('localFindFiles schema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects the removed regexType compatibility field', () => {
+  it('strips the removed regexType compatibility field instead of rejecting', () => {
     const result = LocalFindFilesQuerySchema.safeParse({
       ...baseQuery,
       regex: '.*\\.ts$',
       regexType: 'posix-extended',
     });
 
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/Unrecognized key/);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect('regexType' in result.data).toBe(false);
     }
   });
 
@@ -59,16 +57,14 @@ describe('localFindFiles schema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects the removed legacy name alias', () => {
+  it('strips the removed legacy name alias instead of rejecting', () => {
     const result = LocalFindFilesBulkQuerySchema.safeParse({
       queries: [{ ...baseQuery, name: '*.ts' }],
     });
 
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(
-        result.error.issues.map(issue => issue.message).join('\n')
-      ).toMatch(/Unrecognized key/);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect('name' in result.data.queries[0]).toBe(false);
     }
   });
 });

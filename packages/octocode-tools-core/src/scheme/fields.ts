@@ -37,8 +37,10 @@ export function createRelaxedBulkQuerySchema(
   options: { maxQueries?: number } = {}
 ) {
   const { maxQueries = 5 } = options;
+  // Strip unknown envelope keys instead of rejecting them, so a stray/legacy
+  // top-level field never hard-fails the whole bulk call with a schema mismatch.
   return z
-    .strictObject({
+    .object({
       queries: z
         .array(querySchema)
         .min(1)

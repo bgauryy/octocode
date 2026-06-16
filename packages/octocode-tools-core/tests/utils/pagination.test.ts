@@ -38,6 +38,23 @@ describe('pagination core', () => {
     });
   });
 
+  it('keeps the page counter absolute when slice length varies (pageSize)', () => {
+    const content = 'x'.repeat(2000);
+    // Without pageSize: a continuation whose snapped slice length exceeds the
+    // offset reports a misleading relative "page 1".
+    const relative = applyPagination(content, 807, 899);
+    expect(relative.currentPage).toBe(1);
+
+    // With a stable pageSize, the same continuation reports an absolute page.
+    const absolute = applyPagination(content, 807, 899, { pageSize: 800 });
+    expect(absolute.currentPage).toBe(2);
+    expect(absolute.totalPages).toBeGreaterThanOrEqual(absolute.currentPage);
+    // Slice content/cursor is unaffected — only the counter math changed.
+    expect(absolute.charOffset).toBe(relative.charOffset);
+    expect(absolute.charLength).toBe(relative.charLength);
+    expect(absolute.nextCharOffset).toBe(relative.nextCharOffset);
+  });
+
   it('paginates by UTF-8 bytes and keeps returned string boundaries valid', () => {
     const content = 'aébc';
     const page = applyPagination(content, 1, 2, { mode: 'bytes' });

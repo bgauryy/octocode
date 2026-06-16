@@ -19,26 +19,15 @@ const queryOverrides = {
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),
 } as const;
 
-const CoreFindFilesBulkShapeSchema = z.strictObject(
+// Strip unknown keys (legacy/removed fields like regexType, or typos) instead
+// of rejecting them — an unknown field must never hard-fail the whole call.
+const CoreFindFilesBulkShapeSchema = z.object(
   Object.fromEntries(
     Object.entries(CoreFindFilesQuerySchema.shape).filter(
       ([field]) => field !== 'regexType'
     )
   ) as z.ZodRawShape
 );
-
-function rejectLegacyRegexType(
-  data: Record<string, unknown>,
-  ctx: z.RefinementCtx
-): void {
-  if (Object.prototype.hasOwnProperty.call(data, 'regexType')) {
-    ctx.addIssue({
-      code: 'unrecognized_keys',
-      keys: ['regexType'],
-      message: 'Unrecognized key: "regexType"',
-    });
-  }
-}
 
 function validateDepthRange(
   data: { minDepth?: number; maxDepth?: number },
@@ -70,9 +59,7 @@ export type FindFilesQuery = Omit<
 export const LocalFindFilesQuerySchema = describeQuerySchema(
   CoreFindFilesBulkShapeSchema,
   queryOverrides
-)
-  .superRefine(validateDepthRange)
-  .superRefine(rejectLegacyRegexType) as unknown as z.ZodType<FindFilesQuery>;
+).superRefine(validateDepthRange) as unknown as z.ZodType<FindFilesQuery>;
 
 export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
   FindFilesQueryShape,

@@ -558,7 +558,12 @@ function buildSuccessResult(
   const pagination = applyPagination(
     outputContent,
     charOffset,
-    resolvedCharLength
+    resolvedCharLength,
+    // resolvedCharLength is snapped to a semantic boundary and varies per page;
+    // use the stable requested page size for an absolute page counter.
+    effectiveCharLength !== undefined
+      ? { pageSize: effectiveCharLength }
+      : undefined
   );
 
   const isPartial = extraction.isPartial || pagination.hasMore;

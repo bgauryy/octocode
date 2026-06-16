@@ -159,7 +159,6 @@ export async function searchMultipleGitHubPullRequests(
           !hasPrNumber &&
           (Boolean((query as { content?: unknown }).content) ||
             Boolean((query as { reviewMode?: unknown }).reviewMode));
-        const prMinify = effectiveQuery.minify === 'standard';
         const leanRequest = {
           ...contentRequest,
           body: false,
@@ -174,7 +173,6 @@ export async function searchMultipleGitHubPullRequests(
             pr,
             effectiveQuery as never,
             shouldLeanBroadShape ? leanRequest : contentRequest,
-            prMinify,
             showContentMap
           )
         );
