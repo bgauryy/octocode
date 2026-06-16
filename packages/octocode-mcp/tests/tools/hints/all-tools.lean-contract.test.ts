@@ -64,7 +64,7 @@ describe('localSearchCode (ripgrep) — empty permutations', () => {
   it('emits filter hint when langType is set', () => {
     const h = ripgrepHints.empty({ langType: 'ts', path: 'src' } as never);
     expect(h.length).toBeGreaterThan(0);
-    expect(h.some(s => s?.includes('filter'))).toBe(true);
+    expect(h.some(s => s?.includes('include/exclude/langType'))).toBe(true);
   });
 
   it('emits filter hint with include + excludeDir', () => {
@@ -72,7 +72,7 @@ describe('localSearchCode (ripgrep) — empty permutations', () => {
       include: ['*.ts'],
       excludeDir: ['node_modules'],
     } as never);
-    expect(h[0]).toContain('filter');
+    expect(h[0]).toContain('include/exclude/langType');
   });
 
   it('stays silent with no filters in play', () => {
@@ -101,7 +101,7 @@ describe('localSearchCode (ripgrep) — error permutations', () => {
 
 describe('localFindFiles — empty permutations', () => {
   it('returns a hint when name filter is set', () => {
-    const h = findFilesHints.empty({ name: '*.ts', path: '/tmp' } as never);
+    const h = findFilesHints.empty({ names: ['*.ts'], path: '/tmp' } as never);
     expect(h.length).toBeGreaterThan(0);
     expect(h[0]).toContain('filter');
   });
@@ -197,9 +197,10 @@ describe('ghSearchCode — empty + error', () => {
     expect(
       h.some(
         s =>
-          s?.includes('keywords') ||
-          s?.includes('broaden') ||
-          s?.includes('filter')
+          s?.includes('unindexed') ||
+          s?.includes('ghGetFileContent') ||
+          s?.includes('ghViewRepoStructure') ||
+          s?.includes('default branch')
       )
     ).toBe(true);
   });
@@ -212,7 +213,9 @@ describe('ghSearchCode — empty + error', () => {
       extension: 'ts',
       path: 'src',
     } as never);
-    expect(h.some(s => s?.includes('Remove a filter'))).toBe(true);
+    expect(
+      h.some(s => s?.includes('Remove path/filename/extension'))
+    ).toBe(true);
   });
 
   it('empty + single package-name keyword pivots to npmSearch', () => {
@@ -255,7 +258,9 @@ describe('ghSearchCode — empty + error', () => {
       path: 'src',
       keywords: ['foo'],
     } as never);
-    expect(h.some(s => s?.includes('Remove a filter'))).toBe(true);
+    expect(
+      h.some(s => s?.includes('Remove path/filename/extension'))
+    ).toBe(true);
     expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
       false
     );
@@ -268,9 +273,15 @@ describe('ghSearchCode — empty + error', () => {
       repo: 'b',
       keywords: ['export function parse'],
     } as never);
-    expect(h.some(s => s?.includes('keywords') || s?.includes('broaden'))).toBe(
-      true
-    );
+    expect(
+      h.some(
+        s =>
+          s?.includes('unindexed') ||
+          s?.includes('ghGetFileContent') ||
+          s?.includes('ghViewRepoStructure') ||
+          s?.includes('default branch')
+      )
+    ).toBe(true);
     expect(h.some(s => s?.includes('single distinctive identifier'))).toBe(
       false
     );
@@ -404,12 +415,11 @@ describe('ghSearchPRs — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[0]).toContain('Remove a filter');
-    expect(h[0]).not.toContain('merged');
-    expect(h[0]).not.toContain('author');
+    expect(h[0]).toContain('Remove state/author/label filters');
+    expect(h[0]).not.toContain('is:merged');
   });
 
-  it('mentions dropping `author` only when an author filter is present', () => {
+  it('emits the generic filter-removal hint for non-merged states', () => {
     const withAuthor = ghPrHints.empty({
       state: 'open',
       author: 'alice',
@@ -425,7 +435,7 @@ describe('ghSearchPRs — empty permutations', () => {
       repo: 'b',
     } as never);
     expect(withQuery[0]).toContain('filter');
-    expect(withQuery[0]).not.toContain('author');
+    expect(withQuery[0]).not.toContain('is:merged');
   });
 
   it('no query shows add-query hint', () => {
@@ -495,7 +505,7 @@ describe('ghSearchRepos — hints coverage', () => {
       language: 'TypeScript',
       owner: 'wix-private',
     } as never);
-    expect(h[0]).toContain('Remove a filter');
+    expect(h[0]).toContain('Remove owner/language/topic');
   });
 
   it('empty suggests npmSearch for package-like terms', () => {

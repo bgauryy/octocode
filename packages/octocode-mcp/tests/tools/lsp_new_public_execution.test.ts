@@ -532,7 +532,7 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('totalSymbols: 35');
   });
 
-  it('paginates call results and includes compact hint when contextLines=0', async () => {
+  it('paginates call results with a next-page hint when contextLines=0', async () => {
     const manyCalls = Array.from({ length: 15 }, (_, i) => callItem(`fn${i}`));
     vi.mocked(gatherIncomingCallsRecursive).mockResolvedValue({
       calls: manyCalls.map(c => ({ from: c, fromRanges: [range, range] })),
@@ -551,7 +551,8 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
     expect(text).toContain('hasMore: true');
-    expect(text).toContain('contextLines>0');
+    expect(text).toContain('nextPage: 2');
+    expect(text).toContain('Page 1/3 (5 of 15 calls). Next: page=2');
   });
 
   it('renders contentPreview and deduplicates ranges when contextLines>0', async () => {

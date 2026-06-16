@@ -62,7 +62,7 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
       typeof import('@octocodeai/octocode-tools-core/direct')
     >();
   const executeDirectTool = vi.fn(async (toolName: string, input: unknown) => {
-    if (toolName.startsWith('github')) {
+    if (toolName.startsWith('gh')) {
       await publicMocks.initialize();
       await publicMocks.initializeProviders();
     }

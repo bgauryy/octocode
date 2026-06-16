@@ -85,7 +85,9 @@ describe('numeric schema fields are bounded (#C1)', () => {
     }
   });
 
-  it('pullRequests: content.patches.ranges line arrays are bounded and clamp safely', () => {
+  it('pullRequests: content.patches.ranges line arrays are bounded (reject above the cap)', () => {
+    // The SENTINEL is above the 1e9 line-number cap -> rejected as too_big,
+    // and the cap is never the ±MAX_SAFE_INTEGER sentinel.
     const r = GitHubPullRequestSearchQueryLocalSchema.safeParse({
       owner: 'o',
       repo: 'r',
@@ -104,19 +106,33 @@ describe('numeric schema fields are bounded (#C1)', () => {
       },
     });
 
-    expect(r.success).toBe(true);
-    if (r.success) {
-      const range = (
-        r.data as never as {
-          content: {
-            patches: {
-              ranges: Array<{ additions: number[]; deletions: number[] }>;
-            };
-          };
-        }
-      ).content.patches.ranges[0]!;
-      expect(range.additions[0]).toBe(1_000_000_000);
-      expect(range.deletions[0]).toBe(1_000_000_000);
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const tooBig = r.error.issues.filter(i => i.code === 'too_big');
+      expect(tooBig.length).toBeGreaterThan(0);
+      const paths = tooBig.map(i => i.path.join('.'));
+      expect(paths).toContain('content.patches.ranges.0.additions.0');
+      expect(paths).toContain('content.patches.ranges.0.deletions.0');
     }
+
+    // A value exactly at the cap is accepted.
+    const ok = GitHubPullRequestSearchQueryLocalSchema.safeParse({
+      owner: 'o',
+      repo: 'r',
+      prNumber: 1,
+      content: {
+        patches: {
+          mode: 'selected',
+          ranges: [
+            {
+              file: 'a.ts',
+              additions: [1_000_000_000],
+              deletions: [1_000_000_000],
+            },
+          ],
+        },
+      },
+    });
+    expect(ok.success).toBe(true);
   });
 });

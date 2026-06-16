@@ -1,7 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../../octocode-tools-core/src/errors/localToolErrors.js';
 import { findFiles as findFilesImpl } from '../../../octocode-tools-core/src/tools/local_find_files/findFiles.js';
 import type { LocalFindFilesToolResult as FindFilesResult } from '@octocodeai/octocode-core/extra-types';
+import {
+  setContextUtilsNativeLoaderForTesting,
+  resetContextUtilsNativeLoaderForTesting,
+} from '../../../octocode-tools-core/src/utils/contextUtils.js';
+import type {
+  FileSystemEntry,
+  FileSystemQueryOptions,
+  FileSystemQueryResult,
+} from '../../../octocode-tools-core/src/utils/contextUtils.js';
+import * as pathValidator from 'octocode-security/pathValidator';
 
 type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
   page?: number;
@@ -9,23 +19,6 @@ type FindFilesInput = Parameters<typeof findFilesImpl>[0] & {
 };
 
 const findFiles = (query: FindFilesInput) => findFilesImpl(query);
-import { safeExec } from '../../../octocode-tools-core/src/utils/exec/safe.js';
-import { checkCommandAvailability } from '../../../octocode-tools-core/src/utils/exec/commandAvailability.js';
-import * as pathValidator from 'octocode-security/pathValidator';
-
-vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
-  safeExec: vi.fn(),
-}));
-
-vi.mock(
-  '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
-  () => ({
-    checkCommandAvailability: vi
-      .fn()
-      .mockResolvedValue({ available: true, command: 'find' }),
-    getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
-  })
-);
 
 vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
@@ -33,71 +26,157 @@ vi.mock('octocode-security/pathValidator', () => ({
   },
 }));
 
-vi.mock('fs', () => {
-  const lstat = vi.fn();
-  return {
-    promises: {
-      lstat,
-    },
-    default: {
-      promises: {
-        lstat,
-      },
-    },
-  };
-});
-const mockFs = vi.mocked(await import('fs')) as unknown as {
-  promises: { lstat: ReturnType<typeof vi.fn> };
-};
-
 const expectDefinedFiles = (result: FindFilesResult) => {
   expect(result.files).toBeDefined();
   return result.files!;
 };
 
+/**
+ * The local tools now delegate filesystem traversal/filtering to the native
+ * `@octocodeai/octocode-context-utils` module via `contextUtils.queryFileSystem`.
+ * These helpers let each test declare the entries that the (mocked) native
+ * layer should return, plus optional capping/diagnostics metadata.
+ */
+interface MockEntryInput {
+  path: string;
+  type?: 'file' | 'directory' | 'symlink';
+  size?: number;
+  modifiedMs?: number;
+  permissions?: string;
+}
+
+let queryFileSystemMock: ReturnType<typeof vi.fn>;
+let lastQueryOptions: FileSystemQueryOptions | undefined;
+
+function toEntryType(type: MockEntryInput['type']): string {
+  switch (type) {
+    case 'directory':
+      return 'directory';
+    case 'symlink':
+      return 'symlink';
+    default:
+      return 'file';
+  }
+}
+
+function buildEntry(input: MockEntryInput, basePath: string): FileSystemEntry {
+  const name = input.path.split('/').pop() || input.path;
+  const ext = name.includes('.') ? name.split('.').pop() : undefined;
+  const rel = input.path.startsWith(basePath)
+    ? input.path.slice(basePath.length).replace(/^\//, '')
+    : name;
+  return {
+    path: input.path,
+    relativePath: rel,
+    name,
+    entryType: toEntryType(input.type),
+    ...(input.size !== undefined ? { size: input.size } : {}),
+    ...(input.modifiedMs !== undefined ? { modifiedMs: input.modifiedMs } : {}),
+    ...(input.permissions ? { permissions: input.permissions } : {}),
+    ...(ext ? { extension: ext } : {}),
+    depth: 0,
+  };
+}
+
+/** Declare the entries the native layer should return for the next call(s). */
+function setNativeEntries(
+  entries: MockEntryInput[],
+  opts: {
+    totalDiscovered?: number;
+    wasCapped?: boolean;
+    skipped?: number;
+    warnings?: string[];
+  } = {}
+): void {
+  queryFileSystemMock.mockImplementation(
+    (options: FileSystemQueryOptions): FileSystemQueryResult => {
+      lastQueryOptions = options;
+      const basePath = options.path;
+      const limit = options.limit ?? entries.length;
+      const mapped = entries.map(e => buildEntry(e, basePath));
+      const capped = mapped.slice(0, limit);
+      return {
+        entries: capped,
+        totalDiscovered: opts.totalDiscovered ?? entries.length,
+        wasCapped: opts.wasCapped ?? mapped.length > limit,
+        skipped: opts.skipped ?? 0,
+        permissionDenied: 0,
+        warnings: opts.warnings ?? [],
+      };
+    }
+  );
+}
+
+/** Make the native layer throw (e.g. ENOENT/EACCES). */
+function setNativeError(error: Error): void {
+  queryFileSystemMock.mockImplementation(
+    (options: FileSystemQueryOptions): FileSystemQueryResult => {
+      lastQueryOptions = options;
+      throw error;
+    }
+  );
+}
+
 describe('localFindFiles', () => {
-  const mockSafeExec = vi.mocked(safeExec);
   const mockValidate = vi.mocked(pathValidator.pathValidator.validate);
 
   beforeEach(() => {
     vi.clearAllMocks();
+    lastQueryOptions = undefined;
+    queryFileSystemMock = vi.fn();
+    setContextUtilsNativeLoaderForTesting(
+      () =>
+        ({
+          queryFileSystem: queryFileSystemMock,
+        }) as unknown as typeof import('@octocodeai/octocode-context-utils')
+    );
     mockValidate.mockReturnValue({
       isValid: true,
       sanitizedPath: '/test/path',
     });
+    setNativeEntries([]);
+  });
+
+  afterEach(() => {
+    resetContextUtilsNativeLoaderForTesting();
   });
 
   describe('Basic file discovery', () => {
     it('should find files by name pattern', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.js\0/test/path/file2.js\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/path/file1.js' },
+        { path: '/test/path/file2.js' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.js',
+        names: ['*.js'],
       });
 
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files).toHaveLength(2);
-      expect(files[0]!.path).toBe('/test/path/file1.js');
+      expect(files.map(f => f.path)).toContain('/test/path/file1.js');
+    });
+
+    it('forwards name filters to the native layer', async () => {
+      setNativeEntries([{ path: '/test/path/file1.js' }]);
+
+      await findFiles({ path: '/test/path', names: ['*.js'] });
+
+      expect(lastQueryOptions?.names).toEqual(['*.js']);
     });
 
     it('signals page-out-of-range instead of silent empty (E2)', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/a.ts\0/test/path/b.ts\0/test/path/c.ts\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/path/a.ts' },
+        { path: '/test/path/b.ts' },
+        { path: '/test/path/c.ts' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.ts',
+        names: ['*.ts'],
         page: 999,
       });
 
@@ -106,23 +185,15 @@ describe('localFindFiles', () => {
     });
 
     it('should include metadata (size, permissions) in results when details is true', async () => {
-      const modified = new Date('2025-01-01T00:00:00Z');
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.js\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockResolvedValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-        isFile: () => true,
-        size: 123,
-        mode: parseInt('100644', 8),
-        mtime: modified,
-      } as unknown as import('fs').Stats);
+      setNativeEntries([
+        {
+          path: '/test/path/file1.js',
+          type: 'file',
+          size: 123,
+          permissions: '644',
+          modifiedMs: new Date('2025-01-01T00:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await findFiles({ path: '/test/path', details: true });
 
@@ -139,32 +210,21 @@ describe('localFindFiles', () => {
     });
 
     it('should handle empty results', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
-      });
+      setNativeEntries([]);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.nonexistent',
+        names: ['*.nonexistent'],
       });
 
       expect(result.status).toBe('empty');
     });
 
     it('does NOT implicitly cap at 1000 — all discovered files stay paginable', async () => {
-      const paths = Array.from(
-        { length: 1002 },
-        (_, index) => `/test/path/file-${index}.ts`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: `${paths}\0`,
-        stderr: '',
-      });
+      const entries = Array.from({ length: 1002 }, (_, index) => ({
+        path: `/test/path/file-${index}.ts`,
+      }));
+      setNativeEntries(entries, { totalDiscovered: 1002, wasCapped: false });
 
       const result = await findFiles({ path: '/test/path' });
 
@@ -174,16 +234,11 @@ describe('localFindFiles', () => {
     });
 
     it('caps + warns only when an explicit limit is given (a deliberate user cap)', async () => {
-      const paths = Array.from(
-        { length: 1002 },
-        (_, index) => `/test/path/file-${index}.ts`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: `${paths}\0`,
-        stderr: '',
-      });
+      const entries = Array.from({ length: 1002 }, (_, index) => ({
+        path: `/test/path/file-${index}.ts`,
+      }));
+      // Native layer caps at the user limit and reports the full discovered count.
+      setNativeEntries(entries, { totalDiscovered: 1002, wasCapped: true });
 
       const result = await findFiles({ path: '/test/path', limit: 1000 });
 
@@ -195,12 +250,7 @@ describe('localFindFiles', () => {
 
   describe('File type filtering', () => {
     it('should filter by file type', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/file1.txt', type: 'file' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -208,19 +258,14 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-type', 'f'])
-      );
+      expect(lastQueryOptions?.entryType).toBe('f');
     });
 
     it('should find directories only', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/dir1\0/test/path/dir2\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/path/dir1', type: 'directory' },
+        { path: '/test/path/dir2', type: 'directory' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -228,21 +273,15 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-type', 'd'])
-      );
+      expect(lastQueryOptions?.entryType).toBe('d');
+      const files = expectDefinedFiles(result);
+      expect(files.every(f => f.type === 'directory')).toBe(true);
     });
   });
 
   describe('Time-based filtering', () => {
     it('should find recently modified files', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/recent.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/recent.txt' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -250,19 +289,11 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-mtime', '-7'])
-      );
+      expect(lastQueryOptions?.modifiedWithin).toBe('7d');
     });
 
     it('should find files modified before date', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/old.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/old.txt' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -270,21 +301,13 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-mtime', '+30'])
-      );
+      expect(lastQueryOptions?.modifiedBefore).toBe('30d');
     });
   });
 
   describe('Size filtering', () => {
     it('should find files larger than threshold', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/large.bin\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/large.bin' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -292,21 +315,11 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      const isMacOS = process.platform === 'darwin';
-      const expectedSize = isMacOS ? `+${1 * 1024 * 1024}c` : '+1M';
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-size', expectedSize])
-      );
+      expect(lastQueryOptions?.sizeGreater).toBe('1M');
     });
 
     it('should find files smaller than threshold', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/small.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/small.txt' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -314,21 +327,13 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-size', '-1k'])
-      );
+      expect(lastQueryOptions?.sizeLess).toBe('1k');
     });
   });
 
   describe('Permission filtering', () => {
     it('should find executable files', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/script.sh\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/script.sh' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -336,26 +341,11 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      if (process.platform === 'linux') {
-        expect(mockSafeExec).toHaveBeenCalledWith(
-          'find',
-          expect.arrayContaining(['-executable'])
-        );
-      } else {
-        expect(mockSafeExec).toHaveBeenCalledWith(
-          'find',
-          expect.arrayContaining(['-perm', '+111'])
-        );
-      }
+      expect(lastQueryOptions?.executable).toBe(true);
     });
 
     it('should filter by permissions', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file.sh\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/file.sh' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -363,21 +353,13 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-perm', '755'])
-      );
+      expect(lastQueryOptions?.permissions).toBe('755');
     });
   });
 
   describe('Depth control', () => {
     it('should limit search depth', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/file1.txt' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -385,19 +367,11 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-maxdepth', '2'])
-      );
+      expect(lastQueryOptions?.maxDepth).toBe(2);
     });
 
     it('should set minimum depth', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/sub/file.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/sub/file.txt' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -405,21 +379,13 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-mindepth', '1'])
-      );
+      expect(lastQueryOptions?.minDepth).toBe(1);
     });
   });
 
   describe('Directory exclusion', () => {
     it('should exclude specific directories', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/src/file.js\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/src/file.js' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -427,24 +393,16 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(mockSafeExec).toHaveBeenCalledWith(
-        'find',
-        expect.arrayContaining(['-path', '*/node_modules', '-prune'])
-      );
+      expect(lastQueryOptions?.excludeDir).toEqual(['node_modules', '.git']);
     });
 
     it('should auto-exclude tool/IDE cache dirs by default', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/src/file.js\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/path/src/file.js' }]);
 
       const result = await findFiles({ path: '/test/path' });
       expect(result.status).toBeUndefined();
 
-      const args = mockSafeExec.mock.calls[0]![1] as string[];
+      const excludeDir = lastQueryOptions?.excludeDir ?? [];
       for (const dir of [
         '.octocode',
         '.cursor',
@@ -460,7 +418,7 @@ describe('localFindFiles', () => {
         'out',
         'target',
       ]) {
-        expect(args).toContain(`*/${dir}`);
+        expect(excludeDir).toContain(dir);
       }
     });
 
@@ -469,23 +427,15 @@ describe('localFindFiles', () => {
         isValid: true,
         sanitizedPath: '/work/.context/sub',
       });
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/work/.context/sub/file.ts\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/work/.context/sub/file.ts' }]);
 
       const result = await findFiles({
         path: '/work/.context/sub',
-        name: '*.ts',
+        names: ['*.ts'],
       });
 
       expect(result.status).toBeUndefined();
-
-      const args = mockSafeExec.mock.calls[0]![1] as string[];
-      const idx = args.indexOf('*/.context');
-      expect(idx).toBe(-1);
+      expect(lastQueryOptions?.excludeDir).not.toContain('.context');
     });
 
     it('should NOT prune node_modules when searching inside node_modules', async () => {
@@ -493,23 +443,15 @@ describe('localFindFiles', () => {
         isValid: true,
         sanitizedPath: '/project/node_modules/lodash',
       });
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/project/node_modules/lodash/index.js\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/project/node_modules/lodash/index.js' }]);
 
       const result = await findFiles({
         path: '/project/node_modules/lodash',
-        name: '*.js',
+        names: ['*.js'],
       });
 
       expect(result.status).toBeUndefined();
-
-      const args = mockSafeExec.mock.calls[0]![1] as string[];
-      const idx = args.indexOf('*/node_modules');
-      expect(idx).toBe(-1);
+      expect(lastQueryOptions?.excludeDir).not.toContain('node_modules');
     });
 
     it('should still exclude dirs that are NOT in the search path', async () => {
@@ -517,33 +459,21 @@ describe('localFindFiles', () => {
         isValid: true,
         sanitizedPath: '/project/src',
       });
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/project/src/app.ts\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/project/src/app.ts' }]);
 
-      await findFiles({ path: '/project/src', name: '*.ts' });
+      await findFiles({ path: '/project/src', names: ['*.ts'] });
 
-      const args = mockSafeExec.mock.calls[0]![1] as string[];
-      expect(args).toContain('*/node_modules');
-      expect(args).toContain('*/.context');
+      expect(lastQueryOptions?.excludeDir).toContain('node_modules');
+      expect(lastQueryOptions?.excludeDir).toContain('.context');
     });
   });
 
   describe('Result limiting', () => {
     it('should apply result limit', async () => {
-      const files = Array.from(
-        { length: 150 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 150 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries, { totalDiscovered: 150, wasCapped: true });
 
       const result = await findFiles({
         path: '/test/path',
@@ -551,21 +481,16 @@ describe('localFindFiles', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(lastQueryOptions?.limit).toBe(50);
       const limitedFiles = expectDefinedFiles(result);
       expect(limitedFiles.length).toBeLessThanOrEqual(50);
     });
 
     it('should require pagination for large result sets', async () => {
-      const files = Array.from(
-        { length: 150 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 150 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries, { totalDiscovered: 150 });
 
       const result = await findFiles({
         path: '/test/path',
@@ -574,55 +499,18 @@ describe('localFindFiles', () => {
       expect([undefined, 'error']).toContain(result.status);
       if (result.status === 'error') {
         expect(result.errorCode).toBeDefined();
+      } else {
+        expect(result.pagination?.hasMore).toBe(true);
       }
-    });
-  });
-
-  describe('Concurrency behavior', () => {
-    it('should cap concurrent lstat calls to 24', async () => {
-      const files =
-        Array.from({ length: 100 }, (_, i) => `/test/file${i}.txt`).join('\0') +
-        '\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
-
-      let inFlight = 0;
-      let maxInFlight = 0;
-
-      vi.mocked(mockFs.promises.lstat).mockImplementation(async () => {
-        inFlight++;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise(r => setTimeout(r, 2));
-        inFlight--;
-        return {
-          isDirectory: () => false,
-          isSymbolicLink: () => false,
-          isFile: () => true,
-          size: 123,
-          mode: parseInt('100644', 8),
-          mtime: new Date(),
-        } as unknown as import('fs').Stats;
-      });
-
-      const result = await findFiles({ path: '/test/path', details: true });
-
-      expect(result.status).toBeUndefined();
-      expect(maxInFlight).toBeLessThanOrEqual(24);
     });
   });
 
   describe('Multiple name patterns', () => {
     it('should handle multiple name patterns with OR logic', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.ts\0/test/path/file2.js\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/path/file1.ts' },
+        { path: '/test/path/file2.js' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -632,6 +520,7 @@ describe('localFindFiles', () => {
       expect(result.status).toBeUndefined();
       const files = expectDefinedFiles(result);
       expect(files).toHaveLength(2);
+      expect(lastQueryOptions?.names).toEqual(['*.ts', '*.js']);
     });
   });
 
@@ -654,41 +543,23 @@ describe('localFindFiles', () => {
   });
 
   describe('Error handling', () => {
-    it('should handle command failure', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: 1,
-        stdout: '',
-        stderr: 'find: invalid option',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        name: '*.txt',
-      });
-
-      expect(result.status).toBe('error');
-      expect(result.errorCode).toBe(
-        LOCAL_TOOL_ERROR_CODES.COMMAND_EXECUTION_FAILED
-      );
-    });
-
     it('should handle path not found (within workspace)', async () => {
       mockValidate.mockReturnValue({
         isValid: true,
         sanitizedPath: '/workspace/nonexistent_path_xyz_123',
       });
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: 1,
-        stdout: '',
-        stderr:
-          '/workspace/nonexistent_path_xyz_123: No such file or directory',
-      });
+      setNativeError(
+        Object.assign(
+          new Error(
+            '/workspace/nonexistent_path_xyz_123: No such file or directory'
+          ),
+          { code: 'ENOENT' }
+        )
+      );
 
       const result = await findFiles({
         path: '/workspace/nonexistent_path_xyz_123',
-        name: '*.ts',
+        names: ['*.ts'],
       });
 
       expect(result.status).toBe('error');
@@ -696,61 +567,33 @@ describe('localFindFiles', () => {
     });
 
     it('should handle general exceptions gracefully', async () => {
-      mockSafeExec.mockRejectedValue(new Error('Unexpected error'));
+      setNativeError(new Error('Unexpected error'));
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
       });
 
       expect(result.status).toBe('error');
-    });
-
-    it('should handle find command not available', async () => {
-      vi.mocked(checkCommandAvailability).mockResolvedValueOnce({
-        available: false,
-        command: 'find',
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        name: '*.txt',
-      });
-
-      expect(result.status).toBe('error');
-      expect(result.errorCode).toBe(
-        LOCAL_TOOL_ERROR_CODES.COMMAND_NOT_AVAILABLE
-      );
     });
   });
 
   describe('showFileLastModified sorting', () => {
     it('should sort by modification time when showFileLastModified is true', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/old.txt\0/test/new.txt\0/test/mid.txt\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockImplementation(
-        async (filePath: string | Buffer | URL) => {
-          const path = filePath.toString();
-          const mtimes: Record<string, Date> = {
-            '/test/old.txt': new Date('2020-01-01'),
-            '/test/new.txt': new Date('2024-12-01'),
-            '/test/mid.txt': new Date('2022-06-01'),
-          };
-          return {
-            isDirectory: () => false,
-            isSymbolicLink: () => false,
-            isFile: () => true,
-            size: 123,
-            mode: parseInt('100644', 8),
-            mtime: mtimes[path] || new Date(),
-          } as unknown as import('fs').Stats;
-        }
-      );
+      setNativeEntries([
+        {
+          path: '/test/old.txt',
+          modifiedMs: new Date('2020-01-01').getTime(),
+        },
+        {
+          path: '/test/new.txt',
+          modifiedMs: new Date('2024-12-01').getTime(),
+        },
+        {
+          path: '/test/mid.txt',
+          modifiedMs: new Date('2022-06-01').getTime(),
+        },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -766,31 +609,20 @@ describe('localFindFiles', () => {
     });
 
     it('should sort by modification time even when showFileLastModified is false (modified hidden from output)', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/c.txt\0/test/a.txt\0/test/b.txt\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockImplementation(
-        async (filePath: string | Buffer | URL) => {
-          const path = filePath.toString();
-          const mtimes: Record<string, Date> = {
-            '/test/a.txt': new Date('2024-12-01'),
-            '/test/b.txt': new Date('2022-06-01'),
-            '/test/c.txt': new Date('2020-01-01'),
-          };
-          return {
-            isDirectory: () => false,
-            isSymbolicLink: () => false,
-            isFile: () => true,
-            size: 123,
-            mode: parseInt('100644', 8),
-            mtime: mtimes[path] || new Date(),
-          } as unknown as import('fs').Stats;
-        }
-      );
+      setNativeEntries([
+        {
+          path: '/test/c.txt',
+          modifiedMs: new Date('2020-01-01').getTime(),
+        },
+        {
+          path: '/test/a.txt',
+          modifiedMs: new Date('2024-12-01').getTime(),
+        },
+        {
+          path: '/test/b.txt',
+          modifiedMs: new Date('2022-06-01').getTime(),
+        },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -808,102 +640,13 @@ describe('localFindFiles', () => {
     });
   });
 
-  describe('Fallback stat logic for missing details', () => {
-    it('should fetch missing file details via lstat fallback', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.txt\0',
-        stderr: '',
-      });
-
-      let callCount = 0;
-      vi.mocked(mockFs.promises.lstat).mockImplementation(async () => {
-        callCount++;
-        if (callCount === 1) {
-          return {
-            isDirectory: () => false,
-            isSymbolicLink: () => false,
-            isFile: () => true,
-            size: undefined,
-            mode: undefined,
-            mtime: new Date('2024-01-01'),
-          } as unknown as import('fs').Stats;
-        }
-        return {
-          isDirectory: () => false,
-          isSymbolicLink: () => false,
-          isFile: () => true,
-          size: 1024,
-          mode: parseInt('100644', 8),
-          mtime: new Date('2024-01-01'),
-        } as unknown as import('fs').Stats;
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        details: true,
-        showFileLastModified: true,
-      });
-
-      expect(result.status).toBeUndefined();
-    });
-
-    it('should handle lstat failure gracefully in fallback', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.txt\0',
-        stderr: '',
-      });
-
-      let callCount = 0;
-      vi.mocked(mockFs.promises.lstat).mockImplementation(async () => {
-        callCount++;
-        if (callCount === 1) {
-          return {
-            isDirectory: () => false,
-            isSymbolicLink: () => false,
-            isFile: () => true,
-            size: undefined,
-            mode: undefined,
-            mtime: undefined,
-          } as unknown as import('fs').Stats;
-        }
-        throw new Error('Permission denied');
-      });
-
-      const result = await findFiles({
-        path: '/test/path',
-        details: true,
-        showFileLastModified: true,
-      });
-
-      expect(result.status).toBeUndefined();
-    });
-  });
-
   describe('Large result handling', () => {
     it('should paginate large result sets', async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockResolvedValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-        isFile: () => true,
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
         size: 123,
-        mode: parseInt('100644', 8),
-        mtime: new Date(),
-      } as unknown as import('fs').Stats);
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -917,45 +660,9 @@ describe('localFindFiles', () => {
     });
   });
 
-  describe('getFileDetails edge cases', () => {
-    it('should handle lstat errors in getFileDetails', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/inaccessible.txt\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockRejectedValue(
-        new Error('Permission denied')
-      );
-
-      const result = await findFiles({
-        path: '/test/path',
-        details: true,
-      });
-
-      expect(result.status).toBeUndefined();
-      const files = expectDefinedFiles(result);
-      expect(files[0]!.type).toBe('file');
-    });
-
-    it('should detect symlinks in getFileDetails', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/link.txt\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockResolvedValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => true,
-        isFile: () => false,
-        size: 10,
-        mode: parseInt('120755', 8),
-        mtime: new Date(),
-      } as unknown as import('fs').Stats);
+  describe('entry type detection', () => {
+    it('should detect symlinks', async () => {
+      setNativeEntries([{ path: '/test/link.txt', type: 'symlink' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -967,22 +674,8 @@ describe('localFindFiles', () => {
       expect(files[0]!.type).toBe('symlink');
     });
 
-    it('should detect directories in getFileDetails', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/dir\0',
-        stderr: '',
-      });
-
-      vi.mocked(mockFs.promises.lstat).mockResolvedValue({
-        isDirectory: () => true,
-        isSymbolicLink: () => false,
-        isFile: () => false,
-        size: 4096,
-        mode: parseInt('40755', 8),
-        mtime: new Date(),
-      } as unknown as import('fs').Stats);
+    it('should detect directories', async () => {
+      setNativeEntries([{ path: '/test/dir', type: 'directory' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -993,24 +686,31 @@ describe('localFindFiles', () => {
       const files = expectDefinedFiles(result);
       expect(files[0]!.type).toBe('directory');
     });
+
+    it('should default to file type', async () => {
+      setNativeEntries([{ path: '/test/inaccessible.txt', type: 'file' }]);
+
+      const result = await findFiles({
+        path: '/test/path',
+        details: true,
+      });
+
+      expect(result.status).toBeUndefined();
+      const files = expectDefinedFiles(result);
+      expect(files[0]!.type).toBe('file');
+    });
   });
 
   describe('NEW FEATURE: File-based pagination with automatic sorting', () => {
     it('should paginate with default 20 files per page', async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
       });
 
       expect(result.status).toBeUndefined();
@@ -1021,20 +721,14 @@ describe('localFindFiles', () => {
     });
 
     it('should navigate to second page', async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
         page: 2,
       });
 
@@ -1044,20 +738,14 @@ describe('localFindFiles', () => {
     });
 
     it('should support custom filesPerPage', async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
         itemsPerPage: 10,
       });
 
@@ -1068,20 +756,14 @@ describe('localFindFiles', () => {
     });
 
     it('should handle last page correctly', async () => {
-      const files = Array.from(
-        { length: 25 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 25 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
         itemsPerPage: 20,
         page: 2,
       });
@@ -1095,16 +777,15 @@ describe('localFindFiles', () => {
 
   describe('NEW FEATURE: ALWAYS sorted by modification time', () => {
     it('should ALWAYS sort by modification time (most recent first)', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/old.txt\0/test/new.txt\0/test/mid.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/old.txt' },
+        { path: '/test/new.txt' },
+        { path: '/test/mid.txt' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
       });
 
       expect(result.status).toBeUndefined();
@@ -1113,16 +794,10 @@ describe('localFindFiles', () => {
     });
 
     it('should sort even with pagination', async () => {
-      const files = Array.from(
-        { length: 30 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 30 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1133,12 +808,10 @@ describe('localFindFiles', () => {
     });
 
     it('should sort with time-based filters', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/recent1.txt\0/test/recent2.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/recent1.txt' },
+        { path: '/test/recent2.txt' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1151,16 +824,10 @@ describe('localFindFiles', () => {
 
   describe('NEW FEATURE: Pagination hints', () => {
     it('should include pagination hints with page info', async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1169,23 +836,20 @@ describe('localFindFiles', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.hints).toBeDefined();
-      expect(result.hints).toBeDefined();
       expect(result.hints!.length).toBeGreaterThan(0);
     });
   });
 
   describe('Research context fields', () => {
     it('should not echo researchGoal and reasoning in hasResults', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/path/file1.txt\0/test/path/file2.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/path/file1.txt' },
+        { path: '/test/path/file2.txt' },
+      ]);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.txt',
+        names: ['*.txt'],
         researchGoal: 'Find text files',
         reasoning: 'Need to locate documentation',
       });
@@ -1197,16 +861,11 @@ describe('localFindFiles', () => {
     });
 
     it('should not echo researchGoal and reasoning in empty results', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
-      });
+      setNativeEntries([]);
 
       const result = await findFiles({
         path: '/test/path',
-        name: '*.nonexistent',
+        names: ['*.nonexistent'],
         researchGoal: 'Search for missing files',
         reasoning: 'Verify files do not exist',
       });
@@ -1238,16 +897,10 @@ describe('localFindFiles', () => {
 
   describe('Page-based pagination', () => {
     it('should return first page by default', async () => {
-      const files = Array.from(
-        { length: 100 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 100 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({ path: '/test/path', page: 1 });
 
@@ -1256,16 +909,10 @@ describe('localFindFiles', () => {
     });
 
     it('should return paged results for large file sets', async () => {
-      const files = Array.from(
-        { length: 500 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 500 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({ path: '/test/path', page: 1 });
 
@@ -1275,13 +922,10 @@ describe('localFindFiles', () => {
     });
 
     it('should maintain valid structure when paginating by page', async () => {
-      const files = '/test/file1.txt\0/test/file2.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/file1.txt' },
+        { path: '/test/file2.txt' },
+      ]);
 
       const result = await findFiles({ path: '/test/path', page: 1 });
 
@@ -1290,13 +934,10 @@ describe('localFindFiles', () => {
     });
 
     it('should handle file paths with UTF-8 chars', async () => {
-      const files = '/test/café.txt\0/test/résumé.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/café.txt' },
+        { path: '/test/résumé.txt' },
+      ]);
 
       const result = await findFiles({ path: '/test/path' });
 
@@ -1306,66 +947,51 @@ describe('localFindFiles', () => {
     });
 
     it('should handle 2-byte UTF-8 in paths', async () => {
-      const files = '/test/niño.txt\0/test/español.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/niño.txt' },
+        { path: '/test/español.txt' },
+      ]);
 
       const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesUtf2 = expectDefinedFiles(result);
-      expect(JSON.stringify(filesUtf2)).not.toMatch(/\uFFFD/);
+      expect(JSON.stringify(filesUtf2)).not.toMatch(/�/);
     });
 
     it('should handle 3-byte UTF-8 in paths', async () => {
-      const files = '/test/文件.txt\0/test/中文.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/文件.txt' },
+        { path: '/test/中文.txt' },
+      ]);
 
       const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesUtf3 = expectDefinedFiles(result);
-      expect(JSON.stringify(filesUtf3)).not.toMatch(/\uFFFD/);
+      expect(JSON.stringify(filesUtf3)).not.toMatch(/�/);
     });
 
     it('should handle emoji in paths', async () => {
-      const files = '/test/😀test.txt\0/test/🎉party.txt\0';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files,
-        stderr: '',
-      });
+      setNativeEntries([
+        { path: '/test/😀test.txt' },
+        { path: '/test/🎉party.txt' },
+      ]);
 
       const result = await findFiles({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
       const filesEmoji = expectDefinedFiles(result);
-      expect(JSON.stringify(filesEmoji)).not.toMatch(/\uFFFD/);
+      expect(JSON.stringify(filesEmoji)).not.toMatch(/�/);
     });
   });
 
   describe('File pagination - Edge cases', () => {
     it('should handle page = 0 or negative (defaults to 1)', async () => {
-      const files = Array.from(
-        { length: 50 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1378,16 +1004,10 @@ describe('localFindFiles', () => {
     });
 
     it('should handle page > total pages', async () => {
-      const files = Array.from(
-        { length: 25 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 25 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1402,16 +1022,10 @@ describe('localFindFiles', () => {
     });
 
     it('should handle filesPerPage = 1', async () => {
-      const files = Array.from(
-        { length: 5 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 5 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1425,16 +1039,10 @@ describe('localFindFiles', () => {
     });
 
     it('should handle filesPerPage = 20 (max)', async () => {
-      const files = Array.from(
-        { length: 150 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 150 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1448,12 +1056,7 @@ describe('localFindFiles', () => {
     });
 
     it('should handle single file result', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '/test/single-file.txt\0',
-        stderr: '',
-      });
+      setNativeEntries([{ path: '/test/single-file.txt' }]);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1468,16 +1071,10 @@ describe('localFindFiles', () => {
     });
 
     it('should handle exact boundary (20 files, 20 per page)', async () => {
-      const files = Array.from(
-        { length: 20 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 20 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1492,16 +1089,10 @@ describe('localFindFiles', () => {
     });
 
     it('should handle one over boundary (21 files, 20 per page)', async () => {
-      const files = Array.from(
-        { length: 21 },
-        (_, i) => `/test/file${i}.txt`
-      ).join('\0');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: files + '\0',
-        stderr: '',
-      });
+      const entries = Array.from({ length: 21 }, (_, i) => ({
+        path: `/test/file${i}.txt`,
+      }));
+      setNativeEntries(entries);
 
       const result = await findFiles({
         path: '/test/path',
@@ -1516,12 +1107,7 @@ describe('localFindFiles', () => {
     });
 
     it('should handle empty result set with pagination params', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
-      });
+      setNativeEntries([]);
 
       const result = await findFiles({
         path: '/test/path',

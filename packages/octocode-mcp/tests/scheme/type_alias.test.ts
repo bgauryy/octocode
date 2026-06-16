@@ -18,11 +18,14 @@ describe('localSearchCode langType (one public field)', () => {
     }
   });
 
-  it('does not expose `type` on the public schema (stripped, not honored)', () => {
+  it('rejects the legacy `type` key on the public schema (strict, not honored)', () => {
     const result = LocalRipgrepQuerySchema.safeParse({ ...base, type: 'ts' });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect((result.data as { type?: string }).type).toBeUndefined();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const keys = result.error.issues.flatMap(i =>
+        i.code === 'unrecognized_keys' ? i.keys : []
+      );
+      expect(keys).toContain('type');
     }
   });
 
@@ -67,11 +70,14 @@ describe('localFindFiles entryType (one public field)', () => {
     ).toBe(false);
   });
 
-  it('does not expose `type` on the public schema (stripped, not honored)', () => {
+  it('rejects the legacy `type` key on the public schema (strict, not honored)', () => {
     const result = LocalFindFilesQuerySchema.safeParse({ ...base, type: 'f' });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect((result.data as { type?: string }).type).toBeUndefined();
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const keys = result.error.issues.flatMap(i =>
+        i.code === 'unrecognized_keys' ? i.keys : []
+      );
+      expect(keys).toContain('type');
     }
   });
 });

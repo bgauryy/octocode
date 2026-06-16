@@ -129,7 +129,6 @@ describe('github_search_pull_requests execution — branch coverage', () => {
         repo: 'repo',
         state: 'open',
         content: { changedFiles: true, patches: { mode: 'all' } },
-        partialContentMetadata: { foo: 'bar' },
       };
 
       const result = await mockServer.callTool(

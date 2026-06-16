@@ -286,7 +286,7 @@ describe('ghSearchPRs output size limits', () => {
       expect(responseText).not.toContain('outputPagination');
     });
 
-    it('keeps PR patches raw by default and minifies only when explicitly requested', async () => {
+    it('keeps PR patches raw when minify=none and minifies only when minify=standard', async () => {
       const response = {
         data: {
           items: [
@@ -334,6 +334,7 @@ describe('ghSearchPRs output size limits', () => {
               repo: 'repo',
               prNumber: 7,
               content: { changedFiles: true, patches: { mode: 'all' } },
+              minify: 'none',
               charLength: 5000,
             },
           ],

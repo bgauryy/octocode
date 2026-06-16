@@ -62,7 +62,7 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
       typeof import('@octocodeai/octocode-tools-core/direct')
     >();
   const executeDirectTool = vi.fn(async (toolName: string, input: unknown) => {
-    if (toolName.startsWith('github')) {
+    if (toolName.startsWith('gh')) {
       await mocks.initialize();
       await mocks.initializeProviders();
     }
@@ -150,7 +150,7 @@ describe('tool-command coverage', () => {
     await printToolsContext();
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('Octocode CLI — Agent Protocol');
+    expect(output).toContain('Octocode CLI — Agent Context');
     expect(output).toContain('octocode tools <name>');
     expect(output).toContain('octocode --help');
     expect(output).toContain('CLI Usage:');

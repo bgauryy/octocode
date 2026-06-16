@@ -254,8 +254,7 @@ Note: the CLI command is `octocode tools <name>` (not `octocode <name>` directly
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | — | GitHub auth (priority: OCTOCODE > GH > GITHUB) |
 | `ENABLE_LOCAL` | `true` | Enables local filesystem tools |
 | `ENABLE_CLONE` | `false` | Enables `ghCloneRepo` + directory mode |
-| `WORKSPACE_ROOT` | `process.cwd()` | Root for resolving relative paths |
-| `ALLOWED_PATHS` | `[]` (all) | Restrict local tools to comma-separated paths |
+| `ALLOWED_PATHS` | `[]` (all) | Restrict local tools to comma-separated absolute paths |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | `yaml` or `json` |
 
 ---
@@ -325,9 +324,20 @@ ghGetFileContent(owner, repo, path, minify:"symbols")             → orient on 
 
 **GitHub — PR review**
 ```
+# Single PR:
 ghSearchPRs(owner, repo, prNumber, minify:"standard", charLength:20000,
   content:{metadata:true, body:true, changedFiles:true})
 → ghGetFileContent for current source state
+
+# Multiple known PR numbers — batch in ONE call (saves N-1 round trips):
+queries:[
+  {owner, repo, prNumber:409, minify:"standard", content:{metadata:true, changedFiles:true}},
+  {owner, repo, prNumber:360, minify:"standard", content:{metadata:true, changedFiles:true}},
+  {owner, repo, prNumber:336, minify:"standard", content:{metadata:true, changedFiles:true}}
+]  ← max 5 per call
+
+# Multiple known file paths — batch reads in ONE call:
+queries:[{owner, repo, path:"src/foo.ts"}, {owner, repo, path:"src/bar.ts"}]
 ```
 
 **Deep cross-package LSP** (ENABLE_CLONE=true required; fallback: ghViewRepoStructure → ghSearchCode → ghGetFileContent)
@@ -392,6 +402,6 @@ Max 5 queries per bulk call. Batch independent queries; serialize dependent ones
 ❌ Must serialize (output of step N feeds step N+1):
   localSearchCode → lspGetSemantics  (need lineHint from search result)
   ghSearchRepos  → ghViewRepoStructure  (need owner/repo from repos result)
-  ghGetFileContent(type:"directory") → localViewStructure  (need localPath)
+  ghCloneRepo → localViewStructure  (need localPath from clone result)
   localSearchCode → localGetFileContent  (need path from search result)
 ```

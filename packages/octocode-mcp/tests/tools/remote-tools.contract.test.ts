@@ -131,7 +131,11 @@ describe('hints contract — static guidance never reaches responses', () => {
       owner: 'a',
       repo: 'b',
     });
-    expect(hints.some(h => /keywords|broaden|filter/.test(h))).toBe(true);
+    expect(
+      hints.some(h =>
+        /unindexed|ghGetFileContent|ghViewRepoStructure|default branch/.test(h)
+      )
+    ).toBe(true);
   });
 
   it('per-tool hints fire only on empty/error — hasResults channel is type-narrowed away', () => {

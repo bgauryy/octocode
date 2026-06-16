@@ -482,7 +482,7 @@ describe('GitHub Search Repositories Coverage', () => {
       const result = await call({ id: 'filter_only_hint', owner: 'someorg' });
       const text = getTextContent(result.content);
       expect(result.isError).toBe(false);
-      expect(text).toContain('Remove a filter');
+      expect(text).toContain('Remove owner/language/topic first');
     });
   });
 

@@ -275,8 +275,8 @@ describe('GitHub Search Repositories Query Splitting', () => {
       const responseText = getTextContent(result.content);
       expect(responseText).not.toContain('pagination is omitted');
       expect(responseText).toContain('pagination:');
-      expect(responseText).toContain('fetch page 2');
-      expect(responseText).toContain('upper bound');
+      expect(responseText).toContain('page=2');
+      expect(responseText).toContain('upper-bound');
 
       const structured = result.structuredContent as {
         results?: Array<{

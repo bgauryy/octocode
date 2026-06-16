@@ -77,9 +77,10 @@ describe('createSuccessResult — empty path', () => {
     );
 
     expect(result.status).toBe('empty');
-    expect(result.hints?.some(h => /keywords|broaden|filter/.test(h))).toBe(
-      true
-    );
+    expect(result.hints?.some(h =>
+        /unindexed|ghGetFileContent|ghViewRepoStructure|default branch/.test(h)
+      )
+    ).toBe(true);
   });
 
   it('merges per-tool empty hint with extraHints (no duplication)', () => {
@@ -95,9 +96,10 @@ describe('createSuccessResult — empty path', () => {
     );
 
     expect(result.hints).toContain('extra-from-executor');
-    expect(result.hints?.some(h => /keywords|broaden|filter/.test(h))).toBe(
-      true
-    );
+    expect(result.hints?.some(h =>
+        /unindexed|ghGetFileContent|ghViewRepoStructure|default branch/.test(h)
+      )
+    ).toBe(true);
   });
 
   it('dedupes identical hints across registry + extra', () => {
@@ -148,7 +150,9 @@ describe('createErrorResult — per-tool error hints', () => {
     );
 
     expect(result.status).toBe('error');
-    expect(result.hints?.some(h => h.includes('exact line'))).toBe(true);
+    expect(result.hints?.some(h => h.includes('exact symbol line'))).toBe(
+      true
+    );
   });
 
   it('emits clone permission hint', () => {
@@ -207,7 +211,11 @@ describe('HintStatus narrowing', () => {
       owner: 'a',
       repo: 'b',
     });
-    expect(hints.some(h => /keywords|broaden|filter/.test(h))).toBe(true);
+    expect(
+      hints.some(h =>
+        /unindexed|ghGetFileContent|ghViewRepoStructure|default branch/.test(h)
+      )
+    ).toBe(true);
   });
 
   it('getHints with error status works', () => {

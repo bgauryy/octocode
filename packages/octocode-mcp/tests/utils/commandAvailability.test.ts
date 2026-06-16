@@ -24,30 +24,16 @@ describe('commandAvailability', () => {
       expect(typeof result.available).toBe('boolean');
     });
 
-    it('should check find availability', async () => {
-      const result = await checkCommandAvailability('find');
-
-      expect(result.command).toBe('find');
-      expect(typeof result.available).toBe('boolean');
-    });
-
-    it('should check ls availability', async () => {
-      const result = await checkCommandAvailability('ls');
-
-      expect(result.command).toBe('ls');
-      expect(typeof result.available).toBe('boolean');
-    });
-
     it('should cache results by default', async () => {
-      const result1 = await checkCommandAvailability('ls');
-      const result2 = await checkCommandAvailability('ls');
+      const result1 = await checkCommandAvailability('rg');
+      const result2 = await checkCommandAvailability('rg');
 
       expect(result1).toBe(result2);
     });
 
     it('should bypass cache with forceCheck', async () => {
-      const result1 = await checkCommandAvailability('ls');
-      const result2 = await checkCommandAvailability('ls', true);
+      const result1 = await checkCommandAvailability('rg');
+      const result2 = await checkCommandAvailability('rg', true);
 
       expect(result2.command).toBe(result1.command);
       expect(result2.available).toBe(result1.available);
@@ -110,8 +96,6 @@ describe('commandAvailability', () => {
       const results = await checkAllCommandsAvailability();
 
       expect(results.has('rg')).toBe(true);
-      expect(results.has('find')).toBe(true);
-      expect(results.has('ls')).toBe(true);
 
       for (const [command, result] of results) {
         expect(result.command).toBe(command);
@@ -123,8 +107,6 @@ describe('commandAvailability', () => {
       const results = await checkAllCommandsAvailability();
 
       expect(results.get('rg')?.command).toBe('rg');
-      expect(results.get('find')?.command).toBe('find');
-      expect(results.get('ls')?.command).toBe('ls');
     });
   });
 
@@ -135,20 +117,6 @@ describe('commandAvailability', () => {
       expect(error).toContain('ripgrep');
       expect(error).toContain('dist/runtime/rg');
     });
-
-    it('should return install instructions for find', () => {
-      const error = getMissingCommandError('find');
-
-      expect(error).toContain('find');
-      expect(error).toMatch(/PATH|Git Bash|WSL|Unix/);
-    });
-
-    it('should return install instructions for ls', () => {
-      const error = getMissingCommandError('ls');
-
-      expect(error).toContain('ls');
-      expect(error).toMatch(/PATH|Git Bash|WSL|Unix/);
-    });
   });
 
   describe('clearAvailabilityCache', () => {
@@ -157,50 +125,16 @@ describe('commandAvailability', () => {
     });
 
     it('should clear cached results', async () => {
-      await checkCommandAvailability('ls');
+      await checkCommandAvailability('rg');
 
       clearAvailabilityCache();
 
-      const result = await checkCommandAvailability('ls', true);
-      expect(result.command).toBe('ls');
+      const result = await checkCommandAvailability('rg', true);
+      expect(result.command).toBe('rg');
     });
   });
 
   describe('POSIX command fast path', () => {
-    it('should return available for find without calling spawnCheckSuccess on non-Windows', async () => {
-      const spawnModule =
-        await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
-      const spawnSpy = vi.spyOn(spawnModule, 'spawnCheckSuccess');
-
-      clearAvailabilityCache();
-
-      const result = await checkCommandAvailability('find', true);
-
-      if (process.platform !== 'win32') {
-        expect(result.available).toBe(true);
-        expect(spawnSpy).not.toHaveBeenCalled();
-      }
-
-      spawnSpy.mockRestore();
-    });
-
-    it('should return available for ls without calling spawnCheckSuccess on non-Windows', async () => {
-      const spawnModule =
-        await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
-      const spawnSpy = vi.spyOn(spawnModule, 'spawnCheckSuccess');
-
-      clearAvailabilityCache();
-
-      const result = await checkCommandAvailability('ls', true);
-
-      if (process.platform !== 'win32') {
-        expect(result.available).toBe(true);
-        expect(spawnSpy).not.toHaveBeenCalled();
-      }
-
-      spawnSpy.mockRestore();
-    });
-
     it('should still call spawnCheckSuccess for rg (not POSIX)', async () => {
       const spawnModule =
         await import('../../../octocode-tools-core/src/utils/exec/spawn.js');
@@ -221,8 +155,6 @@ describe('commandAvailability', () => {
   describe('REQUIRED_COMMANDS', () => {
     it('should have required commands defined', () => {
       expect(REQUIRED_COMMANDS.rg).toBeDefined();
-      expect(REQUIRED_COMMANDS.find).toBeDefined();
-      expect(REQUIRED_COMMANDS.ls).toBeDefined();
     });
 
     it('should not include grep (fallback removed)', () => {
@@ -231,22 +163,25 @@ describe('commandAvailability', () => {
       ).toBe(false);
     });
 
+    it('should not include find/ls (native filesystem migration)', () => {
+      expect(
+        Object.prototype.hasOwnProperty.call(REQUIRED_COMMANDS, 'find')
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(REQUIRED_COMMANDS, 'ls')
+      ).toBe(false);
+    });
+
     it('should have correct tool names', () => {
       expect(REQUIRED_COMMANDS.rg.tool).toBe('localSearchCode');
-      expect(REQUIRED_COMMANDS.find.tool).toBe('localFindFiles');
-      expect(REQUIRED_COMMANDS.ls.tool).toBe('localViewStructure');
     });
 
     it('should have correct command names', () => {
       expect(REQUIRED_COMMANDS.rg.name).toBe('ripgrep');
-      expect(REQUIRED_COMMANDS.find.name).toBe('find');
-      expect(REQUIRED_COMMANDS.ls.name).toBe('ls');
     });
 
     it('should have version flags', () => {
       expect(REQUIRED_COMMANDS.rg.versionFlag).toBe('--version');
-      expect(REQUIRED_COMMANDS.find.versionFlag).toBe('--version');
-      expect(REQUIRED_COMMANDS.ls.versionFlag).toBe('--version');
     });
   });
 

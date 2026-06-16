@@ -206,7 +206,7 @@ describe('GitHub API Utils', () => {
       await searchGitHubCodeAPI(params);
 
       expect(mockOctokit.rest.search.code).toHaveBeenCalledWith({
-        q: 'Button repo:facebook/react',
+        q: 'Button language:typescript repo:facebook/react',
         per_page: 30,
         page: 1,
         headers: {
@@ -574,7 +574,7 @@ describe('GitHub API Utils', () => {
       await searchGitHubCodeAPI(params);
 
       expect(mockOctokit.rest.search.code).toHaveBeenCalledWith({
-        q: 'function repo:octocat/test',
+        q: 'function language:javascript repo:octocat/test',
         per_page: 30,
         page: 1,
         headers: {

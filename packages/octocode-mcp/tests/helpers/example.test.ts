@@ -1,218 +1,149 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  setContextUtilsNativeLoaderForTesting,
+  resetContextUtilsNativeLoaderForTesting,
+} from '../../../octocode-tools-core/src/utils/contextUtils.js';
+import type {
+  FileSystemEntry,
+  FileSystemQueryOptions,
+  FileSystemQueryResult,
+} from '../../../octocode-tools-core/src/utils/contextUtils.js';
+import * as pathValidator from 'octocode-security/pathValidator';
 
-const { fsMocks, execMocks, pathValidatorMocks, mocks, createStats, helpers } =
-  vi.hoisted(() => {
-    const lstatSync = vi.fn();
-    const realpathSync = vi.fn();
-    const readdir = vi.fn();
-    const lstat = vi.fn();
-    const stat = vi.fn();
-    const readFile = vi.fn();
-    const access = vi.fn();
-    const safeExec = vi.fn();
-    const checkCommandAvailability = vi.fn().mockResolvedValue({
-      available: true,
-      command: 'ls',
-    });
-    const getMissingCommandError = vi
-      .fn()
-      .mockReturnValue('Command not available');
-    const validate = vi.fn();
-
-    const createStats = (
-      opts: {
-        isFile?: boolean;
-        isDir?: boolean;
-        isSymlink?: boolean;
-        size?: number;
-        mtime?: Date;
-      } = {}
-    ) => ({
-      isFile: () => opts.isFile ?? (!opts.isDir && !opts.isSymlink),
-      isDirectory: () => opts.isDir ?? false,
-      isSymbolicLink: () => opts.isSymlink ?? false,
-      isBlockDevice: () => false,
-      isCharacterDevice: () => false,
-      isFIFO: () => false,
-      isSocket: () => false,
-      size: opts.size ?? 0,
-      mtime: opts.mtime ?? new Date(),
-      mode: 0o644,
-    });
-
-    const createDirent = (
-      name: string,
-      type: 'file' | 'directory' | 'symlink' = 'file'
-    ) => ({
-      name,
-      isFile: () => type === 'file',
-      isDirectory: () => type === 'directory',
-      isSymbolicLink: () => type === 'symlink',
-      isBlockDevice: () => false,
-      isCharacterDevice: () => false,
-      isFIFO: () => false,
-      isSocket: () => false,
-    });
-
-    return {
-      fsMocks: {
-        default: {
-          lstatSync,
-          realpathSync,
-          promises: { readdir, lstat, stat, readFile, access },
-        },
-        lstatSync,
-        realpathSync,
-        promises: { readdir, lstat, stat, readFile, access },
-      },
-      execMocks: { safeExec, checkCommandAvailability, getMissingCommandError },
-      pathValidatorMocks: { pathValidator: { validate } },
-
-      mocks: {
-        lstatSync,
-        realpathSync,
-        readdir,
-        lstat,
-        stat,
-        readFile,
-        access,
-        safeExec,
-        validate,
-      },
-
-      createStats,
-      createDirent,
-
-      helpers: {
-        reset: () => {
-          [
-            lstatSync,
-            realpathSync,
-            readdir,
-            lstat,
-            stat,
-            readFile,
-            access,
-            safeExec,
-            validate,
-          ].forEach(fn => fn.mockClear());
-        },
-
-        setupValidPath: (path = '/test/path') => {
-          validate.mockReturnValue({ isValid: true, sanitizedPath: path });
-        },
-
-        setupInvalidPath: (error = 'Path not allowed') => {
-          validate.mockReturnValue({ isValid: false, error });
-        },
-
-        setupExecSuccess: (stdout = '', stderr = '') => {
-          safeExec.mockResolvedValue({
-            success: true,
-            code: 0,
-            stdout,
-            stderr,
-          });
-        },
-
-        setupExecFailure: (stderr = 'Command failed', code = 1) => {
-          safeExec.mockResolvedValue({
-            success: false,
-            code,
-            stdout: '',
-            stderr,
-          });
-        },
-
-        setupLstatFile: (size = 1024, mtime = new Date()) => {
-          const stats = createStats({ isFile: true, size, mtime });
-          lstat.mockResolvedValue(stats);
-          lstatSync.mockReturnValue(stats);
-          stat.mockResolvedValue(stats);
-        },
-
-        setupLstatDir: (mtime = new Date()) => {
-          const stats = createStats({ isDir: true, mtime });
-          lstat.mockResolvedValue(stats);
-          lstatSync.mockReturnValue(stats);
-          stat.mockResolvedValue(stats);
-        },
-
-        setupReaddir: (
-          files: Array<
-            string | { name: string; type: 'file' | 'directory' | 'symlink' }
-          >
-        ) => {
-          const names = files.map(f => (typeof f === 'string' ? f : f.name));
-          readdir.mockImplementation(
-            async (_path: string, opts?: { withFileTypes?: boolean }) => {
-              if (opts?.withFileTypes) {
-                return files.map(f =>
-                  typeof f === 'string'
-                    ? createDirent(f, 'file')
-                    : createDirent(f.name, f.type)
-                );
-              }
-              return names;
-            }
-          );
-        },
-
-        setupReadFile: (content: string) => {
-          readFile.mockResolvedValue(content);
-        },
-
-        setupRealpath: (resolvedPath: string) => {
-          realpathSync.mockReturnValue(resolvedPath);
-        },
-
-        createLsOutput: (files: string[]) => files.join('\n'),
-
-        createFindOutput: (paths: string[]) =>
-          paths.length > 0 ? paths.join('\0') + '\0' : '',
-      },
-    };
-  });
-
-vi.mock('fs', () => fsMocks);
-vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
-  safeExec: execMocks.safeExec,
+vi.mock('octocode-security/pathValidator', () => ({
+  pathValidator: {
+    validate: vi.fn(),
+  },
 }));
 
-vi.mock(
-  '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
-  () => ({
-    checkCommandAvailability: execMocks.checkCommandAvailability,
-    getMissingCommandError: execMocks.getMissingCommandError,
-  })
+const { viewStructure } = await import(
+  '../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js'
 );
-vi.mock('octocode-security/pathValidator', () => pathValidatorMocks);
+const { LocalViewStructureQuerySchema } = await import(
+  '../../../octocode-tools-core/src/tools/local_view_structure/scheme.js'
+);
 
-const { viewStructure } =
-  await import('../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js');
-const { LocalViewStructureQuerySchema } =
-  await import('../../../octocode-tools-core/src/tools/local_view_structure/scheme.js');
+const mockValidate = vi.mocked(pathValidator.pathValidator.validate);
+
+/**
+ * The local view-structure tool now delegates filesystem traversal/filtering to
+ * the native `@octocodeai/octocode-context-utils` module via
+ * `contextUtils.queryFileSystem`. These helpers let each test declare the
+ * entries that the (mocked) native layer should return.
+ */
+interface MockEntryInput {
+  name: string;
+  path?: string;
+  type?: 'file' | 'directory' | 'symlink';
+  size?: number;
+  modifiedMs?: number;
+  permissions?: string;
+  depth?: number;
+}
+
+let queryFileSystemMock: ReturnType<typeof vi.fn>;
+let lastQueryOptions: FileSystemQueryOptions | undefined;
+
+function toEntryType(type: MockEntryInput['type']): string {
+  switch (type) {
+    case 'directory':
+      return 'directory';
+    case 'symlink':
+      return 'symlink';
+    default:
+      return 'file';
+  }
+}
+
+function buildEntry(input: MockEntryInput, basePath: string): FileSystemEntry {
+  const path =
+    input.path ?? `${basePath.replace(/\/$/, '')}/${input.name}`;
+  const ext = input.name.includes('.')
+    ? input.name.split('.').pop()
+    : undefined;
+  return {
+    path,
+    relativePath: input.name,
+    name: input.name,
+    entryType: toEntryType(input.type),
+    ...(input.size !== undefined ? { size: input.size } : {}),
+    ...(input.modifiedMs !== undefined ? { modifiedMs: input.modifiedMs } : {}),
+    ...(input.permissions ? { permissions: input.permissions } : {}),
+    ...(ext ? { extension: ext } : {}),
+    depth: input.depth ?? 0,
+  };
+}
+
+/** Declare the entries the native layer should return for the next call(s). */
+function setNativeEntries(
+  entries: MockEntryInput[],
+  opts: {
+    totalDiscovered?: number;
+    wasCapped?: boolean;
+    skipped?: number;
+    permissionDenied?: number;
+    warnings?: string[];
+  } = {}
+): void {
+  queryFileSystemMock.mockImplementation(
+    (options: FileSystemQueryOptions): FileSystemQueryResult => {
+      lastQueryOptions = options;
+      const basePath = options.path;
+      const limit = options.limit ?? entries.length;
+      const mapped = entries.map(e => buildEntry(e, basePath));
+      const capped = mapped.slice(0, limit);
+      return {
+        entries: capped,
+        totalDiscovered: opts.totalDiscovered ?? entries.length,
+        wasCapped: opts.wasCapped ?? mapped.length > limit,
+        skipped: opts.skipped ?? 0,
+        permissionDenied: opts.permissionDenied ?? 0,
+        warnings: opts.warnings ?? [],
+      };
+    }
+  );
+}
+
+/** Make the native layer throw (e.g. ENOENT/EACCES/permission denied). */
+function setNativeError(error: Error): void {
+  queryFileSystemMock.mockImplementation(
+    (options: FileSystemQueryOptions): FileSystemQueryResult => {
+      lastQueryOptions = options;
+      throw error;
+    }
+  );
+}
+
+function installHarness(validPath = '/workspace') {
+  vi.clearAllMocks();
+  lastQueryOptions = undefined;
+  queryFileSystemMock = vi.fn();
+  setContextUtilsNativeLoaderForTesting(
+    () =>
+      ({
+        queryFileSystem: queryFileSystemMock,
+      }) as unknown as typeof import('@octocodeai/octocode-context-utils')
+  );
+  mockValidate.mockReturnValue({ isValid: true, sanitizedPath: validPath });
+  setNativeEntries([]);
+}
 
 describe('Example: Using Unified Test Helpers', () => {
   beforeEach(() => {
-    helpers.reset();
+    installHarness('/workspace');
+  });
 
-    helpers.setupValidPath('/workspace');
-    helpers.setupRealpath('/workspace');
+  afterEach(() => {
+    resetContextUtilsNativeLoaderForTesting();
   });
 
   describe('Basic Directory Listing', () => {
-    it('should list files from ls output', async () => {
-      helpers.setupExecSuccess(
-        helpers.createLsOutput(['file1.ts', 'file2.ts', 'dir1'])
-      );
-
-      mocks.lstat.mockImplementation(async (path: string) => {
-        if (path.includes('dir1')) {
-          return createStats({ isDir: true });
-        }
-        return createStats({ isFile: true, size: 1024 });
-      });
+    it('should list entries from the native layer', async () => {
+      setNativeEntries([
+        { name: 'file1.ts', type: 'file', size: 1024 },
+        { name: 'file2.ts', type: 'file', size: 1024 },
+        { name: 'dir1', type: 'directory' },
+      ]);
 
       const result = await viewStructure({
         path: '/workspace',
@@ -226,7 +157,7 @@ describe('Example: Using Unified Test Helpers', () => {
     });
 
     it('should handle empty directories', async () => {
-      helpers.setupExecSuccess('');
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/workspace',
@@ -235,8 +166,12 @@ describe('Example: Using Unified Test Helpers', () => {
       expect(result.status).toBe('empty');
     });
 
-    it('should handle command failures', async () => {
-      helpers.setupExecFailure('Permission denied', 1);
+    it('should handle native access failures', async () => {
+      setNativeError(
+        Object.assign(new Error('EACCES: permission denied'), {
+          code: 'EACCES',
+        })
+      );
 
       const result = await viewStructure({
         path: '/workspace',
@@ -248,17 +183,10 @@ describe('Example: Using Unified Test Helpers', () => {
 
   describe('Recursive Listing with Depth', () => {
     it('should use recursive walk for depth > 0', async () => {
-      helpers.setupReaddir([
-        { name: 'src', type: 'directory' },
-        { name: 'package.json', type: 'file' },
+      setNativeEntries([
+        { name: 'src', type: 'directory', depth: 0 },
+        { name: 'package.json', type: 'file', size: 100, depth: 0 },
       ]);
-
-      mocks.lstat.mockImplementation(async (path: string) => {
-        if (path.includes('src') || path.includes('workspace')) {
-          return createStats({ isDir: true });
-        }
-        return createStats({ isFile: true, size: 100 });
-      });
 
       const result = await viewStructure({
         path: '/workspace',
@@ -266,12 +194,16 @@ describe('Example: Using Unified Test Helpers', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(lastQueryOptions?.recursive).toBe(true);
     });
   });
 
   describe('Path Validation', () => {
     it('should reject invalid paths', async () => {
-      helpers.setupInvalidPath('Path outside workspace');
+      mockValidate.mockReturnValue({
+        isValid: false,
+        error: 'Path outside workspace',
+      });
 
       const result = await viewStructure({
         path: '/etc/passwd',
@@ -281,8 +213,11 @@ describe('Example: Using Unified Test Helpers', () => {
     });
 
     it('should accept valid workspace paths', async () => {
-      helpers.setupValidPath('/workspace/src');
-      helpers.setupExecSuccess('');
+      mockValidate.mockReturnValue({
+        isValid: true,
+        sanitizedPath: '/workspace/src',
+      });
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/workspace/src',
@@ -294,9 +229,12 @@ describe('Example: Using Unified Test Helpers', () => {
 
   describe('Pagination', () => {
     it('should include pagination info', async () => {
-      const files = Array.from({ length: 25 }, (_, i) => `file${i}.ts`);
-      helpers.setupExecSuccess(helpers.createLsOutput(files));
-      helpers.setupLstatFile();
+      const files = Array.from({ length: 25 }, (_, i) => ({
+        name: `file${i}.ts`,
+        type: 'file' as const,
+        size: 1024,
+      }));
+      setNativeEntries(files);
 
       const result = await viewStructure(
         LocalViewStructureQuerySchema.parse({
@@ -315,7 +253,7 @@ describe('Example: Using Unified Test Helpers', () => {
 
   describe('Research Goals Passthrough', () => {
     it('should not echo researchGoal and reasoning in results', async () => {
-      helpers.setupExecSuccess('');
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/workspace',
@@ -332,35 +270,31 @@ describe('Example: Using Unified Test Helpers', () => {
 
 describe('Example: Direct Mock Access', () => {
   beforeEach(() => {
-    helpers.reset();
-    helpers.setupValidPath('/workspace');
-    helpers.setupRealpath('/workspace');
+    installHarness('/workspace');
   });
 
-  it('should allow direct mock manipulation', async () => {
-    mocks.safeExec.mockResolvedValueOnce({
-      success: true,
-      code: 0,
-      stdout: 'file1.ts\nfile2.ts',
-      stderr: '',
-    });
+  afterEach(() => {
+    resetContextUtilsNativeLoaderForTesting();
+  });
 
-    mocks.lstat.mockResolvedValue(createStats({ isFile: true, size: 500 }));
+  it('should allow direct native-layer manipulation', async () => {
+    setNativeEntries([
+      { name: 'file1.ts', type: 'file', size: 500 },
+      { name: 'file2.ts', type: 'file', size: 500 },
+    ]);
 
     const result = await viewStructure({ path: '/workspace' });
     expect(result.status).toBeUndefined();
 
-    expect(mocks.safeExec).toHaveBeenCalled();
+    expect(queryFileSystemMock).toHaveBeenCalled();
   });
 
-  it('should track mock call arguments', async () => {
-    helpers.setupExecSuccess('');
+  it('should track native-layer call arguments', async () => {
+    setNativeEntries([]);
 
     await viewStructure({ path: '/workspace' });
 
-    expect(mocks.safeExec).toHaveBeenCalledWith(
-      'ls',
-      expect.arrayContaining(['/workspace'])
-    );
+    expect(queryFileSystemMock).toHaveBeenCalled();
+    expect(lastQueryOptions?.path).toBe('/workspace');
   });
 });

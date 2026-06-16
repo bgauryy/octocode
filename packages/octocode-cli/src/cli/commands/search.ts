@@ -247,7 +247,8 @@ export const searchCommand: CLICommand = {
     {
       name: 'context',
       hasValue: true,
-      description: 'Lines of context around each match (local only, default: 0)',
+      description:
+        'Lines of context around each match (local only, default: 0)',
     },
     {
       name: 'max-matches',
@@ -293,13 +294,21 @@ export const searchCommand: CLICommand = {
     const rawMaxMatches = getString(options, 'max-matches');
     const page = rawPage ? parseInt(rawPage, 10) : undefined;
     const pageSize = rawPageSize ? parseInt(rawPageSize, 10) : undefined;
-    const contextLines = rawContextLines ? parseInt(rawContextLines, 10) : undefined;
-    const maxMatchesPerFile = rawMaxMatches ? parseInt(rawMaxMatches, 10) : undefined;
+    const contextLines = rawContextLines
+      ? parseInt(rawContextLines, 10)
+      : undefined;
+    const maxMatchesPerFile = rawMaxMatches
+      ? parseInt(rawMaxMatches, 10)
+      : undefined;
     const modeOpt = getString(options, 'mode') || undefined;
     const includeOpt = getString(options, 'include');
     const excludeOpt = getString(options, 'exclude');
-    const include = includeOpt ? includeOpt.split(',').map(s => s.trim()) : undefined;
-    const exclude = excludeOpt ? excludeOpt.split(',').map(s => s.trim()) : undefined;
+    const include = includeOpt
+      ? includeOpt.split(',').map(s => s.trim())
+      : undefined;
+    const exclude = excludeOpt
+      ? excludeOpt.split(',').map(s => s.trim())
+      : undefined;
     const jsonOutput = getBool(options, 'json');
 
     if (!pattern) {

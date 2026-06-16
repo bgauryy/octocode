@@ -36,7 +36,7 @@ describe('ghSearchCode empty hints — path: is directory-only', () => {
       keywords: ['createRenderer'],
     });
     const joined = out.join(' ');
-    expect(joined).toContain('Remove a filter');
+    expect(joined).toContain('Remove path/filename/extension first');
   });
 
   it('gives broadening guidance when no path filter is set', () => {
@@ -73,7 +73,7 @@ describe('ghSearchCode empty hints — path filter', () => {
       path: 'packages/core/src/agent/agent.ts',
       keywords: ['createAgent'],
     });
-    expect(out.join(' ')).toContain('Remove a filter');
+    expect(out.join(' ')).toContain('Remove path/filename/extension first');
   });
 
   it('with file path returns repo scope in hint', () => {
@@ -85,7 +85,7 @@ describe('ghSearchCode empty hints — path filter', () => {
       keywords: ['useState'],
     });
     const joined = out.join(' ');
-    expect(joined).toContain('Remove a filter');
+    expect(joined).toContain('Remove path/filename/extension first');
   });
 
   it('with directory path returns filter hint and ghGetFileContent fallback', () => {
@@ -97,7 +97,7 @@ describe('ghSearchCode empty hints — path filter', () => {
       keywords: ['createAgent'],
     });
     const joined = out.join(' ');
-    expect(joined).toContain('Remove a filter');
+    expect(joined).toContain('Remove path/filename/extension first');
     expect(joined).not.toMatch(/auto-extracted/i);
   });
 

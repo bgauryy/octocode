@@ -85,7 +85,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         keywords: 'export',
         path: NODE_MODULES_PATH,
         include: ['*.js'],
-        matchesPerPage: 5,
+        itemsPerPage: 5,
         researchGoal: 'Find exported functions in JavaScript files',
         reasoning: 'Testing pattern search on node_modules',
       });
@@ -268,7 +268,6 @@ describe('Integration Tests: All Tools on node_modules', () => {
         }
       }
 
-      expect(findResult).toHaveProperty('status');
       expect([undefined, 'empty', 'error']).toContain(findResult.status);
     });
 

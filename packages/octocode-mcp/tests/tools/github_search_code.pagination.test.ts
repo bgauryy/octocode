@@ -29,13 +29,19 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
 import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 
+type CodeFile = {
+  id: string;
+  queryId?: string;
+  owner: string;
+  repo: string;
+  path: string;
+  matches: Array<{ value?: string }>;
+};
+
 type FlatResponse = {
   results: Array<{
     id: string;
-    queryId?: string;
-    owner: string;
-    repo: string;
-    matches: Array<{ path: string; value?: string }>;
+    data?: { files?: CodeFile[] };
   }>;
   pagination?: {
     hasMore: boolean;
@@ -137,7 +143,9 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.results[0]?.matches.length).toBeGreaterThanOrEqual(1);
+      const files = data.results[0]?.data?.files ?? [];
+      expect(files.length).toBeGreaterThanOrEqual(1);
+      expect(files[0]?.matches.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -283,7 +291,8 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const data = result.structuredContent as FlatResponse;
       expect(data.results.length).toBeGreaterThanOrEqual(1);
-      expect(data.results.map(group => group.queryId)).toEqual(['q1', 'q2']);
+      const files = data.results[0]?.data?.files ?? [];
+      expect(files.map(file => file.queryId)).toEqual(['q1', 'q2']);
       expect(data.errors).toBeUndefined();
     });
 
@@ -326,15 +335,10 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const data = result.structuredContent as FlatResponse;
-      expect(data.results).toHaveLength(2);
-      expect(data.results.map(group => group.queryId)).toEqual([
-        'first',
-        'second',
-      ]);
-      expect(data.results.map(group => group.matches[0]?.path)).toEqual([
-        'src/a.ts',
-        'src/b.ts',
-      ]);
+      const files = data.results[0]?.data?.files ?? [];
+      expect(files).toHaveLength(2);
+      expect(files.map(file => file.queryId)).toEqual(['first', 'second']);
+      expect(files.map(file => file.path)).toEqual(['src/a.ts', 'src/b.ts']);
     });
 
     it('rejects repo without owner before calling the provider', async () => {

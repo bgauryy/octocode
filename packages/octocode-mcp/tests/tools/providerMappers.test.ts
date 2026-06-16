@@ -465,7 +465,7 @@ describe('providerMappers', () => {
     expect(hints.length).toBeGreaterThanOrEqual(1);
     expect(hints[0]).toContain('Page 2/3');
     expect(hints[0]).toContain('Next: page=3');
-    expect(hints.some(h => h.includes('paginated'))).toBe(true);
+    expect(hints.some(h => h.includes('page through'))).toBe(true);
   });
 
   it('emits cursor hint without invented total when totalMatches is unknown', () => {

@@ -247,7 +247,7 @@ describe('GitHub Search Pull Requests Tool', () => {
             {
               owner: 'test',
               repo: 'repo',
-              merged: true,
+              state: 'merged',
             },
           ],
         }

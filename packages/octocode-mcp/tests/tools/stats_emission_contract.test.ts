@@ -63,8 +63,7 @@ const registeredTools = [
       'src/tools/local_view_structure/local_view_structure.ts',
     ],
     rawEvidence: [
-      /rawResponse:\s*result\.stdout\.length\s*\+\s*result\.stderr\.length/,
-      /attachRawResponseChars\([\s\S]*countSerializedChars\(entries\)/,
+      /attachRawResponseChars\([\s\S]*nativeResult\.entries\.reduce\(\s*\(sum, entry\) => sum \+ entry\.path\.length/,
     ],
   },
   {
@@ -74,8 +73,7 @@ const registeredTools = [
       'src/tools/local_find_files/findFiles.ts',
     ],
     rawEvidence: [
-      /rawResponse:\s*result\.stdout\.length\s*\+\s*result\.stderr\.length/,
-      /attachRawResponseChars\([\s\S]*result\.stdout\.length/,
+      /attachRawResponseChars\([\s\S]*nativeResult\.entries\.reduce\(\s*\(sum, entry\) => sum \+ entry\.path\.length/,
     ],
   },
   {

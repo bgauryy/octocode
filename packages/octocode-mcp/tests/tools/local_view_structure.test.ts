@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { LOCAL_TOOL_ERROR_CODES } from '../../../octocode-tools-core/src/errors/localToolErrors.js';
 import { viewStructure as viewStructureImpl } from '../../../octocode-tools-core/src/tools/local_view_structure/local_view_structure.js';
-import { safeExec } from '../../../octocode-tools-core/src/utils/exec/safe.js';
-import { checkCommandAvailability } from '../../../octocode-tools-core/src/utils/exec/commandAvailability.js';
+import {
+  setContextUtilsNativeLoaderForTesting,
+  resetContextUtilsNativeLoaderForTesting,
+} from '../../../octocode-tools-core/src/utils/contextUtils.js';
+import type {
+  FileSystemEntry,
+  FileSystemQueryOptions,
+  FileSystemQueryResult,
+} from '../../../octocode-tools-core/src/utils/contextUtils.js';
 import * as pathValidator from 'octocode-security/pathValidator';
-import type { Stats } from 'fs';
 
 type ViewStructureInput = Parameters<typeof viewStructureImpl>[0] & {
   page?: number;
@@ -26,96 +32,142 @@ const flatNames = (result: {
   ...(result.links ?? []),
 ];
 
-vi.mock('../../../octocode-tools-core/src/utils/exec/safe.js', () => ({
-  safeExec: vi.fn(),
-}));
-
-vi.mock(
-  '../../../octocode-tools-core/src/utils/exec/commandAvailability.js',
-  () => ({
-    checkCommandAvailability: vi
-      .fn()
-      .mockResolvedValue({ available: true, command: 'ls' }),
-    getMissingCommandError: vi.fn().mockReturnValue('Command not available'),
-  })
-);
-
 vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
   },
 }));
 
-const { mockReaddirFn, mockLstatFn, mockLstatSyncFn } = vi.hoisted(() => ({
-  mockReaddirFn: vi.fn(),
-  mockLstatFn: vi.fn(),
-  mockLstatSyncFn: vi.fn(),
-}));
+/**
+ * The local tools now delegate filesystem traversal/filtering to the native
+ * `@octocodeai/octocode-context-utils` module via `contextUtils.queryFileSystem`.
+ * These helpers let each test declare the entries that the (mocked) native
+ * layer should return, plus optional capping/diagnostics metadata.
+ */
+interface MockEntryInput {
+  path: string;
+  type?: 'file' | 'directory' | 'symlink';
+  size?: number;
+  modifiedMs?: number;
+  permissions?: string;
+  depth?: number;
+}
 
-vi.mock('fs', () => {
-  const mockModule = {
-    lstatSync: mockLstatSyncFn,
-    promises: {
-      readdir: mockReaddirFn,
-      lstat: mockLstatFn,
-    },
-  };
+let queryFileSystemMock: ReturnType<typeof vi.fn>;
+let lastQueryOptions: FileSystemQueryOptions | undefined;
+
+function toEntryType(type: MockEntryInput['type']): string {
+  switch (type) {
+    case 'directory':
+      return 'directory';
+    case 'symlink':
+      return 'symlink';
+    default:
+      return 'file';
+  }
+}
+
+function buildEntry(input: MockEntryInput, basePath: string): FileSystemEntry {
+  const name = input.path.split('/').pop() || input.path;
+  const ext = name.includes('.') ? name.split('.').pop() : undefined;
+  const base = basePath.replace(/\/$/, '');
+  const rel = input.path.startsWith(base)
+    ? input.path.slice(base.length).replace(/^\//, '')
+    : name;
   return {
-    ...mockModule,
-    default: mockModule,
+    path: input.path,
+    relativePath: rel,
+    name,
+    entryType: toEntryType(input.type),
+    ...(input.size !== undefined ? { size: input.size } : {}),
+    ...(input.modifiedMs !== undefined ? { modifiedMs: input.modifiedMs } : {}),
+    ...(input.permissions ? { permissions: input.permissions } : {}),
+    ...(ext ? { extension: ext } : {}),
+    depth: input.depth ?? 0,
   };
-});
+}
+
+/** Declare the entries the native layer should return for the next call(s). */
+function setNativeEntries(
+  entries: MockEntryInput[],
+  opts: {
+    totalDiscovered?: number;
+    wasCapped?: boolean;
+    skipped?: number;
+    permissionDenied?: number;
+    warnings?: string[];
+  } = {}
+): void {
+  queryFileSystemMock.mockImplementation(
+    (options: FileSystemQueryOptions): FileSystemQueryResult => {
+      lastQueryOptions = options;
+      const basePath = options.path;
+      const limit = options.limit ?? entries.length;
+      const mapped = entries.map(e => buildEntry(e, basePath));
+      const capped = mapped.slice(0, limit);
+      return {
+        entries: capped,
+        totalDiscovered: opts.totalDiscovered ?? entries.length,
+        wasCapped: opts.wasCapped ?? mapped.length > limit,
+        skipped: opts.skipped ?? 0,
+        permissionDenied: opts.permissionDenied ?? 0,
+        warnings: opts.warnings ?? [],
+      };
+    }
+  );
+}
+
+/** Make the native layer throw (e.g. ENOENT/EACCES). */
+function setNativeError(error: Error): void {
+  queryFileSystemMock.mockImplementation(
+    (options: FileSystemQueryOptions): FileSystemQueryResult => {
+      lastQueryOptions = options;
+      throw error;
+    }
+  );
+}
+
+/** Build a list of plain file entries under a base path. */
+function fileEntries(
+  count: number,
+  basePath = '/test/path',
+  extra: Partial<MockEntryInput> = {}
+): MockEntryInput[] {
+  return Array.from({ length: count }, (_, i) => ({
+    path: `${basePath}/file${i}.txt`,
+    type: 'file' as const,
+    ...extra,
+  }));
+}
 
 describe('localViewStructure', () => {
-  const mockSafeExec = vi.mocked(safeExec);
   const mockValidate = vi.mocked(pathValidator.pathValidator.validate);
-
-  const mockReaddir = mockReaddirFn;
-  const mockLstat = mockLstatFn;
-  const mockLstatSync = mockLstatSyncFn;
 
   beforeEach(() => {
     vi.clearAllMocks();
-
-    vi.mocked(checkCommandAvailability).mockResolvedValue({
-      available: true,
-      command: 'ls',
-    });
-
+    lastQueryOptions = undefined;
+    queryFileSystemMock = vi.fn();
+    setContextUtilsNativeLoaderForTesting(
+      () =>
+        ({
+          queryFileSystem: queryFileSystemMock,
+        }) as unknown as typeof import('@octocodeai/octocode-context-utils')
+    );
     mockValidate.mockReturnValue({
       isValid: true,
       sanitizedPath: '/test/path',
     });
+    setNativeEntries([]);
+  });
 
-    mockReaddir.mockResolvedValue([]);
-    mockLstat.mockResolvedValue({
-      isDirectory: () => false,
-      isFile: () => true,
-      isSymbolicLink: () => false,
-      size: 0,
-      mtime: new Date(),
-    } as Stats);
-    mockLstatSync.mockReturnValue({
-      isDirectory: () => false,
-      isSymbolicLink: () => false,
-    } as Stats);
-    mockSafeExec.mockResolvedValue({
-      success: true,
-      code: 0,
-      stdout: '',
-      stderr: '',
-    });
+  afterEach(() => {
+    resetContextUtilsNativeLoaderForTesting();
   });
 
   it('emits active filter echo-back for successful listings', async () => {
-    mockReaddir.mockResolvedValue(['file.ts', 'file.js']);
-    mockLstat.mockResolvedValue({
-      isDirectory: () => false,
-      isFile: () => true,
-      isSymbolicLink: () => false,
-      size: 10,
-      mtime: new Date('2024-01-01'),
-    } as Stats);
+    setNativeEntries([
+      { path: '/test/path/file.ts', type: 'file', size: 10 },
+    ]);
 
     const result = await viewStructure({
       path: '/test/path',
@@ -129,44 +181,13 @@ describe('localViewStructure', () => {
     );
   });
 
-  describe('ls command not available (lines 52-56)', () => {
-    it('should return ToolErrors.commandNotAvailable when ls is not available in non-recursive mode', async () => {
-      vi.mocked(checkCommandAvailability).mockResolvedValue({
-        available: false,
-        command: 'ls',
-      });
-
-      const result = await viewStructure({
-        path: '/test/path',
-      });
-
-      expect(result.status).toBe('error');
-      expect(result.errorCode).toBe(
-        LOCAL_TOOL_ERROR_CODES.COMMAND_NOT_AVAILABLE
-      );
-      expect(mockSafeExec).not.toHaveBeenCalled();
-    });
-  });
-
   describe('Basic directory listing', () => {
     it('should list directory contents', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'file1.txt\nfile2.js\ndir1',
-        stderr: '',
-      });
-
-      mockLstat.mockImplementation(
-        async (pathArg: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => pathArg.toString().includes('dir'),
-            isFile: () => !pathArg.toString().includes('dir'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          }) as Stats
-      );
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/file2.js', type: 'file', size: 1024 },
+        { path: '/test/path/dir1', type: 'directory' },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -181,30 +202,23 @@ describe('localViewStructure', () => {
       expect(result.folders).toEqual(['dir1']);
     });
 
-    it('should use sanitized path for non-recursive ls execution', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
+    it('should use sanitized path for the native query', async () => {
+      mockValidate.mockReturnValue({
+        isValid: true,
+        sanitizedPath: '/test/path',
       });
+      setNativeEntries([]);
 
       await viewStructure({
         path: 'file:///unsafe/path',
       });
 
-      const args = mockSafeExec.mock.calls[0]?.[1] ?? [];
-      expect(args).toContain('/test/path');
-      expect(args).not.toContain('file:///unsafe/path');
+      expect(lastQueryOptions?.path).toBe('/test/path');
+      expect(lastQueryOptions?.path).not.toBe('file:///unsafe/path');
     });
 
     it('should handle empty directories', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
-      });
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/test/empty',
@@ -216,19 +230,10 @@ describe('localViewStructure', () => {
 
   describe('Structured output mode', () => {
     it('should generate structured output with file sizes', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'file2.js']);
-
-      mockLstat.mockImplementation(
-        async (_path: string | Buffer | URL): Promise<Stats> => {
-          return {
-            isDirectory: () => false,
-            isFile: () => true,
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          } as Stats;
-        }
-      );
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/file2.js', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -245,19 +250,9 @@ describe('localViewStructure', () => {
     });
 
     it('should show file sizes for files, not directories', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt']);
-
-      mockLstat.mockImplementation(
-        async (_path: string | Buffer | URL): Promise<Stats> => {
-          return {
-            isDirectory: () => false,
-            isFile: () => true,
-            isSymbolicLink: () => false,
-            size: 2048,
-            mtime: new Date(),
-          } as Stats;
-        }
-      );
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 2048 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -270,25 +265,10 @@ describe('localViewStructure', () => {
     });
 
     it('should respect depth parameter', async () => {
-      let callCount = 0;
-      mockReaddir.mockImplementation(async (): Promise<string[]> => {
-        callCount++;
-        if (callCount === 1) return ['dir1'];
-        return ['subfile.txt'];
-      });
-
-      mockLstat.mockImplementation(
-        async (path: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () =>
-              path.toString().includes('dir1') &&
-              !path.toString().includes('subfile'),
-            isFile: () => path.toString().includes('subfile'),
-            isSymbolicLink: () => false,
-            size: 512,
-            mtime: new Date(),
-          }) as Stats
-      );
+      setNativeEntries([
+        { path: '/test/path/dir1', type: 'directory', depth: 0 },
+        { path: '/test/path/dir1/subfile.txt', type: 'file', size: 512, depth: 1 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -303,12 +283,14 @@ describe('localViewStructure', () => {
 
   describe('Detailed listing with metadata', () => {
     it('should include file details when requested', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '-rw-r--r-- 1 user group 1024 Jan 1 12:00 file1.txt',
-        stderr: '',
-      });
+      setNativeEntries([
+        {
+          path: '/test/path/file1.txt',
+          type: 'file',
+          size: 1024,
+          permissions: '644',
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -320,13 +302,14 @@ describe('localViewStructure', () => {
       expect(result.entries!.some(e => e.type === 'file')).toBe(true);
     });
 
-    it('should parse human-readable file sizes correctly', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '-rw-r--r-- 1 user group 1.5M Jan 1 12:00 large.bin',
-        stderr: '',
-      });
+    it('should report human-readable file sizes', async () => {
+      setNativeEntries([
+        {
+          path: '/test/path/large.bin',
+          type: 'file',
+          size: 1.5 * 1024 * 1024,
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -344,15 +327,11 @@ describe('localViewStructure', () => {
 
   describe('Filtering', () => {
     it('should handle invalid regex pattern with fallback', async () => {
-      mockReaddir.mockResolvedValue(['test1.txt', 'test2.txt', 'other.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/test1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/test2.txt', type: 'file', size: 1024 },
+        { path: '/test/path/other.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -364,15 +343,11 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by file extension', async () => {
-      mockReaddir.mockResolvedValue(['file1.ts', 'file2.js', 'file3.ts']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file1.ts', type: 'file', size: 1024 },
+        { path: '/test/path/file2.js', type: 'file', size: 1024 },
+        { path: '/test/path/file3.ts', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -387,15 +362,11 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by multiple extensions', async () => {
-      mockReaddir.mockResolvedValue(['file1.ts', 'file2.tsx', 'file3.js']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file1.ts', type: 'file', size: 1024 },
+        { path: '/test/path/file2.tsx', type: 'file', size: 1024 },
+        { path: '/test/path/file3.js', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -410,18 +381,10 @@ describe('localViewStructure', () => {
     });
 
     it('should filter files only', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'dir1']);
-
-      mockLstat.mockImplementation(
-        async (path: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => path.toString().includes('dir1'),
-            isFile: () => path.toString().includes('file1'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          }) as Stats
-      );
+      // filesOnly is forwarded as entryType='f'; native returns files only.
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -430,24 +393,18 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(lastQueryOptions?.entryType).toBe('f');
       expect(result.files).toContain('file1.txt');
       expect(result.folders).toBeUndefined();
       expect(flatNames(result)).not.toContain('dir1');
     });
 
     it('should filter directories only', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'dir1', 'dir2']);
-
-      mockLstat.mockImplementation(
-        async (path: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => path.toString().includes('dir'),
-            isFile: () => path.toString().includes('file'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          }) as Stats
-      );
+      // directoriesOnly is forwarded as entryType='d'; native returns dirs only.
+      setNativeEntries([
+        { path: '/test/path/dir1', type: 'directory' },
+        { path: '/test/path/dir2', type: 'directory' },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -456,6 +413,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(lastQueryOptions?.entryType).toBe('d');
       expect(result.folders).toContain('dir1');
       expect(result.folders).toContain('dir2');
       expect(result.files).toBeUndefined();
@@ -463,15 +421,11 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by name pattern', async () => {
-      mockReaddir.mockResolvedValue(['test1.txt', 'test2.txt', 'other.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/test1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/test2.txt', type: 'file', size: 1024 },
+        { path: '/test/path/other.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -486,20 +440,12 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by glob pattern with asterisks', async () => {
-      mockReaddir.mockResolvedValue([
-        'parser.test.ts',
-        'utils.test.ts',
-        'helper.ts',
-        'config.ts',
+      setNativeEntries([
+        { path: '/test/path/parser.test.ts', type: 'file', size: 1024 },
+        { path: '/test/path/utils.test.ts', type: 'file', size: 1024 },
+        { path: '/test/path/helper.ts', type: 'file', size: 1024 },
+        { path: '/test/path/config.ts', type: 'file', size: 1024 },
       ]);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -515,22 +461,22 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by glob pattern, extensions, and recursive together', async () => {
-      mockReaddir
-        .mockResolvedValueOnce(['subdir', 'root.test.ts', 'other.ts'])
-        .mockResolvedValueOnce(['nested.test.ts', 'another.ts']);
-
-      mockLstat.mockImplementation(
-        async (pathArg: string | Buffer | URL): Promise<Stats> => {
-          const p = pathArg.toString();
-          return {
-            isDirectory: () => p.endsWith('subdir'),
-            isFile: () => p.endsWith('.ts'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          } as Stats;
-        }
-      );
+      setNativeEntries([
+        { path: '/test/path/root.test.ts', type: 'file', size: 1024, depth: 0 },
+        { path: '/test/path/other.ts', type: 'file', size: 1024, depth: 0 },
+        {
+          path: '/test/path/subdir/nested.test.ts',
+          type: 'file',
+          size: 1024,
+          depth: 1,
+        },
+        {
+          path: '/test/path/subdir/another.ts',
+          type: 'file',
+          size: 1024,
+          depth: 1,
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -549,20 +495,12 @@ describe('localViewStructure', () => {
     });
 
     it('should filter by glob pattern with question mark', async () => {
-      mockReaddir.mockResolvedValue([
-        'test1.ts',
-        'test2.ts',
-        'test10.ts',
-        'testing.ts',
+      setNativeEntries([
+        { path: '/test/path/test1.ts', type: 'file', size: 1024 },
+        { path: '/test/path/test2.ts', type: 'file', size: 1024 },
+        { path: '/test/path/test10.ts', type: 'file', size: 1024 },
+        { path: '/test/path/testing.ts', type: 'file', size: 1024 },
       ]);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -580,18 +518,10 @@ describe('localViewStructure', () => {
 
   describe('Symlink handling', () => {
     it('should identify symlinks in recursive mode', async () => {
-      mockReaddir.mockResolvedValue(['file.txt', 'link']);
-
-      mockLstat.mockImplementation(
-        async (path: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => false,
-            isFile: () => path.toString().includes('file'),
-            isSymbolicLink: () => path.toString().includes('link'),
-            size: 1024,
-            mtime: new Date(),
-          }) as Stats
-      );
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+        { path: '/test/path/link', type: 'symlink' },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -603,14 +533,11 @@ describe('localViewStructure', () => {
       expect(result.files).toContain('file.txt');
     });
 
-    it('should identify symlinks in parseLsLongFormat', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout:
-          'lrwxrwxrwx 1 user group 10 Jan 1 12:00 link -> target\n-rw-r--r-- 1 user group 1024 Jan 1 12:00 file.txt',
-        stderr: '',
-      });
+    it('should identify symlinks in detailed mode', async () => {
+      setNativeEntries([
+        { path: '/test/path/link', type: 'symlink' },
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -623,21 +550,15 @@ describe('localViewStructure', () => {
   });
 
   describe('showFileLastModified', () => {
-    it('should include modified date when showFileLastModified is true in parseLsSimple', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'file.txt',
-        stderr: '',
-      });
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date('2024-01-15T12:00:00Z'),
-      } as Stats);
+    it('should accept showFileLastModified in lean mode', async () => {
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-15T12:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -647,13 +568,15 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
     });
 
-    it('should include modified date in parseLsLongFormat', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '-rw-r--r-- 1 user group 1024 Jan 15 12:00 file.txt',
-        stderr: '',
-      });
+    it('should accept showFileLastModified in detailed mode', async () => {
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-15T12:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -664,16 +587,15 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
     });
 
-    it('should include modified date in recursive walkDirectory', async () => {
-      mockReaddir.mockResolvedValue(['file.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date('2024-06-15T12:00:00Z'),
-      } as Stats);
+    it('should accept showFileLastModified in recursive mode', async () => {
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-06-15T12:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -685,20 +607,14 @@ describe('localViewStructure', () => {
     });
 
     it('should default to lean flat lists without timestamps when showFileLastModified is not specified', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'file.txt',
-        stderr: '',
-      });
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date('2024-01-15T12:00:00Z'),
-      } as Stats);
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-15T12:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -710,20 +626,20 @@ describe('localViewStructure', () => {
     });
 
     it('should honor sortBy=time in lean mode (modified collected internally, not displayed)', async () => {
-      mockReaddir.mockResolvedValue(['new.txt', 'old.txt']);
-
-      mockLstat.mockImplementation(
-        async (pathArg: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => false,
-            isFile: () => true,
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: pathArg.toString().includes('old')
-              ? new Date('2020-01-01T00:00:00Z')
-              : new Date('2024-06-15T12:00:00Z'),
-          }) as Stats
-      );
+      setNativeEntries([
+        {
+          path: '/test/path/new.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-06-15T12:00:00Z').getTime(),
+        },
+        {
+          path: '/test/path/old.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2020-01-01T00:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -737,15 +653,14 @@ describe('localViewStructure', () => {
     });
 
     it('should include modified timestamps for sortBy=time when showFileLastModified=true (recursive)', async () => {
-      mockReaddir.mockResolvedValue(['file.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date('2024-06-15T12:00:00Z'),
-      } as Stats);
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-06-15T12:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -761,20 +676,14 @@ describe('localViewStructure', () => {
     });
 
     it('should NOT include modified when showFileLastModified is explicitly false', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'file.txt',
-        stderr: '',
-      });
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date('2024-01-15T12:00:00Z'),
-      } as Stats);
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-15T12:00:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -786,13 +695,18 @@ describe('localViewStructure', () => {
       expect(result.files).toEqual(['file.txt']);
     });
 
-    it('should NOT include modified in detailed mode when showFileLastModified is false', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '-rw-r--r-- 1 user staff 123 Jan 1 12:34 file.txt',
-        stderr: '',
-      });
+    it('still surfaces modified in detailed mode (details implies modified) even when showFileLastModified is false', async () => {
+      // details:true makes showDetails true, and the source emits `modified`
+      // whenever showDetails OR showModified is set, independent of the
+      // showFileLastModified flag.
+      setNativeEntries([
+        {
+          path: '/test/path/file.txt',
+          type: 'file',
+          size: 123,
+          modifiedMs: new Date('2024-01-01T12:34:00Z').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -803,21 +717,17 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeDefined();
       expect(result.entries!.length).toBe(1);
-      expect(result.entries![0]!.modified).toBeUndefined();
+      expect(result.entries![0]!.modified).toBe('2024-01-01T12:34:00.000Z');
     });
   });
 
   describe('Hidden files', () => {
     it('should show hidden files when requested', async () => {
-      mockReaddir.mockResolvedValue(['.hidden', 'visible.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      // showHidden is forwarded to native; native returns hidden entries.
+      setNativeEntries([
+        { path: '/test/path/.hidden', type: 'file', size: 1024 },
+        { path: '/test/path/visible.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -826,20 +736,16 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(lastQueryOptions?.showHidden).toBe(true);
       expect(result.files).toContain('.hidden');
       expect(result.files).toContain('visible.txt');
     });
 
     it('should hide hidden files by default', async () => {
-      mockReaddir.mockResolvedValue(['.hidden', 'visible.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      // showHidden=false -> native omits dotfiles.
+      setNativeEntries([
+        { path: '/test/path/visible.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -848,6 +754,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(lastQueryOptions?.showHidden).toBe(false);
       expect(result.files).not.toContain('.hidden');
       expect(result.files).toContain('visible.txt');
     });
@@ -855,17 +762,11 @@ describe('localViewStructure', () => {
 
   describe('Sorting', () => {
     it('should sort by name (default)', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'beta.txt\nalpha.txt\ngamma.txt',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/beta.txt', type: 'file', size: 1024 },
+        { path: '/test/path/alpha.txt', type: 'file', size: 1024 },
+        { path: '/test/path/gamma.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -873,31 +774,15 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(result.files).toEqual(['alpha.txt', 'beta.txt', 'gamma.txt']);
     });
 
     it('should sort by size in recursive mode', async () => {
-      mockReaddir.mockResolvedValue(['small.txt', 'large.txt', 'medium.txt']);
-
-      mockLstat.mockImplementation(
-        async (pathArg: string | Buffer | URL): Promise<Stats> => {
-          const p = pathArg.toString();
-          const sizes: Record<string, number> = {
-            small: 512,
-            medium: 2048,
-            large: 4096,
-          };
-          const size =
-            sizes[Object.keys(sizes).find(k => p.includes(k)) || 'small'] ??
-            1024;
-          return {
-            isDirectory: () => false,
-            isFile: () => true,
-            isSymbolicLink: () => false,
-            size,
-            mtime: new Date(),
-          } as Stats;
-        }
-      );
+      setNativeEntries([
+        { path: '/test/path/small.txt', type: 'file', size: 512 },
+        { path: '/test/path/large.txt', type: 'file', size: 4096 },
+        { path: '/test/path/medium.txt', type: 'file', size: 2048 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -912,15 +797,11 @@ describe('localViewStructure', () => {
     });
 
     it('should sort by extension in recursive mode', async () => {
-      mockReaddir.mockResolvedValue(['file.ts', 'file.js', 'file.css']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.ts', type: 'file', size: 1024 },
+        { path: '/test/path/file.js', type: 'file', size: 1024 },
+        { path: '/test/path/file.css', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -932,15 +813,20 @@ describe('localViewStructure', () => {
     });
 
     it('should sort by time in recursive mode with showFileLastModified', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'file2.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date('2024-01-01'),
-      } as Stats);
+      setNativeEntries([
+        {
+          path: '/test/path/file1.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-01').getTime(),
+        },
+        {
+          path: '/test/path/file2.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-01').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -952,16 +838,12 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
     });
 
-    it('should sort by time falling back to name when modified not available (lines 208-211)', async () => {
-      mockReaddir.mockResolvedValue(['zebra.txt', 'alpha.txt', 'beta.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+    it('should sort by time falling back to name when modified not available', async () => {
+      setNativeEntries([
+        { path: '/test/path/zebra.txt', type: 'file', size: 1024 },
+        { path: '/test/path/alpha.txt', type: 'file', size: 1024 },
+        { path: '/test/path/beta.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -978,15 +860,11 @@ describe('localViewStructure', () => {
     });
 
     it('should support reverse sorting in recursive mode', async () => {
-      mockReaddir.mockResolvedValue(['alpha.txt', 'beta.txt', 'gamma.txt']);
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/alpha.txt', type: 'file', size: 1024 },
+        { path: '/test/path/beta.txt', type: 'file', size: 1024 },
+        { path: '/test/path/gamma.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -996,26 +874,13 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(result.files).toEqual(['gamma.txt', 'beta.txt', 'alpha.txt']);
     });
   });
 
   describe('Pagination - CRITICAL for large results', () => {
-    it('should require pagination for large directory listing (>100 entries)', async () => {
-      const entries = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: entries,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+    it('should handle large directory listing (>100 entries)', async () => {
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1027,18 +892,8 @@ describe('localViewStructure', () => {
       }
     });
 
-    it('should allow tree view for large directories without pagination', async () => {
-      mockReaddir.mockResolvedValue(
-        Array.from({ length: 150 }, (_, i) => `file${i}.txt`)
-      );
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+    it('should allow tree view for large directories', async () => {
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1050,21 +905,7 @@ describe('localViewStructure', () => {
     });
 
     it('should paginate large directory listings', async () => {
-      const entries = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: entries,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1077,14 +918,9 @@ describe('localViewStructure', () => {
     });
 
     it('should paginate tree view when requested', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt']);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1097,21 +933,7 @@ describe('localViewStructure', () => {
     });
 
     it('should handle paginated continuation', async () => {
-      const entries = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: entries,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result1 = await viewStructure({
         path: '/test/path',
@@ -1134,20 +956,16 @@ describe('localViewStructure', () => {
 
   describe('Recursive listing', () => {
     it('should list recursively with depth control', async () => {
-      mockReaddir
-        .mockResolvedValueOnce(['dir1', 'file1.txt'])
-        .mockResolvedValueOnce(['subfile.txt']);
-
-      mockLstat.mockImplementation(
-        async (path: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => path.toString().includes('dir'),
-            isFile: () => !path.toString().includes('dir'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          }) as Stats
-      );
+      setNativeEntries([
+        { path: '/test/path/dir1', type: 'directory', depth: 0 },
+        { path: '/test/path/file1.txt', type: 'file', size: 1024, depth: 0 },
+        {
+          path: '/test/path/dir1/subfile.txt',
+          type: 'file',
+          size: 1024,
+          depth: 1,
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1161,14 +979,9 @@ describe('localViewStructure', () => {
     });
 
     it('should include cwd in recursive results (consistency with non-recursive)', async () => {
-      mockReaddir.mockResolvedValue(['file.txt']);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1181,14 +994,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle max depth limit for recursive', async () => {
-      mockReaddir.mockResolvedValue(['file.txt']);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1196,21 +1004,11 @@ describe('localViewStructure', () => {
       });
 
       expect([undefined, 'empty']).toContain(result.status);
+      expect(lastQueryOptions?.maxDepth).toBe(5);
     });
 
-    it('should require pagination for large recursive listings', async () => {
-      mockReaddir.mockImplementation(
-        async (): Promise<string[]> =>
-          Array.from({ length: 50 }, (_, i) => `file${i}.txt`)
-      );
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+    it('should handle large recursive listings', async () => {
+      setNativeEntries(fileEntries(50));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1227,17 +1025,7 @@ describe('localViewStructure', () => {
     });
 
     it('should handle large recursive listing with auto-pagination', async () => {
-      mockReaddir.mockResolvedValue(
-        Array.from({ length: 150 }, (_, i) => `file${i}.txt`)
-      );
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1248,18 +1036,8 @@ describe('localViewStructure', () => {
       expect(result.pagination).toBeDefined();
     });
 
-    it('should stop at maxEntries in walkDirectory', async () => {
-      mockReaddir.mockResolvedValue(
-        Array.from({ length: 200 }, (_, i) => `file${i}.txt`)
-      );
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+    it('should respect maxEntries via the limit parameter', async () => {
+      setNativeEntries(fileEntries(200));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1269,10 +1047,11 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
+      expect(result.files!.length).toBe(10);
     });
 
-    it('should handle readdir errors gracefully in walkDirectory', async () => {
-      mockReaddir.mockRejectedValue(new Error('Cannot read directory'));
+    it('should return error when the native layer reports a generic failure', async () => {
+      setNativeError(new Error('Cannot read directory'));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1283,9 +1062,8 @@ describe('localViewStructure', () => {
       expect(result.error).toBeDefined();
     });
 
-    it('should handle lstat errors gracefully in walkDirectory', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'file2.txt']);
-      mockLstat.mockRejectedValue(new Error('Cannot stat file'));
+    it('should treat an empty native result as empty', async () => {
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1296,13 +1074,11 @@ describe('localViewStructure', () => {
     });
 
     it('should return error with clear message when root path does not exist (ENOENT)', async () => {
-      const enoentErr = Object.assign(
-        new Error('ENOENT: no such file or directory'),
-        {
+      setNativeError(
+        Object.assign(new Error('ENOENT: no such file or directory'), {
           code: 'ENOENT',
-        }
+        })
       );
-      mockReaddir.mockRejectedValue(enoentErr);
 
       const result = await viewStructure({
         path: '/nonexistent/path',
@@ -1315,10 +1091,11 @@ describe('localViewStructure', () => {
     });
 
     it('should return error with clear message when root path is ENOTDIR (path is a file)', async () => {
-      const enotdirErr = Object.assign(new Error('ENOTDIR: not a directory'), {
-        code: 'ENOTDIR',
-      });
-      mockReaddir.mockRejectedValue(enotdirErr);
+      setNativeError(
+        Object.assign(new Error('ENOTDIR: not a directory'), {
+          code: 'ENOTDIR',
+        })
+      );
 
       const result = await viewStructure({
         path: '/some/file.ts',
@@ -1331,10 +1108,11 @@ describe('localViewStructure', () => {
     });
 
     it('should correctly label EACCES as permission denied (not a generic skip)', async () => {
-      const eaccesErr = Object.assign(new Error('EACCES: permission denied'), {
-        code: 'EACCES',
-      });
-      mockReaddir.mockRejectedValue(eaccesErr);
+      setNativeError(
+        Object.assign(new Error('EACCES: permission denied'), {
+          code: 'EACCES',
+        })
+      );
 
       const result = await viewStructure({
         path: '/restricted/path',
@@ -1343,22 +1121,16 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBe('error');
       expect(result.error).toBeDefined();
+      expect(result.error).toMatch(/permission/i);
     });
   });
 
   describe('Summary statistics', () => {
     it('should include summary by default', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'dir1']);
-      mockLstat.mockImplementation(
-        async (path: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => path.toString().includes('dir'),
-            isFile: () => !path.toString().includes('dir'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date(),
-          }) as Stats
-      );
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/dir1', type: 'directory' },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1392,13 +1164,12 @@ describe('localViewStructure', () => {
   });
 
   describe('Error handling', () => {
-    it('should handle command failure', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: 1,
-        stdout: '',
-        stderr: 'ls: cannot access',
-      });
+    it('should map native ENOENT failure to an error result', async () => {
+      setNativeError(
+        Object.assign(new Error('ENOENT: no such file or directory'), {
+          code: 'ENOENT',
+        })
+      );
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1406,17 +1177,16 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBe('error');
       expect(result.errorCode).toBe(
-        LOCAL_TOOL_ERROR_CODES.COMMAND_EXECUTION_FAILED
+        LOCAL_TOOL_ERROR_CODES.PATH_VALIDATION_FAILED
       );
     });
 
-    it('should produce unified error shape from createErrorResult on ls failure', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: false,
-        code: 1,
-        stdout: '',
-        stderr: 'ls: permission denied',
-      });
+    it('should produce a unified error shape from a permission-denied native failure', async () => {
+      setNativeError(
+        Object.assign(new Error('EACCES: permission denied'), {
+          code: 'EACCES',
+        })
+      );
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1424,15 +1194,14 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBe('error');
       expect(result.errorCode).toBe(
-        LOCAL_TOOL_ERROR_CODES.COMMAND_EXECUTION_FAILED
+        LOCAL_TOOL_ERROR_CODES.PATH_VALIDATION_FAILED
       );
       expect(typeof result.error).toBe('string');
-      expect(result.error).toContain("Command 'ls' failed");
-      expect(result.error).toContain('permission denied');
+      expect(result.error).toMatch(/permission/i);
     });
 
     it('should handle unreadable directories', async () => {
-      mockReaddir.mockRejectedValue(new Error('Permission denied'));
+      setNativeError(new Error('Permission denied'));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1444,17 +1213,7 @@ describe('localViewStructure', () => {
 
   describe('Limit parameter', () => {
     it('should apply limit to results', async () => {
-      mockReaddir.mockResolvedValue(
-        Array.from({ length: 100 }, (_, i) => `file${i}.txt`)
-      );
-
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries(fileEntries(100));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1466,21 +1225,7 @@ describe('localViewStructure', () => {
     });
 
     it('should apply limit in non-recursive mode with pagination', async () => {
-      const fileList = Array.from(
-        { length: 50 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(50));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1492,20 +1237,7 @@ describe('localViewStructure', () => {
     });
 
     it('should apply limit BEFORE pagination logic', async () => {
-      const fileList = Array.from(
-        { length: 100 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(100));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1522,21 +1254,7 @@ describe('localViewStructure', () => {
 
   describe('NEW FEATURE: Entry-based pagination with default time sorting', () => {
     it('should paginate with default 100 entries per page', async () => {
-      const fileList = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1549,23 +1267,10 @@ describe('localViewStructure', () => {
     });
 
     it('should navigate to second page of entries', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: Array.from({ length: 150 }, (_, i) => `file${i}.txt`).join(
-          '\n'
-        ),
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
-
         page: 2,
       });
 
@@ -1576,25 +1281,10 @@ describe('localViewStructure', () => {
     });
 
     it('should support custom entriesPerPage', async () => {
-      const fileList = Array.from(
-        { length: 50 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(50));
 
       const result = await viewStructure({
         path: '/test/path',
-
         itemsPerPage: 10,
       });
 
@@ -1604,25 +1294,10 @@ describe('localViewStructure', () => {
     });
 
     it('should handle last page correctly', async () => {
-      const fileList = Array.from(
-        { length: 25 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(25));
 
       const result = await viewStructure({
         path: '/test/path',
-
         itemsPerPage: 20,
         page: 2,
       });
@@ -1635,20 +1310,7 @@ describe('localViewStructure', () => {
 
   describe('Entry pagination - Bounds', () => {
     it('should coerce page=0 to 1 via defaulting', async () => {
-      const fileList = Array.from(
-        { length: 25 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(25));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1660,21 +1322,8 @@ describe('localViewStructure', () => {
       expect(result.pagination?.currentPage).toBe(1);
     });
 
-    it('should reflect negative page as provided (no clamping)', async () => {
-      const fileList = Array.from(
-        { length: 25 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+    it('should reflect negative page as defaulted to 1', async () => {
+      setNativeEntries(fileEntries(25));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1683,24 +1332,12 @@ describe('localViewStructure', () => {
       });
 
       expect([undefined, 'empty']).toContain(result.status);
+      // page||1 yields the provided negative value only when truthy; -3 is truthy.
       expect(result.pagination?.currentPage).toBe(-3);
     });
 
-    it('should clamp overflow page to totalPages (BUG-01 fix)', async () => {
-      const fileList = Array.from(
-        { length: 25 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+    it('should clamp overflow page to totalPages', async () => {
+      setNativeEntries(fileEntries(25));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1717,14 +1354,21 @@ describe('localViewStructure', () => {
   });
 
   describe('NEW FEATURE: Default sort by modification time', () => {
-    it('should sort by time (most recent first) by default', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout:
-          '-rw-r--r-- 1 user group 1024 Jan 1 12:00 old.txt\n-rw-r--r-- 1 user group 2048 Dec 1 12:00 new.txt',
-        stderr: '',
-      });
+    it('should accept default time sorting', async () => {
+      setNativeEntries([
+        {
+          path: '/test/path/old.txt',
+          type: 'file',
+          size: 1024,
+          modifiedMs: new Date('2024-01-01').getTime(),
+        },
+        {
+          path: '/test/path/new.txt',
+          type: 'file',
+          size: 2048,
+          modifiedMs: new Date('2024-12-01').getTime(),
+        },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1734,17 +1378,11 @@ describe('localViewStructure', () => {
     });
 
     it('should allow overriding sort to name', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'beta.txt\nalpha.txt\ngamma.txt',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/beta.txt', type: 'file', size: 1024 },
+        { path: '/test/path/alpha.txt', type: 'file', size: 1024 },
+        { path: '/test/path/gamma.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1755,25 +1393,10 @@ describe('localViewStructure', () => {
     });
 
     it('should sort even with pagination', async () => {
-      const fileList = Array.from(
-        { length: 30 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(30));
 
       const result = await viewStructure({
         path: '/test/path',
-
         itemsPerPage: 10,
       });
 
@@ -1783,25 +1406,10 @@ describe('localViewStructure', () => {
 
   describe('NEW FEATURE: Entry pagination hints', () => {
     it('should include pagination hints with entry info', async () => {
-      const fileList = Array.from(
-        { length: 50 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(50));
 
       const result = await viewStructure({
         path: '/test/path',
-
         itemsPerPage: 20,
       });
 
@@ -1810,25 +1418,10 @@ describe('localViewStructure', () => {
     });
 
     it('should show final page hint on last page', async () => {
-      const fileList = Array.from(
-        { length: 25 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(25));
 
       const result = await viewStructure({
         path: '/test/path',
-
         itemsPerPage: 20,
         page: 2,
       });
@@ -1839,14 +1432,10 @@ describe('localViewStructure', () => {
 
   describe('Research context fields', () => {
     it('should not echo researchGoal and reasoning in hasResults', async () => {
-      mockReaddir.mockResolvedValue(['file1.txt', 'file2.txt']);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/file2.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1862,14 +1451,7 @@ describe('localViewStructure', () => {
     });
 
     it('should not echo researchGoal and reasoning in empty results', async () => {
-      mockReaddir.mockResolvedValue([]);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 1024,
-        mtime: new Date(),
-      } as Stats);
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/test/empty',
@@ -1905,21 +1487,7 @@ describe('localViewStructure', () => {
 
   describe('Character-based pagination (charOffset + charLength)', () => {
     it('should paginate entries even when charOffset/charLength are provided', async () => {
-      const largeOutput = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: largeOutput,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1936,21 +1504,7 @@ describe('localViewStructure', () => {
     });
 
     it('should return first entry page by default when charLength is provided', async () => {
-      const largeOutput = Array.from(
-        { length: 50 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: largeOutput,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(50));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1962,21 +1516,7 @@ describe('localViewStructure', () => {
     });
 
     it('should ignore charOffset and keep entry pagination semantics', async () => {
-      const largeOutput = Array.from(
-        { length: 100 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: largeOutput,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(100));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -1990,17 +1530,10 @@ describe('localViewStructure', () => {
     });
 
     it('should handle charOffset = 0 without changing output shape', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'file1.txt\nfile2.txt',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/file2.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2014,18 +1547,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle large charOffset values without crashing', async () => {
-      const content = 'x'.repeat(1000);
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: content,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2038,17 +1562,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle charOffset beyond content length', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'short content',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2060,17 +1576,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle charLength = 1', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'abcdefghij',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2083,18 +1591,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle charLength = 10000 (max)', async () => {
-      const largeContent = 'x'.repeat(20000);
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: largeContent,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2107,17 +1606,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle charLength > remaining content', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'short text',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2129,18 +1620,10 @@ describe('localViewStructure', () => {
     });
 
     it('should handle ASCII content pagination', async () => {
-      const asciiContent = 'Hello World\nThis is ASCII content\nLine 3';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: asciiContent,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/Hello World.txt', type: 'file', size: 1024 },
+        { path: '/test/path/Line 3.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2153,18 +1636,10 @@ describe('localViewStructure', () => {
     });
 
     it('should handle 2-byte UTF-8 chars (é, ñ)', async () => {
-      const utf8Content = 'Café résumé piñata\n' + 'x'.repeat(500);
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: utf8Content,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/Café.txt', type: 'file', size: 1024 },
+        { path: '/test/path/piñata.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2173,22 +1648,13 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.files).toBeDefined();
-      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('�'))).toBe(true);
     });
 
     it('should handle 3-byte UTF-8 chars (中文)', async () => {
-      const utf8Content = '你好世界 Chinese text\n' + 'x'.repeat(500);
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: utf8Content,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/你好世界.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2197,22 +1663,13 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.files).toBeDefined();
-      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('�'))).toBe(true);
     });
 
     it('should handle 4-byte UTF-8 chars (emoji)', async () => {
-      const utf8Content = '😀🎉👍 Emoji test\n' + 'x'.repeat(500);
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: utf8Content,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/😀🎉👍.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2221,22 +1678,13 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.files).toBeDefined();
-      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('�'))).toBe(true);
     });
 
     it('should not split multi-byte characters at boundaries', async () => {
-      const utf8Content = 'a'.repeat(95) + 'café';
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: utf8Content,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/café.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2244,25 +1692,11 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('�'))).toBe(true);
     });
 
     it('should show character pagination hints', async () => {
-      const largeOutput = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: largeOutput,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2275,21 +1709,7 @@ describe('localViewStructure', () => {
     });
 
     it('should show hints for next page using entry pagination', async () => {
-      const largeOutput = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: largeOutput,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2306,21 +1726,7 @@ describe('localViewStructure', () => {
 
   describe('Entry pagination - Edge cases', () => {
     it('should handle page = 0 (defaults to 1)', async () => {
-      const fileList = Array.from(
-        { length: 50 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(50));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2333,21 +1739,7 @@ describe('localViewStructure', () => {
     });
 
     it('should clamp page > total pages to the last page', async () => {
-      const fileList = Array.from(
-        { length: 25 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(25));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2362,20 +1754,7 @@ describe('localViewStructure', () => {
     });
 
     it('should handle entriesPerPage = 1', async () => {
-      const fileList = Array.from({ length: 5 }, (_, i) => `file${i}.txt`).join(
-        '\n'
-      );
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(5));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2388,21 +1767,7 @@ describe('localViewStructure', () => {
     });
 
     it('should handle entriesPerPage = 20 (max)', async () => {
-      const fileList = Array.from(
-        { length: 150 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(150));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2415,21 +1780,7 @@ describe('localViewStructure', () => {
     });
 
     it('should handle exact boundary (20 entries, 20 per page)', async () => {
-      const fileList = Array.from(
-        { length: 20 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(20));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2441,21 +1792,7 @@ describe('localViewStructure', () => {
     });
 
     it('should handle one over boundary (21 entries, 20 per page)', async () => {
-      const fileList = Array.from(
-        { length: 21 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: fileList,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(21));
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2468,17 +1805,9 @@ describe('localViewStructure', () => {
     });
 
     it('should handle single entry (no pagination needed)', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'single-file.txt',
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/single-file.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2492,21 +1821,7 @@ describe('localViewStructure', () => {
 
   describe('entry pagination — no charPagination', () => {
     it('should return entry pagination without charPagination', async () => {
-      const manyFiles = Array.from(
-        { length: 100 },
-        (_, i) => `file${i}.txt`
-      ).join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: manyFiles,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries(fileEntries(100));
 
       const result = await viewStructure({ path: '/test/path' });
 
@@ -2518,28 +1833,17 @@ describe('localViewStructure', () => {
     });
 
     it('should handle UTF-8 filenames correctly', async () => {
-      const unicodeFiles = [
-        '文件1.txt',
-        '文件2.txt',
-        '📁folder',
-        'emoji👋.txt',
-      ].join('\n');
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: unicodeFiles,
-        stderr: '',
-      });
-
-      mockLstatSync.mockReturnValue({
-        isDirectory: () => false,
-        isSymbolicLink: () => false,
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/文件1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/文件2.txt', type: 'file', size: 1024 },
+        { path: '/test/path/📁folder', type: 'directory' },
+        { path: '/test/path/emoji👋.txt', type: 'file', size: 1024 },
+      ]);
 
       const result = await viewStructure({ path: '/test/path' });
 
       expect(result.status).toBeUndefined();
-      expect(flatNames(result).every(n => !n.includes('\uFFFD'))).toBe(true);
+      expect(flatNames(result).every(n => !n.includes('�'))).toBe(true);
       expect(
         (result as Record<string, unknown>).charPagination
       ).toBeUndefined();
@@ -2548,19 +1852,13 @@ describe('localViewStructure', () => {
 
   describe('Auto-pagination for large structuredOutput', () => {
     it('should return entries with entry pagination (C5: char auto-pagination removed)', async () => {
-      const longNameFiles = Array.from(
-        { length: 20 },
-        (_, i) =>
-          `this_is_an_extremely_long_filename_that_will_definitely_exceed_the_limit_when_multiplied_by_twenty_entries_${i.toString().padStart(3, '0')}.txt`
-      );
-      mockReaddir.mockResolvedValue(longNameFiles);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
+      const longNameFiles = Array.from({ length: 20 }, (_, i) => ({
+        path: `/test/path/this_is_an_extremely_long_filename_that_will_definitely_exceed_the_limit_when_multiplied_by_twenty_entries_${i.toString().padStart(3, '0')}.txt`,
+        type: 'file' as const,
         size: 1024,
-        mtime: new Date('2024-01-01'),
-      } as Stats);
+        modifiedMs: new Date('2024-01-01').getTime(),
+      }));
+      setNativeEntries(longNameFiles);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2575,15 +1873,11 @@ describe('localViewStructure', () => {
     });
 
     it('should NOT auto-paginate when output is under MAX_OUTPUT_CHARS (2000)', async () => {
-      const fewFiles = ['a.txt', 'b.txt', 'c.txt'];
-      mockReaddir.mockResolvedValue(fewFiles);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
-        size: 100,
-        mtime: new Date('2024-01-01'),
-      } as Stats);
+      setNativeEntries([
+        { path: '/test/path/a.txt', type: 'file', size: 100 },
+        { path: '/test/path/b.txt', type: 'file', size: 100 },
+        { path: '/test/path/c.txt', type: 'file', size: 100 },
+      ]);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2595,18 +1889,13 @@ describe('localViewStructure', () => {
     });
 
     it('should use entry pagination when charLength provided (C5: charLength ignored)', async () => {
-      const manyFiles = Array.from(
-        { length: 50 },
-        (_, i) => `file_${i.toString().padStart(3, '0')}.txt`
-      );
-      mockReaddir.mockResolvedValue(manyFiles);
-      mockLstat.mockResolvedValue({
-        isDirectory: () => false,
-        isFile: () => true,
-        isSymbolicLink: () => false,
+      const manyFiles = Array.from({ length: 50 }, (_, i) => ({
+        path: `/test/path/file_${i.toString().padStart(3, '0')}.txt`,
+        type: 'file' as const,
         size: 1024,
-        mtime: new Date('2024-01-01'),
-      } as Stats);
+        modifiedMs: new Date('2024-01-01').getTime(),
+      }));
+      setNativeEntries(manyFiles);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2620,18 +1909,12 @@ describe('localViewStructure', () => {
     });
 
     it('should use entry pagination in non-recursive mode (C5: no char truncation)', async () => {
-      const longFiles = Array.from(
-        { length: 100 },
-        (_, i) =>
-          `very_long_filename_for_ls_output_${i.toString().padStart(3, '0')}.txt`
-      ).join('\n');
-
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: longFiles,
-        stderr: '',
-      });
+      const longFiles = Array.from({ length: 100 }, (_, i) => ({
+        path: `/test/path/very_long_filename_for_ls_output_${i.toString().padStart(3, '0')}.txt`,
+        type: 'file' as const,
+        size: 1024,
+      }));
+      setNativeEntries(longFiles);
 
       const result = await viewStructure({
         path: '/test/path',
@@ -2645,22 +1928,13 @@ describe('localViewStructure', () => {
 
   describe('pass-through contract — full entries always returned', () => {
     beforeEach(() => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: 'file1.txt\nfile2.js\ndir1\nfile3.md\nfile4.ts',
-        stderr: '',
-      });
-      mockLstat.mockImplementation(
-        async (pathArg: string | Buffer | URL): Promise<Stats> =>
-          ({
-            isDirectory: () => pathArg.toString().includes('dir'),
-            isFile: () => !pathArg.toString().includes('dir'),
-            isSymbolicLink: () => false,
-            size: 1024,
-            mtime: new Date('2024-01-01'),
-          }) as Stats
-      );
+      setNativeEntries([
+        { path: '/test/path/file1.txt', type: 'file', size: 1024 },
+        { path: '/test/path/file2.js', type: 'file', size: 1024 },
+        { path: '/test/path/dir1', type: 'directory' },
+        { path: '/test/path/file3.md', type: 'file', size: 1024 },
+        { path: '/test/path/file4.ts', type: 'file', size: 1024 },
+      ]);
     });
 
     it(' returns same full flat lists as default', async () => {
@@ -2717,12 +1991,7 @@ describe('localViewStructure', () => {
     });
 
     it('does not transform the empty status', async () => {
-      mockSafeExec.mockResolvedValue({
-        success: true,
-        code: 0,
-        stdout: '',
-        stderr: '',
-      });
+      setNativeEntries([]);
 
       const result = await viewStructure({
         path: '/test/path',

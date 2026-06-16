@@ -281,17 +281,19 @@ describe('directToolCatalog', () => {
   it('reports unknown fields instead of rewriting old keys', () => {
     const warnings: Array<{ fields: string[]; index: number }> = [];
 
-    prepareDirectToolInput(
-      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-      [
-        { keywords: 'a', path: '.', limit: 3, bogusKey: true },
-        { keywords: 'b', path: '.', fixed_string: true },
-      ],
-      {
-        sourceLabel: 'unit-test',
-        onUnknownFields: (fields, index) => warnings.push({ fields, index }),
-      }
-    );
+    expect(() =>
+      prepareDirectToolInput(
+        STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+        [
+          { keywords: 'a', path: '.', limit: 3, bogusKey: true },
+          { keywords: 'b', path: '.', fixed_string: true },
+        ],
+        {
+          sourceLabel: 'unit-test',
+          onUnknownFields: (fields, index) => warnings.push({ fields, index }),
+        }
+      )
+    ).toThrow();
 
     expect(warnings).toEqual([
       { fields: ['limit', 'bogusKey'], index: 0 },
