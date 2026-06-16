@@ -57,6 +57,13 @@ async function loadHelpModule(): Promise<{
   return import('./help.js');
 }
 
+const KNOWN_TOP_LEVEL_OPTIONS = new Set([
+  'no-color',
+  'help',
+  'version',
+  'context',
+]);
+
 function showVersion(): void {
   const version =
     typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown';
@@ -129,11 +136,14 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   }
 
   if (!args.command) {
-    const optionKeys = Object.keys(args.options);
-    if (optionKeys.length > 0) {
-      const optionName = optionKeys[0];
+    const unknownOption = Object.keys(args.options).find(
+      option => !KNOWN_TOP_LEVEL_OPTIONS.has(option)
+    );
+    if (unknownOption) {
+      const suggestion =
+        unknownOption === 'contecxt' ? ' (did you mean --context?)' : '';
       console.log();
-      console.log(`  Unknown option: --${optionName}`);
+      console.log(`  Unknown option: --${unknownOption}${suggestion}`);
       console.log(`  Run 'octocode --help' to see available commands.`);
       console.log();
       process.exitCode = EXIT.NOT_FOUND;

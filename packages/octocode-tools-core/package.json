@@ -42,7 +42,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/octocode-context-utils": "workspace:^",
-    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core",
+    "@octocodeai/octocode-core": "16.1.0",
     "@octokit/plugin-throttling": "^11.0.3",
     "@vscode/ripgrep": "^1.18.0",
     "node-cache": "^5.1.2",

@@ -246,6 +246,21 @@ describe('runCLI', () => {
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
+  it('reports the actual unknown option after known global flags', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+
+    const handled = await runCLI(['--no-color', '--contecxt']);
+
+    expect(handled).toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Unknown option: --contecxt (did you mean --context?)'
+      )
+    );
+    expect(process.exitCode).toBe(3);
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
+  });
+
   it('prints error for unknown command and sets exitCode 3', async () => {
     mocks.loadCommand.mockResolvedValue(undefined);
 
