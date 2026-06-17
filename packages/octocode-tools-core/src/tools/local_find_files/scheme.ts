@@ -58,7 +58,8 @@ export type FindFilesQuery = Omit<
 
 export const LocalFindFilesQuerySchema = describeQuerySchema(
   CoreFindFilesBulkShapeSchema,
-  queryOverrides
+  queryOverrides,
+  { strict: true }
 ).superRefine(validateDepthRange) as unknown as z.ZodType<FindFilesQuery>;
 
 export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(

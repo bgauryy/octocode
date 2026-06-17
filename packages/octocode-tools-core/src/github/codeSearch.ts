@@ -76,9 +76,7 @@ async function searchGitHubCodeAPIInternal(
     const octokit = await getOctokit(authInfo);
 
     if (params.keywords && params.keywords.length > 0) {
-      const validTerms = params.keywords.filter(
-        term => term && term.trim()
-      );
+      const validTerms = params.keywords.filter(term => term && term.trim());
       if (validTerms.length === 0) {
         await logSessionError(
           TOOL_NAMES.GITHUB_SEARCH_CODE,

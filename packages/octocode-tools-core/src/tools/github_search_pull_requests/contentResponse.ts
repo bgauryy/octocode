@@ -355,10 +355,37 @@ function shapeCommits(
   };
 }
 
+function stripPatchComments(patch: string): string {
+  return patch
+    .split('\n')
+    .filter(line => {
+      if (!line.startsWith('+')) return true;
+      const code = line.slice(1).trim();
+      return (
+        code !== '' &&
+        !code.startsWith('//') &&
+        !code.startsWith('/*') &&
+        !code.startsWith('*')
+      );
+    })
+    .map(line => {
+      if (!line.startsWith('+')) return line;
+      const code = line.slice(1);
+      const stripped = code.replace(/\s*\/\/.*$/, '');
+      return '+' + stripped.trimEnd();
+    })
+    .join('\n');
+}
+
+function normalizeMarkdownBody(body: string): string {
+  return body.replace(/\n{3,}/g, '\n\n');
+}
+
 function shapeFileSurfaces(
   pr: Record<string, unknown>,
   query: QueryLike,
-  request: NormalizedPrContentRequest
+  request: NormalizedPrContentRequest,
+  shouldMinify?: boolean
 ) {
   const allChanges = Array.isArray(pr.fileChanges)
     ? (pr.fileChanges as Array<Record<string, unknown>>)
@@ -386,9 +413,10 @@ function shapeFileSurfaces(
   const shaped = items.map(change => {
     const base = shapeFileChange(change, false);
     if (!includePatch || typeof change.patch !== 'string') return base;
-    // PR diffs are always returned raw/exact — no minify on PR content.
+    const rawPatch =
+      shouldMinify && !needle ? stripPatchComments(change.patch) : change.patch;
     const patch = paginateText(
-      change.patch,
+      rawPatch,
       query.charOffset ?? 0,
       query.charLength ?? 12_000
     );
@@ -584,12 +612,16 @@ export function shapePullRequestForContent(
   pr: Record<string, unknown>,
   query: QueryLike,
   request: NormalizedPrContentRequest,
+  shouldMinify?: boolean,
   showContentMap?: boolean
 ): Record<string, unknown> {
   const prNumber = Number(pr.number);
+  const rawBody = typeof pr.body === 'string' ? pr.body : undefined;
+  const processedBody =
+    rawBody && shouldMinify ? normalizeMarkdownBody(rawBody) : rawBody;
   const body = request.body
     ? paginateText(
-        typeof pr.body === 'string' ? pr.body : undefined,
+        processedBody,
         query.charOffset ?? 0,
         query.charLength ?? 12_000
       )
@@ -633,7 +665,9 @@ export function shapePullRequestForContent(
     ...(fullShape || !pr.mergedAt ? { closedAt: pr.closedAt } : {}),
     mergedAt: pr.mergedAt,
     ...(pr.commentsCount ? { commentsCount: pr.commentsCount } : {}),
-    ...(pr.changedFilesCount ? { changedFilesCount: pr.changedFilesCount } : {}),
+    ...(pr.changedFilesCount
+      ? { changedFilesCount: pr.changedFilesCount }
+      : {}),
     ...(pr.additions ? { additions: pr.additions } : {}),
     ...(pr.deletions ? { deletions: pr.deletions } : {}),
     ...(fullShape && !body
@@ -653,7 +687,7 @@ export function shapePullRequestForContent(
         ? { body: body.content, bodyPagination: body.pagination }
         : { bodyEmpty: true }
       : {}),
-    ...shapeFileSurfaces(pr, query, request),
+    ...shapeFileSurfaces(pr, query, request, shouldMinify),
     ...shapeComments(pr, query, request),
     ...shapeReviews(pr, query, request),
     ...shapeCommits(pr, query, request),

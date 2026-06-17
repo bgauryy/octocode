@@ -45,22 +45,26 @@ function extendObjectSchema<T extends AnyZodObject>(
 
 export function describeQuerySchema<T extends AnyZodObject>(
   coreSchema: T,
-  overrides: QueryShape = {}
+  overrides: QueryShape = {},
+  options: { strict?: boolean } = {}
 ): T {
-  return extendObjectSchema(
+  const extended = extendObjectSchema(
     coreSchema,
     describeOverridesFromCore(coreSchema, overrides)
   );
+  return (options.strict ? extended.strict() : extended) as unknown as T;
 }
 
 export function createQueryShapeSchema<T extends AnyZodObject>(
   coreSchema: T,
-  overrides: QueryShape = {}
+  overrides: QueryShape = {},
+  options: { strict?: boolean } = {}
 ): AnyZodObject {
   // Strip unknown query keys instead of rejecting them — a legacy/removed/typo
   // field must never hard-fail the whole MCP call with a schema mismatch.
-  return z.object({
+  const schema = z.object({
     ...coreSchema.shape,
     ...describeOverridesFromCore(coreSchema, overrides),
   });
+  return options.strict ? schema.strict() : schema;
 }

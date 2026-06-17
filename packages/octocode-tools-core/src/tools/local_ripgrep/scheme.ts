@@ -35,7 +35,8 @@ const RipgrepQueryShape = createQueryShapeSchema(
 
 export const LocalRipgrepQuerySchema = describeQuerySchema(
   CoreRipgrepQuerySchema,
-  queryOverrides
+  queryOverrides,
+  { strict: true }
 );
 
 export type RipgrepQuery = z.infer<typeof LocalRipgrepQuerySchema>;

@@ -22,7 +22,7 @@ describe('new public LSP tools', () => {
     for (const removedName of removedLspToolNames) {
       expect(names).not.toContain(removedName);
     }
-    expect(names).toHaveLength(12);
+    expect(names).toHaveLength(13);
   });
 
   it('registers the semantic tool with read-only annotations', () => {

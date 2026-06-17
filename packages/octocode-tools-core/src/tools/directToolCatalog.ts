@@ -419,19 +419,28 @@ function buildDirectToolPayload(
         )
       : {};
 
-  return {
-    ...envelopeFields,
-    queries: queriesInput.map((query, index) =>
-      applyDefaultQueryFields(
-        toolName,
-        index,
-        normalizeQueryObject(toolName, query, index, options),
-        {
-          sourceLabel: options.sourceLabel,
-        }
-      )
-    ),
+  let hadUnknownFields = false;
+  const wrappedOptions: PrepareDirectToolInputOptions = {
+    ...options,
+    onUnknownFields: (fields, index) => {
+      hadUnknownFields = true;
+      options.onUnknownFields?.(fields, index);
+    },
   };
+  const processedQueries = queriesInput.map((query, index) =>
+    applyDefaultQueryFields(
+      toolName,
+      index,
+      normalizeQueryObject(toolName, query, index, wrappedOptions),
+      { sourceLabel: options.sourceLabel }
+    )
+  );
+  if (hadUnknownFields && options.onUnknownFields !== undefined) {
+    throw new DirectToolInputError(
+      'Tool input contains unknown fields. See warnings above for details.'
+    );
+  }
+  return { ...envelopeFields, queries: processedQueries };
 }
 
 function applyDefaultQueryFields(

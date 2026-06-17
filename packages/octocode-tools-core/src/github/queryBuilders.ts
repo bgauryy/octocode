@@ -136,13 +136,8 @@ abstract class BaseQueryBuilder {
 
 class CodeSearchQueryBuilder extends BaseQueryBuilder {
   addQueryTerms(params: WithOptionalMeta<GitHubCodeSearchQuery>): this {
-    if (
-      Array.isArray(params.keywords) &&
-      params.keywords.length > 0
-    ) {
-      const nonEmptyTerms = params.keywords.filter(
-        term => term && term.trim()
-      );
+    if (Array.isArray(params.keywords) && params.keywords.length > 0) {
+      const nonEmptyTerms = params.keywords.filter(term => term && term.trim());
       if (nonEmptyTerms.length > 0) {
         this.queryParts.push(...nonEmptyTerms.map(quoteKeywordIfNeeded));
       }
@@ -190,13 +185,8 @@ class CodeSearchQueryBuilder extends BaseQueryBuilder {
 
 class RepoSearchQueryBuilder extends BaseQueryBuilder {
   addQueryTerms(params: WithOptionalMeta<GitHubReposSearchSingleQuery>): this {
-    if (
-      Array.isArray(params.keywords) &&
-      params.keywords.length > 0
-    ) {
-      this.queryParts.push(
-        ...params.keywords.map(quoteKeywordIfNeeded)
-      );
+    if (Array.isArray(params.keywords) && params.keywords.length > 0) {
+      this.queryParts.push(...params.keywords.map(quoteKeywordIfNeeded));
     }
     return this;
   }

@@ -4,9 +4,7 @@ export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
     const query = typeof c.query === 'string' ? c.query : undefined;
-    const keywords = Array.isArray(c.keywords)
-      ? c.keywords
-      : undefined;
+    const keywords = Array.isArray(c.keywords) ? c.keywords : undefined;
     const language = typeof c.language === 'string' ? c.language : undefined;
     const owner = typeof c.owner === 'string' ? c.owner : undefined;
     const topic = typeof c.topic === 'string' ? c.topic : undefined;

@@ -73,4 +73,3 @@ export interface StructuredToolResponse {
   instructions?: string;
   [key: string]: unknown;
 }
-

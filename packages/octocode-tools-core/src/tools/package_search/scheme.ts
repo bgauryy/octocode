@@ -12,6 +12,7 @@ import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
+  mode: z.enum(['lean', 'full']).optional(),
 } as const;
 
 export const NpmSearchQueryLocalSchema = describeQuerySchema(
@@ -20,7 +21,9 @@ export const NpmSearchQueryLocalSchema = describeQuerySchema(
 );
 
 export const NpmSearchBulkQueryLocalSchema = createRelaxedBulkQuerySchema(
-  createQueryShapeSchema(NpmPackageQuerySchema, queryOverrides),
+  createQueryShapeSchema(NpmPackageQuerySchema, queryOverrides, {
+    strict: true,
+  }),
   { maxQueries: 5 }
 );
 

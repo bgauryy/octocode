@@ -16,7 +16,9 @@ export const hints: ToolHintGenerators = {
         'If the file was renamed, re-query with its previous name.',
       ];
     }
-    return ['No commits found. Try widening since/until or removing the author filter.'];
+    return [
+      'No commits found. Try widening since/until or removing the author filter.',
+    ];
   },
 
   error: (ctx: HintContext = {}) => {

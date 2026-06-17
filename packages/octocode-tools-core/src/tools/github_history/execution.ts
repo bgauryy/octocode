@@ -38,7 +38,9 @@ export async function getMultipleHistories(
             perPage: Number(query.perPage) || 30,
             includeDiff: Boolean(query.includeDiff),
             charLength:
-              typeof query.charLength === 'number' ? query.charLength : undefined,
+              typeof query.charLength === 'number'
+                ? query.charLength
+                : undefined,
           },
           authInfo
         );
@@ -83,6 +85,7 @@ export async function getMultipleHistories(
               hasMorePages: pagination.hasMore,
             },
             extraHints,
+            rawResponse: result.rawResponseChars,
           }
         );
       } catch (error) {

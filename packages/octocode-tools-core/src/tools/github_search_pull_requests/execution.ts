@@ -176,12 +176,15 @@ export async function searchMultipleGitHubPullRequests(
           comments: false as const,
           commits: false as const,
         };
+        const shouldMinify =
+          (effectiveQuery as { minify?: string }).minify === 'standard';
         const showContentMap = hasPrNumber;
         const shapedPullRequests = pullRequests.map(pr =>
           shapePullRequestForContent(
             pr,
             effectiveQuery as never,
             shouldLeanBroadShape ? leanRequest : contentRequest,
+            shouldMinify,
             showContentMap
           )
         );

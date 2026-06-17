@@ -34,6 +34,7 @@ const queryOverrides = {
     .default(PR_CONTENT_DEFAULT_ITEMS_PER_PAGE),
   charOffset: clampedInt(0, 100_000_000).optional(),
   charLength: clampedInt(1, MAX_CHAR_LENGTH).optional(),
+  minify: z.enum(['none', 'standard']).default('standard'),
 } as const;
 
 const GitHubPullRequestSearchQueryShape = createQueryShapeSchema(
