@@ -59,7 +59,6 @@ export type ViewStructureQuery = z.infer<typeof ViewStructureQuerySchema>;
 export type NpmSearchQuery = z.infer<typeof NpmPackageQuerySchema>;
 
 export type {
-  LspEvidence,
   LspGetSemanticsQuery,
   LspSemanticEnvelope,
   ResolvedSymbol,

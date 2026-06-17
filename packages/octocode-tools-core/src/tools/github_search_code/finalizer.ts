@@ -7,7 +7,6 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubCodeSearchOutputLocal } from './scheme.js';
-import { buildEvidenceMetadata } from '../evidence.js';
 import {
   buildPaginationHints,
   type CodeSearchFlatResult,
@@ -213,37 +212,6 @@ function hasPathOnlyFileMatches(
   return groups.some(group => group.matches.some(match => match.pathOnly));
 }
 
-function buildCodeEvidence(
-  groups: readonly CodeSearchGroupedResult[],
-  upstreamPagination: CodeSearchPagination | undefined,
-  errors: readonly { id: string; error: string }[]
-): NonNullable<GitHubCodeSearchOutputLocal['evidence']> {
-  const totalMatches = groups.reduce(
-    (sum, group) => sum + group.matches.length,
-    0
-  );
-  const reasons: string[] = [];
-
-  if (upstreamPagination?.hasMore) {
-    reasons.push('GitHub search pagination has more matches.');
-  }
-  if (errors.length > 0) {
-    reasons.push(`${errors.length} query result(s) failed.`);
-  }
-  if (totalMatches === 0) {
-    reasons.push(
-      'GitHub code search returned no matches — the repo may not be indexed. Confirm via ghGetFileContent before concluding the code does not exist.'
-    );
-  }
-
-  return buildEvidenceMetadata({
-    kind: 'code',
-    answerReady: totalMatches > 0,
-    incompleteReasons: reasons,
-    emptyReason: 'No code matches were returned for the supplied filters.',
-  });
-}
-
 export function buildGhSearchCodeFinalizer<
   TQuery extends QueryWithPagination,
 >(): BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal> {
@@ -342,13 +310,6 @@ export function buildGhSearchCodeFinalizer<
       );
     }
     if (errors.length > 0) responseData.errors = errors;
-    if (config.peerEvidence) {
-      responseData.evidence = buildCodeEvidence(
-        groups,
-        upstreamPagination,
-        errors
-      );
-    }
 
     return formatFinalizedResponse<GitHubCodeSearchOutputLocal>(
       responseData,

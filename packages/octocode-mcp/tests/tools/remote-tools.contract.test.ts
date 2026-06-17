@@ -6,8 +6,8 @@ import { buildRepoStructureOutput } from '../../../octocode-tools-core/src/tools
 
 beforeAll(async () => {});
 
-describe('Evidence: ghGetFileContent', () => {
-  it('nudges the next pagination parameter for partial file content', () => {
+describe('Hints: ghGetFileContent', () => {
+  it('nudges the next pagination parameter for partial file content via hints', () => {
     const finalizer = buildGithubFetchContentFinalizer();
     const output = finalizer({
       queries: [
@@ -40,13 +40,9 @@ describe('Evidence: ghGetFileContent', () => {
       ],
       config: {
         toolName: STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
-        peerEvidence: true,
       },
     });
 
-    expect(output.structuredContent.evidence?.reason).toContain(
-      'Use charOffset=200 for o/r:src/a.ts.'
-    );
     const hints = output.structuredContent.hints as string[] | undefined;
     expect(hints?.some(h => h.includes('startLine=41'))).toBe(true);
   });

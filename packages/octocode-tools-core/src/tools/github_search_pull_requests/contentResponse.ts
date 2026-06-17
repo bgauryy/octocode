@@ -1,6 +1,5 @@
 import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../config.js';
 import type { NormalizedPrContentRequest } from './contentRequest.js';
-import { contextUtils } from '../../utils/contextUtils.js';
 
 type QueryLike = {
   owner?: string;
@@ -612,7 +611,7 @@ export function shapePullRequestForContent(
   const metadata = {
     number: pr.number,
     title: pr.title,
-    ...(fullShape ? { url: pr.url } : {}),
+    ...(pr.url ? { url: pr.url } : {}),
     state: pr.state,
     ...(pr.draft ? { draft: pr.draft } : {}),
     author: pr.author,
@@ -634,7 +633,7 @@ export function shapePullRequestForContent(
     ...(fullShape || !pr.mergedAt ? { closedAt: pr.closedAt } : {}),
     mergedAt: pr.mergedAt,
     ...(pr.commentsCount ? { commentsCount: pr.commentsCount } : {}),
-    changedFilesCount: pr.changedFilesCount,
+    ...(pr.changedFilesCount ? { changedFilesCount: pr.changedFilesCount } : {}),
     ...(pr.additions ? { additions: pr.additions } : {}),
     ...(pr.deletions ? { deletions: pr.deletions } : {}),
     ...(fullShape && !body

@@ -70,7 +70,6 @@ export async function fetchMultipleGitHubFileContents(
     {
       toolName: TOOL_NAMES.GITHUB_FETCH_CONTENT,
       peerHints: true,
-      peerEvidence: true,
       finalize: buildGithubFetchContentFinalizer<FileContentInputQuery>(),
     },
     args

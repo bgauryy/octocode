@@ -546,7 +546,7 @@ describe('Tools Utils', () => {
         }
       }
 
-      expect(result.hints!.some(h => h.includes('API Error'))).toBe(true);
+      // 'API Error' echo removed — raw error string is no longer emitted as a hint
       expect(
         result.hints!.some(
           h => h.startsWith('Rate limit:') && h.includes('remaining')

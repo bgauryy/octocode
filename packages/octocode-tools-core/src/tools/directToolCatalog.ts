@@ -1,6 +1,6 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { initialize } from '../serverConfig.js';
+import { initialize, isCloneEnabled } from '../serverConfig.js';
 import { initializeProviders } from '../providers/factory.js';
 import { STATIC_TOOL_NAMES } from './toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
@@ -660,6 +660,30 @@ export async function executeDirectTool(
   const parsedInput = parseDirectToolInput(tool, input);
   try {
     await ensureDirectToolRuntimeReady(tool);
+    if (name === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO && !isCloneEnabled()) {
+      const disabledResult: CallToolResult = {
+        content: [
+          {
+            type: 'text',
+            text: 'error: ghCloneRepo is disabled\nmessage: Set ENABLE_CLONE=true (and ENABLE_LOCAL=true) to enable repository cloning.\nhints:\n- To browse without cloning, use ghViewRepoStructure to list files or ghGetFileContent to read specific files.',
+          },
+        ],
+        structuredContent: {
+          status: 'error',
+          tool: name,
+          code: 'TOOL_DISABLED',
+          error: {
+            message:
+              'ghCloneRepo is disabled — set ENABLE_CLONE=true (and ENABLE_LOCAL=true) to enable repository cloning.',
+          },
+          hints: [
+            'To browse without cloning, use ghViewRepoStructure to list files or ghGetFileContent to read specific files.',
+          ],
+        },
+        isError: true,
+      };
+      return sanitizeCallToolResult(disabledResult);
+    }
     return await runDirectTool(tool, parsedInput);
   } finally {
     if (name === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME) {

@@ -377,18 +377,6 @@ function buildResultPagination(pagination: {
     totalPages: pagination.totalPages,
     perPage: pagination.entriesPerPage || 10,
     totalMatches: pagination.totalMatches || 0,
-    ...(typeof pagination.reportedTotalMatches === 'number'
-      ? { reportedTotalMatches: pagination.reportedTotalMatches }
-      : {}),
-    ...(typeof pagination.reachableTotalMatches === 'number'
-      ? { reachableTotalMatches: pagination.reachableTotalMatches }
-      : {}),
-    ...(pagination.totalMatchesKind
-      ? { totalMatchesKind: pagination.totalMatchesKind }
-      : {}),
-    ...(typeof pagination.totalMatchesCapped === 'boolean'
-      ? { totalMatchesCapped: pagination.totalMatchesCapped }
-      : {}),
     hasMore: pagination.hasMore,
   };
 }
@@ -700,21 +688,6 @@ export async function searchMultipleGitHubRepos(
                   language: query.language,
                   topic: query.topicsToSearch?.[0],
                 },
-            evidence: {
-              kind: 'repo',
-              answerReady: hasContent,
-              complete: hasContent && !hasMore && !variantsPartial,
-              confidence: variantsPartial ? 'medium' : undefined,
-              ...(hasContent
-                ? {}
-                : {
-                    reason: pageExceedsTotal
-                      ? `page ${requestedPage} exceeds totalPages ${lastAvailablePage} — last page is ${lastAvailablePage}.`
-                      : nonExistentScope
-                        ? `Owner "${query.owner ?? '?'}" doesn't exist or isn't searchable — verify the scope, not filters.`
-                        : 'No repositories matched the supplied filters; consider dropping topics/keywords or widening stars/created/updated ranges.',
-                  }),
-            },
             rawResponse: sumVariantRawResponseChars([
               ...successfulVariants,
               ...failedVariants,
@@ -729,7 +702,6 @@ export async function searchMultipleGitHubRepos(
       toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

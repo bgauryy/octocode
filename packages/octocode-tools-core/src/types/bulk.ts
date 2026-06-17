@@ -1,4 +1,4 @@
-import type { EvidenceMetadata, FlatQueryResult } from './toolResults.js';
+import type { FlatQueryResult } from './toolResults.js';
 
 export interface BulkFinalizerInput<
   TQuery,
@@ -58,7 +58,6 @@ export interface BulkResponseConfig<
 
   peerHints?: boolean;
 
-  peerEvidence?: boolean;
   concurrency?: number;
 
   minQueryTimeoutMs?: number;
@@ -76,8 +75,6 @@ export interface BulkToolResponse {
   base?: string;
 
   shared?: Record<string, string | number | boolean>;
-
-  evidence?: EvidenceMetadata;
 
   responsePagination?: ResponsePaginationInfo;
 }

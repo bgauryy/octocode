@@ -178,26 +178,6 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
   });
 });
 
-describe('evidence flags', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('answerReady:true and complete:true when package found', async () => {
-    mockSearchPackage.mockResolvedValue({
-      packages: [pkg()],
-      totalFound: 1,
-    });
-    const t = text(await callTool('mypkg'));
-    expect(t).toContain('answerReady: true');
-    expect(t).toContain('complete: true');
-  });
-
-  it('answerReady:false when no packages found', async () => {
-    mockSearchPackage.mockResolvedValue({ packages: [], totalFound: 0 });
-    const t = text(await callTool('no-such-pkg'));
-    expect(t).toContain('answerReady: false');
-  });
-});
-
 describe('hints — exact / single result', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -374,7 +354,7 @@ describe('hints — error recovery', () => {
 describe('pagination — hasMore through searchPackages', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('sets hasMore:true and complete:false when packages.length < totalFound', async () => {
+  it('sets hasMore:true when packages.length < totalFound', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
@@ -386,7 +366,6 @@ describe('pagination — hasMore through searchPackages', () => {
     const t = text(await callTool('state management'));
     expect(t).toContain('hasMore: true');
     expect(t).toContain('totalFound: 50');
-    expect(t).toContain('complete: false');
   });
 
   it('sets pagination.hasMore:false when packages.length === totalFound', async () => {
@@ -400,7 +379,6 @@ describe('pagination — hasMore through searchPackages', () => {
 
     const t = text(await callTool('zustand'));
     expect(t).toContain('hasMore: false');
-    expect(t).toContain('complete: true');
   });
 });
 

@@ -9,7 +9,6 @@ import type {
   ProcessedBulkResult,
   FlatQueryResult,
   QueryError,
-  EvidenceMetadata,
 } from '../../types/toolResults.js';
 import type {
   BulkResponseConfig,
@@ -85,7 +84,7 @@ function createBulkResponse<
   queries: Array<TQuery>,
   pagination?: BulkResponsePagination
 ): CallToolResult {
-  const topLevelFields = ['results', 'hints', 'evidence', 'base', 'shared'];
+  const topLevelFields = ['results', 'hints', 'base', 'shared'];
   const resultFields = ['id', 'status', 'data'];
   const fullKeysPriority = [
     ...new Set([
@@ -153,10 +152,6 @@ function createBulkResponse<
 
   const aggregatedHints = config.peerHints ? dedupePeerHints(flatQueries) : [];
 
-  const aggregatedEvidence = config.peerEvidence
-    ? aggregatePeerEvidence(flatQueries)
-    : undefined;
-
   const responseData: BulkToolResponse = { results: flatQueries };
 
   if (Array.isArray(responseData.results)) {
@@ -185,17 +180,6 @@ function createBulkResponse<
 
   if (mergedHints.length > 0) {
     responseData.hints = mergedHints;
-  }
-
-  const finalEvidence = aggregatedEvidence
-    ? dropRedundantPaginationReason(
-        withEvidenceReasons(aggregatedEvidence, []),
-        mergedHints
-      )
-    : undefined;
-
-  if (finalEvidence) {
-    responseData.evidence = finalEvidence;
   }
 
   const formattedText = createResponseFormat(responseData, fullKeysPriority);
@@ -371,139 +355,6 @@ function dedupePeerHints(queries: FlatQueryResult[]): string[] {
     }
   }
   return out;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function hasMorePagination(value: unknown): boolean {
-  return isRecord(value) && value.hasMore === true;
-}
-
-function queryPaginationReasons(data: Record<string, unknown>): string[] {
-  const reasons: string[] = [];
-  if (hasMorePagination(data.outputPagination)) {
-    reasons.push('One or more query-level output pages have more data.');
-  }
-  return reasons;
-}
-
-function withEvidenceReasons(
-  evidence: EvidenceMetadata,
-  extraReasons: readonly string[]
-): EvidenceMetadata {
-  const reasons = Array.from(
-    new Set(
-      [
-        typeof evidence.reason === 'string' ? evidence.reason : '',
-        ...extraReasons,
-      ]
-        .map(reason => reason.trim())
-        .filter(Boolean)
-    )
-  );
-  if (reasons.length === 0) {
-    return evidence;
-  }
-  return {
-    ...evidence,
-    complete: false,
-    reason: reasons.join('; '),
-  };
-}
-
-const RESULT_PAGINATION_REASON = 'Result pagination has more results.';
-
-function hasResultPageCursorHint(hints: readonly string[]): boolean {
-  return hints.some(h => /\bNext:\s*page=|\bPage\s+\d+\/\d+/i.test(h));
-}
-
-export function dropRedundantPaginationReason(
-  evidence: EvidenceMetadata,
-  hints: readonly string[]
-): EvidenceMetadata {
-  if (!evidence.reason || !hasResultPageCursorHint(hints)) return evidence;
-  const parts = evidence.reason
-    .split(';')
-    .map(part => part.trim())
-    .filter(Boolean);
-  const kept = parts.filter(part => part !== RESULT_PAGINATION_REASON);
-  if (kept.length === parts.length) return evidence;
-  const next: EvidenceMetadata = { ...evidence };
-  if (kept.length > 0) next.reason = kept.join('; ');
-  else delete next.reason;
-  return next;
-}
-
-export function aggregatePeerEvidence(
-  queries: FlatQueryResult[]
-): EvidenceMetadata | undefined {
-  const rankConfidence: Record<
-    NonNullable<EvidenceMetadata['confidence']>,
-    number
-  > = { low: 0, medium: 1, high: 2 };
-  let combinedKind: EvidenceMetadata['kind'];
-  let answerReadyAll: boolean | undefined;
-  let completeAll: boolean | undefined;
-  let weakestConfidence: EvidenceMetadata['confidence'];
-  const reasons: string[] = [];
-  const missing = new Set<string>();
-  let sawAny = false;
-
-  for (const q of queries) {
-    const data = q.data as Record<string, unknown> | undefined;
-    const raw = data?.evidence as EvidenceMetadata | undefined;
-    if (!data || !raw || typeof raw !== 'object') continue;
-    sawAny = true;
-    if (!combinedKind && raw.kind) combinedKind = raw.kind;
-    if (typeof raw.answerReady === 'boolean') {
-      answerReadyAll =
-        answerReadyAll === undefined
-          ? raw.answerReady
-          : answerReadyAll || raw.answerReady;
-    }
-    if (typeof raw.complete === 'boolean') {
-      completeAll =
-        completeAll === undefined ? raw.complete : completeAll && raw.complete;
-    }
-    if (raw.confidence) {
-      if (
-        !weakestConfidence ||
-        rankConfidence[raw.confidence] < rankConfidence[weakestConfidence]
-      ) {
-        weakestConfidence = raw.confidence;
-      }
-    }
-    if (typeof raw.reason === 'string' && raw.reason.trim().length > 0) {
-      reasons.push(raw.reason.trim());
-    }
-    const paginationReasons = queryPaginationReasons(data);
-    if (paginationReasons.length > 0) {
-      completeAll = false;
-      reasons.push(...paginationReasons);
-    }
-    if (Array.isArray(raw.missingFields)) {
-      for (const f of raw.missingFields) {
-        if (typeof f === 'string' && f.length > 0) missing.add(f);
-      }
-    }
-    if (data && 'evidence' in data) {
-      delete (data as Record<string, unknown>).evidence;
-    }
-  }
-
-  if (!sawAny) return undefined;
-
-  const out: EvidenceMetadata = {};
-  if (combinedKind) out.kind = combinedKind;
-  if (answerReadyAll !== undefined) out.answerReady = answerReadyAll;
-  if (completeAll !== undefined) out.complete = completeAll;
-  if (weakestConfidence) out.confidence = weakestConfidence;
-  const uniqueReasons = Array.from(new Set(reasons));
-  if (uniqueReasons.length > 0) out.reason = uniqueReasons.join('; ');
-  if (missing.size > 0) out.missingFields = Array.from(missing);
-  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function recordBulkCharSavings(

@@ -240,13 +240,14 @@ export async function findFiles(
 
     const fullResult: LocalFindFilesToolResult = {
       ...(totalFiles === 0 ? { status: 'empty' as const } : {}),
+      path: queryWithSanitizedPath.path,
       files: finalFiles,
       pagination: {
         currentPage,
         totalPages,
         filesPerPage,
         totalFiles,
-        hasMore: currentPage < totalPages || wasFileCapped,
+        hasMore: currentPage < totalPages,
         ...(wasFileCapped ? { totalFilesFound: discoveredFileCount } : {}),
       },
       ...(allWarnings.length > 0 && { warnings: allWarnings }),

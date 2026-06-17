@@ -97,20 +97,6 @@ export function compactLocation(snippet: {
   };
 }
 
-export type LspEvidence = {
-  kind?:
-    | 'metadata'
-    | 'content'
-    | 'docs'
-    | 'definition'
-    | 'references'
-    | 'calls';
-  answerReady?: boolean;
-  confidence: 'high' | 'medium' | 'low';
-  complete: boolean;
-  reason?: string;
-};
-
 export type SemanticEmptyCategory =
   | 'serverUnavailable'
   | 'unsupportedOperation'
@@ -136,7 +122,6 @@ export type LspSemanticEnvelope = {
     provider?: string;
     source?: string;
   };
-  evidence: LspEvidence;
   summary?: unknown;
   payload:
     | { kind: 'definition'; locations: Array<CompactLocation | string> }

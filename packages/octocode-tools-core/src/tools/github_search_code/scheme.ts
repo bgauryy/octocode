@@ -10,10 +10,7 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
-import {
-  EvidenceSchema,
-  responseEnvelopeFields,
-} from '../../scheme/responseEnvelope.js';
+import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -35,7 +32,6 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
   shared: z
     .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
     .optional(),
-  evidence: EvidenceSchema,
   responsePagination: responseEnvelopeFields.responsePagination,
   results: z.array(
     z.object({

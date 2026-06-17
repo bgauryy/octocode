@@ -3,7 +3,6 @@ import type {
   ToolErrorResult,
   ToolSuccessResult,
   ToolInvocationCallback,
-  EvidenceMetadata,
 } from '../types/toolResults.js';
 import type { HintContext } from '../types/metadata.js';
 import type { ProviderResponse } from '../providers/types.js';
@@ -38,8 +37,6 @@ interface SuccessResultOptions {
   extraHints?: string[];
 
   rawResponse?: unknown;
-
-  evidence?: EvidenceMetadata;
 }
 
 export function createSuccessResult<T extends object>(
@@ -71,10 +68,6 @@ export function createSuccessResult<T extends object>(
 
   if (allHints.length > 0) {
     result.hints = allHints;
-  }
-
-  if (options?.evidence && Object.keys(options.evidence).length > 0) {
-    (result as Record<string, unknown>).evidence = options.evidence;
   }
 
   return options?.rawResponse === undefined

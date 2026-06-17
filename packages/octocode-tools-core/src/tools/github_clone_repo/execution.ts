@@ -95,16 +95,6 @@ export async function executeCloneRepo(
             {
               extraHints: baseHints,
               rawResponse: getDirectorySizeBytes(result.localPath),
-              evidence: {
-                kind: 'content',
-                answerReady: true,
-                confidence: 'high',
-                complete: true,
-                reason:
-                  (result.sparsePath ?? query.sparsePath)
-                    ? 'Repository sparse checkout is available locally.'
-                    : 'Repository full shallow clone is available locally.',
-              },
             }
           );
         },
@@ -113,7 +103,6 @@ export async function executeCloneRepo(
       toolName: TOOL_NAMES.GITHUB_CLONE_REPO,
       keysPriority: ['resolvedBranch', 'localPath', 'cached', 'error'],
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

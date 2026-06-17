@@ -176,7 +176,6 @@ export async function searchMultipleGitHubCode(
     {
       toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
       peerHints: true,
-      peerEvidence: true,
       finalize: buildGhSearchCodeFinalizer<PartialCodeSearchQuery>(),
     },
     args

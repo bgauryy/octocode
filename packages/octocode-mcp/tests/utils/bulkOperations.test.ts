@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { incrementToolCharSavings } from 'octocode-shared';
-import {
-  executeBulkOperation,
-  aggregatePeerEvidence,
-} from '../../../octocode-tools-core/src/utils/response/bulk.js';
+import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
 import { attachRawResponseChars } from '../../../octocode-tools-core/src/utils/response/charSavings.js';
 import type { QueryStatus } from '../../../octocode-tools-core/src/types/toolResults.js';
 import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
@@ -172,84 +169,6 @@ describe('executeBulkOperation', () => {
         fullText.slice(nextOffset, nextOffset + secondBody.length)
       );
       expect(secondBody.trim().length).toBeGreaterThan(0);
-    });
-
-    it('marks peer evidence incomplete when query output pagination has more data', async () => {
-      const queries = [{ id: 'q1' }];
-      const processor = vi.fn().mockResolvedValue({
-        incomingCalls: [],
-        outputPagination: { hasMore: true },
-        evidence: {
-          kind: 'calls',
-          answerReady: true,
-          complete: true,
-          confidence: 'high',
-        },
-      });
-
-      const result = await executeBulkOperation(queries, processor, {
-        toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-        peerEvidence: true,
-      });
-
-      const structured = result.structuredContent as {
-        evidence?: {
-          kind?: string;
-          complete?: boolean;
-          confidence?: string;
-          reason?: string;
-        };
-      };
-
-      expect(structured.evidence).toMatchObject({
-        kind: 'calls',
-        complete: false,
-        confidence: 'high',
-      });
-      expect(structured.evidence?.reason).toContain(
-        'One or more query-level output pages have more data.'
-      );
-    });
-
-    it('marks peer evidence complete when all queries succeed', async () => {
-      const queries = Array.from({ length: 5 }, (_, index) => ({
-        id: `q${index + 1}`,
-      }));
-      const processor = vi.fn().mockImplementation(query =>
-        Promise.resolve({
-          packages: [
-            {
-              name: query.id,
-              description: 'x'.repeat(500),
-            },
-          ],
-          evidence: {
-            kind: 'package',
-            answerReady: true,
-            complete: true,
-            confidence: 'high',
-          },
-        })
-      );
-
-      const result = await executeBulkOperation(queries, processor, {
-        toolName: TOOL_NAMES.PACKAGE_SEARCH,
-        peerEvidence: true,
-      });
-
-      const structured = result.structuredContent as {
-        evidence?: {
-          kind?: string;
-          complete?: boolean;
-          confidence?: string;
-        };
-      };
-
-      expect(structured.evidence).toMatchObject({
-        kind: 'package',
-        complete: true,
-        confidence: 'high',
-      });
     });
 
     it('should process single query with hasResults status', async () => {
@@ -1911,22 +1830,6 @@ describe('executeBulkOperation — uncovered branches', () => {
       toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
     });
     expect(result).toBeDefined();
-  });
-
-  it('collects missingFields from evidence when array of strings (lines 491-492)', async () => {
-    const result = aggregatePeerEvidence([
-      {
-        id: 'q1',
-        data: {
-          evidence: {
-            kind: 'code',
-            answerReady: true,
-            missingFields: ['owner', 'repo', 42 as unknown as string, ''], // 42 and '' filtered out
-          },
-        },
-      },
-    ]);
-    expect(result?.missingFields).toEqual(['owner', 'repo']);
   });
 
   it('swallows incrementToolCharSavings throw gracefully (line 381)', async () => {

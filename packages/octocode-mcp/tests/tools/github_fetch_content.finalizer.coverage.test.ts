@@ -92,14 +92,12 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
 
     const out = run(queries, results);
     const data = out.structuredContent as {
-      evidence?: { incompleteReasons?: string[] };
       results: Array<{ files?: Array<Record<string, unknown>> }>;
     };
     const file = data.results[0]!.files![0]!;
     expect(file.contentView).toBe('symbols');
     expect(file.isSkeleton).toBe(true);
     expect(file.isPartial).toBeUndefined();
-    expect(data.evidence?.incompleteReasons ?? []).toEqual([]);
   });
 
   it('falls back to query.path and empty content when data fields are missing/invalid', () => {
@@ -251,7 +249,7 @@ describe('buildGithubFetchContentFinalizer — group building & narrowing', () =
 });
 
 describe('buildGithubFetchContentFinalizer — partial file continuation hints', () => {
-  it('partial file emits startLine continuation in hints[], not evidence.reason', () => {
+  it('partial file emits startLine continuation in hints[]', () => {
     const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'large.ts' }];
     const results: FlatQueryResult[] = [
       {
@@ -267,46 +265,15 @@ describe('buildGithubFetchContentFinalizer — partial file continuation hints',
       },
     ];
 
-    const out = run(queries, results, { peerEvidence: true } as never);
+    const out = run(queries, results);
     const data = out.structuredContent as {
       hints?: string[];
-      evidence?: { reason?: string; incompleteReasons?: string[] };
     };
 
     expect(data.hints?.some(h => /startLine=51/.test(h))).toBe(true);
-
-    const reasonStr = Array.isArray(data.evidence?.incompleteReasons)
-      ? data.evidence.incompleteReasons.join(' ')
-      : (data.evidence?.reason ?? '');
-    expect(reasonStr).not.toMatch(/startLine=51/);
   });
 
-  it('evidence.reason describes the partial state without navigation details', () => {
-    const queries: Query[] = [{ owner: 'o', repo: 'r', path: 'large.ts' }];
-    const results: FlatQueryResult[] = [
-      {
-        id: 'q1',
-        data: {
-          path: 'large.ts',
-          content: 'hello',
-          totalLines: 200,
-          isPartial: true,
-          startLine: 1,
-          endLine: 50,
-        },
-      },
-    ];
-
-    const out = run(queries, results, { peerEvidence: true } as never);
-    const data = out.structuredContent as {
-      evidence?: { reason?: string };
-    };
-
-    const reason = data.evidence?.reason ?? '';
-    expect(reason.length).toBeGreaterThan(0);
-  });
-
-  it('matchString slices (matchRanges) are complete — no continuation hint, no partial demotion', () => {
+  it('matchString slices (matchRanges) produce no continuation hint', () => {
     const queries: Query[] = [
       { owner: 'o', repo: 'r', path: 'large.ts', matchString: 'foo' },
     ];
@@ -325,15 +292,12 @@ describe('buildGithubFetchContentFinalizer — partial file continuation hints',
       },
     ];
 
-    const out = run(queries, results, { peerEvidence: true } as never);
+    const out = run(queries, results);
     const data = out.structuredContent as {
       hints?: string[];
-      evidence?: { complete?: boolean; reason?: string };
     };
 
     expect(data.hints?.some(h => /startLine=51/.test(h))).toBeFalsy();
-    expect(data.evidence?.complete).toBe(true);
-    expect(data.evidence?.reason ?? '').not.toMatch(/partial/);
   });
 });
 

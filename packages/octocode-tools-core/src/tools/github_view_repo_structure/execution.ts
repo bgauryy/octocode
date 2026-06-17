@@ -129,12 +129,18 @@ function normalizeStructureErrorResult(
   };
 }
 
-function filterStructure(
+export function filterStructure(
   structure: Record<string, GitHubRepoStructureDirectoryEntry>
 ): Record<string, GitHubRepoStructureDirectoryEntry> {
   const filtered: Record<string, GitHubRepoStructureDirectoryEntry> = {};
 
   for (const [dirPath, entry] of Object.entries(structure)) {
+    // Skip top-level entries for directories that should be ignored
+    const dirName = dirPath.split('/').pop() ?? dirPath;
+    if (dirPath !== '' && dirPath !== '.' && shouldIgnoreDir(dirName)) {
+      continue;
+    }
+
     const filteredFiles = entry.files.filter(
       fileName => !shouldIgnoreFile(fileName)
     );
@@ -277,15 +283,7 @@ export async function exploreMultipleRepositoryStructures(
               ),
             },
             prefixHints: branchHints,
-            extraHints: shaped.extraHints,
-            evidence: {
-              kind: 'structure',
-              answerReady: hasContent,
-              complete: hasContent && !wasTruncated,
-              ...(truncatedReasons.length > 0
-                ? { reason: truncatedReasons.join(' ') }
-                : {}),
-            },
+            extraHints: [...truncatedReasons, ...shaped.extraHints],
             rawResponse: providerResult.response.rawResponseChars,
           }
         );
@@ -308,7 +306,6 @@ export async function exploreMultipleRepositoryStructures(
         'error',
       ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

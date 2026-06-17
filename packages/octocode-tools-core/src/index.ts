@@ -40,7 +40,6 @@ export * from './scheme/fields.js';
 export * from './scheme/responseEnvelope.js';
 export * from './serverConfig.js';
 export * from './session.js';
-export * from './tools/evidence.js';
 export * from './tools/executionGuard.js';
 export * from './tools/github_clone_repo/cache.js';
 export * from './tools/github_clone_repo/cloneRepo.js';

@@ -218,8 +218,6 @@ export async function searchPackages(
               : exactHints(raw[0]!, dep)),
         ];
 
-        const isPartial =
-          pagination.hasMore || pagination.currentPage > pagination.totalPages;
         const data = {
           packages,
           pagination,
@@ -232,26 +230,6 @@ export async function searchPackages(
           TOOL_NAMES.PACKAGE_SEARCH,
           {
             extraHints,
-            evidence: {
-              kind: 'package',
-              answerReady: hasContent,
-              complete: !isPartial,
-              ...(!hasContent
-                ? {
-                    reason:
-                      'No package registry results matched the supplied query.',
-                  }
-                : {}),
-              ...(isPartial
-                ? {
-                    confidence: 'medium' as const,
-                    reason:
-                      pagination.currentPage > pagination.totalPages
-                        ? `Requested page ${pagination.currentPage} exceeds totalPages ${pagination.totalPages}.`
-                        : `${packages.length} of ${apiResult.totalFound} results returned.`,
-                  }
-                : {}),
-            },
             rawResponse: apiResult.rawResponseChars ?? apiResult,
           }
         );
@@ -268,7 +246,6 @@ export async function searchPackages(
       toolName: TOOL_NAMES.PACKAGE_SEARCH,
       keysPriority: ['packages', 'pagination', 'error'],
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

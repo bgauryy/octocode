@@ -231,7 +231,7 @@ describe('new public LSP tool execution', () => {
     ).toBe(true);
   });
 
-  it('evidence.complete stays true when documentSymbols pagination hasMore=true (display pagination ≠ data incompleteness)', async () => {
+  it('documentSymbols pagination hasMore=true does not affect completeness', async () => {
     const manySymbols = Array.from({ length: 50 }, (_, i) => ({
       name: `sym${i}`,
       kind: 12,
@@ -252,11 +252,10 @@ describe('new public LSP tool execution', () => {
     } as never);
     const text = textOf(result);
     expect(text).toContain('hasMore: true');
-    expect(text).toContain('complete: true');
     expect(text).not.toContain('Result pagination has more results');
   });
 
-  it('marks evidence.complete=true even when references or calls return zero results', async () => {
+  it('references and calls return zero results without error', async () => {
     vi.mocked(acquirePooledClient).mockResolvedValue(
       createClient({
         findReferences: vi.fn().mockResolvedValue([]),
@@ -282,7 +281,6 @@ describe('new public LSP tool execution', () => {
     const text = textOf(result);
 
     expect(text).not.toContain('status: error');
-    expect(text).not.toContain('Semantic evidence is incomplete');
     expect(text).toContain('kind: references');
     expect(text).toContain('kind: callers');
   });

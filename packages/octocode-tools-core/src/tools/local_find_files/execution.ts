@@ -6,24 +6,7 @@ import { findFiles } from './findFiles.js';
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import type {
-  EvidenceMetadata,
-  ProcessedBulkResult,
-} from '../../types/toolResults.js';
-import { attachEvidence, buildCollectionEvidence } from '../evidence.js';
-
 export { finalizeFindFilesResult } from './findFiles.js';
-
-export function buildFindFilesEvidence(result: unknown): EvidenceMetadata {
-  return buildCollectionEvidence({
-    result,
-    collectionField: 'files',
-    totalKeys: ['totalFiles'],
-    paginationMoreReason: 'File pagination has more results.',
-    kind: 'metadata',
-    emptyReason: 'No files matched the supplied metadata filters.',
-  });
-}
 
 export async function executeFindFiles(
   args: ToolExecutionArgs<FindFilesQuery>
@@ -46,16 +29,12 @@ export async function executeFindFiles(
             return createErrorResult(`Validation error: ${messages}`, query);
           }
           const result = await findFiles(validation.data);
-          return attachEvidence(
-            result as ProcessedBulkResult,
-            buildFindFilesEvidence(result)
-          );
+          return result;
         },
       }),
     {
       toolName: TOOL_NAMES.LOCAL_FIND_FILES,
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

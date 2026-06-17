@@ -8,10 +8,6 @@ const inputSchema = z.object({
   queries: z.array(z.object({ path: z.string() })).optional(),
 });
 
-const outputSchema = z.object({
-  ok: z.boolean(),
-});
-
 describe('createBasicToolRegistration', () => {
   it('registers a basic MCP adapter using the shared tools-core security boundary', async () => {
     const mcp = createMockMcpServer();
@@ -21,7 +17,6 @@ describe('createBasicToolRegistration', () => {
       name: TOOL_NAMES.LOCAL_FIND_FILES,
       title: 'Local Find Files',
       inputSchema,
-      outputSchema,
       executionFn: async args => {
         receivedArgs = args;
         return {
@@ -39,7 +34,6 @@ describe('createBasicToolRegistration', () => {
       options: {
         description: expect.any(String),
         inputSchema: expect.any(Object),
-        outputSchema: expect.any(Object),
         annotations: {
           title: 'Local Find Files',
           readOnlyHint: true,

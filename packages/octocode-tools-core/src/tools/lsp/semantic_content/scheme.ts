@@ -84,12 +84,6 @@ const LspSchema = z.object({
   source: z.string().optional(),
 });
 
-const EvidenceSchema = z.object({
-  confidence: z.enum(['high', 'medium', 'low']),
-  complete: z.boolean(),
-  reason: z.string().optional(),
-});
-
 const EmptyCategorySchema = z.enum([
   'serverUnavailable',
   'unsupportedOperation',
@@ -228,7 +222,6 @@ const SemanticDataSchema = z.object({
   format: z.enum(['structured', 'compact']).optional(),
   resolvedSymbol: ResolvedSymbolSchema.optional(),
   lsp: LspSchema,
-  evidence: EvidenceSchema.optional(),
   payload: PayloadSchema,
   pagination: PaginationSchema.optional(),
   summary: z.record(z.string(), z.unknown()).optional(),
@@ -244,17 +237,17 @@ export const LspGetSemanticsOutputSchema = z.object({
   hints: z.array(z.string()).optional(),
   results: z.array(
     z.union([
-      z.strictObject({
+      z.object({
         id: z.string().min(1),
         status: z.literal('empty'),
         data: SemanticDataSchema,
       }),
-      z.strictObject({
+      z.object({
         id: z.string().min(1),
         status: z.literal('error'),
         data: ErrorDataSchema,
       }),
-      z.strictObject({
+      z.object({
         id: z.string().min(1),
         data: SemanticDataSchema,
       }),

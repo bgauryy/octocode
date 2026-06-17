@@ -74,23 +74,3 @@ export interface StructuredToolResponse {
   [key: string]: unknown;
 }
 
-export interface EvidenceMetadata {
-  kind?:
-    | 'metadata'
-    | 'content'
-    | 'structure'
-    | 'code'
-    | 'docs'
-    | 'config'
-    | 'pr'
-    | 'repo'
-    | 'package'
-    | 'definition'
-    | 'references'
-    | 'calls';
-  answerReady?: boolean;
-  confidence?: 'high' | 'medium' | 'low';
-  complete?: boolean;
-  reason?: string;
-  missingFields?: string[];
-}

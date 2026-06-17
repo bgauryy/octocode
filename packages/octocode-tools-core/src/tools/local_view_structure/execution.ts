@@ -9,43 +9,9 @@ import { viewStructure } from './local_view_structure.js';
 import { createErrorResult } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import type {
-  EvidenceMetadata,
-  ProcessedBulkResult,
-} from '../../types/toolResults.js';
 import type { LocalViewStructureToolResult } from '@octocodeai/octocode-core/extra-types';
-import {
-  attachEvidence,
-  buildEvidenceMetadata,
-  hasMorePagination,
-  paginationTotal,
-} from '../evidence.js';
 
 export { finalizeViewStructureResult } from './local_view_structure.js';
-
-export function buildViewStructureEvidence(result: unknown): EvidenceMetadata {
-  const data =
-    typeof result === 'object' && result !== null
-      ? (result as Record<string, unknown>)
-      : {};
-  const hasResults =
-    (Array.isArray(data.files) && data.files.length > 0) ||
-    (Array.isArray(data.folders) && data.folders.length > 0) ||
-    (Array.isArray(data.entries) && data.entries.length > 0) ||
-    paginationTotal(data.pagination, 'totalEntries') > 0;
-
-  const reasons: string[] = [];
-  if (hasMorePagination(data.pagination)) {
-    reasons.push('Entry pagination has more results.');
-  }
-
-  return buildEvidenceMetadata({
-    kind: 'structure',
-    answerReady: hasResults,
-    incompleteReasons: reasons,
-    emptyReason: 'No directory entries matched the supplied view.',
-  });
-}
 
 export async function executeViewStructure(
   args: ToolExecutionArgs<ViewStructureQuery>
@@ -68,10 +34,7 @@ export async function executeViewStructure(
             return createErrorResult(`Validation error: ${messages}`, query);
           }
           const result = await viewStructure(validation.data);
-          return attachEvidence(
-            result as ProcessedBulkResult,
-            buildViewStructureEvidence(result)
-          );
+          return result;
         },
       }),
     {
@@ -85,7 +48,6 @@ export async function executeViewStructure(
         'entries',
       ] satisfies Array<keyof LocalViewStructureToolResult>,
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

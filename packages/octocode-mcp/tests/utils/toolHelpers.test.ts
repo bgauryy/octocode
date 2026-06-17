@@ -36,7 +36,7 @@ afterEach(() => {
   vi.mocked(pathValidator.validate).mockClear();
 });
 
-describe('validateToolPath — WORKSPACE_ROOT path resolution', () => {
+describe('validateToolPath — cwd path resolution', () => {
   it('resolves relative path against WORKSPACE_ROOT when set', () => {
     vi.stubEnv('WORKSPACE_ROOT', '/workspace/project');
 
@@ -47,17 +47,13 @@ describe('validateToolPath — WORKSPACE_ROOT path resolution', () => {
   });
 
   it('resolves relative path against process.cwd() when WORKSPACE_ROOT is not set', () => {
-    delete process.env.WORKSPACE_ROOT;
-
     validateToolPath({ path: 'src/index.ts' }, 'localSearchCode');
 
     const calledWith = vi.mocked(pathValidator.validate).mock.calls[0]?.[0];
     expect(calledWith).toBe(path.resolve(process.cwd(), 'src/index.ts'));
   });
 
-  it('passes absolute paths through unchanged (no WORKSPACE_ROOT interference)', () => {
-    vi.stubEnv('WORKSPACE_ROOT', '/workspace/project');
-
+  it('passes absolute paths through unchanged', () => {
     validateToolPath({ path: '/absolute/path/to/file.ts' }, 'localSearchCode');
 
     const calledWith = vi.mocked(pathValidator.validate).mock.calls[0]?.[0];

@@ -30,7 +30,6 @@ import {
   compactResolvedSymbol,
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
   type CompactLocation,
-  type LspEvidence,
   type LspGetSemanticsQuery,
   type LspSemanticEnvelope,
   type SemanticEmptyCategory,
@@ -47,7 +46,6 @@ import { semanticHints } from './hints.js';
 const DEFAULT_SYMBOLS_PER_PAGE = 40;
 const DEFAULT_LOCATIONS_PER_PAGE = 40;
 const DEFAULT_CALLS_PER_PAGE = 10;
-const MAX_CONTENT_PREVIEW_CHARS = 1_200;
 const MAX_RANGE_SAMPLES = 8;
 
 type PaginationInfo = {
@@ -92,33 +90,6 @@ type LspPositionLike = {
   character: number;
 };
 
-function semanticEvidence(
-  type: SemanticContentType,
-  confidence: LspEvidence['confidence'],
-  complete: boolean,
-  reason?: string,
-  answerReady = complete
-): LspEvidence {
-  const kind: NonNullable<LspEvidence['kind']> =
-    type === 'documentSymbols'
-      ? 'metadata'
-      : type === 'hover'
-        ? 'docs'
-        : type === 'references'
-          ? 'references'
-          : type === 'callers' || type === 'callees' || type === 'callHierarchy'
-            ? 'calls'
-            : 'definition';
-
-  return {
-    kind,
-    answerReady,
-    confidence,
-    complete,
-    ...(reason ? { reason } : {}),
-  };
-}
-
 export async function executeLspGetSemantics(
   args: ToolExecutionArgs<LspGetSemanticsQuery>
 ): Promise<CallToolResult> {
@@ -137,7 +108,6 @@ export async function executeLspGetSemantics(
     {
       toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
       peerHints: true,
-      peerEvidence: true,
       minQueryTimeoutMs: 30_000,
     },
     args
@@ -336,7 +306,7 @@ function arrayField(record: Record<string, unknown>, key: string): unknown[] {
 function oneLine(value: string, maxLength: number): string {
   const singleLine = value.replace(/\s+/g, ' ').trim();
   return singleLine.length > maxLength
-    ? `${singleLine.slice(0, Math.max(0, maxLength - 3))}...`
+    ? `${singleLine.slice(0, Math.max(0, maxLength - 3))}... (truncated for single-line display — use charOffset or startLine to read full content)`
     : singleLine;
 }
 
@@ -557,13 +527,6 @@ async function getDocumentSymbols(
       serverAvailable,
       ...(complete ? { provider: 'documentSymbolProvider' } : {}),
     },
-    evidence: semanticEvidence(
-      'documentSymbols',
-      complete ? 'high' : 'low',
-      complete,
-      incompleteReason,
-      complete
-    ),
     summary: {
       totalSymbols: compactSymbols.length,
       returnedSymbols: pageItems.length,
@@ -606,13 +569,6 @@ function locationsEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider },
-    evidence: semanticEvidence(
-      query.type,
-      complete ? 'high' : 'medium',
-      complete,
-      reason,
-      complete
-    ),
     payload: complete
       ? { kind, locations: pageItems }
       : {
@@ -663,15 +619,6 @@ function referencesEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'referencesProvider' },
-    evidence: semanticEvidence(
-      'references',
-      refs.length > 0 ? 'high' : 'medium',
-      true,
-      refs.length === 0
-        ? 'referencesProvider returned no references'
-        : undefined,
-      true
-    ),
     payload: {
       kind: 'references',
       ...(byFile ? { byFile: pageItems } : { locations: pageItems }),
@@ -707,12 +654,6 @@ async function hoverEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'hoverProvider' },
-    evidence: semanticEvidence(
-      query.type,
-      complete ? 'high' : 'medium',
-      complete,
-      complete ? undefined : 'hoverProvider returned no hover content'
-    ),
     payload: complete
       ? { kind: 'hover', ...normalized }
       : {
@@ -805,25 +746,11 @@ async function callsEnvelope(
     !incomingResult.truncatedByDepth &&
     !outgoingResult.truncatedByDepth &&
     incomingResult.failedRequestCount + outgoingResult.failedRequestCount === 0;
-  const evidenceReason =
-    calls.length === 0
-      ? 'callHierarchyProvider returned no calls'
-      : !traversalComplete
-        ? 'Call traversal is partial.'
-        : undefined;
-
   return {
     type: query.type,
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'callHierarchyProvider' },
-    evidence: semanticEvidence(
-      query.type,
-      calls.length > 0 ? 'high' : 'medium',
-      traversalComplete,
-      evidenceReason,
-      true
-    ),
     payload: {
       kind: query.type as 'callers' | 'callees' | 'callHierarchy',
       root: compactCallItem(root),
@@ -1059,12 +986,7 @@ function contentPreview(
   contextLines: number
 ): { contentPreview?: string } {
   if (contextLines <= 0 || !item.content) return {};
-  return { contentPreview: truncateContent(item.content) };
-}
-
-function truncateContent(content: string): string {
-  if (content.length <= MAX_CONTENT_PREVIEW_CHARS) return content;
-  return `${content.slice(0, MAX_CONTENT_PREVIEW_CHARS)}\n[truncated]`;
+  return { contentPreview: item.content };
 }
 
 function symbolKindName(kind: unknown): string {
@@ -1154,7 +1076,6 @@ function failedAnchorEnvelope(
     type: query.type,
     uri,
     lsp: {},
-    evidence: semanticEvidence(query.type, 'low', false, reason, false),
     payload: {
       kind: 'empty',
       category: emptyCategoryForReason(query.type, reason),
@@ -1175,7 +1096,6 @@ function emptyEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable },
-    evidence: semanticEvidence(type, 'low', false, reason, false),
     payload: {
       kind: 'empty',
       category: emptyCategoryForReason(type, reason),

@@ -35,7 +35,6 @@ describe('new public LSP tools', () => {
         name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
         options: expect.objectContaining({
           inputSchema: expect.any(Object),
-          outputSchema: expect.any(Object),
           annotations: expect.objectContaining({ readOnlyHint: true }),
         }),
         handler: expect.any(Function),

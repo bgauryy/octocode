@@ -14,7 +14,6 @@ import {
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
 import type { GitHubFetchContentOutputLocal } from './scheme.js';
-import { buildEvidenceMetadata } from '../evidence.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
@@ -92,70 +91,6 @@ function collectPeerHints(results: readonly FlatQueryResult[]): string[] {
         : [];
     })
   );
-}
-
-function buildFetchEvidence(
-  groups: readonly RepoGroup[],
-  errors: ReadonlyArray<NonNullable<FileContentResponse['errors']>[number]>
-): NonNullable<GitHubFetchContentOutputLocal['evidence']> {
-  const fileCount = groups.reduce(
-    (sum, group) => sum + (group.files?.length ?? 0),
-    0
-  );
-  const directoryCount = groups.reduce(
-    (sum, group) => sum + (group.directories?.length ?? 0),
-    0
-  );
-  const partialFiles = groups.reduce(
-    (sum, group) =>
-      sum +
-      (group.files ?? []).filter(
-        file =>
-          file.isPartial &&
-          !file.matchRanges?.length &&
-          !file.isSkeleton &&
-          file.contentView !== 'symbols'
-      ).length,
-    0
-  );
-  const paginatedFiles = groups.reduce(
-    (sum, group) =>
-      sum + (group.files ?? []).filter(file => file.pagination?.hasMore).length,
-    0
-  );
-  const reasons: string[] = [];
-
-  if (partialFiles > 0) {
-    reasons.push(`${partialFiles} file slice(s) are partial.`);
-  }
-  if (paginatedFiles > 0) {
-    reasons.push(`${paginatedFiles} file content page(s) have more data.`);
-  }
-  for (const group of groups) {
-    for (const file of group.files ?? []) {
-      if (
-        file.pagination?.hasMore &&
-        typeof file.pagination.charOffset === 'number'
-      ) {
-        const nextOffset =
-          file.pagination.charOffset + (file.pagination.charLength ?? 0);
-        reasons.push(
-          `Use charOffset=${nextOffset} for ${group.id}:${file.path}.`
-        );
-      }
-    }
-  }
-  if (errors.length > 0) {
-    reasons.push(`${errors.length} query result(s) failed.`);
-  }
-
-  const hasContent = fileCount + directoryCount > 0;
-  return buildEvidenceMetadata({
-    kind: 'content',
-    answerReady: hasContent,
-    incompleteReasons: reasons,
-    emptyReason: 'No file or directory content was returned.',
-  });
 }
 
 const OPTIONAL_PAGINATION_NUMERIC_FIELDS = [
@@ -416,9 +351,6 @@ export function buildGithubFetchContentFinalizer<
 
     if (hints.length > 0) responseData.hints = hints;
     if (errors && errors.length > 0) responseData.errors = errors;
-    if (config.peerEvidence) {
-      responseData.evidence = buildFetchEvidence(groups, errors ?? []);
-    }
 
     return formatFinalizedResponse<GitHubFetchContentOutputLocal>(
       responseData,

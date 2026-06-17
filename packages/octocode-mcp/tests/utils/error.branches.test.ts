@@ -19,8 +19,7 @@ describe('createErrorResult - branch coverage', () => {
       const apiError = { error: 'Not Found', type: 'NOT_FOUND' };
       const result = createErrorResult(apiError, baseQuery);
       expect(result.error).toBe(apiError);
-      expect(result.hints).toBeDefined();
-      expect(result.hints!.some(h => h.includes('API Error'))).toBe(true);
+      // No 'API Error' echo hint — raw error string is not re-emitted as a hint
     });
 
     it('should detect GitHubAPIError with "status" field', () => {
@@ -52,8 +51,7 @@ describe('createErrorResult - branch coverage', () => {
       });
       expect(result.error).toBe(apiError);
       expect(result.hints!.some(h => h.includes('Rate limit:'))).toBe(true);
-      const githubErrors = result.hints!.filter(h => h.includes('API Error'));
-      expect(githubErrors).toHaveLength(1);
+      // 'API Error' echo removed — hintSourceError rate-limit hint present but no raw error string echoed
     });
   });
 

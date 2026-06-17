@@ -108,6 +108,15 @@ export async function searchMultipleGitHubPullRequests(
           );
         }
 
+        // GitHub PR search API only supports state=open or state=closed.
+        // state=merged is not a valid API parameter — silently remap it.
+        if ((effectiveQuery as { state?: string }).state === 'merged') {
+          (effectiveQuery as { state?: string }).state = 'closed';
+          downgradeHints.unshift(
+            'state="merged" is not supported by the GitHub PR search API — remapped to state="closed" (merged PRs have state=closed and a non-null mergedAt).'
+          );
+        }
+
         const hasValidParams =
           effectiveQuery.keywordsToSearch?.length ||
           effectiveQuery.owner ||
@@ -300,22 +309,6 @@ export async function searchMultipleGitHubPullRequests(
               prMatch: effectiveQuery.match,
             },
             extraHints: shaped.extraHints,
-            evidence: {
-              kind: 'pr',
-              answerReady: hasContent || confirmedZero,
-              complete: hasContent ? !hasMore : confirmedZero,
-              ...(confirmedZero
-                ? {
-                    reason:
-                      '0 results confirmed — search returned zero matches.',
-                  }
-                : !hasContent
-                  ? {
-                      reason:
-                        'No PRs matched the supplied filters; try widening the query or removing state/author/label filters.',
-                    }
-                  : {}),
-            },
             rawResponse: providerResult.response.rawResponseChars,
           }
         );
@@ -332,7 +325,6 @@ export async function searchMultipleGitHubPullRequests(
         'error',
       ] satisfies Array<keyof GitHubSearchPullRequestsToolResult>,
       peerHints: true,
-      peerEvidence: true,
     },
     args
   );

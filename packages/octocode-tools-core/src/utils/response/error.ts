@@ -39,8 +39,6 @@ interface CreateErrorResultOptions {
 function extractProviderApiHints(apiError: GitHubAPIError): string[] {
   const hints: string[] = [];
 
-  hints.push(`API Error: ${apiError.error}`);
-
   if (apiError.scopesSuggestion) {
     hints.push(apiError.scopesSuggestion);
   }
