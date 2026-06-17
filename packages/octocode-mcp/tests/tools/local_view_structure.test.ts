@@ -988,7 +988,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        depth: 1,
+        maxDepth: 1,
       });
 
       expect(result.status).toBeUndefined();
@@ -1003,7 +1003,7 @@ describe('localViewStructure', () => {
 
       const result = await viewStructure({
         path: '/test/path',
-        depth: 5,
+        maxDepth: 5,
       });
 
       expect([undefined, 'empty']).toContain(result.status);

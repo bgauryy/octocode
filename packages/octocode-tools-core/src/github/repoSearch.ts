@@ -70,7 +70,7 @@ export async function searchGitHubReposAPI(
   const cacheKey = generateCacheKey(
     'gh-api-repos',
     {
-      keywordsToSearch: params.keywordsToSearch,
+      keywords: params.keywords,
       topicsToSearch: params.topicsToSearch,
       owner: params.owner,
       stars: params.stars,
@@ -210,7 +210,7 @@ async function searchGitHubReposAPIInternal(
     const octokit = await getOctokit(authInfo);
 
     const hasSearchTerms =
-      (params.keywordsToSearch?.length ?? 0) > 0 ||
+      (params.keywords?.length ?? 0) > 0 ||
       (params.topicsToSearch?.length ?? 0) > 0;
 
     const ownerParam =

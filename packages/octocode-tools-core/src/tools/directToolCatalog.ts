@@ -626,8 +626,6 @@ function buildExampleValue(name: string, type: string): unknown {
       return 'bgauryy';
     case 'repo':
       return 'octocode';
-    case 'keywordsToSearch':
-      return ['toolName'];
     case 'name':
     case 'packageName':
       return 'react';

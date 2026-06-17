@@ -49,7 +49,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
 
   it('ghSearchCode clamps page 0 to page 1 (relaxed page field)', () => {
     const r = GitHubCodeSearchQueryLocalSchema.safeParse({
-      keywordsToSearch: ['x'],
+      keywords: ['x'],
       page: 0,
     });
     expect(r.success).toBe(true);

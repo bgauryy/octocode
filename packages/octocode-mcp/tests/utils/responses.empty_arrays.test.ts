@@ -91,7 +91,7 @@ describe('Empty Arrays Removal in Responses', () => {
           queries: [
             {
               id: 'search_empty_query',
-              keywordsToSearch: ['nonexistent'],
+              keywords: ['nonexistent'],
               researchGoal: 'Verify empty search responses stay clean',
               reasoning: 'Test empty array removal',
             },
@@ -138,7 +138,7 @@ describe('Empty Arrays Removal in Responses', () => {
           queries: [
             {
               id: 'search_empty_matches_query',
-              keywordsToSearch: ['test'],
+              keywords: ['test'],
               researchGoal:
                 'Verify files remain even when match arrays are empty',
               reasoning: 'Test file presence with empty matches',
@@ -198,13 +198,13 @@ describe('Empty Arrays Removal in Responses', () => {
           queries: [
             {
               id: 'mixed_empty_query',
-              keywordsToSearch: ['empty'],
+              keywords: ['empty'],
               researchGoal: 'Verify empty result rendering',
               reasoning: 'Will be empty',
             },
             {
               id: 'mixed_found_query',
-              keywordsToSearch: ['found'],
+              keywords: ['found'],
               researchGoal: 'Verify successful result rendering',
               reasoning: 'Will find results',
             },
@@ -253,7 +253,7 @@ describe('Empty Arrays Removal in Responses', () => {
           queries: [
             {
               id: 'nested_empty_arrays_query',
-              keywordsToSearch: ['test'],
+              keywords: ['test'],
               researchGoal: 'Verify nested empty arrays are removed',
               reasoning: 'Test nested empty array removal',
             },
@@ -305,7 +305,7 @@ describe('Empty Arrays Removal in Responses', () => {
           queries: [
             {
               id: 'empty_hints_query',
-              keywordsToSearch: ['test'],
+              keywords: ['test'],
               researchGoal: 'Verify empty hints do not appear',
               reasoning: 'Test empty hints removal',
             },
@@ -354,7 +354,7 @@ describe('Empty Arrays Removal in Responses', () => {
         {
           queries: [
             {
-              keywordsToSearch: ['empty_match'],
+              keywords: ['empty_match'],
               match: 'path',
               reasoning: 'Test path-only match preservation',
             },

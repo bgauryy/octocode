@@ -66,7 +66,7 @@ export async function getRepoStructure(
     repo,
     branch: query.ref || 'HEAD',
     path: query.path,
-    depth: query.depth,
+    maxDepth: query.depth,
     itemsPerPage: query.itemsPerPage,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,

@@ -28,7 +28,7 @@ import { buildGhSearchCodeFinalizer } from './finalizer.js';
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 
 function hasValidCodeSearchParams(query: PartialCodeSearchQuery): boolean {
-  const keywords = query.keywordsToSearch ?? [];
+  const keywords = query.keywords ?? [];
   return Boolean(
     keywords.some(keyword => keyword.trim().length > 0) ||
     query.owner ||
@@ -47,7 +47,7 @@ function validateCodeSearchScope(
         'Repository scope requires owner. Provide both owner and repo, or omit repo for a broader search.',
       hints: [
         'Use owner="<org-or-user>" with repo="<repository>" — GitHub code search cannot scope to a bare repository name.',
-        'If you only know the repo name, first use ghSearchRepos with keywordsToSearch=["<repo>"] to find its owner.',
+        'If you only know the repo name, first use ghSearchRepos with keywords=["<repo>"] to find its owner.',
       ],
     };
   }
@@ -100,7 +100,7 @@ export async function searchMultipleGitHubCode(
           extension: query.extension,
           filename: query.filename,
           path: query.path,
-          keywords: query.keywordsToSearch,
+          keywords: query.keywords,
           totalMatches: flat.pagination?.totalMatches,
           hasMore: flat.pagination?.hasMore,
           currentPage: flat.pagination?.currentPage ?? 1,
@@ -119,9 +119,9 @@ export async function searchMultipleGitHubCode(
         const successHints: string[] = [];
         if (flat.results.length > 0) {
           const firstKeyword =
-            Array.isArray(query.keywordsToSearch) &&
-            typeof query.keywordsToSearch[0] === 'string'
-              ? query.keywordsToSearch[0]
+            Array.isArray(query.keywords) &&
+            typeof query.keywords[0] === 'string'
+              ? query.keywords[0]
               : '<keyword>';
           successHints.push(
             `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — read with ghGetFileContent(path, matchString="${firstKeyword}") to land on the matched lines (matchIndices are char offsets inside snippet values, not line numbers).`

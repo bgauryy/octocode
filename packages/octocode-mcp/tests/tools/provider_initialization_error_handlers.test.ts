@@ -62,7 +62,7 @@ describe('provider initialization errors across provider-backed tools', () => {
 
   it('returns an error result for ghSearchCode', async () => {
     const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-      queries: [{ keywordsToSearch: ['test'] }],
+      queries: [{ keywords: ['test'] }],
     });
 
     expect(getTextContent(result.content)).toContain(
@@ -110,7 +110,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     const result = await mockServer.callTool(
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       {
-        queries: [{ keywordsToSearch: ['test'] }],
+        queries: [{ keywords: ['test'] }],
       }
     );
 

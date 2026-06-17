@@ -69,8 +69,10 @@ function viewStructureNative(
   basePath: string,
   showModified: boolean = false
 ): LocalViewStructureToolResult {
-  const recursiveMode = Boolean(query.depth || query.recursive);
-  const maxDepth = recursiveMode ? query.depth || (query.recursive ? 5 : 2) : 1;
+  const recursiveMode = Boolean(query.maxDepth || query.recursive);
+  const maxDepth = recursiveMode
+    ? query.maxDepth || (query.recursive ? 5 : 2)
+    : 1;
   const nativeNamePatterns = nativeNamePatternsFromQuery(query);
   const maxEntries =
     recursiveMode &&

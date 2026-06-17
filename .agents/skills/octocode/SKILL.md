@@ -316,9 +316,9 @@ localFindFiles(path, regex:"^index\\.", entryType:"f")             → all index
 
 **GitHub — code investigation**
 ```
-ghSearchCode(keywordsToSearch:[...], owner, repo, match:"path")   → file existence check (~10× cheaper)
-ghSearchRepos(keywordsToSearch:[...])                              → discover owner/repo if unknown
-ghViewRepoStructure(owner, repo, path, depth)                     → tree when path structure is unknown
+ghSearchCode(keywords:[...], owner, repo, match:"path")           → file existence check (~10× cheaper)
+ghSearchRepos(keywords:[...])                                      → discover owner/repo if unknown
+ghViewRepoStructure(owner, repo, path, maxDepth)                  → tree when path structure is unknown
 ghGetFileContent(owner, repo, path, minify:"symbols")             → orient on unknown files first
 ```
 

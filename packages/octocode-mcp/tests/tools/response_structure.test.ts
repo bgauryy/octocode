@@ -114,7 +114,7 @@ describe('Response Structure Tests - All Tools', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['test'], owner: 'test', repo: 'repo' }],
+        queries: [{ keywords: ['test'], owner: 'test', repo: 'repo' }],
       });
 
       expect(result.isError).toBe(false);
@@ -136,7 +136,7 @@ describe('Response Structure Tests - All Tools', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          { keywordsToSearch: ['nonexistent'], owner: 'test', repo: 'repo' },
+          { keywords: ['nonexistent'], owner: 'test', repo: 'repo' },
         ],
       });
 
@@ -153,7 +153,7 @@ describe('Response Structure Tests - All Tools', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['test'], owner: 'bad', repo: 'repo' }],
+        queries: [{ keywords: ['test'], owner: 'bad', repo: 'repo' }],
       });
 
       expect(result.isError).toBe(true);
@@ -250,7 +250,7 @@ describe('Response Structure Tests - All Tools', () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
-          queries: [{ keywordsToSearch: ['react'] }],
+          queries: [{ keywords: ['react'] }],
         }
       );
 
@@ -275,7 +275,7 @@ describe('Response Structure Tests - All Tools', () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
-          queries: [{ keywordsToSearch: ['nonexistent123456'] }],
+          queries: [{ keywords: ['nonexistent123456'] }],
         }
       );
 

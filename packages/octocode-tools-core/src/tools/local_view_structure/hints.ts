@@ -24,8 +24,7 @@ export const hints: ToolHintGenerators = {
   error: (ctx: HintContext = {}) => {
     if (ctx.errorType === 'not_found') {
       return [
-        'Path must be absolute or relative to WORKSPACE_ROOT.',
-        'Use `localFindFiles` to locate the correct path.',
+        'Path must be absolute — use localFindFiles to discover the correct path.',
       ];
     }
     if (ctx.errorType === 'permission') {

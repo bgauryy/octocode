@@ -894,7 +894,7 @@ describe('File Operations - Additional Coverage Tests', () => {
         repo: 'repo',
         branch: 'main',
         path: '',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);

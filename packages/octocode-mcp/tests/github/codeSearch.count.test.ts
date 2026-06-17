@@ -52,7 +52,7 @@ describe('Code Search - Total Count', () => {
     });
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['test'],
+      keywords: ['test'],
     });
 
     expect(result.status).toBe(200);

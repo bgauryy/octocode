@@ -34,7 +34,7 @@ describe('Pagination config constants', () => {
 describe('GitHub search: page-based pagination, exact fields', () => {
   it('defaults page to 1 when omitted', () => {
     const parsed = GitHubReposSearchBulkQueryLocalSchema.parse({
-      queries: [{ keywordsToSearch: ['x'] }],
+      queries: [{ keywords: ['x'] }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
     expect(q.page).toBe(1);
@@ -42,7 +42,7 @@ describe('GitHub search: page-based pagination, exact fields', () => {
 
   it('accepts explicit page > 1', () => {
     const parsed = GitHubReposSearchBulkQueryLocalSchema.parse({
-      queries: [{ keywordsToSearch: ['x'], page: 3 }],
+      queries: [{ keywords: ['x'], page: 3 }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
     expect(q.page).toBe(3);
@@ -50,7 +50,7 @@ describe('GitHub search: page-based pagination, exact fields', () => {
 
   it('exposes limit but not githubAPILimit; limit undefined when not provided', () => {
     const parsed = GitHubCodeSearchBulkQueryLocalSchema.parse({
-      queries: [{ keywordsToSearch: ['x'] }],
+      queries: [{ keywords: ['x'] }],
     });
     const q = parsed.queries[0] as Record<string, unknown>;
     expect('githubAPILimit' in q).toBe(false);

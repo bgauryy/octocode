@@ -245,7 +245,7 @@ describe('directToolCatalog', () => {
         mainResearchGoal: 'main',
         researchGoal: 'goal',
         reasoning: 'because',
-        keywordsToSearch: ['directToolCatalog'],
+        keywords: ['directToolCatalog'],
         limit: 1,
         page: 1,
       },
@@ -264,7 +264,7 @@ describe('directToolCatalog', () => {
     const defaulted = prepareDirectToolInput(
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
       {
-        keywordsToSearch: ['directToolCatalog'],
+        keywords: ['directToolCatalog'],
         limit: 1,
         page: 1,
       },

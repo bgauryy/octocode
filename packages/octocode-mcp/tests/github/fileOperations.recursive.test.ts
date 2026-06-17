@@ -175,7 +175,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);
@@ -255,7 +255,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);
@@ -329,7 +329,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);
@@ -406,7 +406,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);
@@ -507,7 +507,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);
@@ -594,7 +594,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);
@@ -641,7 +641,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 1,
+        maxDepth: 1,
       });
 
       expect('structure' in result).toBe(true);
@@ -724,7 +724,7 @@ describe('GitHub File Operations - Recursive Directory Structure', () => {
         owner: 'test',
         repo: 'repo',
         branch: 'main',
-        depth: 2,
+        maxDepth: 2,
       });
 
       expect('structure' in result).toBe(true);

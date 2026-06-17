@@ -95,7 +95,7 @@ describe('GitHub Search Repositories Response Structure Test', () => {
             mainResearchGoal: 'Inspect repository search output shape',
             researchGoal: 'Verify returned repository search results',
             reasoning: 'Testing response structure',
-            keywordsToSearch: ['react', 'hooks'],
+            keywords: ['react', 'hooks'],
             limit: 2,
           },
         ],

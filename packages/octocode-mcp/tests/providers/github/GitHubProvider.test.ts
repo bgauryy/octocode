@@ -150,7 +150,7 @@ describe('GitHubProvider', () => {
         expect(result.data!.items[0]!.path).toBe('src/index.ts');
         expect(mockSearchGitHubCodeAPI).toHaveBeenCalledWith(
           expect.objectContaining({
-            keywordsToSearch: ['test'],
+            keywords: ['test'],
             owner: 'owner',
             repo: 'repo',
           }),
@@ -203,7 +203,7 @@ describe('GitHubProvider', () => {
         expect(result.data?.pagination.hasMore).toBe(true);
         expect(mockSearchGitHubCodeAPI).toHaveBeenCalledWith(
           expect.objectContaining({
-            keywordsToSearch: ['function', 'class'],
+            keywords: ['function', 'class'],
             owner: 'owner',
             repo: 'repo',
             extension: 'ts',
@@ -828,7 +828,7 @@ describe('GitHubProvider', () => {
 
         expect(mockSearchGitHubReposAPI).toHaveBeenCalledWith(
           expect.objectContaining({
-            keywordsToSearch: ['typescript'],
+            keywords: ['typescript'],
             topicsToSearch: ['testing'],
             owner: 'microsoft',
             stars: '>=1000',
@@ -1627,7 +1627,7 @@ describe('GitHubProvider', () => {
             repo: 'project',
             branch: 'develop',
             path: 'src/components',
-            depth: 3,
+            maxDepth: 3,
             itemsPerPage: 50,
             page: 2,
             mainResearchGoal: 'Understand component structure',

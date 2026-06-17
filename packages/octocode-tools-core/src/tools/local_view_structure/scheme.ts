@@ -16,7 +16,7 @@ import {
 } from '../../scheme/coreSchemas.js';
 
 const queryOverrides = {
-  depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   limit: clampedInt(1, LOCAL_MAX_LIMIT).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, LOCAL_MAX_FILES_PER_PAGE).optional(),

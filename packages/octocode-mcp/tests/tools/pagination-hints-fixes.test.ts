@@ -62,7 +62,7 @@ describe('Pagination and Hints Fixes', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['useState'],
+        keywords: ['useState'],
         owner: 'facebook',
         repo: 'react',
         limit: 5,
@@ -98,7 +98,7 @@ describe('Pagination and Hints Fixes', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'test',
         repo: 'repo',
         limit: 5,
@@ -140,7 +140,7 @@ describe('Pagination and Hints Fixes', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         repo: 'react',
         limit: 5,
@@ -199,7 +199,7 @@ describe('Pagination and Hints Fixes', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['useState'],
+        keywords: ['useState'],
         limit: 5,
       });
 

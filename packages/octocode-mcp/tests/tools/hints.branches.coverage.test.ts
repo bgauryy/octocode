@@ -175,12 +175,12 @@ describe('local_view_structure hints — uncovered branches', () => {
       errorType: 'not_found',
       path: '/src',
     } as never);
-    expect(result[0]).toContain('WORKSPACE_ROOT');
+    expect(result[0]).toContain('localFindFiles');
   });
 
   it('error() not_found — without path', () => {
     const result = lvsHints.error({ errorType: 'not_found' } as never);
-    expect(result[0]).toContain('WORKSPACE_ROOT');
+    expect(result[0]).toContain('localFindFiles');
   });
 
   it('error() permission', () => {

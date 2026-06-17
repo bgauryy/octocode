@@ -33,7 +33,7 @@ const hoist = vi.hoisted(() => {
         name: 'ghSearchCode',
         description: 'Search code on GitHub',
         schema: {
-          keywordsToSearch: 'Keywords to search',
+          keywords: 'Keywords to search',
           owner: 'Repository owner',
           repo: 'Repository name',
         },

@@ -49,6 +49,55 @@ export interface CommitInfo {
   files: CommitFileInfo[];
 }
 
+export interface HistoryCommitFile {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previousFilename?: string;
+}
+
+export interface HistoryCommit {
+  sha: string;
+  date: string;
+  message: string;
+  messageHeadline: string;
+  url: string;
+  author: {
+    name: string;
+    email: string;
+    login?: string;
+  };
+  committer?: {
+    name: string;
+    email: string;
+    login?: string;
+  };
+  // type:"file" fields (present when includeDiff:true)
+  additions?: number;
+  deletions?: number;
+  status?: string;
+  patch?: string;
+  previousFilename?: string;
+  // type:"repo" fields (present when includeDiff:true)
+  files?: HistoryCommitFile[];
+}
+
+export interface HistoryResult {
+  type: 'file' | 'repo';
+  owner: string;
+  repo: string;
+  path?: string;
+  commits: HistoryCommit[];
+  pagination: {
+    page: number;
+    perPage: number;
+    hasMore: boolean;
+    nextPage?: number;
+  };
+}
+
 export type GetContentParameters =
   RestEndpointMethodTypes['repos']['getContent']['parameters'];
 export type SearchCodeParameters =

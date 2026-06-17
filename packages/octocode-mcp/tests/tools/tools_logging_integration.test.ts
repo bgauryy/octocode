@@ -136,7 +136,7 @@ describe('Tools Logging Integration - Repo/Owner Tracking', () => {
           {
             owner: 'facebook',
             repo: 'react',
-            keywordsToSearch: ['useState'],
+            keywords: ['useState'],
           },
         ],
       };
@@ -151,8 +151,8 @@ describe('Tools Logging Integration - Repo/Owner Tracking', () => {
 
       const args = {
         queries: [
-          { owner: 'facebook', repo: 'react', keywordsToSearch: ['test1'] },
-          { owner: 'vercel', repo: 'next.js', keywordsToSearch: ['test2'] },
+          { owner: 'facebook', repo: 'react', keywords: ['test1'] },
+          { owner: 'vercel', repo: 'next.js', keywords: ['test2'] },
         ],
       };
 
@@ -191,7 +191,7 @@ describe('Tools Logging Integration - Repo/Owner Tracking', () => {
         queries: [
           {
             owner: 'google',
-            keywordsToSearch: ['tensorflow'],
+            keywords: ['tensorflow'],
           },
         ],
       };

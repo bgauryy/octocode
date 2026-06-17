@@ -78,7 +78,7 @@ function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
 
   const src = isNpm(pkg) ? pkg.source : undefined;
   if (src === 'cdn')
-    hints.push('Metadata from npm CDN fallback — registry was unavailable.');
+    hints.push('Metadata from npm CDN cache — verify version when registry access is restored.');
   else if (src === 'web')
     hints.push(
       'Metadata from npms.io fallback — verify version when registry access is restored.'

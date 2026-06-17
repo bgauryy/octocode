@@ -146,7 +146,7 @@ export async function searchCode(
   const owner = projectOwner || query.owner;
 
   const githubQuery = {
-    keywordsToSearch: query.keywords,
+    keywords: query.keywords,
     owner,
     repo,
     extension: query.extension,
@@ -189,7 +189,7 @@ export async function searchRepos(
   authInfo?: AuthInfo
 ): Promise<ProviderResponse<RepoSearchResult>> {
   const githubQuery = {
-    keywordsToSearch: query.keywords,
+    keywords: query.keywords,
     topicsToSearch: query.topics,
     owner: query.owner,
     stars: query.stars ?? (query.minStars ? `>=${query.minStars}` : undefined),

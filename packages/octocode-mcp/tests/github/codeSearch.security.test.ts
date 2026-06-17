@@ -33,7 +33,7 @@ describe('Code Search - Empty Query Validation', () => {
 
   it('should return error when all keywords are empty strings', async () => {
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['', ' ', '  '],
+      keywords: ['', ' ', '  '],
       owner: 'test',
       repo: 'repo',
     });
@@ -59,7 +59,7 @@ describe('Code Search - Empty Query Validation', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: [],
+      keywords: [],
       owner: 'test',
       repo: 'repo',
     });
@@ -69,7 +69,7 @@ describe('Code Search - Empty Query Validation', () => {
 
   it('should return error when built query is empty after trimming', async () => {
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['   '],
+      keywords: ['   '],
       owner: 'test',
       repo: 'repo',
     });
@@ -116,7 +116,7 @@ describe('Code Search - Security Warnings', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['API_KEY'],
+      keywords: ['API_KEY'],
       owner: 'test',
       repo: 'repo',
     });
@@ -155,7 +155,7 @@ describe('Code Search - Security Warnings', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['value'],
+      keywords: ['value'],
       owner: 'test',
       repo: 'repo',
     });
@@ -208,7 +208,7 @@ describe('Code Search - Security Warnings', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['token', 'script'],
+      keywords: ['token', 'script'],
       owner: 'test',
       repo: 'repo',
     });
@@ -254,7 +254,7 @@ describe('Code Search - Minification', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['function'],
+      keywords: ['function'],
       owner: 'test',
       repo: 'repo',
     });
@@ -293,7 +293,7 @@ describe('Code Search - Minification', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['function'],
+      keywords: ['function'],
       owner: 'test',
       repo: 'repo',
     });
@@ -339,7 +339,7 @@ describe('Code Search - Security Warnings Array Creation', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['API_KEY'],
+      keywords: ['API_KEY'],
       owner: 'test',
       repo: 'repo',
     });
@@ -378,7 +378,7 @@ describe('Code Search - Security Warnings Array Creation', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['API_KEY'],
+      keywords: ['API_KEY'],
       owner: 'test',
       repo: 'repo',
     });
@@ -437,7 +437,7 @@ describe('Code Search - Security Warning Structure', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['key', 'token'],
+      keywords: ['key', 'token'],
       owner: 'test',
       repo: 'repo',
     });
@@ -478,7 +478,7 @@ describe('Code Search - Security Warning Structure', () => {
     mockOctokit.rest.search.code.mockResolvedValue(mockResponse);
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['API_KEY'],
+      keywords: ['API_KEY'],
       owner: 'test',
       repo: 'repo',
     });

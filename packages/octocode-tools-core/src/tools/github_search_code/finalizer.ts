@@ -259,7 +259,7 @@ export function buildGhSearchCodeFinalizer<
     const allKeywords = Array.from(
       new Set(
         queries.flatMap(q => {
-          const kws = (q as { keywordsToSearch?: unknown }).keywordsToSearch;
+          const kws = (q as { keywords?: unknown }).keywords;
           return Array.isArray(kws)
             ? kws.filter((k): k is string => typeof k === 'string')
             : [];

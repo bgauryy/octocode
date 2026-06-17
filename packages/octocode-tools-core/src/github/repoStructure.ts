@@ -192,7 +192,7 @@ export async function viewGitHubRepositoryStructureAPI(
       repo: params.repo,
       branch: params.branch,
       path: params.path,
-      depth: params.depth,
+      depth: params.maxDepth,
     },
     sessionId
   );
@@ -230,7 +230,7 @@ async function viewGitHubRepositoryStructureAPIInternal(
 ): Promise<GitHubRepositoryStructureResult | GitHubRepositoryStructureError> {
   try {
     const octokit = await getOctokit(authInfo);
-    const { owner, repo, branch, path = '', depth = 1 } = params;
+    const { owner, repo, branch, path = '', maxDepth: depth = 1 } = params;
     const cleanPath = path.replace(/^\/+|\/+$/g, '');
 
     const resolution = await resolveContentWithBranchFallback(

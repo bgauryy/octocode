@@ -126,7 +126,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         {
           queries: [
             {
-              keywordsToSearch: ['react'],
+              keywords: ['react'],
               limit: 2,
             },
           ],
@@ -183,7 +183,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
-          queries: [{ keywordsToSearch: ['typescript'] }],
+          queries: [{ keywords: ['typescript'] }],
         }
       );
 
@@ -210,7 +210,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         {
           queries: [
             {
-              keywordsToSearch: ['veryobscurekeyword123'],
+              keywords: ['veryobscurekeyword123'],
             },
           ],
         }
@@ -239,7 +239,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         {
           queries: [
             {
-              keywordsToSearch: ['veryrandomnonexistent123'],
+              keywords: ['veryrandomnonexistent123'],
             },
           ],
         }
@@ -262,7 +262,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
-          queries: [{ keywordsToSearch: ['test'] }],
+          queries: [{ keywords: ['test'] }],
         }
       );
 
@@ -306,7 +306,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         {
           queries: [
             {
-              keywordsToSearch: ['popular'],
+              keywords: ['popular'],
               stars: '>10000',
             },
           ],
@@ -350,7 +350,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
           queries: [
             {
               owner: 'facebook',
-              keywordsToSearch: ['react'],
+              keywords: ['react'],
             },
           ],
         }
@@ -464,8 +464,8 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
           queries: [
-            { keywordsToSearch: ['react'] },
-            { keywordsToSearch: ['vue'] },
+            { keywords: ['react'] },
+            { keywords: ['vue'] },
           ],
         }
       );
@@ -511,7 +511,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
         {
           queries: [
             {
-              keywordsToSearch: ['test'],
+              keywords: ['test'],
               page: 2,
               limit: 10,
             },
@@ -551,7 +551,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       const firstResult = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        { queries: [{ keywordsToSearch: ['repo'] }] }
+        { queries: [{ keywords: ['repo'] }] }
       );
 
       const firstStructured = firstResult.structuredContent as {
@@ -643,7 +643,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES, {
         queries: [
           {
-            keywordsToSearch: ['react'],
+            keywords: ['react'],
             stars: '100..500',
           },
         ],
@@ -674,7 +674,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES, {
         queries: [
           {
-            keywordsToSearch: ['react'],
+            keywords: ['react'],
             stars: '>=1000',
           },
         ],
@@ -698,7 +698,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
-          queries: [{ keywordsToSearch: ['test'] }],
+          queries: [{ keywords: ['test'] }],
         }
       );
 

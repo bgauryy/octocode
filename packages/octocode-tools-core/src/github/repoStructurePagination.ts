@@ -112,7 +112,7 @@ export function applyStructurePagination(
     repo: cachedResult.repo,
     branch: cachedResult.branch,
     path: basePath,
-    depth: params.depth ?? 1,
+    depth: params.maxDepth ?? 1,
     pageFiles,
     pageFolders,
     allFiles,

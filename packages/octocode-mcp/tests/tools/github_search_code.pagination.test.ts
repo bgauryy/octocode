@@ -116,7 +116,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          { keywordsToSearch: ['short'], owner: 'owner', repo: 'repo' },
+          { keywords: ['short'], owner: 'owner', repo: 'repo' },
         ],
       });
 
@@ -139,7 +139,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo' }],
+        queries: [{ keywords: ['x'], owner: 'owner', repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;
@@ -164,7 +164,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo' }],
+        queries: [{ keywords: ['x'], owner: 'owner', repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;
@@ -191,7 +191,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          { keywordsToSearch: ['x'], owner: 'owner', repo: 'repo', page: 2 },
+          { keywords: ['x'], owner: 'owner', repo: 'repo', page: 2 },
         ],
       });
 
@@ -220,7 +220,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo' }],
+        queries: [{ keywords: ['x'], owner: 'owner', repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;
@@ -252,7 +252,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['x'], owner: 'owner', repo: 'repo' }],
+        queries: [{ keywords: ['x'], owner: 'owner', repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;
@@ -284,8 +284,8 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          { keywordsToSearch: ['aQuery'], owner: 'owner', repo: 'repoA' },
-          { keywordsToSearch: ['bQuery'], owner: 'owner', repo: 'repoB' },
+          { keywords: ['aQuery'], owner: 'owner', repo: 'repoA' },
+          { keywords: ['bQuery'], owner: 'owner', repo: 'repoB' },
         ],
       });
 
@@ -321,13 +321,13 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
         queries: [
           {
             id: 'first',
-            keywordsToSearch: ['a'],
+            keywords: ['a'],
             owner: 'owner',
             repo: 'repo',
           },
           {
             id: 'second',
-            keywordsToSearch: ['b'],
+            keywords: ['b'],
             owner: 'owner',
             repo: 'repo',
           },
@@ -371,8 +371,8 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          { keywordsToSearch: ['good'], owner: 'owner', repo: 'repo' },
-          { keywordsToSearch: ['bad'], owner: 'other', repo: 'repo' },
+          { keywords: ['good'], owner: 'owner', repo: 'repo' },
+          { keywords: ['bad'], owner: 'other', repo: 'repo' },
         ],
       });
 
@@ -395,7 +395,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
         queries: [
-          { keywordsToSearch: ['nonExistent'], owner: 'owner', repo: 'repo' },
+          { keywords: ['nonExistent'], owner: 'owner', repo: 'repo' },
         ],
       });
 

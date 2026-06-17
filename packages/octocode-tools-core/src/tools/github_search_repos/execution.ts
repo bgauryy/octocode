@@ -200,7 +200,7 @@ function hasValidTopics(query: PartialReposSearchQuery): boolean {
 }
 
 function hasValidKeywords(query: PartialReposSearchQuery): boolean {
-  return Boolean(query.keywordsToSearch && query.keywordsToSearch.length > 0);
+  return Boolean(query.keywords && query.keywords.length > 0);
 }
 
 function hasValidRepositorySearchParams(
@@ -241,7 +241,7 @@ function createSearchVariants(
   const hasKeywords = hasValidKeywords(query);
 
   if (hasTopics && hasKeywords) {
-    const { topicsToSearch, keywordsToSearch, ...baseQuery } = query;
+    const { topicsToSearch, keywords, ...baseQuery } = query;
     return [
       {
         label: 'topics',
@@ -256,7 +256,7 @@ function createSearchVariants(
         query: {
           ...baseQuery,
           reasoning: createSearchReasoning(query.reasoning, 'keywords'),
-          keywordsToSearch,
+          keywords,
         },
       },
     ];
@@ -350,7 +350,7 @@ function scoreRepositoryRelevance(
 function getRepositorySearchTerms(
   query: PartialReposSearchQuery
 ): readonly string[] {
-  const keywords = query.keywordsToSearch ?? [];
+  const keywords = query.keywords ?? [];
   const topics = query.topicsToSearch ?? [];
   return [...keywords, ...topics]
     .map(term => term.trim().toLowerCase())
@@ -683,7 +683,7 @@ export async function searchMultipleGitHubRepos(
             hintContext: pageExceedsTotal
               ? {}
               : {
-                  keywords: query.keywordsToSearch,
+                  keywords: query.keywords,
                   owner: query.owner,
                   language: query.language,
                   topic: query.topicsToSearch?.[0],

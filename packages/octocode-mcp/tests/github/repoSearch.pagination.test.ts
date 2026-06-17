@@ -62,7 +62,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
       });
 
@@ -86,7 +86,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 3,
       });
@@ -113,7 +113,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 2,
       });
@@ -139,7 +139,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
@@ -176,7 +176,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 100,
         page: 1,
       });
@@ -213,7 +213,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
@@ -238,7 +238,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 5,
       });
@@ -266,7 +266,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 25,
         page: 1,
       });
@@ -290,13 +290,13 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 2,
       });
@@ -316,13 +316,13 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
@@ -342,7 +342,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
         mainResearchGoal: 'Goal 1',
@@ -351,7 +351,7 @@ describe('Repository Search - Pagination', () => {
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
         mainResearchGoal: 'Different Goal',
@@ -376,7 +376,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
@@ -401,7 +401,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['nonexistent-repo-xyz'],
+        keywords: ['nonexistent-repo-xyz'],
         limit: 10,
         page: 1,
       });
@@ -429,7 +429,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       const result = await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         page: 1,
       });
 
@@ -455,7 +455,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 150,
         page: 1,
       });
@@ -481,7 +481,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 2,
         sort: 'stars',
@@ -508,7 +508,7 @@ describe('Repository Search - Pagination', () => {
       );
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
         sort: 'best-match',

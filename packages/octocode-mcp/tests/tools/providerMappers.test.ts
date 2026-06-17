@@ -35,7 +35,7 @@ describe('providerMappers', () => {
   it('should map code search tool queries to provider queries', () => {
     expect(
       mapCodeSearchToolQuery({
-        keywordsToSearch: ['needle'],
+        keywords: ['needle'],
         owner: 'owner',
         repo: 'repo',
         path: 'src',
@@ -73,7 +73,7 @@ describe('providerMappers', () => {
         },
       },
       {
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
       }
     );
 
@@ -120,7 +120,7 @@ describe('providerMappers', () => {
           totalMatches: 2,
         },
       },
-      { keywordsToSearch: ['real'] }
+      { keywords: ['real'] }
     );
 
     const matches = result.results[0]!.matches;
@@ -160,7 +160,7 @@ describe('providerMappers', () => {
         },
       },
       {
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
       }
     );
 
@@ -201,7 +201,7 @@ describe('providerMappers', () => {
 
   it('should preserve owner in code search query when repo is absent', () => {
     const result = mapCodeSearchToolQuery({
-      keywordsToSearch: ['refund'],
+      keywords: ['refund'],
       owner: 'wix-private',
     });
 
@@ -221,7 +221,7 @@ describe('providerMappers', () => {
 
   it('should set both projectId and owner in code search when both are provided', () => {
     const result = mapCodeSearchToolQuery({
-      keywordsToSearch: ['test'],
+      keywords: ['test'],
       owner: 'facebook',
       repo: 'react',
     });

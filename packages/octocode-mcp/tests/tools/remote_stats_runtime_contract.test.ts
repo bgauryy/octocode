@@ -225,7 +225,7 @@ describe('remote tool stats runtime contract', () => {
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
-          keywordsToSearch: ['foo'],
+          keywords: ['foo'],
         },
       ],
     });
@@ -262,7 +262,7 @@ describe('remote tool stats runtime contract', () => {
           mainResearchGoal: 'stats telemetry',
           researchGoal: 'exercise ghSearchRepos stats',
           reasoning: 'prove runtime char savings emission',
-          keywordsToSearch: ['repo'],
+          keywords: ['repo'],
           owner: 'owner',
         },
       ],
@@ -276,7 +276,7 @@ describe('remote tool stats runtime contract', () => {
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',
-          keywordsToSearch: ['fix'],
+          keywords: ['fix'],
         },
       ],
     });

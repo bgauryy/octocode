@@ -187,7 +187,7 @@ describe('Example: Using Unified Test Helpers', () => {
 
       const result = await viewStructure({
         path: '/workspace',
-        depth: 1,
+        maxDepth: 1,
       });
 
       expect(result.status).toBeUndefined();

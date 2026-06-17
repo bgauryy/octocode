@@ -55,7 +55,7 @@ describe('Code Search - Pagination', () => {
       );
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
       });
 
@@ -79,7 +79,7 @@ describe('Code Search - Pagination', () => {
       );
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 3,
       });
@@ -106,7 +106,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 2,
       });
@@ -132,7 +132,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
@@ -169,7 +169,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 100,
         page: 1,
       });
@@ -206,7 +206,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
@@ -231,7 +231,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 5,
       });
@@ -259,7 +259,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 25,
         page: 1,
       });
@@ -283,13 +283,13 @@ describe('Code Search - Pagination', () => {
       );
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 2,
       });
@@ -309,13 +309,13 @@ describe('Code Search - Pagination', () => {
       );
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
@@ -337,7 +337,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
@@ -362,7 +362,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
         page: 1,
       });
@@ -390,7 +390,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         page: 1,
       });
 
@@ -416,7 +416,7 @@ describe('Code Search - Pagination', () => {
       );
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 150,
         page: 1,
       });
@@ -442,7 +442,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
       });
 
@@ -521,7 +521,7 @@ describe('Code Search - Pagination', () => {
       );
 
       const result = await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         limit: 10,
       });
 

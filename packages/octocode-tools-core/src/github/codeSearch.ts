@@ -38,7 +38,7 @@ export async function searchGitHubCodeAPI(
   const cacheKey = generateCacheKey(
     'gh-api-code',
     {
-      keywordsToSearch: params.keywordsToSearch,
+      keywords: params.keywords,
       owner: params.owner,
       repo: params.repo,
       extension: params.extension,
@@ -75,8 +75,8 @@ async function searchGitHubCodeAPIInternal(
   try {
     const octokit = await getOctokit(authInfo);
 
-    if (params.keywordsToSearch && params.keywordsToSearch.length > 0) {
-      const validTerms = params.keywordsToSearch.filter(
+    if (params.keywords && params.keywords.length > 0) {
+      const validTerms = params.keywords.filter(
         term => term && term.trim()
       );
       if (validTerms.length === 0) {

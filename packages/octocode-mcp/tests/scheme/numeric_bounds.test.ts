@@ -49,14 +49,14 @@ describe('LocalFindFilesQuerySchema.limit bound', () => {
 });
 
 describe('LocalViewStructureQuerySchema depth + limit bounds', () => {
-  it('clamps depth above LOCAL_OVERLAY_MAX_DEPTH to the max', () => {
+  it('clamps maxDepth above LOCAL_OVERLAY_MAX_DEPTH to the max', () => {
     const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
-      depth: LOCAL_OVERLAY_MAX_DEPTH + 1,
+      maxDepth: LOCAL_OVERLAY_MAX_DEPTH + 1,
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.depth).toBe(LOCAL_OVERLAY_MAX_DEPTH);
+      expect(result.data.maxDepth).toBe(LOCAL_OVERLAY_MAX_DEPTH);
     }
   });
 
@@ -71,21 +71,21 @@ describe('LocalViewStructureQuerySchema depth + limit bounds', () => {
     }
   });
 
-  it('clamps a negative depth up to the minimum', () => {
+  it('clamps a negative maxDepth up to the minimum', () => {
     const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
-      depth: -1,
+      maxDepth: -1,
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.depth).toBe(0);
+      expect(result.data.maxDepth).toBe(0);
     }
   });
 
-  it('accepts depth at the max bound', () => {
+  it('accepts maxDepth at the max bound', () => {
     const result = LocalViewStructureQuerySchema.safeParse({
       path: '.',
-      depth: LOCAL_OVERLAY_MAX_DEPTH,
+      maxDepth: LOCAL_OVERLAY_MAX_DEPTH,
     });
     expect(result.success).toBe(true);
   });

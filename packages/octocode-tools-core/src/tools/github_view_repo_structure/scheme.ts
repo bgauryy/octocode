@@ -14,7 +14,7 @@ import {
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 
 const queryOverrides = {
-  depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
+  maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE).optional(),
 } as const;

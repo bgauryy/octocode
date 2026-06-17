@@ -70,7 +70,7 @@ describe('GitHub API Caching', () => {
 
     it('should cache code search results and return cached on second call', async () => {
       const params = {
-        keywordsToSearch: ['useState'],
+        keywords: ['useState'],
         owner: 'facebook',
         repo: 'react',
         mainResearchGoal: 'Find hooks',
@@ -90,7 +90,7 @@ describe('GitHub API Caching', () => {
 
     it('should hit cache when only context params differ', async () => {
       const params1 = {
-        keywordsToSearch: ['useState'],
+        keywords: ['useState'],
         owner: 'facebook',
         repo: 'react',
         mainResearchGoal: 'Goal 1',
@@ -99,7 +99,7 @@ describe('GitHub API Caching', () => {
       };
 
       const params2 = {
-        keywordsToSearch: ['useState'],
+        keywords: ['useState'],
         owner: 'facebook',
         repo: 'react',
         mainResearchGoal: 'DIFFERENT GOAL',
@@ -115,7 +115,7 @@ describe('GitHub API Caching', () => {
 
     it('should miss cache when API params differ', async () => {
       const params1 = {
-        keywordsToSearch: ['useState'],
+        keywords: ['useState'],
         owner: 'facebook',
         repo: 'react',
         mainResearchGoal: 'Goal',
@@ -124,7 +124,7 @@ describe('GitHub API Caching', () => {
       };
 
       const params2 = {
-        keywordsToSearch: ['useEffect'],
+        keywords: ['useEffect'],
         owner: 'facebook',
         repo: 'react',
         mainResearchGoal: 'Goal',
@@ -171,7 +171,7 @@ describe('GitHub API Caching', () => {
 
     it('should cache repo search results and return cached on second call', async () => {
       const params = {
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         mainResearchGoal: 'Find repos',
         researchGoal: 'Find react',
         reasoning: 'Testing',
@@ -185,7 +185,7 @@ describe('GitHub API Caching', () => {
 
     it('should hit cache when only context params differ', async () => {
       const params1 = {
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         stars: '>1000',
         mainResearchGoal: 'Goal 1',
         researchGoal: 'Research 1',
@@ -193,7 +193,7 @@ describe('GitHub API Caching', () => {
       };
 
       const params2 = {
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         stars: '>1000',
         mainResearchGoal: 'DIFFERENT',
         researchGoal: 'DIFFERENT',
@@ -420,7 +420,7 @@ describe('GitHub API Caching', () => {
         repo: 'react',
         branch: 'main',
         path: 'src',
-        depth: 1,
+        maxDepth: 1,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
         reasoning: 'Testing',
@@ -438,7 +438,7 @@ describe('GitHub API Caching', () => {
         repo: 'react',
         branch: 'main',
         path: 'src',
-        depth: 1,
+        maxDepth: 1,
         itemsPerPage: 2,
         page: 1,
         mainResearchGoal: 'View structure',
@@ -451,7 +451,7 @@ describe('GitHub API Caching', () => {
         repo: 'react',
         branch: 'main',
         path: 'src',
-        depth: 1,
+        maxDepth: 1,
         itemsPerPage: 2,
         page: 2,
         mainResearchGoal: 'View structure',
@@ -471,7 +471,7 @@ describe('GitHub API Caching', () => {
         repo: 'react',
         branch: 'main',
         path: 'src',
-        depth: 1,
+        maxDepth: 1,
         itemsPerPage: 2,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
@@ -509,7 +509,7 @@ describe('GitHub API Caching', () => {
         repo: 'react',
         branch: 'main',
         path: 'src',
-        depth: 1,
+        maxDepth: 1,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
         reasoning: 'Testing',
@@ -520,7 +520,7 @@ describe('GitHub API Caching', () => {
         repo: 'react',
         branch: 'main',
         path: 'packages',
-        depth: 1,
+        maxDepth: 1,
         mainResearchGoal: 'View structure',
         researchGoal: 'Get files',
         reasoning: 'Testing',
@@ -543,7 +543,7 @@ describe('GitHub API Caching', () => {
       });
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'owner',
         repo: 'repo',
         mainResearchGoal: 'Goal',
@@ -552,7 +552,7 @@ describe('GitHub API Caching', () => {
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'owner',
         mainResearchGoal: 'Goal',
         researchGoal: 'Research',

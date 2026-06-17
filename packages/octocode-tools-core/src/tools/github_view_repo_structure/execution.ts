@@ -251,7 +251,7 @@ export async function exploreMultipleRepositoryStructures(
           );
         } else if (wasTruncated) {
           truncatedReasons.push(
-            `Tree truncated at depth=${query.depth ?? 'default'}; re-query with a deeper depth or a more specific path to see the rest.`
+            `Tree truncated at maxDepth=${query.maxDepth ?? 'default'}; re-query with a deeper maxDepth or a more specific path to see the rest.`
           );
         }
 
@@ -274,7 +274,7 @@ export async function exploreMultipleRepositoryStructures(
             hintContext: {
               entryCount,
               path: query.path,
-              depth: query.depth,
+              depth: query.maxDepth,
               branch: query.branch,
               flagFiles: Object.values(filteredStructure).flatMap(entry =>
                 entry.files.filter(f =>

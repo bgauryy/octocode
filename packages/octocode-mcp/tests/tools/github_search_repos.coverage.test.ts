@@ -121,7 +121,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'q_no_filter',
-        keywordsToSearch: ['anything'],
+        keywords: ['anything'],
         limit: 50,
       });
 
@@ -139,7 +139,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'q_default_limit',
-        keywordsToSearch: ['x'],
+        keywords: ['x'],
       });
 
       expect(result.isError).toBe(false);
@@ -150,7 +150,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'q_empty_results',
-        keywordsToSearch: ['nomatch'],
+        keywords: ['nomatch'],
       });
 
       expect(result.isError).toBe(false);
@@ -170,7 +170,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'sort_forks',
-        keywordsToSearch: ['x'],
+        keywords: ['x'],
         sort: 'forks',
       });
 
@@ -190,7 +190,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'sort_updated',
-        keywordsToSearch: ['x'],
+        keywords: ['x'],
         sort: 'updated',
       });
 
@@ -210,7 +210,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'sort_best_match',
-        keywordsToSearch: ['x'],
+        keywords: ['x'],
         sort: 'best-match',
       });
 
@@ -246,7 +246,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'relevance_language',
-        keywordsToSearch: ['whale'],
+        keywords: ['whale'],
         language: 'python',
       });
 
@@ -266,7 +266,7 @@ describe('GitHub Search Repositories Coverage', () => {
       const result = await call({
         id: 'empty_both',
         topicsToSearch: ['t1'],
-        keywordsToSearch: ['k1'],
+        keywords: ['k1'],
         stars: '>1000',
         created: '>2020-01-01',
         updated: '>2023-01-01',
@@ -297,7 +297,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'empty_keywords',
-        keywordsToSearch: ['k1'],
+        keywords: ['k1'],
       });
 
       const text = getTextContent(result.content);
@@ -319,7 +319,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'single_pagination',
-        keywordsToSearch: ['x'],
+        keywords: ['x'],
       });
 
       const text = getTextContent(result.content);
@@ -338,7 +338,7 @@ describe('GitHub Search Repositories Coverage', () => {
       const result = await call({
         id: 'topic_fail',
         topicsToSearch: ['t1'],
-        keywordsToSearch: ['k1'],
+        keywords: ['k1'],
       });
 
       const text = getTextContent(result.content);
@@ -365,7 +365,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'all_repo_filters',
-        keywordsToSearch: ['agent'],
+        keywords: ['agent'],
         forks: '>100',
         license: 'mit',
         goodFirstIssues: '>5',
@@ -429,7 +429,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'noisy_keywords',
-        keywordsToSearch: ['typescript'],
+        keywords: ['typescript'],
       });
 
       const text = getTextContent(result.content);
@@ -444,7 +444,7 @@ describe('GitHub Search Repositories Coverage', () => {
 
       const result = await call({
         id: 'owner_scoped',
-        keywordsToSearch: ['typescript'],
+        keywords: ['typescript'],
         owner: 'myorg',
       });
 
@@ -496,7 +496,7 @@ describe('GitHub Search Repositories Coverage', () => {
       );
       const result = await call({
         id: 'sort_stars_undef',
-        keywordsToSearch: ['x'],
+        keywords: ['x'],
         sort: 'stars',
       });
       const repos = result.structuredContent as {

@@ -82,7 +82,7 @@ describe('repo search — nonexistent owner degrades to empty + flag', () => {
 
     const result = await searchGitHubReposAPI({
       owner: 'zzz_nonexistent_org_xyz999',
-      keywordsToSearch: ['anything'],
+      keywords: ['anything'],
     });
 
     expect('error' in result).toBe(false);
@@ -99,7 +99,7 @@ describe('repo search — nonexistent owner degrades to empty + flag', () => {
     });
 
     const result = await searchGitHubReposAPI({
-      keywordsToSearch: ['zzz_no_such_repo_xyz'],
+      keywords: ['zzz_no_such_repo_xyz'],
     });
 
     expect('error' in result).toBe(false);

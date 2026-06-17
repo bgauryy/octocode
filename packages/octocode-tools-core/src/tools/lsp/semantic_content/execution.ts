@@ -95,8 +95,8 @@ export async function executeLspGetSemantics(
 ): Promise<CallToolResult> {
   return executeBulkOperation(
     args.queries || [],
-    async query =>
-      executeWithToolBoundary({
+    async query => {
+      return executeWithToolBoundary({
         toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
         query,
         contextMessage: 'lspGetSemantics execution failed',
@@ -104,7 +104,8 @@ export async function executeLspGetSemantics(
           const result = await getSemanticContent(query);
           return attachSemanticRawEvidence(formatSemanticResult(query, result));
         },
-      }),
+      });
+    },
     {
       toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
       peerHints: true,

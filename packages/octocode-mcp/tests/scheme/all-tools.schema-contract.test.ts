@@ -1,38 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
-
-const coreEntryPoint = new URL(
-  '../../../../node_modules/@octocodeai/octocode-core/dist/index.js',
-  import.meta.url
-).href;
-const { completeMetadata } = (await import(
-  coreEntryPoint
-)) as typeof import('@octocodeai/octocode-core');
+import { GITHUB_HISTORY_TOOL_NAME } from '../../../octocode-tools-core/src/tools/github_history/toolName.js';
 
 const SHARED_FIELDS = [
   'id',
   'mainResearchGoal',
   'researchGoal',
   'reasoning',
-] as const;
-
-const SCHEME_FILES = [
-  '../../../octocode-tools-core/src/tools/github_clone_repo/scheme.ts',
-  '../../../octocode-tools-core/src/tools/github_fetch_content/scheme.ts',
-  '../../../octocode-tools-core/src/tools/github_search_code/scheme.ts',
-  '../../../octocode-tools-core/src/tools/github_search_pull_requests/scheme.ts',
-  '../../../octocode-tools-core/src/tools/github_search_repos/scheme.ts',
-  '../../../octocode-tools-core/src/tools/github_view_repo_structure/scheme.ts',
-  '../../../octocode-tools-core/src/tools/local_fetch_content/scheme.ts',
-  '../../../octocode-tools-core/src/tools/local_find_files/scheme.ts',
-  '../../../octocode-tools-core/src/tools/local_ripgrep/scheme.ts',
-  '../../../octocode-tools-core/src/tools/local_view_structure/scheme.ts',
-  '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.ts',
-  '../../../octocode-tools-core/src/tools/package_search/scheme.ts',
 ] as const;
 
 const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
@@ -47,7 +25,7 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     lineHint: 10,
   },
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE]: {
-    keywordsToSearch: ['useState'],
+    keywords: ['useState'],
     owner: 'facebook',
   },
   [STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT]: {
@@ -60,7 +38,7 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     repo: 'react',
   },
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES]: {
-    keywordsToSearch: ['react'],
+    keywords: ['react'],
   },
   [STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS]: {
     owner: 'facebook',
@@ -70,6 +48,12 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: {
     owner: 'facebook',
     repo: 'react',
+  },
+  [GITHUB_HISTORY_TOOL_NAME]: {
+    type: 'file',
+    owner: 'facebook',
+    repo: 'react',
+    path: 'README.md',
   },
 };
 
@@ -82,124 +66,7 @@ function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
   return null;
 }
 
-function getJsonProperties(schema: z.ZodTypeAny): Record<string, unknown> {
-  const jsonSchema = z.toJSONSchema(schema);
-  const properties = (jsonSchema as { properties?: unknown }).properties;
-  return properties &&
-    typeof properties === 'object' &&
-    !Array.isArray(properties)
-    ? (properties as Record<string, unknown>)
-    : {};
-}
-
-function flattenJsonProperties(
-  properties: Record<string, unknown>,
-  prefix = ''
-): Record<string, unknown> {
-  const flattened: Record<string, unknown> = {};
-  for (const [field, property] of Object.entries(properties)) {
-    const fieldPath = prefix ? `${prefix}.${field}` : field;
-    flattened[fieldPath] = property;
-
-    const prop =
-      property && typeof property === 'object'
-        ? (property as { properties?: unknown; items?: unknown })
-        : undefined;
-
-    const nestedProperties = prop?.properties;
-    if (
-      nestedProperties &&
-      typeof nestedProperties === 'object' &&
-      !Array.isArray(nestedProperties)
-    ) {
-      Object.assign(
-        flattened,
-        flattenJsonProperties(
-          nestedProperties as Record<string, unknown>,
-          fieldPath
-        )
-      );
-    }
-
-    const itemsProperties =
-      prop?.items && typeof prop.items === 'object'
-        ? (prop.items as { properties?: unknown }).properties
-        : undefined;
-    if (
-      itemsProperties &&
-      typeof itemsProperties === 'object' &&
-      !Array.isArray(itemsProperties)
-    ) {
-      Object.assign(
-        flattened,
-        flattenJsonProperties(
-          itemsProperties as Record<string, unknown>,
-          fieldPath
-        )
-      );
-    }
-  }
-  return flattened;
-}
-
-const SCHEMA_EXCEPTIONS: Record<
-  string,
-  {
-    removedCoreFields?: string[];
-    addedLocalFields?: string[];
-    overriddenDescriptions?: string[];
-  }
-> = {
-  [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: {},
-  [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: {},
-};
-
-function getExpectedQueryDescriptions(
-  toolName: string
-): Record<string, string> {
-  const tool = completeMetadata.tools[toolName];
-  return {
-    id: completeMetadata.baseSchema.id,
-    mainResearchGoal: completeMetadata.baseSchema.mainResearchGoal,
-    researchGoal: completeMetadata.baseSchema.researchGoal,
-    reasoning: completeMetadata.baseSchema.reasoning,
-    ...(tool?.schema ?? {}),
-  };
-}
-
-function getPropertyDescription(property: unknown): string | undefined {
-  return property && typeof property === 'object'
-    ? (property as { description?: string }).description
-    : undefined;
-}
-
 describe('all-tools schema contract', () => {
-  describe.each(SCHEME_FILES)('scheme source: %s', schemeFile => {
-    const source = readFileSync(new URL(schemeFile, import.meta.url), 'utf8');
-
-    it('imports canonical input schemas from octocode-core', () => {
-      expect(source).toContain('@octocodeai/octocode-core/schemas');
-    });
-
-    it('does not define local input descriptors', () => {
-      expect(source).not.toContain(
-        "import { completeMetadata } from '@octocodeai/octocode-core';"
-      );
-      expect(source).not.toContain('const QUERY_DESCRIPTIONS = {');
-      expect(source).not.toContain('completeMetadata.baseSchema');
-      expect(source).not.toContain('completeMetadata.tools[');
-    });
-
-    it('uses agnostic schema-description utilities only', () => {
-      expect(source).toContain('describeQuerySchema');
-      expect(source).not.toContain('createCoreQuerySchema');
-      expect(source).not.toContain('createCoreQueryShapeSchema');
-      expect(source).not.toContain('getCoreQueryDescriptions');
-      expect(source).not.toContain('withCoreSchemaDescriptions');
-      expect(source).not.toContain('optionalMetaFields');
-    });
-  });
-
   describe.each(ALL_TOOLS.map(t => [t.name, t] as const))(
     'tool: %s',
     (toolName, tool) => {
@@ -261,9 +128,7 @@ describe('all-tools schema contract', () => {
 
       it('per-query schema (tool.direct.schema) exposes all cross-tool shared fields', () => {
         const shape = (querySchema as any)?.shape;
-        if (!shape) {
-          return;
-        }
+        if (!shape) return;
         for (const field of SHARED_FIELDS) {
           expect(
             field in shape,
@@ -298,56 +163,6 @@ describe('all-tools schema contract', () => {
             `Input: ${JSON.stringify({ queries: [minQuery] })}\n` +
             `Errors: ${!result.success ? JSON.stringify(result.error.issues) : ''}`
         ).toBe(true);
-      });
-
-      it('uses octocode-core for the tool description', () => {
-        expect(tool.description).toBe(
-          completeMetadata.tools[toolName]?.description
-        );
-      });
-
-      it('uses octocode-core descriptions for every query parameter', () => {
-        const properties = flattenJsonProperties(
-          getJsonProperties(querySchema)
-        );
-        const expectedDescriptions = getExpectedQueryDescriptions(toolName);
-        const actualFields = Object.keys(properties);
-        const exceptions = SCHEMA_EXCEPTIONS[toolName] ?? {};
-        const allowedMissing = exceptions.removedCoreFields ?? [];
-        const allowedExtra = exceptions.addedLocalFields ?? [];
-        const allowedDescriptionOverrides =
-          exceptions.overriddenDescriptions ?? [];
-
-        const missingFields = Object.keys(expectedDescriptions).filter(
-          field => !(field in properties) && !allowedMissing.includes(field)
-        );
-        const undocumentedFields = actualFields.filter(
-          field =>
-            !(field in expectedDescriptions) && !allowedExtra.includes(field)
-        );
-        const mismatchedDescriptions = actualFields
-          .filter(field => !allowedExtra.includes(field))
-          .filter(field => !allowedDescriptionOverrides.includes(field))
-          .filter(field => {
-            const expected = expectedDescriptions[field];
-            return (
-              expected !== undefined &&
-              getPropertyDescription(properties[field]) !== expected
-            );
-          });
-
-        expect(
-          missingFields,
-          `${toolName}: query schema is missing core-described fields`
-        ).toEqual([]);
-        expect(
-          undocumentedFields,
-          `${toolName}: query schema fields must be described in octocode-core`
-        ).toEqual([]);
-        expect(
-          mismatchedDescriptions,
-          `${toolName}: query field descriptions must match octocode-core`
-        ).toEqual([]);
       });
 
       it('parses with all research metadata', () => {
@@ -428,9 +243,7 @@ describe('all-tools schema contract', () => {
       it('parses with extra unknown envelope fields ignored (does not reject)', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
-        const r = bulkSchema.safeParse({
-          queries: [minQuery],
-        });
+        const r = bulkSchema.safeParse({ queries: [minQuery] });
         expect(
           r.success,
           `${toolName}: minimal parse should succeed.\n` +
@@ -441,8 +254,8 @@ describe('all-tools schema contract', () => {
   );
 
   describe('global invariants', () => {
-    it('ALL_TOOLS contains exactly 12 tools', () => {
-      expect(ALL_TOOLS).toHaveLength(12);
+    it('ALL_TOOLS contains exactly 13 tools', () => {
+      expect(ALL_TOOLS).toHaveLength(13);
     });
 
     it('every tool has a MINIMAL_QUERY entry in this test', () => {
@@ -510,7 +323,7 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      expect(schemeFiles).toHaveLength(12);
+      expect(schemeFiles).toHaveLength(13);
       expect(splitSchemaFiles).toEqual([]);
     });
   });

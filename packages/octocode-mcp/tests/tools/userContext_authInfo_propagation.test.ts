@@ -115,7 +115,7 @@ describe('Provider Integration - ALL TOOLS', () => {
       registerGitHubSearchCodeTool(mockServer.server);
 
       await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [{ keywordsToSearch: ['test'] }],
+        queries: [{ keywords: ['test'] }],
       });
 
       expect(mockGetProvider).toHaveBeenCalled();
@@ -148,7 +148,7 @@ describe('Provider Integration - ALL TOOLS', () => {
       registerSearchGitHubReposTool(mockServer.server);
 
       await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES, {
-        queries: [{ keywordsToSearch: ['test'] }],
+        queries: [{ keywords: ['test'] }],
       });
 
       expect(mockGetProvider).toHaveBeenCalled();

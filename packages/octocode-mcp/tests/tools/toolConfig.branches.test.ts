@@ -83,7 +83,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         expect(typeof config.fn).toBe('function');
       }
 
-      expect(ALL_TOOLS).toHaveLength(12);
+      expect(ALL_TOOLS).toHaveLength(13);
     });
 
     it('should have correct tool types assigned', async () => {
@@ -104,6 +104,9 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
       expect(GITHUB_VIEW_REPO_STRUCTURE.type).toBe('content');
 
       expect(GITHUB_SEARCH_PULL_REQUESTS.type).toBe('history');
+
+      const { GITHUB_HISTORY } = await import('../../src/tools/toolConfig.js');
+      expect(GITHUB_HISTORY.type).toBe('history');
     });
 
     it('should mark all tools as default', async () => {

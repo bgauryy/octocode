@@ -84,7 +84,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
         id: 'split_topics_keywords',
         reasoning: 'Test query with both search types',
         topicsToSearch: ['computer-vision', 'deep-learning'],
-        keywordsToSearch: ['whale', 'detection'],
+        keywords: ['whale', 'detection'],
         limit: 10,
         sort: 'stars',
       };
@@ -121,7 +121,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
       const originalQuery: GitHubReposSearchQuery = {
         id: 'keywords_only',
         reasoning: 'Test query with only keywords',
-        keywordsToSearch: ['whale', 'detection'],
+        keywords: ['whale', 'detection'],
         limit: 10,
       };
 
@@ -173,7 +173,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
               id: 'dedup_merged_result',
               reasoning: 'Test dedup',
               topicsToSearch: ['computer-vision'],
-              keywordsToSearch: ['whale'],
+              keywords: ['whale'],
               limit: 10,
             },
           ],
@@ -266,7 +266,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
             {
               id: 'merged_success',
               topicsToSearch: ['topic'],
-              keywordsToSearch: ['keyword'],
+              keywords: ['keyword'],
             },
           ],
         }
@@ -353,7 +353,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
             {
               id: 'ranked_merge',
               topicsToSearch: ['topic'],
-              keywordsToSearch: ['keyword'],
+              keywords: ['keyword'],
             },
           ],
         }
@@ -413,7 +413,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
               id: 'partial_failure_query',
               reasoning: 'Test partial failure',
               topicsToSearch: ['topic1'],
-              keywordsToSearch: ['keyword1'],
+              keywords: ['keyword1'],
               limit: 10,
             },
           ],
@@ -458,7 +458,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
             {
               id: 'all_failures',
               topicsToSearch: ['topic1'],
-              keywordsToSearch: ['keyword1'],
+              keywords: ['keyword1'],
             },
           ],
         }
@@ -482,7 +482,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
             id: 'filter_preservation_query',
             reasoning: 'Test filter preservation',
             topicsToSearch: ['topic1'],
-            keywordsToSearch: ['keyword1'],
+            keywords: ['keyword1'],
             stars: '>1000',
             sort: 'stars',
             limit: 5,

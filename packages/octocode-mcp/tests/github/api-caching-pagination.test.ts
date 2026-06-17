@@ -67,7 +67,7 @@ describe('GitHub API Caching - Pagination', () => {
   describe('Code Search pagination caching', () => {
     it('should cache page 1 and page 2 separately', async () => {
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -75,7 +75,7 @@ describe('GitHub API Caching - Pagination', () => {
       });
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -91,7 +91,7 @@ describe('GitHub API Caching - Pagination', () => {
 
     it('should return cached result when same page is requested again', async () => {
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -101,7 +101,7 @@ describe('GitHub API Caching - Pagination', () => {
       const statsBefore = getCacheStats();
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -118,13 +118,13 @@ describe('GitHub API Caching - Pagination', () => {
   describe('Repository Search pagination caching', () => {
     it('should cache page 1 and page 2 separately', async () => {
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 2,
       });
@@ -143,7 +143,7 @@ describe('GitHub API Caching - Pagination', () => {
 
     it('should cache same page with different context fields', async () => {
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
         mainResearchGoal: 'Find repos',
@@ -152,7 +152,7 @@ describe('GitHub API Caching - Pagination', () => {
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         limit: 10,
         page: 1,
         mainResearchGoal: 'Different goal',
@@ -230,7 +230,7 @@ describe('GitHub API Caching - Pagination', () => {
   describe('Cache isolation with pagination', () => {
     it('should not share cache between different searches even with same page', async () => {
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -238,7 +238,7 @@ describe('GitHub API Caching - Pagination', () => {
       });
 
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['vue'],
+        keywords: ['vue'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -250,7 +250,7 @@ describe('GitHub API Caching - Pagination', () => {
 
     it('should not share cache between code and repo search', async () => {
       await searchGitHubCodeAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         repo: 'react',
         limit: 10,
@@ -258,7 +258,7 @@ describe('GitHub API Caching - Pagination', () => {
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         owner: 'facebook',
         limit: 10,
         page: 1,
@@ -274,7 +274,7 @@ describe('GitHub API Caching - Pagination', () => {
       const initialStats = getCacheStats();
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         page: 1,
       });
 
@@ -283,7 +283,7 @@ describe('GitHub API Caching - Pagination', () => {
       expect(afterFirstCall.sets).toBe(initialStats.sets + 1);
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         page: 1,
       });
 
@@ -300,7 +300,7 @@ describe('GitHub API Caching - Pagination', () => {
 
       try {
         await searchGitHubReposAPI({
-          keywordsToSearch: ['react'],
+          keywords: ['react'],
           page: 1,
         });
       } catch {
@@ -317,7 +317,7 @@ describe('GitHub API Caching - Pagination', () => {
       });
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['react'],
+        keywords: ['react'],
         page: 1,
       });
 

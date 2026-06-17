@@ -51,7 +51,7 @@ describe('Repo Search - Sorting', () => {
     });
 
     const result = await searchGitHubReposAPI({
-      keywordsToSearch: ['test'],
+      keywords: ['test'],
       sort: 'stars',
     });
 
@@ -78,7 +78,7 @@ describe('Repo Search - Sorting', () => {
         rest: { search: { repos: searchReposMock } },
       } as unknown as Awaited<ReturnType<typeof getOctokit>>);
 
-      await searchGitHubReposAPI({ keywordsToSearch: ['test'], sort });
+      await searchGitHubReposAPI({ keywords: ['test'], sort });
 
       expect(searchReposMock).toHaveBeenCalledWith(
         expect.objectContaining({ sort: expected })
@@ -98,7 +98,7 @@ describe('Repo Search - Sorting', () => {
       } as unknown as Awaited<ReturnType<typeof getOctokit>>);
 
       await searchGitHubReposAPI({
-        keywordsToSearch: ['test'],
+        keywords: ['test'],
         sort: sort as 'created',
       });
 

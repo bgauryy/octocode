@@ -83,7 +83,7 @@ describe('code search — nonexistent scope degrades to empty + flag', () => {
     );
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['useSyncExternalStore'],
+      keywords: ['useSyncExternalStore'],
       owner: 'nope',
       repo: 'does-not-exist',
     });
@@ -103,7 +103,7 @@ describe('code search — nonexistent scope degrades to empty + flag', () => {
     });
 
     const result = await searchGitHubCodeAPI({
-      keywordsToSearch: ['zzz_no_such_symbol_xyz'],
+      keywords: ['zzz_no_such_symbol_xyz'],
       owner: 'facebook',
       repo: 'react',
     });

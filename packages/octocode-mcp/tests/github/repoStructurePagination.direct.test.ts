@@ -14,7 +14,7 @@ function makeQuery(
     owner: 'octo',
     repo: 'repo',
     path: '',
-    depth: 1,
+    maxDepth: 1,
     itemsPerPage: 50,
     page: 1,
     ...overrides,

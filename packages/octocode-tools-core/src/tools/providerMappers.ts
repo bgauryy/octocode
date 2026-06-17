@@ -102,7 +102,7 @@ export function mapCodeSearchToolQuery(
   query: WithOptionalMeta<GitHubCodeSearchQuery>
 ) {
   return {
-    keywords: query.keywordsToSearch ?? [],
+    keywords: query.keywords ?? [],
     projectId: toProviderProjectId(query.owner, query.repo),
     owner: query.owner,
     path: query.path,
@@ -285,7 +285,7 @@ export function mapRepoSearchToolQuery(
 ) {
   const extra = query as Record<string, unknown>;
   return {
-    keywords: query.keywordsToSearch,
+    keywords: query.keywords,
     topics: query.topicsToSearch,
     owner: query.owner,
     stars: query.stars,
@@ -672,7 +672,7 @@ export function mapRepoStructureToolQuery(
     projectId: `${query.owner}/${query.repo}`,
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
-    depth: typeof query.depth === 'number' ? query.depth : undefined,
+    depth: typeof query.maxDepth === 'number' ? query.maxDepth : undefined,
     itemsPerPage:
       (query as { itemsPerPage?: number }).itemsPerPage ??
       GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
