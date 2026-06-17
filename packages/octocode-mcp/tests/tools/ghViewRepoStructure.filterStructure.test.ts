@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { filterStructure } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/execution.js';
+import { hints as repoStructureHints } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/hints.js';
 
 describe('filterStructure — orphan top-level dir entries', () => {
   it('removes .github as a top-level key', () => {
@@ -120,5 +121,25 @@ describe('filterStructure — orphan top-level dir entries', () => {
     expect(Object.keys(result)).not.toContain('packages/.git');
     // The parent should not list '.git' in folders
     expect(result['packages']?.folders).not.toContain('.git');
+  });
+});
+
+describe('ghViewRepoStructure hints.empty', () => {
+  it('emits filter-specific hint when wasFilteredToEmpty is true', () => {
+    const result = repoStructureHints.empty(
+      { wasFilteredToEmpty: true, path: 'packages' } as unknown as Parameters<typeof repoStructureHints.empty>[0]
+    );
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.some(h => h.includes('filtered'))).toBe(true);
+  });
+
+  it('emits parent-path hint for valid path without wasFilteredToEmpty', () => {
+    const result = repoStructureHints.empty({ path: 'unknown-path' });
+    expect(result.some(h => h.includes('parent'))).toBe(true);
+  });
+
+  it('returns empty array when no path and wasFilteredToEmpty is false', () => {
+    const result = repoStructureHints.empty({});
+    expect(result).toEqual([]);
   });
 });

@@ -124,7 +124,7 @@ export async function searchMultipleGitHubCode(
               ? query.keywords[0]
               : '<keyword>';
           successHints.push(
-            `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — read with ghGetFileContent(path, matchString="${firstKeyword}") to land on the matched lines (matchIndices are char offsets inside snippet values, not line numbers).`
+            `Found matches in ${fileCount} file${fileCount === 1 ? '' : 's'} — matchIndices[].lineOffset is the 0-based line within the snippet; use ghGetFileContent(path, matchString="${firstKeyword}") to land on the matched region (returns lineHint for lspGetSemantics).`
           );
         }
         if (flat.pagination) {

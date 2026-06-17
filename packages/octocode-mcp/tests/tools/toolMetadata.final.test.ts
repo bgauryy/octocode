@@ -7,7 +7,7 @@ const emptyCompleteMetadata = {
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
     GITHUB_SEARCH_CODE: 'ghSearchCode',
     GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
-    GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+    GITHUB_SEARCH_PULL_REQUESTS: 'ghHistoryResearch',
     GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
     PACKAGE_SEARCH: 'npmSearch',
     LOCAL_RIPGREP: 'localSearchCode',

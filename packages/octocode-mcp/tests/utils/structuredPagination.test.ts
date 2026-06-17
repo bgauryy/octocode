@@ -496,7 +496,7 @@ describe('tool-owned structured pagination', () => {
     expect(data.outputPagination).toBeUndefined();
   });
 
-  it('paginates ghSearchPRs through the pull_requests branch', () => {
+  it('paginates ghHistoryResearch through the pull_requests branch', () => {
     const pullRequests = Array.from({ length: 25 }, (_, index) => ({
       number: index + 1,
       title: `Pull request ${index} ${'x'.repeat(80)}`,

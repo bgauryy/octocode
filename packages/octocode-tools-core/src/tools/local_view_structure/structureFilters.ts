@@ -152,7 +152,7 @@ export function toGroupedLists(entries: DirectoryEntry[]): {
   for (const entry of entries) {
     if (entry.type === 'directory') folders.push(entry.name);
     else if (entry.type === 'symlink') links.push(entry.name);
-    else files.push(entry.name);
+    else files.push(entry.size ? `${entry.name} (${entry.size})` : entry.name);
   }
   return {
     ...(files.length > 0 && { files }),

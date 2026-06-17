@@ -31,7 +31,7 @@ const registeredTools = [
     rawEvidence: [/rawResponse:\s*sumVariantRawResponseChars\(/],
   },
   {
-    name: 'ghSearchPRs',
+    name: 'ghHistoryResearch',
     executionFiles: ['src/tools/github_search_pull_requests/execution.ts'],
     rawEvidence: [/rawResponse:\s*providerResult\.response\.rawResponseChars/],
   },
@@ -94,11 +94,6 @@ const registeredTools = [
       /attachRawResponseChars\(result,\s*countSerializedChars\(result\)\)/,
     ],
   },
-  {
-    name: 'ghHistory',
-    executionFiles: ['src/tools/github_history/execution.ts'],
-    rawEvidence: [/rawResponse:\s*result\.rawResponseChars/],
-  },
 ] as const;
 
 async function readProjectFile(relativePath: string): Promise<string> {
@@ -119,7 +114,7 @@ describe('tool stats emission contract', () => {
     const catalogNames = ALL_TOOLS.map(tool => tool.name).sort();
     const coveredNames = registeredTools.map(tool => tool.name).sort();
 
-    expect(catalogNames).toHaveLength(13);
+    expect(catalogNames).toHaveLength(12);
     expect(coveredNames).toEqual(catalogNames);
   });
 

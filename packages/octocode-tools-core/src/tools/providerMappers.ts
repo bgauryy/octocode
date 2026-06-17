@@ -124,7 +124,7 @@ export interface CodeSearchGroupedMatch {
 
   pathOnly?: boolean;
 
-  matchIndices?: Array<{ start: number; end: number }>;
+  matchIndices?: Array<{ start: number; end: number; lineOffset: number }>;
 
   url?: string;
 }
@@ -242,6 +242,7 @@ export function mapCodeSearchProviderResult(
         match.matchIndices = m.positions.map(([start, end]) => ({
           start,
           end,
+          lineOffset: (m.context ?? '').substring(0, start).split('\n').length - 1,
         }));
       }
       if (verbose && firstMatchForItem && itemExtra.url) {
@@ -617,6 +618,9 @@ export function mapFileContentProviderResult(
   return {
     path: data.path,
     content: data.content,
+    ...(typeof data.size === 'number' && data.size > 0 && {
+      fileSize: data.size,
+    }),
     ...(typeof data.totalLines === 'number' && {
       totalLines: data.totalLines,
     }),
@@ -680,6 +684,7 @@ export function mapRepoStructureToolQuery(
       const page = (query as { page?: number }).page;
       return typeof page === 'number' ? page : undefined;
     })(),
+    includeSizes: (query as { includeSizes?: boolean }).includeSizes,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
@@ -708,8 +713,25 @@ export function mapRepoStructureProviderResult(
       folders: entry.folders,
     }));
 
+  const fileSizeMap = (data as { fileSizeMap?: Record<string, Record<string, number>> })
+    .fileSizeMap;
+  const fileSizes: Record<string, number> = {};
+  if (fileSizeMap) {
+    for (const [dirPath, dirFiles] of Object.entries(fileSizeMap)) {
+      if (filteredStructure[dirPath]) {
+        const allowedFiles = new Set(filteredStructure[dirPath]!.files);
+        for (const [fileName, size] of Object.entries(dirFiles)) {
+          if (allowedFiles.has(fileName)) {
+            fileSizes[fileName] = size;
+          }
+        }
+      }
+    }
+  }
+
   const resultData: Record<string, unknown> = {
     structure: structureArray,
+    ...(Object.keys(fileSizes).length > 0 && { fileSizes }),
     summary: {
       totalFiles: data.summary.totalFiles,
       totalFolders: data.summary.totalFolders,

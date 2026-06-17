@@ -37,7 +37,7 @@ describe('TOOL_NAMES proxy (TDD for local tools registration)', () => {
       expect(TOOL_NAMES.GITHUB_SEARCH_CODE).toBe('ghSearchCode');
       expect(TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES).toBe('ghSearchRepos');
       expect(TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE).toBe('ghViewRepoStructure');
-      expect(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS).toBe('ghSearchPRs');
+      expect(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS).toBe('ghHistoryResearch');
       expect(TOOL_NAMES.PACKAGE_SEARCH).toBe('npmSearch');
     });
 
@@ -103,8 +103,8 @@ describe('isLocalTool', () => {
       expect(isLocalTool('ghSearchRepos')).toBe(false);
     });
 
-    it('should return false for ghSearchPRs', () => {
-      expect(isLocalTool('ghSearchPRs')).toBe(false);
+    it('should return false for ghHistoryResearch', () => {
+      expect(isLocalTool('ghHistoryResearch')).toBe(false);
     });
   });
 

@@ -16,6 +16,12 @@ export const hints: ToolHintGenerators = {
     if (semanticType === 'documentSymbols') {
       return ['Verify uri with localFindFiles/localSearchCode, then retry.'];
     }
+    if (semanticType === 'references') {
+      return [
+        'references is bounded to the current package (open TS server files) — cross-package calls will not appear.',
+        'Use type="callers" for cross-package incoming calls.',
+      ];
+    }
 
     return [
       'Re-anchor with localSearchCode to get uri+symbolName+lineHint; use documentSymbols if the symbol is ambiguous.',
@@ -78,6 +84,10 @@ export function semanticHints(
     definition: ['Re-anchor with localSearchCode and retry.'],
     hover: ['Try type="definition" instead.'],
     typeDefinition: ['Try type="hover" for the inferred type.'],
+    references: [
+      'references is bounded to the current package (open TS server files) — cross-package calls will not appear.',
+      'Use type="callers" for cross-package incoming calls.',
+    ],
     callers: [
       'callHierarchyProvider unsupported by this language server (e.g. Python, C++). Use type="references" for same-package usages instead.',
       'Use localSearchCode for dynamic references.',

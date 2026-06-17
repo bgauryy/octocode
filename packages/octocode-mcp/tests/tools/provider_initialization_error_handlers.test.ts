@@ -80,7 +80,7 @@ describe('provider initialization errors across provider-backed tools', () => {
     );
   });
 
-  it('returns an error result for ghSearchPRs', async () => {
+  it('returns an error result for ghHistoryResearch', async () => {
     const result = await mockServer.callTool(
       TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
       {

@@ -14,7 +14,7 @@ const hoist = vi.hoisted(() => {
     toolNames: {
       GITHUB_FETCH_CONTENT: 'ghGetFileContent',
       GITHUB_SEARCH_CODE: 'ghSearchCode',
-      GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+      GITHUB_SEARCH_PULL_REQUESTS: 'ghHistoryResearch',
       GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
       GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
       LOCAL_RIPGREP: 'localSearchCode',

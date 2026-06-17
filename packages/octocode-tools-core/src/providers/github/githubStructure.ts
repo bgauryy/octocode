@@ -33,6 +33,8 @@ export function transformRepoStructureResult(
     }),
     path: data.path || '/',
     structure: data.structure || {},
+    ...(data.fileSizeMap !== undefined && { fileSizeMap: data.fileSizeMap }),
+    // _cachedFileSizeMap is an internal field — never leak it to consumers
     summary: {
       totalFiles: data.summary?.totalFiles || 0,
       totalFolders: data.summary?.totalFolders || 0,
@@ -69,10 +71,11 @@ export async function getRepoStructure(
     maxDepth: query.depth,
     itemsPerPage: query.itemsPerPage,
     page: query.page,
+    includeSizes: query.includeSizes,
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
-  } as GitHubViewRepoStructureQuery;
+  } as GitHubViewRepoStructureQuery & { includeSizes?: boolean };
 
   const result = await viewGitHubRepositoryStructureAPI(githubQuery, authInfo);
 

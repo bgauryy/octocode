@@ -699,4 +699,44 @@ describe('GitHub View Repository Structure Tool', () => {
 
     expect(result.isError).toBe(false);
   });
+
+  it('includes fileSizes field when includeSizes=true and fileSizeMap is returned', async () => {
+    mockProvider.getRepoStructure.mockResolvedValue({
+      data: {
+        projectPath: 'owner/sized',
+        branch: 'main',
+        path: '',
+        structure: {
+          '.': {
+            files: ['README.md', 'package.json'],
+            folders: ['src'],
+          },
+        },
+        fileSizeMap: {
+          '.': {
+            'README.md': 2048,
+            'package.json': 1024,
+          },
+        },
+        summary: { totalFiles: 2, totalFolders: 1, truncated: false },
+      },
+      status: 200,
+      provider: 'github',
+    });
+
+    const result = await mockServer.callTool(
+      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+      {
+        queries: [{ owner: 'owner', repo: 'sized', includeSizes: true }],
+      }
+    );
+
+    expect(result.isError).toBe(false);
+    const structured = result.structuredContent as { results?: Array<{ data?: Record<string, unknown> }> };
+    const data = structured.results?.[0]?.data ?? {};
+    expect(data).toHaveProperty('fileSizes');
+    const fileSizes = data.fileSizes as Record<string, number>;
+    expect(fileSizes['README.md']).toBe(2048);
+    expect(fileSizes['package.json']).toBe(1024);
+  });
 });

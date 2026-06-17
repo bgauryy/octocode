@@ -746,6 +746,45 @@ describe('new public LSP tool execution', () => {
       expect.arrayContaining([expect.stringContaining('localSearchCode')])
     );
   });
+
+  it('sets isAmbiguous when symbol occurs multiple times and lineHint is far from resolved position', async () => {
+    // Write a larger fixture where 'target' is at line 0 and line 9.
+    // lineHint: 5 => resolver picks nearest occurrence; |foundAtLine - 5| > 3 for whichever is found.
+    const largerFixture = join(tempDir, 'ambiguous.ts');
+    await writeFile(
+      largerFixture,
+      [
+        'export function target() {', // line 0
+        '  return 1;',               // line 1
+        '}',                         // line 2
+        '// padding line a',         // line 3
+        '// padding line b',         // line 4
+        '// padding line c',         // line 5
+        '// padding line d',         // line 6
+        '// padding line e',         // line 7
+        '// padding line f',         // line 8
+        'export function reuse() { return target(); }', // line 9
+      ].join('\n')
+    );
+    // lineHint: 5 is far from both line 0 (|0-5|=5>3) and line 9 (|9-5|=4>3).
+    // The resolver finds nearest occurrence (line 0 or line 9), lineDeviation >3.
+    const result = await executeLspGetSemantics({
+      queries: [
+        { uri: largerFixture, type: 'definition', symbolName: 'target', lineHint: 5 },
+      ],
+    } as never);
+    const text = textOf(result);
+    expect(text).toContain('isAmbiguous: true');
+  });
+
+  it('does NOT set isAmbiguous when symbol is unique or lineHint is close', async () => {
+    // 'target' at line 0, lineHint: 1 => lineDeviation = 1 ≤ 3 => isAmbiguous omitted
+    const result = await executeLspGetSemantics({
+      queries: [anchored('definition')],
+    } as never);
+    const text = textOf(result);
+    expect(text).not.toContain('isAmbiguous: true');
+  });
 });
 
 function anchored(type: string, extra: Record<string, unknown> = {}) {

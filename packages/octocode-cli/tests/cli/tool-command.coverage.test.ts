@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
       ghSearchCode: {
         name: 'ghSearchCode',
         description: 'Search code.',
-        schema: { keywordsToSearch: 'terms', owner: 'owner' },
+        schema: { keywords: 'terms', owner: 'owner' },
         hints: { hasResults: [], empty: [] },
       },
       localSearchCode: {
@@ -277,7 +277,7 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('mainResearchGoal');
     expect(output).toContain('ghSearchCode');
-    expect(output).toContain('keywordsToSearch');
+    expect(output).toContain('keywords');
   });
 
   it('showToolHelp: local tool does NOT show mainResearchGoal hint', async () => {
@@ -672,7 +672,7 @@ describe('tool-command coverage', () => {
       packageFields.map(field => [field.name, field])
     );
 
-    expect(githubByName['keywordsToSearch']?.type).toBe('array<string>');
+    expect(githubByName['keywords']?.type).toBe('array<string>');
     expect(packageByName['packageName']?.type).toBe('string');
     expect(packageByName['page']?.type).toBe('integer');
     expect(githubByName['id']).toBeUndefined();
@@ -706,7 +706,7 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('keywordsToSearch');
+    expect(output).toContain('keywords');
     expect(output).toContain('page (integer)');
     expect(output).toContain('sort');
   });
@@ -769,7 +769,7 @@ describe('tool-command coverage', () => {
           mainResearchGoal: 'my main goal',
           researchGoal: 'my goal',
           reasoning: 'my reasoning',
-          keywordsToSearch: ['test'],
+          keywords: ['test'],
         }),
       ],
       options: {},

@@ -41,19 +41,6 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'no-color',
 ]);
 
-const CANONICAL_TOOL_USAGE = [
-  'octocode tools                                   # list all tools',
-  'octocode tools <name>                            # show input schema',
-  'octocode tools <name> --scheme                   # show input/output schema explicitly',
-  'octocode tools <n1> <n2> ...                     # batch input schemas',
-  "octocode tools <name> --queries '<json>'         # run a tool",
-  "octocode tools <name> --queries '<json>' --json  # run, raw JSON output",
-  'octocode context                                 # agent protocol + MCP system prompt + compact tool schemas',
-  'octocode context --full                          # same, plus full JSON schemas',
-  'octocode --context                               # same as octocode context',
-  'octocode --context --full                        # same as octocode context --full',
-].join('\n');
-
 export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
 let toolMetadataPromise: Promise<
   Awaited<ReturnType<typeof loadToolContent>>
@@ -150,7 +137,10 @@ export function formatRequiredFields(toolName: string): string {
 
   const tool = findToolDefinition(toolName);
   if (!tool) return '';
-  const fields = getDirectToolDisplayFields(tool.name);
+  // Top-level fields only — filter out nested dotted paths (e.g. content.patches.ranges.file)
+  const fields = getDirectToolDisplayFields(tool.name).filter(
+    f => !f.name.includes('.')
+  );
   const required = fields.filter(f => f.required).map(f => `${f.name}*`);
   const optional = fields.filter(f => !f.required);
   if (required.length > 0) {
@@ -259,76 +249,19 @@ export async function showAvailableTools(): Promise<void> {
 
   console.log();
   console.log(
-    `  ${c('magenta', bold('Octocode Tools'))}  ${dim('(* = required field)')}`
-  );
-  console.log();
-  console.log(
-    `  ${c('red', bold('REQUIRED BEFORE CALLING ANY RAW MCP TOOL:'))} read its schema first`
-  );
-  console.log();
-  console.log(`  ${bold('AGENT CONTEXT')}`);
-  console.log(
-    `    ${c('yellow', 'octocode context')}                                 ${dim('# protocol + system prompt + compact tool schemas')}`
+    `  ${c('red', bold('SCHEMA REQUIRED — never call a tool without reading its schema:'))}`
   );
   console.log(
-    `    ${c('yellow', 'octocode context --full')}                          ${dim('# all tool descriptions + full JSON schemas')}`
-  );
-  console.log();
-  console.log(`  ${bold('RAW TOOL CALLS')}`);
-  console.log(
-    `    ${c('yellow', 'octocode tools')}                                   ${dim('# list all raw MCP tools')}`
+    `    ${c('yellow', 'octocode tools <name>')}                            ${dim('# required fields, types, example call')}`
   );
   console.log(
-    `    ${c('yellow', 'octocode tools <name>')}                            ${dim('# show input schema/help for one tool')}`
+    `    ${c('yellow', 'octocode tools <name> --scheme')}                   ${dim('# schema only, never runs')}`
   );
   console.log(
-    `    ${c('yellow', 'octocode tools <name> --scheme')}                   ${dim('# show input/output schema, never runs')}`
+    `    ${c('yellow', 'octocode tools <n1> <n2> ...')}                     ${dim('# batch schema reads')}`
   );
   console.log(
-    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}         ${dim('# run one tool')}`
-  );
-  console.log(
-    `    ${c('yellow', "octocode tools <name> --queries '<json>' --json")}  ${dim('# run with raw JSON envelope')}`
-  );
-  console.log(
-    `    ${c('yellow', 'octocode tools <n1> <n2> ...')}                     ${dim('# batch-read schemas')}`
-  );
-  console.log();
-  console.log(
-    `  ${bold('TIP')}  ${dim('For common research use smart commands — no schema needed:')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode get')}    ${dim('<path | owner/repo/file>')}    ${dim('fetch + minify  [--mode none|standard|symbols]')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode tree')}   ${dim('<path | owner/repo>')}         ${dim('directory tree  [--depth N]')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode files')}  ${dim('<query> [path|repo]')}         ${dim('file discovery [--search path|content|both]')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode search')} ${dim('<pattern> <path|repo>')}       ${dim('code search     [--type, --limit]')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode pr')}     ${dim('<owner/repo[#N] | URL>')}      ${dim('PR info         [--patches, --deep]')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode repo')}   ${dim('<keywords...>')}               ${dim('repo discovery  [--topic, --language, --stars]')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode pkg')}    ${dim('<package>')}                   ${dim('npm metadata + source repo')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode symbols')} ${dim('<file|path>')}                 ${dim('semantic outline before LSP')}`
-  );
-  console.log(
-    `    ${c('cyan', 'octocode lsp')}    ${dim('<file> --type <type>')}        ${dim('semantic nav after symbol+line')}`
-  );
-  console.log(
-    `    ${dim('Full command scheme:')} ${c('yellow', 'octocode <command> --help')}`
-  );
-  console.log(
-    `    ${dim('Research loop:')} ${c('cyan', 'tree/repo/pkg/pr')} ${dim('→')} ${c('cyan', 'files/search')} ${dim('→')} ${c('cyan', 'get')} ${dim('→')} ${c('cyan', 'symbols/lsp or PR content')}`
+    `    ${c('yellow', 'octocode context --full')}                          ${dim('# full protocol + all schemas inline')}`
   );
   console.log();
 
@@ -344,21 +277,20 @@ export async function showAvailableTools(): Promise<void> {
       continue;
     }
 
-    console.log();
     console.log(`  ${bold(category)}`);
     for (const toolName of toolsInCategory) {
       const shortDesc = truncateDescription(
         extractShortDescription(getDirectToolDescription(toolName, metadata)),
-        68
+        60
       );
       const fields = formatRequiredFields(toolName);
       const namePadded = toolName.padEnd(26);
-      const fieldsPadded = fields.padEnd(28);
+      const fieldsPadded = fields.padEnd(32);
       console.log(
         `    ${c('cyan', namePadded)} ${dim(fieldsPadded)} ${dim(shortDesc)}`
       );
       if (toolName === LSP_TOOL_NAME) {
-        const indent = ''.padEnd(26 + 4);
+        const indent = ''.padEnd(30);
         console.log(
           `    ${dim(indent)} ${dim('type: definition|references|callers|callees|callHierarchy')}`
         );
@@ -367,8 +299,25 @@ export async function showAvailableTools(): Promise<void> {
         );
       }
     }
+    console.log();
   }
 
+  console.log(
+    `  ${bold('TO CALL')}  octocode tools <name> --queries '<json>'  ${dim('# YAML (default)')}`
+  );
+  console.log(
+    `           octocode tools <name> --queries '<json>' --json  ${dim('# raw envelope')}`
+  );
+  console.log(
+    `           octocode tools <name> --queries '<json>' --compact  ${dim('# leanest')}`
+  );
+  console.log();
+  console.log(
+    `  ${dim('Smart commands (no schema): octocode get/tree/files/search/pr/repo/pkg/symbols/lsp')}`
+  );
+  console.log(
+    `  ${dim('Full protocol: octocode context  |  All commands: octocode --help')}`
+  );
   console.log();
 }
 
@@ -537,13 +486,8 @@ export async function getToolsContextString(
     'Octocode CLI — Agent Context',
     [
       full
-        ? 'This is the full agent target: CLI protocol, MCP system prompt, tool descriptions, and full JSON schemas.'
-        : 'This is the compact agent target: CLI protocol, MCP system prompt, tool descriptions, and schema summaries.',
-      'Tool runtime: `octocode tools` runs the same Octocode MCP tool implementations under the hood.',
-      full
-        ? 'Use `octocode context` for the shorter version.'
-        : 'Use `octocode context --full` when you need every JSON schema inline.',
-      'Shortcut: `octocode --context` prints this same agent target.',
+        ? 'Full agent context: protocol, system prompt, all tool descriptions, full JSON schemas.'
+        : 'Compact agent context: protocol, system prompt, tool descriptions, schema summaries. Use --full for exact JSON schemas.',
       'Follow this protocol:',
       '',
       '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY RAW TOOL CALL ***',
@@ -583,11 +527,7 @@ export async function getToolsContextString(
       '',
       '  Exit codes: 0=ok  2=bad-input  3=not-found  4=auth  5=tool-error  7=rate-limited',
       '',
-      '  Tool list: `octocode tools`   All commands: `octocode --help`',
     ].join('\n'),
-    '',
-    'CLI Usage:',
-    CANONICAL_TOOL_USAGE,
     '',
     'Agent System Prompt (Octocode MCP Instructions):',
     metadata.instructions.trim(),

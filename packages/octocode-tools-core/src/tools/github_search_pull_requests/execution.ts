@@ -39,6 +39,8 @@ import {
   buildContentHints,
   shapePullRequestForContent,
 } from './contentResponse.js';
+import { fetchHistory } from '../../github/history.js';
+import { isGitHubAPIError } from '../../github/githubAPI.js';
 
 export async function searchMultipleGitHubPullRequests(
   args: ToolExecutionArgs<GitHubPullRequestSearchInput>
@@ -58,6 +60,128 @@ export async function searchMultipleGitHubPullRequests(
             .join('; ');
           return createErrorResult(`Validation error: ${messages}`, query);
         }
+
+        // --- commits mode: route to commit history API ---
+        if ((validation.data as { type?: string }).type === 'commits') {
+          const q = validation.data as {
+            type?: string;
+            owner?: string;
+            repo?: string;
+            path?: string;
+            branch?: string;
+            author?: string;
+            since?: string;
+            until?: string;
+            page?: number;
+            perPage?: number;
+            includeDiff?: boolean;
+            charLength?: number;
+          };
+
+          if (!q.owner || !q.repo) {
+            return createErrorResult(
+              'owner and repo are required for commits mode.',
+              query
+            );
+          }
+
+          const path = q.path;
+          // A path ending in '/' is a directory prefix → repo mode; a specific file path → file mode
+          const historyType =
+            path && !path.endsWith('/') ? 'file' : 'repo';
+
+          if (historyType === 'file' && !path) {
+            return createErrorResult(
+              'path is required when querying a specific file in commits mode.',
+              query
+            );
+          }
+
+          const result = await fetchHistory(
+            {
+              type: historyType,
+              owner: q.owner,
+              repo: q.repo,
+              path,
+              branch: q.branch,
+              since: q.since,
+              until: q.until,
+              author: q.author,
+              page: Number(q.page) || 1,
+              perPage: Number(q.perPage) || 30,
+              includeDiff: Boolean(q.includeDiff),
+              charLength:
+                typeof q.charLength === 'number' ? q.charLength : undefined,
+            },
+            authInfo
+          );
+
+          if (isGitHubAPIError(result)) {
+            const isRateLimited =
+              result.status === 429 ||
+              result.error?.toString().toLowerCase().includes('rate limit') ||
+              false;
+            return createErrorResult(result, query, {
+              toolName: TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+              hintContext: {
+                type: 'commits',
+                path,
+                isRateLimited,
+                status: result.status,
+                retryAfter: result.retryAfter,
+              },
+              hintSourceError: result,
+            });
+          }
+
+          const { commits, pagination } = result.data;
+          const hasContent = commits.length > 0;
+          const extraHints: string[] = [];
+
+          if (pagination.hasMore && pagination.nextPage) {
+            extraHints.push(
+              `${commits.length} commit${commits.length === 1 ? '' : 's'} returned — re-call with page:${pagination.nextPage} for more.`
+            );
+          }
+
+          const PR_REF_RE = /#(\d+)/;
+          if (hasContent) {
+            const mergeCommit = commits.find(c => {
+              const headline = (c as unknown as Record<string, unknown>)
+                .messageHeadline;
+              return typeof headline === 'string' && PR_REF_RE.test(headline);
+            });
+            if (mergeCommit) {
+              const headline = (
+                mergeCommit as unknown as Record<string, unknown>
+              ).messageHeadline as string;
+              const prMatch = PR_REF_RE.exec(headline);
+              if (prMatch) {
+                extraHints.push(
+                  `Merge commits embed PR refs — e.g. "${headline}" → use ghHistoryResearch(owner:"${q.owner}", repo:"${q.repo}", prNumber:${prMatch[1]}) to read that PR's body, diffs, comments, and reviews.`
+                );
+              }
+            }
+          }
+
+          return createSuccessResult(
+            query,
+            result.data as unknown as Record<string, unknown>,
+            hasContent,
+            TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+            {
+              hintContext: {
+                type: 'commits',
+                path,
+                matchCount: commits.length,
+                hasMorePages: pagination.hasMore,
+              },
+              extraHints,
+              rawResponse: result.rawResponseChars,
+            }
+          );
+        }
+        // --- end commits mode ---
 
         const currentProviderContext = getProviderContext();
         const effectiveQuery: PartialPRQuery = { ...validation.data };
@@ -87,35 +211,16 @@ export async function searchMultipleGitHubPullRequests(
           !effectiveQuery.created &&
           (effectiveQuery.state === 'merged' ||
             (effectiveQuery as { merged?: boolean }).merged === true);
-        if (
-          looksLikeArchaeology &&
-          !effectiveQuery.sort &&
-          !effectiveQuery.order
-        ) {
+        if (looksLikeArchaeology && !effectiveQuery.sort && !effectiveQuery.order) {
           downgradeHints.push(
-            'Archaeology tip: to find the PR that *introduced* a feature, add sort:"created" order:"asc" — this surfaces the oldest merged PRs first. ' +
-              'Also: scope with match:["title"] to restrict keyword matching to the title field only, and use a double-quoted phrase in `query` (e.g. query:\'"Partial Prerendering"\') for exact-phrase matching.'
+            'To find the PR that first introduced a feature: sort:"created" order:"asc". Use match:["title"] for title-only and query:\'"exact phrase"\' for phrase matching.'
           );
-        } else if (
-          hasTextQuery &&
-          !effectiveQuery.created &&
-          !effectiveQuery.sort &&
-          !effectiveQuery.order
-        ) {
+        } else if (hasTextQuery && !effectiveQuery.created && !effectiveQuery.sort && !effectiveQuery.order) {
           downgradeHints.push(
-            'Archaeology tip: add state:"merged" sort:"created" order:"asc" to find the PR that first introduced a feature. ' +
-              'Use match:["title"] to restrict to title-only, and quote multi-word phrases in `query` (e.g. query:\'"Server Actions"\').'
+            'Archaeology tip: add state:"merged" sort:"created" order:"asc" to find the oldest matching merged PR. Use match:["title"] for title-only matching.'
           );
         }
 
-        // GitHub PR search API only supports state=open or state=closed.
-        // state=merged is not a valid API parameter — silently remap it.
-        if ((effectiveQuery as { state?: string }).state === 'merged') {
-          (effectiveQuery as { state?: string }).state = 'closed';
-          downgradeHints.unshift(
-            'state="merged" is not supported by the GitHub PR search API — remapped to state="closed" (merged PRs have state=closed and a non-null mergedAt).'
-          );
-        }
 
         const hasValidParams =
           effectiveQuery.keywordsToSearch?.length ||

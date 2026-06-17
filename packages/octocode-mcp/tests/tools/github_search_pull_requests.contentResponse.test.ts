@@ -87,7 +87,7 @@ const pr = {
   ],
 };
 
-describe('ghSearchPRs content response shaping', () => {
+describe('ghHistoryResearch content response shaping', () => {
   it('returns previews for lean metadata — no content map when no surfaces requested', () => {
     const shaped = shapePullRequestForContent(pr, query, baseRequest);
     expect(shaped.body).toBeUndefined();

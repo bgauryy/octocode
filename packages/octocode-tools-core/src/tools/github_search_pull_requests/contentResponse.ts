@@ -11,6 +11,7 @@ type QueryLike = {
   commitPage?: number;
   itemsPerPage?: number;
   charOffset?: number;
+  commentBodyOffset?: number;
   charLength?: number;
   matchString?: string;
 };
@@ -50,7 +51,7 @@ type ContentPaginationEntry = Record<string, unknown> & {
 
 type ContentPagination = Partial<
   Record<
-    'body' | 'changedFiles' | 'comments' | 'commits' | 'patches' | 'filePaths',
+    'body' | 'changedFiles' | 'comments' | 'commentBody' | 'commits' | 'patches' | 'filePaths',
     ContentPaginationEntry
   >
 >;
@@ -263,7 +264,7 @@ function shapeComments(
     comments: items.map(comment => {
       const body = paginateText(
         typeof comment.body === 'string' ? comment.body : '',
-        0,
+        query.commentBodyOffset ?? 0,
         query.charLength ?? 12_000
       );
       return {
@@ -502,6 +503,19 @@ function firstPatchPagination(
   return undefined;
 }
 
+function firstCommentBodyPagination(
+  shaped: Record<string, unknown>
+): TextPagination | undefined {
+  const comments = shaped.comments;
+  if (!Array.isArray(comments)) return undefined;
+  for (const comment of comments) {
+    if (!isRecord(comment)) continue;
+    const pagination = readTextPagination(comment.bodyPagination);
+    if (pagination?.hasMore) return pagination;
+  }
+  return undefined;
+}
+
 function buildContentPagination(
   shaped: Record<string, unknown>,
   query: QueryLike,
@@ -514,6 +528,7 @@ function buildContentPagination(
   const commentPagination = readPagination(shaped.commentPagination);
   const commitPagination = readPagination(shaped.commitPagination);
   const patchPagination = firstPatchPagination(shaped);
+  const commentBodyPagination = firstCommentBodyPagination(shaped);
   const fileContent = buildFileContentRequest(request);
 
   if (bodyPagination) {
@@ -551,6 +566,18 @@ function buildContentPagination(
         'commentPage',
         commentPagination
       ),
+    };
+  }
+
+  if (commentBodyPagination?.hasMore && commentBodyPagination.nextCharOffset !== undefined && request.comments) {
+    contentPagination.commentBody = {
+      ...commentBodyPagination,
+      nextQuery: continuationQuery(query, prNumber, {
+        content: { comments: request.comments },
+        ...(query.commentPage !== undefined ? { commentPage: query.commentPage } : {}),
+        commentBodyOffset: commentBodyPagination.nextCharOffset,
+        charLength: query.charLength,
+      }),
     };
   }
 
@@ -715,28 +742,25 @@ export function buildContentHints(
   const first = pullRequests[0];
   if (!first) return [];
   const hints: string[] = [
-    'Use next.target + a content key to fetch body, changedFiles, patches, comments, or commits.',
+    'PR response includes a `next` map — re-call with next.target + one content key (e.g. next.getBody, next.getAllPatches, next.getComments) to fetch a surface.',
   ];
   const contentPagination = isRecord(first.contentPagination)
     ? first.contentPagination
     : {};
-  const continuationHints: Record<string, string> = {
-    body: 'body charOffset',
-    changedFiles: 'changedFiles filePage',
-    comments: 'comments commentPage',
-    commits: 'commits commitPage',
-    patches: 'patches charOffset',
-    filePaths: 'file paths filePage',
+  const continuationHints: Record<string, { label: string; field: string }> = {
+    body: { label: 'body charOffset', field: 'charOffset' },
+    changedFiles: { label: 'changedFiles filePage', field: 'filePage' },
+    comments: { label: 'comments commentPage', field: 'commentPage' },
+    commentBody: { label: 'comment body commentBodyOffset', field: 'commentBodyOffset' },
+    commits: { label: 'commits commitPage', field: 'commitPage' },
+    patches: { label: 'patches charOffset', field: 'charOffset' },
+    filePaths: { label: 'file paths filePage', field: 'filePage' },
   };
-  for (const [surface, label] of Object.entries(continuationHints)) {
+  for (const [surface, { label, field }] of Object.entries(continuationHints)) {
     const entry = contentPagination[surface];
     if (!isRecord(entry) || entry.hasMore !== true) continue;
     const nextQuery = isRecord(entry.nextQuery) ? entry.nextQuery : {};
-    const nextValue =
-      nextQuery.filePage ??
-      nextQuery.commentPage ??
-      nextQuery.commitPage ??
-      nextQuery.charOffset;
+    const nextValue = nextQuery[field];
     if (typeof nextValue === 'number') {
       hints.push(`More PR ${label}=${nextValue}.`);
     }

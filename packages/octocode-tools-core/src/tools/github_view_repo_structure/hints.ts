@@ -3,6 +3,11 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
+    if (c.wasFilteredToEmpty === true) {
+      return [
+        'All entries were filtered by the ignored-paths list (node_modules, .git, dist, etc.). Path is valid — navigate to a specific subdirectory.',
+      ];
+    }
     const path = typeof c.path === 'string' && c.path ? c.path : undefined;
     if (!path) return [];
     return ['Try the parent path, or omit `path` to list from root.'];

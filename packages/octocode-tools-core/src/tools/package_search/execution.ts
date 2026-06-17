@@ -58,15 +58,30 @@ function parseGitHubRepo(url: string | null | undefined): {
   return {};
 }
 
-function formatPackageLine(pkg: PackageResult): string {
-  const parts = [getPackageName(pkg)];
+type PackageData = {
+  name: string;
+  version?: string;
+  description?: string;
+  license?: string;
+  weeklyDownloads?: number;
+  repository?: string;
+  repositoryDirectory?: string;
+};
+
+function formatPackageData(pkg: PackageResult): PackageData {
+  const name = getPackageName(pkg);
   const url = getPackageRepo(pkg);
-  if (url) parts.push(url);
-  const root = cleanRelativePath(
-    isNpm(pkg) ? pkg.repositoryDirectory : undefined
-  );
-  if (root) parts.push(root);
-  return parts.join(' ');
+  const data: PackageData = { name };
+  if (isNpm(pkg)) {
+    if (pkg.version && pkg.version !== 'unknown') data.version = pkg.version;
+    if (pkg.description) data.description = pkg.description;
+    if (pkg.license) data.license = pkg.license;
+    if (typeof pkg.weeklyDownloads === 'number') data.weeklyDownloads = pkg.weeklyDownloads;
+  }
+  if (url) data.repository = url;
+  const root = cleanRelativePath(isNpm(pkg) ? pkg.repositoryDirectory : undefined);
+  if (root) data.repositoryDirectory = root;
+  return data;
 }
 
 function exactHints(pkg: PackageResult, dep: DeprecationInfo | null): string[] {
@@ -191,7 +206,7 @@ export async function searchPackages(
         }
 
         const raw = apiResult.packages as PackageResult[];
-        const packages = raw.map(formatPackageLine);
+        const packages = raw.map(formatPackageData);
         const hasContent = packages.length > 0;
 
         const isKeyword = raw.length > 1 || apiResult.totalFound > 1;

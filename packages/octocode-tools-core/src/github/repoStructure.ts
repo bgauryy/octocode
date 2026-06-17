@@ -32,7 +32,9 @@ import type { Octokit } from 'octokit';
 
 const TOOL_NAME = TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE;
 
-type GitHubStructureFetchQuery = GitHubViewRepoStructureQuery;
+type GitHubStructureFetchQuery = GitHubViewRepoStructureQuery & {
+  includeSizes?: boolean;
+};
 
 interface ContentResolution {
   data: unknown;
@@ -180,6 +182,26 @@ function buildStructureTree(
   return sortedStructure;
 }
 
+function buildFileSizeMap(
+  items: GitHubApiFileItem[],
+  basePath: string
+): Record<string, Record<string, number>> {
+  const sizeMap: Record<string, Record<string, number>> = Object.create(null);
+  for (const item of items) {
+    if (item.type !== 'file' || item.size === undefined) continue;
+    let relativePath = item.path;
+    if (basePath && item.path.startsWith(basePath)) {
+      relativePath = item.path.slice(basePath.length).replace(/^\//, '');
+    }
+    const lastSlash = relativePath.lastIndexOf('/');
+    const dirKey = lastSlash === -1 ? '.' : relativePath.slice(0, lastSlash);
+    const fileName = lastSlash === -1 ? relativePath : relativePath.slice(lastSlash + 1);
+    if (!sizeMap[dirKey]) sizeMap[dirKey] = Object.create(null);
+    sizeMap[dirKey]![fileName] = item.size;
+  }
+  return sizeMap;
+}
+
 export async function viewGitHubRepositoryStructureAPI(
   params: GitHubViewRepoStructureQuery,
   authInfo?: AuthInfo,
@@ -291,6 +313,15 @@ async function viewGitHubRepositoryStructureAPIInternal(
 
     const sortedStructure = buildStructureTree(paginatedItems, cleanPath);
 
+    const cachedFileSizeMap: Record<string, Record<string, number>> | undefined =
+      params.includeSizes === true
+        ? buildFileSizeMap(filteredItems, cleanPath)
+        : undefined;
+    const fileSizeMap: Record<string, Record<string, number>> | undefined =
+      cachedFileSizeMap !== undefined
+        ? buildFileSizeMap(paginatedItems, cleanPath)
+        : undefined;
+
     const pageFiles = paginatedItems.filter(i => i.type === 'file').length;
     const pageFolders = paginatedItems.filter(i => i.type === 'dir').length;
     const allFiles = filteredItems.filter(i => i.type === 'file').length;
@@ -334,6 +365,10 @@ async function viewGitHubRepositoryStructureAPIInternal(
         originalCount: filteredItems.length,
       },
       structure: sortedStructure,
+      ...(fileSizeMap !== undefined && { fileSizeMap }),
+      ...(cachedFileSizeMap !== undefined && {
+        _cachedFileSizeMap: cachedFileSizeMap,
+      }),
       pagination: paginationInfo,
       hints,
       rawResponseChars,

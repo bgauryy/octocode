@@ -14,9 +14,6 @@ import { hints as ghCloneRepoHints } from '../tools/github_clone_repo/hints.js';
 import { hints as npmSearchHints } from '../tools/package_search/hints.js';
 import { hints as semanticContentHints } from '../tools/lsp/semantic_content/hints.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../tools/lsp/shared/semanticTypes.js';
-import { hints as ghHistoryHints } from '../tools/github_history/hints.js';
-import { GITHUB_HISTORY_TOOL_NAME } from '../tools/github_history/toolName.js';
-
 export const HINTS: Record<string, ToolHintGenerators> = {
   [STATIC_TOOL_NAMES.LOCAL_RIPGREP]: localRipgrepHints,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: localFetchContentHints,
@@ -30,7 +27,6 @@ export const HINTS: Record<string, ToolHintGenerators> = {
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: ghCloneRepoHints,
   [STATIC_TOOL_NAMES.PACKAGE_SEARCH]: npmSearchHints,
   [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: semanticContentHints,
-  [GITHUB_HISTORY_TOOL_NAME]: ghHistoryHints,
 };
 
 type DynamicToolName = keyof typeof HINTS;

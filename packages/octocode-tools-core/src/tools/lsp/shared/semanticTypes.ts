@@ -56,6 +56,7 @@ export type ResolvedSymbol = {
   foundAtLine: number;
   orderHint?: number;
   position: ExactPosition;
+  isAmbiguous?: boolean;
 };
 
 export type CompactResolvedSymbol = {
@@ -63,6 +64,7 @@ export type CompactResolvedSymbol = {
   uri: string;
   foundAtLine: number;
   orderHint?: number;
+  isAmbiguous?: boolean;
 };
 
 export function compactResolvedSymbol(
@@ -73,6 +75,7 @@ export function compactResolvedSymbol(
     uri: symbol.uri,
     foundAtLine: symbol.foundAtLine,
     ...(symbol.orderHint !== undefined && { orderHint: symbol.orderHint }),
+    ...(symbol.isAmbiguous === true && { isAmbiguous: true }),
   };
 }
 

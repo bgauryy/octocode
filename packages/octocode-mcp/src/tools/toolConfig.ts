@@ -13,7 +13,6 @@ import {
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
   DEFAULT_TOOL_METADATA_GATEWAY,
   getDescription,
-  GITHUB_HISTORY_TOOL_NAME,
 } from '@octocodeai/octocode-tools-core';
 
 import { registerGitHubSearchCodeTool } from './github_search_code/github_search_code.js';
@@ -21,7 +20,6 @@ import { registerFetchGitHubFileContentTool } from './github_fetch_content/githu
 import { registerViewGitHubRepoStructureTool } from './github_view_repo_structure/github_view_repo_structure.js';
 import { registerSearchGitHubReposTool } from './github_search_repos/github_search_repos.js';
 import { registerSearchGitHubPullRequestsTool } from './github_search_pull_requests/github_search_pull_requests.js';
-import { registerGitHubHistoryTool } from './github_history/github_history.js';
 import { registerNpmSearchTool } from './package_search/package_search.js';
 import { registerGitHubCloneRepoTool } from './github_clone_repo/github_clone_repo.js';
 import { registerLocalRipgrepTool } from './local_ripgrep/register.js';
@@ -60,7 +58,6 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
   [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: registerLspGetSemanticsTool,
-  [GITHUB_HISTORY_TOOL_NAME]: registerGitHubHistoryTool,
 };
 
 export const ALL_TOOLS: McpToolConfig[] = CORE_ALL_TOOLS.map(tool => {
@@ -106,7 +103,4 @@ export const LOCAL_FETCH_CONTENT = ALL_TOOLS.find(
 )!;
 export const LSP_GET_SEMANTIC_CONTENT = ALL_TOOLS.find(
   t => t.name === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
-)!;
-export const GITHUB_HISTORY = ALL_TOOLS.find(
-  t => t.name === GITHUB_HISTORY_TOOL_NAME
 )!;

@@ -20,7 +20,7 @@ export const hints: ToolHintGenerators = {
       return [
         hasFilters
           ? 'Remove path/filename/extension first, then retry keywords.'
-          : `No results in ${owner}/${repo} — repo may be unindexed (new/private/recently renamed repos lag). Fall back to ghGetFileContent with a known path, or ghViewRepoStructure to discover paths.`,
+          : `No results in ${owner}/${repo} — large or popular repos often require narrowing: add extension, filename, or path to reduce scope. Repo may also be unindexed (new/private/recently renamed). Fall back to ghGetFileContent with a known path, or ghViewRepoStructure to discover paths.`,
         'GitHub code search indexes the default branch only.',
       ];
     }
@@ -40,7 +40,7 @@ export const hints: ToolHintGenerators = {
 
     if (out.length === 0 && keywords && keywords.length > 0) {
       out.push(
-        'Scope to owner/repo, split into one-keyword queries, or try a shorter exact term.'
+        'Scope to owner/repo, split into one-keyword queries, or try a shorter exact term. For large repos (react, webpack, electron), narrow with extension="ts" or path="src".'
       );
     }
 

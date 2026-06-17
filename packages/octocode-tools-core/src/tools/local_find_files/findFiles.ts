@@ -335,19 +335,15 @@ function sortLocalFindFilesEntrys(
 function formatForOutput(
   files: LocalFindFilesEntry[],
   details: boolean,
-  showLastModified: boolean
+  _showLastModified: boolean
 ): LocalFindFilesEntry[] {
   return files.map(f => {
     const result: LocalFindFilesEntry = { path: f.path, type: f.type };
-    if (details) {
-      if (f.size !== undefined) {
-        result.sizeFormatted = formatFileSize(f.size);
-      }
-      if (f.permissions) result.permissions = f.permissions;
+    if (f.size !== undefined && f.type !== 'directory') {
+      result.sizeFormatted = formatFileSize(f.size);
     }
-    if (showLastModified && f.modified) {
-      result.modified = f.modified;
-    }
+    if (details && f.permissions) result.permissions = f.permissions;
+    if (f.modified) result.modified = f.modified;
     return result;
   });
 }

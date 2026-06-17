@@ -255,6 +255,8 @@ export interface RepoStructureResult {
 
   structure: Record<string, DirectoryEntry>;
 
+  fileSizeMap?: Record<string, Record<string, number>>;
+
   summary: {
     totalFiles: number;
     totalFolders: number;

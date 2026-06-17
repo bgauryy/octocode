@@ -200,4 +200,6 @@ export interface RepoStructureQuery extends BaseProviderQuery {
   itemsPerPage?: number;
 
   page?: number;
+
+  includeSizes?: boolean;
 }

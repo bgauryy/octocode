@@ -101,7 +101,7 @@ function createLargePRProviderResponse(prCount: number, contentSize: number) {
   };
 }
 
-describe('ghSearchPRs output size limits', () => {
+describe('ghHistoryResearch output size limits', () => {
   let mockServer: MockMcpServer;
   let mockProvider: {
     searchCode: ReturnType<typeof vi.fn>;

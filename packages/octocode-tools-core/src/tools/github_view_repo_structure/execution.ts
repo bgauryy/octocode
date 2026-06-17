@@ -187,10 +187,13 @@ export async function exploreMultipleRepositoryStructures(
           return normalizeStructureErrorResult(providerResult.result, query);
         }
 
+        const originalHasContent =
+          Object.keys(providerResult.response.data.structure ?? {}).length > 0;
         const filteredStructure = filterStructure(
           providerResult.response.data.structure
         );
         const hasContent = Object.keys(filteredStructure).length > 0;
+        const wasFilteredToEmpty = originalHasContent && !hasContent;
         const wasTruncated = Boolean(
           providerResult.response.data.summary?.truncated
         );
@@ -276,6 +279,7 @@ export async function exploreMultipleRepositoryStructures(
               path: query.path,
               depth: query.maxDepth,
               branch: query.branch,
+              wasFilteredToEmpty,
               flagFiles: Object.values(filteredStructure).flatMap(entry =>
                 entry.files.filter(f =>
                   /(Mode|Config|Flag|Feature)\.[A-Za-z0-9]+$/.test(f)

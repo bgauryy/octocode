@@ -121,6 +121,7 @@ export async function executeGrepFallbackSearch(
             fixedString: query.fixedString,
             caseSensitive: query.caseSensitive,
             mode: query.mode,
+            searchEngine: 'grep',
           } as Record<string, unknown>),
           'Try with ripgrep for better results when bundled ripgrep is repaired.',
         ],

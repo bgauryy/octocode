@@ -34,7 +34,8 @@ export interface HintContext {
   path?: string;
   hasOwnerRepo?: boolean;
   match?: 'file' | 'path';
-  searchEngine?: 'rg';
+  searchEngine?: 'rg' | 'grep';
+  wasFilteredToEmpty?: boolean;
 
   hasConfigFiles?: boolean;
 
@@ -80,6 +81,7 @@ export interface HintContext {
   topic?: string;
 
   prMatch?: string[];
+  type?: string;
 }
 
 type HintGenerator = (context: HintContext) => (string | undefined)[];

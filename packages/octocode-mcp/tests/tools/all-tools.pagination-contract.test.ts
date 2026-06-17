@@ -12,7 +12,7 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   ghGetFileContent: ['startLine', 'endLine'],
   ghViewRepoStructure: ['page'],
   ghSearchRepos: ['page'],
-  ghSearchPRs: ['page'],
+  ghHistoryResearch: ['page'],
   npmSearch: ['page'],
   ghCloneRepo: ['owner', 'repo'],
   localSearchCode: ['page'],

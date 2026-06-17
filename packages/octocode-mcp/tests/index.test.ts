@@ -659,7 +659,7 @@ describe('Index Module', () => {
     });
 
     it('should handle whitespace in tool configuration', async () => {
-      process.env.ENABLE_TOOLS = ' ghSearchPRs ';
+      process.env.ENABLE_TOOLS = ' ghHistoryResearch ';
       process.env.DISABLE_TOOLS = ' ghSearchCode ';
 
       await import('../src/index.js');
@@ -669,7 +669,7 @@ describe('Index Module', () => {
     });
 
     it('should handle invalid tool names gracefully', async () => {
-      process.env.ENABLE_TOOLS = 'ghSearchPRs,invalidTool';
+      process.env.ENABLE_TOOLS = 'ghHistoryResearch,invalidTool';
       process.env.DISABLE_TOOLS = 'nonExistentTool';
 
       await import('../src/index.js');

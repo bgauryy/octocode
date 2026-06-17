@@ -16,7 +16,7 @@ import {
 const minifyField = z
   .enum(['none', 'standard', 'symbols'])
   .optional()
-  .default('none');
+  .default('standard');
 
 const queryOverrides = {
   startLine: lineNumberField,

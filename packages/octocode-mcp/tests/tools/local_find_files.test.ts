@@ -608,7 +608,7 @@ describe('localFindFiles', () => {
       expect(files[0]!.modified).toBeDefined();
     });
 
-    it('should sort by modification time even when showFileLastModified is false (modified hidden from output)', async () => {
+    it('should sort by modification time even when showFileLastModified is false (modified shown in output by default)', async () => {
       setNativeEntries([
         {
           path: '/test/c.txt',
@@ -636,7 +636,7 @@ describe('localFindFiles', () => {
       expect(files[0]!.path).toBe('/test/a.txt');
       expect(files[1]!.path).toBe('/test/b.txt');
       expect(files[2]!.path).toBe('/test/c.txt');
-      expect(files.every(f => f.modified === undefined)).toBe(true);
+      expect(files.every(f => f.modified !== undefined)).toBe(true);
     });
   });
 

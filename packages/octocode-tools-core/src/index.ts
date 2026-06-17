@@ -61,9 +61,6 @@ export * from './tools/github_search_pull_requests/scheme.js';
 export * from './tools/github_search_pull_requests/types.js';
 export * from './tools/github_search_repos/execution.js';
 export * from './tools/github_search_repos/scheme.js';
-export * from './tools/github_history/scheme.js';
-export * from './tools/github_history/execution.js';
-export * from './tools/github_history/toolName.js';
 export * from './tools/github_view_repo_structure/constants.js';
 export * from './tools/github_view_repo_structure/execution.js';
 export * from './tools/github_view_repo_structure/scheme.js';
@@ -229,7 +226,6 @@ export { hints as githubFetchContentHints } from './tools/github_fetch_content/h
 export { hints as ghViewRepoStructureHints } from './tools/github_view_repo_structure/hints.js';
 export { hints as githubSearchReposHints } from './tools/github_search_repos/hints.js';
 export { hints as ghSearchPRsHints } from './tools/github_search_pull_requests/hints.js';
-export { hints as ghHistoryHints } from './tools/github_history/hints.js';
 export { hints as ghCloneRepoHints } from './tools/github_clone_repo/hints.js';
 export { hints as localRipgrepHints } from './tools/local_ripgrep/hints.js';
 export { hints as localViewStructureHints } from './tools/local_view_structure/hints.js';

@@ -269,7 +269,7 @@ describe('agentic-flow quality scorecards', () => {
     expect(rateAgenticQuality(card).failures).toEqual([]);
   });
 
-  it('ghSearchPRs: clean scorecard', () => {
+  it('ghHistoryResearch: clean scorecard', () => {
     const card = buildScorecard({
       data: {
         pull_requests: [

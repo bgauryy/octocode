@@ -207,7 +207,7 @@ describe('GitHub API Caching', () => {
     });
   });
 
-  describe('ghSearchPRs caching', () => {
+  describe('ghHistoryResearch caching', () => {
     beforeEach(() => {
       mockOctokit.rest.search.issuesAndPullRequests.mockResolvedValue({
         data: {

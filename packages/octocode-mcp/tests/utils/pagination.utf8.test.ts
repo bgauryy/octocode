@@ -337,6 +337,21 @@ describe('UTF-8 Pagination - Byte/Character Separation', () => {
       expect(info.totalPages).toBe(metadata.totalPages);
       expect(info.hasMore).toBe(metadata.hasMore);
     });
+
+    it('should expose nextCharOffset when hasMore', () => {
+      const metadata = applyPagination(TEST_CONTENT.emoji, 0, 8);
+      const info = createPaginationInfo(metadata);
+      expect(info.hasMore).toBe(true);
+      expect(info.nextCharOffset).toBeDefined();
+      expect(info.nextCharOffset).toBe(metadata.nextCharOffset);
+    });
+
+    it('should expose nextCharOffset as undefined when no more content', () => {
+      const metadata = applyPagination('short', 0, 1000);
+      const info = createPaginationInfo(metadata);
+      expect(info.hasMore).toBe(false);
+      expect(info.nextCharOffset).toBeUndefined();
+    });
   });
 
   describe('generatePaginationHints with UTF-8', () => {

@@ -70,14 +70,11 @@ describe('localFindFiles entryType (one public field)', () => {
     ).toBe(false);
   });
 
-  it('rejects the legacy `type` key on the public schema (strict, not honored)', () => {
+  it('strips the legacy `type` key instead of hard-failing (unknown fields never hard-fail)', () => {
     const result = LocalFindFilesQuerySchema.safeParse({ ...base, type: 'f' });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const keys = result.error.issues.flatMap(i =>
-        i.code === 'unrecognized_keys' ? i.keys : []
-      );
-      expect(keys).toContain('type');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect('type' in result.data).toBe(false);
     }
   });
 });

@@ -19,9 +19,11 @@ export interface GitHubRepositoryStructureResult {
     originalCount: number;
   };
   structure: Record<string, GitHubRepoStructureDirectoryEntry>;
+  fileSizeMap?: Record<string, Record<string, number>>;
   pagination?: PaginationInfo;
   hints?: string[];
   _cachedItems?: { path: string; type: 'file' | 'dir' }[];
+  _cachedFileSizeMap?: Record<string, Record<string, number>>;
   rawResponseChars?: number;
 }
 

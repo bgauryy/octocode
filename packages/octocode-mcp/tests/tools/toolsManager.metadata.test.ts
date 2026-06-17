@@ -14,7 +14,7 @@ vi.mock(
       TOOL_NAMES: {
         GITHUB_FETCH_CONTENT: 'ghGetFileContent',
         GITHUB_SEARCH_CODE: 'ghSearchCode',
-        GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+        GITHUB_SEARCH_PULL_REQUESTS: 'ghHistoryResearch',
         GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
         GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
       },
@@ -52,7 +52,7 @@ vi.mock('../../src/tools/toolConfig.js', () => {
       fn: vi.fn(),
     },
     {
-      name: 'ghSearchPRs',
+      name: 'ghHistoryResearch',
       isDefault: true,
       isLocal: false,
       fn: vi.fn(),
@@ -236,9 +236,9 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(mockLogSessionError).toHaveBeenCalledTimes(1);
     });
 
-    it('should skip ghSearchPRs when not in metadata and log error', async () => {
+    it('should skip ghHistoryResearch when not in metadata and log error', async () => {
       mockIsToolAvailableSync.mockImplementation((toolName: string) => {
-        return toolName !== 'ghSearchPRs';
+        return toolName !== 'ghHistoryResearch';
       });
 
       const result = await registerTools(mockServer);
@@ -255,7 +255,7 @@ describe('ToolsManager - Metadata Availability', () => {
       expect(process.stderr.write).not.toHaveBeenCalled();
 
       expect(mockLogSessionError).toHaveBeenCalledWith(
-        'ghSearchPRs',
+        'ghHistoryResearch',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
       );
       expect(mockLogSessionError).toHaveBeenCalledTimes(1);
@@ -265,7 +265,7 @@ describe('ToolsManager - Metadata Availability', () => {
   describe('Multiple Tools Missing from Metadata', () => {
     it('should skip multiple tools when not in metadata and log errors', async () => {
       mockIsToolAvailableSync.mockImplementation((toolName: string) => {
-        return toolName !== 'ghSearchCode' && toolName !== 'ghSearchPRs';
+        return toolName !== 'ghSearchCode' && toolName !== 'ghHistoryResearch';
       });
 
       const result = await registerTools(mockServer);
@@ -287,7 +287,7 @@ describe('ToolsManager - Metadata Availability', () => {
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
       );
       expect(mockLogSessionError).toHaveBeenCalledWith(
-        'ghSearchPRs',
+        'ghHistoryResearch',
         TOOL_METADATA_ERRORS.INVALID_FORMAT.code
       );
       expect(mockLogSessionError).toHaveBeenCalledTimes(2);

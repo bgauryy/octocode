@@ -235,7 +235,7 @@ export interface GitHubPullRequestsSearchParams {
   owner?: string | string[];
   repo?: string | string[];
   prNumber?: number;
-  state?: 'open' | 'closed';
+  state?: 'open' | 'closed' | 'merged';
   draft?: boolean;
   merged?: boolean;
   author?: string;
@@ -255,6 +255,14 @@ export interface GitHubPullRequestsSearchParams {
   reactions?: number | string;
   interactions?: number | string;
   label?: string | string[];
+  milestone?: string;
+  language?: string;
+  checks?: 'pending' | 'success' | 'failure';
+  review?: 'none' | 'required' | 'approved' | 'changes_requested';
+  locked?: boolean;
+  visibility?: 'public' | 'private';
+  'team-mentions'?: string;
+  project?: string;
   'no-assignee'?: boolean;
   'no-label'?: boolean;
   'no-milestone'?: boolean;

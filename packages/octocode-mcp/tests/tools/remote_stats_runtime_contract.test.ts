@@ -272,7 +272,7 @@ describe('remote tool stats runtime contract', () => {
         {
           id: 'prs',
           mainResearchGoal: 'stats telemetry',
-          researchGoal: 'exercise ghSearchPRs stats',
+          researchGoal: 'exercise ghHistoryResearch stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
           repo: 'repo',

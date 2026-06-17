@@ -126,6 +126,9 @@ export function createPaginationInfo(
     charOffset: metadata.charOffset,
     charLength: metadata.charLength,
     totalChars: metadata.totalChars,
+    ...(metadata.nextCharOffset !== undefined && {
+      nextCharOffset: metadata.nextCharOffset,
+    }),
   };
 }
 

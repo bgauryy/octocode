@@ -26,7 +26,7 @@ const ALL_HINTS = {
   localGetFileContent: fetchContentHints,
   ghSearchCode: ghCodeHints,
   ghGetFileContent: ghFetchHints,
-  ghSearchPRs: ghPrHints,
+  ghHistoryResearch: ghPrHints,
   ghSearchRepos: ghReposHints,
   ghViewRepoStructure: ghViewHints,
   ghCloneRepo: cloneHints,
@@ -379,7 +379,7 @@ describe('ghGetFileContent — error', () => {
   });
 });
 
-describe('ghSearchPRs — empty permutations', () => {
+describe('ghHistoryResearch — empty permutations', () => {
   it('prNumber not found gives recovery hint', () => {
     const h = ghPrHints.empty({
       prNumber: 999,
@@ -389,7 +389,7 @@ describe('ghSearchPRs — empty permutations', () => {
     expect(h[0]).toContain('PR number');
   });
 
-  it('merged state shows is:merged unreliable hint', () => {
+  it('merged state shows widening hint for empty results', () => {
     const h = ghPrHints.empty({
       state: 'merged',
       author: 'alice',
@@ -397,7 +397,7 @@ describe('ghSearchPRs — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[0]).toContain('is:merged');
+    expect(h[0]).toContain('merged');
   });
 
   it('stays silent without filters', () => {
@@ -415,7 +415,7 @@ describe('ghSearchPRs — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[0]).toContain('Remove state/author/label filters');
+    expect(h[0]).toContain('filter');
     expect(h[0]).not.toContain('is:merged');
   });
 
@@ -444,11 +444,11 @@ describe('ghSearchPRs — empty permutations', () => {
       owner: 'a',
       repo: 'b',
     } as never);
-    expect(h[1]).toContain('Add a `query`');
+    expect(h[1]).toContain('keyword');
   });
 });
 
-describe('ghSearchPRs — error permutations', () => {
+describe('ghHistoryResearch — error permutations', () => {
   it('rate-limited with retryAfter includes retry time', () => {
     const h = ghPrHints.error({
       isRateLimited: true,

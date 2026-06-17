@@ -379,7 +379,7 @@ describe('structuredPagination branch coverage', () => {
     expect(data.outputPagination?.hasMore).toBe(true);
   });
 
-  it('short-circuits ghSearchPRs when outputPagination already present', () => {
+  it('short-circuits ghHistoryResearch when outputPagination already present', () => {
     const queryResult = {
       id: 'q-pr-already',
       data: {
@@ -951,7 +951,7 @@ describe('structuredPagination branch coverage', () => {
   });
 });
 
-describe('ghSearchPRs pagination fixes', () => {
+describe('ghHistoryResearch pagination fixes', () => {
   it('sub-slices an oversized single PR by paginating fileChanges[].patch', () => {
     const bigPatch = 'P'.repeat(20000);
     const result = applyQueryOutputPagination(

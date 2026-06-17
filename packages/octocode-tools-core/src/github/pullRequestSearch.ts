@@ -294,7 +294,7 @@ async function searchPullRequestsWithREST(
     const result = await octokit.rest.pulls.list({
       owner,
       repo,
-      state: params.state || 'open',
+      state: (params.state === 'merged' ? 'closed' : params.state) || 'open',
       per_page: perPage,
       page: currentPage,
       sort: params.sort === 'updated' ? 'updated' : 'created',

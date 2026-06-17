@@ -1299,7 +1299,7 @@ describe('registerNpmSearchTool', () => {
       expect(text).not.toContain('hasMore: true');
     });
 
-    it('should return string-list output: "name repoUrl[ sourceRoot]" per package', async () => {
+    it('should return rich object output per package (name, version, description, repository)', async () => {
       mockNpmViewFull('lodash', {
         name: 'lodash',
         version: '4.17.21',
@@ -1316,10 +1316,9 @@ describe('registerNpmSearchTool', () => {
         queries: [
           {
             packageName: 'lodash',
-            mainResearchGoal: 'Test string-list output',
+            mainResearchGoal: 'Test rich object output',
             researchGoal: 'Test',
-            reasoning:
-              'Packages are formatted as string lines: name repoUrl sourceRoot',
+            reasoning: 'Packages now include version, description, license, weeklyDownloads',
           },
         ],
       });
@@ -1331,7 +1330,7 @@ describe('registerNpmSearchTool', () => {
       expect(text).not.toContain('entrypoints');
       expect(text).not.toContain('researchTargets');
       expect(text).not.toContain('packageType');
-      expect(text).not.toContain('weeklyDownloads');
+      expect(text).not.toContain('npmUrl:');
     });
 
     it('emits ghSearchRepos hint when registry is unreachable', async () => {

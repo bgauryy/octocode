@@ -4,6 +4,7 @@ import {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQuerySchema,
 } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
+import { hints as lspHints } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/hints.js';
 import { registerLspGetSemanticsTool } from '../../src/tools/lsp/semantic_content/register.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
@@ -22,7 +23,7 @@ describe('new public LSP tools', () => {
     for (const removedName of removedLspToolNames) {
       expect(names).not.toContain(removedName);
     }
-    expect(names).toHaveLength(13);
+    expect(names).toHaveLength(12);
   });
 
   it('registers the semantic tool with read-only annotations', () => {
@@ -78,5 +79,12 @@ describe('new public LSP tools', () => {
         ],
       }).success
     ).toBe(true);
+  });
+
+  it('empty hint for references guides toward callers for cross-package calls', () => {
+    const result = lspHints.empty(
+      { symbolName: 'foo', type: 'references' } as unknown as Parameters<typeof lspHints.empty>[0]
+    );
+    expect(result.some(h => h.includes('callers'))).toBe(true);
   });
 });

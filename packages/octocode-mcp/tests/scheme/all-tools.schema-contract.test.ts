@@ -4,8 +4,6 @@ import { readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
-import { GITHUB_HISTORY_TOOL_NAME } from '../../../octocode-tools-core/src/tools/github_history/toolName.js';
-
 const SHARED_FIELDS = [
   'id',
   'mainResearchGoal',
@@ -48,12 +46,6 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.GITHUB_CLONE_REPO]: {
     owner: 'facebook',
     repo: 'react',
-  },
-  [GITHUB_HISTORY_TOOL_NAME]: {
-    type: 'file',
-    owner: 'facebook',
-    repo: 'react',
-    path: 'README.md',
   },
 };
 
@@ -254,8 +246,8 @@ describe('all-tools schema contract', () => {
   );
 
   describe('global invariants', () => {
-    it('ALL_TOOLS contains exactly 13 tools', () => {
-      expect(ALL_TOOLS).toHaveLength(13);
+    it('ALL_TOOLS contains exactly 12 tools', () => {
+      expect(ALL_TOOLS).toHaveLength(12);
     });
 
     it('every tool has a MINIMAL_QUERY entry in this test', () => {
@@ -323,7 +315,7 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      expect(schemeFiles).toHaveLength(13);
+      expect(schemeFiles).toHaveLength(12);
       expect(splitSchemaFiles).toEqual([]);
     });
   });

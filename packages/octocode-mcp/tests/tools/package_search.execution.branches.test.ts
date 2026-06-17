@@ -53,10 +53,10 @@ describe('input validation', () => {
   });
 });
 
-describe('output format — "name url[ sourceRoot]" string list', () => {
+describe('output format — object list with rich metadata', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('flat repo → "name https://github.com/owner/repo"', async () => {
+  it('flat repo → object with name and repository fields', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({ name: 'zod', repoUrl: 'https://github.com/colinhacks/zod' }),
@@ -64,11 +64,12 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
       totalFound: 1,
     });
     const t = text(await callTool('zod'));
-    expect(t).toContain('zod https://github.com/colinhacks/zod');
-    expect(t).not.toContain('zod https://github.com/colinhacks/zod '); // no trailing sourceRoot
+    expect(t).toContain('name: zod');
+    expect(t).toContain('repository: https://github.com/colinhacks/zod');
+    expect(t).not.toContain('repositoryDirectory:'); // no sourceRoot for flat repo
   });
 
-  it('monorepo → "name url sourceRoot"', async () => {
+  it('monorepo → includes repositoryDirectory field', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({
@@ -80,9 +81,9 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
       totalFound: 1,
     });
     const t = text(await callTool('react'));
-    expect(t).toContain(
-      'react https://github.com/facebook/react packages/react'
-    );
+    expect(t).toContain('name: react');
+    expect(t).toContain('repository: https://github.com/facebook/react');
+    expect(t).toContain('repositoryDirectory: packages/react');
   });
 
   it('strips leading "./" from repositoryDirectory', async () => {
@@ -97,30 +98,31 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
       totalFound: 1,
     });
     const t = text(await callTool('pkg-a'));
-    expect(t).toContain('pkg-a https://github.com/org/mono packages/pkg-a');
+    expect(t).toContain('repositoryDirectory: packages/pkg-a');
     expect(t).not.toContain('./packages');
   });
 
-  it('non-GitHub repoUrl → included as-is, no sourceRoot', async () => {
+  it('non-GitHub repoUrl → included in repository field', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [pkg({ repoUrl: 'https://gitlab.com/owner/repo' })],
       totalFound: 1,
     });
     const t = text(await callTool('mypkg'));
-    expect(t).toContain('mypkg https://gitlab.com/owner/repo');
+    expect(t).toContain('name: mypkg');
+    expect(t).toContain('repository: https://gitlab.com/owner/repo');
   });
 
-  it('null repoUrl → just "name"', async () => {
+  it('null repoUrl → no repository field', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [pkg({ repoUrl: null })],
       totalFound: 1,
     });
     const t = text(await callTool('mypkg'));
-    expect(t).toContain('mypkg');
-    expect(t).not.toContain('mypkg https://');
+    expect(t).toContain('name: mypkg');
+    expect(t).not.toContain('repository: https://');
   });
 
-  it('multiple packages → one string line each', async () => {
+  it('multiple packages → one object entry each', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({ name: 'zustand', repoUrl: 'https://github.com/pmndrs/zustand' }),
@@ -134,11 +136,10 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
       totalFound: 3,
     });
     const t = text(await callTool('zustand'));
-    expect(t).toContain('zustand https://github.com/pmndrs/zustand');
-    expect(t).toContain('jotai https://github.com/pmndrs/jotai');
-    expect(t).toContain(
-      '@tanstack/query https://github.com/TanStack/query packages/query-core'
-    );
+    expect(t).toContain('name: zustand');
+    expect(t).toContain('name: jotai');
+    expect(t).toContain('name: \'@tanstack/query\'');
+    expect(t).toContain('repositoryDirectory: packages/query-core');
   });
 
   it('broad searches include pagination metadata and next-page hints', async () => {
@@ -159,22 +160,28 @@ describe('output format — "name url[ sourceRoot]" string list', () => {
     expect(t).toContain('Found 2 of 25 packages');
   });
 
-  it('packages[] is a YAML sequence of strings, not objects', async () => {
+  it('packages[] is a YAML sequence of objects with name, version, description, license, weeklyDownloads', async () => {
     mockSearchPackage.mockResolvedValue({
       packages: [
         pkg({
           name: 'express',
+          version: '4.18.2',
           repoUrl: 'https://github.com/expressjs/express',
+          description: 'Fast web framework',
+          license: 'MIT',
+          weeklyDownloads: 35000000,
         }),
       ],
       totalFound: 1,
     });
     const t = text(await callTool('express'));
+    expect(t).toContain('name: express');
+    expect(t).toContain('version: 4.18.2');
+    expect(t).toContain('description: Fast web framework');
+    expect(t).toContain('license: MIT');
+    expect(t).toContain('weeklyDownloads: 35000000');
     expect(t).not.toContain('repoUrl:');
-    expect(t).not.toContain('repositoryDirectory:');
     expect(t).not.toContain('npmUrl:');
-    expect(t).not.toContain('version:');
-    expect(t).not.toContain('weeklyDownloads:');
   });
 });
 
@@ -411,8 +418,8 @@ describe('bulk queries', () => {
     });
 
     const t = text(r);
-    expect(t).toContain('zustand https://github.com/pmndrs/zustand');
-    expect(t).toContain('jotai https://github.com/pmndrs/jotai');
+    expect(t).toContain('name: zustand');
+    expect(t).toContain('name: jotai');
     expect(mockSearchPackage).toHaveBeenCalledTimes(2);
   });
 });

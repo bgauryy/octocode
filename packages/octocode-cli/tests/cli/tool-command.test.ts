@@ -18,7 +18,7 @@ const publicMocks = vi.hoisted(() => ({
         name: 'ghSearchCode',
         description: 'Search code in GitHub repositories.',
         schema: {
-          keywordsToSearch: 'Search terms',
+          keywords: 'Search terms',
           owner: 'Repository owner',
         },
         hints: { hasResults: [], empty: [] },
@@ -140,7 +140,7 @@ describe('toolCommand', () => {
       command: 'tools',
       args: [
         'ghSearchCode',
-        '{"queries":[{"keywordsToSearch":["tool"],"owner":"bgauryy","repo":"octocode-mcp"}],"responseCharLength":1200}',
+        '{"queries":[{"keywords":["tool"],"owner":"bgauryy","repo":"octocode-mcp"}],"responseCharLength":1200}',
       ],
       options: {},
     });
@@ -151,7 +151,7 @@ describe('toolCommand', () => {
       expect.objectContaining({
         queries: [
           expect.objectContaining({
-            keywordsToSearch: ['tool'],
+            keywords: ['tool'],
             owner: 'bgauryy',
             repo: 'octocode-mcp',
             mainResearchGoal: 'Execute ghSearchCode via octocode-cli',
@@ -380,7 +380,7 @@ describe('toolCommand', () => {
     expect(context).toContain('2. ghCloneRepo');
     expect(context).toContain('3. localSearchCode');
     expect(context).toContain('Input schema:');
-    expect(context).toContain('"keywordsToSearch"');
+    expect(context).toContain('"keywords"');
     expect(context).toContain('"owner"');
     expect(context).toContain('"repo"');
   });

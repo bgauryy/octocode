@@ -174,7 +174,7 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
-  ghSearchPRs: () => ({
+  ghHistoryResearch: () => ({
     content: [
       {
         type: 'text',

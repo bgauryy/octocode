@@ -61,12 +61,6 @@ import { executeFindFiles } from './local_find_files/execution.js';
 import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
-import {
-  HistoryQueryLocalSchema,
-  HistoryBulkQuerySchema,
-} from './github_history/scheme.js';
-import { getMultipleHistories } from './github_history/execution.js';
-import { GITHUB_HISTORY_TOOL_NAME } from './github_history/toolName.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
@@ -145,7 +139,6 @@ interface ToolCatalog {
   LOCAL_FIND_FILES: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_GET_SEMANTIC_CONTENT: ToolConfig;
-  GITHUB_HISTORY: ToolConfig;
   ALL_TOOLS: ToolConfig[];
 }
 
@@ -311,27 +304,6 @@ function createToolCatalog(
     },
   });
 
-  const GITHUB_HISTORY: ToolConfig = {
-    name: GITHUB_HISTORY_TOOL_NAME,
-    description:
-      'Get commit history for a file (type:"file", path required), a directory ' +
-      '(type:"repo" + path prefix), or full repo (type:"repo", no path). ' +
-      'Returns author, date, message, optional diffs. ' +
-      'Paginated — response includes nextPage for agents.',
-    isDefault: true,
-    isLocal: false,
-    type: 'history',
-    skipMetadataCheck: true,
-    direct: {
-      schema: HistoryQueryLocalSchema,
-      inputSchema: HistoryBulkQuerySchema,
-      executionFn: getMultipleHistories,
-      security: 'remote',
-      requiresServerRuntime: true,
-      requiresProviders: false,
-    },
-  };
-
   const LSP_GET_SEMANTIC_CONTENT: ToolConfig = {
     name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
     description: getDescription(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME, gateway),
@@ -361,7 +333,6 @@ function createToolCatalog(
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
-    GITHUB_HISTORY,
   ];
 
   return {
@@ -377,7 +348,6 @@ function createToolCatalog(
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
-    GITHUB_HISTORY,
     ALL_TOOLS,
   };
 }
@@ -400,5 +370,4 @@ export const LOCAL_FIND_FILES = DEFAULT_TOOL_CATALOG.LOCAL_FIND_FILES;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_GET_SEMANTIC_CONTENT =
   DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;
-export const GITHUB_HISTORY = DEFAULT_TOOL_CATALOG.GITHUB_HISTORY;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

@@ -63,8 +63,8 @@ describe('minify enum — ghGetFileContent scheme', () => {
 });
 
 describe('minify enum — localGetFileContent scheme', () => {
-  it("defaults to 'none' when omitted (schema-level default — raw source view)", () => {
-    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('none');
+  it("defaults to 'standard' when omitted (schema-level default — comment-stripped view)", () => {
+    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('standard');
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {
@@ -109,7 +109,7 @@ describe('minify enum — localGetFileContent scheme', () => {
   });
 });
 
-describe('minify enum — ghSearchPRs scheme', () => {
+describe('minify enum — ghHistoryResearch scheme', () => {
   it("defaults to 'standard' when omitted (schema-level default, token-saving patch view)", () => {
     expect(parseMinify(GitHubPullRequestSearchQueryLocalSchema, PR_BASE)).toBe(
       'standard'

@@ -130,7 +130,7 @@ describe('providerMappers', () => {
       {
         path: 'src/mixed.ts',
         value: 'const real = 1;',
-        matchIndices: [{ start: 6, end: 10 }],
+        matchIndices: [{ start: 6, end: 10, lineOffset: 0 }],
       },
     ]);
     expect(matches.every(m => m.value !== '')).toBe(true);

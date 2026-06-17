@@ -1,21 +1,31 @@
 import { c, bold, dim } from '../utils/colors.js';
-import {
-  HELP_TOOL_CATEGORIES,
-  HELP_TOOL_DEFINITIONS,
-} from './tool-help-data.js';
 
-function findHelpTool(toolName: string) {
-  return HELP_TOOL_DEFINITIONS.find(tool => tool.name === toolName);
-}
-
+/**
+ * Light fallback shown when the Octocode tool runtime fails to load.
+ * Never lists tool names or fields statically — those come from the live runtime.
+ */
 export function showLightAvailableTools(): void {
   console.log();
   console.log(
-    `  ${c('magenta', bold('Octocode Tools'))}  ${dim('runtime-light schema list')}`
+    `  ${c('magenta', bold('Octocode Tools'))}  ${dim('runtime unavailable')}`
   );
   console.log();
   console.log(
-    `  ${dim('For full schemas and execution, the Octocode runtime must load successfully.')}`
+    `  ${dim('The tool runtime did not load. Tool names and schemas are only available when the runtime starts.')}`
+  );
+  console.log();
+  console.log(`  ${bold('When the runtime loads, use:')}`);
+  console.log(
+    `    ${c('yellow', 'octocode tools')}                                   ${dim('# list all tools with live schema')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode tools <name>')}                            ${dim('# show full input schema for one tool')}`
+  );
+  console.log(
+    `    ${c('yellow', 'octocode tools <name> --scheme')}                   ${dim('# schema only, never runs')}`
+  );
+  console.log(
+    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}         ${dim('# run a tool')}`
   );
   console.log();
   console.log(`  ${bold('AGENT CONTEXT')}`);
@@ -23,64 +33,17 @@ export function showLightAvailableTools(): void {
     `    ${c('yellow', 'octocode context')}                                 ${dim('# protocol + system prompt + compact tool schemas')}`
   );
   console.log(
-    `    ${c('yellow', 'octocode --context')}                               ${dim('# same agent context shortcut')}`
-  );
-  console.log(
     `    ${c('yellow', 'octocode context --full')}                          ${dim('# full schemas when runtime loads')}`
   );
   console.log();
-  console.log(`  ${bold('RAW TOOL CALLS')}`);
-  console.log(
-    `    ${c('yellow', 'octocode tools')}                                   ${dim('# list raw MCP tools')}`
-  );
-  console.log(
-    `    ${c('yellow', 'octocode tools <name>')}                            ${dim('# show input fields for one tool')}`
-  );
-  console.log(
-    `    ${c('yellow', 'octocode tools <name> --scheme')}                   ${dim('# show schema/help only')}`
-  );
-  console.log(
-    `    ${c('yellow', "octocode tools <name> --queries '<json>'")}         ${dim('# run one tool when runtime loads')}`
-  );
-
-  for (const category of HELP_TOOL_CATEGORIES) {
-    const tools = HELP_TOOL_DEFINITIONS.filter(
-      tool => tool.category === category
-    );
-    if (tools.length === 0) continue;
-
-    console.log();
-    console.log(`  ${bold(category)}`);
-    for (const tool of tools) {
-      console.log(`    ${c('cyan', tool.name.padEnd(28))} ${dim(tool.fields)}`);
-    }
-  }
-
-  console.log();
 }
 
-export function showLightToolHelp(toolName: string): boolean {
-  const tool = findHelpTool(toolName);
-  if (!tool) {
-    return false;
-  }
-
-  console.log();
-  console.log(`  ${c('magenta', bold(tool.name))}  ${dim(tool.category)}`);
-  console.log();
-  console.log(`  ${bold('Input Fields')}`);
-  console.log(`    ${dim(tool.fields)}`);
-  console.log();
-  console.log(`  ${bold('Example')}`);
-  console.log(
-    `    ${c('yellow', `octocode tools ${tool.name} --queries '<json>'`)}`
-  );
-  console.log();
-  console.log(
-    `  ${dim('Full schema unavailable because the Octocode runtime did not load.')}`
-  );
-  console.log();
-  return true;
+/**
+ * Returns false so the caller falls back to showLightAvailableTools().
+ * Per-tool help requires the live runtime — no static fallback to avoid stale data.
+ */
+export function showLightToolHelp(_toolName: string): boolean {
+  return false;
 }
 
 export function printLightInstructions(options: { full?: boolean } = {}): void {

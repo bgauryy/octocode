@@ -80,6 +80,15 @@ export async function resolveSymbolAnchor(
       lineHint: query.lineHint,
       orderHint: query.orderHint ?? 0,
     });
+
+    const escapedName = query.symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const occurrenceRegex = new RegExp(`\\b${escapedName}\\b`, 'g');
+    const totalOccurrences = (file.value.content.match(occurrenceRegex) ?? [])
+      .length;
+    const lineDeviation = Math.abs(resolved.foundAtLine - (query.lineHint ?? 0));
+    const isAmbiguous =
+      totalOccurrences > 1 && lineDeviation > 3 ? true : undefined;
+
     return {
       ok: true,
       value: {
@@ -91,6 +100,7 @@ export async function resolveSymbolAnchor(
           foundAtLine: resolved.foundAtLine,
           orderHint: query.orderHint,
           position: resolved.position,
+          ...(isAmbiguous && { isAmbiguous }),
         },
       },
     };

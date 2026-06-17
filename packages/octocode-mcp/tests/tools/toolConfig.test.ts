@@ -13,9 +13,7 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
-  GITHUB_HISTORY,
 } from '../../src/tools/toolConfig.js';
-import { GITHUB_HISTORY_TOOL_NAME } from '../../../octocode-tools-core/src/tools/github_history/toolName.js';
 import {
   TOOL_NAMES,
   DESCRIPTIONS,
@@ -30,8 +28,8 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools (7 GitHub + 1 Clone + 4 Local + 1 LSP = 13)', () => {
-      expect(ALL_TOOLS).toHaveLength(13);
+    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP = 12)', () => {
+      expect(ALL_TOOLS).toHaveLength(12);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
 
@@ -47,7 +45,6 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
-      expect(toolNames).toContain(GITHUB_HISTORY_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
         expect(toolNames).not.toContain(removedName);
       }
@@ -68,7 +65,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for GitHub tools', () => {
       const githubTools = ALL_TOOLS.filter(t => !t.isLocal);
-      expect(githubTools).toHaveLength(7);
+      expect(githubTools).toHaveLength(6);
       githubTools.forEach(tool => {
         expect(tool.isLocal).toBe(false);
       });
@@ -150,13 +147,6 @@ describe('Tool Configuration', () => {
       expect(PACKAGE_SEARCH.fn).toBeTypeOf('function');
     });
 
-    it('GITHUB_HISTORY should have correct config', () => {
-      expect(GITHUB_HISTORY.name).toBe(GITHUB_HISTORY_TOOL_NAME);
-      expect(GITHUB_HISTORY.type).toBe('history');
-      expect(GITHUB_HISTORY.isLocal).toBe(false);
-      expect(GITHUB_HISTORY.skipMetadataCheck).toBe(true);
-      expect(GITHUB_HISTORY.fn).toBeTypeOf('function');
-    });
   });
 
   describe('Local tool configs', () => {
@@ -219,7 +209,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(12);
+      expect(nonCloneTools).toHaveLength(11);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

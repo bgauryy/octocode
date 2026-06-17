@@ -5,7 +5,7 @@ vi.mock('../../../octocode-tools-core/src/session.js', () => ({
   logSessionError: vi.fn(() => Promise.resolve()),
 }));
 
-describe('ghSearchPRs Tool Handler - Pagination Fix', () => {
+describe('ghHistoryResearch Tool Handler - Pagination Fix', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

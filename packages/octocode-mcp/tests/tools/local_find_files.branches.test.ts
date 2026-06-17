@@ -234,7 +234,7 @@ describe('findFiles sortBy branches', () => {
     expect(files[1]!.path).toContain('old.ts');
   });
 
-  it('honors sortBy="modified" without showFileLastModified (no warning, modified hidden)', async () => {
+  it('honors sortBy="modified" without showFileLastModified (no warning, modified shown in output)', async () => {
     setNativeEntries([
       {
         path: '/test/b.ts',
@@ -260,7 +260,7 @@ describe('findFiles sortBy branches', () => {
     const files = result.files!;
     expect(files[0]!.path).toBe('/test/b.ts');
     expect(files[1]!.path).toBe('/test/a.ts');
-    expect(files.every(f => f.modified === undefined)).toBe(true);
+    expect(files.every(f => f.modified !== undefined)).toBe(true);
     expect(
       (result.hints ?? []).some(h => h.includes('sortBy="modified" ignored'))
     ).toBe(false);

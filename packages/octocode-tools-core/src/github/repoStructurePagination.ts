@@ -119,6 +119,31 @@ export function applyStructurePagination(
     allFolders,
   });
 
+  let fileSizeMap: Record<string, Record<string, number>> | undefined;
+  const cached = cachedResult._cachedFileSizeMap;
+  if (cached) {
+    const pageFilePaths = new Set(
+      paginatedItems.filter(i => i.type === 'file').map(i => i.path)
+    );
+    const basePath2 = cachedResult.path === '/' ? '' : cachedResult.path;
+    const map: Record<string, Record<string, number>> = Object.create(null);
+    for (const [dirKey, dirFiles] of Object.entries(cached)) {
+      for (const [fileName, size] of Object.entries(dirFiles)) {
+        const fullPath =
+          dirKey === '.'
+            ? (basePath2 ? `${basePath2}/${fileName}` : fileName)
+            : (basePath2
+                ? `${basePath2}/${dirKey}/${fileName}`
+                : `${dirKey}/${fileName}`);
+        if (pageFilePaths.has(fullPath)) {
+          if (!map[dirKey]) map[dirKey] = Object.create(null);
+          map[dirKey]![fileName] = size;
+        }
+      }
+    }
+    if (Object.keys(map).length > 0) fileSizeMap = map;
+  }
+
   return {
     owner: cachedResult.owner,
     repo: cachedResult.repo,
@@ -133,6 +158,8 @@ export function applyStructurePagination(
       originalCount: totalEntries,
     },
     structure: sortedStructure,
+    ...(fileSizeMap !== undefined && { fileSizeMap }),
+    ...(cached !== undefined && { _cachedFileSizeMap: cached }),
     pagination: paginationInfo,
     hints,
     rawResponseChars: cachedResult.rawResponseChars,

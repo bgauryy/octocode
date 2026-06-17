@@ -79,7 +79,7 @@ describe('lspGetSemantics — success-path handoff hints', () => {
   });
 });
 
-describe('ghSearchPRs — result hint exists in code', () => {
+describe('ghHistoryResearch — result hint exists in code', () => {
   it('execution imports resultHints that include reviewMode guidance', async () => {
     const fs = await import('fs/promises');
     const src = await fs.readFile(

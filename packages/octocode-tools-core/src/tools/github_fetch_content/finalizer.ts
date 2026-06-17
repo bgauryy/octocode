@@ -22,6 +22,7 @@ type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
 type FileEntry = {
   path: string;
   content: string;
+  fileSize?: number;
   contentView?: 'none' | 'standard' | 'symbols';
   isSkeleton?: boolean;
   totalLines?: number;
@@ -97,6 +98,7 @@ const OPTIONAL_PAGINATION_NUMERIC_FIELDS = [
   'charOffset',
   'charLength',
   'totalChars',
+  'nextCharOffset',
   'nextBlockChar',
   'filesPerPage',
   'totalFiles',
@@ -150,6 +152,9 @@ function readFileEntry(
   return {
     path: readString(data.path) ?? String(query.path ?? ''),
     content: typeof data.content === 'string' ? data.content : '',
+    ...(readNumber(data.fileSize) !== undefined
+      ? { fileSize: readNumber(data.fileSize) }
+      : {}),
     contentView:
       data.contentView === 'none' ||
       data.contentView === 'standard' ||

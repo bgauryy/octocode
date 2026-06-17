@@ -16,7 +16,7 @@ Both interfaces call into **`packages/octocode-tools-core`** for all tool logic.
 ```
 octocode-mcp/ (monorepo root)
 ├── packages/
-│   ├── octocode-tools-core/    # All 12 tool implementations + execution (TypeScript)
+│   ├── octocode-tools-core/    # All 13 tool implementations + execution (TypeScript)
 │   ├── octocode-mcp/           # MCP server (thin wrapper over tools-core)
 │   ├── octocode-cli/           # CLI wrapper (thin wrapper over tools-core)
 │   ├── octocode-lsp/           # LSP client/server lifecycle (Rust + napi)
@@ -36,7 +36,7 @@ octocode-mcp-host/ (SEPARATE REPO — tool metadata source)
 
 ---
 
-## 12 Tools — Routing Guide
+## 13 Tools — Routing Guide
 
 ### GitHub Tools (remote, requires token)
 
@@ -47,7 +47,7 @@ octocode-mcp-host/ (SEPARATE REPO — tool metadata source)
 | `ghViewRepoStructure` | Browse a repo's directory tree |
 | `ghCloneRepo` | Clone a repo/subtree to disk for local + LSP work (`ENABLE_CLONE=true` required) |
 | `ghSearchRepos` | Discover repos by name, keywords, topic, language, stars |
-| `ghSearchPRs` | Search PRs, review diffs, fetch patches/comments/reviews |
+| `ghHistoryResearch` | Unified PR + commit history research. LIST mode (no `prNumber`): PR search by keyword/author/state or commit log (`type:"commits"`) for file/repo/subtree. DETAIL mode (`prNumber` required): full PR — body, changedFiles, patches, comments, reviews, approvals. `reviewMode:"full"` fetches all surfaces in one call. Batch up to 5 queries per call. |
 
 ### Local Tools (filesystem, `ENABLE_LOCAL=true` by default)
 
@@ -82,8 +82,22 @@ Is it a symbol you need to understand semantically?
 Is it an npm package?
   → npmSearch → ghViewRepoStructure → ghSearchCode
 
-Is it GitHub code / history?
+Is it GitHub code?
   → ghSearchRepos → ghViewRepoStructure → ghSearchCode → ghGetFileContent
+
+Trace file/feature/repo history (who changed what, when, rename tracking)?
+  → ghHistoryResearch(owner, repo, path, type:"commits")             — file commit log
+  → ghHistoryResearch(owner, repo, path:"src/auth/", type:"commits") — dir subtree
+  → ghHistoryResearch(owner, repo, type:"commits", includeDiff:true) — whole-repo with diffs
+  Bulk: queries:[{type:"commits",path:"A",...},{type:"commits",path:"B",...}] — up to 5 paths per call
+  → commits with (#NNN) in messageHeadline → ghHistoryResearch(owner, repo, prNumber:NNN) for full PR
+  Note: there is NO separate ghHistory tool — ghHistoryResearch handles both PR and commit history.
+
+Search or deep-dive PRs (any state, author, topic)?
+  → ghHistoryResearch(owner, repo, keywordsToSearch:[...], state:"open"|"closed"|"merged")
+  → ghHistoryResearch(owner, repo, author:"username")              — PRs by contributor
+  → ghHistoryResearch(owner, repo, prNumber, reviewMode:"full")    — full PR in one call
+  → ghHistoryResearch(owner, repo, prNumber, content:{patches:{mode:"selected",files:[...]}}) — targeted diffs
 
 Need deep cross-package LSP analysis? (requires ENABLE_CLONE=true server config)
   → ghCloneRepo → localViewStructure(localPath) → localSearchCode → lspGetSemantics
@@ -136,8 +150,8 @@ Pick by goal, not habit. Wrong default = 2–5× extra tokens.
 | Orient on an unknown file | `localGetFileContent`, `ghGetFileContent` | `minify:"symbols"` — skeleton + line numbers, 55–97% smaller |
 | Normal investigation | Any content read | `minify:"standard"` (default) — strips comments/blanks |
 | Quote exact text / match whitespace / raw diff | Any content read | `minify:"none"` |
-| PR review | `ghSearchPRs` detail | `minify:"standard"` always; `minify:"none"` only for raw diff quoting |
-| PR search — `"symbols"` | `ghSearchPRs` | **Not available** — Zod error if attempted |
+| PR review | `ghHistoryResearch` detail | `minify:"standard"` always; `minify:"none"` only for raw diff quoting |
+| PR search — `"symbols"` | `ghHistoryResearch` | **Not available** — Zod error if attempted |
 | Call tree navigation | `lspGetSemantics` callers/callees/callHierarchy | `format:"compact"` — ~50% fewer tokens (different flag name) |
 | Repo discovery | `ghSearchRepos` | `verbose:false` (default) lean strings; `verbose:true` only when filtering on stars/topics/dates |
 | File-existence check | `ghSearchCode` | `match:"path"` — ~10× cheaper than file content scan |
@@ -325,7 +339,7 @@ ghGetFileContent(owner, repo, path, minify:"symbols")             → orient on 
 **GitHub — PR review**
 ```
 # Single PR:
-ghSearchPRs(owner, repo, prNumber, minify:"standard", charLength:20000,
+ghHistoryResearch(owner, repo, prNumber, minify:"standard", charLength:20000,
   content:{metadata:true, body:true, changedFiles:true})
 → ghGetFileContent for current source state
 
@@ -338,6 +352,41 @@ queries:[
 
 # Multiple known file paths — batch reads in ONE call:
 queries:[{owner, repo, path:"src/foo.ts"}, {owner, repo, path:"src/bar.ts"}]
+```
+
+**GitHub — commit history → PR deep dive (the canonical chain)**
+
+Use `ghHistoryResearch` for both commit history (`type:"commits"`) and PR search/deep-read. There is no separate `ghHistory` tool.
+
+```
+# Step 1 — trace who changed a file and when:
+ghHistoryResearch(owner, repo, path:"src/auth/session.ts", type:"commits")
+  → result includes: messageHeadline:"Feature X (#420)" with embedded PR ref
+
+# Step 2 — extract PR number from messageHeadline (#NNN) → deep read immediately:
+ghHistoryResearch(owner, repo, prNumber:420, reviewMode:"full")
+  → body, changedFiles, patches, comments, reviews in one call
+
+# Find a PR by topic/keyword/author (all states):
+ghHistoryResearch(owner, repo, keywordsToSearch:["pagination", "cursor"], state:"merged")
+ghHistoryResearch(owner, repo, author:"username")  — PRs by any contributor (open OR merged)
+  → returns lean PR metadata (number, title, author, date)
+  → then re-call with prNumber:<N>, reviewMode:"full" to read it
+
+# Batch — trace multiple files in one call (saves N-1 round trips):
+queries:[
+  {owner, repo, path:"src/auth.ts", type:"commits"},
+  {owner, repo, path:"src/session.ts", type:"commits"},
+  {owner, repo, path:"src/auth/", type:"commits"}
+]  ← max 5 per call
+
+# Repo/dir activity:
+ghHistoryResearch(owner, repo, type:"commits", since:"<ISO8601>")           — whole-repo
+ghHistoryResearch(owner, repo, path:"src/auth/", type:"commits")            — dir subtree only
+  → paginate with page:nextPage when hasMore:true
+
+# With diffs (N+1 API calls — use sparingly):
+ghHistoryResearch(owner, repo, path:"src/auth/session.ts", type:"commits", includeDiff:true)
 ```
 
 **Deep cross-package LSP** (ENABLE_CLONE=true required; fallback: ghViewRepoStructure → ghSearchCode → ghGetFileContent)

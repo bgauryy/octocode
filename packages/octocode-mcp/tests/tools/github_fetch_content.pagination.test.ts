@@ -162,6 +162,37 @@ describe('ghGetFileContent — content-truncated structured warning', () => {
     expect(data.results[0]).toBeDefined();
   });
 
+  it('exposes fileSize (bytes) from provider size field', async () => {
+    mockProvider.getFileContent.mockResolvedValue({
+      data: {
+        path: 'src/measured.ts',
+        content: 'const x = 1;',
+        encoding: 'utf-8',
+        size: 98765,
+        ref: 'main',
+      },
+      status: 200,
+      provider: 'github',
+      rawResponseChars: 13,
+    });
+
+    const result = await mockServer.callTool(TOOL_NAMES.GITHUB_FETCH_CONTENT, {
+      queries: [
+        {
+          owner: 'owner',
+          repo: 'measured',
+          path: 'src/measured.ts',
+          branch: 'main',
+        },
+      ],
+    });
+
+    const data = result.structuredContent as FlatResponse;
+    const file = data.results[0]?.files?.[0] as Record<string, unknown>;
+    expect(result.isError).toBe(false);
+    expect(file?.fileSize).toBe(98765);
+  });
+
   it('emits no warnings when content fits the budget', async () => {
     mockProvider.getFileContent.mockResolvedValue({
       data: {

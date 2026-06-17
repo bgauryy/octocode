@@ -32,6 +32,11 @@ const flatNames = (result: {
   ...(result.links ?? []),
 ];
 
+/** Strip " (NNN KB)" size annotation from files[] entries so tests assert names, not sizes. */
+function stripSize(files: string[] | undefined): string[] {
+  return (files ?? []).map(f => f.replace(/ \([^)]+\)$/, ''));
+}
+
 vi.mock('octocode-security/pathValidator', () => ({
   pathValidator: {
     validate: vi.fn(),
@@ -194,7 +199,7 @@ describe('localViewStructure', () => {
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeUndefined();
       expect(result.path).toBe('/test/path');
-      expect(result.files).toEqual(
+      expect(stripSize(result.files)).toEqual(
         expect.arrayContaining(['file1.txt', 'file2.js'])
       );
       expect(result.folders).toEqual(['dir1']);
@@ -359,9 +364,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toContain('file1.ts');
-      expect(result.files).toContain('file3.ts');
-      expect(result.files).not.toContain('file2.js');
+      expect(stripSize(result.files)).toContain('file1.ts');
+      expect(stripSize(result.files)).toContain('file3.ts');
+      expect(stripSize(result.files)).not.toContain('file2.js');
     });
 
     it('should filter by multiple extensions', async () => {
@@ -378,9 +383,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toContain('file1.ts');
-      expect(result.files).toContain('file2.tsx');
-      expect(result.files).not.toContain('file3.js');
+      expect(stripSize(result.files)).toContain('file1.ts');
+      expect(stripSize(result.files)).toContain('file2.tsx');
+      expect(stripSize(result.files)).not.toContain('file3.js');
     });
 
     it('should filter files only', async () => {
@@ -397,7 +402,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(lastQueryOptions?.entryType).toBe('f');
-      expect(result.files).toContain('file1.txt');
+      expect(stripSize(result.files)).toContain('file1.txt');
       expect(result.folders).toBeUndefined();
       expect(flatNames(result)).not.toContain('dir1');
     });
@@ -437,9 +442,9 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toContain('test1.txt');
-      expect(result.files).toContain('test2.txt');
-      expect(result.files).not.toContain('other.txt');
+      expect(stripSize(result.files)).toContain('test1.txt');
+      expect(stripSize(result.files)).toContain('test2.txt');
+      expect(stripSize(result.files)).not.toContain('other.txt');
     });
 
     it('should filter by glob pattern with asterisks', async () => {
@@ -457,10 +462,10 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toContain('parser.test.ts');
-      expect(result.files).toContain('utils.test.ts');
-      expect(result.files).not.toContain('helper.ts');
-      expect(result.files).not.toContain('config.ts');
+      expect(stripSize(result.files)).toContain('parser.test.ts');
+      expect(stripSize(result.files)).toContain('utils.test.ts');
+      expect(stripSize(result.files)).not.toContain('helper.ts');
+      expect(stripSize(result.files)).not.toContain('config.ts');
     });
 
     it('should filter by glob pattern, extensions, and recursive together', async () => {
@@ -512,10 +517,10 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toContain('test1.ts');
-      expect(result.files).toContain('test2.ts');
-      expect(result.files).not.toContain('test10.ts');
-      expect(result.files).not.toContain('testing.ts');
+      expect(stripSize(result.files)).toContain('test1.ts');
+      expect(stripSize(result.files)).toContain('test2.ts');
+      expect(stripSize(result.files)).not.toContain('test10.ts');
+      expect(stripSize(result.files)).not.toContain('testing.ts');
     });
   });
 
@@ -533,7 +538,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.links).toContain('link');
-      expect(result.files).toContain('file.txt');
+      expect(stripSize(result.files)).toContain('file.txt');
     });
 
     it('should identify symlinks in detailed mode', async () => {
@@ -625,7 +630,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeUndefined();
-      expect(result.files).toEqual(['file.txt']);
+      expect(stripSize(result.files)).toEqual(['file.txt']);
     });
 
     it('should honor sortBy=time in lean mode (modified collected internally, not displayed)', async () => {
@@ -652,7 +657,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeUndefined();
-      expect(result.files).toEqual(['old.txt', 'new.txt']);
+      expect(stripSize(result.files)).toEqual(['old.txt', 'new.txt']);
     });
 
     it('should include modified timestamps for sortBy=time when showFileLastModified=true (recursive)', async () => {
@@ -695,7 +700,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.entries).toBeUndefined();
-      expect(result.files).toEqual(['file.txt']);
+      expect(stripSize(result.files)).toEqual(['file.txt']);
     });
 
     it('still surfaces modified in detailed mode (details implies modified) even when showFileLastModified is false', async () => {
@@ -740,8 +745,8 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(lastQueryOptions?.showHidden).toBe(true);
-      expect(result.files).toContain('.hidden');
-      expect(result.files).toContain('visible.txt');
+      expect(stripSize(result.files)).toContain('.hidden');
+      expect(stripSize(result.files)).toContain('visible.txt');
     });
 
     it('should hide hidden files by default', async () => {
@@ -758,8 +763,8 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(lastQueryOptions?.showHidden).toBe(false);
-      expect(result.files).not.toContain('.hidden');
-      expect(result.files).toContain('visible.txt');
+      expect(stripSize(result.files)).not.toContain('.hidden');
+      expect(stripSize(result.files)).toContain('visible.txt');
     });
   });
 
@@ -777,7 +782,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toEqual(['alpha.txt', 'beta.txt', 'gamma.txt']);
+      expect(stripSize(result.files)).toEqual(['alpha.txt', 'beta.txt', 'gamma.txt']);
     });
 
     it('should sort by size in recursive mode', async () => {
@@ -877,7 +882,7 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(result.files).toEqual(['gamma.txt', 'beta.txt', 'alpha.txt']);
+      expect(stripSize(result.files)).toEqual(['gamma.txt', 'beta.txt', 'alpha.txt']);
     });
   });
 
@@ -993,7 +998,7 @@ describe('localViewStructure', () => {
 
       expect(result.status).toBeUndefined();
       expect(result.path).toBe('/test/path');
-      expect(result.files).toContain('file.txt');
+      expect(stripSize(result.files)).toContain('file.txt');
     });
 
     it('should handle max depth limit for recursive', async () => {

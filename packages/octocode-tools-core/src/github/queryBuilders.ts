@@ -294,12 +294,14 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
     return this;
   }
 
-  addReviewFilters(_params: GitHubPullRequestsSearchParams): this {
+  addReviewFilters(params: GitHubPullRequestsSearchParams): this {
+    if (params.review) this.queryParts.push(`review:${params.review}`);
     return this;
   }
 
   addOrganizationFilters(params: GitHubPullRequestsSearchParams): this {
     this.addArrayFilter(params.label, 'label', true);
+    if (params.milestone) this.queryParts.push(`milestone:"${params.milestone}"`);
     return this;
   }
 
@@ -308,6 +310,12 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
     if (params['no-label']) this.queryParts.push('no:label');
     if (params['no-milestone']) this.queryParts.push('no:milestone');
     if (params['no-project']) this.queryParts.push('no:project');
+    if (params.locked === true) this.queryParts.push('is:locked');
+    else if (params.locked === false) this.queryParts.push('is:unlocked');
+    if (params.visibility === 'public') this.queryParts.push('is:public');
+    else if (params.visibility === 'private') this.queryParts.push('is:private');
+    if (params['team-mentions']) this.queryParts.push(`team:${params['team-mentions']}`);
+    if (params.project) this.queryParts.push(`project:${params.project}`);
     return this;
   }
 
@@ -315,6 +323,8 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
     this.queryParts.push(
       params.archived === true ? 'archived:true' : 'archived:false'
     );
+    if (params.language) this.queryParts.push(`language:${params.language}`);
+    if (params.checks) this.queryParts.push(`status:${params.checks}`);
     return this;
   }
 }
@@ -381,6 +391,15 @@ export function shouldUseSearchForPRs(
     params['no-label'] !== undefined ||
     params['no-milestone'] !== undefined ||
     params['no-project'] !== undefined ||
+    params.state === 'merged' ||
+    params.milestone !== undefined ||
+    params.language !== undefined ||
+    params.checks !== undefined ||
+    params.review !== undefined ||
+    params.locked !== undefined ||
+    params.visibility !== undefined ||
+    params['team-mentions'] !== undefined ||
+    params.project !== undefined ||
     params.created !== undefined ||
     params.updated !== undefined ||
     params['merged-at'] !== undefined ||

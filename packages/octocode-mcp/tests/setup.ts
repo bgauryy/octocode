@@ -359,7 +359,7 @@ const mockContent = {
   toolNames: {
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
     GITHUB_SEARCH_CODE: 'ghSearchCode',
-    GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+    GITHUB_SEARCH_PULL_REQUESTS: 'ghHistoryResearch',
     GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
     GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
     PACKAGE_SEARCH: 'npmSearch',
@@ -379,7 +379,7 @@ const mockContent = {
   tools: {
     ghGetFileContent: githubFetchContentSchema,
     ghSearchCode: ghSearchCodeSchema,
-    ghSearchPRs: mockToolSchema,
+    ghHistoryResearch: mockToolSchema,
     ghSearchRepos: mockToolSchema,
     ghViewRepoStructure: mockToolSchema,
     npmSearch: mockToolSchema,
@@ -478,7 +478,7 @@ vi.mock('@octocodeai/octocode-core', async importOriginal => {
     BulkFindFilesSchema: stubBulkSchema(),
     GITHUB_FETCH_CONTENT: 'ghGetFileContent',
     GITHUB_SEARCH_CODE: 'ghSearchCode',
-    GITHUB_SEARCH_PULL_REQUESTS: 'ghSearchPRs',
+    GITHUB_SEARCH_PULL_REQUESTS: 'ghHistoryResearch',
     GITHUB_SEARCH_REPOSITORIES: 'ghSearchRepos',
     GITHUB_VIEW_REPO_STRUCTURE: 'ghViewRepoStructure',
     GITHUB_CLONE_REPO: 'ghCloneRepo',
