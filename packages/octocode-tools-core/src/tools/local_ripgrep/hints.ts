@@ -16,13 +16,18 @@ export const hints: ToolHintGenerators = {
       : [];
     const pattern = typeof c.keywords === 'string' ? c.keywords : undefined;
     const hasFilters = langType || include.length > 0 || excludeDir.length > 0;
-    const searchEngine = typeof c.searchEngine === 'string' ? c.searchEngine : undefined;
+    const searchEngine =
+      typeof c.searchEngine === 'string' ? c.searchEngine : undefined;
 
     if (!pattern && !path && !hasFilters) return [];
 
     const baseHints = hasFilters
-      ? ['Remove include/exclude/langType first, then retry a shorter or literal term.']
-      : ['Try a shorter partial term, fixedString=true for literals, or search a parent directory.'];
+      ? [
+          'Remove include/exclude/langType first, then retry a shorter or literal term.',
+        ]
+      : [
+          'Try a shorter partial term, fixedString=true for literals, or search a parent directory.',
+        ];
 
     if (searchEngine === 'grep') {
       return [

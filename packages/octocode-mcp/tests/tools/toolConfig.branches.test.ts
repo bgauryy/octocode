@@ -83,7 +83,7 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         expect(typeof config.fn).toBe('function');
       }
 
-      expect(ALL_TOOLS).toHaveLength(12);
+      expect(ALL_TOOLS).toHaveLength(13);
     });
 
     it('should have correct tool types assigned', async () => {
@@ -108,11 +108,14 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
       expect(GITHUB_SEARCH_PULL_REQUESTS.type).toBe('history');
     });
 
-    it('should mark all tools as default', async () => {
+    it('should mark all tools as default (except opt-in tools)', async () => {
       const { ALL_TOOLS } = await import('../../src/tools/toolConfig.js');
+      const optInTools = ['localBinaryInspect'];
 
       for (const tool of ALL_TOOLS) {
-        expect(tool.isDefault).toBe(true);
+        if (!optInTools.includes(tool.name)) {
+          expect(tool.isDefault).toBe(true);
+        }
       }
     });
   });

@@ -115,9 +115,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [
-          { keywords: ['short'], owner: 'owner', repo: 'repo' },
-        ],
+        queries: [{ keywords: ['short'], owner: 'owner', repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;
@@ -190,9 +188,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [
-          { keywords: ['x'], owner: 'owner', repo: 'repo', page: 2 },
-        ],
+        queries: [{ keywords: ['x'], owner: 'owner', repo: 'repo', page: 2 }],
       });
 
       const data = result.structuredContent as FlatResponse;
@@ -394,9 +390,7 @@ describe('GitHub Search Code Tool - Page-Based Pagination', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [
-          { keywords: ['nonExistent'], owner: 'owner', repo: 'repo' },
-        ],
+        queries: [{ keywords: ['nonExistent'], owner: 'owner', repo: 'repo' }],
       });
 
       const data = result.structuredContent as FlatResponse;

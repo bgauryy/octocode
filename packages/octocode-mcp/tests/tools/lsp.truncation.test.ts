@@ -8,9 +8,7 @@
  *    display, but appends a guidance note rather than silently cutting.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  LspGetSemanticsQuerySchema,
-} from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
+import { LspGetSemanticsQuerySchema } from '../../../octocode-tools-core/src/tools/lsp/semantic_content/scheme.js';
 
 describe('lspGetSemantics — symbolName required for definition/references/calls', () => {
   it('type=definition without symbolName fails validation', () => {

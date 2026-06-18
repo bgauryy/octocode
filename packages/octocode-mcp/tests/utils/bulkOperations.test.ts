@@ -5,7 +5,6 @@ import { attachRawResponseChars } from '../../../octocode-tools-core/src/utils/r
 import type { QueryStatus } from '../../../octocode-tools-core/src/types/toolResults.js';
 import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import type { ToolName } from '../../../octocode-tools-core/src/tools/toolMetadata/types.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {});

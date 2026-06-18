@@ -93,7 +93,10 @@ describe('localFindFiles.pagination — totalPages when wasFileCapped', () => {
     // 10 entries loaded (capped at limit), 183 total discovered in filesystem
     // totalPages is based on loaded count (10), not discovered count (183)
     // hasMore=false because there is no page 2 — cap info is in totalFilesFound + hint
-    const entries = Array.from({ length: 10 }, (_, i) => `/test/path/file${i}.ts`);
+    const entries = Array.from(
+      { length: 10 },
+      (_, i) => `/test/path/file${i}.ts`
+    );
     setNativeEntries(entries, { totalDiscovered: 183, wasCapped: true });
 
     const result = await findFiles({
@@ -108,7 +111,10 @@ describe('localFindFiles.pagination — totalPages when wasFileCapped', () => {
   });
 
   it('hasMore=false on single page even when wasFileCapped (cap communicated via totalFilesFound)', async () => {
-    const entries = Array.from({ length: 10 }, (_, i) => `/test/path/file${i}.ts`);
+    const entries = Array.from(
+      { length: 10 },
+      (_, i) => `/test/path/file${i}.ts`
+    );
     setNativeEntries(entries, { totalDiscovered: 183, wasCapped: true });
 
     const result = await findFiles({
@@ -125,7 +131,10 @@ describe('localFindFiles.pagination — totalPages when wasFileCapped', () => {
   it('totalPages uses loaded file count / filesPerPage (not discoveredFileCount)', async () => {
     // 20 entries loaded (capped at limit=20), 200 discovered, default filesPerPage=20
     // totalPages = ceil(20/20) = 1, NOT ceil(200/20) = 10
-    const entries = Array.from({ length: 20 }, (_, i) => `/test/path/file${i}.ts`);
+    const entries = Array.from(
+      { length: 20 },
+      (_, i) => `/test/path/file${i}.ts`
+    );
     setNativeEntries(entries, { totalDiscovered: 200, wasCapped: true });
 
     const result = await findFiles({
@@ -140,7 +149,10 @@ describe('localFindFiles.pagination — totalPages when wasFileCapped', () => {
   });
 
   it('totalPages stays 1 when not capped and single page fits all results', async () => {
-    const entries = Array.from({ length: 5 }, (_, i) => `/test/path/file${i}.ts`);
+    const entries = Array.from(
+      { length: 5 },
+      (_, i) => `/test/path/file${i}.ts`
+    );
     setNativeEntries(entries, { totalDiscovered: 5, wasCapped: false });
 
     const result = await findFiles({

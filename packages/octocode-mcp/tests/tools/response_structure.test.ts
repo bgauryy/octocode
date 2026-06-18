@@ -135,9 +135,7 @@ describe('Response Structure Tests - All Tools', () => {
       });
 
       const result = await mockServer.callTool(TOOL_NAMES.GITHUB_SEARCH_CODE, {
-        queries: [
-          { keywords: ['nonexistent'], owner: 'test', repo: 'repo' },
-        ],
+        queries: [{ keywords: ['nonexistent'], owner: 'test', repo: 'repo' }],
       });
 
       expect(result.isError).toBe(false);

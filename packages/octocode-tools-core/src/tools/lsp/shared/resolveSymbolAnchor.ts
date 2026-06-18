@@ -85,7 +85,9 @@ export async function resolveSymbolAnchor(
     const occurrenceRegex = new RegExp(`\\b${escapedName}\\b`, 'g');
     const totalOccurrences = (file.value.content.match(occurrenceRegex) ?? [])
       .length;
-    const lineDeviation = Math.abs(resolved.foundAtLine - (query.lineHint ?? 0));
+    const lineDeviation = Math.abs(
+      resolved.foundAtLine - (query.lineHint ?? 0)
+    );
     const isAmbiguous =
       totalOccurrences > 1 && lineDeviation > 3 ? true : undefined;
 

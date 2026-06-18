@@ -141,15 +141,24 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       expect(responseText).toContain('react');
       expect(responseText).toContain('vercel');
 
-      const repos = result.structuredContent as {
-        results?: Array<{ data?: { repositories?: string[] } }>;
+      type RepoDetail = {
+        owner?: string;
+        repo?: string;
+        stars?: number;
+        forks?: number;
       };
-      const repoLines = repos.results?.[0]?.data?.repositories ?? [];
-      expect(repoLines[0]).toContain('facebook/react');
-      expect(repoLines[0]).toContain('200000 stars');
-      expect(repoLines[0]).toContain('40000 forks');
-      expect(repoLines[1]).toContain('vercel/next.js');
-      expect(responseText).not.toContain('https://github.com/facebook/react');
+      const repos = result.structuredContent as {
+        results?: Array<{ data?: { repositories?: RepoDetail[] } }>;
+      };
+      const repoItems = repos.results?.[0]?.data?.repositories ?? [];
+      expect(`${repoItems[0]?.owner}/${repoItems[0]?.repo}`).toBe(
+        'facebook/react'
+      );
+      expect(repoItems[0]?.stars).toBe(200000);
+      expect(repoItems[0]?.forks).toBe(40000);
+      expect(`${repoItems[1]?.owner}/${repoItems[1]?.repo}`).toBe(
+        'vercel/next.js'
+      );
     });
 
     it('should handle single repository result', async () => {
@@ -463,10 +472,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
       const result = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
         {
-          queries: [
-            { keywords: ['react'] },
-            { keywords: ['vue'] },
-          ],
+          queries: [{ keywords: ['react'] }, { keywords: ['vue'] }],
         }
       );
 
@@ -551,7 +557,7 @@ describe('GitHub Search Repos Tool - Comprehensive Status Tests', () => {
 
       const firstResult = await mockServer.callTool(
         TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-        { queries: [{ keywords: ['repo'] }] }
+        { queries: [{ keywords: ['repo'], concise: true }] }
       );
 
       const firstStructured = firstResult.structuredContent as {

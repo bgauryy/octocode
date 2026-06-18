@@ -6,6 +6,7 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getServerConfig: vi.fn(),
   isLocalEnabled: vi.fn(),
   isCloneEnabled: vi.fn(),
+  isBinaryEnabled: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock(

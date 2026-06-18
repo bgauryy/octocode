@@ -354,6 +354,7 @@ describe('GitHub Search Repositories Query Splitting', () => {
               id: 'ranked_merge',
               topicsToSearch: ['topic'],
               keywords: ['keyword'],
+              concise: true,
             },
           ],
         }

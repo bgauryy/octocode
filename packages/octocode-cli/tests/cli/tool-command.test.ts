@@ -373,7 +373,7 @@ describe('toolCommand', () => {
     const context = await getToolsContextString({ full: true });
 
     expect(publicMocks.loadToolContent).toHaveBeenCalledTimes(1);
-    expect(context).toContain('CLI Usage:');
+    expect(context).toContain('TOOL CALLS');
     expect(context).toContain('octocode tools');
     expect(context).toContain('Use Octocode tools carefully.');
     expect(context).toContain('1. ghSearchCode');

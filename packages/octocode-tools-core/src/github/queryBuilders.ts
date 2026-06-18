@@ -301,7 +301,8 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
 
   addOrganizationFilters(params: GitHubPullRequestsSearchParams): this {
     this.addArrayFilter(params.label, 'label', true);
-    if (params.milestone) this.queryParts.push(`milestone:"${params.milestone}"`);
+    if (params.milestone)
+      this.queryParts.push(`milestone:"${params.milestone}"`);
     return this;
   }
 
@@ -313,8 +314,10 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
     if (params.locked === true) this.queryParts.push('is:locked');
     else if (params.locked === false) this.queryParts.push('is:unlocked');
     if (params.visibility === 'public') this.queryParts.push('is:public');
-    else if (params.visibility === 'private') this.queryParts.push('is:private');
-    if (params['team-mentions']) this.queryParts.push(`team:${params['team-mentions']}`);
+    else if (params.visibility === 'private')
+      this.queryParts.push('is:private');
+    if (params['team-mentions'])
+      this.queryParts.push(`team:${params['team-mentions']}`);
     if (params.project) this.queryParts.push(`project:${params.project}`);
     return this;
   }

@@ -51,7 +51,13 @@ type ContentPaginationEntry = Record<string, unknown> & {
 
 type ContentPagination = Partial<
   Record<
-    'body' | 'changedFiles' | 'comments' | 'commentBody' | 'commits' | 'patches' | 'filePaths',
+    | 'body'
+    | 'changedFiles'
+    | 'comments'
+    | 'commentBody'
+    | 'commits'
+    | 'patches'
+    | 'filePaths',
     ContentPaginationEntry
   >
 >;
@@ -569,12 +575,18 @@ function buildContentPagination(
     };
   }
 
-  if (commentBodyPagination?.hasMore && commentBodyPagination.nextCharOffset !== undefined && request.comments) {
+  if (
+    commentBodyPagination?.hasMore &&
+    commentBodyPagination.nextCharOffset !== undefined &&
+    request.comments
+  ) {
     contentPagination.commentBody = {
       ...commentBodyPagination,
       nextQuery: continuationQuery(query, prNumber, {
         content: { comments: request.comments },
-        ...(query.commentPage !== undefined ? { commentPage: query.commentPage } : {}),
+        ...(query.commentPage !== undefined
+          ? { commentPage: query.commentPage }
+          : {}),
         commentBodyOffset: commentBodyPagination.nextCharOffset,
         charLength: query.charLength,
       }),
@@ -751,7 +763,10 @@ export function buildContentHints(
     body: { label: 'body charOffset', field: 'charOffset' },
     changedFiles: { label: 'changedFiles filePage', field: 'filePage' },
     comments: { label: 'comments commentPage', field: 'commentPage' },
-    commentBody: { label: 'comment body commentBodyOffset', field: 'commentBodyOffset' },
+    commentBody: {
+      label: 'comment body commentBodyOffset',
+      field: 'commentBodyOffset',
+    },
     commits: { label: 'commits commitPage', field: 'commitPage' },
     patches: { label: 'patches charOffset', field: 'charOffset' },
     filePaths: { label: 'file paths filePage', field: 'filePage' },

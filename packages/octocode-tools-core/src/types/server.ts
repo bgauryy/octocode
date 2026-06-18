@@ -19,6 +19,8 @@ export interface ServerConfig {
 
   enableClone: boolean;
 
+  enableBinary?: boolean;
+
   outputFormat: 'yaml' | 'json';
   tokenSource: TokenSourceType;
 }

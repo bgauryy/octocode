@@ -47,6 +47,10 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     owner: 'facebook',
     repo: 'react',
   },
+  [STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT]: {
+    path: '/tmp/test.bin',
+    mode: 'identify',
+  },
 };
 
 function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
@@ -246,8 +250,8 @@ describe('all-tools schema contract', () => {
   );
 
   describe('global invariants', () => {
-    it('ALL_TOOLS contains exactly 12 tools', () => {
-      expect(ALL_TOOLS).toHaveLength(12);
+    it('ALL_TOOLS contains exactly 13 tools', () => {
+      expect(ALL_TOOLS).toHaveLength(13);
     });
 
     it('every tool has a MINIMAL_QUERY entry in this test', () => {
@@ -315,7 +319,7 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      expect(schemeFiles).toHaveLength(12);
+      expect(schemeFiles).toHaveLength(13);
       expect(splitSchemaFiles).toEqual([]);
     });
   });

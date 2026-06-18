@@ -497,6 +497,7 @@ describe('errorCodes', () => {
         local: {
           enabled: true,
           enableClone: false,
+          enableBinary: false,
           allowedPaths: [],
           workspaceRoot: cwd,
         },

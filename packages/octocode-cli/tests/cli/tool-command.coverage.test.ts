@@ -152,12 +152,12 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('Octocode CLI — Agent Context');
     expect(output).toContain('octocode tools <name>');
-    expect(output).toContain('octocode --help');
-    expect(output).toContain('CLI Usage:');
+    expect(output).toContain('octocode <command> --help');
+    expect(output).toContain('TOOL CALLS');
     expect(output).toContain('Server instructions.');
     expect(output).toContain('Exit codes:');
     expect(output).toContain('evidence.answerReady');
-    expect(output).toContain('same Octocode MCP tool implementations');
+    expect(output).toContain('Output contract');
   });
 
   it('A2: default context uses compact field lists, not full JSON schemas', async () => {

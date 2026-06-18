@@ -172,6 +172,7 @@ describe('GitHub Search Repositories Coverage', () => {
         id: 'sort_forks',
         keywords: ['x'],
         sort: 'forks',
+        concise: true,
       });
 
       const repos = result.structuredContent as {
@@ -192,6 +193,7 @@ describe('GitHub Search Repositories Coverage', () => {
         id: 'sort_updated',
         keywords: ['x'],
         sort: 'updated',
+        concise: true,
       });
 
       const repos = result.structuredContent as {
@@ -212,6 +214,7 @@ describe('GitHub Search Repositories Coverage', () => {
         id: 'sort_best_match',
         keywords: ['x'],
         sort: 'best-match',
+        concise: true,
       });
 
       const repos = result.structuredContent as {
@@ -248,6 +251,7 @@ describe('GitHub Search Repositories Coverage', () => {
         id: 'relevance_language',
         keywords: ['whale'],
         language: 'python',
+        concise: true,
       });
 
       const repos = result.structuredContent as {
@@ -498,6 +502,7 @@ describe('GitHub Search Repositories Coverage', () => {
         id: 'sort_stars_undef',
         keywords: ['x'],
         sort: 'stars',
+        concise: true,
       });
       const repos = result.structuredContent as {
         results?: Array<{ data?: { repositories?: string[] } }>;

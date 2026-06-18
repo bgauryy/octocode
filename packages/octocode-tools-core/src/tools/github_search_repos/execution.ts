@@ -131,19 +131,19 @@ function buildReposSearchOutput(
   };
   extraHints: string[];
 } {
-  const verbose = (query as { verbose?: boolean }).verbose === true;
+  const concise = (query as { concise?: boolean }).concise === true;
   return {
     data: {
       pagination: data.pagination,
-      repositories: verbose
-        ? data.repositories.map(buildRepositoryDetail)
-        : data.repositories.map(formatRepoLine),
+      repositories: concise
+        ? data.repositories.map(r => `${r.owner ? `${r.owner}/` : ''}${r.repo}`)
+        : data.repositories.map(buildRepositoryDetail),
     },
-    extraHints: verbose
-      ? []
-      : [
-          'Use verbose=true to get structured objects for programmatic filtering/sorting by stars, language, or date.',
-        ],
+    extraHints: concise
+      ? [
+          'Minimal owner/repo list — re-run without concise (or ghViewRepoStructure) to dive into a chosen repo.',
+        ]
+      : [],
   };
 }
 import {
@@ -620,9 +620,6 @@ export async function searchMultipleGitHubRepos(
 
         const hasContent = repositories.length > 0;
         const hasMore = Boolean(effectivePagination?.hasMore);
-        const variantsPartial =
-          variants.length > 1 && successfulVariants.length < variants.length;
-
         const totalMatchesForHint =
           effectivePagination?.totalMatches ??
           effectivePagination?.reachableTotalMatches ??

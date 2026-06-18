@@ -291,8 +291,19 @@ export function buildGhSearchCodeFinalizer<
       upstreamPagination && upstreamPaginationQueries === 1
         ? upstreamPagination
         : undefined;
+    const conciseMode = queries.some(
+      q => (q as { concise?: boolean }).concise === true
+    );
+    const resultRecords = buildResultRecords(queries, groups, resultPagination);
+    if (conciseMode) {
+      for (const rec of resultRecords) {
+        rec.data.files = rec.data.files.map(
+          f => `${f.owner}/${f.repo}:${f.path}`
+        ) as unknown as typeof rec.data.files;
+      }
+    }
     const responseData: GitHubCodeSearchOutputLocal = {
-      results: buildResultRecords(queries, groups, resultPagination),
+      results: resultRecords,
     };
 
     if (hints.length > 0) responseData.hints = hints;

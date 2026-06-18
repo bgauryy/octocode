@@ -755,14 +755,14 @@ describe('new public LSP tool execution', () => {
       largerFixture,
       [
         'export function target() {', // line 0
-        '  return 1;',               // line 1
-        '}',                         // line 2
-        '// padding line a',         // line 3
-        '// padding line b',         // line 4
-        '// padding line c',         // line 5
-        '// padding line d',         // line 6
-        '// padding line e',         // line 7
-        '// padding line f',         // line 8
+        '  return 1;', // line 1
+        '}', // line 2
+        '// padding line a', // line 3
+        '// padding line b', // line 4
+        '// padding line c', // line 5
+        '// padding line d', // line 6
+        '// padding line e', // line 7
+        '// padding line f', // line 8
         'export function reuse() { return target(); }', // line 9
       ].join('\n')
     );
@@ -770,7 +770,12 @@ describe('new public LSP tool execution', () => {
     // The resolver finds nearest occurrence (line 0 or line 9), lineDeviation >3.
     const result = await executeLspGetSemantics({
       queries: [
-        { uri: largerFixture, type: 'definition', symbolName: 'target', lineHint: 5 },
+        {
+          uri: largerFixture,
+          type: 'definition',
+          symbolName: 'target',
+          lineHint: 5,
+        },
       ],
     } as never);
     const text = textOf(result);

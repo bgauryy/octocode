@@ -13,7 +13,7 @@ mod types;
 mod utf8_offsets;
 mod yaml_utils;
 
-use napi::{bindgen_prelude::AsyncTask, Env, Result, Task};
+use napi::{bindgen_prelude::AsyncTask, Env, Error, Result, Status, Task};
 use napi_derive::napi;
 use types::{
     ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FileSystemQueryOptions,
@@ -370,6 +370,7 @@ pub fn parse_ripgrep_json(
 #[napi(js_name = "queryFileSystem")]
 pub fn query_file_system(options: FileSystemQueryOptions) -> Result<FileSystemQueryResult> {
     fs_query::query_file_system_inner(options)
+        .map_err(|e| Error::new(Status::InvalidArg, e))
 }
 
 // ── UTF-8 offset helpers ──────────────────────────────────────────────────────

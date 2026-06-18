@@ -27,6 +27,7 @@ import { registerLocalViewStructureTool } from './local_view_structure/register.
 import { registerLocalFindFilesTool } from './local_find_files/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
 import { registerLspGetSemanticsTool } from './lsp/semantic_content/register.js';
+import { registerLocalBinaryInspectTool } from './local_binary_inspect/register.js';
 
 export type {
   ToolConfig,
@@ -58,6 +59,7 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
   [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: registerLspGetSemanticsTool,
+  [STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT]: registerLocalBinaryInspectTool,
 };
 
 export const ALL_TOOLS: McpToolConfig[] = CORE_ALL_TOOLS.map(tool => {
@@ -103,4 +105,7 @@ export const LOCAL_FETCH_CONTENT = ALL_TOOLS.find(
 )!;
 export const LSP_GET_SEMANTIC_CONTENT = ALL_TOOLS.find(
   t => t.name === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
+)!;
+export const LOCAL_BINARY_INSPECT = ALL_TOOLS.find(
+  t => t.name === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
 )!;

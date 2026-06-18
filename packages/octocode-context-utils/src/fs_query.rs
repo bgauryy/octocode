@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use napi::{Error, Result, Status};
 use regex::Regex;
 
 use crate::file_extension::get_extension_internal;
@@ -46,16 +45,13 @@ struct QueryState {
 
 pub(crate) fn query_file_system_inner(
     options: FileSystemQueryOptions,
-) -> Result<FileSystemQueryResult> {
+) -> Result<FileSystemQueryResult, String> {
     let query = CompiledQuery::new(options)?;
     let mut state = QueryState::default();
     let root_metadata = fs::symlink_metadata(&query.root).map_err(|err| {
-        Error::new(
-            Status::InvalidArg,
-            format!(
-                "Cannot access filesystem query root '{}': {err}",
-                query.root.display()
-            ),
+        format!(
+            "Cannot access filesystem query root '{}': {err}",
+            query.root.display()
         )
     })?;
 
@@ -66,12 +62,9 @@ pub(crate) fn query_file_system_inner(
     if root_metadata.is_dir() && (query.recursive || !query.include_root) {
         walk_children(&query.root, 1, &query, &mut state);
     } else if !root_metadata.is_dir() && !query.include_root {
-        return Err(Error::new(
-            Status::InvalidArg,
-            format!(
-                "Filesystem query root is not a directory: {}",
-                query.root.display()
-            ),
+        return Err(format!(
+            "Filesystem query root is not a directory: {}",
+            query.root.display()
         ));
     }
 
@@ -87,23 +80,20 @@ pub(crate) fn query_file_system_inner(
 }
 
 impl CompiledQuery {
-    fn new(options: FileSystemQueryOptions) -> Result<Self> {
+    fn new(options: FileSystemQueryOptions) -> Result<Self, String> {
         let root = PathBuf::from(options.path);
         let mut warnings = Vec::new();
         let name_globs = compile_globs(options.names.unwrap_or_default(), "names", &mut warnings);
         let path_glob = match options.path_pattern {
             Some(pattern) => Some(
                 compile_glob(&pattern, "pathPattern")
-                    .map_err(|err| Error::new(Status::InvalidArg, err.reason))?,
+                    .map_err(|err| err.reason)?,
             ),
             None => None,
         };
         let regex = match options.regex {
             Some(pattern) => Some(Regex::new(&pattern).map_err(|err| {
-                Error::new(
-                    Status::InvalidArg,
-                    format!("Invalid regex for local filesystem query: {err}"),
-                )
+                format!("Invalid regex for local filesystem query: {err}")
             })?),
             None => None,
         };
@@ -446,14 +436,11 @@ fn parse_duration(raw: &str) -> Option<u64> {
     }
 }
 
-fn parse_size_option(value: Option<&str>, label: &str) -> Result<Option<u64>> {
+fn parse_size_option(value: Option<&str>, label: &str) -> Result<Option<u64>, String> {
     value
         .map(|raw| {
             parse_size(raw).ok_or_else(|| {
-                Error::new(
-                    Status::InvalidArg,
-                    format!("Invalid {label} value for local filesystem query: {raw}"),
-                )
+                format!("Invalid {label} value for local filesystem query: {raw}")
             })
         })
         .transpose()

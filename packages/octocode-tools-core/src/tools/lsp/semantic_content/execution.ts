@@ -563,8 +563,6 @@ function locationsEnvelope(
     query.page ?? 1,
     query.itemsPerPage ?? DEFAULT_LOCATIONS_PER_PAGE
   );
-  const reason = complete ? undefined : `${provider} returned no locations`;
-
   return {
     type: query.type,
     uri: anchor.uri,

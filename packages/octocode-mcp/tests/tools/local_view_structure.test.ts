@@ -782,7 +782,11 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(stripSize(result.files)).toEqual(['alpha.txt', 'beta.txt', 'gamma.txt']);
+      expect(stripSize(result.files)).toEqual([
+        'alpha.txt',
+        'beta.txt',
+        'gamma.txt',
+      ]);
     });
 
     it('should sort by size in recursive mode', async () => {
@@ -882,7 +886,11 @@ describe('localViewStructure', () => {
       });
 
       expect(result.status).toBeUndefined();
-      expect(stripSize(result.files)).toEqual(['gamma.txt', 'beta.txt', 'alpha.txt']);
+      expect(stripSize(result.files)).toEqual([
+        'gamma.txt',
+        'beta.txt',
+        'alpha.txt',
+      ]);
     });
   });
 

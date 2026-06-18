@@ -28,14 +28,12 @@ describe('main-help', () => {
     expect(output).toContain('SMART COMMANDS');
     expect(output).toContain('TOOLS');
     expect(output).toContain('context');
-    expect(output).toContain('--context');
     expect(output).toContain('tools');
     expect(output).toContain('octocode files');
     expect(output).toContain('octocode repo');
     expect(output).toContain('octocode pkg');
     expect(output).toContain('octocode symbols');
     expect(output).toContain('octocode lsp');
-    expect(output).toContain('--queries');
   });
 });
 

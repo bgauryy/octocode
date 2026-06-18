@@ -64,7 +64,9 @@ describe('minify enum — ghGetFileContent scheme', () => {
 
 describe('minify enum — localGetFileContent scheme', () => {
   it("defaults to 'standard' when omitted (schema-level default — comment-stripped view)", () => {
-    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe('standard');
+    expect(parseMinify(LocalFetchContentQuerySchema, LOCAL_BASE)).toBe(
+      'standard'
+    );
   });
 
   it.each(['none', 'standard', 'symbols'])('accepts "%s"', value => {

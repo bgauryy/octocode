@@ -348,7 +348,6 @@ describe('Local Tools Execution', () => {
       expect(result).toBeDefined();
       expect(result).toHaveProperty('status', 'error');
     });
-
   });
 
   describe('executeRipgrepSearch', () => {
@@ -428,7 +427,6 @@ describe('Local Tools Execution', () => {
         expect.any(Object)
       );
     });
-
   });
 
   describe('executeViewStructure', () => {

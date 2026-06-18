@@ -42,16 +42,21 @@ export function isToolEnabled(
   options: {
     localEnabled: boolean;
     cloneEnabled: boolean;
+    binaryEnabled: boolean;
     filterConfig: ToolFilterConfig;
   }
 ): boolean {
-  const { localEnabled, cloneEnabled, filterConfig } = options;
+  const { localEnabled, cloneEnabled, binaryEnabled, filterConfig } = options;
 
   if (tool.isLocal && !localEnabled) {
     return false;
   }
 
   if (tool.isClone && !cloneEnabled) {
+    return false;
+  }
+
+  if (tool.isBinary && !binaryEnabled) {
     return false;
   }
 

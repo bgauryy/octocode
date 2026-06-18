@@ -11,6 +11,8 @@ export interface LocalConfigOptions {
 
   enableClone?: boolean;
 
+  enableBinary?: boolean;
+
   allowedPaths?: string[];
 
   workspaceRoot?: string;
@@ -77,6 +79,7 @@ export interface RequiredGitHubConfig {
 export interface RequiredLocalConfig {
   enabled: boolean;
   enableClone: boolean;
+  enableBinary: boolean;
   allowedPaths: string[];
   workspaceRoot: string | undefined;
 }

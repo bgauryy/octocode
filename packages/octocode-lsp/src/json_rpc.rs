@@ -413,4 +413,47 @@ mod tests {
             assert!(pending.lock().await.is_empty());
         });
     }
+
+    #[test]
+    fn progress_tracker_returns_immediately_when_never_active() {
+        // No on_begin ever called — wait_until_idle must return within
+        // the settle window (100 ms), not spin for the full timeout.
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            let start = Instant::now();
+            tracker.wait_until_idle(2_000).await;
+            assert!(start.elapsed().as_millis() < 1_000);
+        });
+    }
+
+    #[test]
+    fn progress_tracker_waits_for_active_token_then_returns_idle() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            let t = Arc::clone(&tracker);
+            tokio::spawn(async move {
+                t.on_begin("indexing".to_owned()).await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                t.on_end("indexing").await;
+            });
+            tracker.wait_until_idle(5_000).await;
+            assert_eq!(*tracker.count_rx.borrow(), 0);
+        });
+    }
+
+    #[test]
+    fn progress_tracker_times_out_when_token_never_ends() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            tracker.on_begin("stuck".to_owned()).await;
+            let start = Instant::now();
+            tracker.wait_until_idle(300).await;
+            let elapsed = start.elapsed().as_millis();
+            assert!(elapsed >= 200, "must wait at least ~timeout ms, got {elapsed} ms");
+            assert!(elapsed < 3_000, "must not hang, got {elapsed} ms");
+        });
+    }
 }

@@ -138,7 +138,7 @@ describe('output format — object list with rich metadata', () => {
     const t = text(await callTool('zustand'));
     expect(t).toContain('name: zustand');
     expect(t).toContain('name: jotai');
-    expect(t).toContain('name: \'@tanstack/query\'');
+    expect(t).toContain("name: '@tanstack/query'");
     expect(t).toContain('repositoryDirectory: packages/query-core');
   });
 

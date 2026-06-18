@@ -76,10 +76,13 @@ function formatPackageData(pkg: PackageResult): PackageData {
     if (pkg.version && pkg.version !== 'unknown') data.version = pkg.version;
     if (pkg.description) data.description = pkg.description;
     if (pkg.license) data.license = pkg.license;
-    if (typeof pkg.weeklyDownloads === 'number') data.weeklyDownloads = pkg.weeklyDownloads;
+    if (typeof pkg.weeklyDownloads === 'number')
+      data.weeklyDownloads = pkg.weeklyDownloads;
   }
   if (url) data.repository = url;
-  const root = cleanRelativePath(isNpm(pkg) ? pkg.repositoryDirectory : undefined);
+  const root = cleanRelativePath(
+    isNpm(pkg) ? pkg.repositoryDirectory : undefined
+  );
   if (root) data.repositoryDirectory = root;
   return data;
 }

@@ -19,7 +19,7 @@ describe('filterStructure — orphan top-level dir entries', () => {
       '.': { files: ['README.md'], folders: ['.github', 'src'] },
       '.github': { files: ['CODEOWNERS'], folders: ['workflows'] },
       '.github/workflows': { files: ['ci.yml'], folders: [] },
-      'src': { files: ['index.ts'], folders: [] },
+      src: { files: ['index.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -35,7 +35,7 @@ describe('filterStructure — orphan top-level dir entries', () => {
     const structure = {
       '.': { files: ['README.md'], folders: ['.github', 'src'] },
       '.github': { files: ['CODEOWNERS'], folders: [] },
-      'src': { files: ['index.ts'], folders: [] },
+      src: { files: ['index.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -48,7 +48,7 @@ describe('filterStructure — orphan top-level dir entries', () => {
     const structure = {
       '.': { files: ['package.json'], folders: ['.yarn', 'src'] },
       '.yarn': { files: [], folders: ['cache'] },
-      'src': { files: ['app.ts'], folders: [] },
+      src: { files: ['app.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -59,7 +59,7 @@ describe('filterStructure — orphan top-level dir entries', () => {
   it('keeps root entry "." even though it starts with a dot', () => {
     const structure = {
       '.': { files: ['README.md'], folders: ['src'] },
-      'src': { files: ['index.ts'], folders: [] },
+      src: { files: ['index.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -70,8 +70,8 @@ describe('filterStructure — orphan top-level dir entries', () => {
   it('keeps non-ignored top-level dirs', () => {
     const structure = {
       '.': { files: ['package.json'], folders: ['src', 'tests'] },
-      'src': { files: ['index.ts'], folders: [] },
-      'tests': { files: ['index.test.ts'], folders: [] },
+      src: { files: ['index.ts'], folders: [] },
+      tests: { files: ['index.test.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -83,8 +83,8 @@ describe('filterStructure — orphan top-level dir entries', () => {
   it('removes node_modules as a top-level key', () => {
     const structure = {
       '.': { files: ['package.json'], folders: ['node_modules', 'src'] },
-      'node_modules': { files: [], folders: ['lodash'] },
-      'src': { files: ['app.ts'], folders: [] },
+      node_modules: { files: [], folders: ['lodash'] },
+      src: { files: ['app.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -96,8 +96,8 @@ describe('filterStructure — orphan top-level dir entries', () => {
   it('removes dist as a top-level key', () => {
     const structure = {
       '.': { files: ['package.json'], folders: ['dist', 'src'] },
-      'dist': { files: ['index.js'], folders: [] },
-      'src': { files: ['index.ts'], folders: [] },
+      dist: { files: ['index.js'], folders: [] },
+      src: { files: ['index.ts'], folders: [] },
     };
 
     const result = filterStructure(structure);
@@ -108,7 +108,7 @@ describe('filterStructure — orphan top-level dir entries', () => {
   it('handles nested ignored dir paths correctly (removes top-level key if basename is ignored)', () => {
     const structure = {
       '.': { files: ['README.md'], folders: ['packages'] },
-      'packages': { files: [], folders: ['core', '.git'] },
+      packages: { files: [], folders: ['core', '.git'] },
       'packages/core': { files: ['index.ts'], folders: [] },
       'packages/.git': { files: ['HEAD'], folders: [] },
     };
@@ -126,9 +126,10 @@ describe('filterStructure — orphan top-level dir entries', () => {
 
 describe('ghViewRepoStructure hints.empty', () => {
   it('emits filter-specific hint when wasFilteredToEmpty is true', () => {
-    const result = repoStructureHints.empty(
-      { wasFilteredToEmpty: true, path: 'packages' } as unknown as Parameters<typeof repoStructureHints.empty>[0]
-    );
+    const result = repoStructureHints.empty({
+      wasFilteredToEmpty: true,
+      path: 'packages',
+    } as unknown as Parameters<typeof repoStructureHints.empty>[0]);
     expect(result.length).toBeGreaterThan(0);
     expect(result.some(h => h.includes('filtered'))).toBe(true);
   });

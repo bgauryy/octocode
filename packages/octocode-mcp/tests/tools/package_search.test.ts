@@ -1318,7 +1318,8 @@ describe('registerNpmSearchTool', () => {
             packageName: 'lodash',
             mainResearchGoal: 'Test rich object output',
             researchGoal: 'Test',
-            reasoning: 'Packages now include version, description, license, weeklyDownloads',
+            reasoning:
+              'Packages now include version, description, license, weeklyDownloads',
           },
         ],
       });

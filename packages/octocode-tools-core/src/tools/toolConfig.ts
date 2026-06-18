@@ -49,6 +49,11 @@ import {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQueryDisplaySchema,
 } from './lsp/semantic_content/scheme.js';
+import {
+  LocalBinaryInspectQuerySchema,
+  LocalBinaryInspectBulkQuerySchema,
+} from './local_binary_inspect/scheme.js';
+import { executeInspectBinary } from './local_binary_inspect/execution.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
 import { searchMultipleGitHubCode } from './github_search_code/execution.js';
@@ -90,6 +95,7 @@ export interface ToolConfig {
   isLocal: boolean;
 
   isClone?: boolean;
+  isBinary?: boolean;
   type: 'search' | 'content' | 'history' | 'debug';
 
   skipMetadataCheck?: boolean;
@@ -139,6 +145,7 @@ interface ToolCatalog {
   LOCAL_FIND_FILES: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_GET_SEMANTIC_CONTENT: ToolConfig;
+  LOCAL_BINARY_INSPECT: ToolConfig;
   ALL_TOOLS: ToolConfig[];
 }
 
@@ -320,6 +327,19 @@ function createToolCatalog(
     },
   };
 
+  const LOCAL_BINARY_INSPECT = createTool(gateway, 'LOCAL_BINARY_INSPECT', {
+    isDefault: false,
+    isLocal: true,
+    isBinary: true,
+    type: 'content',
+    direct: {
+      schema: LocalBinaryInspectQuerySchema,
+      inputSchema: LocalBinaryInspectBulkQuerySchema,
+      executionFn: executeInspectBinary,
+      security: 'basic',
+    },
+  });
+
   const ALL_TOOLS: ToolConfig[] = [
     GITHUB_SEARCH_CODE,
     GITHUB_FETCH_CONTENT,
@@ -333,6 +353,7 @@ function createToolCatalog(
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
+    LOCAL_BINARY_INSPECT,
   ];
 
   return {
@@ -348,6 +369,7 @@ function createToolCatalog(
     LOCAL_FIND_FILES,
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
+    LOCAL_BINARY_INSPECT,
     ALL_TOOLS,
   };
 }
@@ -370,4 +392,5 @@ export const LOCAL_FIND_FILES = DEFAULT_TOOL_CATALOG.LOCAL_FIND_FILES;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_GET_SEMANTIC_CONTENT =
   DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;
+export const LOCAL_BINARY_INSPECT = DEFAULT_TOOL_CATALOG.LOCAL_BINARY_INSPECT;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

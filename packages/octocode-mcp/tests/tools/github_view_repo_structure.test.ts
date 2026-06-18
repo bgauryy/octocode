@@ -732,7 +732,9 @@ describe('GitHub View Repository Structure Tool', () => {
     );
 
     expect(result.isError).toBe(false);
-    const structured = result.structuredContent as { results?: Array<{ data?: Record<string, unknown> }> };
+    const structured = result.structuredContent as {
+      results?: Array<{ data?: Record<string, unknown> }>;
+    };
     const data = structured.results?.[0]?.data ?? {};
     expect(data).toHaveProperty('fileSizes');
     const fileSizes = data.fileSizes as Record<string, number>;

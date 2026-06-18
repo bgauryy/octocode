@@ -195,7 +195,8 @@ function buildFileSizeMap(
     }
     const lastSlash = relativePath.lastIndexOf('/');
     const dirKey = lastSlash === -1 ? '.' : relativePath.slice(0, lastSlash);
-    const fileName = lastSlash === -1 ? relativePath : relativePath.slice(lastSlash + 1);
+    const fileName =
+      lastSlash === -1 ? relativePath : relativePath.slice(lastSlash + 1);
     if (!sizeMap[dirKey]) sizeMap[dirKey] = Object.create(null);
     sizeMap[dirKey]![fileName] = item.size;
   }
@@ -313,7 +314,9 @@ async function viewGitHubRepositoryStructureAPIInternal(
 
     const sortedStructure = buildStructureTree(paginatedItems, cleanPath);
 
-    const cachedFileSizeMap: Record<string, Record<string, number>> | undefined =
+    const cachedFileSizeMap:
+      | Record<string, Record<string, number>>
+      | undefined =
       params.includeSizes === true
         ? buildFileSizeMap(filteredItems, cleanPath)
         : undefined;

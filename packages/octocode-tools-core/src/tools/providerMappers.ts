@@ -242,7 +242,8 @@ export function mapCodeSearchProviderResult(
         match.matchIndices = m.positions.map(([start, end]) => ({
           start,
           end,
-          lineOffset: (m.context ?? '').substring(0, start).split('\n').length - 1,
+          lineOffset:
+            (m.context ?? '').substring(0, start).split('\n').length - 1,
         }));
       }
       if (verbose && firstMatchForItem && itemExtra.url) {
@@ -618,9 +619,10 @@ export function mapFileContentProviderResult(
   return {
     path: data.path,
     content: data.content,
-    ...(typeof data.size === 'number' && data.size > 0 && {
-      fileSize: data.size,
-    }),
+    ...(typeof data.size === 'number' &&
+      data.size > 0 && {
+        fileSize: data.size,
+      }),
     ...(typeof data.totalLines === 'number' && {
       totalLines: data.totalLines,
     }),
@@ -713,8 +715,9 @@ export function mapRepoStructureProviderResult(
       folders: entry.folders,
     }));
 
-  const fileSizeMap = (data as { fileSizeMap?: Record<string, Record<string, number>> })
-    .fileSizeMap;
+  const fileSizeMap = (
+    data as { fileSizeMap?: Record<string, Record<string, number>> }
+  ).fileSizeMap;
   const fileSizes: Record<string, number> = {};
   if (fileSizeMap) {
     for (const [dirPath, dirFiles] of Object.entries(fileSizeMap)) {

@@ -131,10 +131,12 @@ export function applyStructurePagination(
       for (const [fileName, size] of Object.entries(dirFiles)) {
         const fullPath =
           dirKey === '.'
-            ? (basePath2 ? `${basePath2}/${fileName}` : fileName)
-            : (basePath2
-                ? `${basePath2}/${dirKey}/${fileName}`
-                : `${dirKey}/${fileName}`);
+            ? basePath2
+              ? `${basePath2}/${fileName}`
+              : fileName
+            : basePath2
+              ? `${basePath2}/${dirKey}/${fileName}`
+              : `${dirKey}/${fileName}`;
         if (pageFilePaths.has(fullPath)) {
           if (!map[dirKey]) map[dirKey] = Object.create(null);
           map[dirKey]![fileName] = size;

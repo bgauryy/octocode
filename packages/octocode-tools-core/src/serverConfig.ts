@@ -81,6 +81,7 @@ export async function initialize(): Promise<void> {
       loggingEnabled: resolved.telemetry.logging,
       enableLocal: resolved.local.enabled,
       enableClone: resolved.local.enableClone,
+      enableBinary: resolved.local.enableBinary,
       outputFormat: resolved.output.format,
       tokenSource: tokenResult.source,
     };
@@ -127,6 +128,11 @@ export function isLocalEnabled(): boolean {
 export function isCloneEnabled(): boolean {
   const cfg = getServerConfig();
   return cfg.enableLocal && cfg.enableClone;
+}
+
+export function isBinaryEnabled(): boolean {
+  const cfg = getServerConfig();
+  return cfg.enableLocal && (cfg.enableBinary ?? false);
 }
 
 export function isLoggingEnabled(): boolean {

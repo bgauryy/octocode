@@ -19,10 +19,6 @@ const queryOverrides = {
     .default(500),
   maxMatchesPerFile: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
   maxFiles: clampedInt(1, MAX_MATCH_CONTENT_LENGTH).optional(),
-  sort: z
-    .enum(['path', 'modified', 'accessed', 'created'])
-    .optional()
-    .default('path'),
   matchPage: relaxedPageNumberField.optional(),
   itemsPerPage: clampedInt(1, MAX_PAGE_NUMBER).optional(),
   page: relaxedPageNumberField.default(1),

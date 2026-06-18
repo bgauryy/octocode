@@ -87,8 +87,7 @@ export async function searchMultipleGitHubPullRequests(
 
           const path = q.path;
           // A path ending in '/' is a directory prefix → repo mode; a specific file path → file mode
-          const historyType =
-            path && !path.endsWith('/') ? 'file' : 'repo';
+          const historyType = path && !path.endsWith('/') ? 'file' : 'repo';
 
           if (historyType === 'file' && !path) {
             return createErrorResult(
@@ -211,16 +210,24 @@ export async function searchMultipleGitHubPullRequests(
           !effectiveQuery.created &&
           (effectiveQuery.state === 'merged' ||
             (effectiveQuery as { merged?: boolean }).merged === true);
-        if (looksLikeArchaeology && !effectiveQuery.sort && !effectiveQuery.order) {
+        if (
+          looksLikeArchaeology &&
+          !effectiveQuery.sort &&
+          !effectiveQuery.order
+        ) {
           downgradeHints.push(
             'To find the PR that first introduced a feature: sort:"created" order:"asc". Use match:["title"] for title-only and query:\'"exact phrase"\' for phrase matching.'
           );
-        } else if (hasTextQuery && !effectiveQuery.created && !effectiveQuery.sort && !effectiveQuery.order) {
+        } else if (
+          hasTextQuery &&
+          !effectiveQuery.created &&
+          !effectiveQuery.sort &&
+          !effectiveQuery.order
+        ) {
           downgradeHints.push(
             'Archaeology tip: add state:"merged" sort:"created" order:"asc" to find the oldest matching merged PR. Use match:["title"] for title-only matching.'
           );
         }
-
 
         const hasValidParams =
           effectiveQuery.keywordsToSearch?.length ||
@@ -295,12 +302,17 @@ export async function searchMultipleGitHubPullRequests(
         );
         resultData.pull_requests = shapedPullRequests;
 
-        const hasContent = shapedPullRequests.length > 0;
-        const totalCount =
-          (providerResult.response.data as { total_count?: number })
-            .total_count ?? -1;
-        const confirmedZero = !hasContent && totalCount === 0;
+        if (
+          !hasPrNumber &&
+          (effectiveQuery as { concise?: boolean }).concise === true
+        ) {
+          resultData.pull_requests = shapedPullRequests.map(pr => {
+            const p = pr as { number?: unknown; title?: unknown };
+            return `#${p.number} ${p.title}`;
+          }) as unknown as typeof resultData.pull_requests;
+        }
 
+        const hasContent = shapedPullRequests.length > 0;
         const paginationHints = pagination
           ? buildPaginationHints(
               {
@@ -372,8 +384,6 @@ export async function searchMultipleGitHubPullRequests(
             );
           }
         }
-
-        const hasMore = Boolean(pagination?.hasMore);
 
         const matchStringHints =
           hasPrNumber &&

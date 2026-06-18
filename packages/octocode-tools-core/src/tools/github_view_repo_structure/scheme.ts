@@ -12,18 +12,13 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
-import { z } from 'zod';
 
+// Field set + descriptions (incl. includeSizes) come from octocode-core; the
+// runtime only relaxes the numeric/pagination bounds (clamp instead of reject).
 const queryOverrides = {
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
   page: relaxedPageNumberField.default(1),
   itemsPerPage: clampedInt(1, GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE).optional(),
-  includeSizes: z
-    .boolean()
-    .optional()
-    .describe(
-      'When true, includes file sizes (bytes) in a fileSizes field alongside the structure.'
-    ),
 } as const;
 
 export const GitHubViewRepoStructureQueryLocalSchema = describeQuerySchema(

@@ -23,7 +23,7 @@ describe('new public LSP tools', () => {
     for (const removedName of removedLspToolNames) {
       expect(names).not.toContain(removedName);
     }
-    expect(names).toHaveLength(12);
+    expect(names).toHaveLength(13);
   });
 
   it('registers the semantic tool with read-only annotations', () => {
@@ -82,9 +82,10 @@ describe('new public LSP tools', () => {
   });
 
   it('empty hint for references guides toward callers for cross-package calls', () => {
-    const result = lspHints.empty(
-      { symbolName: 'foo', type: 'references' } as unknown as Parameters<typeof lspHints.empty>[0]
-    );
+    const result = lspHints.empty({
+      symbolName: 'foo',
+      type: 'references',
+    } as unknown as Parameters<typeof lspHints.empty>[0]);
     expect(result.some(h => h.includes('callers'))).toBe(true);
   });
 });

@@ -415,4 +415,48 @@ mod tests {
         let b = find_char_boundary(s, pos);
         assert!(s.is_char_boundary(b));
     }
+
+    // ghp_ + 36 alphanum satisfies githubTokens regex {36,255}.
+    const FAKE_GH_TOKEN: &str = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    // AKIA + 16 uppercase alphanum satisfies awsAccessKeyId regex.
+    const FAKE_AWS_KEY: &str = "AKIAIOSFODNN7EXAMPLE";
+
+    #[test]
+    fn detect_single_redacts_aws_access_key_id() {
+        let input = format!("AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}");
+        let result = detect_single(&input, None);
+        assert!(
+            result.sanitized.contains("[REDACTED-AWSACCESSKEYID]"),
+            "expected redaction, got: {}",
+            result.sanitized
+        );
+        assert!(result.secrets_detected.contains(&"awsAccessKeyId".to_string()));
+    }
+
+    #[test]
+    fn mask_text_masks_even_indexed_chars_of_matched_secret() {
+        let output = mask_text(FAKE_GH_TOKEN.to_string());
+        // Must differ from input and preserve byte length.
+        assert_ne!(output, FAKE_GH_TOKEN);
+        assert_eq!(output.len(), FAKE_GH_TOKEN.len(), "masking must not change byte length");
+        // Even-indexed chars (0, 2, 4, ...) in the matched region become '*';
+        // odd-indexed chars are kept verbatim.
+        let mut chars = output.chars();
+        assert_eq!(chars.next(), Some('*')); // 'g' → '*'
+        assert_eq!(chars.next(), Some('h')); // 'h' preserved
+        assert_eq!(chars.next(), Some('*')); // 'p' → '*'
+        assert_eq!(chars.next(), Some('_')); // '_' preserved
+        assert_eq!(chars.next(), Some('*')); // first 'a' → '*'
+        assert_eq!(chars.next(), Some('a')); // second 'a' preserved
+    }
+
+    #[test]
+    fn mask_text_preserves_non_matching_prefix_and_suffix() {
+        // Use spaces as separators: '_' is a word-char and would break the \b boundary.
+        let input = format!("token: {FAKE_GH_TOKEN}, rest");
+        let output = mask_text(input.clone());
+        assert!(output.starts_with("token: "), "prefix must be untouched");
+        assert!(output.ends_with(", rest"), "suffix must be untouched");
+        assert!(output.contains('*'), "match region must be masked");
+    }
 }

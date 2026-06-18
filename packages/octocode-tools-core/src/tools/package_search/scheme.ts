@@ -35,17 +35,21 @@ export const NpmSearchOutputLocalSchema = z
           id: z.string(),
           data: z
             .looseObject({
-              packages: z.array(
-                z.object({
-                  name: z.string(),
-                  version: z.string().optional(),
-                  description: z.string().optional(),
-                  license: z.string().optional(),
-                  weeklyDownloads: z.number().optional(),
-                  repository: z.string().optional(),
-                  repositoryDirectory: z.string().optional(),
-                }).passthrough()
-              ).optional(),
+              packages: z
+                .array(
+                  z
+                    .object({
+                      name: z.string(),
+                      version: z.string().optional(),
+                      description: z.string().optional(),
+                      license: z.string().optional(),
+                      weeklyDownloads: z.number().optional(),
+                      repository: z.string().optional(),
+                      repositoryDirectory: z.string().optional(),
+                    })
+                    .passthrough()
+                )
+                .optional(),
               pagination: z
                 .object({
                   currentPage: z.number(),

@@ -57,9 +57,13 @@ export const hints: ToolHintGenerators = {
         ? 'No merged PRs matched — widen the date range or remove author/label filters.'
         : 'Remove filters one at a time to find what is too narrow.',
       ...(query && !alreadyTitleScope
-        ? ['For title-only matching use match:["title"] with sort:"best-match".']
+        ? [
+            'For title-only matching use match:["title"] with sort:"best-match".',
+          ]
         : !query
-          ? ['Add a keyword (keywordsToSearch) to narrow by title or body text.']
+          ? [
+              'Add a keyword (keywordsToSearch) to narrow by title or body text.',
+            ]
           : []),
     ];
   },
@@ -71,7 +75,8 @@ export const hints: ToolHintGenerators = {
       ];
     }
     if (ctx.status === 401) return ['GITHUB_TOKEN is missing or expired.'];
-    if (ctx.status === 403) return ['Token lacks repo scope — check GITHUB_TOKEN permissions.'];
+    if (ctx.status === 403)
+      return ['Token lacks repo scope — check GITHUB_TOKEN permissions.'];
     return [];
   },
 };

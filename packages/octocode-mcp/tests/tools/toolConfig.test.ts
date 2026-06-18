@@ -28,8 +28,8 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP = 12)', () => {
-      expect(ALL_TOOLS).toHaveLength(12);
+    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP + 1 BinaryInspect = 13)', () => {
+      expect(ALL_TOOLS).toHaveLength(13);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
 
@@ -50,9 +50,12 @@ describe('Tool Configuration', () => {
       }
     });
 
-    it('should have all tools marked as default', () => {
+    it('should have all tools marked as default (except opt-in tools)', () => {
+      const optInTools = ['localBinaryInspect'];
       ALL_TOOLS.forEach(tool => {
-        expect(tool.isDefault).toBe(true);
+        if (!optInTools.includes(tool.name)) {
+          expect(tool.isDefault).toBe(true);
+        }
       });
     });
 
@@ -73,7 +76,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for Local tools', () => {
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
-      expect(localTools).toHaveLength(6);
+      expect(localTools).toHaveLength(7);
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
       });
@@ -146,7 +149,6 @@ describe('Tool Configuration', () => {
       expect(PACKAGE_SEARCH.isLocal).toBe(false);
       expect(PACKAGE_SEARCH.fn).toBeTypeOf('function');
     });
-
   });
 
   describe('Local tool configs', () => {
@@ -209,7 +211,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(11);
+      expect(nonCloneTools).toHaveLength(12);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

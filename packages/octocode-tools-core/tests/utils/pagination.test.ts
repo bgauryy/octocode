@@ -35,6 +35,7 @@ describe('pagination core', () => {
       charOffset: 3,
       charLength: 4,
       totalChars: 10,
+      nextCharOffset: 7,
     });
   });
 

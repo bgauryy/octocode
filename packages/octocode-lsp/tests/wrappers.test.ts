@@ -9,7 +9,7 @@ function nativeMock() {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     waitForReady: vi.fn().mockResolvedValue(undefined),
-    getRecentStderr: vi.fn(() => []),
+    getRecentStderr: vi.fn((): string[] => []),
     openDocument: vi.fn().mockResolvedValue(undefined),
     getDefinition: vi.fn().mockResolvedValue([{ uri: 'file:///a.ts' }]),
     getReferences: vi.fn().mockResolvedValue([{ uri: 'file:///b.ts' }]),

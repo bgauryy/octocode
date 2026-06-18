@@ -290,9 +290,7 @@ describe('Query Builders', () => {
 
     it('should quote punctuation-heavy keywords so they match literally (SC-3)', () => {
       expect(
-        buildCodeSearchQuery(
-          toCodeSearchQuery({ keywords: ['$state'] })
-        )
+        buildCodeSearchQuery(toCodeSearchQuery({ keywords: ['$state'] }))
       ).toBe('"$state"');
       expect(
         buildCodeSearchQuery(

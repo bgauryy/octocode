@@ -132,3 +132,103 @@ fn is_executable_path(path: &Path) -> bool {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("octocode_lsp_validation_{name}_{}", nanos))
+    }
+
+    // ── safe_read_file ────────────────────────────────────────────────────────
+
+    #[test]
+    fn safe_read_file_rejects_relative_path() {
+        let result = safe_read_file("relative/path.txt".to_owned());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("must be absolute"));
+    }
+
+    #[test]
+    fn safe_read_file_rejects_nonexistent_path() {
+        let path = temp_path("nonexistent");
+        let result = safe_read_file(path.to_string_lossy().into_owned());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn safe_read_file_rejects_directory() {
+        let dir = temp_path("dir");
+        fs::create_dir_all(&dir).expect("create dir");
+        let result = safe_read_file(dir.to_string_lossy().into_owned());
+        let _ = fs::remove_dir(&dir);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("not a regular file"));
+    }
+
+    #[test]
+    fn safe_read_file_reads_content_of_existing_file() {
+        let path = temp_path("readable");
+        fs::write(&path, b"hello octocode").expect("write fixture");
+        let result = safe_read_file(path.to_string_lossy().into_owned());
+        let _ = fs::remove_file(&path);
+        assert_eq!(result.expect("safe_read_file"), "hello octocode");
+    }
+
+    // ── validate_lsp_server_path ──────────────────────────────────────────────
+
+    #[test]
+    fn validate_lsp_server_path_rejects_empty_string() {
+        assert!(validate_lsp_server_path(String::new()).is_err());
+        assert!(validate_lsp_server_path("   ".to_owned()).is_err());
+    }
+
+    #[test]
+    fn validate_lsp_server_path_rejects_shell_wrappers() {
+        for shell in ["sh", "bash", "zsh", "fish", "cmd", "powershell", "pwsh"] {
+            let result = validate_lsp_server_path(shell.to_owned());
+            assert!(
+                result.is_err(),
+                "shell '{shell}' must be rejected but was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_lsp_server_path_rejects_nonexistent_absolute_path() {
+        let path = temp_path("nonexistent_server");
+        let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_lsp_server_path_rejects_non_executable_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("nonexec");
+        fs::write(&path, b"#!/bin/sh").expect("write");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
+        let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
+        let _ = fs::remove_file(&path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("not executable"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_lsp_server_path_accepts_executable_absolute_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("server_exec");
+        fs::write(&path, b"#!/bin/sh\necho ok\n").expect("write");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let result = validate_lsp_server_path(path.to_string_lossy().into_owned());
+        let _ = fs::remove_file(&path);
+        assert!(result.is_ok(), "executable file must be accepted: {:?}", result);
+    }
+}

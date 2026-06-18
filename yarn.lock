@@ -2147,10 +2147,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core":
   version: 16.1.1
-  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=f5ff5a&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
+  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=497941&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/9d2997231dc449794dcd252b25b13647b0decae2c78c42993118772a2295dd799d5095ecff94e3634c7005027f9afd787821a9b6ab0e80ad0d968885b745983d
+  checksum: 10c0/bce39467231b8ac665b71d08deb85548bc734dd9c8e26c764fcdfd4f3b9eb008df467085338e2696c58d4c0c0def62bbd0661f2927dd52979b349f24d3dfeec3
   languageName: node
   linkType: hard
 
