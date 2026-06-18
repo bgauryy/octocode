@@ -152,7 +152,8 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('Octocode CLI — Agent Context');
     expect(output).toContain('octocode tools <name>');
-    expect(output).toContain('octocode <command> --help');
+    // Smart commands section removed; verify RESEARCH LOOP and TOOL CALLS are present
+    expect(output).toContain('RESEARCH LOOP');
     expect(output).toContain('TOOL CALLS');
     expect(output).toContain('Server instructions.');
     expect(output).toContain('Exit codes:');
@@ -167,11 +168,13 @@ describe('tool-command coverage', () => {
     const compact = await getToolsContextString();
     const full = await getToolsContextString({ full: true });
 
-    expect(compact).toContain('Input fields:');
+    // Schemas are no longer embedded in context — read them on demand via octocode tools <name>
     expect(compact).not.toContain('"$schema"');
-    expect(full).toContain('Input schema:');
-    expect(full).toContain('"$schema"');
-    expect(compact.length).toBeLessThan(full.length);
+    expect(compact).toContain('RESEARCH LOOP');
+    expect(full).toContain('RESEARCH LOOP');
+    // full mode includes the complete description text on a separate line
+    expect(full).toContain('Search code.');
+    expect(full).toContain('Clone a repo.');
   });
 
   it('A1: --compact emits minified structuredContent only', async () => {
@@ -240,8 +243,8 @@ describe('tool-command coverage', () => {
     const context = await getToolsContextString();
 
     expect(context).toContain('legacyTool');
-    expect(context).toContain('"foo": "Foo description"');
-    expect(context).toContain('"bar": "Bar description"');
+    // Schema is no longer embedded in context — tool description is shown instead
+    expect(context).toContain('Legacy tool.');
   });
 
   it('rejects an unknown tool name and sets exitCode NOT_FOUND (3)', async () => {
@@ -707,7 +710,9 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('keywords');
-    expect(output).toContain('page (integer)');
+    // page field format includes constraints: 'page (integer, 1-1000, default 1)'
+    expect(output).toContain('page');
+    expect(output).toContain('integer');
     expect(output).toContain('sort');
   });
 

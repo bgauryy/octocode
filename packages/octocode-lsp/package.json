@@ -142,12 +142,12 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "octocode-lsp-darwin-arm64": "workspace:*",
-    "octocode-lsp-darwin-x64": "workspace:*",
-    "octocode-lsp-linux-arm64-gnu": "workspace:*",
-    "octocode-lsp-linux-x64-gnu": "workspace:*",
-    "octocode-lsp-linux-x64-musl": "workspace:*",
-    "octocode-lsp-win32-x64-msvc": "workspace:*"
+    "octocode-lsp-darwin-arm64": "16.3.0",
+    "octocode-lsp-darwin-x64": "16.3.0",
+    "octocode-lsp-linux-arm64-gnu": "16.3.0",
+    "octocode-lsp-linux-x64-gnu": "16.3.0",
+    "octocode-lsp-linux-x64-musl": "16.3.0",
+    "octocode-lsp-win32-x64-msvc": "16.3.0"
   },
   "engines": {
     "node": ">=20.0.0"

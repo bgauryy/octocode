@@ -97,7 +97,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-tools-core": "workspace:^"
+    "@octocodeai/octocode-tools-core": "^16.3.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

@@ -260,7 +260,7 @@ export async function showAvailableTools(): Promise<void> {
     `    ${c('yellow', 'octocode tools <n1> <n2> ...')}                     ${dim('# batch schema reads')}`
   );
   console.log(
-    `    ${c('yellow', 'octocode context --full')}                          ${dim('# full protocol + all schemas inline')}`
+    `    ${c('yellow', 'octocode context --full')}                          ${dim('# full protocol + complete tool descriptions')}`
   );
   console.log();
 
@@ -487,7 +487,7 @@ export async function getToolsContextString(
       '  1. Orient: localViewStructure / ghViewRepoStructure / npmSearch.',
       '  2. Search: localSearchCode / ghSearchCode.',
       '  3. Read: localGetFileContent / ghGetFileContent — smallest slice, choose minify standard|symbols|none.',
-      '  4. Prove: lspGetSemantics or ghSearchPRs; stop when evidence.answerReady is true.',
+      '  4. Prove: lspGetSemantics or ghHistoryResearch; stop when evidence.answerReady is true.',
       '',
       '  *** TOOL CALLS ***',
       "  octocode tools <name> --queries '<json>'           # run tool, YAML output",

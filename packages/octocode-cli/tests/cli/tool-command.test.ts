@@ -379,10 +379,9 @@ describe('toolCommand', () => {
     expect(context).toContain('1. ghSearchCode');
     expect(context).toContain('2. ghCloneRepo');
     expect(context).toContain('3. localSearchCode');
-    expect(context).toContain('Input schema:');
-    expect(context).toContain('"keywords"');
-    expect(context).toContain('"owner"');
-    expect(context).toContain('"repo"');
+    // full mode includes complete tool descriptions
+    expect(context).toContain('Search code in GitHub repositories.');
+    expect(context).toContain('Clone a repository locally.');
   });
 
   it('builds a lean default tools context (compact field lists)', async () => {
@@ -391,8 +390,11 @@ describe('toolCommand', () => {
 
     const context = await getToolsContextString();
 
-    expect(context).toContain('Input fields:');
+    // lean mode includes short tool descriptions inline
+    expect(context).toContain(
+      '1. ghSearchCode — Search code in GitHub repositories.'
+    );
     expect(context).not.toContain('"$schema"');
-    expect(context).toContain('1. ghSearchCode');
+    expect(context).toContain('RESEARCH LOOP');
   });
 });

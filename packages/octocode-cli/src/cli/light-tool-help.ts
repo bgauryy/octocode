@@ -50,38 +50,28 @@ export function printLightInstructions(options: { full?: boolean } = {}): void {
   console.log('Octocode CLI — Agent Context');
   console.log();
   console.log(
-    'This fallback output shows the CLI protocol and compact tool summaries. Full MCP metadata needs the packaged runtime.'
+    'This fallback output shows the CLI protocol. Full MCP metadata needs the packaged runtime.'
   );
   console.log();
-  console.log(
-    'Smart commands: get, tree, files, search, pr, repo, pkg, symbols, lsp.'
-  );
-  console.log(
-    '1. Start research with smart commands: tree/repo/pkg/pr -> files/search -> get -> symbols/lsp or PR content.'
-  );
-  console.log('2. Show smart-command help with:');
-  console.log('   octocode <command> --help');
-  console.log('3. For raw MCP tools, inspect the schema before calling:');
-  console.log('   octocode tools <name> --scheme');
-  console.log('   octocode tools <name>');
+  console.log('Protocol:');
+  console.log('1. Authenticate before using GitHub tools:');
+  console.log('   octocode auth login');
+  console.log('   octocode status          # verify auth + cache');
+  console.log('2. Inspect a tool schema before calling (required):');
+  console.log('   octocode tools <name>    # schema: fields, types, example');
+  console.log('   octocode tools <n1> <n2> ...  # batch schema reads');
   console.log("   octocode tools <name> --queries '<json>'");
+  console.log('3. Read the agent protocol and tool descriptions:');
   console.log(
-    '4. Use `octocode context` or `octocode --context` for the agent protocol and system prompt; add --full for full schemas when runtime loads.'
+    '   octocode context         # protocol + system prompt + tool descriptions'
   );
+  console.log('   octocode context --full  # full tool descriptions');
+  console.log('4. Browse and install agent skills:');
+  console.log('   octocode skills list');
+  console.log('   octocode skills install --skill <name>');
   console.log(
-    '5. Read default YAML directly; use --json only when you need the envelope.'
+    '5. Read YAML output directly; use --json only when you need the envelope.'
   );
-  console.log();
-  console.log('Smart commands:');
-  console.log('  octocode get <path|owner/repo/file>');
-  console.log('  octocode tree <path|owner/repo>');
-  console.log('  octocode files <query> [path|repo]');
-  console.log('  octocode search <pattern> <path|repo>');
-  console.log('  octocode pr <owner/repo[#N] | PR-URL>');
-  console.log('  octocode repo <keywords...>');
-  console.log('  octocode pkg <package>');
-  console.log('  octocode symbols <file|path>       # outline first');
-  console.log('  octocode lsp <file> --type <type>  # nav after symbol+line');
   console.log();
   showLightAvailableTools();
   if (options.full) {

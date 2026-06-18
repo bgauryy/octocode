@@ -98,12 +98,12 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "octocode-security-darwin-arm64": "workspace:*",
-    "octocode-security-darwin-x64": "workspace:*",
-    "octocode-security-linux-arm64-gnu": "workspace:*",
-    "octocode-security-linux-x64-gnu": "workspace:*",
-    "octocode-security-linux-x64-musl": "workspace:*",
-    "octocode-security-win32-x64-msvc": "workspace:*"
+    "octocode-security-darwin-arm64": "16.3.0",
+    "octocode-security-darwin-x64": "16.3.0",
+    "octocode-security-linux-arm64-gnu": "16.3.0",
+    "octocode-security-linux-x64-gnu": "16.3.0",
+    "octocode-security-linux-x64-musl": "16.3.0",
+    "octocode-security-win32-x64-msvc": "16.3.0"
   },
   "napi": {
     "binaryName": "octocode-security",

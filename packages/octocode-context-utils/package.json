@@ -33,12 +33,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@octocodeai/octocode-context-utils-darwin-arm64": "workspace:*",
-    "@octocodeai/octocode-context-utils-darwin-x64": "workspace:*",
-    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "workspace:*",
-    "@octocodeai/octocode-context-utils-linux-x64-gnu": "workspace:*",
-    "@octocodeai/octocode-context-utils-linux-x64-musl": "workspace:*",
-    "@octocodeai/octocode-context-utils-win32-x64-msvc": "workspace:*"
+    "@octocodeai/octocode-context-utils-darwin-arm64": "16.3.0",
+    "@octocodeai/octocode-context-utils-darwin-x64": "16.3.0",
+    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "16.3.0",
+    "@octocodeai/octocode-context-utils-linux-x64-gnu": "16.3.0",
+    "@octocodeai/octocode-context-utils-linux-x64-musl": "16.3.0",
+    "@octocodeai/octocode-context-utils-win32-x64-msvc": "16.3.0"
   },
   "engines": {
     "node": ">=20.0.0"

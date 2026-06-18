@@ -2078,53 +2078,53 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils-darwin-arm64@workspace:*, @octocodeai/octocode-context-utils-darwin-arm64@workspace:packages/octocode-context-utils/npm/darwin-arm64":
+"@octocodeai/octocode-context-utils-darwin-arm64@npm:16.3.0, @octocodeai/octocode-context-utils-darwin-arm64@workspace:packages/octocode-context-utils/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils-darwin-arm64@workspace:packages/octocode-context-utils/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils-darwin-x64@workspace:*, @octocodeai/octocode-context-utils-darwin-x64@workspace:packages/octocode-context-utils/npm/darwin-x64":
+"@octocodeai/octocode-context-utils-darwin-x64@npm:16.3.0, @octocodeai/octocode-context-utils-darwin-x64@workspace:packages/octocode-context-utils/npm/darwin-x64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils-darwin-x64@workspace:packages/octocode-context-utils/npm/darwin-x64"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils-linux-arm64-gnu@workspace:*, @octocodeai/octocode-context-utils-linux-arm64-gnu@workspace:packages/octocode-context-utils/npm/linux-arm64-gnu":
+"@octocodeai/octocode-context-utils-linux-arm64-gnu@npm:16.3.0, @octocodeai/octocode-context-utils-linux-arm64-gnu@workspace:packages/octocode-context-utils/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils-linux-arm64-gnu@workspace:packages/octocode-context-utils/npm/linux-arm64-gnu"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils-linux-x64-gnu@workspace:*, @octocodeai/octocode-context-utils-linux-x64-gnu@workspace:packages/octocode-context-utils/npm/linux-x64-gnu":
+"@octocodeai/octocode-context-utils-linux-x64-gnu@npm:16.3.0, @octocodeai/octocode-context-utils-linux-x64-gnu@workspace:packages/octocode-context-utils/npm/linux-x64-gnu":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils-linux-x64-gnu@workspace:packages/octocode-context-utils/npm/linux-x64-gnu"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils-linux-x64-musl@workspace:*, @octocodeai/octocode-context-utils-linux-x64-musl@workspace:packages/octocode-context-utils/npm/linux-x64-musl":
+"@octocodeai/octocode-context-utils-linux-x64-musl@npm:16.3.0, @octocodeai/octocode-context-utils-linux-x64-musl@workspace:packages/octocode-context-utils/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils-linux-x64-musl@workspace:packages/octocode-context-utils/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils-win32-x64-msvc@workspace:*, @octocodeai/octocode-context-utils-win32-x64-msvc@workspace:packages/octocode-context-utils/npm/win32-x64-msvc":
+"@octocodeai/octocode-context-utils-win32-x64-msvc@npm:16.3.0, @octocodeai/octocode-context-utils-win32-x64-msvc@workspace:packages/octocode-context-utils/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils-win32-x64-msvc@workspace:packages/octocode-context-utils/npm/win32-x64-msvc"
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-context-utils@workspace:^, @octocodeai/octocode-context-utils@workspace:packages/octocode-context-utils":
+"@octocodeai/octocode-context-utils@npm:^16.3.0, @octocodeai/octocode-context-utils@workspace:packages/octocode-context-utils":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-context-utils@workspace:packages/octocode-context-utils"
   dependencies:
     "@napi-rs/cli": "npm:^3.7.1"
-    "@octocodeai/octocode-context-utils-darwin-arm64": "workspace:*"
-    "@octocodeai/octocode-context-utils-darwin-x64": "workspace:*"
-    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "workspace:*"
-    "@octocodeai/octocode-context-utils-linux-x64-gnu": "workspace:*"
-    "@octocodeai/octocode-context-utils-linux-x64-musl": "workspace:*"
-    "@octocodeai/octocode-context-utils-win32-x64-msvc": "workspace:*"
+    "@octocodeai/octocode-context-utils-darwin-arm64": "npm:16.3.0"
+    "@octocodeai/octocode-context-utils-darwin-x64": "npm:16.3.0"
+    "@octocodeai/octocode-context-utils-linux-arm64-gnu": "npm:16.3.0"
+    "@octocodeai/octocode-context-utils-linux-x64-gnu": "npm:16.3.0"
+    "@octocodeai/octocode-context-utils-linux-x64-musl": "npm:16.3.0"
+    "@octocodeai/octocode-context-utils-win32-x64-msvc": "npm:16.3.0"
     "@types/node": "npm:^25.9.3"
     "@vitest/coverage-v8": "npm:^4.0.16"
     typescript: "npm:^5.9.3"
@@ -2154,12 +2154,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/octocode-tools-core@workspace:^, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
+"@octocodeai/octocode-tools-core@npm:^16.3.0, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-context-utils": "workspace:^"
+    "@octocodeai/octocode-context-utils": "npm:^16.3.0"
     "@octocodeai/octocode-core": "npm:^16.2.0"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/openapi-types": "npm:^27.0.0"
@@ -2171,8 +2171,8 @@ __metadata:
     esbuild: "npm:^0.28.1"
     eslint: "npm:^9.18.0"
     node-cache: "npm:^5.1.2"
-    octocode-lsp: "workspace:^"
-    octocode-security: "workspace:^"
+    octocode-lsp: "npm:^16.3.0"
+    octocode-security: "npm:^16.3.0"
     octocode-shared: "workspace:^"
     octokit: "npm:^5.0.5"
     typescript: "npm:^5.9.3"
@@ -7933,7 +7933,7 @@ __metadata:
   resolution: "octocode-cli@workspace:packages/octocode-cli"
   dependencies:
     "@inquirer/prompts": "npm:^8.1.0"
-    "@octocodeai/octocode-tools-core": "workspace:^"
+    "@octocodeai/octocode-tools-core": "npm:^16.3.0"
     "@octokit/auth-oauth-device": "npm:^8.0.3"
     "@octokit/oauth-methods": "npm:^6.0.2"
     "@octokit/request": "npm:^10.0.7"
@@ -7950,43 +7950,43 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode-lsp-darwin-arm64@workspace:*, octocode-lsp-darwin-arm64@workspace:packages/octocode-lsp/npm/darwin-arm64":
+"octocode-lsp-darwin-arm64@npm:16.3.0, octocode-lsp-darwin-arm64@workspace:packages/octocode-lsp/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "octocode-lsp-darwin-arm64@workspace:packages/octocode-lsp/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
 
-"octocode-lsp-darwin-x64@workspace:*, octocode-lsp-darwin-x64@workspace:packages/octocode-lsp/npm/darwin-x64":
+"octocode-lsp-darwin-x64@npm:16.3.0, octocode-lsp-darwin-x64@workspace:packages/octocode-lsp/npm/darwin-x64":
   version: 0.0.0-use.local
   resolution: "octocode-lsp-darwin-x64@workspace:packages/octocode-lsp/npm/darwin-x64"
   languageName: unknown
   linkType: soft
 
-"octocode-lsp-linux-arm64-gnu@workspace:*, octocode-lsp-linux-arm64-gnu@workspace:packages/octocode-lsp/npm/linux-arm64-gnu":
+"octocode-lsp-linux-arm64-gnu@npm:16.3.0, octocode-lsp-linux-arm64-gnu@workspace:packages/octocode-lsp/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "octocode-lsp-linux-arm64-gnu@workspace:packages/octocode-lsp/npm/linux-arm64-gnu"
   languageName: unknown
   linkType: soft
 
-"octocode-lsp-linux-x64-gnu@workspace:*, octocode-lsp-linux-x64-gnu@workspace:packages/octocode-lsp/npm/linux-x64-gnu":
+"octocode-lsp-linux-x64-gnu@npm:16.3.0, octocode-lsp-linux-x64-gnu@workspace:packages/octocode-lsp/npm/linux-x64-gnu":
   version: 0.0.0-use.local
   resolution: "octocode-lsp-linux-x64-gnu@workspace:packages/octocode-lsp/npm/linux-x64-gnu"
   languageName: unknown
   linkType: soft
 
-"octocode-lsp-linux-x64-musl@workspace:*, octocode-lsp-linux-x64-musl@workspace:packages/octocode-lsp/npm/linux-x64-musl":
+"octocode-lsp-linux-x64-musl@npm:16.3.0, octocode-lsp-linux-x64-musl@workspace:packages/octocode-lsp/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "octocode-lsp-linux-x64-musl@workspace:packages/octocode-lsp/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
 
-"octocode-lsp-win32-x64-msvc@workspace:*, octocode-lsp-win32-x64-msvc@workspace:packages/octocode-lsp/npm/win32-x64-msvc":
+"octocode-lsp-win32-x64-msvc@npm:16.3.0, octocode-lsp-win32-x64-msvc@workspace:packages/octocode-lsp/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "octocode-lsp-win32-x64-msvc@workspace:packages/octocode-lsp/npm/win32-x64-msvc"
   languageName: unknown
   linkType: soft
 
-"octocode-lsp@workspace:^, octocode-lsp@workspace:packages/octocode-lsp":
+"octocode-lsp@npm:^16.3.0, octocode-lsp@workspace:packages/octocode-lsp":
   version: 0.0.0-use.local
   resolution: "octocode-lsp@workspace:packages/octocode-lsp"
   dependencies:
@@ -7994,12 +7994,12 @@ __metadata:
     "@types/node": "npm:^25.9.3"
     "@vitest/coverage-v8": "npm:^4.0.16"
     eslint: "npm:^9.18.0"
-    octocode-lsp-darwin-arm64: "workspace:*"
-    octocode-lsp-darwin-x64: "workspace:*"
-    octocode-lsp-linux-arm64-gnu: "workspace:*"
-    octocode-lsp-linux-x64-gnu: "workspace:*"
-    octocode-lsp-linux-x64-musl: "workspace:*"
-    octocode-lsp-win32-x64-msvc: "workspace:*"
+    octocode-lsp-darwin-arm64: "npm:16.3.0"
+    octocode-lsp-darwin-x64: "npm:16.3.0"
+    octocode-lsp-linux-arm64-gnu: "npm:16.3.0"
+    octocode-lsp-linux-x64-gnu: "npm:16.3.0"
+    octocode-lsp-linux-x64-musl: "npm:16.3.0"
+    octocode-lsp-win32-x64-msvc: "npm:16.3.0"
     typescript: "npm:^5.9.3"
     typescript-language-server: "npm:^5.3.0"
     vitest: "npm:^4.0.16"
@@ -8040,7 +8040,7 @@ __metadata:
   resolution: "octocode-mcp@workspace:packages/octocode-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-tools-core": "workspace:^"
+    "@octocodeai/octocode-tools-core": "npm:^16.3.0"
     "@types/node": "npm:^25.9.3"
     "@vitest/coverage-v8": "npm:^4.0.16"
     "@vitest/ui": "npm:^4.0.16"
@@ -8098,43 +8098,43 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode-security-darwin-arm64@workspace:*, octocode-security-darwin-arm64@workspace:packages/octocode-security/npm/darwin-arm64":
+"octocode-security-darwin-arm64@npm:16.3.0, octocode-security-darwin-arm64@workspace:packages/octocode-security/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "octocode-security-darwin-arm64@workspace:packages/octocode-security/npm/darwin-arm64"
   languageName: unknown
   linkType: soft
 
-"octocode-security-darwin-x64@workspace:*, octocode-security-darwin-x64@workspace:packages/octocode-security/npm/darwin-x64":
+"octocode-security-darwin-x64@npm:16.3.0, octocode-security-darwin-x64@workspace:packages/octocode-security/npm/darwin-x64":
   version: 0.0.0-use.local
   resolution: "octocode-security-darwin-x64@workspace:packages/octocode-security/npm/darwin-x64"
   languageName: unknown
   linkType: soft
 
-"octocode-security-linux-arm64-gnu@workspace:*, octocode-security-linux-arm64-gnu@workspace:packages/octocode-security/npm/linux-arm64-gnu":
+"octocode-security-linux-arm64-gnu@npm:16.3.0, octocode-security-linux-arm64-gnu@workspace:packages/octocode-security/npm/linux-arm64-gnu":
   version: 0.0.0-use.local
   resolution: "octocode-security-linux-arm64-gnu@workspace:packages/octocode-security/npm/linux-arm64-gnu"
   languageName: unknown
   linkType: soft
 
-"octocode-security-linux-x64-gnu@workspace:*, octocode-security-linux-x64-gnu@workspace:packages/octocode-security/npm/linux-x64-gnu":
+"octocode-security-linux-x64-gnu@npm:16.3.0, octocode-security-linux-x64-gnu@workspace:packages/octocode-security/npm/linux-x64-gnu":
   version: 0.0.0-use.local
   resolution: "octocode-security-linux-x64-gnu@workspace:packages/octocode-security/npm/linux-x64-gnu"
   languageName: unknown
   linkType: soft
 
-"octocode-security-linux-x64-musl@workspace:*, octocode-security-linux-x64-musl@workspace:packages/octocode-security/npm/linux-x64-musl":
+"octocode-security-linux-x64-musl@npm:16.3.0, octocode-security-linux-x64-musl@workspace:packages/octocode-security/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "octocode-security-linux-x64-musl@workspace:packages/octocode-security/npm/linux-x64-musl"
   languageName: unknown
   linkType: soft
 
-"octocode-security-win32-x64-msvc@workspace:*, octocode-security-win32-x64-msvc@workspace:packages/octocode-security/npm/win32-x64-msvc":
+"octocode-security-win32-x64-msvc@npm:16.3.0, octocode-security-win32-x64-msvc@workspace:packages/octocode-security/npm/win32-x64-msvc":
   version: 0.0.0-use.local
   resolution: "octocode-security-win32-x64-msvc@workspace:packages/octocode-security/npm/win32-x64-msvc"
   languageName: unknown
   linkType: soft
 
-"octocode-security@workspace:^, octocode-security@workspace:packages/octocode-security":
+"octocode-security@npm:^16.3.0, octocode-security@workspace:packages/octocode-security":
   version: 0.0.0-use.local
   resolution: "octocode-security@workspace:packages/octocode-security"
   dependencies:
@@ -8146,12 +8146,12 @@ __metadata:
     eslint: "npm:^9.18.0"
     eslint-config-prettier: "npm:^10.1.8"
     eslint-plugin-prettier: "npm:^5.5.4"
-    octocode-security-darwin-arm64: "workspace:*"
-    octocode-security-darwin-x64: "workspace:*"
-    octocode-security-linux-arm64-gnu: "workspace:*"
-    octocode-security-linux-x64-gnu: "workspace:*"
-    octocode-security-linux-x64-musl: "workspace:*"
-    octocode-security-win32-x64-msvc: "workspace:*"
+    octocode-security-darwin-arm64: "npm:16.3.0"
+    octocode-security-darwin-x64: "npm:16.3.0"
+    octocode-security-linux-arm64-gnu: "npm:16.3.0"
+    octocode-security-linux-x64-gnu: "npm:16.3.0"
+    octocode-security-linux-x64-musl: "npm:16.3.0"
+    octocode-security-win32-x64-msvc: "npm:16.3.0"
     prettier: "npm:^3.6.2"
     typescript: "npm:^5.9.3"
     typescript-eslint: "npm:^8.52.0"

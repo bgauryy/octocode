@@ -88,12 +88,15 @@ export function showHelp(): void {
     `  ${c('red', bold('AGENTS — read schema before every raw tool call. Never guess fields.'))}`,
     `    ${c('yellow', 'octocode tools <name>')}           ${dim('# required fields, types, example call')}`,
     `    ${c('yellow', 'octocode tools <n1> <n2> ...')}    ${dim('# batch schema reads')}`,
-    `    ${c('yellow', 'octocode context')}                ${dim('# protocol + system prompt + tool descriptions (schemas via --scheme)')}`,
+    `    ${c('yellow', 'octocode context')}                ${dim('# protocol + system prompt + tool descriptions')}`,
+    `    ${c('yellow', 'octocode auth login')}             ${dim('# authenticate — GitHub token required for all GitHub tools')}`,
+    `    ${c('yellow', 'octocode skills list')}            ${dim('# browse agent skills (install with: octocode skills install --skill <name>)')}`,
+    `    ${c('yellow', 'octocode status')}                 ${dim('# health check: auth + cache + MCP')}`,
     '',
 
     // ── Smart-usage playbook (distilled from the system prompt) ─────────────
     `  ${c('green', bold('PLAYBOOK'))}  ${dim('locate → map → search → read → prove — cheapest tool that proves/disproves, smallest slice, stop when evidence.answerReady')}`,
-    `    ${c('cyan', 'orient cheap')}    ${dim('concise:true (string list) · localSearchCode mode:discovery (paths) · tree --depth 1 then drill')}`,
+    `    ${c('cyan', 'orient cheap')}    ${dim('concise:true (string list) · localSearchCode mode:discovery (paths) · localViewStructure maxDepth:1 then drill')}`,
     `    ${c('cyan', 'minify by goal')}  ${dim('symbols=skeleton (orient unknown) · standard=read (default) · none=exact quote/diff')}`,
     `    ${c('cyan', 'batch')}           ${dim('up to 5 sub-queries/call (N paths/PRs/pkgs in one); serialize only search→read→LSP')}`,
     `    ${c('cyan', 'prove')}           ${dim('snippets are discovery, not proof — re-read exact text · search→lineHint→LSP · npmSearch→owner/repo')}`,

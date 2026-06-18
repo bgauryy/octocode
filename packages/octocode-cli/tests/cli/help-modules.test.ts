@@ -25,15 +25,11 @@ describe('main-help', () => {
     expect(output).toContain('lspGetSemantics');
     expect(output).toContain('npmSearch');
     expect(output).toContain('install');
-    expect(output).toContain('SMART COMMANDS');
+    // Smart commands temporarily unhooked — SMART COMMANDS section removed
+    expect(output).toContain('MANAGEMENT');
     expect(output).toContain('TOOLS');
     expect(output).toContain('context');
     expect(output).toContain('tools');
-    expect(output).toContain('octocode files');
-    expect(output).toContain('octocode repo');
-    expect(output).toContain('octocode pkg');
-    expect(output).toContain('octocode symbols');
-    expect(output).toContain('octocode lsp');
   });
 });
 
@@ -264,7 +260,7 @@ describe('help (dynamic fallback)', () => {
 });
 
 describe('agent protocol help', () => {
-  it('lists every smart research command and points to command help', async () => {
+  it('shows protocol with auth, tools, context, and skills steps', async () => {
     const stdoutSpy = vi
       .spyOn(console, 'log')
       .mockImplementation(() => undefined);
@@ -276,13 +272,13 @@ describe('agent protocol help', () => {
     const output = stdoutSpy.mock.calls
       .map((c: unknown[]) => c.map(String).join(' '))
       .join('\n');
-    expect(output).toContain(
-      'get, tree, files, search, pr, repo, pkg, symbols, lsp'
-    );
-    expect(output).toContain('octocode pkg <package>');
-    expect(output).toContain('octocode symbols <file|path>');
-    expect(output).toContain('octocode lsp <file> --type <type>');
-    expect(output).toContain('octocode <command> --help');
+    // Smart commands temporarily unhooked — fallback now shows protocol steps
+    expect(output).toContain('octocode auth login');
+    expect(output).toContain('octocode status');
+    expect(output).toContain('octocode tools <name>');
+    expect(output).toContain('octocode context');
+    expect(output).toContain('octocode skills list');
+    expect(output).toContain('octocode skills install --skill <name>');
 
     stdoutSpy.mockRestore();
   });
