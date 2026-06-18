@@ -29,6 +29,9 @@ const RipgrepQueryShape = createQueryShapeSchema(
   queryOverrides
 );
 
+// Structural-mode validation (exactly one of pattern/rule, reject ripgrep-only
+// fields, require keywords otherwise) is enforced by the core RipgrepQuerySchema
+// superRefine, which describeQuerySchema preserves through to this schema.
 export const LocalRipgrepQuerySchema = describeQuerySchema(
   CoreRipgrepQuerySchema,
   queryOverrides,

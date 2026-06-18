@@ -130,11 +130,28 @@ function resolveSiblingRg(): string | null {
 function resolveVscodeRipgrep(): string | null {
   if (process.env.OCTOCODE_DISABLE_VSCODE_RIPGREP === '1') return null;
 
+  // 1. Official entry point. @vscode/ripgrep is ESM-only ("type":"module",
+  //    no `require` export condition), so this only succeeds where require(esm)
+  //    is available (Node >=20.19 / >=22.12); older Node throws ERR_REQUIRE_ESM.
   try {
     const mod = require('@vscode/ripgrep') as { rgPath?: string };
-    if (mod.rgPath && typeof mod.rgPath === 'string') {
+    if (mod.rgPath && typeof mod.rgPath === 'string' && existsSync(mod.rgPath)) {
       return mod.rgPath;
     }
+  } catch {
+    /* ESM-only require can throw on older Node — fall through to the binary */
+  }
+
+  // 2. Resolve the per-platform binary package directly. require.resolve on a
+  //    file path never loads the ESM entry, so this works on every supported
+  //    Node version. Mirrors @vscode/ripgrep/lib/index.js's own resolution
+  //    (the platform packages ship the binary and declare no `exports`).
+  try {
+    const arch = process.env.npm_config_arch || process.arch;
+    const binaryName = process.platform === 'win32' ? 'rg.exe' : 'rg';
+    const platformPkg = `@vscode/ripgrep-${process.platform}-${arch}`;
+    const resolved = require.resolve(`${platformPkg}/bin/${binaryName}`);
+    if (existsSync(resolved)) return resolved;
   } catch {
     /* silently ignore */
   }

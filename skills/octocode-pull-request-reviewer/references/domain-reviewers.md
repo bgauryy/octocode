@@ -10,7 +10,7 @@
 | **Code Quality** | Naming violations, convention breaks, visible typos, magic numbers, TODO in new code | Typos in public API/endpoints | Internal naming issues, DRY violations, convention deviations | Personal style, linter-handled formatting |
 | **Duplicate Code** | Missed opportunities to leverage existing code, utilities, established patterns | Missing use of critical utilities that could prevent bugs | Code duplication violating DRY across files | Intentional duplication for clarity |
 | **Error Handling** | Poor error messages, unclear logs, swallowed exceptions, missing debug context | Swallowed exceptions hiding critical failures | Unclear error messages, missing log context | Internal service calls in trusted environments |
-| **Flow Impact** | How changes alter execution flows, data paths, system behavior. Use `ghSearchCode` / `lspCallHierarchy` to trace. | Changes that break callers, alter critical paths, change data flow semantics | Flow changes requiring updates in dependent code, altered return values/types | Internal refactors with same external behavior |
+| **Flow Impact** | How changes alter execution flows, data paths, system behavior. Use `ghSearchCode` / `lspGetSemantics(type="callers"/"callHierarchy")` to trace. | Changes that break callers, alter critical paths, change data flow semantics | Flow changes requiring updates in dependent code, altered return values/types | Internal refactors with same external behavior |
 
 ---
 

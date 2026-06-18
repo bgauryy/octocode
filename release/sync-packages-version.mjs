@@ -28,6 +28,32 @@ const ROOT = resolve(__dirname, '..');
 const PIN_FOR_PUBLISH = process.argv.includes('--pin-for-publish');
 const WORKSPACE_PROTOCOL = 'workspace:*';
 
+// Internal deps that live OUTSIDE this monorepo (sibling repo), referenced via a
+// file: path in local dev. They are NOT workspace members, so bumpDeps() skips
+// them. file: refs are invalid on npm, so --pin-for-publish must rewrite them to
+// a registry semver; local dev reverts to the file: ref so Yarn links the sibling
+// checkout. publishVersion tracks the version published from octocode-mcp-host.
+const EXTERNAL_FILE_DEPS = {
+  '@octocodeai/octocode-core': {
+    publishVersion: '^16.1.1',
+    localRef: 'file:../../../octocode-mcp-host/packages/octocode-core',
+  },
+};
+
+function bumpExternalFileDeps(deps) {
+  if (!deps) return false;
+  let changed = false;
+  for (const [name, cfg] of Object.entries(EXTERNAL_FILE_DEPS)) {
+    if (!(name in deps)) continue;
+    const target = PIN_FOR_PUBLISH ? cfg.publishVersion : cfg.localRef;
+    if (deps[name] !== target) {
+      deps[name] = target;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function readJson(filePath) {
@@ -164,6 +190,7 @@ for (const pkgDir of MAIN_PACKAGES) {
   changed |= bumpDeps(data.devDependencies, version, internalNames);
   changed |= bumpDeps(data.peerDependencies, version, internalNames);
   changed |= bumpDeps(data.optionalDependencies, version, internalNames);
+  changed |= bumpExternalFileDeps(data.dependencies);
 
   writeJson(pjPath, data);
   console.log(`  ${changed ? '✓' : '~'} ${pkgDir}/package.json  (${data.name}@${version})`);

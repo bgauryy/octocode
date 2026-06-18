@@ -8,6 +8,7 @@ import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 import { executeGrepFallbackSearch } from './grepFallbackExecutor.js';
+import { searchContentStructural } from './structuralSearch.js';
 
 function applyWorkflowMode(query: RipgrepQuery): RipgrepQuery {
   const mode = query.mode;
@@ -26,6 +27,13 @@ export async function searchContentRipgrep(
   query: RipgrepQuery
 ): Promise<LocalSearchCodeToolResult> {
   const configuredQuery = applyWorkflowMode(query);
+
+  // Structural (AST) search runs on the context-utils engine, not ripgrep —
+  // branch before the rg-availability check and the rg-only defaults below.
+  if (configuredQuery.mode === 'structural') {
+    return await searchContentStructural(configuredQuery);
+  }
+
   if (configuredQuery.contextLines === undefined) {
     configuredQuery.contextLines = 2;
   }

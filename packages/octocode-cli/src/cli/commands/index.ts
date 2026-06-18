@@ -18,15 +18,16 @@ const lightweightCommands: readonly CLICommand[] = [
 ];
 
 const commandLoaders: Record<string, CommandLoader> = {
-  get: async () => (await import('./get.js')).getCommand,
-  tree: async () => (await import('./tree.js')).treeCommand,
-  files: async () => (await import('./files.js')).filesCommand,
-  search: async () => (await import('./search.js')).searchCommand,
-  pr: async () => (await import('./pr.js')).prCommand,
-  repo: async () => (await import('./repo.js')).repoCommand,
-  pkg: async () => (await import('./pkg.js')).pkgCommand,
-  symbols: async () => (await import('./symbols.js')).symbolsCommand,
-  lsp: async () => (await import('./lsp.js')).lspCommand,
+  // Smart commands temporarily unhooked — will be re-added in a future release.
+  // get: async () => (await import('./get.js')).getCommand,
+  // tree: async () => (await import('./tree.js')).treeCommand,
+  // files: async () => (await import('./files.js')).filesCommand,
+  // search: async () => (await import('./search.js')).searchCommand,
+  // pr: async () => (await import('./pr.js')).prCommand,
+  // repo: async () => (await import('./repo.js')).repoCommand,
+  // pkg: async () => (await import('./pkg.js')).pkgCommand,
+  // symbols: async () => (await import('./symbols.js')).symbolsCommand,
+  // lsp: async () => (await import('./lsp.js')).lspCommand,
   install: async () => (await import('./install.js')).installCommand,
   auth: async () => (await import('./auth.js')).authCommand,
   login: async () => (await import('./auth.js')).loginCommand,

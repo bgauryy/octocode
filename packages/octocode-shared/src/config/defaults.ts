@@ -16,7 +16,6 @@ export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
 export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
   enabled: true,
   enableClone: false,
-  enableBinary: false,
   allowedPaths: [],
   workspaceRoot: undefined,
 };

@@ -1,4 +1,5 @@
 import { c, bold, dim } from '../utils/colors.js';
+import { getAuthStatus } from '../features/github-oauth.js';
 import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
@@ -60,16 +61,42 @@ export function showHelp(): void {
   const toolCount = DIRECT_TOOL_DEFINITIONS.length;
   const toolLines = buildToolBlock();
 
+  let isAuthenticated = false;
+  try {
+    isAuthenticated = getAuthStatus().authenticated;
+  } catch {
+    // ignore — treat as unauthenticated
+  }
+
+  const authBanner: string[] = isAuthenticated
+    ? []
+    : [
+        `  ${c('red', '─'.repeat(62))}`,
+        `  ${c('red', bold('  ⚠  NOT AUTHENTICATED'))}  ${c('red', 'GitHub token required for tool calls.')}`,
+        `  ${c('red', '     Run: ')}${c('yellow', bold('octocode login'))}`,
+        `  ${c('red', '─'.repeat(62))}`,
+        '',
+      ];
+
   const lines = [
     '',
-    `  ${c('magenta', bold('🔍🐙 Octocode'))}  ${dim('Code research CLI — GitHub · Local · LSP · Package')}`,
+    ...authBanner,
+    `  ${c('magenta', bold('🔍🐙 Octocode'))}  ${dim('Code research CLI — GitHub · Local · LSP · AST · Package')}`,
     '',
 
     // ── Agent rule — first thing an agent sees ──────────────────────────────
     `  ${c('red', bold('AGENTS — read schema before every raw tool call. Never guess fields.'))}`,
     `    ${c('yellow', 'octocode tools <name>')}           ${dim('# required fields, types, example call')}`,
     `    ${c('yellow', 'octocode tools <n1> <n2> ...')}    ${dim('# batch schema reads')}`,
-    `    ${c('yellow', 'octocode context')}                ${dim('# full protocol + system prompt + all schemas')}`,
+    `    ${c('yellow', 'octocode context')}                ${dim('# protocol + system prompt + tool descriptions (schemas via --scheme)')}`,
+    '',
+
+    // ── Smart-usage playbook (distilled from the system prompt) ─────────────
+    `  ${c('green', bold('PLAYBOOK'))}  ${dim('locate → map → search → read → prove — cheapest tool that proves/disproves, smallest slice, stop when evidence.answerReady')}`,
+    `    ${c('cyan', 'orient cheap')}    ${dim('concise:true (string list) · localSearchCode mode:discovery (paths) · tree --depth 1 then drill')}`,
+    `    ${c('cyan', 'minify by goal')}  ${dim('symbols=skeleton (orient unknown) · standard=read (default) · none=exact quote/diff')}`,
+    `    ${c('cyan', 'batch')}           ${dim('up to 5 sub-queries/call (N paths/PRs/pkgs in one); serialize only search→read→LSP')}`,
+    `    ${c('cyan', 'prove')}           ${dim('snippets are discovery, not proof — re-read exact text · search→lineHint→LSP · npmSearch→owner/repo')}`,
     '',
 
     // ── Live tool list ──────────────────────────────────────────────────────
@@ -77,18 +104,8 @@ export function showHelp(): void {
     ...toolLines,
     '',
 
-    // ── Smart commands (no schema needed) ──────────────────────────────────
-    `  ${bold('SMART COMMANDS')}  ${dim('— auto-route local ↔ GitHub, no schema needed')}`,
-    `    ${c('cyan', 'octocode get')}     ${dim('<path | owner/repo/file>')}   ${dim('fetch + minify  [--mode none|standard|symbols]')}`,
-    `    ${c('cyan', 'octocode tree')}    ${dim('<path | owner/repo>')}        ${dim('directory tree  [--depth N]')}`,
-    `    ${c('cyan', 'octocode files')}   ${dim('<query> [path | repo]')}      ${dim('file discovery  [--search path|content|both]')}`,
-    `    ${c('cyan', 'octocode search')}  ${dim('<pattern> <path | repo>')}    ${dim('code search     [--type, --branch, --page]')}`,
-    `    ${c('cyan', 'octocode pr')}      ${dim('<owner/repo[#N] | URL>')}     ${dim('PR info         [--patches, --comments, --deep]')}`,
-    `    ${c('cyan', 'octocode repo')}    ${dim('<keywords...>')}              ${dim('repo discovery  [--topic, --language, --stars]')}`,
-    `    ${c('cyan', 'octocode pkg')}     ${dim('<package>')}                  ${dim('npm metadata + source repo')}`,
-    `    ${c('cyan', 'octocode symbols')} ${dim('<file | path>')}              ${dim('semantic outline before LSP')}`,
-    `    ${c('cyan', 'octocode lsp')}     ${dim('<file> --type <type>')}       ${dim('semantic nav    [--symbol X --line N]')}`,
-    '',
+    // Smart commands temporarily unhooked — will be re-added in a future release.
+    // octocode get / tree / files / search / pr / repo / pkg / symbols / lsp
 
     // ── Management (users) ─────────────────────────────────────────────────
     `  ${bold('MANAGEMENT')}`,

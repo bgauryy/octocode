@@ -15,8 +15,8 @@ import { identifyFile, extractStrings } from './binaryOps.js';
 const TOOL_NAME = TOOL_NAMES.LOCAL_BINARY_INSPECT;
 
 // The binary backends shell out to external CLIs that are not in the base
-// security allowlist (rg/ls/find/grep/git). Register them here so the tool can
-// actually execute once it is enabled via ENABLE_BINARY. Idempotent.
+// security allowlist (rg/ls/find/grep/git). Register them here so the tool
+// can execute. Idempotent.
 const BINARY_BACKEND_COMMANDS = [
   'file',
   'xxd',

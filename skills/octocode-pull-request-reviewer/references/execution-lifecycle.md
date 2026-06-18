@@ -92,21 +92,27 @@ The guidelines context MUST be referenced in Phase 4 (Analysis), Phase 5 (Finali
 - [ ] Phase 1 (Guidelines) completed
 - [ ] Guidelines context built (or confirmed empty)
 
-### Actions — PR Mode (REQUIRED — all via Octocode MCP tools)
-1. **Fetch PR metadata**: Call `ghSearchPRs` with `type="metadata"` to get title, description, files, author
-2. **Fetch PR diff**: Call `ghSearchPRs` with `type="fullContent"` or `type="partialContent"` for specific files
-3. **Fetch existing PR comments**: Call `ghSearchPRs` with `withComments=true`
-   - MUST check if previous comments were fixed (verify resolution)
-   - MUST note all existing comments to avoid duplicate suggestions
-4. **Classify risk**: HIGH (Logic/Auth/API/Data changes) vs LOW (Docs/CSS/Config)
+### Actions — PR Mode (REQUIRED — all via `ghHistoryResearch`)
+1. **Orientation (always first — cheapest)**: `ghHistoryResearch(type:"prs", prNumber:N, content:{metadata:true, changedFiles:true, reviews:true})`
+   → title, author, file list, additions/deletions, review state, CI checks
+2. **Existing comments (dedup guard)**: `ghHistoryResearch(type:"prs", prNumber:N, content:{comments:{discussion:true, reviewInline:true, includeBots:false}})`
+   - MUST note ALL existing comments — never repeat them in findings
+   - If `contentPagination.commentBody.hasMore` → fetch next page via `commentBodyOffset` from hints[]
+3. **Targeted diffs (high-risk files first)**: `ghHistoryResearch(type:"prs", prNumber:N, content:{patches:{mode:"selected", files:[HIGH_RISK_FILES]}})`
+   - Use `mode:"all"` only when total files ≤15; `mode:"selected"` otherwise
+   - If `contentPagination.patches.hasMore` → advance `charOffset` from hints[] — do NOT compute manually
+4. **Classify risk**: HIGH (Auth/API/Data/Logic) vs LOW (Docs/CSS/Config)
 5. **PR Health Check**:
    - Flag large PRs (>500 lines) → suggest splitting
    - Missing description → flag
    - Can PR be split into independent sub-PRs?
-6. **Group changed files by functional area**: List each area with its files (e.g., "Auth: src/auth/login.ts, src/auth/middleware.ts")
-7. **Fetch commit history**: Call `ghSearchPRs` with `withCommits=true` to understand development progression
+6. **Group changed files by functional area**: List each area with its files
+7. **Commit progression (optional)**: `ghHistoryResearch(type:"prs", prNumber:N, content:{commits:{list:true}})`
+   → Understand development arc; extract `#N` refs from `messageHeadline` → re-call with that `prNumber` for cross-reference
 8. **Check for ticket/issue reference** → verify requirements alignment
 9. **Select review mode**: Apply Review Mode Selector from Global Rules (Quick or Full)
+
+**One-shot full fetch (≤30 files):** `ghHistoryResearch(type:"prs", prNumber:N, reviewMode:"full")` → all surfaces in one call
 
 ### Actions — Local Mode (REQUIRED — Octocode local tools + shell git)
 
@@ -136,8 +142,8 @@ The guidelines context MUST be referenced in Phase 4 (Analysis), Phase 5 (Finali
 2. **Read the target file**: Call `localGetFileContent` on the requested file
 3. **Map immediate dependencies**:
    - Call `localSearchCode` on the file to identify imports and exports
-   - Call `lspFindReferences` on exported symbols to find direct consumers (1 hop only)
-   - Call `lspCallHierarchy(direction="incoming")` on public functions to find direct callers
+   - Call `lspGetSemantics(type="references", groupByFile:true)` on exported symbols to find direct consumers (1 hop only)
+   - Call `lspGetSemantics(type="callers")` on public functions to find direct callers
 4. **Classify risk**: Based on the file's role (auth/data/config = HIGH, utils/docs = LOW)
 5. **Select review mode**: Typically Quick unless the file is high-risk or complex
 
@@ -176,7 +182,7 @@ The guidelines context MUST be referenced in Phase 4 (Analysis), Phase 5 (Finali
 
 ### On Failure
 - **PR Mode**: **IF** PR not found → **THEN** ask user for correct PR number/URL
-- **PR Mode**: **IF** diff too large (>2000 lines) → **THEN** use `type="partialContent"`, focus on high-risk files first
+- **PR Mode**: **IF** diff too large (>2000 lines) → **THEN** use `patches:{mode:"selected", files:[HIGH_RISK]}`, focus on high-risk files first; paginate via `charOffset` from hints[]
 - **Local Mode**: **IF** no changes detected → **THEN** inform user, suggest checking the correct branch
 - **Local Mode**: **IF** diff too large → **THEN** ask user to scope (e.g., "staged only" or specific files)
 </context_gate>

@@ -70,7 +70,9 @@ export async function executeRipgrepSearchInternal(
   };
 
   const patternCheck = preflightValidateRipgrepPattern({
-    pattern: queryForExec.keywords,
+    // keywords is required for every non-structural mode (schema-enforced);
+    // structural never reaches this executor.
+    pattern: queryForExec.keywords ?? '',
     fixedString: queryForExec.fixedString,
     perlRegex: queryForExec.perlRegex,
   });

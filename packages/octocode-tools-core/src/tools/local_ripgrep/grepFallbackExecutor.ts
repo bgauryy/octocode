@@ -59,7 +59,9 @@ export async function executeGrepFallbackSearch(
   };
 
   const patternCheck = preflightValidateRipgrepPattern({
-    pattern: queryForExec.keywords,
+    // keywords is required for every non-structural mode (schema-enforced);
+    // structural never reaches this executor.
+    pattern: queryForExec.keywords ?? '',
     fixedString: queryForExec.fixedString,
     perlRegex: queryForExec.perlRegex,
   });
@@ -214,7 +216,7 @@ function buildGrepArgs(query: RipgrepQuery & { path: string }): {
     args.push(`--include=*.${query.langType}`);
   }
 
-  args.push('--', query.keywords, query.path);
+  args.push('--', query.keywords ?? '', query.path);
 
   return { args, outputMode };
 }
@@ -223,7 +225,7 @@ function shouldApplySmartCase(query: RipgrepQuery): boolean {
   return (
     query.caseSensitive !== true &&
     query.caseInsensitive !== true &&
-    query.keywords === query.keywords.toLowerCase()
+    (query.keywords ?? '') === (query.keywords ?? '').toLowerCase()
   );
 }
 

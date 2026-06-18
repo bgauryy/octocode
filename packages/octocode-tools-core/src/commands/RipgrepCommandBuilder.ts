@@ -5,6 +5,11 @@ import type { RipgrepQuery } from '../tools/local_ripgrep/scheme.js';
 export class RipgrepCommandBuilder extends BaseCommandBuilder {
   constructor() {
     super(resolveRipgrepBinary());
+    // Never read ripgrep config files. This makes output deterministic
+    // (a user's global rg config can't alter flags we parse) and closes the
+    // RIPGREP_CONFIG_PATH vector — a config file can inject flags like --pre,
+    // which would run an arbitrary command per file, bypassing our allowlist.
+    this.addFlag('--no-config');
   }
 
   simple(pattern: string, path: string): this {
@@ -84,7 +89,9 @@ export class RipgrepCommandBuilder extends BaseCommandBuilder {
     this._applyDiagnosticFlags(query);
 
     this.addArg('--');
-    this.addArg(query.keywords);
+    // keywords is required for every non-structural mode (schema-enforced);
+    // structural search never builds an rg command.
+    this.addArg(query.keywords ?? '');
     this.addArg(query.path);
 
     return this;

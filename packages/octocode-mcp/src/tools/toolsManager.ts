@@ -4,7 +4,6 @@ import {
   getServerConfig,
   isLocalEnabled,
   isCloneEnabled,
-  isBinaryEnabled,
   logSessionError,
   ignoreBestEffortFailure,
   DEFAULT_TOOL_METADATA_GATEWAY,
@@ -40,7 +39,6 @@ export async function registerTools(
 }> {
   const localEnabled = isLocalEnabled();
   const cloneEnabled = isCloneEnabled();
-  const binaryEnabled = isBinaryEnabled();
   const filterConfig = getToolFilterConfigSafe(getServerConfig);
   const metadataGateway =
     options.metadataGateway ?? DEFAULT_TOOL_METADATA_GATEWAY;
@@ -55,7 +53,6 @@ export async function registerTools(
     isToolEnabled(tool, {
       localEnabled,
       cloneEnabled,
-      binaryEnabled,
       filterConfig,
     })
   );

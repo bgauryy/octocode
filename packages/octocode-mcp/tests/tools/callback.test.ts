@@ -47,7 +47,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   }),
   isLocalEnabled: vi.fn().mockReturnValue(false),
   isCloneEnabled: vi.fn().mockReturnValue(false),
-  isBinaryEnabled: vi.fn().mockReturnValue(false),
 }));
 
 describe('Tool Invocation Callback', () => {

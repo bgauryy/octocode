@@ -47,11 +47,11 @@
 
 ### Agent A: Flow Impact Analyst
 - **Scope**: Flow Impact domain + blast radius mapping
-- **Tools**: `localSearchCode` → `lspCallHierarchy(incoming)` → `lspFindReferences` → `ghSearchCode`
+- **Tools**: `localSearchCode` → `lspGetSemantics(type="callers")` → `lspGetSemantics(type="references")` → `ghSearchCode`
 - **Task**: For every modified function/method/type in the diff:
   1. Call `localSearchCode` to get lineHint for each symbol
-  2. Call `lspCallHierarchy(incoming, depth=1)` to find all callers
-  3. Call `lspFindReferences` for changed types/interfaces
+  2. Call `lspGetSemantics(type="callers", symbolName, lineHint, format:"compact")` to find all callers
+  3. Call `lspGetSemantics(type="references", symbolName, lineHint, groupByFile:true)` for changed types/interfaces
   4. Document: symbol name, file:line, caller count, breaking change (yes/no)
 - **Output**: List of `{ symbol, file:line, callers: [{file:line, impact}], breaking: bool }`
 - **Prompt template**:
@@ -65,8 +65,8 @@
 
   For EACH modified symbol:
   1. Use localSearchCode(pattern="symbolName") to get lineHint
-  2. Use lspCallHierarchy(symbolName, lineHint, direction="incoming") for functions
-  3. Use lspFindReferences(symbolName, lineHint) for types/interfaces
+  2. Use lspGetSemantics(type="callers", symbolName, lineHint, format:"compact") for functions
+  3. Use lspGetSemantics(type="references", symbolName, lineHint, groupByFile:true) for types/interfaces
   4. Document the blast radius
 
   Return findings as structured list with file:line citations.

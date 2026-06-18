@@ -24,7 +24,6 @@ function buildResolvedConfig(
     process.env.GITHUB_API_URL !== undefined ||
     process.env.ENABLE_LOCAL !== undefined ||
     process.env.ENABLE_CLONE !== undefined ||
-    process.env.ENABLE_BINARY !== undefined ||
     process.env.ALLOWED_PATHS !== undefined ||
     process.env.WORKSPACE_ROOT !== undefined ||
     process.env.TOOLS_TO_RUN !== undefined ||

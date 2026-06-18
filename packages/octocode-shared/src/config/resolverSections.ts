@@ -81,7 +81,6 @@ export function resolveLocal(
 ): RequiredLocalConfig {
   const envEnableLocal = parseBooleanEnv(process.env.ENABLE_LOCAL);
   const envEnableClone = parseBooleanEnv(process.env.ENABLE_CLONE);
-  const envEnableBinary = parseBooleanEnv(process.env.ENABLE_BINARY);
   const envAllowedPaths = parseStringArrayEnv(process.env.ALLOWED_PATHS);
   const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
 
@@ -92,10 +91,6 @@ export function resolveLocal(
       envEnableClone ??
       fileConfig?.enableClone ??
       DEFAULT_LOCAL_CONFIG.enableClone,
-    enableBinary:
-      envEnableBinary ??
-      fileConfig?.enableBinary ??
-      DEFAULT_LOCAL_CONFIG.enableBinary,
     allowedPaths:
       envAllowedPaths ??
       fileConfig?.allowedPaths ??

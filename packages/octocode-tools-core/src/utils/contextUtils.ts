@@ -15,6 +15,7 @@ export type {
   RipgrepParseResult,
   SliceContentOptions,
   SliceContentResult,
+  StructuralMatch,
   YamlConversionConfig,
 } from '@octocodeai/octocode-context-utils';
 
@@ -91,6 +92,15 @@ export const contextUtils = {
 
   extractSignatures(content: string, filePath: string): string | null {
     return loadNative().extractSignatures(content, filePath);
+  },
+
+  structuralSearch(
+    content: string,
+    filePath: string,
+    pattern?: string | null,
+    rule?: string | null
+  ): NativeContextUtils.StructuralMatch[] {
+    return loadNative().structuralSearch(content, filePath, pattern, rule);
   },
 
   getSemanticBoundaryOffsets(content: string, filePath: string): number[] {

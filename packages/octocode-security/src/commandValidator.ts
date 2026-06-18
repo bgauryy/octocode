@@ -33,6 +33,7 @@ const RG_ALLOWED_FLAGS = new Set([
   '--count-matches',
   '-c',
   '--no-ignore',
+  '--no-config',
   '--hidden',
   '-U',
   '--multiline-dotall',

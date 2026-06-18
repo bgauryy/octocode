@@ -1,6 +1,6 @@
 {
   "name": "octocode-security-linux-x64-musl",
-  "version": "16.0.0",
+  "version": "16.3.0",
   "cpu": [
     "x64"
   ],
@@ -19,5 +19,8 @@
   ],
   "libc": [
     "musl"
-  ]
+  ],
+  "scripts": {
+    "prepublishOnly": "node ../verify-binary.cjs"
+  }
 }

@@ -10,7 +10,6 @@ import {
   executeDirectTool,
   findDirectToolDefinition,
   formatCallToolResultForOutput,
-  formatDirectToolMetadataSchemaText,
   formatDirectToolSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolCategory,
@@ -312,9 +311,7 @@ export async function showAvailableTools(): Promise<void> {
     `           octocode tools <name> --queries '<json>' --compact  ${dim('# leanest')}`
   );
   console.log();
-  console.log(
-    `  ${dim('Smart commands (no schema): octocode get/tree/files/search/pr/repo/pkg/symbols/lsp')}`
-  );
+  // Smart commands temporarily unhooked — will be re-added in a future release.
   console.log(
     `  ${dim('Full protocol: octocode context  |  All commands: octocode --help')}`
   );
@@ -352,8 +349,9 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   console.log(`  ${bold('Input Schema')}`);
   for (const field of fields) {
     const reqTag = field.required ? c('red', ' [required]') : '';
+    const meta = field.constraints ? `, ${field.constraints}` : '';
     console.log(
-      `    ${c('cyan', field.name)} (${field.type})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
+      `    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
     );
   }
   console.log();
@@ -449,8 +447,9 @@ export async function showMultipleToolSchemas(
     console.log(`  ${bold('Input Schema')}`);
     for (const field of fields) {
       const reqTag = field.required ? c('red', ' [required]') : '';
+      const meta = field.constraints ? `, ${field.constraints}` : '';
       console.log(
-        `    ${c('cyan', field.name)} (${field.type})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
+        `    ${c('cyan', field.name)} (${field.type}${meta})${reqTag}${field.description ? dim(` - ${field.description}`) : ''}`
       );
     }
     console.log(`  ${dim('Auto-filled')}: ${autoFilledFields.join(', ')}`);
@@ -460,19 +459,6 @@ export async function showMultipleToolSchemas(
   }
 
   console.log();
-}
-
-function formatToolFieldsCompact(toolName: string): string {
-  const fields = getDirectToolDisplayFields(toolName);
-  if (fields.length === 0) {
-    return '  (no input fields)';
-  }
-  return fields
-    .map(field => {
-      const req = field.required ? ' [required]' : '';
-      return `  ${field.name} (${field.type})${req}`;
-    })
-    .join('\n');
 }
 
 export async function getToolsContextString(
@@ -486,37 +472,22 @@ export async function getToolsContextString(
     'Octocode CLI — Agent Context',
     [
       full
-        ? 'Full agent context: protocol, system prompt, all tool descriptions, full JSON schemas.'
-        : 'Compact agent context: protocol, system prompt, tool descriptions, schema summaries. Use --full for exact JSON schemas.',
+        ? 'Agent context: protocol, system prompt, full tool descriptions. Schemas are read separately, on demand.'
+        : 'Agent context: protocol, system prompt, short tool descriptions. Use --full for complete descriptions; read schemas separately.',
       'Follow this protocol:',
       '',
       '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY RAW TOOL CALL ***',
-      "  Always read a tool's schema before calling it:",
-      '    octocode tools <name> --scheme           # schema: required fields, types, examples',
+      '  This context lists what each tool is for. It does NOT include schemas —',
+      "  read a tool's schema before calling it:",
+      '    octocode tools <name> --scheme           # schema: fields, types, bounds, defaults',
       '    octocode tools <name>                    # same schema/help shortcut',
-      '    octocode tools <n1> <n2> ...             # batch: read multiple schemas at once',
-      full
-        ? '  Full JSON schemas are included in this output below.'
-        : '  Compact schema summaries are included below; use --full for exact JSON schemas.',
+      '    octocode tools <n1> <n2> ... --scheme    # batch: read multiple schemas at once',
       '',
       '  *** RESEARCH LOOP ***',
-      '  1. Orient: tree / repo / pkg / pr.',
-      '  2. Search: files / search.',
-      '  3. Read: get exact slices; choose --mode standard|symbols|none.',
-      '  4. Prove: symbols/lsp or PR content; stop when evidence.answerReady is true.',
-      '',
-      '  *** SMART COMMANDS — USE THESE FIRST for file / search / repo / PR / package / LSP ***',
-      '  These cover common flows without raw schemas; file/search commands auto-route local ↔ GitHub:',
-      '    octocode get <path|owner/repo/file>      — fetch + minify (--mode none|standard|symbols, --match-string, --start-line, --end-line, --full-content)',
-      '    octocode tree <path|owner/repo>          — directory structure (--depth <n>)',
-      '    octocode files <query> [path|repo]       — file path/content discovery (--search path|content|both, --source auto|local|github)',
-      '    octocode search <pattern> <path|repo>    — code search (--type, --branch, --limit, --page)',
-      '    octocode pr <owner/repo[#N] | PR-URL>    — PR list/search OR deep-dive (--patches, --comments, --commits, --deep)',
-      '    octocode repo <keywords...>              — repository discovery (--topic, --language, --stars, --sort)',
-      '    octocode pkg <package>                   — npm metadata + source repository',
-      '    octocode symbols <file|path>              — semantic outline / documentSymbols before LSP navigation',
-      '    octocode lsp <file> --type <type>         — semantic nav after search/symbols gives --symbol + --line',
-      '  Full smart-command scheme: octocode <command> --help',
+      '  1. Orient: localViewStructure / ghViewRepoStructure / npmSearch.',
+      '  2. Search: localSearchCode / ghSearchCode.',
+      '  3. Read: localGetFileContent / ghGetFileContent — smallest slice, choose minify standard|symbols|none.',
+      '  4. Prove: lspGetSemantics or ghSearchPRs; stop when evidence.answerReady is true.',
       '',
       '  *** TOOL CALLS ***',
       "  octocode tools <name> --queries '<json>'           # run tool, YAML output",
@@ -547,34 +518,50 @@ export async function getToolsContextString(
       '  Trust evidence.answerReady — when true, the answer is complete; stop calling.',
     ].join('\n'),
     '',
-    'Tools:',
+    'Tools (grouped by source):',
   ];
 
-  toolNames.forEach((toolName, index) => {
-    const description = getDirectToolDescription(toolName, metadata);
+  const CATEGORY_ORDER: Array<{
+    cat: ReturnType<typeof getDirectToolCategory>;
+    label: string;
+  }> = [
+    { cat: 'GitHub', label: 'GitHub' },
+    { cat: 'Local', label: 'Local' },
+    { cat: 'LSP', label: 'LSP' },
+    { cat: 'Package', label: 'npm' },
+    { cat: 'Other', label: 'Other' },
+  ];
 
-    sections.push(`${index + 1}. ${toolName}`);
-    sections.push(
-      `Description: ${full ? description.trim() : extractShortDescription(description)}`
+  let toolIndex = 0;
+  for (const { cat, label } of CATEGORY_ORDER) {
+    const inCategory = toolNames.filter(
+      toolName => getDirectToolCategory(toolName) === cat
     );
+    if (inCategory.length === 0) continue;
 
-    if (full) {
-      const schemaText = findDirectToolDefinition(toolName)
-        ? formatDirectToolSchemaText(toolName)
-        : formatDirectToolMetadataSchemaText(metadata.tools[toolName]?.schema);
-      sections.push('Input schema:');
-      sections.push(schemaText);
-    } else if (findDirectToolDefinition(toolName)) {
-      sections.push('Input fields:');
-      sections.push(formatToolFieldsCompact(toolName));
-    } else {
-      sections.push('Input schema:');
-      sections.push(
-        formatDirectToolMetadataSchemaText(metadata.tools[toolName]?.schema)
-      );
+    sections.push(`${label}:`);
+    for (const toolName of inCategory) {
+      toolIndex += 1;
+      const description = getDirectToolDescription(toolName, metadata);
+      if (full) {
+        sections.push(`  ${toolIndex}. ${toolName}`);
+        sections.push(description.trim());
+      } else {
+        sections.push(
+          `  ${toolIndex}. ${toolName} — ${extractShortDescription(description)}`
+        );
+      }
     }
     sections.push('');
-  });
+  }
+
+  sections.push(
+    'Schemas are not shown here — read them on demand (required before any call):'
+  );
+  sections.push(
+    '  octocode tools <name> --scheme            # one tool',
+    '  octocode tools <n1> <n2> ... --scheme     # several tools at once'
+  );
 
   return sections.join('\n').trim();
 }

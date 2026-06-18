@@ -9,6 +9,7 @@ mod minifier;
 mod ripgrep_parser;
 mod signatures;
 mod strategies;
+mod structural;
 mod types;
 mod utf8_offsets;
 mod yaml_utils;
@@ -227,6 +228,23 @@ pub fn strip_python_docstrings(content: String) -> String {
 #[napi(js_name = "extractSignatures")]
 pub fn extract_signatures(content: String, file_path: String) -> Option<String> {
     signatures::extract_signatures_inner(&content, &file_path)
+}
+
+/// Structural (AST) search — octocode's L2 layer. Resolves the grammar from
+/// `file_path`'s extension and matches an ast-grep `pattern` OR a YAML `rule`
+/// (exactly one). Returns node ranges (1-based lines, ready as `lineHint`s)
+/// plus captured metavariables. Throws on unsupported extension, invalid
+/// pattern/rule, or both/neither query supplied.
+#[napi(js_name = "structuralSearch")]
+pub fn structural_search(
+    content: String,
+    file_path: String,
+    pattern: Option<String>,
+    rule: Option<String>,
+) -> Result<Vec<structural::StructuralMatch>> {
+    let ext = file_extension::get_extension_internal(&file_path, true, "txt");
+    structural::search(&content, &ext, pattern.as_deref(), rule.as_deref())
+        .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
 /// Returns a sorted list of JS char offsets (UTF-16 code units) where

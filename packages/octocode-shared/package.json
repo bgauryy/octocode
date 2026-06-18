@@ -1,6 +1,6 @@
 {
   "name": "octocode-shared",
-  "version": "16.0.0",
+  "version": "16.2.0",
   "description": "Shared utilities for Octocode packages - credential management and platform detection",
   "keywords": [
     "config",

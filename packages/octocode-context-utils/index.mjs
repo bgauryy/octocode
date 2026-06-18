@@ -22,6 +22,7 @@ export const minifyCSSQuality = nativeBinding.minifyCSSQuality
 export const minifyHTMLQuality = nativeBinding.minifyHTMLQuality
 export const stripPythonDocstrings = nativeBinding.stripPythonDocstrings
 export const extractSignatures = nativeBinding.extractSignatures
+export const structuralSearch = nativeBinding.structuralSearch
 export const getSemanticBoundaryOffsets = nativeBinding.getSemanticBoundaryOffsets
 export const getSupportedSignatureExtensions = nativeBinding.getSupportedSignatureExtensions
 export const jsonToYamlString = nativeBinding.jsonToYamlString

@@ -1,6 +1,6 @@
 {
   "name": "octocode-lsp",
-  "version": "16.0.0",
+  "version": "16.3.0",
   "description": "Reusable LSP client, server registry, and semantic navigation runtime for Octocode",
   "keywords": [
     "code-intelligence",
@@ -155,6 +155,17 @@
   "scripts": {
     "build": "rm -rf dist && napi build --platform --no-js --dts target/napi-rs/native.d.ts --release && node scripts/sync-platform-binaries.cjs && tsc -p tsconfig.build.json",
     "build:dev": "rm -rf dist && napi build --platform --no-js --dts target/napi-rs/native.d.ts && node scripts/sync-platform-binaries.cjs && tsc -p tsconfig.build.json",
+    "build:native": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release && node scripts/sync-platform-binaries.cjs",
+    "build:darwin-arm64": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release --target aarch64-apple-darwin && node scripts/sync-platform-binaries.cjs",
+    "build:darwin-x64": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release --target x86_64-apple-darwin && node scripts/sync-platform-binaries.cjs",
+    "build:linux-x64-gnu": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release --cross-compile --target x86_64-unknown-linux-gnu && node scripts/sync-platform-binaries.cjs",
+    "build:linux-x64-musl": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release --cross-compile --target x86_64-unknown-linux-musl && node scripts/sync-platform-binaries.cjs",
+    "build:linux-arm64-gnu": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release --cross-compile --target aarch64-unknown-linux-gnu && node scripts/sync-platform-binaries.cjs",
+    "build:windows-x64": "napi build --platform --no-js --dts target/napi-rs/native.d.ts --release --cross-compile --target x86_64-pc-windows-msvc && node scripts/sync-platform-binaries.cjs",
+    "build:ts": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && yarn build:ts",
+    "pack:check": "node scripts/check-pack-size.cjs",
+    "platforms:check": "node scripts/check-platform-binaries.cjs",
     "clean": "rm -rf dist/ *.node",
     "benchmark": "node benchmark/run.mjs",
     "lint": "eslint src tests",

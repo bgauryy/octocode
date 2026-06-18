@@ -8,7 +8,7 @@ mod uri;
 mod validation;
 mod workspace;
 
-use napi::Result;
+use napi::{Error, Result, Status};
 use napi_derive::napi;
 use types::{JsFuzzyPosition, JsLanguageServerConfig, JsResolvedSymbol};
 
@@ -96,6 +96,7 @@ pub fn get_language_server_for_file(
 #[napi(js_name = "isCommandAvailable")]
 pub fn is_command_available(command: String) -> Result<bool> {
     config::is_command_available(command)
+        .map_err(|e| Error::new(Status::GenericFailure, e))
 }
 
 /// Read `file_path` from disk after canonicalizing it and confirming it is an

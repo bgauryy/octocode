@@ -135,16 +135,29 @@ function getPlatformKey(): string {
 
 function loadNativeBinding(): NativeBinding {
   const key = getPlatformKey();
+  const fileName = `${binaryName}.${key}.node`;
 
+  // 1. Explicit override (tests / custom layouts).
+  const envOverride = process.env.OCTOCODE_LSP_NATIVE_PATH;
+  if (envOverride && existsSync(envOverride)) {
+    return require(envOverride) as NativeBinding;
+  }
+
+  // 2. Per-platform optional dependency (standard npm install path).
   try {
     return require(`${packageName}-${key}`) as NativeBinding;
   } catch {
     /* try next candidate */
   }
 
+  // 3. Local/dev (.node next to or above the loader) and standalone-binary
+  //    layout (runtime/lsp/, copied next to the executable by bundle-lsp.mjs).
   const candidates = [
-    join(__dirname, `${binaryName}.${key}.node`),
-    join(__dirname, '..', `${binaryName}.${key}.node`),
+    join(__dirname, fileName),
+    join(__dirname, '..', fileName),
+    join(__dirname, 'runtime', 'lsp', fileName),
+    join(__dirname, '..', 'runtime', 'lsp', fileName),
+    join(__dirname, '..', '..', 'runtime', 'lsp', fileName),
   ];
 
   for (const candidate of candidates) {

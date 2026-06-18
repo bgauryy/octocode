@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-context-utils",
-  "version": "16.0.1",
+  "version": "16.3.0",
   "description": "Rust LLM context engine for agent-readable compression, semantic signatures, deterministic pagination, and YAML serialization",
   "main": "index.js",
   "types": "index.d.ts",
@@ -66,6 +66,7 @@
     "build:dev": "node scripts/prebuild.cjs && napi build --platform && node scripts/postbuild.cjs",
     "clean": "rm -f *.node",
     "pack:check": "node scripts/check-pack-size.cjs",
+    "platforms:check": "node scripts/check-platform-binaries.cjs",
     "version:check": "node scripts/check-version-consistency.cjs",
     "binary-size:check": "node scripts/check-binary-size.cjs",
     "test": "vitest run --coverage",

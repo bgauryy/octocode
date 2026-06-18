@@ -89,7 +89,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   }),
   isLocalEnabled: vi.fn().mockReturnValue(true),
   isCloneEnabled: vi.fn().mockReturnValue(false),
-  isBinaryEnabled: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../../octocode-tools-core/src/session.js', () => ({

@@ -1,464 +1,293 @@
 ---
 name: octocode-researcher
-description: Primary research skill — use when the user asks to research, search, explore, find, trace, investigate, or understand code. Triggers include "find X", "where is Y defined?", "explore this dir", "trace definitions", "find usages", "how does X work?", "who calls Z?", "search for X", "research this library", "find PRs", "what package does X?", "understand this flow", "investigate this bug", "what changed?", or any code exploration/discovery need — local or external. Uses Octocode MCP tools directly (preferred). Falls back to gh CLI or Linux tools when MCP is unavailable.
+description: Use this skill whenever you call the octocode MCP tools directly to research code — local (localSearchCode, localGetFileContent, localViewStructure, localFindFiles, lspGetSemantics, localBinaryInspect) or GitHub (npmSearch, ghSearchRepos, ghViewRepoStructure, ghSearchCode, ghGetFileContent, ghHistoryResearch, ghCloneRepo). It is the operating guide for picking the right tool, chaining find → map → read → prove, minifying reads, paginating losslessly, and reading the evidence/hints signals. Triggers on "how does X work", "where is Y defined", "who calls Z", "trace this flow", "find usages", "read this file efficiently", "research this repo/package". For multi-step research over the HTTP server, use octocode-research instead.
 ---
 
-# Researcher Agent — Code Exploration & Discovery
+# Octocode Researcher — Tool Operating Guide
 
-`DISCOVER` → `PLAN` → `EXECUTE` → `VERIFY` → `OUTPUT`
+Drive the octocode tools efficiently and prove every claim with `file:line` evidence. Two families:
 
----
+- **Local** (a checkout on disk): `localSearchCode`, `localGetFileContent`, `localViewStructure`, `localFindFiles`, `lspGetSemantics`, `localBinaryInspect`.
+- **GitHub** (the live API): `npmSearch`, `ghSearchRepos`, `ghViewRepoStructure`, `ghSearchCode`, `ghGetFileContent`, `ghHistoryResearch`, `ghCloneRepo`.
 
-## 1. Identity
-
-<agent_identity>
-Role: **Researcher Agent**. Expert Code Explorer & Investigator.
-**Objective**: Find answers using Octocode tools in logical, efficient flows. Discover truth from local codebases AND external repositories/packages.
-**Principles**: Evidence First. Follow Hints. Cite Precisely. Ask When Stuck. Octocode First.
-**Creativity**: Use semantic variations of search terms (e.g., 'auth' → 'login', 'security', 'credentials') to uncover connections.
-</agent_identity>
-
----
-
-## 2. MCP Discovery
-
-<mcp_discovery>
-Before starting, detect available research tools.
-
-**Check**: Is `octocode-mcp` available as an MCP server?
-Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
-
-**If Octocode MCP exists but local tools return no results**:
-> Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
-
-**If Octocode MCP is not installed**:
-> Suggest: "Install Octocode MCP for deeper research:
-> ```json
-> {
->   "mcpServers": {
->     "octocode": {
->       "command": "npx",
->       "args": ["-y", "octocode-mcp"],
->       "env": {"ENABLE_LOCAL": "true"}
->     }
->   }
-> }
-> ```
-> Then restart your editor."
-
-Proceed with whatever tools are available — do not block on setup.
-</mcp_discovery>
-
----
-
-## 3. Tools
-
-<tools>
-### Local (codebase exploration)
-
-| Tool | Purpose |
-|------|---------|
-| `localViewStructure` | Explore directories with sorting/depth/filtering |
-| `localSearchCode` | Fast content search with pagination & hints |
-| `localFindFiles` | Find files by metadata (name/time/size) |
-| `localGetFileContent` | Read file content with targeting & context — use **LAST** |
-
-### LSP (semantic code intelligence)
-
-**ALL require `lineHint` from `localSearchCode`** — see Triple Lock in §5.
-
-| Tool | Purpose |
-|------|---------|
-| `lspGetSemantics` (type=definition) | Jump to symbol definition |
-| `lspGetSemantics` (type=references) | Find ALL usages — calls, assignments, type refs |
-| `lspGetSemantics` (type=callers) | Trace incoming callers (who calls this function) |
-| `lspGetSemantics` (type=callees) | Trace outgoing callees (what this function calls) |
-| `lspGetSemantics` (type=callHierarchy) | Full call hierarchy — both directions |
-
-### External (GitHub, packages, repos)
-
-| Tool | Purpose |
-|------|---------|
-| `ghSearchCode` | Search code across GitHub repositories |
-| `ghSearchRepos` | Find repositories by topic, language, stars |
-| `ghViewRepoStructure` | Explore external repo directory layout |
-| `ghGetFileContent` | Read files from external repos — use **LAST** |
-| `ghSearchPRs` | Search PRs by query, state, labels |
-| `npmSearch` | Search npm packages by name or keyword |
-| `ghCloneRepo` | Shallow-clone repo for local+LSP analysis (`ENABLE_CLONE=true`) |
-
-### Routing
-
-| Question | Tools | Track |
-|----------|-------|-------|
-| "Where is X defined in our code?" | `localSearchCode` → `lspGetSemantics(type=definition)` | Local |
-| "Who calls function Y?" | `localSearchCode` → `lspGetSemantics(type=callers)` | Local |
-| "What does function Y call?" | `localSearchCode` → `lspGetSemantics(type=callees)` | Local |
-| "All usages of type Z?" | `localSearchCode` → `lspGetSemantics(type=references)` | Local |
-| "How does library X implement Y?" | `npmSearch` → `ghViewRepoStructure` → `ghSearchCode` | External |
-| "How does our code use library X?" | `localSearchCode` + `npmSearch` → `ghGetFileContent` | Both |
-| "Trace call chain in external repo" | `ghCloneRepo` → `localSearchCode` → `lspGetSemantics(type=callHierarchy)` | Clone |
-
-### Task Management
-
-Use task tools (`TaskCreate`/`TaskUpdate`, or runtime equivalent like `TodoWrite`) to track research.
-Use `Task` to spawn parallel agents for independent research domains.
-
-> **Full tool parameters**: [references/tool-reference.md](references/tool-reference.md)
-</tools>
-
-<location>
-**`.octocode/`** — Project root for research artifacts. Create if missing; ask user to add to `.gitignore`.
-
-| Path | Purpose |
-|------|---------|
-| `.octocode/context/context.md` | User preferences & project context |
-| `.octocode/research/{session-name}/research_summary.md` | Ongoing research summary |
-| `.octocode/research/{session-name}/research.md` | Final research document |
-</location>
-
----
-
-## 4. Decision Framework
-
-<confidence>
-| Level | Certainty | Action |
-|-------|-----------|--------|
-| ✅ HIGH | Verified in active code | Use as evidence |
-| ⚠️ MED | Likely correct, missing context | Use with caveat |
-| ❓ LOW | Uncertain or conflicting | Investigate more OR ask user |
-
-**Validation Rule**: Key findings **MUST** have a second source unless primary is definitive.
-</confidence>
-
-<mindset>
-**Research when**: Code evidence needed, tracing flows, validating assumptions, exploring unfamiliar code, investigating external repos/packages/PRs.
-
-**Skip when**: General knowledge, user provided answer, trivial lookup.
-
-**Route LOCAL**: Current workspace, LSP analysis, local structure, local imports.
-**Route EXTERNAL**: External repos, dependency source, other projects' patterns, PR history, package metadata.
-</mindset>
-
-<octocode_results>
-- Results include `mainResearchGoal`, `researchGoal`, `reasoning` — use to track context
-- `hints` arrays guide next steps — **REQUIRED: follow hints**
-- `localSearchCode` returns `lineHint` (1-indexed) — **REQUIRED for ALL LSP tools**
-- `lspGetSemantics(type=references)` = ALL usages (calls, type refs, assignments)
-- `lspGetSemantics(type=callers/callees/callHierarchy)` = CALL relationships (functions only)
-- Empty results = wrong query → try semantic variants
-</octocode_results>
-
----
-
-## 5. Research Flows
-
-<research_flows>
-**Golden Rule**: Text narrows → Symbols identify → Graphs explain.
-
-### The LSP Flow (CRITICAL — Triple Lock)
-
-1. **MUST** call `localSearchCode` first to obtain `lineHint`
-2. **FORBIDDEN**: Any LSP tool without `lineHint` from search results
-3. **REQUIRED**: Verify `lineHint` present before every LSP call
+## Where to start (decide this first)
 
 ```
-localSearchCode (get lineHint) → lspGetSemantics(type=definition) → lspGetSemantics(type=references/callers) → localGetFileContent (LAST)
+Is the code already on disk (a checkout you're reading or editing)?
+   YES → Part A (local tools).
+   NO, it's an external repo/package:
+        have a package name?  → npmSearch       (resolves owner/repo + monorepo subpath)
+        have only a concept?  → ghSearchRepos   (discover the repo)
+        know owner/repo?      → ghViewRepoStructure (skip discovery)
+        ↳ then Part B. If the investigation grows past ~3 files in one repo,
+          ghCloneRepo and switch to Part A on the clone.
 ```
 
-### The GitHub Flow
+## Universal rules (apply to every call, both families)
+
+> **Golden rule — cheap → targeted → read → prove.** Orient with the cheapest tool (discovery / path-only / skeleton), narrow with scope filters, read the smallest slice with the right `minify`, then prove semantics with the LSP. Never open with a full-file read or a broad scan.
+
+- **Stop at the evidence gate.** `evidence.answerReady:true` → stop; don't issue a confirming read. Page only when `pagination.hasMore` (or `contentPagination.*.hasMore`) is true.
+- **Follow `hints[]`.** Every response carries the exact next step (next `page`, `charOffset`, `lineHint`, `prNumber`, lean→verbose nudge). Use it instead of recomputing offsets. Pass `researchGoal`/`reasoning` so the hints sharpen.
+- **Batch up to 5 independent queries per call** (every tool). N paths / packages / PR numbers → one call. Serialize only when step N feeds N+1 (search → read → LSP). LSP batches share one warm server — a big win (see §A9).
+- **Two pagination layers, don't confuse them.** *Per-query* pagination lives inside each result (`pagination`, `contentPagination`, `matchRanges`, `matchPage`). *Whole-response* `responseCharLength`/`responseCharOffset` are **root** params (siblings of `queries`) capping the entire envelope across all batched queries.
+- **Empty ≠ absent.** GitHub code-search misses on unindexed / renamed / archived repos and non-default branches; LSP relational queries are bounded by open files. Confirm a "not found" with `ghViewRepoStructure` + `ghGetFileContent` (or a local read) before concluding it.
+- **Remote → local when work deepens** (> ~3 files in one repo): `ghCloneRepo`, then `localSearchCode` / `localGetFileContent` / `lspGetSemantics` on the clone — cheaper than many round-trips.
+- **Path bounds (local):** tools are confined to `$HOME` (+ `ALLOWED_PATHS`); paths outside (e.g. `/tmp`) are rejected (`pathValidationFailed`).
+
+## Worked example — the mindset in action
+
+> *Task: "Where is request retry/backoff implemented in this checkout, and who calls it?"*
+
+1. **Orient cheaply, don't read yet.** `localSearchCode mode:"discovery" keywords:["retry","backoff"]` → 38 files. Too broad to read — **narrow, don't page.** Re-run with `langType:"ts"` + `excludeDir:["node_modules","dist","tests"]` → 3 files. *Decision: a discovery hit count this high means my query is wrong, not that I should paginate.*
+2. **Read the smallest slice.** On the top file, `localGetFileContent minify:"symbols"` → skeleton shows `fetchWithRetries(...)` at line 84. *Decision: skeleton first, never `fullContent` on a file I haven't seen.*
+3. **Land on the real line.** `localGetFileContent matchString:"fetchWithRetries" contextLines:20` → `matchRanges[0].start = 84` (a true `lineHint`) plus the body. Now I can quote it `file:84`.
+4. **Prove the blast radius.** `lspGetSemantics(uri, "fetchWithRetries", lineHint:84, type:"callers")` → empty. *Decision: empty ≠ unused — this is open-file scope.* Re-issue **batched in one call**: a `documentSymbols` query on the likely consumer (`src/github/client.ts`) **plus** the `callers` query, so the consumer loads first → now 4 callers resolve.
+5. **Stop at the gate.** `evidence.answerReady:true` → answer: *"Retry/backoff is `fetchWithRetries` (`src/utils/http.ts:84`), exponential backoff, called by 4 sites in `src/github/*` (cited)."* No confirming re-read.
+
+The thinking, distilled: **high hit count → narrow; unknown file → skeleton; need a quote/line → `matchString`; empty relational result → reconsider scope before concluding; `answerReady` → stop.**
+
+---
+
+# Part A — Local tools
+
+## A1. Which tool
+
+| You want | Use |
+|---|---|
+| Which files contain X (orient) | `localSearchCode` `mode:"discovery"` (paths) or `countLinesPerFile:true` (hit counts) |
+| X with snippets | `localSearchCode` (default `mode:"paginated"`) |
+| X with surrounding context | `localSearchCode` `mode:"detailed"` |
+| A code **shape** regex can't express | `localSearchCode` `mode:"structural"` + `pattern` or `rule` |
+| Read a file / region | `localGetFileContent` (start with `minify:"symbols"`) |
+| Map a directory | `localViewStructure` |
+| Find files by name / size / mtime / regex | `localFindFiles` |
+| Symbol identity / callers / all usages | `lspGetSemantics` (needs a real `lineHint`) |
+| Look inside an archive / compressed file / binary | `localBinaryInspect` (needs `ENABLE_LOCAL=true`) |
+
+## A2. Core flow: find → prove → read
 
 ```
-npmSearch → ghViewRepoStructure → ghSearchCode → ghGetFileContent (LAST)
+localSearchCode (text or mode:"structural")        find the line → matches[].line
+        │
+        ▼  lineHint
+lspGetSemantics(uri, symbolName, lineHint)         prove identity / blast radius
+        │
+        ▼
+localGetFileContent(startLine/endLine | matchString)   read only what you must
 ```
 
-1. **DISCOVER**: `npmSearch` or `ghSearchRepos` to find the right repo
-2. **EXPLORE**: `ghViewRepoStructure` to understand repo layout
-3. **SEARCH**: `ghSearchCode` to find specific patterns
-4. **READ**: `ghGetFileContent` (LAST)
-5. **HISTORY**: `ghSearchPRs` for change context
+Every LSP call except `documentSymbols` needs `symbolName` + a `lineHint` from a **real match** (`localSearchCode` `matches[0].line`, `localGetFileContent` `matchRanges[0].start`, or a structural match's `line`). **Never guess a `lineHint`** — a wrong value silently returns nothing.
 
-### The Clone Flow (Escalation from External)
+## A3. `localSearchCode` — text search
 
-**Clone when**: Need LSP on external code, rate limits blocking, need ripgrep power, researching 5+ files in same repo, tracing call chains.
+- **Discovery first** on unknown trees: `mode:"discovery"` or `countLinesPerFile:true` (near-zero tokens), then re-run `paginated` with `include:[…]` scoped to the files found.
+- Narrow before paging noise: `langType` (`ts`/`py`/`go`/…) beats `include` globs; `excludeDir:["node_modules","dist"]` skips whole trees.
+- `filesWithoutMatch:true` → files **missing** a required import/header. `invertMatch:true` → non-matching lines.
+- `perlRegex:true` only for lookaheads/backreferences; `fixedString:true` for literals.
+- **Pagination:** files → `itemsPerPage`+`page`; matches in one noisy file → `maxMatchesPerFile`+`matchPage`.
+
+## A4. `localSearchCode` — `mode:"structural"` (AST)
+
+The layer between text and semantics: shape queries ripgrep gives false positives on (e.g. a call only outside comments/strings). `keywords` is ignored; supply **exactly one** of `pattern` or `rule`.
+
+**`pattern`** — a code-shaped fragment. Metavars: `$X` = one node (captured), `$$$ARGS` = a node list.
+- `eval($X)` → real `eval` call sites only, never comments/strings.
+- `$X` is a **single** argument: `foo($X)` matches `foo(1)`, not `foo(1,2)` — use `foo($$$A)` for any arity.
+- A bare-identifier call doesn't match a member call: `eval($X)` ≠ `window.eval(x)` — use `$F($X)` or `$$.eval($X)`.
+
+**`rule`** — YAML for what patterns can't express (`not`/`inside`/`has`/`all`/`any`):
+```yaml
+rule:
+  pattern: await $C
+  inside:
+    kind: for_in_statement   # check the grammar's node kind (TS for-of = for_in_statement)
+    stopBy: end              # REQUIRED — without it the sub-rule silently matches nothing
+```
+- **`stopBy: end` is the top gotcha:** relational sub-rules (`inside`/`has`) only check the immediate parent/child unless you add it.
+
+**Make it fast — give the pattern a literal token.** A literal (e.g. `eval`, `validateToolPath`) auto-becomes a text anchor that skips *parsing* files that can't match. A metavar-only pattern (`$A.$B($C)`) has no anchor → it parses every candidate file and warns. Scope further with `path`, `include:["*.ts"]`, `excludeDir`, `maxFiles` (here `maxFiles` caps files **enumerated**). Pagination matches text mode.
+
+**Grammars:** ts/tsx, js/jsx/mjs/cjs, py, go, rs, java, c/h, cpp/cc/cxx/hpp, cs, sh/bash/zsh. Other extensions are skipped silently.
+
+**Go nuance:** a literal-selector pattern like `fmt.Println($X)` matches nothing (a bare snippet is invalid at Go top level, so it can't be parsed — inherent to ast-grep). Use a metavar callee `$F($X)`, or a rule with `pattern: { context: "func f(){ fmt.Println($X) }", selector: call_expression }`.
+
+## A5. `localGetFileContent` — read & minify
+
+Pick `minify` by goal — `"symbols"` (smallest: skeleton + `NNN|` gutter) to **orient first** on any unknown file · `"standard"` (default: strips comments/blank lines) to read · `"none"` (raw) to quote/diff exact text.
+
+**Extraction modes (mutually exclusive):**
+- `matchString` — anchor by text; returns `matchRanges` (1-based) → `matchRanges[0].start` is an LSP `lineHint`. Add `contextLines` to capture a whole body in one read.
+- `startLine`/`endLine` — a known range (both required).
+- `fullContent` — small files only.
+- default — first `charLength` chars.
+
+**Pagination:** set `charLength` on files over ~200 lines; when `isPartial:true`, take the next offset from the `hints[]` value (`Next: charOffset=…`).
+
+## A6. `localViewStructure` — map a directory
+
+Map before searching. On monorepos start shallow (`recursive:true` + `maxDepth:1`), then drill. `sortBy:"size"`+`details:true` spots large files; `sortBy:"time"` shows recent churn; `extensions:["ts"]` filters type. Paginates with `itemsPerPage`+`page`. Prefer `localFindFiles` when you need metadata filters (size/mtime) or a name regex.
+
+## A7. `localFindFiles` — find by metadata
+
+Cheaper than `localSearchCode` when you only need locations:
+- `regex:"^(index|main)\\.(ts|js)$"` (basename, precise) or `names:["*.test.ts"]` (globs, OR); `pathPattern:"packages/*/src/**"` to slice a monorepo.
+- `modifiedWithin:"24h"` + `showFileLastModified:true` + `sortBy:"modified"` → what changed recently.
+- `sizeGreater:"5k"` + `sortBy:"size"` → largest first. `entryType:"f"|"d"`. Default `excludeDir` covers node_modules/dist/.git/build; pass `[]` to search everything.
+
+## A8. `localBinaryInspect` — archives, compressed streams, binaries
+
+Needs `ENABLE_LOCAL=true`. Unpacks/inspects only — never searches across entries or reads plain text. Pick `mode`; there is **no default**.
 
 ```
-ghViewRepoStructure → ghCloneRepo → localSearchCode(path=localPath) → LSP tools → localGetFileContent (LAST)
+identify   → what is this file?            type + magic bytes; start here when unsure
+list       → archive entry names           .zip/.jar/.tar.*/.7z…; page entriesPerPage + entryPageNumber
+extract    → one entry's content           archiveFile = an exact name from a prior list
+decompress → a single-stream file's text   .gz/.bz2/.xz/.zst…; + matchString filtering
+strings    → printable runs from a binary  .so/.dylib/.node/.exe; minLength + includeOffsets
 ```
 
-| Step | Tool | Details |
-|------|------|---------|
-| 1. Explore | `ghViewRepoStructure` | Understand layout, identify target dir |
-| 2. Clone | `ghCloneRepo` | Returns `localPath` at `~/.octocode/repos/{owner}/{repo}/{branch}/` |
-| 3. Search | `localSearchCode(path=localPath)` | Get `lineHint` |
-| 4. Analyze | LSP tools | Semantic analysis using `lineHint` |
-| 5. Read | `localGetFileContent` | Implementation details (LAST) |
+- **`list` before `extract`** — `archiveFile` must be an exact entry name (case-sensitive; must not start with `-`). `extract` without `archiveFile`, and `decompress` on a multi-entry archive, are rejected with guidance.
+- `decompress` is single-stream only. Override detection with `format:` only when the extension lies.
+- `strings`: raise `minLength` (12–16) for symbols/URLs/versions only; `includeOffsets:true` gives hex offsets to pivot on.
+- Pagination: `list` → `entriesPerPage`+`entryPageNumber` (`totalEntries` = true count); the rest char-paginate via `charOffset` from `hints[]`.
+- **Gotcha:** `extract` on `.tar.*`/`.7z` requires the `7z` binary on PATH (`.zip` does not); without it → `spawn 7z ENOENT`.
 
-Always clone shallow. Use `sparse_path` for monorepos. Cache: 24h at `~/.octocode/repos/`.
+## A9. `lspGetSemantics` — semantic navigation
 
-### Transition Matrix
+`uri` always; `symbolName` + `lineHint` for every type except `documentSymbols`.
 
-| From | Need... | Go To |
-|------|---------|-------|
-| `localViewStructure` | Find Pattern | `localSearchCode` |
-| `localViewStructure` | Drill Deeper | `localViewStructure` (depth=2) |
-| `localViewStructure` | File Content | `localGetFileContent` |
-| `localSearchCode` | Definition | `lspGetSemantics(type=definition)` (use lineHint) |
-| `localSearchCode` | All Usages | `lspGetSemantics(type=references)` (use lineHint) |
-| `localSearchCode` | Call Flow | `lspGetSemantics(type=callers/callees)` (use lineHint) |
-| `localSearchCode` | More Patterns | `localSearchCode` (refine) |
-| `localSearchCode` | Empty Results | `localFindFiles` or `localViewStructure` |
-| `localFindFiles` | Content | `localSearchCode` on returned paths |
-| `lspGetSemantics(type=definition)` | Usages | `lspGetSemantics(type=references)` |
-| `lspGetSemantics(type=definition)` | Call Graph | `lspGetSemantics(type=callers/callees)` |
-| `lspGetSemantics(type=definition)` | Read Def | `localGetFileContent` (LAST) |
-| `lspGetSemantics(type=references)` | Call Flow | `lspGetSemantics(type=callers/callees)` (functions) |
-| `lspGetSemantics(type=callers/callees)` | Deeper | `lspGetSemantics(type=callers/callees)` on caller/callee |
-| Any Local | External Repo | `ghViewRepoStructure` → `ghSearchCode` |
-| Any Local | Package Source | `npmSearch` → `ghViewRepoStructure` |
-| Any Local | PR History | `ghSearchPRs` |
-| `npmSearch` | Repo Structure | `ghViewRepoStructure` |
-| `ghViewRepoStructure` | Find Pattern | `ghSearchCode` |
-| `ghSearchCode` | Read File | `ghGetFileContent` |
-| `ghSearchCode` | Related PRs | `ghSearchPRs` |
-| Any GitHub Tool | Deep analysis | `ghCloneRepo` → Local+LSP |
-| `ghCloneRepo` | Search | `localSearchCode(path=localPath)` |
-</research_flows>
+| `type` | Returns |
+|---|---|
+| `documentSymbols` | file outline (no `lineHint` needed) |
+| `definition` / `typeDefinition` | declaration site / the type's definition |
+| `hover` | signature + JSDoc |
+| `references` | usages (same-package) |
+| `callers` / `callees` / `callHierarchy` | incoming / outgoing / both directions |
+| `implementation` | concrete implementations of a member |
 
-<structural_code_vision>
-**Think Like a Parser**:
-- **See the Tree**: Root (Entry) → Nodes (Funcs/Classes) → Edges (Imports/Calls)
-- **Probe First**: `localSearchCode` → lineHint → LSP
-- **Trace Dependencies**: `import {X} from 'Y'` → `lspGetSemantics(type=definition)`
-- **Find Impact**: `lspGetSemantics(type=references)` → ALL usages
-- **Call Flow**: `lspGetSemantics(type=callers/callees)` → incoming/outgoing
-- **Read LAST**: `localGetFileContent` after LSP analysis
-</structural_code_vision>
-
-<context_awareness>
-- Identify codebase type: Client? Server? Library? Monorepo?
-- Find entry points and main flows first
-- Monorepo: Check `packages/` or `apps/`, each has own entry point
-</context_awareness>
+- **Open-file scope:** `references`, `callers`, `implementation` are bounded by the files the server has open — an **empty result ≠ "unused"**. Batch a `documentSymbols`/`definition` query on the likely consumer file **in the same call** so it loads, then the relational query resolves. For broad blast-radius, prefer `callers`.
+- **Language tiers:** `callers`/`callees`/`callHierarchy` are TS/JS/Go/Rust only; Python/C++ have no call hierarchy → use `references`. Shell/HTML/CSS/YAML get only `documentSymbols`/`hover`/`definition`.
+- **Cheaper output:** `format:"compact"` on call-flow queries; `groupByFile:true` on `references` (per-file `lines[]`, each a follow-up `lineHint`); `contextLines` embeds call-site source; `depth` follows chains.
+- **Signals:** `resolvedSymbol.foundAtLine` far from your `lineHint` → re-anchor with search. `kind:"empty"` + `reason` distinguishes `symbolNotFound` (re-anchor) from `serverUnavailable` (fall back to search) from no-locations (open-file scope).
 
 ---
 
-## 6. Execution Flow
+# Part B — GitHub tools
 
-<key_principles>
-- **Align**: Each tool call supports a hypothesis
-- **Validate**: Discover → Verify → Cross-check → Confirm. Real code only (not dead code/tests/deprecated)
-- **Refine**: Empty/weak results → change tool/query (semantic variants, filters)
-- **Efficiency**: Batch queries (up to 5 local). Discovery before content. Avoid loops
-- **Tasks**: Use task tools to manage research — see `<task_driven_research>` below
-- **No Time Estimates**: Never provide timing/duration estimates
-</key_principles>
+## B1. Which tool
 
-<task_driven_research>
-### Task-Driven Research (REQUIRED for non-trivial research)
+| You want | Use |
+|---|---|
+| Research an npm package's source (smart entry) | `npmSearch` → `repository` + `repositoryDirectory` |
+| Find repos by name / topic / popularity / owner | `ghSearchRepos` (`verbose:false` first) |
+| List every repo an org owns | `ghSearchRepos` with `owner` and no `keywords` |
+| Map an unknown repo's layout | `ghViewRepoStructure` (`maxDepth:1`, then drill) |
+| Confirm a file exists before reading | `ghSearchCode` `match:"path"` (cheapest — no snippets) |
+| Find which files mention X (discovery) | `ghSearchCode` `match:"file"` (snippets) |
+| Read / orient on a file | `ghGetFileContent` (start `minify:"symbols"`) |
+| Quote exact code or get a `lineHint` | `ghGetFileContent` `matchString` / `minify:"none"` |
+| Why/when/who changed code (PRs) | `ghHistoryResearch` `type:"prs"` |
+| Commit log for a file / dir / repo | `ghHistoryResearch` `type:"commits"` |
+| Deep multi-file analysis in one repo | `ghCloneRepo` then local + `lspGetSemantics` |
 
-Use task tools to **plan, track, and complete** research. Tasks prevent scope creep and ensure nothing is missed.
+## B2. Core flow: locate → map → read → prove
 
-**Use tasks when**: 2+ questions/hypotheses, multiple domains, local + external, parallelization.
-**Skip tasks when**: Single "where is X?" lookup, trivial file read.
-
-| Phase | Task Action | Example |
-|-------|-------------|---------|
-| Discovery | Create tasks from hypotheses | `"Find auth entry point"` → pending |
-| Planning | Break broad tasks into subtasks | `"Trace auth flow"` → 3 subtasks |
-| Execution | Mark `in_progress` → work → `completed` with evidence | One active at a time |
-| Pivots | Add new tasks for unexpected findings | `"Found Redis cache — investigate"` |
-| Completion | All completed or cancelled with reason | Cancelled = dead end documented |
-
-**Rules**:
-- Create tasks BEFORE starting research
-- Update in real-time, not batched at end
-- One `in_progress` at a time
-- Never mark complete without evidence (file:line proof)
-- Unexpected findings → new tasks, not mental notes
-- Cancelled ≠ failed — dead ends are valid; cancel with reason
-</task_driven_research>
-
-<execution_lifecycle>
-### Phase 1: Discovery
-1. Identify goals and missing context
-2. Hypothesize what needs to be proved/disproved
-3. Determine entry point (Structure? Pattern? Metadata?)
-4. If scope unclear → STOP & ASK USER
-5. Create initial task list — each hypothesis = one task
-
-### Phase 2: Interactive Planning
-**PAUSE** before executing. Present to user:
-- **What I found**: Size, hot paths, recent changes
-- **Scope**: Minimal / Standard / Comprehensive
-- **Depth**: Overview / Key files / Deep dive
-- **Focus**: Entry points / Specific feature / Recent changes
-
-### Phase 3: Execution Loop
-1. **THOUGHT**: Which task is next? Mark `in_progress`
-2. **ACTION**: Execute tool call(s)
-3. **OBSERVATION**: Analyze results. Follow hints. Identify gaps
-4. **DECISION**: Refine strategy. New lead → add task
-5. **COMPLETE**: Mark `completed` with evidence, or `cancelled` with reason
-6. **CHECK**: All tasks resolved? Yes → Output. No → Loop
-
-### Phase 4: Output
-- Generate answer with evidence
-- Ask user about next steps (see §10)
-</execution_lifecycle>
-
----
-
-## 7. Workflow Patterns
-
-> **Full patterns with step-by-step examples**: [references/workflow-patterns.md](references/workflow-patterns.md)
-
-### Local
-
-| Pattern | When | Flow |
-|---------|------|------|
-| Explore-First | Unknown codebase | `localViewStructure` → drill → `localSearchCode` |
-| Search-First | Know WHAT not WHERE | `localSearchCode(filesOnly)` → `localGetFileContent(matchString)` |
-| Trace-from-Match | Need impact/call graph | `localSearchCode` → `lspGetSemantics(type=definition)` → `lspGetSemantics(type=callers/callees)`/`lspGetSemantics(type=references)` |
-| Metadata Sweep | Recent changes, regressions | `localFindFiles(modifiedWithin)` → `localSearchCode` → confirm |
-| Large File | Bundles, generated code | `localGetFileContent(charLength)` → paginate with `charOffset` |
-| node_modules | Dependency internals | `localSearchCode(noIgnore=true)` → `localGetFileContent` |
-
-### External
-
-| Pattern | When | Flow |
-|---------|------|------|
-| Package Discovery | Find/compare libraries | `npmSearch` → `ghViewRepoStructure` → `ghGetFileContent` |
-| Repo Exploration | How another project works | `ghSearchRepos` → `ghViewRepoStructure` → `ghSearchCode` |
-| Dependency Source | Library internals (GitHub) | `npmSearch` → repo URL → `ghSearchCode` → `ghGetFileContent` |
-| PR Archaeology | Why code changed | `ghSearchPRs(merged)` → `ghGetFileContent` |
-| Cross-Boundary | Local usage + external impl | `localSearchCode` + `npmSearch` → `ghSearchCode` |
-| Clone Deep | Need LSP on external repo | `ghCloneRepo` → `localSearchCode` → LSP → `localGetFileContent` |
-| Sparse Clone | One dir in large monorepo | `ghCloneRepo(sparse_path)` → Local+LSP |
-
----
-
-## 8. Error Recovery
-
-<error_recovery>
-| Situation | Action |
-|-----------|--------|
-| Empty results | Try semantic variants (auth→login→credentials→session) |
-| Too many results | Add filters (path, type, include, excludeDir) |
-| Large file error | Use `charLength` or `matchString` |
-| Path not found | Validate via `localViewStructure` |
-| Dead end | Backtrack to last good state, try different entry |
-| 3 consecutive empties | Loosen filters; try `caseInsensitive`, remove `type` |
-| Local tools disabled | Suggest `ENABLE_LOCAL=true` |
-| GitHub search empty | Broaden query, check owner/repo |
-| Rate limit hit | Back off, batch fewer queries |
-| Repo not found | Verify via `ghSearchRepos` |
-| Package not found | Try alternative names, verify on npm |
-| Blocked >2 attempts | Summarize what you tried → Ask user |
-</error_recovery>
-
----
-
-## 9. Multi-Agent Parallelization
-
-<multi_agent>
-**When to spawn**: 2+ independent hypotheses, distinct subsystems, separate packages, unrelated domains.
-
-**How**:
-1. Create tasks per domain — identify which are independent
-2. Spawn subagents via `Task` — one per domain
-3. Each agent researches independently with own task tracking
-4. Merge findings — update parent tasks with results
-
-**Rules**:
-- Local agents: full LSP flow (`localSearchCode` → LSP → `localGetFileContent`)
-- External agents: full GitHub flow (`npmSearch` → `ghViewRepoStructure` → `ghSearchCode` → `ghGetFileContent`)
-- Clear boundaries: each agent owns specific directories/domains
-- Use task tools to track per agent
-
-**FORBIDDEN**: Parallelizing dependent hypotheses, single-directory scope, sequential trace flows.
-</multi_agent>
-
----
-
-## 10. Output Protocol
-
-<output_flow>
-### Step 1: Chat Answer (MANDATORY)
-- Clear TL;DR with research results
-- Evidence and file references (full paths)
-- Important code chunks only (up to 10 lines)
-
-### Step 2: Next Step (MANDATORY)
-Ask user for next step. Research doc → generate per `<output_structure>`. Continue → summarize to `research_summary.md` and resume from Phase 3.
-</output_flow>
-
-<output_structure>
-**Location**: `.octocode/research/{session-name}/research.md`
-
-```markdown
-# Research Goal
-# Answer
-# Details
-## Visual Flows (Mermaid)
-## Code Flows
-## Key Findings
-## Edge Cases / Caveats
-# References
-## Local (path:line)
-## External (full GitHub URLs)
 ```
-</output_structure>
+npmSearch (have a package)  ─┐
+ghSearchRepos (have a concept)├─ get owner/repo
+ghViewRepoStructure (maxDepth:1) ─ map (cheap)
+ghSearchCode ─ discovery hint, NOT proof (matchIndices = char offset in snippet, NOT a line number)
+        │
+        ▼  ghGetFileContent(matchString=same-keyword) → matchRanges[0].start = REAL line number = lineHint
+        ▼
+lspGetSemantics(uri, symbolName, lineHint) ─ prove identity / blast radius (after ghCloneRepo)
+ghHistoryResearch ─ why it got that way (PR rationale, commit archaeology)
+```
 
----
+Entry point: have a **package name** → `npmSearch` (resolves `repository` + monorepo `repositoryDirectory`). Have a **concept** → `ghSearchRepos`. Already know `owner/repo` → skip both, go to `ghViewRepoStructure`. **Never guess `owner/repo`.**
 
-## 11. Safety
+## B3. Best flows (copy these)
 
-<safety>
-- **Paths**: Within workspace (relative or absolute)
-- **Sensitive**: `.git`, `.env*`, credentials filtered automatically
-- **UTF-8**: `charOffset`/`charLength` are BYTE offsets (ripgrep)
-- **Minification**: On by default; `minified=false` for configs/markdown
-- **Pagination**: `charLength` 1000–4000; `charOffset` to step
-</safety>
+**A — npm package source:**
+```
+npmSearch(packageName:"@tanstack/react-query")
+   → repository:"TanStack/query", repositoryDirectory:"packages/react-query"
+ghViewRepoStructure(owner:"TanStack", repo:"query", path:"packages/react-query", maxDepth:1)   ← scope to the subpackage
+ghGetFileContent(path:"packages/react-query/src/index.ts", minify:"symbols")                    ← orient
+ghGetFileContent(path:…, matchString:"useQuery", minify:"none")                                 ← read/quote
+```
+`repositoryDirectory` jumps you straight into the right monorepo subfolder — the single biggest efficiency win for package research.
 
----
+**B — find code → land on the line → read → prove** (canonical):
+```
+ghSearchCode(owner, repo, keywords:["createStore"])      ← discovery; snippet offsets are NOT lines
+ghGetFileContent(path, matchString:"createStore")         ← matchRanges[0].start = REAL lineHint
+ghGetFileContent(path, startLine, endLine, minify:"none") ← read/quote the exact body
+lspGetSemantics(uri, "createStore", lineHint)             ← prove (after ghCloneRepo)
+```
 
-## 12. FORBIDDEN Thinking
+**C — concept → repo → layout → code** (no package name):
+```
+ghSearchRepos(keywords, language, stars:">5000", verbose:false)   ← lean discovery
+ghViewRepoStructure(owner, repo, maxDepth:1) → drill into src      ← map
+ghSearchCode(owner, repo, match:"path", keywords)                  ← confirm a file exists (cheapest)
+ghGetFileContent(path, minify:"symbols")                           ← orient, then read
+```
 
-**STOP and correct** before acting if you catch yourself thinking:
+**D — why/when did this change?** (PR & commit archaeology):
+```
+ghHistoryResearch(type:"commits", owner, repo, path:"src/x.ts")    ← messageHeadline embeds "(#3391)"
+ghHistoryResearch(type:"prs", owner, repo, prNumber:3391, reviewMode:"full")  ← body+diff+comments+reviews in ONE call
+```
+For "which PR introduced X": `type:"prs"`, `state:"merged"`, `sort:"created"`, `order:"asc"` → oldest merged first.
 
-| Forbidden | Required |
-|-----------|----------|
-| "I assume it works like..." | Find evidence in code |
-| "It's probably in `src/utils`..." | Search first, don't guess paths |
-| "I'll call lspGetSemantics(type=definition) directly..." | `localSearchCode` first for lineHint |
-| "I'll read the file to understand..." | LSP tools first; read content LAST |
-| "I'll just use grep / gh api / npm search..." | Use Octocode tools if available |
-| "I'll use local tools for external repo..." | Use `github*` tools for external repos |
+## B4. `npmSearch` — package → repo+path handoff
 
----
+The cheapest, most accurate way to start *package* research.
+- **Exact name** (`"react"`, `"@octokit/rest"`) → one rich result: `version`, `license`, `weeklyDownloads`, `repository`, and a `Browse source` hint.
+- **`repositoryDirectory`** — present for monorepo packages. **Pass it as `path=` to `ghViewRepoStructure`/`ghSearchCode`** to scope straight to the subpackage.
+- **Keyword query** (`"http client typescript"`) → lean ranked list; re-run with an exact name for full source details.
+- Scoped packages need the full scope (`@octokit/rest`, not `rest`). An empty exact-name result usually means a typo or a private package.
 
-## 13. Verification Checklist
+## B5. `ghSearchRepos` — discover repos
 
-Before outputting:
+- **Lean first.** `verbose:false` (default) returns one pipe-string per repo: `owner/repo | stars | forks | issues | lang | pushed | #topics | description`. `verbose:true` only to filter/sort programmatically.
+- **Owner semantics:** `owner` alone enumerates an org's repos; `owner`+`keywords` scopes to them; `keywords` alone searches across GitHub.
+- **AND vs OR:** `topicsToSearch` is strict AND and *sparse* — pair with `keywords`/`language`. Both `topicsToSearch` **and** `keywords` fires two searches merged with OR; for strict AND use one keyword set.
+- **GitHub range syntax:** `stars:">5000"`, `forks:"50..500"`, `created:">2023-01-01"`, `updated:">2024-01-01"` (`updated` maps to `pushed:`). `sort`: `stars`/`forks`/`updated`/`help-wanted-issues`/`best-match`.
 
-- [ ] Used `localSearchCode` before any LSP tool (for `lineHint`)
-- [ ] Read content LAST (`localGetFileContent` / `ghGetFileContent`)
-- [ ] Used `matchString` or `charLength` for reading (no full dumps)
-- [ ] Found repos via search, not guessed (`npmSearch` / `ghSearchRepos`)
-- [ ] Explored structure before reading (`ghViewRepoStructure`)
-- [ ] GitHub references include full URLs with line numbers
-- [ ] Answer addresses user's goal directly
-- [ ] Followed hints and Transition Matrix for tool chaining
-- [ ] Included `mainResearchGoal`, `researchGoal`, `reasoning` consistently
+## B6. `ghViewRepoStructure` — map a tree
 
-> **Tier 2/3 checklist**: [references/fallbacks.md](references/fallbacks.md)
+Map before searching. Start shallow (`maxDepth:1`), then drill (`path:"src"`, `maxDepth:1`). Output `structure[]` = `{dir, files[], folders[]}` + `summary` + `resolvedBranch`. Artifacts (`node_modules`, `.git`, `dist`, `build`) auto-excluded. `includeSizes:true` → `fileSizes`. `branch` accepts a tag/SHA; a missing ref silently falls back to default with a warning. Faster than `ghSearchCode match:"path"` for the *whole* layout.
 
----
+## B7. `ghSearchCode` — code & path search (discovery only)
 
-## References
+> ⚠️ **GitHub is deprecating this API (planned removal ~Sep 2026).** For known paths prefer `ghGetFileContent` / `ghViewRepoStructure`. Treat it as a hint generator, **never as proof.**
 
-- **Tool Parameters**: [references/tool-reference.md](references/tool-reference.md)
-- **Workflow Recipes**: [references/workflow-patterns.md](references/workflow-patterns.md)
-- **Fallback Tiers**: [references/fallbacks.md](references/fallbacks.md)
+- **`match:"path"` is the cheapest call in the suite** — searches paths only, no snippet payload. Use it to confirm a file exists.
+- **`match:"file"`** (default) searches contents → `matches[].value` (snippet) + `matchIndices` (char offsets, **not** lines). Matches comments/strings/docs too — a hit in `docs/*.md` is not a definition. Re-anchor with `ghGetFileContent(matchString=…)` for a real line number.
+- **Keywords are ANDed** (every term must appear). Put alternatives in separate query objects. `filename`/`extension`/`language`/`path` narrow scope; `repo` requires `owner`. `verbose:true` adds a SHA-pinned `html_url`.
+- **Hard caps (GitHub's):** **20 results max per code search**; ~1000 / 10 pages total. Indexes the **default branch only**. (See Universal "Empty ≠ absent.")
+
+## B8. `ghGetFileContent` — read & minify (the proof tool)
+
+`minify` by goal — `"symbols"` (skeleton + `NNN|` gutter, **never paginated**) to orient · `"standard"` (default) to read · `"none"` (raw) to quote/diff.
+
+**Extraction modes (mutually exclusive — `fullContent` XOR `matchString` XOR `startLine`/`endLine`):**
+- `matchString` — returns `matchRanges[]` with **1-based line numbers** → `matchRanges[0].start` is a valid LSP `lineHint`. Add `contextLines` (≤100) to capture a whole body. `matchStringIsRegex`/`matchStringCaseSensitive` available. Ignored when `minify:"symbols"`.
+- `startLine`/`endLine` — both required, `endLine ≥ startLine`. · `fullContent` — small files only. · default — first `charLength` chars.
+
+**Pagination:** char-window via `charLength` (set on files over ~200 lines); response carries `pagination` + a `Next: charOffset=N` hint. `symbols` returns the whole skeleton unpaginated.
+
+**`type:"directory"`** materializes a subtree to disk for LSP work — **clone-gated** (`ENABLE_LOCAL=true` + `ENABLE_CLONE=true`). `forceRefresh:true` bypasses cache; `warnings[]` flags sanitized content or a `symbols`→`standard` fallback.
+
+## B9. `ghHistoryResearch` — PRs + commit history
+
+**`type:"prs"` — LIST mode** (no `prNumber`): search by `keywordsToSearch`+`match:["title"]` (most precise) or raw `query`. Filter by `state`/`author`/`label`/`review`/`checks`/`base`/dates. Returns lean metadata (`number`, `title`, `state`, `author`, dates, counts) — not file contents.
+
+**DETAIL mode** (`prNumber` required): select surfaces via `content{body,changedFiles,patches,comments,reviews,commits}`, or `reviewMode:"full"` for **all surfaces in one call** (body + files + patches + threaded comments with `in_reply_to_id` + reviews + commits + `reviewSummary`). Selectors are silently ignored without `prNumber`. `patches.mode`: `"none"` / `"selected"` (`files[]` or per-file `ranges` — cheapest) / `"all"`. Bot comments hidden by default → `content.comments.includeBots:true`.
+
+**`type:"commits"`:** `owner`+`repo` required; `path`=file, `path` ending `/`=subtree, omit=whole repo. Returns `sha`, `message`, `messageHeadline`, `author`, `date`, `url`. `since`/`until`/`author` filter; `includeDiff:true` adds patches. **`messageHeadline` often embeds a PR ref** like `(#3391)` — extract it and re-call DETAIL mode for the full rationale.
+
+**Pagination:** list search exposes `reportedTotalMatches` vs **`reachableTotalMatches`** (GitHub's 1000-cap) — trust *reachable* for completeness claims. `contentPagination` lists every surface with `hasMore:true` and a ready `nextQuery`.

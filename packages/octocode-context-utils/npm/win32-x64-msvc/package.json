@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-context-utils-win32-x64-msvc",
-  "version": "16.0.1",
+  "version": "16.3.0",
   "os": [
     "win32"
   ],
@@ -21,5 +21,8 @@
     "type": "git",
     "url": "https://github.com/bgauryy/octocode-mcp.git",
     "directory": "packages/octocode-context-utils"
+  },
+  "scripts": {
+    "prepublishOnly": "node ../verify-binary.cjs"
   }
 }

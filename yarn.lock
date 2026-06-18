@@ -2145,12 +2145,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core":
-  version: 16.1.1
-  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=497941&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
+"@octocodeai/octocode-core@npm:^16.2.0":
+  version: 16.2.0
+  resolution: "@octocodeai/octocode-core@npm:16.2.0"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/bce39467231b8ac665b71d08deb85548bc734dd9c8e26c764fcdfd4f3b9eb008df467085338e2696c58d4c0c0def62bbd0661f2927dd52979b349f24d3dfeec3
+  checksum: 10c0/7e241207f00a0e8193b1eb1020a0b72bfef7ea17a1a141d40be91131b7760bbf8514e58c2f226f950283ccb46c5297e0e65c4de9b7efa7ec02f7c412d5a037f3
   languageName: node
   linkType: hard
 
@@ -2160,7 +2160,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/octocode-context-utils": "workspace:^"
-    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core"
+    "@octocodeai/octocode-core": "npm:^16.2.0"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/openapi-types": "npm:^27.0.0"
     "@octokit/plugin-rest-endpoint-methods": "npm:^17.0.0"

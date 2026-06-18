@@ -64,6 +64,9 @@ export interface DirectToolDisplayField {
   name: string;
   required: boolean;
   type: string;
+  /** Numeric bounds and default, e.g. "1-100, default 30" — surfaced inline so
+   * agents see the full constraint without fetching the raw JSON schema. */
+  constraints?: string;
   description?: string;
 }
 
@@ -525,6 +528,17 @@ function normalizeQueryObject(
   return exactQuery;
 }
 
+function describeSchemaConstraints(schema: JsonSchemaObject): string | undefined {
+  const parts: string[] = [];
+  const min = typeof schema.minimum === 'number' ? schema.minimum : undefined;
+  const max = typeof schema.maximum === 'number' ? schema.maximum : undefined;
+  if (min !== undefined && max !== undefined) parts.push(`${min}-${max}`);
+  else if (min !== undefined) parts.push(`>=${min}`);
+  else if (max !== undefined) parts.push(`<=${max}`);
+  if ('default' in schema) parts.push(`default ${JSON.stringify(schema.default)}`);
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
 function describeSchemaType(schema: JsonSchemaObject): string {
   if (Array.isArray(schema.enum) && schema.enum.length > 0) {
     return `enum(${schema.enum.map(String).join(', ')})`;
@@ -564,6 +578,7 @@ function collectDisplayFields(
       name: fieldName,
       required: requiredFields.has(name),
       type: describeSchemaType(schema),
+      constraints: describeSchemaConstraints(schema),
       description:
         typeof schema.description === 'string' ? schema.description : undefined,
     });

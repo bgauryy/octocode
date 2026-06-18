@@ -43,6 +43,15 @@ oxc_span      = "0.135"
 tree-sitter          = "0.26"
 tree-sitter-language = "0.1"
 
+# ── ast-grep matcher (structural search) ─────────────────────────────────────
+# Matcher only — NO ast-grep-language (which would pull a 2nd set of grammar
+# crates → duplicate tree_sitter_<lang> symbols → cdylib link collision). We
+# bind ast-grep's Language/LanguageExt traits over the tree_sitter::Language
+# values already in signatures/languages.rs. ast-grep-core 0.43 pins
+# tree-sitter 0.26.3 (our 0.26 line) so there is no core version conflict.
+ast-grep-core   = { version = "0.43", default-features = false, features = ["tree-sitter"] }
+ast-grep-config = "0.43"   # parses the YAML relational/composite `rule` object
+
 # ── top-10 grammar crates ─────────────────────────────────────────────────────
 tree-sitter-typescript = "0.23"   # covers .ts / .tsx
 tree-sitter-javascript = "0.23"   # covers .js / .jsx / .mjs / .cjs

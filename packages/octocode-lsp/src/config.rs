@@ -1,6 +1,5 @@
 use crate::grammar::grammar_for_file;
 use crate::types::JsLanguageServerConfig;
-use napi::{Error, Result, Status};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -69,7 +68,7 @@ pub fn default_server_for_file(
     })
 }
 
-pub fn is_command_available(command: String) -> Result<bool> {
+pub fn is_command_available(command: String) -> Result<bool, String> {
     let command = resolve_known_server_command(&command);
     if is_rejected_shell(&command) {
         return Ok(false);
@@ -98,7 +97,7 @@ pub fn is_command_available(command: String) -> Result<bool> {
         .map(|path| is_executable_path(&path))
         .or_else(|err| match err {
             which::Error::CannotFindBinaryPath => Ok(false),
-            other => Err(Error::new(Status::GenericFailure, other.to_string())),
+            other => Err(other.to_string()),
         })
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "octocode-security",
-  "version": "16.0.0",
+  "version": "16.3.0",
   "description": "Rust-backed secret detection for Node.js — replaces octocode-security-utils",
   "type": "module",
   "main": "dist/index.js",
@@ -131,6 +131,7 @@
     "build:dev": "node scripts/gen-patterns.mjs && napi build --platform && node scripts/sync-platform-binaries.cjs && node build.mjs && tsc --emitDeclarationOnly",
     "gen": "node scripts/gen-patterns.mjs",
     "pack:check": "node scripts/check-pack-size.cjs",
+    "platforms:check": "node scripts/check-platform-binaries.cjs",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
     "lint:rust": "cargo clippy --all-targets -- -D warnings",

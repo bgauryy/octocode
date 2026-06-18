@@ -206,7 +206,7 @@ function _getStructuredResultSizeHints(
     if (!query.langType && !query.include)
       recoveries.push('add langType or include');
     if (!query.excludeDir?.length) recoveries.push('add excludeDir');
-    if (query.keywords.length < 5) recoveries.push('lengthen pattern');
+    if ((query.keywords?.length ?? 0) < 5) recoveries.push('lengthen pattern');
     if (recoveries.length > 0) {
       hints.push(
         `Large result set (${totalMatches} matches in ${files.length} files). Narrow: ${recoveries.join(', ')}.`

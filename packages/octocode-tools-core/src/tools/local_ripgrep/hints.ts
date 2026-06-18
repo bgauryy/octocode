@@ -3,6 +3,13 @@ import type { HintContext, ToolHintGenerators } from '../../types/metadata.js';
 export const hints: ToolHintGenerators = {
   empty: (ctx: HintContext = {}) => {
     const c = ctx as Record<string, unknown>;
+    if (c.mode === 'structural') {
+      return [
+        'No structural matches. The pattern must be a complete code fragment for the target language; use $X for a single node, $$$ARGS for a list.',
+        'For relational rules (inside/has/not), add `stopBy: end` so the sub-rule walks all ancestors/descendants — without it the rule silently matches nothing.',
+        'Verify the file extension is one the engine parses (ts/tsx/js/py/go/rs/java/c/cpp/cs/sh), and widen the path.',
+      ];
+    }
     const path = typeof c.path === 'string' ? c.path : undefined;
     const langType =
       typeof c.langType === 'string'
