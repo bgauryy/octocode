@@ -1,8 +1,8 @@
 # Workflow — Engineering Research Recipes
 
-Step-focused recipes built only on the native octocode toolset (CLI or MCP — same engine). For the Clean-Architecture principles, the six dimensions, gates, and the artifact, see [SKILL.md](../SKILL.md). For flags and the CLI↔MCP map, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md). For AST patterns, see [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md).
+Step-focused recipes built on the native octocode toolset. Prefer the CLI quick commands; use MCP/raw tools only when the CLI is unavailable or a schema-exact field is needed. For the Clean-Architecture principles, the six dimensions, gates, and the artifact, see [SKILL.md](../SKILL.md). For flags and the CLI/MCP fallback map, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md). For AST patterns, see [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md).
 
-Notation: each step names the **job**; run it with whichever transport you chose. Shorthand: `grep`=`octocode grep`/`localSearchCode`, `lsp …`=`octocode lsp`/`lspGetSemantics`, `ast`=`octocode ast`/`localSearchCode(mode:"structural")`, `symbols`=`octocode symbols`/`documentSymbols`, `cat`=`octocode cat`/`localGetFileContent`, `ls`/`find`=structure/file tools.
+Notation: each step names the **job**; default to CLI quick commands and use MCP/raw tools only when needed. Shorthand: `grep`=`octocode grep`/`localSearchCode`, `lsp …`=`octocode lsp`/`lspGetSemantics`, `ast`=`octocode grep --pattern/--rule`/`localSearchCode(mode:"structural")`, `symbols`=`octocode ls --symbols` or `octocode cat --mode symbols`/`documentSymbols`, `cat`=`octocode cat`/`localGetFileContent`, `ls`/`find`=structure/file tools.
 
 ---
 
@@ -146,6 +146,6 @@ Notation: each step names the **job**; run it with whichever transport you chose
 
 ## History recipes (the "why")
 
-- **Why did this change?** `history <owner/repo/path>` → a headline with `(#NNN)` → `pr <owner/repo#NNN> --deep`.
+- **Why did this change?** `history <owner/repo/path>` → a headline with `(#NNN)` → `pr <owner/repo#NNN> --json`; add `--patches --file <path>` or `--deep` only when needed.
 - **Which PR introduced X?** `pr <owner/repo> --state merged --sort created --order asc` → oldest merged first.
 - Use history to recover the rationale behind a contract or boundary before you change it.

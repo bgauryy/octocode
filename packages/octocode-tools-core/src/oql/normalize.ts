@@ -318,6 +318,39 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
     );
   }
 
+  // target:"materialize" is a clone checkpoint, not a search: it takes no
+  // `where`, and needs a materializable source (GitHub repo, or an already
+  // materialized path to echo).
+  if (canonical.target === 'materialize') {
+    if (canonical.where) {
+      fail(
+        diagnostic(
+          'invalidQuery',
+          'target:"materialize" does not use `where`; it clones/caches a corpus and returns a stable local checkpoint. Run a search against the returned localPath instead.',
+          { queryPath: 'where' }
+        )
+      );
+    }
+    if (
+      canonical.from?.kind !== 'github' &&
+      canonical.from?.kind !== 'materialized'
+    ) {
+      fail(
+        diagnostic(
+          'invalidQuery',
+          'target:"materialize" needs from:{kind:"github",repo:"owner/name"} (and scope.path to bound the subtree) or an already-materialized `from`.',
+          {
+            queryPath: 'from',
+            repair: {
+              message:
+                'Set from:{kind:"github",repo:"owner/name"} with scope.path.',
+            },
+          }
+        )
+      );
+    }
+  }
+
   // Validate the final canonical object against the strict schema.
   const check = OqlQuerySchema.safeParse(canonical);
   if (!check.success) {

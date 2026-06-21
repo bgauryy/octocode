@@ -1,11 +1,23 @@
 ---
 name: octocode-engineer
-description: "Use for codebase understanding, implementation, bug investigation, refactor planning, PR/local diff review, architecture review, blast-radius analysis, and RFC/design validation. A lean router that selects the right Octocode references and evidence path: local tools, GitHub/npm, binary/archive inspection, AST, LSP, history, review workflows, quality checks, and artifact templates."
+description: "Use for codebase understanding, implementation, bug investigation, refactor planning, PR/local diff review, architecture review, blast-radius analysis, and RFC/design validation. A lean CLI-first router that selects the right Octocode references and evidence path: octocode commands, schema-first raw tools, local/GitHub/npm research, binary/archive inspection, AST, LSP, history, review workflows, quality checks, and artifact templates."
 ---
 
 # Octocode Engineer
 
 Use this skill to understand, review, or change code without guessing. The skill itself is the **router**; detailed playbooks live in `references/`. First identify the scenario, then read the smallest set of references that covers the evidence you need. Some tasks require several references — combine them deliberately instead of over-reading.
+
+## 0. Transport default: CLI first
+
+Default to the **Octocode CLI** quick commands (`ls`, `find`, `grep`, `cat`, `lsp`, `pr`, `history`, `repo`, `pkg`, `binary`, `unzip`, `clone`, `cache fetch`) because they are easy to validate with `--help`, support `--json`/`--compact`, and dogfood the same runners agents use through MCP. Use raw `octocode tools <name> --scheme` → `octocode tools <name> --queries '<json>'` when a quick command cannot express an exact field, pagination lane, content selector, or OQL gap. Use MCP tool calls only when the host provides them and the CLI is unavailable or the task explicitly needs MCP transport.
+
+Hard rules:
+- Prefer `--json` whenever another step depends on returned paths, refs, line numbers, diagnostics, or pagination.
+- Read `octocode tools <name> --scheme` before every raw-tool call. Quick-command flags and raw-tool fields are not the same API.
+- Use `octocode search --scheme` / `octocode search --explain` before relying on OQL routing for partial targets.
+- Treat snippets as leads. Prove claims with exact `cat --match-string --mode none`, line ranges, selected PR patches, AST structural matches, LSP output, binary metadata, or tests.
+- Follow returned hints, `next.*`, pagination, char offsets, match pages, file pages, comment pages, and commit pages. Do not invent offsets or local paths.
+- Direct shell is allowed for `git status`, `git diff`, branch/log inspection, and repo maintenance around Octocode itself; use Octocode CLI/MCP for code research.
 
 ## 1. Pick the reference set first
 
@@ -16,7 +28,7 @@ Start with the primary reference, then add companions only when the scenario nee
 | Local code research, implementation tracing, symbol lookup, AST/LSP, `matchString`, minify, pagination | [`references/research_local.md`](./references/research_local.md) |
 | Archives, compressed files, `.node`/`.wasm`/native binaries, unzip/unpack then inspect | [`references/research_binary.md`](./references/research_binary.md) |
 | GitHub/npm research, cross-repo comparison, package source lookup, PR/commit history, clone handoff | [`references/research_external.md`](./references/research_external.md) |
-| CLI ↔ MCP command names and flags | [`references/context_cli_mcp_commands.md`](./references/context_cli_mcp_commands.md) |
+| CLI command names, flags, raw `tools`, and MCP fallback map | [`references/context_cli_mcp_commands.md`](./references/context_cli_mcp_commands.md) |
 | AST pattern examples and structural-search gotchas | [`references/context_ast_pattern_cookbook.md`](./references/context_ast_pattern_cookbook.md) |
 | External metrics/checkers (`dep-cruiser`, `knip`, `type-coverage`, `eslint`, `ruff`, `mypy`) | [`references/context_external_measurement_tools.md`](./references/context_external_measurement_tools.md) |
 | General engineering research recipes: orientation, blast radius, dead export, refactor, review | [`references/workflow_engineering_research.md`](./references/workflow_engineering_research.md) |
@@ -37,7 +49,7 @@ Start with the primary reference, then add companions only when the scenario nee
 | Inspect archive/binary package contents | `research_binary.md`; after `unpack`, continue with `research_local.md` |
 | Architecture/refactor risk | `workflow_engineering_research.md` + `research_local.md` + `checklist_quality_signals.md`; add `context_external_measurement_tools.md` only when a metric/graph number matters |
 | Suspicious quality/security finding | `checklist_quality_signals.md` + `workflow_validation_playbooks.md`; add `context_ast_pattern_cookbook.md` for AST proof |
-| Need exact syntax for any command/tool | `context_cli_mcp_commands.md` plus the workflow/reference for the task |
+      | Need exact syntax for any command/tool | `context_cli_mcp_commands.md` plus the workflow/reference for the task |
 
 ## 3. Fast routing
 
@@ -47,7 +59,7 @@ Start with the primary reference, then add companions only when the scenario nee
 - **PR or local diff review** → start `workflow_pr_local_review.md` and add review checklist/template.
 - **Architecture/refactor/bug investigation** → start `workflow_engineering_research.md`, then add the relevant research reference.
 - **Quality smell or suspected issue** → start checklist, then validation playbook.
-- **Exact CLI/MCP syntax** → use `context_cli_mcp_commands.md`.
+      - **Exact CLI/raw-tool/MCP syntax** → use `context_cli_mcp_commands.md`.
 
 ## 4. Minimal operating loop
 
@@ -63,14 +75,14 @@ Start with the primary reference, then add companions only when the scenario nee
 
 | Need | Evidence path |
 |---|---|
-| Unknown tree | `ls/localViewStructure` → `find/localFindFiles` |
-| Unknown file | `cat/localGetFileContent minify:"symbols"` |
-| Exact quote/line | `matchString` + `minify:"none"` |
-| Code shape | `ast` / `localSearchCode(mode:"structural")` |
-| Definition/usages/call flow | `lsp` / `lspGetSemantics` with real lineHint |
-| Remote proof | `ghGetFileContent(matchString)`; clone for AST/LSP |
-| Why it changed | `history` / `pr` / `ghHistoryResearch` |
-| Metric/cycle/coverage number | external tool reference, then ask before running |
+      | Unknown tree | `octocode ls` → `octocode find` |
+      | Unknown file | `octocode cat --mode symbols` |
+      | Exact quote/line | `octocode cat --match-string ... --mode none` |
+      | Code shape | `octocode grep <path> --pattern/--rule` or raw `localSearchCode(mode:"structural")` |
+      | Definition/usages/call flow | `octocode lsp` or raw `lspGetSemantics` with a real lineHint |
+      | Remote proof | `octocode cat <owner/repo/path> --match-string ... --mode none`; clone/cache for AST/LSP |
+      | Why it changed | `octocode history` → `octocode pr` selected content |
+      | Metric/cycle/coverage number | external tool reference, then ask before running |
 
 ## 6. Output
 

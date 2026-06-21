@@ -2,28 +2,28 @@
 
 Use this for local codebases, cloned repos, unpacked archives, local diffs, and any task needing exact `file:line`, AST shape proof, or LSP semantic proof.
 
-## Local CLI ↔ MCP map
+## Local CLI-first map
 
 | Job | CLI | MCP | Notes |
 |---|---|---|---|
 | Map directory | `octocode ls <path> --depth N` | `localViewStructure` | First step on unknown trees; identify source/test/generated dirs |
 | Find files/dirs | `octocode find <query> [path]` | `localFindFiles` | Names, regex, pathPattern, size, modified time, entryType |
 | Text search | `octocode grep <kw> <path>` | `localSearchCode` | Discovery, paginated snippets, detailed context, counts |
-| AST search | `octocode ast '<pattern>' <path>` / `--rule` | `localSearchCode(mode:"structural")` | Shape proof; comments/strings never false-match |
+| AST search | `octocode grep <path> --pattern '<shape>'` / `--rule` | `localSearchCode(mode:"structural")` | Shape proof; comments/strings never false-match |
 | Read file | `octocode cat <file>` | `localGetFileContent` | Use symbols/standard/none, matchString, line ranges |
-| Symbols/outline | `octocode symbols <file>` | `lspGetSemantics(type:"documentSymbols")` or `localGetFileContent(minify:"symbols")` | Outline before body reads |
+| Symbols/outline | `octocode ls <file>` or `octocode ls <dir> --symbols`; `octocode cat <file> --mode symbols` | `lspGetSemantics(type:"documentSymbols")` or `localGetFileContent(minify:"symbols")` | Outline before body reads |
 | Semantic nav | `octocode lsp <file> --type <t> --symbol S --line N` | `lspGetSemantics` | Definition, references, callers, callees, callHierarchy, hover, typeDefinition, implementation |
 
 ## Default local workflow
 
 ```text
-localViewStructure(maxDepth:1)                    map package/source dirs first
-→ localFindFiles(pathPattern/names/modified/size) slice noisy trees
-→ localSearchCode(mode:"discovery")              search all cheaply
-→ localGetFileContent(minify:"symbols")          understand declarations
-→ localGetFileContent(matchString, minify:"none") exact body + lineHint
-→ localSearchCode(mode:"structural")             prove code shape if needed
-→ lspGetSemantics(lineHint)                       prove identity/blast radius
+octocode ls <path> --depth 1 --json              map package/source dirs first
+→ octocode find <query> <path> --json            slice noisy trees
+→ octocode grep <kw> <path> --mode discovery     search all cheaply
+→ octocode cat <file> --mode symbols             understand declarations
+→ octocode cat <file> --match-string ... --mode none  exact body + lineHint
+→ octocode grep <path> --pattern/--rule ...      prove code shape if needed
+→ octocode lsp <file> --type ... --line <lineHint> prove identity/blast radius
 ```
 
 Rules:
@@ -31,6 +31,7 @@ Rules:
 - Search result snippets are discovery, not proof. Re-anchor with `matchString` or LSP/AST.
 - Always get a real `lineHint` before LSP. Never guess.
 - Use directory mapping before broad searches.
+- Use raw `octocode tools <name> --scheme` only when the quick command cannot express the field or paging control you need.
 
 ## `localViewStructure` — map before search
 
@@ -90,7 +91,8 @@ Rules:
 - Use YAML `rule` for `inside` / `has` / `not` / `all` / `any`.
 - Add `stopBy: end` to relational sub-rules.
 - Include a literal token when possible so files can be pre-filtered before parsing.
-- AST is local only. Clone remote repos before AST.
+- AST is local or clone-backed only. For remote repos, use `octocode grep <path> --repo <owner/repo[@ref]> --pattern ...` or clone/cache first.
+- Quote structural patterns with single quotes so the shell does not expand `$X` or `$$$ARGS`.
 
 Example relational rule:
 
@@ -121,7 +123,7 @@ Advanced `matchString`:
 
 ## Symbols and LSP
 
-Use `documentSymbols`/`symbols` to orient, then LSP queries for identity.
+Use `ls --symbols`, `cat --mode symbols`, or raw `documentSymbols` to orient, then LSP queries for identity.
 
 LSP types:
 - `documentSymbols` — file outline, no line needed.

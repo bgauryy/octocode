@@ -82,7 +82,7 @@ npx depcruise --no-config --output-type err --affected HEAD src/
 
 ## Python Tools
 
-Use these for Python codebases. `octocode ast --type py` handles structural Python smells (see [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md)); these tools add linting, type checking, and security scanning on top.
+Use these for Python codebases. `octocode grep <path> --pattern/--rule ... --type py` handles structural Python smells (see [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md)); these tools add linting, type checking, and security scanning on top.
 
 ### ruff — Fast Python linter + formatter
 

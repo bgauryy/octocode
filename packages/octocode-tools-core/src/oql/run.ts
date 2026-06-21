@@ -18,7 +18,10 @@ import {
 } from './envelope.js';
 import { executeLocal, type AdapterResult } from './adapters/local.js';
 import { executeGithub } from './adapters/github.js';
-import { executeMaterialize } from './adapters/materialize.js';
+import {
+  executeMaterialize,
+  executeMaterializeCheckpoint,
+} from './adapters/materialize.js';
 import { V2_ADAPTERS } from './adapters/v2.js';
 import {
   isCanonicalBatch,
@@ -28,7 +31,9 @@ import {
   type OqlContinuation,
   type OqlContentResultRow,
   type OqlQueryV1,
+  type OqlRecordResultRow,
   type OqlResultEnvelope,
+  type OqlResultRow,
   type OqlRunResult,
   type OqlSearchInputV1,
 } from './types.js';
@@ -94,12 +99,32 @@ async function runSingle(
 
 /**
  * Emit executable `next.*` continuations (contract Gate 10). Every continuation
- * is a full canonical OQL query runnable as-is:
+ * is a full canonical OQL query runnable as-is.
+ *
+ * Envelope-level:
  *  - next.page      — more result pages remain
  *  - next.matchPage — per-file matches were capped
- *  - row.next.fetch — read a code hit's exact content
- *  - row.next.charRange — page a large content body
+ *
+ * Per-row continuations are produced by a registry keyed by row kind (and, for
+ * record rows, recordType) so adding a new row's continuations is one entry,
+ * never another `else if`:
+ *  - code        → next.fetch (read exact content) [+ next.semantic on local]
+ *  - content     → next.charRange (page the body)
+ *  - artifact    → next.structure / next.files rooted at the extracted path
+ *  - materialized→ next.structure / next.files rooted at the checkpoint path
+ *  - semantics   → next.fetch (read the code at a symbol location)
  */
+interface ContinuationCtx {
+  query: OqlQueryV1;
+  /** code rows: rebuild an absolute `from` from a relativized row path. */
+  fileFrom?: (rowPath: string) => OqlQueryV1['from'];
+}
+
+type RowContinuationBuilder = (
+  row: OqlResultRow,
+  ctx: ContinuationCtx
+) => Record<string, OqlContinuation> | undefined;
+
 function attachContinuations(
   query: OqlQueryV1,
   exec: AdapterResult
@@ -107,8 +132,8 @@ function attachContinuations(
   const next: Record<string, OqlContinuation> = {};
 
   // Content reads page the char-window domain, not the result-row domain. The
-  // per-row `next.charRange` (below) is the executable continuation there, so
-  // never emit a misleading `next.page` for target:"content".
+  // per-row `next.charRange` is the executable continuation there, so never
+  // emit a misleading `next.page` for target:"content".
   if (exec.pagination?.hasMore && query.target !== 'content') {
     next['next.page'] = {
       query: { ...query, page: (query.page ?? 1) + 1 },
@@ -134,56 +159,169 @@ function attachContinuations(
     };
   }
 
-  // Per-row continuations.
-  const fileFrom = localFileSource(query);
+  // Per-row continuations via the registry.
+  const ctx: ContinuationCtx = { query, fileFrom: localFileSource(query) };
   for (const row of exec.results) {
-    if (row.kind === 'code') {
-      const code = row as OqlCodeResultRow;
-      const from = fileFrom ? fileFrom(code.path) : (code.source ?? query.from);
-      if (!from) continue;
-      const range =
-        typeof code.line === 'number'
-          ? { startLine: code.line, contextLines: 2 }
-          : undefined;
-      code.next = {
-        'next.fetch': {
-          query: {
-            schema: 'oql/v1',
-            target: 'content',
-            from,
-            ...(fileFrom ? {} : { scope: { path: code.path } }),
-            fetch: {
-              content: { contentView: 'exact', ...(range ? { range } : {}) },
-            },
-          },
-          why: 'Read the exact content at this hit.',
-          confidence: 'exact',
-        },
-      };
-    } else if (row.kind === 'content') {
-      const content = row as OqlContentResultRow;
-      const off = content.range?.charOffset;
-      if (typeof off === 'number') {
-        content.next = {
-          'next.charRange': {
-            query: {
-              ...query,
-              fetch: {
-                ...query.fetch,
-                content: {
-                  ...query.fetch?.content,
-                  charOffset: off + (content.range?.charLength ?? 20000),
-                },
-              },
-            },
-            why: 'Read the next content window.',
-            confidence: 'exact',
-          },
-        };
-      }
+    const key =
+      row.kind === 'record'
+        ? `record:${(row as OqlRecordResultRow).recordType}`
+        : row.kind;
+    const build = ROW_CONTINUATION_BUILDERS[key];
+    if (!build) continue;
+    const rowNext = build(row, ctx);
+    if (rowNext && Object.keys(rowNext).length) {
+      (row as { next?: Record<string, OqlContinuation> }).next = rowNext;
     }
   }
   return next;
+}
+
+const ROW_CONTINUATION_BUILDERS: Record<string, RowContinuationBuilder> = {
+  code: buildCodeContinuations,
+  content: buildContentContinuations,
+  'record:artifact': buildArtifactContinuations,
+  'record:materialized': buildMaterializedContinuations,
+  'record:semantics': buildSemanticsContinuations,
+};
+
+function buildCodeContinuations(
+  row: OqlResultRow,
+  ctx: ContinuationCtx
+): Record<string, OqlContinuation> | undefined {
+  const code = row as OqlCodeResultRow;
+  const from = ctx.fileFrom
+    ? ctx.fileFrom(code.path)
+    : (code.source ?? ctx.query.from);
+  if (!from) return undefined;
+  const range =
+    typeof code.line === 'number'
+      ? { startLine: code.line, contextLines: 2 }
+      : undefined;
+  const out: Record<string, OqlContinuation> = {
+    'next.fetch': {
+      query: {
+        schema: 'oql/v1',
+        target: 'content',
+        from,
+        ...(ctx.fileFrom ? {} : { scope: { path: code.path } }),
+        fetch: {
+          content: { contentView: 'exact', ...(range ? { range } : {}) },
+        },
+      },
+      why: 'Read the exact content at this hit.',
+      confidence: 'exact',
+    },
+  };
+  // Semantic outline of the file. Local/materialized only: this is always
+  // executable from the file anchor; a remote semantic would re-clone per hit.
+  if (ctx.fileFrom) {
+    out['next.semantic'] = {
+      query: {
+        schema: 'oql/v1',
+        target: 'semantics',
+        from,
+        params: { type: 'documentSymbols' },
+      },
+      why: 'List the semantic symbols in this file.',
+      confidence: 'exact',
+    };
+  }
+  return out;
+}
+
+function buildContentContinuations(
+  row: OqlResultRow,
+  ctx: ContinuationCtx
+): Record<string, OqlContinuation> | undefined {
+  const content = row as OqlContentResultRow;
+  const off = content.range?.charOffset;
+  if (typeof off !== 'number') return undefined;
+  return {
+    'next.charRange': {
+      query: {
+        ...ctx.query,
+        fetch: {
+          ...ctx.query.fetch,
+          content: {
+            ...ctx.query.fetch?.content,
+            charOffset: off + (content.range?.charLength ?? 20000),
+          },
+        },
+      },
+      why: 'Read the next content window.',
+      confidence: 'exact',
+    },
+  };
+}
+
+/** next.structure / next.files rooted at a derived local path. */
+function localRootContinuations(
+  localPath: string,
+  label: string
+): Record<string, OqlContinuation> {
+  const from = { kind: 'local' as const, path: localPath };
+  return {
+    'next.structure': {
+      query: { schema: 'oql/v1', target: 'structure', from },
+      why: `List the ${label} tree.`,
+      confidence: 'exact',
+    },
+    'next.files': {
+      query: { schema: 'oql/v1', target: 'files', from },
+      why: `Enumerate files in the ${label}.`,
+      confidence: 'exact',
+    },
+  };
+}
+
+function derivedLocalPath(row: OqlResultRow): string | undefined {
+  const data = (row as OqlRecordResultRow).data;
+  return typeof data?.localPath === 'string' ? data.localPath : undefined;
+}
+
+function buildArtifactContinuations(
+  row: OqlResultRow
+): Record<string, OqlContinuation> | undefined {
+  const lp = derivedLocalPath(row);
+  return lp ? localRootContinuations(lp, 'extracted') : undefined;
+}
+
+function buildMaterializedContinuations(
+  row: OqlResultRow
+): Record<string, OqlContinuation> | undefined {
+  const lp = derivedLocalPath(row);
+  return lp ? localRootContinuations(lp, 'materialized') : undefined;
+}
+
+function buildSemanticsContinuations(
+  row: OqlResultRow
+): Record<string, OqlContinuation> | undefined {
+  const data = (row as OqlRecordResultRow).data;
+  const uri = typeof data?.uri === 'string' ? data.uri : undefined;
+  if (!uri) return undefined;
+  const line =
+    typeof data.line === 'number'
+      ? data.line
+      : typeof data.startLine === 'number'
+        ? data.startLine
+        : undefined;
+  return {
+    'next.fetch': {
+      query: {
+        schema: 'oql/v1',
+        target: 'content',
+        from: { kind: 'local', path: uri },
+        fetch: {
+          content: {
+            contentView: 'exact',
+            ...(line ? { range: { startLine: line, contextLines: 2 } } : {}),
+          },
+        },
+      },
+      why: 'Read the code at this symbol location.',
+      confidence: 'exact',
+    },
+  };
 }
 
 /**
@@ -266,6 +404,11 @@ async function dispatch(
   query: OqlQueryV1,
   planned: PlanQueryResult
 ): Promise<AdapterResult> {
+  // Addressable materialization: clone/cache once, return a checkpoint row.
+  if (query.target === 'materialize') {
+    return executeMaterializeCheckpoint(query);
+  }
+
   // V2 research targets each own their lane (incl. semantics' internal
   // materialize-for-remote); route by target first.
   const v2 = V2_ADAPTERS[query.target];

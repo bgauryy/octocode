@@ -105,6 +105,8 @@ function stableId(
       return s('sha')?.slice(0, 12) ?? s('oid')?.slice(0, 12);
     case 'artifact':
       return s('localPath') ?? s('path');
+    case 'materialized':
+      return s('localPath') ?? s('repoRoot');
     case 'diff':
       return s('path') ?? s('filename');
     case 'semantics': {
@@ -327,7 +329,9 @@ interface DirectFileRefs {
   path: string;
 }
 
-function directFileRefs(p: Record<string, unknown>): DirectFileRefs | undefined {
+function directFileRefs(
+  p: Record<string, unknown>
+): DirectFileRefs | undefined {
   if (
     typeof p.baseRef === 'string' &&
     typeof p.headRef === 'string' &&
@@ -382,12 +386,17 @@ async function executeDirectFileDiff(
       base.data?.error ?? head.data?.error ?? 'Could not read file at one ref.';
     return {
       results: [],
-      diagnostics: [diagnostic('invalidQuery', err, { backend: 'ghGetFileContent' })],
+      diagnostics: [
+        diagnostic('invalidQuery', err, { backend: 'ghGetFileContent' }),
+      ],
       provenance: [{ backend: 'ghGetFileContent', source: query.from }],
     };
   }
 
-  const diff = computeLineDiff(base.data?.content ?? '', head.data?.content ?? '');
+  const diff = computeLineDiff(
+    base.data?.content ?? '',
+    head.data?.content ?? ''
+  );
   const row: OqlRecordResultRow = {
     kind: 'record',
     recordType: 'diff',

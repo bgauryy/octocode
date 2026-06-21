@@ -2,12 +2,12 @@
 
 AST structural search runs through Octocode structural grep via either transport:
 
-- **CLI:** `octocode ast '<pattern>' <path> --type ts` · `octocode ast <path> --rule '<yaml>'`
+- **CLI:** `octocode grep <path> --pattern '<pattern>' --type ts` · `octocode grep <path> --rule '<yaml>'`
 - **MCP:** `localSearchCode({ mode:"structural", pattern:"<pattern>" | rule:{…}, path, langType:"ts" })`
 
-It is **structure-aware** — comments and strings never false-match — and **local only**. For a GitHub repo, `octocode clone owner/repo/path` (or `ghCloneRepo`) first, then run AST on the clone.
+It is **structure-aware** — comments and strings never false-match — and local or clone-backed. For a GitHub repo, use `octocode grep <repoPath> --repo owner/repo --pattern ...`, `octocode clone owner/repo/path`, or `octocode cache fetch`, then run structural grep on the local path.
 
-> The skill no longer ships preset scripts. The "presets" below are plain Octocode structural patterns — copy the pattern into `octocode ast` or `localSearchCode(mode:"structural")`. Verify any decision-critical match by reading the `file:line` it returns.
+> The skill no longer ships preset scripts. The "presets" below are plain Octocode structural patterns — copy the pattern into `octocode grep --pattern/--rule` or `localSearchCode(mode:"structural")`. Verify any decision-critical match by reading the `file:line` it returns.
 
 ---
 
@@ -21,7 +21,7 @@ It is **structure-aware** — comments and strings never false-match — and **l
 - **Relational `--rule` needs `stopBy: end`** on `inside`/`has` sub-rules, or they silently match nothing.
 
 ```yaml
-# octocode ast src --rule '...'  (YAML)
+# octocode grep src --rule '...'  (YAML)
 rule:
   pattern: await $C
   inside:
@@ -33,7 +33,7 @@ rule:
 
 ## JavaScript / TypeScript patterns
 
-| Smell | Pattern (use with `octocode ast '<pattern>' <path> --type ts`) |
+| Smell | Pattern (use with `octocode grep <path> --pattern '<pattern>' --type ts`) |
 |-------|----------------------------------------------------------------|
 | Empty catch | `--rule 'rule:\n  kind: catch_clause\n  not:\n    has:\n      kind: statement_block\n      has: {any: [{kind: expression_statement}, {kind: return_statement}, {kind: throw_statement}]}'` |
 | `console.*` left in | `console.$M($$$A)` |
@@ -51,7 +51,7 @@ rule:
 | Class declarations | `--rule 'rule: {kind: class_declaration}'` |
 | Async functions | `--rule 'rule: {kind: function_declaration, has: {kind: async, field: ...}}'` (or `--type ts` + read) |
 
-For the ones expressed as a kind, the simplest robust form is `octocode ast <path> --rule 'rule: {kind: <node_kind>}' --type ts`. When a kind name is uncertain, dump the tree shape: `octocode symbols <f>` for the outline, or match a known snippet and inspect.
+For the ones expressed as a kind, the simplest robust form is `octocode grep <path> --rule 'rule: {kind: <node_kind>}' --type ts`. When a kind name is uncertain, get a skeleton with `octocode ls <file>` or `octocode cat <file> --mode symbols`, or match a known snippet and inspect.
 
 ---
 
@@ -93,7 +93,7 @@ A literal-selector pattern like `fmt.Println($X)` matches nothing (a bare snippe
 ## Recommended AST workflow
 
 1. `grep`/`find` (or `localSearchCode`/`localFindFiles`) to narrow candidate files.
-2. `octocode ast` / `localSearchCode(mode:"structural")` to get structural proof — pair each match with `file:line`.
+2. `octocode grep --pattern/--rule` / `localSearchCode(mode:"structural")` to get structural proof — pair each match with `file:line`.
 3. `cat`/LSP for semantic context and blast radius.
 
 This keeps investigation fast and false positives near zero.

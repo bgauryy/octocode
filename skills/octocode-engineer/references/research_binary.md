@@ -78,12 +78,12 @@ Output:
 Then continue:
 
 ```text
-localViewStructure(localPath, recursive:true, maxDepth:1)
-→ localFindFiles(localPath, names/pathPattern)
-→ localSearchCode(localPath, mode:"discovery")
-→ localSearchCode(localPath, mode:"structural") when source grammar exists
-→ localGetFileContent(path, minify:"symbols")
-→ lspGetSemantics if language server can handle unpacked source
+octocode ls <localPath> --depth 1 --json
+→ octocode find <query> <localPath> --json
+→ octocode grep <kw> <localPath> --mode discovery --json
+→ octocode grep <localPath> --pattern/--rule ... when source grammar exists
+→ octocode cat <path> --mode symbols / --match-string ... --json
+→ octocode lsp if language server can handle unpacked source
 ```
 
 ## Gotchas

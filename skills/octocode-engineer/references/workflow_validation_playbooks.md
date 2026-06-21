@@ -4,7 +4,7 @@ How to validate a finding before presenting it. Every signal is a hypothesis —
 
 For the confidence scale and conflict-resolution rules, see [SKILL.md](../SKILL.md) §Confidence Rules and §Evidence conflict resolution. For tool commands, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md).
 
-Shorthand as in [workflow_engineering_research.md](./workflow_engineering_research.md): `lsp <type>` = `octocode lsp` / `lspGetSemantics`; `ast` = `octocode ast` / `localSearchCode(mode:"structural")`.
+Shorthand as in [workflow_engineering_research.md](./workflow_engineering_research.md): `lsp <type>` = `octocode lsp` / `lspGetSemantics`; `ast` = `octocode grep --pattern/--rule` / `localSearchCode(mode:"structural")`.
 
 ---
 

@@ -4,7 +4,7 @@ Quality signals to look for, and how to get evidence for each with the **native 
 
 Three evidence classes:
 
-- **Shape** — provable with AST (`octocode ast` / `localSearchCode mode:"structural"`). Near-zero false positives.
+- **Shape** — provable with AST (`octocode grep --pattern/--rule` / `localSearchCode mode:"structural"`). Near-zero false positives.
 - **Relationship** — provable with LSP (`references`, `callers`/`callees`) + import reads.
 - **Measurement** — a number (complexity, MI, coupling, type-coverage %, cycles). **Not native.** Approximate, or run an external tool from [context_external_measurement_tools.md](./context_external_measurement_tools.md) and say which.
 

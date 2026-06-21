@@ -1,23 +1,21 @@
 # Context — CLI ↔ MCP Command Map
 
-This skill drives the **octocode CLI** or the **octocode MCP tools** — the same engine, two transports. Pick one (see [SKILL.md](../SKILL.md) §Choose your transport) and use the matching column.
+This skill is **CLI-first**. The **octocode CLI** and **octocode MCP tools** use the same runners, but the CLI quick commands are easier to validate, easier to share in reports, and expose `--json`/`--compact` consistently. Use the MCP column only when the host provides MCP tools and the CLI is unavailable or explicitly requested.
 
-Canonical, always-current CLI docs: **[docs/cli/REFERENCE.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)**. This file is the condensed map for engineering work; run `octocode <cmd> --help` for the exact flags in your installed version.
+Canonical, always-current CLI docs: **[docs/cli/REFERENCE.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)**. This file is the condensed map for engineering work; run `octocode <cmd> --help` for exact quick-command flags, and run `octocode tools <name> --scheme` before every raw-tool call.
 
 ---
 
 ## Transport probe
 
 ```bash
-# MCP? — if localSearchCode / lspGetSemantics calls succeed, you're on MCP.
-# CLI? —
-octocode --version        # prints → CLI available
-octocode context          # tool context for agents
-octocode tools            # list runnable tools
-octocode tools <name> --scheme   # schema for one tool on demand
+octocode --version              # CLI available
+octocode context                # agent protocol/context
+octocode tools                  # list raw runnable tools
+octocode tools <name> --scheme  # schema for one raw tool on demand
 ```
 
-Neither works → octocode is required; stop and ask the user to register the MCP server or install the CLI. Do not substitute native search.
+If the CLI is unavailable but MCP tools are available, use the MCP column with the same evidence rules. If neither works, stop and ask the user to install the CLI or register the MCP server. Do not substitute native search for Octocode research.
 
 ---
 
@@ -28,11 +26,11 @@ Neither works → octocode is required; stop and ask the user to register the MC
 | Map a directory / repo tree | `octocode ls <path\|owner/repo> --depth N` | `localViewStructure` / `ghViewRepoStructure` | structure |
 | Find files by name / size / mtime | `octocode find <q> [path] --regex/--size-greater/--modified-within` | `localFindFiles` | file metadata |
 | Text / regex search | `octocode grep <kw> <path\|owner/repo> [--mode discovery]` | `localSearchCode` / `ghSearchCode` | content |
-| **AST** structural search | `octocode ast '<pattern>' <path>` / `--rule <yaml>` | `localSearchCode(mode:"structural")` | Octocode structural grep (local only) |
+| **AST** structural search | `octocode grep <path> --pattern '<shape>'` / `octocode grep <path> --rule '<yaml>'` | `localSearchCode(mode:"structural")` | Octocode structural grep (local or clone-backed `--repo`) |
 | Read / minify a file | `octocode cat <f> --mode symbols\|none --match-string` | `localGetFileContent` / `ghGetFileContent` | content |
-| **Symbols** (file outline) | `octocode symbols <f\|path>` | `lspGetSemantics(type=documentSymbols)` | LSP |
+| **Symbols** (file outline) | `octocode ls <file>` or `octocode ls <dir> --symbols` | `localGetFileContent(minify:"symbols")` or `lspGetSemantics(type:"documentSymbols")` | outline |
 | **LSP** semantic nav | `octocode lsp <f> --type <t> --symbol S --line N` | `lspGetSemantics(type=…)` | LSP |
-| PR list / deep-dive | `octocode pr <owner/repo[#N]> --deep` | `ghHistoryResearch(type=prs)` | history |
+| PR list / deep-dive | `octocode pr <owner/repo[#N]> --concise`, then `--patches --file`, `--comments`, or `--deep` | `ghHistoryResearch` | history |
 | Commit history | `octocode history <owner/repo/path>` | `ghHistoryResearch(type=commits)` | history |
 | Discover repos | `octocode repo <keywords> --stars '>1000'` | `ghSearchRepos` | GitHub |
 | Package → repo | `octocode pkg <package>` | `npmSearch` | npm |
@@ -44,13 +42,14 @@ Global CLI flags: `--json` (raw envelope), `--compact` (lean), `--concise` (path
 
 ---
 
-## `ast` — structural search (the old scanner's job)
+## `grep --pattern/--rule` — structural search
 
-AST shape search via Octocode structural grep. Structure-aware — comments and strings never false-match. **Local only**; for a GitHub repo, `octocode clone owner/repo/path` first.
+AST shape search via Octocode structural grep. Structure-aware — comments and strings never false-match. It runs locally, including clone-backed `--repo` paths; for a GitHub repo, use `--repo`, `octocode clone`, or `cache fetch` first.
 
 ```
-octocode ast <pattern> [path]
-octocode ast [path] --rule <yaml>
+octocode grep <path> --pattern '<ast>'
+octocode grep <path> --rule '<yaml>'
+octocode grep <repo-relative-path> --repo <owner/repo[@ref]> --pattern '<ast>'
     --pattern <ast>      shape; metavars $X (one node), $$$ARGS (a list)
     --rule <yaml>        relational rule — not/inside/has/all/any (mutually exclusive with pattern)
     --type <ext>         ts, py, go, rs, …
@@ -61,7 +60,7 @@ octocode ast [path] --rule <yaml>
     --json
 ```
 
-MCP equivalent: `localSearchCode({ mode:"structural", pattern:"…" | rule:{…}, path, langType })`.
+MCP/raw-tool equivalent: `localSearchCode({ mode:"structural", pattern:"…" | rule:{…}, path, langType })`.
 
 Pattern library (the former presets) and pitfalls: [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md).
 
@@ -80,7 +79,7 @@ octocode lsp <file> --type <type> --symbol <name> --line <n>
     --json
 ```
 
-- File outline uses `octocode symbols <f>` / `lspGetSemantics(type=documentSymbols)` — no `--line` needed.
+- File outline uses `octocode ls <file>` or `octocode ls <dir> --symbols`. For raw semantic document symbols, use `octocode tools lspGetSemantics --scheme` then `type:"documentSymbols"` — no `--line` needed.
 - Semantic misses (`symbolNotFound`, `noReferences`, `noCalls`, …) exit `3` so shell scripts fail fast.
 - `references`/`callers`/`implementation` are open-file-scoped — empty ≠ unused. Load the consumer file (MCP: batch a `documentSymbols`/`definition` query on it in the same call; CLI: `symbols`/`cat` it first), then re-query.
 - `callers`/`callees`/`callHierarchy`: TS/JS/Go/Rust only. Python/C++ → use `references`.
@@ -98,6 +97,24 @@ octocode lsp <file> --type <type> --symbol <name> --line <n>
 | Quote / diff exact text, get a `line` | `none` | raw; pair with `--match-string` → returns the real line number |
 
 `grep --mode discovery` (paths only) before `paginated`/`detailed`. `--concise` for the leanest discovery list.
+
+## Raw tools and OQL
+
+Use raw tools only when a quick command cannot express the needed selector:
+
+```bash
+octocode tools <name> --scheme
+octocode tools <name> --queries '<json>' --json
+```
+
+Use OQL when one typed query should route across code/content/files/structure:
+
+```bash
+octocode search --scheme
+octocode search --query '<oql-json>' --explain --json
+```
+
+For partial OQL targets (PRs, commits, artifacts, direct diffs, package/repo continuations), prefer quick commands or raw tools and say which fallback produced the evidence.
 
 ---
 
