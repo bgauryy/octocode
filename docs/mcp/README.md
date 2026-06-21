@@ -21,10 +21,11 @@ The Octocode MCP server exposes Octocode research tools to AI coding clients via
 
 ## Workflows
 
-| Doc | Purpose |
-|-----|---------|
-| [CLONE_WORKFLOW.md](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) | Clone a repo then analyze locally with LSP |
-| [TOOL_VERIFICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Release-grade contract and pagination verification |
+      | Doc | Purpose |
+      |-----|---------|
+| [../AGENT_RESEARCH_WORKFLOWS.md](https://github.com/bgauryy/octocode/blob/main/docs/AGENT_RESEARCH_WORKFLOWS.md) | Product-level research flows across package search, GitHub search/fetch/clone, OQL, cache, local ripgrep, AST, LSP, artifacts, and diff |
+      | [CLONE_WORKFLOW.md](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) | Clone a repo then analyze locally with LSP |
+      | [TOOL_VERIFICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Release-grade contract and pagination verification |
 
 ## Architecture
 

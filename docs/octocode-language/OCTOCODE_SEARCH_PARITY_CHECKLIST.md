@@ -479,6 +479,18 @@ Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
 12. 🟡 Added typed-shape + identity + continuation regression tests
     (parity-gaps, review-fixes, v2-targets); full raw-tool-JSON-vs-OQL-JSON
     golden matrix is still future.
+13. ✅ Gate 15 (negation/xor proof over a provider) fixed: `not`/`xor` over a
+    GitHub source no longer claims provider `proof`. Negation parity is threaded
+    into leaf routing, so a negated predicate ROUTEs to bounded materialization
+    (local proof) under `materialize.mode:"auto"/"required"`, returns
+    `negativeUniverseRequired` + `UNSUPPORTED` under `"never"`, and double
+    negation correctly collapses to a positive provider search. Tests:
+    `tests/oql/provider-negation.test.ts`.
+14. ✅ `content`/`structure` over a GitHub source now require a concrete
+    repository (`owner/name`): a provider-wide (`{kind:"github"}`) or owner-only
+    source is rejected with `invalidQuery` + repair instead of silently planning
+    an executable read that fails opaquely at the tool layer (contract
+    §source-and-scope). Tests: `tests/oql/github-corpus.test.ts`.
 
 ## Minimal Parity Test Suite
 

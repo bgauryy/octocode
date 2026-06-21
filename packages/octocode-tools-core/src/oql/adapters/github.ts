@@ -210,31 +210,46 @@ async function githubContent(query: OqlQueryV1): Promise<AdapterResult> {
     ...(c?.fullContent ? { fullContent: true } : {}),
   };
   const result = await runDirect('ghGetFileContent', toolQuery);
-  const data = extractData<{ results?: readonly GitHubFileContentData[] }>(
-    result
-  );
-  const viewMap: Record<string, OqlContentResultRow['contentView']> = {
-    none: 'exact',
-    standard: 'compact',
-    symbols: 'symbols',
-  };
-  const rows: OqlContentResultRow[] = (data?.results ?? []).map(d => ({
-    kind: 'content',
-    source: ghFrom(query),
-    path: d.path,
-    content: d.content,
-    contentView: viewMap[d.contentView ?? 'standard'] ?? 'compact',
-    ...(d.startLine !== undefined || d.endLine !== undefined
-      ? {
-          range: {
-            ...(d.startLine !== undefined ? { startLine: d.startLine } : {}),
-            ...(d.endLine !== undefined ? { endLine: d.endLine } : {}),
-          },
-        }
-      : {}),
-  }));
+  const data = extractData<{
+    results?: readonly GitHubFileContentData[];
+    pagination?: {
+      hasMore?: boolean;
+      charOffset?: number;
+      charLength?: number;
+    };
+  }>(result);
+  // Report the requested view (the tool does not reliably echo the minify mode).
+  const requestedView: OqlContentResultRow['contentView'] =
+    minify === 'none' ? 'exact' : minify === 'symbols' ? 'symbols' : 'compact';
+  const pag = data?.pagination;
+  const hasCharWindow = typeof pag?.charOffset === 'number';
+  const rows: OqlContentResultRow[] = (data?.results ?? []).map(d => {
+    const range = {
+      ...(d.startLine !== undefined ? { startLine: d.startLine } : {}),
+      ...(d.endLine !== undefined ? { endLine: d.endLine } : {}),
+      ...(hasCharWindow
+        ? {
+            charOffset: pag!.charOffset,
+            ...(typeof pag!.charLength === 'number'
+              ? { charLength: pag!.charLength }
+              : {}),
+          }
+        : {}),
+    };
+    return {
+      kind: 'content' as const,
+      source: ghFrom(query),
+      path: d.path,
+      content: d.content,
+      contentView: requestedView,
+      ...(Object.keys(range).length ? { range } : {}),
+    };
+  });
   return {
     results: rows,
+    ...(pag?.hasMore !== undefined
+      ? { pagination: { hasMore: Boolean(pag.hasMore) } }
+      : {}),
     diagnostics: [
       ...statusDiagnostics(result, 'ghGetFileContent'),
       ...emptyProviderDiag(rows.length, 'ghGetFileContent'),

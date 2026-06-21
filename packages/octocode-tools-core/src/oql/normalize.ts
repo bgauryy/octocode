@@ -289,6 +289,30 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
     );
   }
 
+  // `content`/`structure` reads of a specific tree require a concrete GitHub
+  // repository (`owner/name`). Provider-wide or owner-only GitHub sources are
+  // valid only for provider-search targets (code/repositories), not for fetching
+  // a specific file or directory tree (contract §source-and-scope).
+  if (
+    (canonical.target === 'content' || canonical.target === 'structure') &&
+    canonical.from?.kind === 'github' &&
+    !(canonical.from.repo && canonical.from.repo.includes('/'))
+  ) {
+    fail(
+      diagnostic(
+        'invalidQuery',
+        `target:"${canonical.target}" over GitHub requires a concrete repository ("owner/name"); a provider-wide or owner-only source cannot read a specific tree.`,
+        {
+          queryPath: 'from',
+          repair: {
+            message:
+              'Set from:{kind:"github",repo:"owner/name"} (and scope.path for a subtree).',
+          },
+        }
+      )
+    );
+  }
+
   // Validate the final canonical object against the strict schema.
   const check = OqlQuerySchema.safeParse(canonical);
   if (!check.success) {

@@ -3,6 +3,11 @@
 Release-readiness benchmark for Octocode CLI commands, raw MCP tools, feature
 checks, and cross-tool flows. Scores rate eval coverage, not product quality.
 
+> `octocode search` (OQL) has its own questions-and-tool eval:
+> [`docs/octocode-language/OCTOCODE_SEARCH_EVAL.md`](octocode-language/OCTOCODE_SEARCH_EVAL.md)
+> — 45 research questions, each with the exact `octocode search` invocation,
+> across all 11 active targets plus routing/continuation/materialization checks.
+
 Scale: `10` full (dispatch + execute + envelope + behavior + pagination +
 negative + cross-flow) · `8-9` core + one of pagination/negative/cross-flow,
 env-gated gap · `6-7` smoke only (side-effectful/interactive) · `<6` not

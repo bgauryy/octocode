@@ -175,37 +175,51 @@ function coerceSizeToBytes(
 export function mapContentResult(
   result: LocalGetFileContentToolResult,
   source: QuerySource,
-  path: string
+  path: string,
+  /**
+   * The view the OQL query *requested*. The backing tool does not reliably echo
+   * the minify mode back (e.g. a `symbols` read reports `standard`), so the row
+   * must report the requested view to satisfy "report the view used".
+   */
+  requestedView: OqlContentResultRow['contentView'] = 'compact'
 ): MappedResult {
-  const viewMap: Record<string, OqlContentResultRow['contentView']> = {
-    none: 'exact',
-    standard: 'compact',
-    symbols: 'symbols',
+  // CharPagination (char window) carries charOffset/charLength/totalChars; a
+  // plain PaginationInfo does not. Detect by presence of charOffset.
+  const pag = result.pagination as
+    | {
+        hasMore?: boolean;
+        charOffset?: number;
+        charLength?: number;
+        totalChars?: number;
+      }
+    | undefined;
+  const hasCharWindow = typeof pag?.charOffset === 'number';
+
+  const range: NonNullable<OqlContentResultRow['range']> = {
+    ...(result.startLine !== undefined ? { startLine: result.startLine } : {}),
+    ...(result.endLine !== undefined ? { endLine: result.endLine } : {}),
+    ...(hasCharWindow
+      ? {
+          charOffset: pag!.charOffset,
+          ...(typeof pag!.charLength === 'number'
+            ? { charLength: pag!.charLength }
+            : {}),
+        }
+      : {}),
   };
+
   const row: OqlContentResultRow = {
     kind: 'content',
     source,
     path: result.filePath ?? path,
     content: result.content ?? '',
-    contentView: viewMap[result.contentView ?? 'standard'] ?? 'compact',
-    ...(result.startLine !== undefined || result.endLine !== undefined
-      ? {
-          range: {
-            ...(result.startLine !== undefined
-              ? { startLine: result.startLine }
-              : {}),
-            ...(result.endLine !== undefined
-              ? { endLine: result.endLine }
-              : {}),
-          },
-        }
-      : {}),
+    contentView: requestedView,
+    ...(Object.keys(range).length ? { range } : {}),
   };
-  const charPag = result.pagination as { hasMore?: boolean } | undefined;
   return {
     results: [row],
-    ...(charPag?.hasMore !== undefined
-      ? { pagination: { hasMore: Boolean(charPag.hasMore) } }
+    ...(pag?.hasMore !== undefined
+      ? { pagination: { hasMore: Boolean(pag.hasMore) } }
       : {}),
   };
 }

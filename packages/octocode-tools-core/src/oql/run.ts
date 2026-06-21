@@ -106,7 +106,10 @@ function attachContinuations(
 ): Record<string, OqlContinuation> {
   const next: Record<string, OqlContinuation> = {};
 
-  if (exec.pagination?.hasMore) {
+  // Content reads page the char-window domain, not the result-row domain. The
+  // per-row `next.charRange` (below) is the executable continuation there, so
+  // never emit a misleading `next.page` for target:"content".
+  if (exec.pagination?.hasMore && query.target !== 'content') {
     next['next.page'] = {
       query: { ...query, page: (query.page ?? 1) + 1 },
       why: 'More result pages remain.',

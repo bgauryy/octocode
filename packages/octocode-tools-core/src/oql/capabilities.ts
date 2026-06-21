@@ -72,9 +72,18 @@ function routeLocal(
 /** GitHub provider source. */
 function routeGithub(
   ctx: CapabilityContext,
-  predicate: LeafPredicate
+  predicate: LeafPredicate,
+  inNegation: boolean
 ): CapabilityDecision {
   const canMaterialize = materializeAllowed(ctx.materialize);
+
+  // Under negation, the provider can never prove *absence*: provider zero-
+  // results are not proof unless the candidate universe is complete. Any
+  // predicate evaluated inside a `not` must therefore be proven locally
+  // (materialize) or reported as needing a complete universe.
+  if (inNegation) {
+    return negatedOverProvider(ctx, predicate, canMaterialize);
+  }
 
   switch (predicate.kind) {
     case 'text':
@@ -156,6 +165,53 @@ function routeGithub(
   }
 }
 
+/** Describe a leaf predicate for diagnostic/reason text. */
+function describeLeaf(predicate: LeafPredicate): string {
+  switch (predicate.kind) {
+    case 'text':
+      return 'text match';
+    case 'regex':
+      return predicate.dialect === 'pcre2' ? 'PCRE2 regex' : 'regex match';
+    case 'structural':
+      return 'structural AST match';
+    case 'field':
+      return `field "${predicate.field}"`;
+  }
+}
+
+/**
+ * A predicate evaluated inside a `not` over a GitHub provider source. The
+ * provider cannot enumerate the complete candidate universe, so a negation can
+ * only be proven by materializing bounded code and running the local tool; with
+ * `materialize.mode:"never"` it is `negativeUniverseRequired`.
+ */
+function negatedOverProvider(
+  ctx: CapabilityContext,
+  predicate: LeafPredicate,
+  canMaterialize: boolean
+): CapabilityDecision {
+  const what = describeLeaf(predicate);
+  if (canMaterialize) {
+    return {
+      route: 'ROUTE',
+      backend: ctx.target === 'files' ? LOCAL_FIND : LOCAL_SEARCH,
+      exact: true,
+      reason: `negated ${what} needs a complete universe; routed to bounded materialization for local proof`,
+    };
+  }
+  return {
+    route: 'UNSUPPORTED',
+    backend: GH_SEARCH,
+    exact: false,
+    reason: `negated ${what} cannot be proven by the GitHub provider (no complete universe)`,
+    diagnostic: {
+      code: 'negativeUniverseRequired',
+      message:
+        'Negation over a GitHub provider source needs a complete candidate universe; materialize to prove absence.',
+    },
+  };
+}
+
 function localOnlyOverProvider(
   ctx: CapabilityContext,
   what: string,
@@ -190,11 +246,13 @@ function localOnlyOverProvider(
 
 export function routeLeafPredicate(
   ctx: CapabilityContext,
-  predicate: LeafPredicate
+  predicate: LeafPredicate,
+  inNegation = false
 ): CapabilityDecision {
   if (ctx.sourceKind === 'github') {
-    return routeGithub(ctx, predicate);
+    return routeGithub(ctx, predicate, inNegation);
   }
-  // local + materialized are both proven locally
+  // local + materialized are both proven locally (the complete universe is
+  // available there, so negation is exact without materialization).
   return routeLocal(ctx, predicate);
 }

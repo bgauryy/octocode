@@ -473,7 +473,13 @@ async function executeContent(
     ...(c?.fullContent ? { fullContent: true } : {}),
   };
   const result = await fetchContent(toolQuery as never);
-  const mapped = mapContentResult(result, source, searchPath);
+  const requestedView =
+    c?.contentView === 'exact'
+      ? 'exact'
+      : c?.contentView === 'symbols'
+        ? 'symbols'
+        : 'compact';
+  const mapped = mapContentResult(result, source, searchPath, requestedView);
   return {
     ...mapped,
     diagnostics: resultDiagnostics(result, 'localGetFileContent'),

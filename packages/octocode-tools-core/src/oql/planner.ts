@@ -46,13 +46,14 @@ function walkPredicate(
   predicate: Predicate,
   path: string,
   ctx: CapabilityContext,
-  out: WalkResult
+  out: WalkResult,
+  inNegation = false
 ): PlanRoute {
   const id = predicateId(predicate, path);
 
   if (predicate.kind === 'all' || predicate.kind === 'any') {
     const childRoutes = predicate.of.map((c, i) =>
-      walkPredicate(query, c, `${path}.of[${i}]`, ctx, out)
+      walkPredicate(query, c, `${path}.of[${i}]`, ctx, out, inNegation)
     );
     const route = combineBooleanRoute(predicate.kind, childRoutes);
     out.nodes.push({
@@ -65,43 +66,34 @@ function walkPredicate(
   }
 
   if (predicate.kind === 'not') {
+    // Negation flips parity for descendants. The leaf router decides, per
+    // source, whether the negated predicate is exact (local/materialized
+    // complete universe), needs materialization (provider ROUTE), or is
+    // unprovable (provider with materialize.mode:"never" -> UNSUPPORTED +
+    // negativeUniverseRequired). Double negation collapses to positive.
     const childRoute = walkPredicate(
       query,
       predicate.predicate,
       `${path}.predicate`,
       ctx,
-      out
+      out,
+      !inNegation
     );
-    // negation is exact only when the universe is complete. Over a provider
-    // source without materialization a residual/approx child cannot be negated
-    // exactly.
-    let route: PlanRoute = childRoute;
-    if (
-      ctx.sourceKind === 'github' &&
-      !(
-        ctx.materialize?.mode === 'auto' || ctx.materialize?.mode === 'required'
-      )
-    ) {
-      out.diagnostics.push(
-        diagnostic(
-          'negativeUniverseRequired',
-          'Negation over a GitHub provider source needs a complete candidate universe; materialize to prove absence.',
-          { predicateId: id, queryPath: path }
-        )
-      );
-      route = 'UNSUPPORTED';
-    }
     out.nodes.push({
       predicateId: id,
       path,
-      route,
+      route: childRoute,
       reason: 'not requires a complete evaluation universe to be exact',
     });
-    return route;
+    return childRoute;
   }
 
   // leaf
-  const decision = routeLeafPredicate(ctx, predicate as LeafPredicate);
+  const decision = routeLeafPredicate(
+    ctx,
+    predicate as LeafPredicate,
+    inNegation
+  );
   out.nodes.push({
     predicateId: id,
     path,
