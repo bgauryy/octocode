@@ -13,6 +13,7 @@ Use this for local codebases, cloned repos, unpacked archives, local diffs, and 
 | Read file | `octocode cat <file>` | `localGetFileContent` | Use symbols/standard/none, matchString, line ranges |
 | Symbols/outline | `octocode ls <file>` or `octocode ls <dir> --symbols`; `octocode cat <file> --mode symbols` | `lspGetSemantics(type:"documentSymbols")` or `localGetFileContent(minify:"symbols")` | Outline before body reads |
 | Semantic nav | `octocode lsp <file> --type <t> --symbol S --line N` | `lspGetSemantics` | Definition, references, callers, callees, callHierarchy, hover, typeDefinition, implementation |
+| Smart reachability | `octocode search --query '{"target":"research",...}' --json` | OQL `target:"research"` | Candidate unused exports/files/deps with flow + verdict rows; prove before deleting |
 
 ## Default local workflow
 
@@ -29,6 +30,7 @@ octocode ls <path> --depth 1 --json              map package/source dirs first
 Rules:
 - Do not open with `fullContent` on an unknown file.
 - Search result snippets are discovery, not proof. Re-anchor with `matchString` or LSP/AST.
+- Smart OQL `target:"research"` is the broad dead-code/package-drift pass, but its evidence is candidate-grade until confirmed by LSP/AST/exact reads or knip.
 - Always get a real `lineHint` before LSP. Never guess.
 - Use directory mapping before broad searches.
 - Use raw `octocode tools <name> --scheme` only when the quick command cannot express the field or paging control you need.

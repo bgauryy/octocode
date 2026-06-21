@@ -162,6 +162,8 @@ function operationFor(target: OqlQueryV1['target']): string {
       return 'inspectArtifact';
     case 'diff':
       return 'diff';
+    case 'research':
+      return 'runResearchFlow';
     case 'materialize':
       return 'materialize';
   }
@@ -246,7 +248,7 @@ export function planQuery(
       backend: backendForTargetless(query),
       source,
       operation: operationFor(query.target),
-      exact: true,
+      exact: query.target !== 'research',
     });
   }
 
@@ -327,6 +329,8 @@ function backendForTargetless(query: OqlQueryV1): string {
       return 'ghHistoryResearch';
     case 'artifacts':
       return 'localBinaryInspect';
+    case 'research':
+      return 'smartOqlResearch';
     // 'diff' is owned by the lane-aware branch in planQuery (diffLanes.ts) and
     // never reaches here.
     case 'materialize':

@@ -12,6 +12,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runDirect } from './runner.js';
 import { diagnostic } from '../diagnostics.js';
 import { classifyDiffLane } from '../diffLanes.js';
+import { analyzeResearchFlow } from '../research/analyze.js';
 import type { AdapterResult } from './local.js';
 import type {
   OqlDiagnostic,
@@ -115,6 +116,8 @@ function stableId(
       const line = s('line') ?? s('startLine');
       return uri ? (line ? `${uri}:${line}` : uri) : undefined;
     }
+    case 'research':
+      return s('intent') ?? s('goal') ?? 'research';
   }
 }
 
@@ -623,6 +626,55 @@ export async function executeSemantics(
   };
 }
 
+export async function executeResearch(
+  query: OqlQueryV1
+): Promise<AdapterResult> {
+  const p = params(query);
+  const root =
+    query.from?.kind === 'local'
+      ? query.from.path
+      : query.from?.kind === 'materialized'
+        ? query.from.localPath
+        : undefined;
+
+  if (!root) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'requiresMaterialization',
+          'target:"research" needs a complete local file universe. Use a local/materialized source, or materialize a bounded GitHub corpus first.',
+          {
+            backend: 'smartOqlResearch',
+            repair: {
+              message:
+                'Run target:"materialize" for a bounded GitHub repo/subtree, then run target:"research" against the returned localPath.',
+            },
+          }
+        ),
+      ],
+      provenance: [],
+    };
+  }
+
+  const data = await analyzeResearchFlow({
+    root,
+    goal: typeof p.goal === 'string' ? p.goal : undefined,
+    intent: typeof p.intent === 'string' ? p.intent : undefined,
+    facets: Array.isArray(p.facets)
+      ? p.facets.filter((facet): facet is string => typeof facet === 'string')
+      : undefined,
+    mode: p.mode === 'plan' ? 'plan' : 'analyze',
+    maxFiles: typeof p.maxFiles === 'number' ? p.maxFiles : undefined,
+  });
+
+  return {
+    results: records([data], 'research', query.from),
+    diagnostics: [],
+    provenance: [{ backend: 'smartOqlResearch', source: query.from }],
+  };
+}
+
 /** Dispatch map: V2 target -> adapter. */
 export const V2_ADAPTERS: Record<
   string,
@@ -635,4 +687,5 @@ export const V2_ADAPTERS: Record<
   diff: executeDiff,
   artifacts: executeArtifacts,
   semantics: executeSemantics,
+  research: executeResearch,
 };

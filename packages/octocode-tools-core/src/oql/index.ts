@@ -43,3 +43,16 @@ export {
   type ShorthandResult,
 } from './shorthand.js';
 export { oqlSchemaText, OQL_SCHEMA_DOC } from './schemeText.js';
+export {
+  analyzeResearchFlow,
+  type AnalyzeResearchOptions,
+  type ResearchAnalysisResult,
+  type ResearchDependencyIssue,
+  type ResearchFileIssue,
+  type ResearchFlowStep,
+  type ResearchIntent,
+  type ResearchManifestSummary,
+  type ResearchMode,
+  type ResearchSymbolRow,
+  type ResearchSymbolVerdict,
+} from './research/analyze.js';

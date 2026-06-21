@@ -21,6 +21,7 @@ export type OqlActiveTargetV1 =
   | 'commits'
   | 'artifacts'
   | 'diff'
+  | 'research'
   // Addressable materialization: clone/cache a bounded corpus and return a
   // stable local checkpoint (not a side-effect of a search).
   | 'materialize';
@@ -42,6 +43,7 @@ export const ACTIVE_TARGETS: readonly OqlActiveTargetV1[] = [
   'commits',
   'artifacts',
   'diff',
+  'research',
   'materialize',
 ];
 
@@ -479,6 +481,7 @@ export interface OqlRecordResultRow {
     | 'commit'
     | 'artifact'
     | 'diff'
+    | 'research'
     | 'materialized';
   /** Stable, citeable identity (repo, name@version, #PR, SHA, path, uri). */
   id?: string;
@@ -570,6 +573,19 @@ export interface OqlMaterializedData {
   complete?: boolean;
   [k: string]: unknown;
 }
+export interface OqlResearchData {
+  kind?: 'researchFlow';
+  goal?: string;
+  intent?: string;
+  facets?: string[];
+  summary?: Record<string, unknown>;
+  flow?: unknown[];
+  files?: unknown[];
+  dependencies?: unknown[];
+  symbols?: unknown[];
+  caveats?: string[];
+  [k: string]: unknown;
+}
 
 /** Typed row aliases — a record row whose `data` matches its `recordType`. */
 export type OqlRepositoryRow = OqlRecordResultRow & {
@@ -603,6 +619,10 @@ export type OqlSemanticsRow = OqlRecordResultRow & {
 export type OqlMaterializedRow = OqlRecordResultRow & {
   recordType: 'materialized';
   data: OqlMaterializedData;
+};
+export type OqlResearchRow = OqlRecordResultRow & {
+  recordType: 'research';
+  data: OqlResearchData;
 };
 
 export type OqlResultRow =

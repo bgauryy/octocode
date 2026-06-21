@@ -2,7 +2,7 @@
  * Typed V2-target `params` schemas.
  *
  * V2 research targets (semantics/repositories/packages/pullRequests/commits/
- * artifacts/diff) carry a `params` bag that the backing tool validates
+ * artifacts/diff/research) carry a `params` bag that the backing tool validates
  * exhaustively. These schemas type the *documented, commonly-used* fields so a
  * type mistake (e.g. `prNumber:"abc"`) is caught at the OQL layer with a clear
  * `invalidQuery` instead of failing opaquely at the tool — while `.passthrough()`
@@ -134,6 +134,18 @@ const diffParams = z
   })
   .passthrough();
 
+const researchParams = z
+  .object({
+    goal: z.string().optional(),
+    intent: z
+      .enum(['general', 'reachability', 'dependencies', 'symbols'])
+      .optional(),
+    facets: z.array(z.string()).optional(),
+    mode: z.enum(['plan', 'analyze']).optional(),
+    maxFiles: intMin1.optional(),
+  })
+  .passthrough();
+
 /** Per-target params schema; targets without a `params` bag are absent. */
 export const V2_PARAM_SCHEMAS: Partial<
   Record<OqlActiveTargetV1, z.ZodTypeAny>
@@ -145,6 +157,7 @@ export const V2_PARAM_SCHEMAS: Partial<
   commits: commitsParams,
   artifacts: artifactsParams,
   diff: diffParams,
+  research: researchParams,
 };
 
 /**

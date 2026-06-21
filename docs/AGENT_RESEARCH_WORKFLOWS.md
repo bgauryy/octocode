@@ -21,7 +21,9 @@ These rules are mandatory when an agent is constructing Octocode calls.
 
 1. Read the active schema before any raw tool call:
    `octocode tools <name> --scheme`, then `octocode tools <name> --queries '<json>'`.
-   Field names differ between quick commands and raw tools.
+   Field names differ between quick commands and raw tools — e.g. quick `cat`
+   uses `--mode none|standard|symbols` while the raw tool field is `minify`
+   (`--minify` is rejected on the quick command).
 2. Use `--json` for automation and `--compact` for low-token exploration. Human
    rendering is useful for quick inspection, but raw envelopes carry pagination,
    diagnostics, hints, and continuations.
@@ -48,7 +50,7 @@ Choose the surface by the job, not by habit.
 | Surface | Use when | Required agent behavior |
 |---------|----------|-------------------------|
 | Quick commands | The workflow is common and expressible as CLI flags (`grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `history`, `binary`, `unzip`, `clone`, `cache fetch`) | Prefer `--json` when another step depends on the result; preserve returned paths, refs, and pagination. |
-| OQL `search` | One typed query should route across code/content/files/structure, or an agent needs normalized planning via `--explain` | Use `search --scheme`; use `--explain` when routing/completeness is uncertain; follow `next.*` when present. |
+| OQL `search` | One typed query should route across code/content/files/structure, or an agent needs a normalized research plan via `--explain` | Use `search --scheme`; use `--explain` when routing/completeness is uncertain; follow `next.*` when present. |
 | Raw `tools` | A quick command or OQL cannot express the needed field, pagination domain, content selector, or exact target behavior | Always run `tools <name> --scheme` first; pass schema-exact JSON only. |
 | Direct local shell | Only for repo maintenance around Octocode itself, not for agent-facing research flows | Prefer Octocode CLI/MCP tools for research so behavior stays dogfooded. |
 
@@ -68,6 +70,7 @@ know where the current language is still partial.
 | PRs, commits, and history | Partly | `pr`, `history`, raw `ghHistoryResearch` for selected content, comments, commits, patches, and paging. |
 | Artifacts, archives, binaries | Partly | `binary`, `unzip`, raw `localBinaryInspect`; manually continue from returned `localPath`. |
 | Diffs | Partly | CLI `diff` or raw PR patch/history tools. OQL `diff` currently represents PR patch lanes better than direct file/ref diff lanes. |
+| Dead code, reachability, unused files, package drift | Partly | Start with OQL `target:"research"` for a repo-level candidate flow; confirm destructive cleanup with LSP references, AST import search, exact reads, and/or knip. |
 | Structural metavariable captures | Partly | Use quick/raw structural search when captures are required; OQL rows may not expose `metavars` yet. |
 
 ## Diagnostic And Failure Handling
@@ -104,6 +107,7 @@ Octocode should teach agents this decision ladder:
 | Symbol identity | `lspGetSemantics` | definition/references/callers/callees | LSP without a search anchor |
 | Why code changed | `ghHistoryResearch` | direct `prNumber` metadata, files, patches | broad PR comment search first |
 | Unified multi-domain query | CLI `search` / OQL | routed backing tool evidence | guessing raw tool fields |
+| Dead-code/package-drift sweep | `search target:"research"` | candidate reachability rows + LSP/AST/knip proof | deleting from heuristic counts alone |
 | Remote content cache | CLI `cache fetch` | returned `localPath` + local tools | repeated remote file reads |
 | Repository tree shape | `ghViewRepoStructure` / CLI `ls` | targeted file reads | path guessing |
 | Local metadata/path search | `localFindFiles` / CLI `find` | exact file slices | content search for filenames only |
@@ -119,7 +123,7 @@ needed field.
 
 | CLI command | Backing workflow | Use when |
 |-------------|------------------|----------|
-| `search` | OQL router across local, GitHub, npm, PRs, commits, artifacts, diff | One typed query should choose the backing tool and return continuations |
+| `search` | OQL router across local, GitHub, npm, PRs, commits, artifacts, diff, and smart research flows | One typed query should choose the backing tool, emit a plan, and return continuations or typed research rows |
 | `pkg` | `npmSearch` | Starting from an npm package or package keyword |
 | `repo` | `ghSearchRepos` | Discovering candidate repositories |
 | `ls` | `localViewStructure` or `ghViewRepoStructure` | Orienting by tree shape or symbol outline |
@@ -137,6 +141,28 @@ needed field.
 
 Before using `tools <name> --queries`, read `tools <name> --scheme`. Before using
 `search --query`, read `search --scheme` or run with `--explain` when unsure.
+
+### Remote-As-Local Shortcut (`--repo`)
+
+`grep`, `find`, `cat`, and `ls` accept `--repo <owner/repo[@ref]>`. This
+materializes the repo (or subpath) under `.octocode` in one step, runs the local
+tool against the saved files, and returns the absolute local path in `location`.
+It is the fastest way to get local-only power (ripgrep controls, structural AST,
+file metadata, symbol outlines) on a remote repo without a separate `clone` or
+`cache fetch` step.
+
+```bash
+octocode grep "registerTool" --repo facebook/react packages/react --json --compact
+octocode grep --repo facebook/react packages/react --pattern 'useMemo($$$ARGS)' --json
+octocode find "*.test.ts" --repo owner/repo --json
+octocode cat src/index.ts --repo owner/repo@main --mode none --json
+```
+
+With `--repo`, `arg[0]`/the path argument is repository-relative. Reuse the
+returned absolute `location` path with plain local `ls`/`grep`/`cat`/`lsp` for
+follow-up calls — the files stay materialized. Remote structural search
+(`--pattern`/`--rule` against GitHub) **requires** `--repo`; GitHub's code-search
+API cannot evaluate AST predicates.
 
 ## Best Workflows
 
@@ -207,6 +233,8 @@ ghViewRepoStructure(owner, repo, path, depth)
 -> choose materialization:
    - ghGetFileContent(type:"directory") for one small directory
    - ghCloneRepo for full project, sparse subtree, AST, or LSP
+   - CLI `--repo owner/repo[@ref]` on grep/find/cat/ls for one-command
+     materialize-and-search (returns the saved absolute path in `location`)
 -> localViewStructure(localPath)
 -> localSearchCode(localPath)
 -> localSearchCode(mode:"structural") when shape matters
@@ -258,6 +286,7 @@ search(target:"packages", from:{kind:"npm"}, params:{packageName})
 -> search(target:"repositories", from:{kind:"github"}, params:{keywords})
 -> search(target:"code", from:{kind:"github" or "local"}, where:{kind:"text"|"regex"|"structural"})
 -> search(target:"content", fetch:{content:{...}})
+-> search(target:"research", from:{kind:"local"|"materialized"}, params:{goal, mode})
 -> follow next.* continuations or rerun with --explain when routing is unclear
 ```
 
@@ -270,6 +299,7 @@ Executable CLI pattern:
 octocode search --scheme
 octocode search --query '{"target":"code","from":{"kind":"local","path":"src"},"where":{"kind":"text","value":"registerTool"},"view":"discovery","limit":10,"explain":true}' --json
 octocode search --query '{"target":"content","from":{"kind":"local","path":"src/index.ts"},"fetch":{"content":{"match":{"text":"registerTool"},"contentView":"exact"}}}' --json
+octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
 ```
 
 Use `--explain --dry-run` first when the target, materialization strategy, or
@@ -331,6 +361,10 @@ List before extract. Use `strings` to find anchors. Use `unzip` when the next
 step is normal local research across many unpacked files; use `binary --extract`
 when only one archive member matters.
 
+`--json` callers: `strings` output lands in `data.content` (char-paginated via
+`charOffset`, with `totalFound`/`scanOffset`), not a `strings[]` array. Read
+`data.content` and follow the char cursor for the rest.
+
 ### 10. Unzip To Binary And Local Search
 
 Use this when an archive may contain source, generated bundles, nested archives,
@@ -382,6 +416,70 @@ content to separate "what changed" from "what exists now".
 For PR diffs, prefer selected files. For direct file/ref diffs, prefer the CLI
 `diff` surface until OQL's direct-file diff lane is first-class.
 
+### 12. Smart Reachability, Unused Symbols, And Package Drift
+
+Use this when the question is whether exports, files, dependencies, or symbols
+are still reachable. Start broad with Smart OQL, then prove risky rows with
+semantic and structural evidence.
+
+```text
+search(target:"research", from:{kind:"local"|"materialized"},
+  params:{goal:"find unused exports, transitive dead code, unused files, and package drift",
+          mode:"plan"|"analyze"})
+-> inspect data.flow for the planned evidence chain
+-> inspect data.symbols rows: symbol, kind, file, line, directRefs, externalRefs,
+   retainedBy, verdict
+-> inspect data.files and data.dependencies for candidate unused files, unlisted
+   deps, unused deps, duplicates
+-> because evidence.kind is candidate, prove destructive edits with LSP/AST/exact reads
+```
+
+Executable CLI pattern:
+
+```bash
+octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
+octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"how should an agent prove unused exports?","mode":"plan"}}' --json
+```
+
+Current behavior is intentionally conservative: `target:"research"` returns
+candidate evidence. It builds a file/import/manifest graph and identifies
+zero-use, transitive-dead, unused-file, unlisted-dependency, unused-dependency,
+and duplicate-dependency candidates, but framework entrypoints, build outputs,
+TS path aliases, dynamic imports, generated files, and package-manager-specific
+workspace rules still require refinement. Treat large count deltas from knip as
+signal that the project graph needs better entrypoint/materialization context,
+not as deletion instructions.
+
+Use manual LSP/AST proof for the final symbol decision:
+
+```text
+lspGetSemantics(uri, type:"documentSymbols")        # enumerate symbols + exact lines
+-> for each candidate, lspGetSemantics(type:"references", symbolName, lineHint,
+     includeDeclaration:false, groupByFile:true)
+-> zero references (totalReferences == 0) => unused candidate
+-> prove with exact content read; check for transitive/same-file-only references
+```
+
+`documentSymbols` gives the exact `line` to feed back as the `lineHint` for the
+`references` call. `includeDeclaration:false` excludes the definition so the count
+reflects real callers. This is candidate evidence, not a final verdict: a symbol
+referenced only from other dead code, or only within its own file, still reports
+references — confirm reachability from a real entry point before deleting.
+
+CLI equivalent:
+
+```bash
+octocode ls ./src/module.ts --symbols --json
+octocode lsp ./src/module.ts --type references --symbol mySymbol --line 42 --json
+```
+
+Observed comparison in this repo after enabling `target:"research"`:
+the previous `packages/octocode/src/configs/mcp-registry.ts` sample improved
+from 6/7 agreement against knip's unused-export verdict to 7/7, including the
+transitively-dead `MCPCategory` type. Whole-repo agreement is useful but still
+candidate-grade: the Smart OQL pass overlapped most knip files/symbols, while
+over-reporting until entrypoint and workspace semantics are made more precise.
+
 ## Exact Agent Recipes
 
 These are copy-pasteable patterns agents can adapt. Replace placeholders, then
@@ -414,11 +512,23 @@ octocode tools localSearchCode --queries '{"path":"dist/bundle.js","keywords":"h
 
 ```bash
 octocode grep ./src --pattern 'eval($X)' --type ts --json
+octocode grep ./src --pattern 'registerTool($$$ARGS)' --type ts --json   # captures call args
+octocode grep ./src --rule $'rule:\n  kind: function_item' --type rust --json  # all defs
 octocode cat ./src/example.ts --start-line 40 --end-line 70 --mode none --json
 ```
 
-Use YAML `rule` for relational AST logic. In shells, pass real newlines using a
-file, stdin, or ANSI-C quoting; do not rely on literal `\n` text becoming newlines.
+A `$$$ARGS` (or `$X`) capture returns the matched text per row under
+`matches[].metavars`, so call-site argument enumeration comes back as data, not
+just line numbers. Use a `kind:` YAML rule to match every definition of a node
+type (e.g. `function_item`, `class_declaration`). Use YAML `rule` for relational
+AST logic (`inside`/`has`/`not`/`all`/`any`). In shells, pass real newlines using
+a file, stdin, or ANSI-C quoting; do not rely on literal `\n` text becoming
+newlines, and single-quote patterns so `$` metavariables survive the shell.
+
+Gotcha: in typed languages, the pattern must match the real syntax. An
+`export function $N($$$ARGS): $RET { $$$BODY }` matches TS exports only when a
+return-type annotation is present; the bare `export function $N($$$ARGS) { $$$BODY }`
+returns zero matches against annotated declarations.
 
 ### LSP After A Search Anchor
 

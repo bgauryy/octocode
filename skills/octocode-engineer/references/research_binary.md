@@ -6,7 +6,7 @@ Use this when a file is an archive, compressed stream, native binary, `.node` ad
 
 | Job | CLI | MCP |
 |---|---|---|
-| Identify file type | `octocode binary <file> --identify` | `localBinaryInspect(mode:"identify")` |
+| Inspect binary metadata (format/arch/counts/deps) | `octocode binary <file> --inspect` | `localBinaryInspect(mode:"inspect")` |
 | List archive entries | `octocode binary <file> --list` | `localBinaryInspect(mode:"list")` |
 | Extract one archive entry | `octocode binary <file> --extract <entry>` | `localBinaryInspect(mode:"extract", archiveFile:"entry")` |
 | Decompress single stream | `octocode binary <file> --decompress` | `localBinaryInspect(mode:"decompress")` |
@@ -17,20 +17,23 @@ Use this when a file is an archive, compressed stream, native binary, `.node` ad
 
 ```text
 unknown file
-→ identify
+→ run with no flags (mode auto-detects: archive→list, compressed→decompress, else→inspect)
 → if archive: list
    → one target entry: extract exact entry
    → many files / codebase: unpack → localPath
 → if compressed stream: decompress
-→ if native binary: strings
+→ if native binary: inspect for metadata, strings for printable runs
 → if unpacked localPath: localViewStructure → localSearchCode/AST → localGetFileContent → LSP if source files exist
 ```
 
 ## Modes
 
-### `identify`
+### `inspect`
 
-Start here when unsure. Returns file type, magic bytes, and hints.
+Default for native binaries and unknown non-archive files. Native parse of
+ELF/Mach-O/PE/COFF/ar/wasm → identity, format, arch, counts, and dynamic deps
+(no external binutils). Add `--detailed` (`detailed:true`) only when you need the
+full symbol/import/export/section arrays.
 
 ### `list`
 
@@ -65,8 +68,14 @@ Rules:
 Use on `.node`, `.so`, `.dylib`, `.exe`, `.wasm`, native libraries.
 
 Options:
-- `minLength:12|16` — reduce noise to URLs/symbols/version strings.
-- `includeOffsets:true` — include byte offsets for follow-up binary investigation.
+- `minLength:12|16` (CLI `--min-length`) — reduce noise to URLs/symbols/version strings.
+- `includeOffsets:true` (CLI `--offsets`) — include byte offsets for follow-up binary investigation.
+
+`--json` output shape: strings land in `data.content` (a string), not a
+`strings[]` array. Companion fields are `totalFound`, `contentLength`,
+`isPartial`, `scanOffset`, and `pagination`. Read `data.content` and, when
+`isPartial`, page the rest with `scanOffset`/`charOffset`. To find a specific
+term in a binary, prefer `grep <pattern> <file>` over scanning all strings.
 
 ### `unpack`
 

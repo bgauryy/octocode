@@ -35,6 +35,7 @@ If neither `octocode` nor `npx octocode` works but MCP tools are available, use 
 | Commit history | `octocode history <owner/repo/path>` | `ghHistoryResearch(type=commits)` | history |
 | Discover repos | `octocode repo <keywords> --stars '>1000'` | `ghSearchRepos` | GitHub |
 | Package → repo | `octocode pkg <package>` | `npmSearch` | npm |
+| Smart repo research | `octocode search --query '{"target":"research",...}'` | OQL `target:"research"` | candidate reachability/dependency flow |
 | Inspect archive / binary | `octocode binary <f> --list/--strings/--decompress` | `localBinaryInspect` | binary |
 | Unpack archive to dir | `octocode unzip <archive>` | `localBinaryInspect(unpack)` | binary |
 | Clone repo / subtree locally | `octocode clone <owner/repo[/path][@branch]>` | `ghCloneRepo` | clone (needs `ENABLE_CLONE=true`) |
@@ -113,9 +114,10 @@ Use OQL when one typed query should route across code/content/files/structure:
 ```bash
 octocode search --scheme
 octocode search --query '<oql-json>' --explain --json
+octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
 ```
 
-For partial OQL targets (PRs, commits, artifacts, direct diffs, package/repo continuations), prefer quick commands or raw tools and say which fallback produced the evidence.
+For partial OQL targets (PRs, commits, artifacts, direct diffs, package/repo continuations), prefer quick commands or raw tools and say which fallback produced the evidence. `target:"research"` is also partial by design: it returns candidate reachability/package-drift rows, not deletion proof.
 
 ---
 
@@ -134,4 +136,4 @@ Local tools are confined to `$HOME` (+ `ALLOWED_PATHS`); paths outside are rejec
 
 ## What the native toolset does NOT do
 
-The CLI/MCP find **shapes** (AST) and **relationships** (LSP, imports). They do **not** compute a dependency graph, cycle clusters, coupling/instability metrics, complexity/Halstead/Maintainability-Index numbers, or run a multi-detector scan. For those, approximate with fan-in/fan-out counts (see [SKILL.md](../SKILL.md) §4 Architecture, metrics & graph) or use an external measurement tool from [context_external_measurement_tools.md](./context_external_measurement_tools.md) — and **flag in the artifact** when a claim rests on approximation.
+The CLI/MCP find **shapes** (AST), **relationships** (LSP, imports), and Smart OQL can now produce candidate reachability/package-drift rows. They still do **not** compute framework-complete entrypoint graphs, dependency cycle clusters, coupling/instability metrics, complexity/Halstead/Maintainability-Index numbers, or a full multi-detector scan. For those, approximate with fan-in/fan-out counts (see [SKILL.md](../SKILL.md) §4 Architecture, metrics & graph) or use an external measurement tool from [context_external_measurement_tools.md](./context_external_measurement_tools.md) — and **flag in the artifact** when a claim rests on approximation.

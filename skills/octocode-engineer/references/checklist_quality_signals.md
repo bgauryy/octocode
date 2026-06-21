@@ -36,7 +36,7 @@ Copy the patterns from [context_ast_pattern_cookbook.md](./context_ast_pattern_c
 
 | Signal | How | Verdict |
 |--------|-----|---------|
-| Dead export | `references` excluding declaration → 0 + `ast` import search → none | confirmed dead at 0 across both |
+| Dead export | Smart OQL `target:"research"` candidate + `references` excluding declaration → 0 + `ast` import search → none | confirmed dead only after candidate row and semantic/structural proof agree |
 | Blast radius | `references` (split test vs prod) + `callers` | sizes the change |
 | Coupling — fan-in | count of `references` into a module | high fan-in = depended-on |
 | Coupling — fan-out | count of imports out (`grep` import lines) | high fan-out = depends-on-many |
@@ -58,7 +58,7 @@ These were computed by the old embedded scanner. The native CLI/MCP do not produ
 | Instability `I = Ce/(Ca+Ce)`, SDP | compute by hand from fan-in/fan-out counts | `dep-cruiser` |
 | Chokepoints / articulation points | high fan-in ∩ high fan-out by inspection | `dep-cruiser` graph output |
 | Type-safety % | per-file `any` via `ast` | `type-coverage --strict --detail` |
-| Dead code (framework-aware) | LSP `references` + `ast` imports | `knip` |
+| Dead code (framework-aware) | Smart OQL `target:"research"` + LSP `references` + `ast` imports | `knip` |
 | Near-clone density | sample with `ast` shape patterns | a clone-detector external |
 | Change-risk hotspot | high fan-in ∩ large span (`symbols`) ∩ churn (`find --modified-within`) | composite — state it's heuristic |
 

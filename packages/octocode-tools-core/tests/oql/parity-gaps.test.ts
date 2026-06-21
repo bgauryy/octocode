@@ -20,6 +20,7 @@ describe('parity gap #1: --scheme query.target lists every active target', () =>
       'commits',
       'artifacts',
       'diff',
+      'research',
     ]) {
       expect(
         (OQL_SCHEMA_DOC.params as Record<string, unknown>)[t]

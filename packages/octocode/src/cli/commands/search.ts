@@ -369,8 +369,34 @@ function renderRecord(row: {
         .filter(Boolean)
         .join('  ');
       break;
+    case 'research':
+      detail = renderResearchRecord(d);
+      break;
   }
   return detail ? `${head}  ${dim(detail.slice(0, 200))}` : head;
+}
+
+function renderResearchRecord(d: Record<string, unknown>): string {
+  const summary =
+    d.summary && typeof d.summary === 'object' && !Array.isArray(d.summary)
+      ? (d.summary as Record<string, unknown>)
+      : {};
+  const n = (key: string): string | undefined =>
+    typeof summary[key] === 'number' ? String(summary[key]) : undefined;
+  const parts = [
+    typeof d.intent === 'string' ? `intent=${d.intent}` : undefined,
+    n('sourceFiles') && `files=${n('sourceFiles')}`,
+    n('unusedFiles') && `unusedFiles=${n('unusedFiles')}`,
+    n('exportedSymbols') && `symbols=${n('exportedSymbols')}`,
+    n('candidateUnusedExports') &&
+      `candidateExports=${n('candidateUnusedExports')}`,
+    n('transitiveDeadExports') &&
+      `transitiveDead=${n('transitiveDeadExports')}`,
+    n('unlistedDependencies') && `unlistedDeps=${n('unlistedDependencies')}`,
+    n('unusedDependencies') && `unusedDeps=${n('unusedDependencies')}`,
+    n('duplicateDependencies') && `duplicateDeps=${n('duplicateDependencies')}`,
+  ].filter(Boolean);
+  return parts.join('  ');
 }
 
 function routeColor(route: string): string {

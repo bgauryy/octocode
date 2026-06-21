@@ -49,6 +49,8 @@ export const OQL_SCHEMA_DOC = {
     artifacts:
       '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset? } — backing tool localBinaryInspect',
     diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
+    research:
+      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?, mode?:"plan"|"analyze", maxFiles? } — smart internal research flow over a complete local/materialized corpus; uses files/manifests/import graph now and is designed to refine with AST + LSP evidence',
     materialize:
       '(no params; no `where`) clone/cache a bounded corpus (from:{kind:"github",repo} + scope.path) and return a stable materialized checkpoint row (localPath/repoRoot/ref/cache/complete) with next.structure/next.files',
   },

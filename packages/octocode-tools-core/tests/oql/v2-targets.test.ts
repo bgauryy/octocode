@@ -65,6 +65,15 @@ describe('OQL V2 targets are active and route to their backend', () => {
       backend: 'lspGetSemantics',
       op: 'getSemantics',
     },
+    {
+      input: {
+        target: 'research',
+        from: { kind: 'local', path: './' },
+        params: { goal: 'find unused exports and dependencies' },
+      },
+      backend: 'smartOqlResearch',
+      op: 'runResearchFlow',
+    },
   ];
 
   for (const c of cases) {

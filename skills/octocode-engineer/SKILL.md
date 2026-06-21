@@ -15,6 +15,7 @@ Hard rules:
 - Prefer `--json` whenever another step depends on returned paths, refs, line numbers, diagnostics, or pagination.
 - Read `octocode tools <name> --scheme` before every raw-tool call. Quick-command flags and raw-tool fields are not the same API.
 - Use `octocode search --scheme` / `octocode search --explain` before relying on OQL routing for partial targets.
+- For dead-code, reachability, unused-file, or dependency-drift sweeps, start with `octocode search` `target:"research"` as a broad candidate pass, then prove destructive edits with LSP references, AST import search, exact reads.
 - Treat snippets as leads. Prove claims with exact `cat --match-string --mode none`, line ranges, selected PR patches, AST structural matches, LSP output, binary metadata, or tests.
 - Follow returned hints, `next.*`, pagination, char offsets, match pages, file pages, comment pages, and commit pages. Do not invent offsets or local paths.
 - Direct shell is allowed for `git status`, `git diff`, branch/log inspection, and repo maintenance around Octocode itself; use Octocode CLI/MCP for code research.
@@ -54,6 +55,7 @@ Start with the primary reference, then add companions only when the scenario nee
 | Compare external libraries/repos | `research_external.md`; add `research_local.md` after clone and `context_ast_pattern_cookbook.md` if comparing code shapes |
 | Inspect archive/binary package contents | `research_binary.md`; after `unpack`, continue with `research_local.md` |
 | Architecture/refactor risk | `workflow_engineering_research.md` + `research_local.md` + `checklist_quality_signals.md`; add `context_external_measurement_tools.md` only when a metric/graph number matters |
+| Dead-code/package-drift audit | `workflow_engineering_research.md` + `research_local.md`; add `context_external_measurement_tools.md` for knip confirmation |
 | Suspicious quality/security finding | `checklist_quality_signals.md` + `workflow_validation_playbooks.md`; add `context_ast_pattern_cookbook.md` for AST proof |
       | Need exact syntax for any command/tool | `context_cli_mcp_commands.md` plus the workflow/reference for the task |
 
@@ -89,6 +91,7 @@ Start with the primary reference, then add companions only when the scenario nee
       | Exact quote/line | `octocode cat --match-string ... --mode none` |
       | Code shape | `octocode grep <path> --pattern/--rule` or raw `localSearchCode(mode:"structural")` |
       | Definition/usages/call flow | `octocode lsp` or raw `lspGetSemantics` with a real lineHint |
+      | Dead-code/package drift | `octocode search --query '{"target":"research",...}' --json`, then LSP/AST/knip proof |
       | Remote proof | `octocode cat <owner/repo/path> --match-string ... --mode none`; clone/cache for AST/LSP |
       | Why it changed | `octocode history` → `octocode pr` selected content |
       | Metric/cycle/coverage number | external tool reference, then ask before running |
