@@ -51,7 +51,8 @@ export interface PaginationInfo {
 }
 
 export interface SearchStats {
-  matchCount?: number;
+  totalOccurrences?: number;
+  totalStructuralMatches?: number;
   matchedLines?: number;
   filesMatched?: number;
   filesSearched?: number;

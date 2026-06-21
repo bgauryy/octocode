@@ -11,6 +11,7 @@
  *    emits `planTruncated` only).
  */
 import { routeLeafPredicate, type CapabilityContext } from './capabilities.js';
+import { classifyDiffLane, diffLaneBackend } from './diffLanes.js';
 import { checkOutputFeatures } from './features.js';
 import { diagnostic } from './diagnostics.js';
 import { DEFAULTS, appliedDefaults } from './defaults.js';
@@ -209,6 +210,35 @@ export function planQuery(
   // Predicate routing
   if (query.where) {
     walkPredicate(query, query.where, 'where', ctx, out);
+  } else if (query.target === 'diff') {
+    // target:"diff" routes by params shape, not target alone. The lane
+    // discriminant is shared with the adapter (diffLanes.ts) so the dry-run
+    // plan can never contradict execution on backend name or executability.
+    const lane = classifyDiffLane(query.params);
+    const backend = diffLaneBackend(lane);
+    if (backend) {
+      out.backendCalls.push({
+        backend,
+        source,
+        operation: operationFor('diff'),
+        exact: true,
+      });
+    } else {
+      out.diagnostics.push(
+        diagnostic(
+          'invalidQuery',
+          'target:"diff" needs either {prNumber} (PR patch diff) or {baseRef,headRef,path} (direct file diff between two refs).',
+          {
+            queryPath: 'params',
+            backend: 'ghHistoryResearch',
+            repair: {
+              message:
+                'Add params.prNumber for a PR patch, or params.baseRef + params.headRef + params.path for a direct file diff.',
+            },
+          }
+        )
+      );
+    }
   } else {
     // targetless families (content/structure/files + V2 research targets):
     // a single fetch/list/inspect backend call.
@@ -297,8 +327,8 @@ function backendForTargetless(query: OqlQueryV1): string {
       return 'ghHistoryResearch';
     case 'artifacts':
       return 'localBinaryInspect';
-    case 'diff':
-      return 'ghHistoryResearch';
+    // 'diff' is owned by the lane-aware branch in planQuery (diffLanes.ts) and
+    // never reaches here.
     case 'materialize':
       return 'ghCloneRepo';
     default:

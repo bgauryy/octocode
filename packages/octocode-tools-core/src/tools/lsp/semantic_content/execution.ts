@@ -44,6 +44,7 @@ import {
   type SymbolAnchor,
 } from '../shared/resolveSymbolAnchor.js';
 import { contextUtils } from '../../../utils/contextUtils.js';
+import { markdownHeadingOutlineToDocumentSymbols } from '../../../utils/markdownOutline.js';
 
 /**
  * Extensions oxc can outline natively (server-free, syntax-only). Sourced from
@@ -535,7 +536,7 @@ async function getDocumentSymbols(
   // for JS/TS (server-free, no type inference). Stamp `source` so callers know
   // the fidelity tier.
   let symbols: unknown[] = [];
-  let source: 'lsp' | 'native' | undefined;
+  let source: 'lsp' | 'native' | 'markdown' | undefined;
   if (lspProvides && client) {
     const raw = await client.documentSymbols(
       anchor.value.uri,
@@ -551,6 +552,15 @@ async function getDocumentSymbols(
     if (native) {
       symbols = native;
       source = 'native';
+    } else {
+      const markdown = markdownHeadingOutlineToDocumentSymbols(
+        anchor.value.content,
+        anchor.value.uri
+      );
+      if (markdown) {
+        symbols = markdown;
+        source = 'markdown';
+      }
     }
   }
 
@@ -957,6 +967,7 @@ const STRUCTURAL_SYMBOL_KINDS = new Set([
   'class',
   'enum',
   'interface',
+  'markdownHeading',
   'struct',
 ]);
 

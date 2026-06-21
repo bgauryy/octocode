@@ -15,6 +15,13 @@ import {
 
 export type LocalSearchEngine = 'rg' | 'structural';
 
+type CountedLocalSearchFile = LocalSearchCodeFile & {
+  totalOccurrences?: number;
+  totalMatchedLines?: number;
+  totalMatchRows?: number;
+  returnedMatchRows?: number;
+};
+
 type NextToolName =
   | 'localGetFileContent'
   | 'lspGetSemantics'
@@ -147,7 +154,9 @@ export async function buildSearchResult(
     0
   );
   const totalMatches = isFileListMode
-    ? (stats?.matchCount ?? summedMatches)
+    ? (stats?.totalOccurrences ??
+      stats?.totalStructuralMatches ??
+      summedMatches)
     : summedMatches;
 
   const aligned = configuredQuery as {
@@ -167,7 +176,7 @@ export async function buildSearchResult(
   const matchesPerPage =
     aligned.maxMatchesPerFile || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
 
-  const finalFiles: LocalSearchCodeFile[] = paginatedFiles.map(
+  const finalFiles: CountedLocalSearchFile[] = paginatedFiles.map(
     (file: LocalSearchCodeFile) => {
       const totalFileMatches = file.matches?.length ?? 0;
       const totalMatchPages = Math.ceil(totalFileMatches / matchesPerPage);
@@ -180,15 +189,23 @@ export async function buildSearchResult(
       const paginatedMatches = isFileListMode
         ? undefined
         : file.matches?.slice(matchStartIdx, matchEndIdx);
+      const returnedMatchRows = paginatedMatches?.length;
 
       const debugScore = rankDebug?.get(file.path);
       const result = {
         path: file.path,
         ...(isPathListMode
           ? {}
-          : {
-              matchCount: isCountMode ? file.matchCount || 1 : totalFileMatches,
-            }),
+          : configuredQuery.countLinesPerFile
+            ? { totalMatchedLines: file.matchCount || 1 }
+            : configuredQuery.countMatchesPerFile
+              ? { totalOccurrences: file.matchCount || 1 }
+              : {
+                  totalMatchRows: totalFileMatches,
+                  ...(returnedMatchRows !== undefined
+                    ? { returnedMatchRows }
+                    : {}),
+                }),
         ...(paginatedMatches !== undefined && { matches: paginatedMatches }),
         ...(debugScore
           ? {

@@ -13,6 +13,7 @@ import {
 import { extractMatchingLines } from '../tools/local_fetch_content/contentExtractor.js';
 import { OctokitWithThrottling } from './client.js';
 import type { MinifyMode } from '../scheme/fields.js';
+import { markdownHeadingOutlineToText } from '../utils/markdownOutline.js';
 
 function getDefaultContentPageSize(): number {
   const globalLimit = getOutputCharLimit();
@@ -133,6 +134,26 @@ export async function processFileContentAPI(
   if (minify === 'symbols') {
     const sigs = contextUtils.extractSignatures(decodedContent, filePath);
     if (sigs === null) {
+      const markdownOutline = markdownHeadingOutlineToText(
+        decodedContent,
+        filePath
+      );
+      if (markdownOutline !== null) {
+        return {
+          owner,
+          repo,
+          path: filePath,
+          content: markdownOutline,
+          contentView: 'symbols',
+          isSkeleton: true,
+          branch,
+          totalLines: countLines(decodedContent),
+          ...sourceSizeFields(sourceChars, sourceBytes),
+          isPartial: false,
+          signaturesExtracted: true,
+          hints: [contextUtils.SIGNATURES_ONLY_HINT],
+        };
+      }
       signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${filePath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
     }
     if (sigs !== null) {

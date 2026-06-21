@@ -133,7 +133,9 @@ export async function searchContentStructural(
     })
   );
 
-  const stats: SearchStats = { matchCount: nativeResult.totalMatches };
+  const stats: SearchStats = {
+    totalStructuralMatches: nativeResult.totalMatches,
+  };
   // A successful-but-empty structural search is almost always an incomplete
   // pattern; surface remediation through the typed warnings channel (not hints).
   const warnings = [...nativeResult.warnings];

@@ -204,7 +204,7 @@ export async function executeRipgrepSearchInternal(
 
   const responseChars = estimateResponseChars(files);
   const stats = {
-    matchCount: parsed.stats.matchCount,
+    totalOccurrences: parsed.stats.matchCount,
     matchedLines: parsed.stats.matchedLines,
     filesMatched: parsed.stats.filesMatched,
     filesSearched: parsed.stats.filesSearched,

@@ -254,6 +254,29 @@ describe('new public LSP tool execution', () => {
     expect(text).not.toContain('Result pagination has more results');
   });
 
+  it('documentSymbols returns markdown heading symbols without a language server', async () => {
+    const markdownPath = join(tempDir, 'guide.md');
+    await writeFile(
+      markdownPath,
+      ['# Guide', '', 'Intro prose.', '## Setup', '### Install'].join('\n')
+    );
+    vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
+    vi.mocked(acquirePooledClient).mockReset();
+
+    const result = await executeLspGetSemantics({
+      queries: [{ uri: markdownPath, type: 'documentSymbols' }],
+    } as never);
+    const text = textOf(result);
+
+    expect(text).toContain('source: markdown');
+    expect(text).toContain('totalSymbols: 3');
+    expect(text).toContain('markdownHeading');
+    expect(text).toContain('# Guide');
+    expect(text).toContain('## Setup');
+    expect(text).toContain("containerName: '# Guide'");
+    expect(text).not.toContain('serverUnavailable');
+  });
+
   it('references and calls return zero results without error', async () => {
     vi.mocked(acquirePooledClient).mockResolvedValue(
       createClient({

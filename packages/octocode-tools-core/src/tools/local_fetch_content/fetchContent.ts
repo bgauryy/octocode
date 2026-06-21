@@ -25,6 +25,7 @@ import { ToolErrors } from '../../errors/errorFactories.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { fallbackOnBestEffortFailure } from '../../utils/core/bestEffort.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
+import { markdownHeadingOutlineToText } from '../../utils/markdownOutline.js';
 
 type FileStats = NonNullable<Awaited<ReturnType<typeof stat>>>;
 type ContentView = 'none' | 'standard' | 'symbols';
@@ -625,6 +626,24 @@ export async function fetchContent(
     if (minifyMode === 'symbols') {
       const sigs = contextUtils.extractSignatures(content, queryPath);
       if (sigs === null) {
+        const markdownOutline = markdownHeadingOutlineToText(
+          content,
+          queryPath
+        );
+        if (markdownOutline !== null) {
+          return attachRawResponseChars(
+            {
+              path: query.path,
+              content: markdownOutline,
+              contentView: 'symbols',
+              isSkeleton: true,
+              totalLines: countLines(content),
+              ...sourceSizeFields(sourceChars, sourceBytes),
+              ...(secretWarning ? { warnings: [secretWarning] } : {}),
+            },
+            sourceChars
+          );
+        }
         signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${queryPath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
       }
       if (sigs !== null) {

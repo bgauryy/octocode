@@ -11,6 +11,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runDirect } from './runner.js';
 import { diagnostic } from '../diagnostics.js';
+import { classifyDiffLane } from '../diffLanes.js';
 import type { AdapterResult } from './local.js';
 import type {
   OqlDiagnostic,
@@ -280,11 +281,11 @@ export async function executeHistory(
 export async function executeDiff(query: OqlQueryV1): Promise<AdapterResult> {
   const p = params(query);
   const { owner, repo } = splitRepo(query.from);
+  // Lane discriminant is shared with the planner (diffLanes.ts) — one source of
+  // truth, so dry-run plan and execution can never disagree.
+  const lane = classifyDiffLane(p);
 
-  const hasPr = p.prNumber !== undefined && p.prNumber !== null;
-  const directRefs = directFileRefs(p);
-
-  if (hasPr) {
+  if (lane.kind === 'prPatch') {
     // PR patch lane (unchanged behavior).
     const result = await runDirect('ghHistoryResearch', {
       ...(owner ? { owner } : {}),
@@ -300,8 +301,12 @@ export async function executeDiff(query: OqlQueryV1): Promise<AdapterResult> {
     );
   }
 
-  if (directRefs) {
-    return executeDirectFileDiff(query, owner, repo, directRefs);
+  if (lane.kind === 'directFile') {
+    return executeDirectFileDiff(query, owner, repo, {
+      baseRef: lane.baseRef,
+      headRef: lane.headRef,
+      path: lane.path,
+    });
   }
 
   return {
@@ -323,31 +328,12 @@ export async function executeDiff(query: OqlQueryV1): Promise<AdapterResult> {
   };
 }
 
-interface DirectFileRefs {
-  baseRef: string;
-  headRef: string;
-  path: string;
-}
-
-function directFileRefs(
-  p: Record<string, unknown>
-): DirectFileRefs | undefined {
-  if (
-    typeof p.baseRef === 'string' &&
-    typeof p.headRef === 'string' &&
-    typeof p.path === 'string'
-  ) {
-    return { baseRef: p.baseRef, headRef: p.headRef, path: p.path };
-  }
-  return undefined;
-}
-
 /** Direct two-ref file diff via two content reads + a pure local line diff. */
 async function executeDirectFileDiff(
   query: OqlQueryV1,
   owner: string | undefined,
   repo: string | undefined,
-  refs: DirectFileRefs
+  refs: { baseRef: string; headRef: string; path: string }
 ): Promise<AdapterResult> {
   if (!owner || !repo) {
     return {

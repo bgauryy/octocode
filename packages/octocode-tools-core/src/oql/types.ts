@@ -420,6 +420,11 @@ export interface OqlCodeResultRow {
       endColumn: number;
     }[]
   >;
+  /**
+   * Executable follow-up continuations. Keys are dotted *domain names*
+   * (`next.<domain>`, e.g. `next.fetch`, `next.semantic`, `next.charRange`),
+   * NOT nested object paths — the registry in run.ts owns the key set.
+   */
   next?: Record<string, OqlContinuation>;
 }
 

@@ -194,6 +194,41 @@ describe('processFileContentAPI — minify mode', () => {
     ).toBe(true);
     expect(result.warnings?.join('\n')).not.toContain('returning full content');
   });
+
+  it('minify:"symbols" on markdown returns a heading outline', async () => {
+    const result = await processFileContentAPI(
+      [
+        '# Readme',
+        '',
+        'Intro prose that should not be returned.',
+        '~~~',
+        '## Not a heading',
+        '~~~',
+        '## Usage',
+      ].join('\n'),
+      'octocode',
+      'repo',
+      'main',
+      'README.md',
+      false,
+      undefined,
+      undefined,
+      5,
+      undefined,
+      undefined,
+      undefined,
+      'symbols'
+    );
+
+    expect(result.signaturesExtracted).toBe(true);
+    expect(result.contentView).toBe('symbols');
+    expect(result.isSkeleton).toBe(true);
+    expect(result.content).toContain('   1| # Readme');
+    expect(result.content).toContain('   7|   ## Usage');
+    expect(result.content).not.toContain('Intro prose');
+    expect(result.content).not.toContain('Not a heading');
+    expect(result.warnings).toBeUndefined();
+  });
 });
 
 describe('applyContentPagination — chars mode (not bytes)', () => {

@@ -173,14 +173,17 @@ function matchTruncatedFiles(result: {
   files?: Array<{
     path: string;
     matchCount?: number;
+    totalMatchRows?: number;
+    returnedMatchRows?: number;
     matches?: unknown[];
     pagination?: { hasMore?: boolean; totalMatches?: number };
   }>;
 }): Array<{ path: string; shown: number; total?: number }> {
   const out: Array<{ path: string; shown: number; total?: number }> = [];
   for (const f of result.files ?? []) {
-    const shown = f.matches?.length ?? 0;
-    const total = f.pagination?.totalMatches ?? f.matchCount;
+    const shown = f.returnedMatchRows ?? f.matches?.length ?? 0;
+    const total =
+      f.pagination?.totalMatches ?? f.totalMatchRows ?? f.matchCount;
     const moreByFlag = f.pagination?.hasMore === true;
     const moreByCount = typeof total === 'number' && total > shown;
     if (moreByFlag || moreByCount) {

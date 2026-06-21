@@ -265,6 +265,37 @@ describe('localGetFileContent', () => {
       );
     });
 
+    it('minify:"symbols" returns a markdown heading outline', async () => {
+      mockReadFile.mockResolvedValue(
+        [
+          '# Title',
+          '',
+          'Intro prose that should not be returned.',
+          '```',
+          '# Not a heading',
+          '```',
+          '## Section',
+          'Body prose that should not be returned.',
+          '### Detail ###',
+        ].join('\n')
+      );
+
+      const result = await fetchContent({
+        path: 'guide.md',
+        minify: 'symbols',
+      } as Parameters<typeof fetchContentImpl>[0]);
+
+      expect(result.status).toBeUndefined();
+      expect(result.contentView).toBe('symbols');
+      expect(result.isSkeleton).toBe(true);
+      expect(result.content).toContain('   1| # Title');
+      expect(result.content).toContain('   7|   ## Section');
+      expect(result.content).toContain('   9|     ### Detail');
+      expect(result.content).not.toContain('Intro prose');
+      expect(result.content).not.toContain('Not a heading');
+      expect(result.warnings).toBeUndefined();
+    });
+
     it('ignores charOffset/charLength for minify:"symbols" (skeleton is whole)', async () => {
       let src = '';
       for (let i = 0; i < 800; i++) {

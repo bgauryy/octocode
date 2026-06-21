@@ -32,7 +32,7 @@ export function parseRipgrepJson(
   }));
 
   const stats: SearchStats = {
-    matchCount: result.stats.matchCount,
+    totalOccurrences: result.stats.matchCount,
     matchedLines: result.stats.matchedLines,
     filesMatched: result.stats.filesMatched,
     filesSearched: result.stats.filesSearched,

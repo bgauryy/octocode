@@ -67,12 +67,10 @@ describe('buildSearchResult - exact localSearchCode output fields', () => {
     expect(mockFsStat).not.toHaveBeenCalled();
   });
 
-  it('emits concrete next-step hints for regular match results', async () => {
+  it('does not emit legacy string hints for regular match results', async () => {
     const files = [makeFile('/test/a.ts', 1)];
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);
-    const hints = (result.hints ?? []).join('\n');
-    expect(hints).toContain('localGetFileContent');
-    expect(hints).toContain('lspGetSemantics');
+    expect(result.hints).toBeUndefined();
   });
 
   it('emits machine-readable fetch and LSP follow-up calls for match results', async () => {
@@ -181,7 +179,7 @@ describe('buildSearchResult - exact localSearchCode output fields', () => {
   it('preserves native search stats for observability', async () => {
     const files = [makeFile('/test/a.ts', 1)];
     const stats = {
-      matchCount: 1,
+      totalOccurrences: 1,
       matchedLines: 1,
       filesMatched: 1,
       filesSearched: 3,
@@ -196,7 +194,7 @@ describe('buildSearchResult - exact localSearchCode output fields', () => {
 });
 
 describe('buildSearchResult - maxFiles limiting (lines 57-58, 136)', () => {
-  it('limits files and emits a "Results limited" hint', async () => {
+  it('limits files and reports the original file total', async () => {
     const files = [
       makeFile('/test/a.ts', 3),
       makeFile('/test/b.ts', 2),
@@ -209,9 +207,8 @@ describe('buildSearchResult - maxFiles limiting (lines 57-58, 136)', () => {
       []
     );
     expect(result.files?.length).toBe(2);
-    const hints = (result.hints ?? []).join('\n');
-    expect(hints).toContain('Results limited to 2 files');
-    expect(hints).toContain('found 3 matching');
+    expect(result.pagination?.totalFiles).toBe(2);
+    expect(result.pagination?.totalFilesFound).toBe(3);
   });
 
   it('does not limit when maxFiles >= file count', async () => {
@@ -228,21 +225,22 @@ describe('buildSearchResult - maxFiles limiting (lines 57-58, 136)', () => {
 });
 
 describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () => {
-  it('count mode: empties matches, uses stats.matchCount, matchCount||1', async () => {
+  it('countLinesPerFile mode: empties matches and names line counts explicitly', async () => {
     const files = [makeFile('/test/a.ts', 0, 0)];
     const result = await buildSearchResult(
       files,
       baseQuery({ countLinesPerFile: true }),
       'rg',
       [],
-      { matchCount: 42, fileCount: 1 } as any
+      { totalOccurrences: 42, fileCount: 1 } as any
     );
     expect(result.files?.[0]?.matches).toBeUndefined();
-    expect(result.files?.[0]?.matchCount).toBe(1);
+    expect(result.files?.[0]?.totalMatchedLines).toBe(1);
+    expect(result.files?.[0]?.matchCount).toBeUndefined();
     expect(result.files?.[0]?.pagination).toBeUndefined();
   });
 
-  it('countMatchesPerFile mode: file-list mode summed fallback when stats absent', async () => {
+  it('countMatchesPerFile mode: names occurrence counts explicitly', async () => {
     const files = [makeFile('/test/a.ts', 5, 5), makeFile('/test/b.ts', 3, 3)];
     const result = await buildSearchResult(
       files,
@@ -252,6 +250,9 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
     );
     expect(result.files?.[0]?.matches).toBeUndefined();
     expect(result.files?.[1]?.matches).toBeUndefined();
+    expect(result.files?.[0]?.totalOccurrences).toBe(5);
+    expect(result.files?.[1]?.totalOccurrences).toBe(3);
+    expect(result.files?.[0]?.matchCount).toBeUndefined();
   });
 
   it('filesOnly mode: matches emptied, matchCount omitted (rg -l reports no counts)', async () => {
@@ -264,6 +265,7 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
     );
     expect(result.files?.[0]?.matches).toBeUndefined();
     expect(result.files?.[0]?.matchCount).toBeUndefined();
+    expect(result.files?.[0]?.totalMatchRows).toBeUndefined();
     expect(result.pagination?.totalMatches).toBeUndefined();
   });
 
@@ -277,20 +279,22 @@ describe('buildSearchResult - file-list modes (lines 78-79, 97, 103, 106)', () =
     );
     expect(result.files?.[0]?.matches).toBeUndefined();
     expect(result.files?.[0]?.matchCount).toBeUndefined();
+    expect(result.files?.[0]?.totalMatchRows).toBeUndefined();
     expect(result.pagination?.totalMatches).toBeUndefined();
   });
 });
 
 describe('buildSearchResult - per-file match pagination (lines 106, 143)', () => {
-  it('sets file.pagination and emits "more matches" hint when matches exceed matchesPerPage', async () => {
+  it('sets file.pagination and emits a typed continuation when matches exceed matchesPerPage', async () => {
     const files = [makeFile('/test/a.ts', 12, 12)];
     const result = await buildSearchResult(files, baseQuery(), 'rg', []);
     const file = result.files?.[0];
     expect(file?.matches?.length).toBe(10);
+    expect(file?.totalMatchRows).toBe(12);
+    expect(file?.returnedMatchRows).toBe(10);
+    expect(file?.matchCount).toBeUndefined();
     expect(file?.pagination).toBeDefined();
     expect(file?.pagination?.hasMore).toBe(true);
-    const hints = (result.hints ?? []).join('\n');
-    expect(hints).toContain('have more matches');
     expect((result as any).next.nextMatchPage).toMatchObject({
       tool: 'localSearchCode',
       query: { matchPage: 2, maxMatchesPerFile: 10 },

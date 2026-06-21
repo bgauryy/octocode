@@ -76,6 +76,32 @@ describe('OQL V2 targets are active and route to their backend', () => {
     });
   }
 
+  it('diff direct-file lane routes to ghGetFileContent', () => {
+    const { plan: p, executable } = plan({
+      target: 'diff',
+      repo: 'facebook/react',
+      params: { baseRef: 'main', headRef: 'feature', path: 'README.md' },
+    });
+    expect(executable).toBe(true);
+    expect(p.backendCalls).toHaveLength(1);
+    expect(p.backendCalls[0]?.backend).toBe('ghGetFileContent');
+    expect(p.backendCalls[0]?.operation).toBe('diff');
+  });
+
+  it('diff with neither lane shape is not executable and emits invalidQuery repair', () => {
+    const { plan: p, executable } = plan({
+      target: 'diff',
+      repo: 'facebook/react',
+    });
+    expect(executable).toBe(false);
+    expect(p.backendCalls).toHaveLength(0);
+    const diag = p.diagnostics.find(d => d.code === 'invalidQuery');
+    expect(diag).toBeDefined();
+    expect(diag?.blocksAnswer).toBe(true);
+    expect(diag?.repair?.message).toMatch(/prNumber/);
+    expect(diag?.repair?.message).toMatch(/baseRef/);
+  });
+
   it('packages defaults the corpus to npm; repositories to provider-wide github', () => {
     const pkg = normalizeQuery({
       target: 'packages',

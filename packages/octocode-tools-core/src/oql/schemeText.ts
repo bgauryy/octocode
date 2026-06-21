@@ -22,7 +22,8 @@ export const OQL_SCHEMA_DOC = {
       'discriminated predicate: text | regex | structural | field | all | any | not (code/files only)',
     materialize:
       '{ mode:"never"|"auto"|"required", strategy?, allowFullRepo?, forceRefresh? }',
-    fetch: '{ content?: {...}, tree?: {...} }',
+    fetch:
+      '{ content?: { contentView:"exact"|"compact"|"symbols", range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?: {...} }',
     params:
       'target-specific options for V2 targets (validated by the backing tool) — see params hints below',
     select: 'string[] projection of result/continuation fields',

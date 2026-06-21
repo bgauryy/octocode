@@ -1492,21 +1492,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core":
-  version: 16.5.1
-  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=93e486&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
+"@octocodeai/octocode-core@npm:16.5.2":
+  version: 16.5.2
+  resolution: "@octocodeai/octocode-core@npm:16.5.2"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/35c489179ad9810d0b15fd6beeaf5d2da4609873537db1b17d7f53a7d4415590f09912c3a2d55c1f3912a23bb99fbb7bc79734ff365ca79e310751a9c4ec9962
-  languageName: node
-  linkType: hard
-
-"@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::locator=octocode%40workspace%3Apackages%2Foctocode":
-  version: 16.5.1
-  resolution: "@octocodeai/octocode-core@file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core#///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core::hash=93e486&locator=octocode%40workspace%3Apackages%2Foctocode"
-  peerDependencies:
-    zod: ">=4.0.0"
-  checksum: 10c0/35c489179ad9810d0b15fd6beeaf5d2da4609873537db1b17d7f53a7d4415590f09912c3a2d55c1f3912a23bb99fbb7bc79734ff365ca79e310751a9c4ec9962
+  checksum: 10c0/7fc917669bc14c55b25e079e6903d2fd172621fba763e2d64d1b7f63d1263b2fa526e8ab219383d469d10a6a87a7eccc5e1da524247f6cca3a1eaeef78250ff0
   languageName: node
   linkType: hard
 
@@ -1585,7 +1576,7 @@ __metadata:
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core"
+    "@octocodeai/octocode-core": "npm:16.5.2"
     "@octocodeai/octocode-engine": "npm:^16.5.1"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -6155,7 +6146,7 @@ __metadata:
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
-    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core"
+    "@octocodeai/octocode-core": "npm:16.5.2"
     "@octocodeai/octocode-tools-core": "workspace:^"
     "@octokit/auth-oauth-device": "npm:^8.0.3"
     "@octokit/oauth-methods": "npm:^6.0.2"

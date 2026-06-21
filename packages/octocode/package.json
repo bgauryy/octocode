@@ -61,7 +61,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
-    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core",
+    "@octocodeai/octocode-core": "16.5.2",
     "@octocodeai/octocode-tools-core": "workspace:^",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",

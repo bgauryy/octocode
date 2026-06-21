@@ -268,8 +268,7 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
     // to state:"closed" + merged:true (needed for the REST path), but in the
     // search query that yields a redundant, over-constrained `is:closed
     // is:merged` — emit only `is:merged`.
-    const redundantClosed =
-      params.merged === true && params.state === 'closed';
+    const redundantClosed = params.merged === true && params.state === 'closed';
     if (!redundantClosed) {
       this.addSimpleFilter(params.state, 'is');
     }

@@ -3,6 +3,10 @@ import { c, bold, dim } from '../../utils/colors.js';
 export interface LocalMatch {
   path?: string;
   matchCount?: number;
+  totalOccurrences?: number;
+  totalMatchedLines?: number;
+  totalMatchRows?: number;
+  returnedMatchRows?: number;
   matches?: Array<{
     value?: string;
     line?: number;
@@ -24,7 +28,12 @@ export interface LocalSearchResult {
       pagination?: LocalPagination;
       // Common per-file scalars are hoisted here when identical across files
       // (e.g. structural/AST results share one matchCount). Must be merged back.
-      shared?: { matchCount?: number };
+      shared?: {
+        matchCount?: number;
+        totalOccurrences?: number;
+        totalMatchedLines?: number;
+        totalMatchRows?: number;
+      };
     };
   }>;
 }
@@ -61,7 +70,11 @@ export function renderLocalResults(
   const data = sc?.results?.[0]?.data;
   const pagination = data?.pagination;
   const files = data?.files ?? [];
-  const sharedCount = data?.shared?.matchCount;
+  const sharedCount =
+    data?.shared?.totalMatchRows ??
+    data?.shared?.totalOccurrences ??
+    data?.shared?.totalMatchedLines ??
+    data?.shared?.matchCount;
   const total = pagination?.totalFiles ?? files.length;
   const lines: string[] = [];
   const shown = files.slice(0, limit);
@@ -70,7 +83,13 @@ export function renderLocalResults(
     // the number of returned matches. In --files-only mode none of these exist
     // (the tool returns matching paths with no counts), so omit the suffix
     // rather than printing a misleading "(0 matches)".
-    const count = f.matchCount ?? sharedCount ?? f.matches?.length;
+    const count =
+      f.totalMatchRows ??
+      f.totalOccurrences ??
+      f.totalMatchedLines ??
+      f.matchCount ??
+      sharedCount ??
+      f.matches?.length;
     const countSuffix = count != null ? `  ${dim(`(${count} matches)`)}` : '';
     if (!options.valuesOnly) {
       lines.push(`  ${c('cyan', bold(f.path ?? ''))}${countSuffix}`);

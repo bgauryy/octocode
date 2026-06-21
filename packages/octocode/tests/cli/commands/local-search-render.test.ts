@@ -18,7 +18,8 @@ describe('local search renderer', () => {
               files: [
                 {
                   path: 'src/example.ts',
-                  matchCount: 2,
+                  totalMatchRows: 2,
+                  returnedMatchRows: 2,
                   matches: [
                     { line: 1, value: 'TOKEN', count: 3 },
                     { line: 2, value: 'OTHER', count: 1 },
@@ -78,7 +79,7 @@ describe('local search renderer', () => {
         results: [
           {
             data: {
-              shared: { matchCount: 7 },
+              shared: { totalMatchRows: 7 },
               pagination: { totalFiles: 3, page: 2, totalPages: 4 },
               files: [{ path: 'src/a.ts' }],
             },
