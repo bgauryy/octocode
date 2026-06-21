@@ -166,8 +166,7 @@ function buildSugar(args: ParsedArgs): Resolved {
   // bare text term positional[0] is the term and [1] the target.
   const fromFlag = Boolean(pattern || ruleText || regex);
   const text = fromFlag ? undefined : positionals[0];
-  const targetArg =
-    getString(options, 'repo') || positionals[fromFlag ? 0 : 1];
+  const targetArg = getString(options, 'repo') || positionals[fromFlag ? 0 : 1];
 
   if (!fromFlag && !text) return undefined; // nothing to search for
 
@@ -303,14 +302,75 @@ function renderEnvelope(env: OqlResultEnvelope, compact: boolean): string {
 function renderRow(row: OqlResultEnvelope['results'][number]): string {
   switch (row.kind) {
     case 'code':
-      return `  ${c('green', row.path)}:${row.line}${row.snippet ? `  ${dim(row.snippet.trim().slice(0, 200))}` : ''}`;
+      return `  ${c('green', row.path)}${row.line !== undefined ? `:${row.line}` : ''}${row.snippet ? `  ${dim(row.snippet.trim().slice(0, 200))}` : ''}`;
     case 'file':
       return `  ${c('green', row.path)}${row.entryType === 'directory' ? '/' : ''}`;
     case 'tree':
       return `  ${row.entryType === 'directory' ? c('blue', row.path) + '/' : c('green', row.path)}`;
     case 'content':
       return `  ${c('green', row.path)} [${row.contentView}]\n${row.content}`;
+    case 'record':
+      return renderRecord(row);
   }
+}
+
+/** Render a V2 record row meaningfully per recordType (id + key fields). */
+function renderRecord(row: {
+  recordType: string;
+  id?: string;
+  data: Record<string, unknown>;
+}): string {
+  const d = row.data;
+  const get = (k: string): string | undefined =>
+    d[k] === undefined || d[k] === null ? undefined : String(d[k]);
+  const head = `  ${c('cyan', row.recordType)} ${c('green', row.id ?? '(no id)')}`;
+  let detail = '';
+  switch (row.recordType) {
+    case 'repository':
+      detail = [
+        get('stars') && `★${get('stars')}`,
+        get('language'),
+        get('description'),
+      ]
+        .filter(Boolean)
+        .join('  ');
+      break;
+    case 'package':
+      detail = [get('description'), get('repository')]
+        .filter(Boolean)
+        .join('  ');
+      break;
+    case 'pullRequest':
+      detail = [get('state'), get('title'), get('author')]
+        .filter(Boolean)
+        .join('  ');
+      break;
+    case 'commit':
+      detail = [get('title') ?? get('messageHeadline'), get('author')]
+        .filter(Boolean)
+        .join('  ');
+      break;
+    case 'artifact':
+      detail = [get('mode'), get('format'), get('arch')]
+        .filter(Boolean)
+        .join('  ');
+      break;
+    case 'diff':
+      detail = [
+        get('path') ?? get('filename'),
+        get('additions') && `+${get('additions')}`,
+        get('deletions') && `-${get('deletions')}`,
+      ]
+        .filter(Boolean)
+        .join('  ');
+      break;
+    case 'semantics':
+      detail = [get('name') ?? get('symbolName'), get('kind')]
+        .filter(Boolean)
+        .join('  ');
+      break;
+  }
+  return detail ? `${head}  ${dim(detail.slice(0, 200))}` : head;
 }
 
 function routeColor(route: string): string {

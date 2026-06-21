@@ -337,13 +337,15 @@ function decideMaterialization(
       )
     );
   } else if (!fullRepo && !hasBoundedScope) {
+    // BLOCKING: an unbounded subtree clone could pull the whole repo. The
+    // contract requires materialization to be bounded and explicit, so refuse
+    // to execute rather than warn-and-proceed.
     diagnostics.push(
       diagnostic(
-        'unsupportedScope',
-        'Bounded materialization needs scope.path (or strategy:"file"); refusing to clone a broad scope.',
+        'materializationNotAllowed',
+        'Bounded materialization needs scope.path (or strategy:"file"); refusing to clone an unbounded scope.',
         {
           queryPath: 'materialize',
-          severity: 'warning',
           repair: {
             message: 'Add scope.path to bound the materialized subtree.',
           },

@@ -62,14 +62,57 @@ function records(
   recordType: OqlRecordResultRow['recordType'],
   source?: QuerySource
 ): OqlRecordResultRow[] {
-  return items.map(item => ({
-    kind: 'record',
-    recordType,
-    ...(source ? { source } : {}),
-    data: (item && typeof item === 'object'
-      ? (item as Record<string, unknown>)
-      : { value: item }) as Record<string, unknown>,
-  }));
+  return items.map(item => {
+    const data = (
+      item && typeof item === 'object'
+        ? (item as Record<string, unknown>)
+        : { value: item }
+    ) as Record<string, unknown>;
+    const id = stableId(recordType, data);
+    return {
+      kind: 'record' as const,
+      recordType,
+      ...(id ? { id } : {}),
+      ...(source ? { source } : {}),
+      data,
+    };
+  });
+}
+
+/** Citeable identity per record type, extracted from the backend payload. */
+function stableId(
+  recordType: OqlRecordResultRow['recordType'],
+  d: Record<string, unknown>
+): string | undefined {
+  const s = (k: string): string | undefined =>
+    typeof d[k] === 'string' || typeof d[k] === 'number'
+      ? String(d[k])
+      : undefined;
+  switch (recordType) {
+    case 'repository':
+      return (
+        s('fullName') ??
+        (s('owner') && s('repo') ? `${s('owner')}/${s('repo')}` : s('url'))
+      );
+    case 'package': {
+      const name = s('name') ?? s('packageName');
+      const ver = s('version');
+      return name ? (ver ? `${name}@${ver}` : name) : undefined;
+    }
+    case 'pullRequest':
+      return s('number') ? `#${s('number')}` : s('url');
+    case 'commit':
+      return s('sha')?.slice(0, 12) ?? s('oid')?.slice(0, 12);
+    case 'artifact':
+      return s('localPath') ?? s('path');
+    case 'diff':
+      return s('path') ?? s('filename');
+    case 'semantics': {
+      const uri = s('uri');
+      const line = s('line') ?? s('startLine');
+      return uri ? (line ? `${uri}:${line}` : uri) : undefined;
+    }
+  }
 }
 
 function statusDiagnostics(
@@ -138,8 +181,38 @@ function finishRecords(
       })
     );
   }
+  // Promote the backing tool's pagination into the OQL envelope so run.ts can
+  // emit a first-class next.page (instead of leaking raw data.next).
+  const pag = (
+    data as {
+      pagination?: {
+        hasMore?: boolean;
+        currentPage?: number;
+        totalPages?: number;
+      };
+    }
+  )?.pagination;
+  const hasMore =
+    pag?.hasMore === true ||
+    Boolean((data as { next?: unknown })?.next) ||
+    (typeof pag?.currentPage === 'number' &&
+      typeof pag?.totalPages === 'number' &&
+      pag.currentPage < pag.totalPages);
   return {
     results: records(items, recordType, source),
+    ...(hasMore
+      ? {
+          pagination: {
+            hasMore: true,
+            ...(pag?.currentPage !== undefined
+              ? { currentPage: pag.currentPage }
+              : {}),
+            ...(pag?.totalPages !== undefined
+              ? { totalPages: pag.totalPages }
+              : {}),
+          },
+        }
+      : {}),
     diagnostics,
     provenance: [{ backend, source }],
   };

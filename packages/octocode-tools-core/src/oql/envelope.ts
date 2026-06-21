@@ -55,8 +55,21 @@ export function buildEnvelope(args: BuildEnvelopeArgs): OqlResultEnvelope {
   };
 }
 
+/** Diagnostic codes that mean the requested semantics could not be executed. */
+const UNSUPPORTED_CODES = new Set([
+  'unsupportedTarget',
+  'unsupportedPredicate',
+  'unsupportedBoolean',
+  'unsupportedScope',
+]);
+
 function proofKind(args: BuildEnvelopeArgs): EvidenceKind {
   if (!args.executable) return 'unsupported';
+  // An adapter can discover unsatisfiable semantics the planner allowed
+  // (e.g. a boolean predicate over target:"code"): unsupported, not partial.
+  if (args.diagnostics.some(d => UNSUPPORTED_CODES.has(d.code))) {
+    return 'unsupported';
+  }
   if (args.approximate) return 'candidate';
   if (blocksAnswer(args.diagnostics)) return 'partial';
   if (hasOpenPages(args)) return 'partial';

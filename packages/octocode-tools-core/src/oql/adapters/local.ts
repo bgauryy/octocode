@@ -532,12 +532,19 @@ function applyFieldPredicate(
       else diags.push(unsupportedField(f));
       break;
     case 'modified':
+      // findFiles only has RELATIVE windows (modifiedWithin/Before take "7d").
+      // It has no absolute-date filter, so >/>=/</<= (absolute timestamps)
+      // are unsupported — mapping them to a duration field would be both a
+      // type mismatch and a semantic inversion.
       if (f.op === 'within') toolQuery.modifiedWithin = String(value);
-      else if (f.op === '>' || f.op === '>=')
-        toolQuery.modifiedWithin = String(value);
-      else if (f.op === '<' || f.op === '<=')
-        toolQuery.modifiedBefore = String(value);
-      else diags.push(unsupportedField(f));
+      else
+        diags.push(
+          diagnostic(
+            'unsupportedPredicate',
+            'field "modified" supports only `within` (relative window like "7d"); findFiles has no absolute-date filter for >/</>=/<=.',
+            { backend: 'localFindFiles' }
+          )
+        );
       break;
     case 'entryType':
       toolQuery.entryType = String(value) === 'directory' ? 'd' : 'f';

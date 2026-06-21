@@ -28,8 +28,8 @@ are true:
    pagination, or output semantics.
 
 Non-goal: `search` should not replace management/meta commands such as
-`install`, `auth`, `login`, `logout`, `status`, `tools`, `context`, `--help`,
-or `--version`.
+`install`, `auth`, `login`, `logout`, `status`, `cache status`, `cache clear`,
+`tools`, `context`, `--help`, or `--version`.
 
 ## Ownership Boundary
 
@@ -52,22 +52,75 @@ Evidence anchors:
 - https://github.com/bgauryy/octocode/blob/main/packages/octocode/src/cli/commands/search.ts
 - https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/oql/adapters/v2.ts
 
+## Live Inventory Checked
+
+Last verified from the built CLI on 2026-06-22.
+
+Raw tools checked with `octocode tools <name> --scheme`:
+
+| Group | Tools |
+|---|---|
+| GitHub | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghHistoryResearch`, `ghCloneRepo` |
+| Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localBinaryInspect` |
+| LSP | `lspGetSemantics` |
+| Package | `npmSearch` |
+
+CLI commands checked with `<command> --help`:
+
+| Surface | Commands |
+|---|---|
+| Search/research | `search`, `grep`, `cat`, `ls`, `find`, `lsp`, `repo`, `pkg`, `pr`, `history`, `binary`, `unzip`, `clone`, `cache`, `diff` |
+| Raw/meta | `tools`, `context`, top-level `--help` |
+| Management | `install`, `auth`, `login`, `logout`, `status` |
+
+Current `search --scheme` target inventory:
+
+| Type | Targets |
+|---|---|
+| Active | `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff` |
+| Reserved | `fixes`, `dataflow` |
+
+Parity rule: if a target or command is not in this inventory, do not claim
+`search` replaces it. If the CLI adds a command, this checklist must be updated
+from its live help and the backing raw tool schema in the same change.
+
+## Scheme Hooks To Preserve
+
+This is not a replacement for `tools <name> --scheme`; it is the audit shortcut
+for the fields most likely to break agent research.
+
+| Raw tool | Scheme hooks that must survive through `search` |
+|---|---|
+| `ghSearchCode` | `keywords`, owner/repo scope, `extension`, `filename`, `path`, `language`, `match:file|path`, `limit`, `page`, `concise`. |
+| `ghGetFileContent` | `owner`, `repo`, `path`, `branch`, `type:file|directory`, line range, `matchString`, regex/case flags, `contextLines`, char window, `minify:none|standard|symbols`, `forceRefresh`. |
+| `ghViewRepoStructure` | repo/ref/path, `maxDepth`, `page`, `itemsPerPage`, `includeSizes`. |
+| `ghSearchRepos` | keywords/topics/language/owner/license/visibility, GitHub range filters, `match`, `sort`, `archived`, pagination, `concise`. |
+| `ghHistoryResearch` | `type:prs|commits`, PR list/detail selectors, merged/open/closed state, patch/comment/review/commit selectors, path/branch/date filters, `matchString`, file/comment/commit pages, char window, PR `minify:none|standard`. |
+| `ghCloneRepo` | repo/ref, `sparsePath`, `forceRefresh`, clone-enabled diagnostics, returned local path. |
+| `localSearchCode` | text/regex/structural modes, AST `pattern`/YAML `rule`, include/exclude/hidden/noIgnore, context and match content length, per-file match paging, count/onlyMatching/unique, multiline/dotall, ranking and sort controls. |
+| `localGetFileContent` | path, exact/match/line/char reads, regex/case flags, `contextLines`, `minify:none|standard|symbols`, full content. |
+| `localViewStructure` | path, recursive/depth, details/hidden, sort/reverse, pattern/extensions, files/directories-only, pagination. |
+| `localFindFiles` | name/path/regex filters, depth, entry type, metadata filters, permissions, size/time filters, sort/details, pagination. |
+| `localBinaryInspect` | modes `inspect|list|extract|decompress|strings|unpack`, archive entry paging, string scan offset, char window, format override, offsets, `localPath` for derived output. |
+| `lspGetSemantics` | all semantic types, `uri`, `symbolName`, `lineHint`, `orderHint`, `workspaceRoot`, `depth`, `includeDeclaration`, `groupByFile`, `format`, pagination, context lines. |
+| `npmSearch` | exact package vs keyword search, `mode:lean|full`, `page`, repository handoff. |
+
 ## Raw Tool Parity Matrix
 
 | Raw tool | OQL target | Required OQL shape | Replacement status | Agent checks |
 |---|---|---|---|---|
-| `localSearchCode` | `code` | `from:{kind:"local"}`, `where.kind:"text"|"regex"|"structural"` | Strong | Compare `path`, `line`, `snippet`, `metavars`, pagination, match truncation diagnostics. |
-| `localGetFileContent` | `content` | `from:{kind:"local"}`, `fetch.content` | Strong | Verify `contentView`, line/char ranges, `contentTruncated`, exact-mode proof. |
-| `localViewStructure` | `structure` | `from:{kind:"local"}`, `fetch.tree` | Strong | Verify file/dir entries, depth, sizes, pagination. |
-| `localFindFiles` | `files` | `from:{kind:"local"}`, optional field/content predicates | Strong | Verify metadata filters, negative queries, local complete-universe semantics. |
-| `localBinaryInspect` | `artifacts` | `from:{kind:"local",path}`, `params` passed to binary runner | Partial | Generic record rows must preserve mode-specific payloads and derived local paths. |
-| `lspGetSemantics` | `semantics` | local/materialized/GitHub `from`, `params.type`, symbol/line fields | Partial | Must preserve locations/symbols/call rows, server diagnostics, remote materialization provenance. |
+| `localSearchCode` | `code` | `from:{kind:"local"}`, `where.kind:"text"|"regex"|"structural"` | Strong | Compare `path`, `line`, `snippet`, `metavars`, count/onlyMatching/unique behavior, per-file match pagination, truncation diagnostics. |
+| `localGetFileContent` | `content` | `from:{kind:"local"}`, `fetch.content` | Strong | Verify `contentView`, minification, line/char/match ranges, `contentTruncated`, exact-mode proof. |
+| `localViewStructure` | `structure` | `from:{kind:"local"}`, `fetch.tree` | Strong | Verify file/dir entries, depth, pattern filters, sizes, sorting, pagination. |
+| `localFindFiles` | `files` | `from:{kind:"local"}`, optional field/content predicates | Strong | Verify metadata filters, content-contained queries, negative queries, local complete-universe semantics. |
+| `localBinaryInspect` | `artifacts` | `from:{kind:"local",path}`, `params` passed to binary runner | Partial | Generic record rows must preserve inspect/list/extract/decompress/strings/unpack payloads and derived local paths. |
+| `lspGetSemantics` | `semantics` | local/materialized/GitHub `from`, `params.type`, symbol/line fields | Partial | Must preserve all 9 LSP types, locations/symbols/call rows, server diagnostics, remote materialization provenance. |
 | `ghSearchCode` | `code` | `from:{kind:"github"}`, provider-safe predicate | Strong for provider search | Regex/provider semantics may be approximate; require materialization for AST/PCRE2/exact proof. |
 | `ghGetFileContent` | `content` | `from:{kind:"github"}`, `scope.path`, `fetch.content` | Strong | Verify branch/ref, matchString/ranges, minification mode, char pagination. |
 | `ghViewRepoStructure` | `structure` | `from:{kind:"github"}`, `scope.path`, `fetch.tree` | Strong | Verify repo/ref/path, depth, empty dirs, large tree truncation. |
 | `ghCloneRepo` | materialization lane | `from:{kind:"github"}`, `materialize.mode`, bounded `scope.path` | Partial | Search uses clone internally; standalone clone/cache workflow still needs explicit materialization result/continuation. |
 | `ghSearchRepos` | `repositories` | `target:"repositories"`, optional GitHub `from`, `params` | Partial | `params` is opaque; row payload is generic. Need typed schema docs and OQL continuations. |
-| `ghHistoryResearch` | `pullRequests`, `commits`, `diff` | GitHub `from`, `params` for PR/commit/diff selectors | Partial | PR list/detail, merged state, patch selectors, comments/reviews must match raw tool. |
+| `ghHistoryResearch` | `pullRequests`, `commits`, `diff` | GitHub `from`, `params` for PR/commit/diff selectors | Partial | PR list/detail, merged state, patch selectors, comments/reviews, commit diffs, and all history pagination domains must match raw tool. |
 | `npmSearch` | `packages` | `target:"packages"`, `from:{kind:"npm"}` default, `params` | Partial | Package rows exist, but raw `data.next` is legacy handoff, not first-class OQL `next`. |
 
 Status meanings:
@@ -77,28 +130,184 @@ Status meanings:
   generic `record` rows, renderer support, or missing OQL continuations.
 - Not covered: target is intentionally unsupported or belongs outside search.
 
+## OQL Rating Scorecard
+
+Rating is for the current `octocode search` implementation as verified from the
+built CLI and raw schemas on 2026-06-22, not the desired final design.
+
+| Scope | Rating | Meaning |
+|---|---:|---|
+| Overall OQL readiness | 7/10 | Good architecture and strong V1 local/GitHub basics; not yet a full agent replacement for every research surface. |
+| Backend/tool reuse | 9/10 | Search delegates through `octocode-tools-core`; no second implementation of the 13 tool runners was found. |
+| Agent JSON workflow | 7.5/10 | Useful for autonomous agents with `--json`, `--explain`, and raw-schema fallback. Record rows and continuations still need tightening. |
+| Human CLI replacement | 5.5/10 | Plain rendering is not yet enough for V2 record targets; agents should prefer `--json` for those. |
+| Replace-all confidence | 6.5/10 | Strong for `code`/`content`/`structure`/`files`; partial for LSP, package/repo/history/binary/diff/materialization workflows. |
+
+Target ratings:
+
+| OQL target | Rating | Why |
+|---|---:|---|
+| `code` | 8.5/10 | Local text/regex/AST and GitHub provider search route well; remote AST/PCRE2 proof still requires explicit materialization. |
+| `content` | 8/10 | Local/GitHub content reads, ranges, match windows, and minification are strong; exact proof must remain explicit. |
+| `structure` | 8/10 | Local/GitHub tree browsing maps cleanly; large-tree pagination and empty-directory semantics still need golden parity tests. |
+| `files` | 8/10 | Local file predicates are strong; negative/provider-universe cases must force local/materialized proof. |
+| `semantics` | 6/10 | Raw LSP is powerful, but remote workspace roots, server diagnostics, and `documentSymbols` vs quick-command coverage need clearer handling. |
+| `repositories` | 6/10 | Adapter exists, but target-specific params and `record` payload contracts are still too opaque for full replacement. |
+| `packages` | 6/10 | npm rows and repository handoff exist; `data.next` must become first-class OQL continuation data. |
+| `pullRequests` | 5.5/10 | PR list/detail routing exists; selectors, comments/reviews, patch paging, merged-state behavior, and renderer parity need deeper tests. |
+| `commits` | 5.5/10 | Commit history routing exists; path/ref/diff pagination and PR handoff need typed returned-data guarantees. |
+| `artifacts` | 5.5/10 | Binary/archive adapter exists; inspect/list/extract/decompress/strings/unpack outputs need typed row contracts and localPath continuations. |
+| `diff` | 5/10 | Direct file diff and PR patch diff are different workflows and must be represented separately before full replacement. |
+| Materialization lane | 6/10 | Clone/cache/fetch-to-local flows are present, but `search` needs a first-class checkpoint/continuation story to replace `clone` and `cache fetch`. |
+
+Feature ratings:
+
+| Feature | Rating | Keep / improve |
+|---|---:|---|
+| Canonical language shape | 8/10 | `target/from/scope/where/fetch/materialize` is coherent; `search --scheme` target text must stop lagging active targets. |
+| Normalization and planning | 8/10 | `--explain --dry-run` is the right agent affordance; diagnostics and repair text need current active-target awareness. |
+| Raw-tool coverage | 8/10 | All 13 tools have a route or intended lane; V2 targets need less opaque `params`. |
+| Returned data | 6/10 | Core envelope is good; `kind:"record"` rows need typed contracts or promoted row shapes. |
+| Pagination | 6/10 | Many domains are known; top-level `next` must preserve per-domain cursors instead of leaking raw `data.next`. |
+| Minification/content views | 7/10 | File content is strong; PR content has fewer modes and that must stay visible to agents. |
+| Structural/AST search | 7.5/10 | Local/materialized AST search is strong; remote AST must always materialize bounded code first. |
+| LSP semantics | 6/10 | All 9 raw LSP types exist; quick-command and remote-materialized semantics need clearer parity and tests. |
+| Fetch-to-local | 6/10 | Clone/cache/`--repo` flows work as a concept; search needs explicit localPath provenance and executable follow-ups. |
+| Diagnostics/evidence | 7/10 | The proof/candidate/partial model is right; stale cache, sanitizer, provider approximation, and unsupported-target diagnostics need stricter tests. |
+| Human renderer | 5/10 | V1 row types render acceptably; V2 `record` rows must become visible and useful outside `--json`. |
+| Parity tests | 6/10 | Focused OQL tests pass; every target still needs old-command/raw-tool-vs-OQL golden comparisons. |
+
+Rating rule for future audits:
+
+- `9-10`: Replace by default.
+- `7-8`: Use confidently with known caveats and `--json`/`--explain`.
+- `5-6`: Adapter is present; require raw-schema fallback before relying on it.
+- `<5`: Do not market or document as a replacement yet.
+
 ## CLI Command Parity Matrix
 
 | CLI command | Should `search` replace it? | OQL mapping | Current parity check |
 |---|---|---|---|
-| `grep` | Yes | `target:"code"` | Text/regex/AST, discovery/detailed views, match paging, count/onlyMatching controls. |
-| `cat` | Yes | `target:"content"` | Exact/compact/symbols views, line/char/match ranges. |
-| `ls` | Yes | `target:"structure"` or `content` symbols | Tree browsing plus symbol outline through content `symbols` or future semantics. |
-| `find` | Yes | `target:"files"` | Field predicates, metadata, content-contained queries, negative queries. |
-| `lsp` | Yes | `target:"semantics"` | Local and remote-as-local LSP; must preserve lineHint and server diagnostics. |
+| `grep` | Yes | `target:"code"` | Text/regex/AST, discovery/detailed views, context, include/exclude, match paging, count/onlyMatching controls, `--repo` materialization. |
+| `cat` | Yes | `target:"content"` | Exact/standard/symbols views, line/char/match ranges, `--repo` materialization, raw vs minified rendering. |
+| `ls` | Yes | `target:"structure"` or symbols | Tree browsing plus `--symbols`/file outline. Raw LSP `documentSymbols` remains the authoritative semantic outline path. |
+| `find` | Yes | `target:"files"` | Field predicates, metadata, content-contained queries, negative queries, `--repo` materialization. |
+| `lsp` | Yes | `target:"semantics"` | Local and remote-as-local LSP; quick command omits `documentSymbols`, so cover that through `ls --symbols` and raw `lspGetSemantics`. |
 | `repo` | Yes | `target:"repositories"` | Repo discovery rows, sorting/filter params, pagination. |
 | `pkg` | Yes | `target:"packages"` | Package metadata, repository handoff, npm fallback diagnostics. |
 | `pr` | Yes | `target:"pullRequests"` or `diff` | PR list/detail modes, comments/reviews/patch selectors. |
 | `history` | Yes | `target:"commits"` or `pullRequests` | Commit history, path/subtree, PR handoff, rename/diff behavior. |
-| `binary` | Yes | `target:"artifacts"` | Inspect/list/extract/decompress/strings/unpack modes and output paths. |
+| `binary` | Yes | `target:"artifacts"` | Inspect/list/extract/decompress/strings/unpack modes, string scan offsets, char windows, and output paths. |
 | `unzip` | Yes | `target:"artifacts"` | Must expose extracted local path and follow-up local search/structure continuations. |
 | `clone` | Mostly | materialization lane | Search should use clone for proof; users may still need explicit clone/cache management until a materialization target lands. |
-| `cache fetch` | Mostly | materialization/content handoff | Search should return materialized/localPath continuations; cache inspection remains management. |
+| `cache fetch` | Mostly | materialization/content handoff | Search should return materialized/localPath continuations; `cache status` and `cache clear` remain management. |
 | `diff` | Yes | `target:"diff"` | Direct file diff and PR patch diff need separate parity checks. |
 | `search` | Already | OQL runner | Must stay a thin wrapper over tools-core. |
 | `tools` | No | Raw tool runner | Keep for schema-exact debug, parity probes, and compatibility. |
 | `context` | No | Protocol/help surface | Keep for agent bootstrapping and schema discovery. |
 | `install`, `auth`, `login`, `logout`, `status` | No | Management | Keep outside OQL. |
+
+## Minification And Content Views
+
+The agent-facing names can differ between surfaces, so parity must compare
+behavior, not just flag names.
+
+| Surface | Control | Values | Audit note |
+|---|---|---|---|
+| Raw content tools | `minify` | `none`, `standard`, `symbols` | `none` is exact text for quotes/diffs; `standard` is the default compact read; `symbols` is the smallest orienting skeleton. |
+| Quick `cat` | `--mode` / `--minify` | `none`, `standard`, `symbols` | Quick flags are kebab-case; raw fields are camelCase. Read help before copying examples. |
+| `search` content | `fetch.content.view` / `contentView` | Exact/compact/symbol-oriented equivalent | Must report the view used and preserve exact text when proof requires it. |
+| PR content | `minify` | `none`, `standard` | PR bodies/diffs do not expose `symbols`; keep this limitation visible. |
+| Search snippets | `matchContentLength`, context, `onlyMatching` | Tool-specific | Snippets are discovery. Re-read content with exact mode before quoting or diffing. |
+
+Special minified-file check: for minified one-line bundles, line snippets may
+only prove that a line matched. `localSearchCode.onlyMatching:true` plus
+`matchWindow` must still enumerate individual hits and give enough context to
+follow up.
+
+## Pagination And Continuations
+
+Every pagination domain must keep its own cursor. Do not flatten these into one
+generic `page` unless the continuation is still executable and unambiguous.
+
+| Domain | Raw controls to preserve |
+|---|---|
+| Result rows | `page`, `itemsPerPage`, command `--page`, `--page-size`, `limit`. |
+| Local search matches | `matchPage`, `maxMatchesPerFile`, `maxFiles`, `matchContentLength`; count/onlyMatching/unique modes can change row identity. |
+| Content windows | `charOffset`, `charLength`, line ranges, `matchString` + `contextLines`. |
+| GitHub PR/history | PR list `page/itemsPerPage`, selected PR `filePage`, `commentPage`, `commitPage`, per-content `charOffset/charLength`. |
+| Repository/package search | provider `page`, provider limits, concise vs verbose rows. |
+| Tree/file listings | `page`, `itemsPerPage`, `maxDepth`, `limit`, sort/filter controls. |
+| Binary/archive | `entryPageNumber`, `entriesPerPage`, `maxEntries`, `scanOffset`, `nextScanOffset`, text char windows. |
+| LSP | `page`, `itemsPerPage`, `depth`, grouped vs ungrouped rows. |
+
+Continuation quality gate: top-level OQL `next` should be executable without
+reading target-specific raw payload internals. If the only continuation is a
+raw `data.next`, mark the parity grade `adapter-present` or `replace-json-only`.
+
+## AST And Structural Coverage
+
+Structural search parity is required for local/materialized code:
+
+- Quick command: `grep --pattern <code-shape>` or `grep --rule <yaml-rule>`.
+- Raw tool: `localSearchCode mode:"structural"` with exactly one of `pattern` or
+  `rule`.
+- Pattern metavariables: `$X` matches one node; `$$$` or named variadic forms
+  match node lists.
+- YAML rules must preserve relational operators such as `inside`, `has`, `not`,
+  `all`, and `any`; relational sub-rules need `stopBy: end` when scope matters.
+- Comments and strings must not false-positive as code nodes.
+- GitHub provider search is not AST search. For remote AST proof, `search` must
+  materialize a bounded repo/subtree first and then run the local structural
+  runner.
+
+Structural edge-case probes:
+
+| Probe | Expected parity |
+|---|---|
+| Code pattern, e.g. `eval($X)` | Metavars survive in row data and renderer. |
+| YAML relational rule | Rule reaches the same local runner without CLI-only parsing. |
+| Remote repo with structural predicate | Plan shows materialization or returns a repair diagnostic. |
+| Negative structural query | Requires a complete local/materialized universe before proof. |
+
+## LSP Coverage
+
+Raw `lspGetSemantics` supports all of these `type` values:
+
+`definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`,
+`documentSymbols`, `typeDefinition`, `implementation`.
+
+Parity checks:
+
+- `documentSymbols` exists in the raw LSP tool. The quick `lsp` command help does
+  not expose it; quick outline coverage is through `ls --symbols`/file `ls`.
+- `symbolName` and `lineHint` are identity anchors, not optional decoration, for
+  most semantic operations.
+- `workspaceRoot` must point at the real local or materialized project root, not
+  just the single file cache path.
+- Remote LSP requires materialization; preserve clone/cache provenance and any
+  `serverUnavailable` or language-server diagnostics.
+- Pagination and grouping must preserve `page`, `itemsPerPage`, `groupByFile`,
+  `format:structured|compact`, `includeDeclaration`, `depth`, and context lines.
+
+## Fetch-To-Local Coverage
+
+`search` can replace remote workflows only when it can either prove through the
+remote provider or materialize code and continue locally.
+
+| Surface | Fetch behavior to cover |
+|---|---|
+| `ghCloneRepo` / `clone` | Clone repo or sparse subtree, honor `branch`/`sparsePath`, `forceRefresh`, clone enablement, and return absolute local path. |
+| `cache fetch` | Materialize file/tree/clone into Octocode cache, return `localPath`, `repoRoot`, `source`, `complete`, `cached`. |
+| `grep --repo` | Materialize remote repo/subtree, then run local text/regex/structural search. |
+| `cat --repo` | Materialize or fetch remote file, then read with local content controls. |
+| `ls --repo` / `find --repo` | Materialize remote scope, then run local structure/file tools. |
+| `lsp --repo` | Materialize remote file/project before semantic navigation. |
+| `unzip` / binary `unpack` | Produce a new local directory and continue with local `ls`/`grep`/`find`/`cat`/`lsp`. |
+
+Required diagnostics: stale cache, force refresh, clone disabled, sparse path not
+found, full-repo materialization risk, auth/rate failure, and any mismatch
+between requested ref/path and returned local path.
 
 ## Agent Parity Procedure
 
@@ -191,6 +400,10 @@ Generic `kind:"record"` rows are acceptable only as a transitional layer. Before
 full replacement, agents need either typed row sub-shapes or documented
 `recordType` payload contracts.
 
+Human rendering is part of returned-data parity. If `--json` exposes useful
+`kind:"record"` rows but plain text hides them, grade that surface
+`replace-json-only`, not `replace`.
+
 ## Research Quality Gates
 
 An answer is research-quality only when:
@@ -219,10 +432,12 @@ Do not treat these as proof:
 | Area | Edge case | Required behavior |
 |---|---|---|
 | Schema drift | `activeTargets` differs from `query.target` help or diagnostics repair text | Fix source of truth before relying on agent instructions. |
+| CLI/help drift | Quick command flags differ from raw schema fields | Keep both names documented; never copy raw camelCase fields into quick examples. |
 | Opaque V2 params | `params` accepts anything but docs do not name fields | Read raw tool schema; add typed target docs before replacement. |
 | Human rendering | `kind:"record"` rows are invisible or too terse | Use `--json`; renderer must support record rows before human parity. |
 | V2 continuations | backing tool returns `data.next` instead of OQL `next` | Promote to OQL continuations so agents can follow them uniformly. |
 | Pagination | result pages, per-file match pages, char offsets, archive entries, semantic rows | Preserve the exact pagination domain and expose executable continuation. |
+| Minification | `none`/`standard`/`symbols` support differs by tool | Preserve exact text for proof; expose unsupported views as diagnostics. |
 | Batch merge | incompatible row kinds or pagination domains | Reject with repair diagnostic; do not silently merge. |
 | GitHub regex | provider search cannot prove local regex semantics | Mark candidate/approximate or materialize bounded scope. |
 | Structural search | GitHub cannot run AST search directly | Require bounded materialization. |
@@ -237,27 +452,33 @@ Do not treat these as proof:
 
 ## Current Gap Log
 
-These are the high-value checks to close before `search` can replace all
-research commands confidently:
+Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
 
-1. `octocode search --scheme` must describe every active target in
-   `query.target`, not only `code | content | structure | files`.
-2. `unsupportedTarget` repair text must name the current active targets, not the
-   old V1-only set.
-3. V2 target `params` need schema text or per-target docs, otherwise agents
-   still need raw `tools <name> --scheme`.
-4. V2 adapters return `kind:"record"` rows. Either document exact `recordType`
-   payloads or promote them to typed rows.
-5. Human rendering must handle `kind:"record"`; until then, V2 targets are
-   `--json` only for agents.
-6. Backing tool `data.next` hints must become OQL `next` continuations.
-7. `clone` and `cache fetch` need a first-class materialization/checkpoint
-   story if search is meant to replace their user-visible workflows.
-8. `diff` must distinguish direct local/GitHub file diff from PR patch research.
-9. `unzip` replacement must prove archive unpack output and local follow-up
-   paths, not just inspect metadata.
-10. Tests should compare OQL JSON against raw tool JSON for each target, not
-    only assert that planner routes to the right backend.
+1. ✅ `octocode search --scheme` now lists every active target in `query.target`
+   (derived from `ACTIVE_TARGETS`).
+2. ✅ `unsupportedTarget` (and "could not determine target") repair text now
+   names the current active targets.
+3. 🟡 V2 target `params` now have per-target hints under `--scheme` → `params.*`
+   (semantics/repositories/packages/pullRequests/commits/artifacts/diff). Full
+   Zod input schemas per target are still future; raw `tools <name> --scheme`
+   remains the exhaustive source.
+4. 🟡 `kind:"record"` rows now carry a stable, citeable `id` (repo `owner/name`,
+   `name@version`, `#PR`, short SHA, artifact path, `uri:line`) and keep
+   `recordType`. Fully typed per-target row interfaces are still future.
+5. ✅ Human rendering now handles `kind:"record"` — renders `recordType` + `id`
+   + key fields (stars/lang/desc, PR state/title, commit title, etc.).
+6. 🟡 V2 adapters promote the backing tool's `pagination.hasMore`/`data.next`
+   into the OQL envelope so `next.page` is emitted first-class (run.ts). Other
+   per-domain cursors (PR file/comment/commit pages, binary scan offsets, LSP
+   pages) still pass through `params` rather than typed `next.*`.
+7. ⬜ `clone`/`cache fetch` first-class materialization checkpoint story — open.
+8. ⬜ `diff` direct-file vs PR-patch distinction — open (diff is PR-patch only).
+9. ⬜ `unzip`/`unpack` extracted-localPath follow-up continuations — open.
+10. ⬜ `lsp` vs raw `documentSymbols` parity narrative — open.
+11. ⬜ PR content `none|standard`-only (no `symbols`) visibility — open (doc).
+12. 🟡 Added typed-shape + identity + continuation regression tests
+    (parity-gaps, review-fixes, v2-targets); full raw-tool-JSON-vs-OQL-JSON
+    golden matrix is still future.
 
 ## Minimal Parity Test Suite
 

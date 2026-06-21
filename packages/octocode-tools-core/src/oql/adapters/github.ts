@@ -89,13 +89,15 @@ export async function executeGithub(query: OqlQueryV1): Promise<AdapterResult> {
     case 'structure':
       return githubStructure(query);
     case 'files':
+      // `files` is an active target; GitHub just can't enumerate files without
+      // materialization — that's requiresMaterialization, not unsupportedTarget.
       return {
         results: [],
         diagnostics: [
           diagnostic(
-            'unsupportedTarget',
-            'target:"files" over a GitHub provider source requires materialization in V1; use a local source or materialize.mode:"auto".',
-            { backend: 'ghSearchCode' }
+            'requiresMaterialization',
+            'target:"files" over a GitHub source needs materialization to enumerate the file universe; set materialize.mode:"auto" with a bounded scope.path, or use a local source.',
+            { backend: 'localFindFiles' }
           ),
         ],
         provenance: [],
@@ -149,28 +151,30 @@ async function githubCode(query: OqlQueryV1): Promise<AdapterResult> {
   const rows: OqlCodeResultRow[] = [];
   for (const group of data?.results ?? []) {
     for (const match of group.matches) {
+      // GitHub code search returns path-level matches with NO line — omit line
+      // (do not fabricate); follow next.fetch for the exact location.
       rows.push({
         kind: 'code',
         source: ghFrom(query),
         path: match.path,
-        line: 1,
         ...(match.value !== undefined ? { snippet: match.value } : {}),
       });
     }
   }
-  const approx =
-    compiled.match?.perlRegex === undefined && where.kind === 'regex';
   return {
     results: rows,
     diagnostics: [
       ...statusDiagnostics(result, 'ghSearchCode'),
       ...emptyProviderDiag(rows.length, 'ghSearchCode'),
-      ...(approx
+      // GitHub code search is path-level and (for regex) approximate; the
+      // planner/capabilities layer owns the providerSemanticsApproximate
+      // diagnostic, so the adapter only notes the missing line locality.
+      ...(rows.length > 0
         ? [
             diagnostic(
               'providerSemanticsApproximate',
-              'GitHub regex search is approximate; materialize for exact proof.',
-              { backend: 'ghSearchCode', severity: 'warning' }
+              'GitHub code search returns path-level hits without line numbers; follow next.fetch for exact location/lines.',
+              { backend: 'ghSearchCode', severity: 'info', blocksAnswer: false }
             ),
           ]
         : []),

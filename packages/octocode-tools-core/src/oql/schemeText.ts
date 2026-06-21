@@ -14,15 +14,17 @@ export const OQL_SCHEMA_DOC = {
   reservedTargets: RESERVED_TARGETS,
   query: {
     schema: '"oql/v1" (inserted by normalization)',
-    target: 'code | content | structure | files',
-    from: '{ kind:"local", path } | { kind:"github", repo?, owner?, ref? } | { kind:"materialized", localPath, source? }',
+    target: ACTIVE_TARGETS.join(' | '),
+    from: '{ kind:"local", path } | { kind:"github", repo?, owner?, ref? } | { kind:"materialized", localPath, source? } | { kind:"npm" }',
     scope:
       '{ path?, language?, include?, exclude?, excludeDir?, hidden?, noIgnore?, maxDepth? }',
     where:
-      'discriminated predicate: text | regex | structural | field | all | any | not',
+      'discriminated predicate: text | regex | structural | field | all | any | not (code/files only)',
     materialize:
       '{ mode:"never"|"auto"|"required", strategy?, allowFullRepo?, forceRefresh? }',
     fetch: '{ content?: {...}, tree?: {...} }',
+    params:
+      'target-specific options for V2 targets (validated by the backing tool) — see params hints below',
     select: 'string[] projection of result/continuation fields',
     view: 'discovery | paginated | detailed',
     controls: '{ search?: {...}, budget?: {...} }',
@@ -30,6 +32,22 @@ export const OQL_SCHEMA_DOC = {
     page: 'number',
     itemsPerPage: 'number',
     explain: 'boolean',
+  },
+  // Per-target `params` for V2 targets (full schema: `tools <name> --scheme`).
+  params: {
+    semantics:
+      '{ type:"definition"|"references"|"callers"|"callees"|"callHierarchy"|"hover"|"documentSymbols"|"typeDefinition"|"implementation", symbolName?, lineHint?, orderHint?, depth?, includeDeclaration?, groupByFile?, format? } — backing tool lspGetSemantics',
+    repositories:
+      '{ keywords?, topicsToSearch?, language?, owner?, stars?, license?, sort?, archived?, limit?, page? } — backing tool ghSearchRepos',
+    packages:
+      '{ packageName | keywords, mode?:"lean"|"full", page? } — backing tool npmSearch',
+    pullRequests:
+      '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page? } — backing tool ghHistoryResearch',
+    commits:
+      '{ path?, branch?, since?, until?, includeDiff?, limit?, page? } — backing tool ghHistoryResearch type:"commits"',
+    artifacts:
+      '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset? } — backing tool localBinaryInspect',
+    diff: '{ prNumber, files? } — PR patch diff via ghHistoryResearch (direct two-ref file diff not yet a target)',
   },
   predicates: {
     text: '{ kind:"text", value, case?, wholeWord? }',

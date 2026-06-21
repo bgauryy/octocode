@@ -391,7 +391,11 @@ export interface OqlCodeResultRow {
   kind: 'code';
   source: QuerySource;
   path: string;
-  line: number;
+  /**
+   * 1-based match line. Optional because some providers (GitHub code search)
+   * return path-level matches with no line — never fabricate one.
+   */
+  line?: number;
   endLine?: number;
   column?: number;
   snippet?: string;
@@ -450,6 +454,8 @@ export interface OqlRecordResultRow {
     | 'commit'
     | 'artifact'
     | 'diff';
+  /** Stable, citeable identity (repo, name@version, #PR, SHA, path, uri). */
+  id?: string;
   source?: QuerySource;
   data: Record<string, unknown>;
   next?: Record<string, OqlContinuation>;

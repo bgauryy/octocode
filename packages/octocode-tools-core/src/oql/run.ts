@@ -24,6 +24,9 @@ import {
   isCanonicalBatch,
   type OqlBatchResultEnvelope,
   type OqlBatchV1,
+  type OqlCodeResultRow,
+  type OqlContinuation,
+  type OqlContentResultRow,
   type OqlQueryV1,
   type OqlResultEnvelope,
   type OqlRunResult,
@@ -73,17 +76,132 @@ async function runSingle(
 
   const exec = await dispatch(query, planned);
   relativizeResultPaths(query, exec.results);
+  const next = attachContinuations(query, exec);
 
   return buildEnvelope({
     queryId: query.id,
     queryIndex,
     results: exec.results,
     ...(exec.pagination ? { pagination: exec.pagination } : {}),
+    ...(Object.keys(next).length ? { next } : {}),
     diagnostics: [...planned.plan.diagnostics, ...exec.diagnostics],
     provenance: exec.provenance,
     executable: true,
     approximate: backendsApproximate(planned.plan.backendCalls),
     plan,
+  });
+}
+
+/**
+ * Emit executable `next.*` continuations (contract Gate 10). Every continuation
+ * is a full canonical OQL query runnable as-is:
+ *  - next.page      — more result pages remain
+ *  - next.matchPage — per-file matches were capped
+ *  - row.next.fetch — read a code hit's exact content
+ *  - row.next.charRange — page a large content body
+ */
+function attachContinuations(
+  query: OqlQueryV1,
+  exec: AdapterResult
+): Record<string, OqlContinuation> {
+  const next: Record<string, OqlContinuation> = {};
+
+  if (exec.pagination?.hasMore) {
+    next['next.page'] = {
+      query: { ...query, page: (query.page ?? 1) + 1 },
+      why: 'More result pages remain.',
+      confidence: 'exact',
+    };
+  }
+
+  if (exec.diagnostics.some(d => d.code === 'matchTruncated')) {
+    next['next.matchPage'] = {
+      query: {
+        ...query,
+        controls: {
+          ...query.controls,
+          search: {
+            ...query.controls?.search,
+            matchPage: (query.controls?.search?.matchPage ?? 1) + 1,
+          },
+        },
+      },
+      why: 'Per-file matches were capped; page within files.',
+      confidence: 'exact',
+    };
+  }
+
+  // Per-row continuations.
+  const fileFrom = localFileSource(query);
+  for (const row of exec.results) {
+    if (row.kind === 'code') {
+      const code = row as OqlCodeResultRow;
+      const from = fileFrom ? fileFrom(code.path) : (code.source ?? query.from);
+      if (!from) continue;
+      const range =
+        typeof code.line === 'number'
+          ? { startLine: code.line, contextLines: 2 }
+          : undefined;
+      code.next = {
+        'next.fetch': {
+          query: {
+            schema: 'oql/v1',
+            target: 'content',
+            from,
+            ...(fileFrom ? {} : { scope: { path: code.path } }),
+            fetch: {
+              content: { contentView: 'exact', ...(range ? { range } : {}) },
+            },
+          },
+          why: 'Read the exact content at this hit.',
+          confidence: 'exact',
+        },
+      };
+    } else if (row.kind === 'content') {
+      const content = row as OqlContentResultRow;
+      const off = content.range?.charOffset;
+      if (typeof off === 'number') {
+        content.next = {
+          'next.charRange': {
+            query: {
+              ...query,
+              fetch: {
+                ...query.fetch,
+                content: {
+                  ...query.fetch?.content,
+                  charOffset: off + (content.range?.charLength ?? 20000),
+                },
+              },
+            },
+            why: 'Read the next content window.',
+            confidence: 'exact',
+          },
+        };
+      }
+    }
+  }
+  return next;
+}
+
+/**
+ * For local/materialized sources, return a builder that turns a relativized
+ * row path back into an absolute-file `from` (relativization stripped exactly
+ * `dirname(resolve(root)) + '/'`, so re-adding it round-trips).
+ */
+function localFileSource(
+  query: OqlQueryV1
+): ((rowPath: string) => OqlQueryV1['from']) | undefined {
+  const root =
+    query.from?.kind === 'local'
+      ? query.from.path
+      : query.from?.kind === 'materialized'
+        ? query.from.localPath
+        : undefined;
+  if (!root) return undefined;
+  const base = path.dirname(path.resolve(root));
+  return (rowPath: string) => ({
+    kind: 'local',
+    path: path.isAbsolute(rowPath) ? rowPath : path.join(base, rowPath),
   });
 }
 

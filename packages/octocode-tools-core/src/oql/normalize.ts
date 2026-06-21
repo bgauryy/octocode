@@ -106,6 +106,29 @@ function normalizeBatch(input: OqlInputBatchV1): OqlBatchV1 {
     fail(diagnostic('invalidQuery', formatZodError(parsed.error)));
   }
   const raw = parsed.data as OqlInputBatchV1;
+  // Reject unknown batch-level keys (same strictness as query level — e.g.
+  // `batchId` is not a field; the id field is `id`).
+  const KNOWN_BATCH_KEYS = new Set([
+    'schema',
+    'id',
+    'queries',
+    'combine',
+    'limit',
+    'page',
+    'itemsPerPage',
+    'explain',
+  ]);
+  for (const key of Object.keys(raw)) {
+    if (!KNOWN_BATCH_KEYS.has(key)) {
+      fail(
+        diagnostic(
+          'unknownField',
+          `Unknown batch field "${key}" is not part of OQL V1.`,
+          { queryPath: key }
+        )
+      );
+    }
+  }
   if (raw.queries.length > 5) {
     fail(
       diagnostic(
@@ -163,7 +186,7 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
     fail(
       diagnostic(
         'invalidQuery',
-        'Could not determine `target`; specify one of "code", "content", "structure", "files".',
+        `Could not determine \`target\`; specify one of: ${ACTIVE_TARGETS.join(', ')}.`,
         { queryPath: 'target' }
       )
     );
@@ -172,12 +195,11 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
     fail(
       diagnostic(
         'unsupportedTarget',
-        `Target "${target}" is reserved for a future OQL version and is not active in V1.`,
+        `Target "${target}" is reserved (V3 fixes/dataflow) and not active yet.`,
         {
           queryPath: 'target',
           repair: {
-            message:
-              'Use an active V1 target: "code", "content", "structure", or "files".',
+            message: `Use an active target: ${ACTIVE_TARGETS.join(', ')}.`,
           },
         }
       )
@@ -247,6 +269,21 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
       diagnostic(
         'invalidQuery',
         'target:"code" requires a `where` predicate (text/regex/structural). `where` omission is not a wildcard.',
+        { queryPath: 'where' }
+      )
+    );
+  }
+
+  // `content`/`structure` do not evaluate `where` (the execution layer would
+  // silently drop it). Reject rather than drop — no predicate may disappear.
+  if (
+    (canonical.target === 'content' || canonical.target === 'structure') &&
+    canonical.where
+  ) {
+    fail(
+      diagnostic(
+        'invalidQuery',
+        `target:"${canonical.target}" does not use \`where\`. Use fetch.content.match for content anchors, or target:"code"/"files" for predicates.`,
         { queryPath: 'where' }
       )
     );
@@ -500,12 +537,20 @@ function buildSugarPredicate(raw: OqlInputQueryV1): Predicate | undefined {
         )
       );
     }
-    const lang = raw.lang;
+    // Structural `lang` may come from `lang` or, by context, `langType`/`--type`.
+    const lang =
+      typeof raw.lang === 'string'
+        ? raw.lang
+        : typeof raw.langType === 'string'
+          ? raw.langType
+          : undefined;
     if (typeof lang !== 'string') {
       fail(
-        diagnostic('invalidQuery', 'Structural sugar requires `lang`.', {
-          queryPath: 'lang',
-        })
+        diagnostic(
+          'invalidQuery',
+          'Structural sugar requires `lang` (or `langType`/--type).',
+          { queryPath: 'lang' }
+        )
       );
     }
     return {
