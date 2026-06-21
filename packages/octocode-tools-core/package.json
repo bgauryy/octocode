@@ -16,6 +16,10 @@
       "types": "./dist/direct.d.ts",
       "import": "./dist/direct.js"
     },
+    "./oql": {
+      "types": "./dist/oql/index.d.ts",
+      "import": "./dist/oql/index.js"
+    },
     "./zod": {
       "types": "./dist/zod.d.ts",
       "import": "./dist/zod.js"
@@ -72,7 +76,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-core": "^16.5.1",
+    "@octocodeai/octocode-core": "file:///Users/guybary/Documents/octocode-mcp-host/packages/octocode-core",
     "@octocodeai/octocode-engine": "^16.5.1",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",

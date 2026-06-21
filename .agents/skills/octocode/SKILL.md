@@ -291,12 +291,18 @@ node packages/octocode/out/octocode.js tools localSearchCode \
   --queries '[{"mainResearchGoal":"find tool config","researchGoal":"locate toolConfig.ts","reasoning":"need entrypoint","keywords":"toolConfig","path":"/Users/guybary/Documents/octocode-mcp/packages"}]'
 ```
 
-Quick-command form (auto-routes local vs GitHub) also hits the same workspace build, e.g. `node packages/octocode/out/octocode.js grep <term> <path>`, `ast '<pattern>' <path>`, `cat <file> --mode symbols`.
+Quick-command form (auto-routes local vs GitHub) also hits the same workspace build, e.g. `node packages/octocode/out/octocode.js grep <term> <path>`, `grep <path> --pattern '<shape>'` (structural AST — there is no separate `ast` command), `cat <file> --mode symbols`.
 
 Notes:
 - The raw-tool form is `octocode tools <name>` (not `octocode <name>` directly).
 - `localSearchCode`'s `keywords` is a **string**, not an array — multi-word terms go in one string.
 - Local-fix checklist: **edit → (root) `yarn build` → run `out/octocode.js`** and read the real output; for unit coverage, `yarn vitest run` in the package (TS) or `cargo test --lib` (Rust).
+
+### Dogfood gotchas (runtime / packaging)
+
+- **Use system Node** for local dogfood. A sandboxed/app-embedded Node (e.g. an editor's bundled runtime) rejects native addons, so the engine `.node` fails to load and tools error out. The loader now throws `OCTOCODE_ENGINE_NATIVE_LOAD_FAILED` with the attempted paths — if you see it, run via `$(which node) packages/octocode/out/octocode.js …`.
+- **Published smoke vs repo dogfood:** for the published package use `npx --yes octocode@latest …` (avoids stale npx cache resolution); for repo-local work run the built CLI directly (`node packages/octocode/out/octocode.js …`). `npx octocode` cache behavior is npm's, not Octocode's.
+- **Remote `lsp --repo` (known limitation):** materialization roots the workspace at the clone cache, and the engine searches `node_modules` upward from there — so TS/Flow can return `serverUnavailable` because the packaged language server isn't on that path. Workaround: pass `--workspace-root` at a dir whose `node_modules` has the server, or clone into a project that already has it. Proper fix is engine-side (fall back to the CLI/package install root in `octocode-engine` config) — tracked, not yet shipped.
 
 ---
 

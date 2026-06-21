@@ -30,6 +30,7 @@ const OPTION_NAMES = new Set([
   'no-color',
   'raw',
   'mode',
+  'minify',
   'branch',
   'match-string',
   'match-regex',
@@ -75,9 +76,10 @@ function validateOptions(
     return 'Use either --raw or --json, not both.';
   }
 
-  const mode = getString(options, 'mode') || 'standard';
+  // --minify is an alias for --mode (raw schema field is `minify`).
+  const mode = getString(options, 'mode', 'minify') || 'standard';
   if (!VALID_MODES.has(mode)) {
-    return 'Invalid --mode. Use none, standard, or symbols.';
+    return 'Invalid --mode/--minify. Use none, standard, or symbols.';
   }
 
   const contentType = getString(options, 'content-type');
@@ -139,7 +141,7 @@ function buildSharedQuery(
 ): Record<string, unknown> {
   const paging = buildContentPaging(options);
   const mode =
-    getString(options, 'mode') ||
+    getString(options, 'mode', 'minify') ||
     (getBool(options, 'raw') ? 'none' : 'standard');
   return {
     path,
@@ -221,6 +223,7 @@ export const catCommand: CLICommand = {
   options: [
     { name: 'raw' },
     { name: 'mode', hasValue: true },
+    { name: 'minify', hasValue: true },
     { name: 'branch', hasValue: true },
     { name: 'repo', hasValue: true },
     { name: 'match-string', hasValue: true },

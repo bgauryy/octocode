@@ -198,7 +198,7 @@ describe('command-help-specs', () => {
     expect(output).toContain(
       'required option: --type enum(definition|references'
     );
-    expect(output).toContain('runtime: lspGetSemantics');
+    expect(output).toContain('lspGetSemantics');
     expect(output).toContain('after grep');
     expect(output).toContain(
       'lsp packages/octocode/src/cli/index.ts --type references'

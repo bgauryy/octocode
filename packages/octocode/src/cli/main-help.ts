@@ -168,6 +168,11 @@ export async function showHelp(): Promise<void> {
       'text/regex search → file + line; --pattern/--rule for AST shape (local)'
     ),
     quick(
+      'search',
+      '--query <oql-json> | --scheme',
+      'OQL: one typed query → local+GitHub code/content/structure/files (--explain for routing)'
+    ),
+    quick(
       'find',
       '<query> [path|owner/repo]',
       'find files by name/path/content'

@@ -445,6 +445,17 @@ export const grepCommand: CLICommand = {
     const ruleOpt = getString(options, 'rule') || undefined;
     if (patternOpt || ruleOpt) {
       const jsonOutput = getBool(options, 'json');
+      // Foot-gun: a YAML rule passed in single quotes keeps `\n` LITERAL, so the
+      // engine sees one line and the rule fails to parse. Detect and guide.
+      if (ruleOpt && ruleOpt.includes('\\n') && !ruleOpt.includes('\n')) {
+        const err =
+          '--rule contains a literal "\\n" (single quotes do not expand escapes). Use $\'rule:\\n  ...\' or a real multiline string.';
+        if (jsonOutput)
+          console.log(JSON.stringify({ success: false, error: err }));
+        else printCliError(err);
+        process.exitCode = EXIT.USAGE;
+        return;
+      }
       if (patternOpt && ruleOpt) {
         const err = 'Provide either --pattern or --rule, not both.';
         if (jsonOutput)

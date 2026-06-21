@@ -75,13 +75,38 @@ function loadNativeBinding() {
     join(__dirname, '..', '..', 'runtime', 'engine', `${binaryName}.${key}.node`),
   ]
 
+  const loadErrors = []
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
-      return require(candidate)
+      try {
+        return require(candidate)
+      } catch (err) {
+        // The .node file exists but the host refused to load it — most often a
+        // hardened/sandboxed runtime (e.g. an editor/app-embedded Node) that
+        // blocks native addons, or an ABI/arch mismatch. Distinguish this from
+        // "binary missing" so callers don't report a generic tool failure.
+        loadErrors.push(`${candidate}: ${err && err.message ? err.message : err}`)
+      }
     }
   }
 
-  return require(`${packageName}-${key}`)
+  try {
+    return require(`${packageName}-${key}`)
+  } catch (err) {
+    loadErrors.push(`${packageName}-${key}: ${err && err.message ? err.message : err}`)
+  }
+
+  const detail = loadErrors.length
+    ? `\nNative load attempts:\n  - ${loadErrors.join('\n  - ')}`
+    : `\nNo native binary found for ${key} (looked in ${candidates.length} locations and the ${packageName}-${key} package).`
+  const error = new Error(
+    `@octocodeai/octocode-engine: could not load the native ${binaryName} addon for ${key}.` +
+      detail +
+      `\nIf a .node file exists above but failed to load, the current Node runtime is likely sandboxed and rejects ` +
+      `native addons (e.g. an editor/app-embedded Node). Re-run with system Node (\`which node\`).`
+  )
+  error.code = 'OCTOCODE_ENGINE_NATIVE_LOAD_FAILED'
+  throw error
 }
 
 const nativeBinding = loadNativeBinding()

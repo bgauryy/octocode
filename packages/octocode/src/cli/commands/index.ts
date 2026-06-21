@@ -20,6 +20,7 @@ const commandLoaders: Record<string, CommandLoader> = {
   find: async () => (await import('./find.js')).findFilesCommand,
   diff: async () => (await import('./diff.js')).diffCommand,
   grep: async () => (await import('./grep.js')).grepCommand,
+  search: async () => (await import('./search.js')).searchCommand,
   pr: async () => (await import('./pr.js')).prCommand,
   history: async () => (await import('./history.js')).historyCommand,
   repo: async () => (await import('./repo.js')).repoCommand,

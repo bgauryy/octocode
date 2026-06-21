@@ -8,9 +8,17 @@
 
 OQL is the typed research query object behind `octocode search`.
 
-Implementation status: this file is the contract to implement. Until the OQL
-runner lands, existing quick commands and raw `tools NAME` calls remain the
-current execution surface.
+Implementation status: V1 + V2 targets are implemented. The OQL engine
+(schema, normalizer, capability registry, planner/explain, execution adapters,
+materialization lane, result envelope) lives in
+`@octocodeai/octocode-tools-core/oql`, surfaced as `octocode search`. Active
+targets: `code`, `content`, `structure`, `files` (V1) plus `semantics`,
+`repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`
+(V2 — backed by lspGetSemantics, ghSearchRepos, npmSearch, ghHistoryResearch,
+localBinaryInspect; remote semantics route through materialization). V2 targets
+take a typed `params` bag for backend-specific options. Only `fixes`/`dataflow`
+(V3) remain reserved (`unsupportedTarget`). Existing quick commands and raw
+`tools NAME` calls remain available; quick-command lowering into OQL is future.
 
 This document is both:
 
@@ -29,8 +37,10 @@ https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QU
 
 <runner_contract>
 
-`octocode search` is not implemented yet. This is the CLI/API contract it must
-provide when it lands.
+`octocode search` is implemented for OQL V1 (local + GitHub code/content/
+structure/files, with bounded remote-as-local materialization). The OQL engine
+lives in `@octocodeai/octocode-tools-core/oql` (`runOqlSearch`); the CLI command
+is a thin wrapper. This is the CLI/API contract it provides.
 
 | Command | Meaning |
 |---|---|
@@ -46,6 +56,28 @@ Exit codes should follow the existing CLI convention: `0` ok, `2` bad input,
 `3` not found, `4` auth, `5` tool error, `7` rate limited.
 
 </runner_contract>
+
+</section>
+
+<section id="agent-search-description">
+
+## Agent Search Description
+
+<description_string>
+
+`octocode search` answers bounded research questions over local paths and
+GitHub scopes. Use it to search for code matches (`target:"code"`), file lists
+(`target:"files"`), directory trees (`target:"structure"`), or exact/minified
+file content (`target:"content"`). Set `from` to a local, GitHub, or
+materialized source; narrow with `scope`; express the question with
+`where.kind` (`text`, `regex`, `structural`, `field`, `all`, `any`, `not`);
+control density with `view`, `select`, and `controls`; and use
+`materialize.mode:"auto"` or `"required"` only when a bounded GitHub scope needs
+local proof. When routing or completeness is uncertain, run `--explain` and
+follow returned `next.*` continuations instead of inventing pages, paths, or
+offsets.
+
+</description_string>
 
 </section>
 

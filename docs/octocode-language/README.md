@@ -7,27 +7,28 @@ Language.
 
 | Doc | Use it for |
 |---|---|
-| https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md | XML-tagged canonical OQL V1 implementation contract and examples |
+| https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md | XML-tagged canonical OQL contract and examples |
+| https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_SEARCH_PARITY_CHECKLIST.md | Agent checklist for replacing raw tools and quick commands with `octocode search` |
 | https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE_PLAN.md | Implementation plan, prerequisites, package split, milestones, tests, and risks |
 
 ## One-page Decision
 
 OQL is a typed query object that compiles to existing Octocode capabilities. It
-is not a new raw DSL. The V1 contract is Markdown with XML-style tags so agents
-can chunk the prompt into stable instruction blocks. V1 has one canonical shape:
+is not a new raw DSL. The contract is Markdown with XML-style tags so agents
+can chunk the prompt into stable instruction blocks. It has one canonical shape:
 `target`, `from`, `scope`, discriminated `where.kind`, `materialize`, `fetch`,
 `select`, `view`, `controls`, result bounds, diagnostics, provenance,
-evidence, and executable `next.*` continuations. V1 also defines a bounded
+evidence, and executable `next.*` continuations. It also defines a bounded
 batch envelope for 1-5 independent queries.
 
 Command split:
 
-- `octocode search`: universal OQL runner to implement from this contract.
-- Existing quick commands (`grep`, `cat`, `ls`, `find`, and later `lsp`,
-  `repo`, `pkg`, `pr`, `history`, `binary`, `diff`) remain aliases that should
-  lower into canonical OQL after parity gates pass.
-- Until that runner lands, current quick commands and raw `tools NAME` calls
-  are the execution surface.
+- `octocode search`: universal OQL runner for research targets.
+- Existing quick commands (`grep`, `cat`, `ls`, `find`, `lsp`, `repo`, `pkg`,
+  `pr`, `history`, `binary`, `diff`, `clone`, `cache`) remain available until
+  parity gates prove `search` can replace each workflow.
+- Raw `tools NAME` calls remain the schema-exact compatibility and debug
+  surface.
 
 Implementation split:
 
@@ -49,6 +50,8 @@ Implementation split:
 7. Add `--explain` with normalized query, per-predicate routing, defaults,
    budgets, backend calls, materialization, diagnostics, and continuations.
 8. Wire CLI and MCP without duplicating logic.
+9. Use the search parity checklist before replacing any quick command or raw
+   tool path.
 
 ## Editing Rules
 

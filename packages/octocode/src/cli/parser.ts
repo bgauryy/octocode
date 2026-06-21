@@ -95,6 +95,9 @@ const OPTIONS_WITH_VALUES = new Set([
   'min-length',
   'max-entries',
   'scan-offset',
+  'lang',
+  'materialize',
+  'minify',
 ]);
 
 const BOOLEAN_OPTIONS = new Set([
@@ -157,6 +160,7 @@ const BOOLEAN_OPTIONS = new Set([
   'offsets',
   'repos',
   'all',
+  'pcre2',
 ]);
 
 function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {

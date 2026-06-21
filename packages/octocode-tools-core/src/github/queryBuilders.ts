@@ -264,7 +264,15 @@ class PullRequestSearchQueryBuilder extends BaseQueryBuilder {
   }
 
   addStateFilters(params: GitHubPullRequestsSearchParams): this {
-    this.addSimpleFilter(params.state, 'is');
+    // `is:merged` already implies a closed PR. The caller maps state:"merged"
+    // to state:"closed" + merged:true (needed for the REST path), but in the
+    // search query that yields a redundant, over-constrained `is:closed
+    // is:merged` — emit only `is:merged`.
+    const redundantClosed =
+      params.merged === true && params.state === 'closed';
+    if (!redundantClosed) {
+      this.addSimpleFilter(params.state, 'is');
+    }
     this.addBooleanFilter(params.draft, 'is:draft', '-is:draft');
     this.addBooleanFilter(params.merged, 'is:merged', 'is:unmerged');
     return this;

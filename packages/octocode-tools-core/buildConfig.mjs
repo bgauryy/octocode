@@ -46,6 +46,7 @@ export const sharedBuildOptions = {
 export const entryPoints = [
   { entryPoints: ['src/index.ts'], outfile: 'dist/index.js' },
   { entryPoints: ['src/direct.ts'], outfile: 'dist/direct.js' },
+  { entryPoints: ['src/oql/index.ts'], outfile: 'dist/oql/index.js' },
   { entryPoints: ['src/zod.ts'], outfile: 'dist/zod.js' },
   { entryPoints: ['src/shared/credentials/index.ts'], outfile: 'dist/shared/credentials/index.js' },
   { entryPoints: ['src/shared/platform/index.ts'], outfile: 'dist/shared/platform/index.js' },

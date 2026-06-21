@@ -14,6 +14,13 @@ export function showLightAvailableTools(): void {
     `  ${dim('The tool runtime did not load. Tool names and schemas are only available when the runtime starts.')}`
   );
   console.log();
+  console.log(
+    `  ${dim('Common cause: the native engine addon (.node) was rejected by a sandboxed/app-embedded Node')}`
+  );
+  console.log(
+    `  ${dim('(e.g. an editor runtime). Re-run with system Node — check `which node` — for local dogfood.')}`
+  );
+  console.log();
   console.log(`  ${bold('When the runtime loads, use:')}`);
   console.log(
     `    ${c('yellow', 'tools')}                                            ${dim('# list all tools with live schema')}`

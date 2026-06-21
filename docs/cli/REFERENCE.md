@@ -269,7 +269,14 @@ octocode grep src --pattern 'eval($X)'
 octocode grep packages/react --repo facebook/react --pattern 'useState($$$ARGS)' --type js
 octocode grep packages/octocode/src --pattern 'console.log($$$ARGS)' --type ts
 octocode grep packages/octocode/src --pattern '$A && $A()' --type ts
-octocode grep src --rule 'rule:\n  pattern: await $C\n  inside:\n    kind: for_statement\n    stopBy: end'
+# --rule is YAML. In single quotes `\n` stays LITERAL — use $'...' (bash/zsh
+# interpret \n) or paste a real multiline string:
+octocode grep src --rule $'rule:\n  pattern: await $C\n  inside:\n    kind: for_statement\n    stopBy: end'
+octocode grep src --rule 'rule:
+  pattern: await $C
+  inside:
+    kind: for_statement
+    stopBy: end'
 ```
 
 ### find

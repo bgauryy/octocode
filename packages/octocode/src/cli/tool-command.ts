@@ -431,12 +431,6 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   console.log(
     `      ${c('cyan', 'structuredContent.error')}          ${dim('failure detail when isError is true')}`
   );
-  console.log(
-    `      ${c('cyan', 'structuredContent.evidence')}       ${dim('{ answerReady, complete, kind }')}`
-  );
-  console.log(
-    `      ${dim('Trust evidence.answerReady — true = answer complete, stop calling')}`
-  );
   console.log();
 
   console.log(`  ${bold('Flags')}`);
@@ -587,8 +581,6 @@ export async function getToolsContextString(
       '    structuredContent.location: object     where remote content was saved (kind, localPath, repoRoot, ...)',
       '    structuredContent.warnings[]: string[] non-fatal issues to account for',
       '    structuredContent.error: object        failure detail when isError is true',
-      '    structuredContent.evidence: object     { answerReady: boolean, complete: boolean, kind: string }',
-      '  Trust evidence.answerReady — when true, the answer is complete; stop calling.',
     ].join('\n'),
     '',
     'Tools (grouped by source):',
