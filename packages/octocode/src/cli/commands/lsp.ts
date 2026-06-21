@@ -15,10 +15,8 @@ import {
   withMaterializationHints,
 } from '../remote-local.js';
 
-// Relational / identity queries only. The file/dir OUTLINE (documentSymbols) is
-// intentionally served by `ls <file|dir> --symbols`, not here — see
-// OUTLINE_TYPES for the dedicated redirect.
 const LSP_TYPES = [
+  'documentSymbols',
   'definition',
   'references',
   'callers',
@@ -28,12 +26,6 @@ const LSP_TYPES = [
   'typeDefinition',
   'implementation',
 ] as const;
-
-// `documentSymbols` is a valid lspGetSemantics type (so agents see it advertised
-// in the tool schema), but the `lsp` shortcut deliberately routes outlines to
-// `ls --symbols`. Recognize it explicitly so the user gets a clear redirect
-// instead of a confusing "not a valid --type" listing that omits it.
-const OUTLINE_TYPES = new Set(['documentSymbols', 'documentSymbol']);
 
 type LspType = (typeof LSP_TYPES)[number];
 
@@ -59,7 +51,7 @@ function printUsageError(message: string, jsonOutput: boolean): void {
       `    grep "runCLI" packages/octocode/src --type ts\n` +
       `    lsp packages/octocode/src/index.ts --type definition --symbol runCLI --line 10\n` +
       `    lsp packages/octocode/src/cli/index.ts --type hover --symbol runCLI --line 73\n` +
-      `    ${dim('# for a file/dir outline, use: ls --symbols packages/octocode/src/cli/index.ts')}\n`
+      `    lsp packages/octocode/src/cli/index.ts --type documentSymbols\n`
   );
 }
 
@@ -321,19 +313,6 @@ export const lspCommand: CLICommand = {
       return;
     }
 
-    // documentSymbols is a real lspGetSemantics type, but the outline lives in
-    // `ls --symbols` here — give a direct, actionable redirect rather than the
-    // generic "not a valid --type" error that wouldn't even list it.
-    if (rawType && OUTLINE_TYPES.has(rawType)) {
-      const fileArg = target || '<file|dir>';
-      printUsageError(
-        `documentSymbols (file/dir outline) isn't available via lsp — use: ls ${fileArg} --symbols`,
-        jsonOutput
-      );
-      process.exitCode = EXIT.USAGE;
-      return;
-    }
-
     if (!rawType || !isLspType(rawType)) {
       printUsageError(
         `Provide --type with one of: ${LSP_TYPES.join(', ')}`,
@@ -343,9 +322,11 @@ export const lspCommand: CLICommand = {
       return;
     }
 
+    const isDocumentSymbols = rawType === 'documentSymbols';
+
     // Report the specific missing input (an invalid --line value is already
     // rejected centrally before we get here).
-    if (!symbolName && !lineHint) {
+    if (!isDocumentSymbols && !symbolName && !lineHint) {
       printUsageError(
         '--symbol is required. For a file/dir outline, use: ls <file|dir> --symbols',
         jsonOutput
@@ -353,7 +334,7 @@ export const lspCommand: CLICommand = {
       process.exitCode = EXIT.USAGE;
       return;
     }
-    if (!symbolName) {
+    if (!isDocumentSymbols && !symbolName) {
       printUsageError(
         '--symbol <name> is required for this --type.',
         jsonOutput
@@ -398,7 +379,7 @@ export const lspCommand: CLICommand = {
     const format = getString(args.options, 'format');
 
     try {
-      if (!lineHint && symbolName) {
+      if (!isDocumentSymbols && !lineHint && symbolName) {
         lineHint = await inferLineHint(uri, symbolName);
         if (!jsonOutput) {
           process.stderr.write(
@@ -436,7 +417,9 @@ export const lspCommand: CLICommand = {
             ...(depth ? { depth } : {}),
             ...(format ? { format } : {}),
             mainResearchGoal: `Run ${rawType} LSP research`,
-            researchGoal: `Resolve ${rawType} for ${symbolName} near line ${lineHint}`,
+            researchGoal: isDocumentSymbols
+              ? `List document symbols in ${uri}`
+              : `Resolve ${rawType} for ${symbolName} near line ${lineHint}`,
             reasoning: 'CLI lsp command',
           },
         ],

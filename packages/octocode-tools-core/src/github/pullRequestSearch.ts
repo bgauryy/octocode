@@ -74,6 +74,33 @@ function createPullRequestEmptyResult(
   };
 }
 
+async function resolveCanonicalSearchRepo(
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  params: GitHubPullRequestsSearchParams
+): Promise<GitHubPullRequestsSearchParams> {
+  if (
+    !params.owner ||
+    !params.repo ||
+    Array.isArray(params.owner) ||
+    Array.isArray(params.repo)
+  ) {
+    return params;
+  }
+
+  try {
+    const response = await octokit.rest.repos.get({
+      owner: params.owner,
+      repo: params.repo,
+    });
+    const [owner, repo] = response.data.full_name?.split('/') ?? [];
+    if (!owner || !repo) return params;
+    if (owner === params.owner && repo === params.repo) return params;
+    return { ...params, owner, repo };
+  } catch {
+    return params;
+  }
+}
+
 export async function searchGitHubPullRequestsAPI(
   params: GitHubPullRequestsSearchParams,
   authInfo?: AuthInfo,
@@ -172,7 +199,8 @@ async function searchGitHubPullRequestsAPIInternal(
       return await searchPullRequestsWithREST(octokit, params);
     }
 
-    const searchQuery = buildPullRequestSearchQuery(params);
+    const searchParams = await resolveCanonicalSearchRepo(octokit, params);
+    const searchQuery = buildPullRequestSearchQuery(searchParams);
 
     if (!searchQuery) {
       await logSessionError(
@@ -188,13 +216,15 @@ async function searchGitHubPullRequestsAPIInternal(
     }
 
     const sortValue =
-      params.sort && params.sort !== 'best-match' ? params.sort : undefined;
+      searchParams.sort && searchParams.sort !== 'best-match'
+        ? searchParams.sort
+        : undefined;
 
     const perPage = Math.min(
-      params.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
+      searchParams.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
       GITHUB_SEARCH_MAX_LIMIT
     );
-    const currentPage = params.page || 1;
+    const currentPage = searchParams.page || 1;
 
     const effectiveQuery = searchQuery;
 
@@ -217,7 +247,11 @@ async function searchGitHubPullRequestsAPIInternal(
 
     const transformedPRs: GitHubPullRequestItem[] = await Promise.all(
       pullRequests.map(async (item: IssueSearchResultItem) => {
-        return await transformPullRequestItemFromSearch(item, params, octokit);
+        return await transformPullRequestItemFromSearch(
+          item,
+          searchParams,
+          octokit
+        );
       })
     );
 
@@ -229,8 +263,8 @@ async function searchGitHubPullRequestsAPIInternal(
       formatPRForResponse(pr, {
         includeFullBody: false,
         includeFullCommentDetails: false,
-        charOffset: params.charOffset,
-        charLength: params.charLength,
+        charOffset: searchParams.charOffset,
+        charLength: searchParams.charLength,
       })
     );
 

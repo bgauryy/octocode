@@ -2,7 +2,7 @@
 
 This skill is **CLI-first**. The **octocode CLI** and **octocode MCP tools** use the same runners, but the CLI quick commands are easier to validate, easier to share in reports, and expose `--json`/`--compact` consistently. Use the MCP column only when the host provides MCP tools and the CLI is unavailable or explicitly requested.
 
-Canonical, always-current CLI docs: **[docs/cli/REFERENCE.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)**. This file is the condensed map for engineering work; run `octocode <cmd> --help` for exact quick-command flags, and run `octocode tools <name> --scheme` before every raw-tool call.
+Canonical, always-current CLI docs: **[docs/cli/REFERENCE.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)**. This file is the condensed map for engineering work; run `octocode <cmd> --help` for exact quick-command flags, and run `octocode tools <name> --scheme` before every raw-tool call. If the global `octocode` binary is missing, use `npx octocode <cmd>` for the same commands.
 
 ---
 
@@ -10,12 +10,13 @@ Canonical, always-current CLI docs: **[docs/cli/REFERENCE.md](https://github.com
 
 ```bash
 octocode --version              # CLI available
+npx octocode --version          # no global install/PATH fallback
 octocode context                # agent protocol/context
 octocode tools                  # list raw runnable tools
 octocode tools <name> --scheme  # schema for one raw tool on demand
 ```
 
-If the CLI is unavailable but MCP tools are available, use the MCP column with the same evidence rules. If neither works, stop and ask the user to install the CLI or register the MCP server. Do not substitute native search for Octocode research.
+If neither `octocode` nor `npx octocode` works but MCP tools are available, use the MCP column with the same evidence rules. If neither CLI path nor MCP works, stop and ask the user to install/run the CLI with `npx octocode` or register the MCP server. Do not substitute native search for Octocode research.
 
 ---
 

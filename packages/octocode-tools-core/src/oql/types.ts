@@ -403,7 +403,23 @@ export interface OqlCodeResultRow {
   endLine?: number;
   column?: number;
   snippet?: string;
-  metavars?: Record<string, unknown>;
+  /**
+   * Structural (AST) metavariable captures. `$X` → single-element list; `$$$X`
+   * → node list. Keyed by bare metavar name. Present only for structural
+   * matches that captured; never fabricated.
+   */
+  metavars?: Record<string, string[]>;
+  /** Per-capture source ranges (uri+line ready for lspGetSemantics handoff). */
+  metavarRanges?: Record<
+    string,
+    {
+      text: string;
+      line: number;
+      column: number;
+      endLine: number;
+      endColumn: number;
+    }[]
+  >;
   next?: Record<string, OqlContinuation>;
 }
 
@@ -465,6 +481,124 @@ export interface OqlRecordResultRow {
   data: Record<string, unknown>;
   next?: Record<string, OqlContinuation>;
 }
+
+/* --- typed `data` contracts per recordType (documented payload shapes) ----
+ * The backing tool owns the exhaustive payload; these name the fields agents
+ * rely on to cite + continue. All optional (backend-dependent); never fabricated.
+ * Parity: OCTOCODE_SEARCH_PARITY_CHECKLIST gap #4. */
+
+export interface OqlRepositoryData {
+  fullName?: string;
+  owner?: string;
+  repo?: string;
+  description?: string;
+  stars?: number;
+  forks?: number;
+  language?: string;
+  topics?: string[];
+  pushedAt?: string;
+  url?: string;
+  [k: string]: unknown;
+}
+export interface OqlPackageData {
+  name?: string;
+  version?: string;
+  description?: string;
+  downloads?: number;
+  repository?: string;
+  [k: string]: unknown;
+}
+export interface OqlPullRequestData {
+  number?: number;
+  title?: string;
+  state?: string;
+  author?: string;
+  createdAt?: string;
+  mergedAt?: string;
+  changedFiles?: number;
+  url?: string;
+  [k: string]: unknown;
+}
+export interface OqlCommitData {
+  sha?: string;
+  oid?: string;
+  message?: string;
+  title?: string;
+  author?: string;
+  date?: string;
+  [k: string]: unknown;
+}
+export interface OqlArtifactData {
+  mode?: string;
+  format?: string;
+  /** Set when extract/decompress/unpack produced a derived local path. */
+  localPath?: string;
+  entries?: unknown[];
+  strings?: unknown[];
+  symbols?: unknown[];
+  nextScanOffset?: number;
+  [k: string]: unknown;
+}
+export interface OqlDiffData {
+  path?: string;
+  baseRef?: string;
+  headRef?: string;
+  additions?: number;
+  deletions?: number;
+  unchanged?: number;
+  patch?: string;
+  [k: string]: unknown;
+}
+export interface OqlSemanticsData {
+  uri?: string;
+  line?: number;
+  startLine?: number;
+  symbol?: string;
+  kind?: string;
+  [k: string]: unknown;
+}
+export interface OqlMaterializedData {
+  localPath: string;
+  repoRoot?: string;
+  ref?: string;
+  cache?: 'hit' | 'miss';
+  complete?: boolean;
+  [k: string]: unknown;
+}
+
+/** Typed row aliases — a record row whose `data` matches its `recordType`. */
+export type OqlRepositoryRow = OqlRecordResultRow & {
+  recordType: 'repository';
+  data: OqlRepositoryData;
+};
+export type OqlPackageRow = OqlRecordResultRow & {
+  recordType: 'package';
+  data: OqlPackageData;
+};
+export type OqlPullRequestRow = OqlRecordResultRow & {
+  recordType: 'pullRequest';
+  data: OqlPullRequestData;
+};
+export type OqlCommitRow = OqlRecordResultRow & {
+  recordType: 'commit';
+  data: OqlCommitData;
+};
+export type OqlArtifactRow = OqlRecordResultRow & {
+  recordType: 'artifact';
+  data: OqlArtifactData;
+};
+export type OqlDiffRow = OqlRecordResultRow & {
+  recordType: 'diff';
+  data: OqlDiffData;
+};
+export type OqlSemanticsRow = OqlRecordResultRow & {
+  recordType: 'semantics';
+  data: OqlSemanticsData;
+};
+export type OqlMaterializedRow = OqlRecordResultRow & {
+  recordType: 'materialized';
+  data: OqlMaterializedData;
+};
 
 export type OqlResultRow =
   | OqlCodeResultRow

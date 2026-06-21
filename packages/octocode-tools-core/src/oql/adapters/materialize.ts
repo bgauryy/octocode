@@ -145,7 +145,7 @@ export async function executeMaterialize(
  * source, ref, cache, complete) that downstream queries can root at via the
  * `next.search` / `next.structure` / `next.fetch` continuations (attached in
  * run.ts). This makes materialization a first-class step, not a search
- * side-effect (see OCTOCODE_OQL_OPEN_GAPS.md gap 7).
+ * side-effect (see OCTOCODE_SEARCH_PARITY_CHECKLIST.md gap log #7).
  */
 export async function executeMaterializeCheckpoint(
   query: OqlQueryV1

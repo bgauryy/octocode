@@ -47,7 +47,9 @@ export const OQL_SCHEMA_DOC = {
       '{ path?, branch?, since?, until?, includeDiff?, limit?, page? } — backing tool ghHistoryResearch type:"commits"',
     artifacts:
       '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset? } — backing tool localBinaryInspect',
-    diff: '{ prNumber, files? } — PR patch diff via ghHistoryResearch (direct two-ref file diff not yet a target)',
+    diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
+    materialize:
+      '(no params; no `where`) clone/cache a bounded corpus (from:{kind:"github",repo} + scope.path) and return a stable materialized checkpoint row (localPath/repoRoot/ref/cache/complete) with next.structure/next.files',
   },
   predicates: {
     text: '{ kind:"text", value, case?, wholeWord? }',

@@ -1,6 +1,7 @@
 /**
- * Regression tests for the OQL open-gap closures (OCTOCODE_OQL_OPEN_GAPS.md
- * gaps 7–12). Pure helpers, planner diagnostics, and real local execution —
+ * Regression tests for the OQL coverage-gap closures (OCTOCODE_SEARCH_PARITY_
+ * CHECKLIST.md gap log #7–12,18). Pure helpers, planner diagnostics, and real
+ * local execution —
  * no backend mocking. Execution paths that need a clone/inspect backend are
  * covered in open-gaps-materialize.test.ts.
  */
@@ -24,7 +25,9 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OQL_SRC = path.resolve(here, '../../src/oql');
 
-function single(r: Awaited<ReturnType<typeof runOqlSearch>>): OqlResultEnvelope {
+function single(
+  r: Awaited<ReturnType<typeof runOqlSearch>>
+): OqlResultEnvelope {
   if (isBatchEnvelope(r)) throw new Error('expected single envelope');
   return r;
 }
@@ -96,23 +99,35 @@ describe('gap 11: symbols content view on PR/commit/diff -> signatureUnsupported
   });
 });
 
-describe('gap 12b: select metavars on a structural query -> partialResult', () => {
-  it('flags structural + select:["metavars"]', () => {
+describe('gap 12: structural metavar captures flow into rows', () => {
+  it('forwards engine metavars (and ranges) end-to-end', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: {
+          kind: 'structural',
+          lang: 'ts',
+          pattern: 'diagnostic($$$ARGS)',
+        },
+        select: ['metavars'],
+        view: 'detailed',
+      })
+    );
+    const withCaptures = env.results.find(
+      r => r.kind === 'code' && (r as OqlCodeResultRow).metavars
+    ) as OqlCodeResultRow | undefined;
+    expect(withCaptures).toBeDefined();
+    expect(withCaptures?.metavars?.ARGS).toBeDefined();
+    expect(Array.isArray(withCaptures?.metavars?.ARGS)).toBe(true);
+  });
+
+  it('does NOT emit a partialResult diagnostic (captures are available)', () => {
     const q = normalizeQuery({
       target: 'code',
       from: { kind: 'local', path: '.' },
       pattern: 'foo($$$ARGS)',
       lang: 'ts',
-      select: ['metavars'],
-    } as never) as OqlQueryV1;
-    expect(checkOutputFeatures(q).map(d => d.code)).toContain('partialResult');
-  });
-
-  it('does NOT flag select:["metavars"] on a text query', () => {
-    const q = normalizeQuery({
-      target: 'code',
-      from: { kind: 'local', path: '.' },
-      text: 'foo',
       select: ['metavars'],
     } as never) as OqlQueryV1;
     expect(checkOutputFeatures(q).map(d => d.code)).not.toContain(
@@ -176,7 +191,9 @@ describe('gap 7: target:"materialize" planning', () => {
       repo: 'facebook/react',
     });
     expect(executable).toBe(false);
-    expect(p.diagnostics.map(d => d.code)).toContain('materializationNotAllowed');
+    expect(p.diagnostics.map(d => d.code)).toContain(
+      'materializationNotAllowed'
+    );
   });
 
   it('plans a bounded clone checkpoint with scope.path', () => {
@@ -187,6 +204,49 @@ describe('gap 7: target:"materialize" planning', () => {
     });
     expect(executable).toBe(true);
     expect(p.backendCalls.map(b => b.backend)).toContain('ghCloneRepo');
+  });
+});
+
+/* -------------------- #3: typed V2 params validation -------------------- */
+
+describe('#3 typed V2 params: type mistakes -> invalidQuery', () => {
+  it('rejects a wrongly-typed prNumber on diff', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'diff',
+        repo: 'facebook/react',
+        params: { prNumber: 'not-a-number' },
+      } as never)
+    ).toThrow(/params\.prNumber/);
+  });
+
+  it('rejects a wrongly-typed page on repositories', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'repositories',
+        params: { keywords: ['x'], page: 'one' },
+      } as never)
+    ).toThrow(/params\.page/);
+  });
+
+  it('accepts valid params + passes through unknown fields', () => {
+    const q = normalizeQuery({
+      target: 'pullRequests',
+      repo: 'facebook/react',
+      params: { prNumber: 5, state: 'merged', someFutureField: true },
+    } as never) as OqlQueryV1;
+    expect(q.params?.prNumber).toBe(5);
+    expect(q.params?.someFutureField).toBe(true);
+  });
+
+  it('rejects an invalid semantics type enum', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'semantics',
+        from: { kind: 'local', path: './x.ts' },
+        params: { type: 'not-a-real-op' },
+      } as never)
+    ).toThrow(/params\.type/);
   });
 });
 

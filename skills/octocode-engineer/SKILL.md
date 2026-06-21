@@ -9,7 +9,7 @@ Use this skill to understand, review, or change code without guessing. The skill
 
 ## 0. Transport default: CLI first
 
-Default to the **Octocode CLI** quick commands (`ls`, `find`, `grep`, `cat`, `lsp`, `pr`, `history`, `repo`, `pkg`, `binary`, `unzip`, `clone`, `cache fetch`) because they are easy to validate with `--help`, support `--json`/`--compact`, and dogfood the same runners agents use through MCP. Use raw `octocode tools <name> --scheme` → `octocode tools <name> --queries '<json>'` when a quick command cannot express an exact field, pagination lane, content selector, or OQL gap. Use MCP tool calls only when the host provides them and the CLI is unavailable or the task explicitly needs MCP transport.
+Default to the **Octocode CLI** quick commands (`ls`, `find`, `grep`, `cat`, `lsp`, `pr`, `history`, `repo`, `pkg`, `binary`, `unzip`, `clone`, `cache fetch`) because they are easy to validate with `--help`, support `--json`/`--compact`, and dogfood the same runners agents use through MCP. If `octocode` is not installed or not on `PATH`, run the CLI with `npx octocode <command>`; do not fall back to native search just because the global binary is missing. Use raw `octocode tools <name> --scheme` → `octocode tools <name> --queries '<json>'` when a quick command cannot express an exact field, pagination lane, content selector, or OQL gap. Use MCP tool calls only when the host provides them and the CLI is unavailable or the task explicitly needs MCP transport.
 
 Hard rules:
 - Prefer `--json` whenever another step depends on returned paths, refs, line numbers, diagnostics, or pagination.
@@ -18,6 +18,12 @@ Hard rules:
 - Treat snippets as leads. Prove claims with exact `cat --match-string --mode none`, line ranges, selected PR patches, AST structural matches, LSP output, binary metadata, or tests.
 - Follow returned hints, `next.*`, pagination, char offsets, match pages, file pages, comment pages, and commit pages. Do not invent offsets or local paths.
 - Direct shell is allowed for `git status`, `git diff`, branch/log inspection, and repo maintenance around Octocode itself; use Octocode CLI/MCP for code research.
+
+Decision-quality rules:
+- Before deep research, name 1–3 working hypotheses and the evidence that would disconfirm each one. Keep them short; they guide tool choice, not the final answer.
+- Interleave reasoning and observation: after every meaningful tool result, update scope, confidence, and the next evidence path instead of continuing the original plan blindly.
+- Keep at least two plausible explanations or fix paths alive for ambiguous bugs, reviews, and refactors until evidence eliminates one.
+- Before final output, run a reflection check: weakest claim, strongest alternate explanation, missing validation, and whether one cheap command could change the answer.
 
 ## 1. Pick the reference set first
 
@@ -65,11 +71,14 @@ Start with the primary reference, then add companions only when the scenario nee
 
 1. State the goal and current scope in one line.
 2. Read the matching reference above.
-3. Map before reading: structure/file discovery first, then exact slices.
-4. Use AST for code shape; use LSP for symbol identity and blast radius.
-5. Treat snippets as leads. Re-anchor with `matchString`, line ranges, AST, LSP, or history before citing.
-6. Mark confidence: `confirmed`, `likely`, or `uncertain`.
-7. Stop and ask when the scope, contract, blast radius, or safest fix needs a user decision.
+3. Write a compact hypothesis map: likely explanation, alternate explanation, and what evidence would disconfirm each.
+4. Map before reading: structure/file discovery first, then exact slices.
+5. Use AST for code shape; use LSP for symbol identity and blast radius.
+6. Treat snippets as leads. Re-anchor with `matchString`, line ranges, AST, LSP, or history before citing.
+7. After each tool observation, update confidence and choose the next cheapest proof step.
+8. Mark confidence: `confirmed`, `likely`, or `uncertain`.
+9. Reflect before reporting: weakest claim, strongest counter-evidence, missing validation, and whether one more cheap command would change the answer.
+10. Stop and ask when the scope, contract, blast radius, or safest fix needs a user decision.
 
 ## 5. Evidence shortcuts
 

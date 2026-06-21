@@ -15,7 +15,9 @@ import {
   type OqlResultEnvelope,
 } from '../../src/oql/types.js';
 
-function single(r: Awaited<ReturnType<typeof runOqlSearch>>): OqlResultEnvelope {
+function single(
+  r: Awaited<ReturnType<typeof runOqlSearch>>
+): OqlResultEnvelope {
   if (isBatchEnvelope(r)) throw new Error('expected single envelope');
   return r;
 }
@@ -106,6 +108,59 @@ describe('gap 9: extracted artifact rows carry next.structure / next.files', () 
       target: 'files',
       from: { kind: 'local', path: '/extracted/pkg' },
     });
+  });
+});
+
+/* ---------------- #4: typed record-row data contracts ------------------ */
+
+describe('#4 typed record rows: data carries the documented fields', () => {
+  it('repository row data exposes typed fields', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        repositories: [
+          {
+            fullName: 'facebook/react',
+            stars: 1000,
+            language: 'JavaScript',
+            topics: ['ui'],
+          },
+        ],
+      })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'repositories',
+        params: { keywords: ['react'] },
+      })
+    );
+    const row = env.results[0] as OqlRecordResultRow;
+    expect(row.recordType).toBe('repository');
+    expect(row.id).toBe('facebook/react');
+    expect(row.data.stars).toBe(1000);
+    expect(row.data.language).toBe('JavaScript');
+  });
+});
+
+/* ---------------- #6: binary strings scan-offset cursor ----------------- */
+
+describe('#6 per-domain continuation: binary strings nextScanOffset', () => {
+  it('emits next.artifactStrings carrying the next scanOffset', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({ strings: ['libcurl', 'GET'], nextScanOffset: 4096 })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'artifacts',
+        from: { kind: 'local', path: '/tmp/bin' },
+        params: { mode: 'strings' },
+      })
+    );
+    const row = env.results[0] as OqlRecordResultRow;
+    const cont = row.next?.['next.artifactStrings'];
+    expect(cont).toBeDefined();
+    expect(
+      (cont?.query as { params?: { scanOffset?: number } }).params?.scanOffset
+    ).toBe(4096);
   });
 });
 

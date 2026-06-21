@@ -18,6 +18,7 @@ import {
   PredicateSchema,
 } from './schema.js';
 import { OqlValidationError, diagnostic } from './diagnostics.js';
+import { validateV2Params } from './v2params.js';
 import {
   ACTIVE_TARGETS,
   RESERVED_TARGETS,
@@ -348,6 +349,15 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
           }
         )
       );
+    }
+  }
+
+  // Typed V2 params check: catch type mistakes on known params fields early
+  // (the backing tool remains the exhaustive validator for the rest).
+  if (canonical.params !== undefined) {
+    const paramsError = validateV2Params(canonical.target, canonical.params);
+    if (paramsError) {
+      fail(diagnostic('invalidQuery', paramsError, { queryPath: 'params' }));
     }
   }
 

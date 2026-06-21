@@ -275,7 +275,7 @@ export async function executeHistory(
  *   - direct file: { baseRef, headRef, path }      -> two ghGetFileContent reads
  *                                                     + a pure local line diff
  * A request that fits neither returns a repair diagnostic rather than silently
- * falling through to a PR-patch call (see OCTOCODE_OQL_OPEN_GAPS.md gap 8).
+ * falling through to a PR-patch call (see OCTOCODE_SEARCH_PARITY_CHECKLIST.md gap log #8).
  */
 export async function executeDiff(query: OqlQueryV1): Promise<AdapterResult> {
   const p = params(query);
@@ -520,7 +520,32 @@ export async function executeArtifacts(
     path,
     ...params(query),
   });
-  return finishRecords(result, 'artifact', 'localBinaryInspect', query.from);
+  // An artifact is a single entity: keep ONE record row carrying the full
+  // payload (mode, entries/strings/symbols, derived localPath, nextScanOffset)
+  // rather than expanding inner arrays into rows — otherwise parent-level
+  // metadata (localPath, scan cursor) is lost to the continuation builders.
+  const { data, status } = firstQueryData(result);
+  const diagnostics = statusDiagnostics(result, 'localBinaryInspect');
+  if (status === 'error' || !data) {
+    return {
+      results: [],
+      diagnostics: diagnostics.length
+        ? diagnostics
+        : [
+            diagnostic('zeroMatches', 'localBinaryInspect returned no data.', {
+              backend: 'localBinaryInspect',
+              severity: 'info',
+              blocksAnswer: false,
+            }),
+          ],
+      provenance: [{ backend: 'localBinaryInspect', source: query.from }],
+    };
+  }
+  return {
+    results: records([data], 'artifact', query.from),
+    diagnostics,
+    provenance: [{ backend: 'localBinaryInspect', source: query.from }],
+  };
 }
 
 export async function executeSemantics(

@@ -77,7 +77,7 @@ Current `search --scheme` target inventory:
 
 | Type | Targets |
 |---|---|
-| Active | `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff` |
+| Active | `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`, `materialize` |
 | Reserved | `fixes`, `dataflow` |
 
 Parity rule: if a target or command is not in this inventory, do not claim
@@ -113,14 +113,14 @@ for the fields most likely to break agent research.
 | `localGetFileContent` | `content` | `from:{kind:"local"}`, `fetch.content` | Strong | Verify `contentView`, minification, line/char/match ranges, `contentTruncated`, exact-mode proof. |
 | `localViewStructure` | `structure` | `from:{kind:"local"}`, `fetch.tree` | Strong | Verify file/dir entries, depth, pattern filters, sizes, sorting, pagination. |
 | `localFindFiles` | `files` | `from:{kind:"local"}`, optional field/content predicates | Strong | Verify metadata filters, content-contained queries, negative queries, local complete-universe semantics. |
-| `localBinaryInspect` | `artifacts` | `from:{kind:"local",path}`, `params` passed to binary runner | Partial | Generic record rows must preserve inspect/list/extract/decompress/strings/unpack payloads and derived local paths. |
-| `lspGetSemantics` | `semantics` | local/materialized/GitHub `from`, `params.type`, symbol/line fields | Partial | Must preserve all 9 LSP types, locations/symbols/call rows, server diagnostics, remote materialization provenance. |
+| `localBinaryInspect` | `artifacts` | `from:{kind:"local",path}`, `params` passed to binary runner | Partial | Generic record rows preserve inspect/list/extract/decompress/strings/unpack payloads + derived `localPath`; extracted paths now emit `next.structure`/`next.files`. Typed row sub-shapes still future. |
+| `lspGetSemantics` | `semantics` | local/materialized/GitHub `from`, `params.type`, symbol/line fields | Partial | All 9 LSP types reachable; semantics rows now emit `next.fetch`, code rows emit `next.semantic`. Server diagnostics + remote materialization provenance preserved; typed per-op rows still future. |
 | `ghSearchCode` | `code` | `from:{kind:"github"}`, provider-safe predicate | Strong for provider search | Regex/provider semantics may be approximate; require materialization for AST/PCRE2/exact proof. |
 | `ghGetFileContent` | `content` | `from:{kind:"github"}`, `scope.path`, `fetch.content` | Strong | Verify branch/ref, matchString/ranges, minification mode, char pagination. |
 | `ghViewRepoStructure` | `structure` | `from:{kind:"github"}`, `scope.path`, `fetch.tree` | Strong | Verify repo/ref/path, depth, empty dirs, large tree truncation. |
-| `ghCloneRepo` | materialization lane | `from:{kind:"github"}`, `materialize.mode`, bounded `scope.path` | Partial | Search uses clone internally; standalone clone/cache workflow still needs explicit materialization result/continuation. |
+| `ghCloneRepo` | materialization lane + `target:"materialize"` | `from:{kind:"github"}`, `materialize.mode`, bounded `scope.path` | Strong | Search uses clone internally **and** `target:"materialize"` is a first-class checkpoint row (`localPath`/`repoRoot`/`cache`/`complete`) with `next.structure`/`next.files`; unbounded clone refused. |
 | `ghSearchRepos` | `repositories` | `target:"repositories"`, optional GitHub `from`, `params` | Partial | `params` is opaque; row payload is generic. Need typed schema docs and OQL continuations. |
-| `ghHistoryResearch` | `pullRequests`, `commits`, `diff` | GitHub `from`, `params` for PR/commit/diff selectors | Partial | PR list/detail, merged state, patch selectors, comments/reviews, commit diffs, and all history pagination domains must match raw tool. |
+| `ghHistoryResearch` | `pullRequests`, `commits`, `diff` | GitHub `from`, `params` for PR/commit/diff selectors | Partial | PR list/detail, merged state, patch selectors, comments/reviews, commit diffs, history pagination must match raw tool. `diff` now has two typed lanes (PR-patch vs direct-file `{baseRef,headRef,path}` + repair). `symbols` view on PR/commit/diff now flagged `signatureUnsupported`. |
 | `npmSearch` | `packages` | `target:"packages"`, `from:{kind:"npm"}` default, `params` | Partial | Package rows exist, but raw `data.next` is legacy handoff, not first-class OQL `next`. |
 
 Status meanings:
@@ -134,6 +134,12 @@ Status meanings:
 
 Rating is for the current `octocode search` implementation as verified from the
 built CLI and raw schemas on 2026-06-22, not the desired final design.
+
+> **2026-06-22 update.** Open-gap closures (continuation registry, capability
+> diagnostics, diff lane split, `target:"materialize"`) lifted the affected
+> cells below. Remaining drag on the higher-level ratings is now typed V2 row
+> contracts, the human renderer for record rows, the engine-captures piece
+> (12a), and the full golden parity matrix — not missing dispatch.
 
 | Scope | Rating | Meaning |
 |---|---:|---|
@@ -151,14 +157,14 @@ Target ratings:
 | `content` | 8/10 | Local/GitHub content reads, ranges, match windows, and minification are strong; exact proof must remain explicit. |
 | `structure` | 8/10 | Local/GitHub tree browsing maps cleanly; large-tree pagination and empty-directory semantics still need golden parity tests. |
 | `files` | 8/10 | Local file predicates are strong; negative/provider-universe cases must force local/materialized proof. |
-| `semantics` | 6/10 | Raw LSP is powerful, but remote workspace roots, server diagnostics, and `documentSymbols` vs quick-command coverage need clearer handling. |
+| `semantics` | 6.5/10 | Raw LSP is powerful; code/semantics rows now emit `next.semantic`/`next.fetch` and the `documentSymbols` parity narrative is recorded. Remote workspace roots, server diagnostics, and typed per-op rows still need work. |
 | `repositories` | 6/10 | Adapter exists, but target-specific params and `record` payload contracts are still too opaque for full replacement. |
 | `packages` | 6/10 | npm rows and repository handoff exist; `data.next` must become first-class OQL continuation data. |
 | `pullRequests` | 5.5/10 | PR list/detail routing exists; selectors, comments/reviews, patch paging, merged-state behavior, and renderer parity need deeper tests. |
 | `commits` | 5.5/10 | Commit history routing exists; path/ref/diff pagination and PR handoff need typed returned-data guarantees. |
-| `artifacts` | 5.5/10 | Binary/archive adapter exists; inspect/list/extract/decompress/strings/unpack outputs need typed row contracts and localPath continuations. |
-| `diff` | 5/10 | Direct file diff and PR patch diff are different workflows and must be represented separately before full replacement. |
-| Materialization lane | 6/10 | Clone/cache/fetch-to-local flows are present, but `search` needs a first-class checkpoint/continuation story to replace `clone` and `cache fetch`. |
+| `artifacts` | 6.5/10 | Binary/archive adapter exists; extracted `localPath` now emits `next.structure`/`next.files`. Typed row contracts per mode still future. |
+| `diff` | 7/10 | Direct file diff and PR patch diff are now separate typed lanes (`{baseRef,headRef,path}` vs `{prNumber}`); neither → repair. Hunk-level fidelity of the local line diff can still improve. |
+| Materialization lane | 7.5/10 | First-class `target:"materialize"` checkpoint row (`localPath`/`repoRoot`/`cache`/`complete`) with `next.structure`/`next.files`, bounded-scope enforced. Replaces `clone`/`cache fetch` for proof flows. |
 
 Feature ratings:
 
@@ -169,10 +175,10 @@ Feature ratings:
 | Raw-tool coverage | 8/10 | All 13 tools have a route or intended lane; V2 targets need less opaque `params`. |
 | Returned data | 6/10 | Core envelope is good; `kind:"record"` rows need typed contracts or promoted row shapes. |
 | Pagination | 6/10 | Many domains are known; top-level `next` must preserve per-domain cursors instead of leaking raw `data.next`. |
-| Minification/content views | 7/10 | File content is strong; PR content has fewer modes and that must stay visible to agents. |
+| Minification/content views | 8/10 | File content is strong; a `symbols` view on PR/commit/diff content now emits `signatureUnsupported` instead of silently degrading. |
 | Structural/AST search | 7.5/10 | Local/materialized AST search is strong; remote AST must always materialize bounded code first. |
 | LSP semantics | 6/10 | All 9 raw LSP types exist; quick-command and remote-materialized semantics need clearer parity and tests. |
-| Fetch-to-local | 6/10 | Clone/cache/`--repo` flows work as a concept; search needs explicit localPath provenance and executable follow-ups. |
+| Fetch-to-local | 7.5/10 | `target:"materialize"` gives explicit `localPath`/`repoRoot` provenance and executable `next.structure`/`next.files` follow-ups; extracted artifacts continue locally too. |
 | Diagnostics/evidence | 7/10 | The proof/candidate/partial model is right; stale cache, sanitizer, provider approximation, and unsupported-target diagnostics need stricter tests. |
 | Human renderer | 5/10 | V1 row types render acceptably; V2 `record` rows must become visible and useful outside `--json`. |
 | Parity tests | 6/10 | Focused OQL tests pass; every target still needs old-command/raw-tool-vs-OQL golden comparisons. |
@@ -198,10 +204,10 @@ Rating rule for future audits:
 | `pr` | Yes | `target:"pullRequests"` or `diff` | PR list/detail modes, comments/reviews/patch selectors. |
 | `history` | Yes | `target:"commits"` or `pullRequests` | Commit history, path/subtree, PR handoff, rename/diff behavior. |
 | `binary` | Yes | `target:"artifacts"` | Inspect/list/extract/decompress/strings/unpack modes, string scan offsets, char windows, and output paths. |
-| `unzip` | Yes | `target:"artifacts"` | Must expose extracted local path and follow-up local search/structure continuations. |
-| `clone` | Mostly | materialization lane | Search should use clone for proof; users may still need explicit clone/cache management until a materialization target lands. |
-| `cache fetch` | Mostly | materialization/content handoff | Search should return materialized/localPath continuations; `cache status` and `cache clear` remain management. |
-| `diff` | Yes | `target:"diff"` | Direct file diff and PR patch diff need separate parity checks. |
+| `unzip` | Yes | `target:"artifacts"` | Exposes extracted `localPath`; rows now emit `next.structure`/`next.files` follow-ups rooted at it. |
+| `clone` | Yes | `target:"materialize"` | `target:"materialize"` returns a first-class checkpoint row + continuations; `cache status`/`cache clear` remain management. |
+| `cache fetch` | Yes | `target:"materialize"` | Returns materialized `localPath`/`repoRoot`/`cache`/`complete` + `next.structure`/`next.files`; `cache status`/`cache clear` remain management. |
+| `diff` | Yes | `target:"diff"` | Two typed lanes: PR patch (`{prNumber}`) and direct file (`{baseRef,headRef,path}`); neither → repair diagnostic. |
 | `search` | Already | OQL runner | Must stay a thin wrapper over tools-core. |
 | `tools` | No | Raw tool runner | Keep for schema-exact debug, parity probes, and compatibility. |
 | `context` | No | Protocol/help surface | Keep for agent bootstrapping and schema discovery. |
@@ -471,14 +477,29 @@ Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
    into the OQL envelope so `next.page` is emitted first-class (run.ts). Other
    per-domain cursors (PR file/comment/commit pages, binary scan offsets, LSP
    pages) still pass through `params` rather than typed `next.*`.
-7. ⬜ `clone`/`cache fetch` first-class materialization checkpoint story — open.
-8. ⬜ `diff` direct-file vs PR-patch distinction — open (diff is PR-patch only).
-9. ⬜ `unzip`/`unpack` extracted-localPath follow-up continuations — open.
-10. ⬜ `lsp` vs raw `documentSymbols` parity narrative — open.
-11. ⬜ PR content `none|standard`-only (no `symbols`) visibility — open (doc).
+7. ✅ `clone`/`cache fetch` first-class materialization checkpoint — done.
+   `target:"materialize"` clones/caches a bounded corpus and returns a
+   `recordType:"materialized"` checkpoint row (`localPath`/`repoRoot`/`ref`/
+   `cache`/`complete`) with `next.structure`/`next.files`; unbounded clone is
+   refused with `materializationNotAllowed`. Live-verified
+   (`adapters/materialize.ts`, `run.ts`).
+8. ✅ `diff` direct-file vs PR-patch distinction — done. `executeDiff`
+   discriminates `{prNumber}` (PR patch) vs `{baseRef,headRef,path}` (direct file
+   via `ghGetFileContent` ×2 + pure `computeLineDiff`); neither → `invalidQuery`
+   repair (no silent PR call). (`adapters/v2.ts`.)
+9. ✅ `unzip`/`unpack` extracted-localPath follow-up continuations — done.
+   `record:artifact` rows with a derived `localPath` emit `next.structure`/
+   `next.files` rooted at it (`run.ts` continuation registry).
+10. ✅ `lsp` vs raw `documentSymbols` parity narrative — done. Local code rows
+    emit `next.semantic` (`type:"documentSymbols"`) + `next.fetch`; semantics rows
+    emit `next.fetch`. Narrative recorded in `OCTOCODE_OQL_OPEN_GAPS.md` #10.
+11. ✅ PR content `none|standard`-only (no `symbols`) visibility — done.
+    `checkOutputFeatures` emits `signatureUnsupported` + repair when a `symbols`
+    view is requested for `pullRequests`/`commits`/`diff` (`features.ts`).
 12. 🟡 Added typed-shape + identity + continuation regression tests
-    (parity-gaps, review-fixes, v2-targets); full raw-tool-JSON-vs-OQL-JSON
-    golden matrix is still future.
+    (parity-gaps, review-fixes, v2-targets, open-gaps-fixes,
+    open-gaps-materialize); full raw-tool-JSON-vs-OQL-JSON golden matrix is still
+    future.
 13. ✅ Gate 15 (negation/xor proof over a provider) fixed: `not`/`xor` over a
     GitHub source no longer claims provider `proof`. Negation parity is threaded
     into leaf routing, so a negated predicate ROUTEs to bounded materialization
@@ -503,9 +524,21 @@ Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
 17. 🟡 Capability regression coverage added for match-string anchored reads and
     match-anchored `contextLines` (verified `contextLines` applies to match
     anchors, not explicit line ranges). Tests: `tests/oql/content-views.test.ts`.
-18. ⬜ Structural `metavars` are not returned by the backing engine (match type
-    has no captures); see `OCTOCODE_OQL_OPEN_GAPS.md` #12. Tracked as an open
-    structural-coverage gap (OQL must not fabricate captures).
+18. 🟡 Structural `metavars` — OQL side done; engine side pending. OQL now emits
+    a `partialResult` diagnostic when a structural query `select`s `metavars`
+    (`features.ts`), and `mapCodeResult` already forwards engine captures into
+    `row.metavars` (flows the moment the engine emits them). Residual: the Rust
+    structural engine emitting per-match captures + a `metavars?` field on
+    `LocalSearchCodeMatch` in `@octocodeai/octocode-core` (cross-package; gated).
+    See `OCTOCODE_OQL_OPEN_GAPS.md` #12.
+
+> **2026-06-22 — gaps 7–11 closed, 12/18 OQL-side closed.** Implemented from
+> root cause via two shared mechanisms (continuation registry in `run.ts`;
+> `checkOutputFeatures` in `features.ts`) + the diff lane split and the
+> `target:"materialize"` checkpoint. Live-verified through the rebuilt CLI;
+> tools-core suite 967 passing (+18 in `open-gaps-fixes.test.ts` /
+> `open-gaps-materialize.test.ts`). Only the cross-package engine-captures piece
+> (12a) remains open.
 
 ## Minimal Parity Test Suite
 

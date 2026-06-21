@@ -280,10 +280,29 @@ function derivedLocalPath(row: OqlResultRow): string | undefined {
 }
 
 function buildArtifactContinuations(
-  row: OqlResultRow
+  row: OqlResultRow,
+  ctx: ContinuationCtx
 ): Record<string, OqlContinuation> | undefined {
+  const out: Record<string, OqlContinuation> = {};
   const lp = derivedLocalPath(row);
-  return lp ? localRootContinuations(lp, 'extracted') : undefined;
+  if (lp) Object.assign(out, localRootContinuations(lp, 'extracted'));
+
+  // Binary `strings` scan cursor: nextScanOffset → next scan window (a typed
+  // per-domain continuation instead of a raw params round-trip).
+  const data = (row as OqlRecordResultRow).data;
+  const nextScan =
+    typeof data?.nextScanOffset === 'number' ? data.nextScanOffset : undefined;
+  if (nextScan !== undefined) {
+    out['next.artifactStrings'] = {
+      query: {
+        ...ctx.query,
+        params: { ...(ctx.query.params ?? {}), scanOffset: nextScan },
+      },
+      why: 'Scan the next window of printable strings.',
+      confidence: 'exact',
+    };
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function buildMaterializedContinuations(

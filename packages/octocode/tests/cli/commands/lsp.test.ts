@@ -103,24 +103,45 @@ describe('lsp command', () => {
     expect(process.exitCode).toBe(EXIT.NOT_FOUND);
   });
 
-  // Regression: `documentSymbols` is a valid lspGetSemantics type (advertised in
-  // the tool schema), but the outline intentionally lives in `ls --symbols`. The
-  // shortcut used to reject it with a generic "Provide --type with one of ..."
-  // that didn't even list documentSymbols — confusing. It must instead give a
-  // direct, actionable redirect to `ls <file> --symbols`.
-  it('redirects --type documentSymbols to `ls --symbols` with a clear message', async () => {
+  it('runs file-level documentSymbols without requiring --symbol or --line', async () => {
+    executeDirectTool.mockResolvedValue({
+      isError: false,
+      content: [],
+      structuredContent: {
+        results: [
+          {
+            data: {
+              type: 'documentSymbols',
+              uri: 'index.ts',
+              payload: {
+                kind: 'documentSymbols',
+                symbols: [{ name: 'runCLI', kind: 'function', line: 10 }],
+              },
+            },
+          },
+        ],
+      },
+    });
     const parsed: ParsedArgs = {
       command: 'lsp',
       args: ['src/index.ts'],
-      options: { type: 'documentSymbols' },
+      options: { type: 'documentSymbols', json: true },
     };
     await lspCommand.handler(parsed);
 
-    expect(executeDirectTool).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(EXIT.USAGE);
-    const errOut = vi.mocked(console.error).mock.calls.flat().join(' ');
-    expect(errOut).toMatch(/ls src\/index\.ts --symbols/);
-    expect(errOut).toMatch(/documentSymbols/);
+    expect(executeDirectTool).toHaveBeenCalledTimes(1);
+    expect(executeDirectTool).toHaveBeenCalledWith(
+      'lspGetSemantics',
+      expect.objectContaining({
+        queries: [
+          expect.objectContaining({
+            uri: expect.stringContaining('src/index.ts'),
+            type: 'documentSymbols',
+          }),
+        ],
+      })
+    );
+    expect(process.exitCode).toBeUndefined();
   });
 
   it('renders definition locations directly for human output', async () => {
