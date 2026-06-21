@@ -20,7 +20,10 @@ export type OqlActiveTargetV1 =
   | 'pullRequests'
   | 'commits'
   | 'artifacts'
-  | 'diff';
+  | 'diff'
+  // Addressable materialization: clone/cache a bounded corpus and return a
+  // stable local checkpoint (not a side-effect of a search).
+  | 'materialize';
 
 // V3 (fixes/dataflow) remain reserved — they need engine proof support.
 export type OqlReservedTarget = 'fixes' | 'dataflow';
@@ -39,6 +42,7 @@ export const ACTIVE_TARGETS: readonly OqlActiveTargetV1[] = [
   'commits',
   'artifacts',
   'diff',
+  'materialize',
 ];
 
 export const RESERVED_TARGETS: readonly OqlReservedTarget[] = [
@@ -453,7 +457,8 @@ export interface OqlRecordResultRow {
     | 'pullRequest'
     | 'commit'
     | 'artifact'
-    | 'diff';
+    | 'diff'
+    | 'materialized';
   /** Stable, citeable identity (repo, name@version, #PR, SHA, path, uri). */
   id?: string;
   source?: QuerySource;

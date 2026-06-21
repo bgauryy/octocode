@@ -491,6 +491,21 @@ Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
     source is rejected with `invalidQuery` + repair instead of silently planning
     an executable read that fails opaquely at the tool layer (contract
     §source-and-scope). Tests: `tests/oql/github-corpus.test.ts`.
+15. ✅ Content view labelling fixed: a content row now reports the view it was
+    *asked* for (`exact`/`compact`/`symbols`) instead of the tool's unreliable
+    echo (a `symbols` read previously mislabelled itself `compact`). Local +
+    GitHub content paths. Tests: `tests/oql/content-views.test.ts`.
+16. ✅ Content char-window pagination fixed: a windowed content read now carries
+    `range.charOffset`/`charLength` and emits a first-class `next.charRange`
+    continuation; `target:"content"` no longer emits a misleading `next.page`
+    (wrong pagination domain). Local + GitHub content paths. Tests:
+    `tests/oql/content-views.test.ts`.
+17. 🟡 Capability regression coverage added for match-string anchored reads and
+    match-anchored `contextLines` (verified `contextLines` applies to match
+    anchors, not explicit line ranges). Tests: `tests/oql/content-views.test.ts`.
+18. ⬜ Structural `metavars` are not returned by the backing engine (match type
+    has no captures); see `OCTOCODE_OQL_OPEN_GAPS.md` #12. Tracked as an open
+    structural-coverage gap (OQL must not fabricate captures).
 
 ## Minimal Parity Test Suite
 

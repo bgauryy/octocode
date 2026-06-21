@@ -237,7 +237,12 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
   const from = normalizeSource(raw, target as OqlQueryV1['target']);
   const scope = normalizeScope(raw, from);
   const where = normalizeWhere(raw, target as OqlQueryV1['target']);
-  const materialize = normalizeMaterialize(raw, from, where);
+  const materialize = normalizeMaterialize(
+    raw,
+    from,
+    where,
+    target as OqlQueryV1['target']
+  );
   const fetch = normalizeFetch(raw);
 
   const canonical: OqlQueryV1 = {
@@ -714,13 +719,26 @@ function isLocalOnlyPredicate(p: Predicate | undefined): boolean {
 function normalizeMaterialize(
   raw: OqlInputQueryV1,
   from: QuerySource | undefined,
-  where: Predicate | undefined
+  where: Predicate | undefined,
+  target: OqlQueryV1['target']
 ): MaterializePolicy | undefined {
   let policy: MaterializePolicy | undefined;
   if (typeof raw.materialize === 'string') {
     policy = { mode: raw.materialize };
   } else if (raw.materialize && typeof raw.materialize === 'object') {
     policy = raw.materialize as MaterializePolicy;
+  }
+
+  // target:"materialize" IS a clone op: it must materialize. Force mode away
+  // from "never" and default to a bounded subtree so the planner's bounded-scope
+  // safety check applies (an unbounded subtree without scope.path is refused).
+  if (target === 'materialize' && from?.kind === 'github') {
+    if (!policy) return { mode: 'required', strategy: 'subtree' };
+    return {
+      ...policy,
+      mode: policy.mode === 'never' ? 'required' : policy.mode,
+      strategy: policy.strategy ?? 'subtree',
+    };
   }
 
   if (from?.kind !== 'github') {

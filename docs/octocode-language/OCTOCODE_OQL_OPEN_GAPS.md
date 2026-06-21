@@ -143,6 +143,33 @@ content-fetch continuation in `none`/`standard`, instead of silently degrading.
 
 ---
 
+## 12. ⬜ Structural search metavariable captures (`metavars`) not returned
+
+**What works today.** `target:"code"` with `where.kind:"structural"` (pattern or
+JSON rule) runs the local structural engine and returns match rows with
+`path`/`line`/`column`/`snippet`, plus the engine's AST node `kind`.
+
+**What is missing.** The contract and parity checklist say structural metavars
+(`$X`, `$$$ARGS`) must "survive in row data and renderer", and `OqlCodeResultRow`
+has a `metavars` field — but the backing tool's match type
+(`LocalSearchCodeMatch`) exposes **no capture/metavariable field**. So
+`select:["metavars"]` and `view:"detailed"` return rows with `metavars`
+undefined. This is a backend coverage gap, not a mapper bug: the OQL layer does
+not (and must not) fabricate captures the engine never produced.
+
+**Target shape.** Either (a) the structural engine returns per-match captures
+that `mapCodeResult` forwards into `row.metavars`, or (b) until then OQL emits a
+`partialResult`/`signatureUnsupported`-style diagnostic when a structural query
+explicitly `select`s `metavars`, so the absence is explicit rather than silent.
+
+**Fallback until closed.** Use the matched `snippet` + `line` and re-read exact
+content; do not rely on `metavars` for structural proof yet.
+
+> Note (not a gap): `fetch.content.range.contextLines` applies to **match-
+> anchored** reads (`fetch.content.match`), not to explicit `startLine/endLine`
+> ranges — there the range itself is the exact window. This is intentional tool
+> semantics, verified by `tests/oql/content-views.test.ts`.
+
 ## Summary table
 
 | # | Gap | Backend exists | Missing piece | Fallback |
@@ -152,5 +179,6 @@ content-fetch continuation in `none`/`standard`, instead of silently degrading.
 | 9 | unzip/unpack continuations | ✅ `localBinaryInspect` | extracted-path `next.*` | read `localPath`, local tools |
 | 10 | lsp vs documentSymbols | ✅ `lspGetSemantics` | parity narrative + `next.semantic` | raw LSP / `ls --symbols` |
 | 11 | PR content symbols | ✅ `ghHistoryResearch` | `signatureUnsupported` on PR `symbols` | request `none`/`standard` |
+| 12 | structural metavars | 🟡 `localSearchCode` (no captures) | engine captures → `row.metavars` | use `snippet`+`line`, re-read exact |
 
-These are tracked as items 7–11 in the parity checklist's **Current Gap Log**.
+These are tracked as items 7–12 in the parity checklist's **Current Gap Log**.

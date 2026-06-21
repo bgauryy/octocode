@@ -267,21 +267,222 @@ export async function executeHistory(
   );
 }
 
+/**
+ * `target:"diff"` has two typed lanes, discriminated by params shape:
+ *   - PR patch:    { prNumber, files? }            -> ghHistoryResearch patches
+ *   - direct file: { baseRef, headRef, path }      -> two ghGetFileContent reads
+ *                                                     + a pure local line diff
+ * A request that fits neither returns a repair diagnostic rather than silently
+ * falling through to a PR-patch call (see OCTOCODE_OQL_OPEN_GAPS.md gap 8).
+ */
 export async function executeDiff(query: OqlQueryV1): Promise<AdapterResult> {
-  // V2 diff reuses PR patch retrieval: params carry { prNumber, files? }.
+  const p = params(query);
   const { owner, repo } = splitRepo(query.from);
-  const result = await runDirect('ghHistoryResearch', {
-    ...(owner ? { owner } : {}),
-    ...(repo ? { repo } : {}),
-    content: { patches: { mode: 'all' } },
-    ...params(query),
-  });
-  return finishRecords(
-    result,
-    'diff',
-    'ghHistoryResearch',
-    query.from ?? { kind: 'github' }
+
+  const hasPr = p.prNumber !== undefined && p.prNumber !== null;
+  const directRefs = directFileRefs(p);
+
+  if (hasPr) {
+    // PR patch lane (unchanged behavior).
+    const result = await runDirect('ghHistoryResearch', {
+      ...(owner ? { owner } : {}),
+      ...(repo ? { repo } : {}),
+      content: { patches: { mode: 'all' } },
+      ...p,
+    });
+    return finishRecords(
+      result,
+      'diff',
+      'ghHistoryResearch',
+      query.from ?? { kind: 'github' }
+    );
+  }
+
+  if (directRefs) {
+    return executeDirectFileDiff(query, owner, repo, directRefs);
+  }
+
+  return {
+    results: [],
+    diagnostics: [
+      diagnostic(
+        'invalidQuery',
+        'target:"diff" needs either {prNumber} (PR patch diff) or {baseRef,headRef,path} (direct file diff between two refs).',
+        {
+          backend: 'ghHistoryResearch',
+          repair: {
+            message:
+              'Add params.prNumber for a PR patch, or params.baseRef + params.headRef + params.path for a direct file diff.',
+          },
+        }
+      ),
+    ],
+    provenance: [],
+  };
+}
+
+interface DirectFileRefs {
+  baseRef: string;
+  headRef: string;
+  path: string;
+}
+
+function directFileRefs(p: Record<string, unknown>): DirectFileRefs | undefined {
+  if (
+    typeof p.baseRef === 'string' &&
+    typeof p.headRef === 'string' &&
+    typeof p.path === 'string'
+  ) {
+    return { baseRef: p.baseRef, headRef: p.headRef, path: p.path };
+  }
+  return undefined;
+}
+
+/** Direct two-ref file diff via two content reads + a pure local line diff. */
+async function executeDirectFileDiff(
+  query: OqlQueryV1,
+  owner: string | undefined,
+  repo: string | undefined,
+  refs: DirectFileRefs
+): Promise<AdapterResult> {
+  if (!owner || !repo) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'invalidQuery',
+          'Direct file diff needs a concrete owner/repo.',
+          { backend: 'ghGetFileContent' }
+        ),
+      ],
+      provenance: [],
+    };
+  }
+
+  const read = (ref: string) =>
+    runDirect('ghGetFileContent', {
+      owner,
+      repo,
+      filePath: refs.path,
+      branch: ref,
+      fullContent: true,
+      minify: 'none',
+    });
+
+  const [baseRes, headRes] = await Promise.all([
+    read(refs.baseRef),
+    read(refs.headRef),
+  ]);
+
+  const base = firstQueryData<{ content?: string; error?: string }>(baseRes);
+  const head = firstQueryData<{ content?: string; error?: string }>(headRes);
+
+  if (base.status === 'error' || head.status === 'error') {
+    const err =
+      base.data?.error ?? head.data?.error ?? 'Could not read file at one ref.';
+    return {
+      results: [],
+      diagnostics: [diagnostic('invalidQuery', err, { backend: 'ghGetFileContent' })],
+      provenance: [{ backend: 'ghGetFileContent', source: query.from }],
+    };
+  }
+
+  const diff = computeLineDiff(base.data?.content ?? '', head.data?.content ?? '');
+  const row: OqlRecordResultRow = {
+    kind: 'record',
+    recordType: 'diff',
+    id: refs.path,
+    ...(query.from ? { source: query.from } : {}),
+    data: {
+      path: refs.path,
+      baseRef: refs.baseRef,
+      headRef: refs.headRef,
+      additions: diff.additions,
+      deletions: diff.deletions,
+      patch: diff.patch,
+      unchanged: diff.unchanged,
+    },
+  };
+  return {
+    results: [row],
+    diagnostics:
+      diff.additions === 0 && diff.deletions === 0
+        ? [
+            diagnostic('zeroMatches', 'Files are identical at both refs.', {
+              backend: 'ghGetFileContent',
+              severity: 'info',
+              blocksAnswer: false,
+            }),
+          ]
+        : [],
+    provenance: [{ backend: 'ghGetFileContent', source: query.from }],
+  };
+}
+
+export interface LineDiff {
+  additions: number;
+  deletions: number;
+  unchanged: number;
+  /** Unified-style patch text (`+`/`-`/` ` line prefixes). */
+  patch: string;
+}
+
+/**
+ * Minimal LCS-based line diff between two file bodies. Pure and dependency-free
+ * so it is unit-testable without any backend. Not a byte-perfect git patch —
+ * a line-granular additions/deletions view for direct two-ref comparison.
+ */
+export function computeLineDiff(baseText: string, headText: string): LineDiff {
+  const a = baseText === '' ? [] : baseText.split('\n');
+  const b = headText === '' ? [] : headText.split('\n');
+  const n = a.length;
+  const m = b.length;
+
+  // LCS length table.
+  const lcs: number[][] = Array.from({ length: n + 1 }, () =>
+    new Array<number>(m + 1).fill(0)
   );
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i]![j] =
+        a[i] === b[j]
+          ? lcs[i + 1]![j + 1]! + 1
+          : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+    }
+  }
+
+  const lines: string[] = [];
+  let additions = 0;
+  let deletions = 0;
+  let unchanged = 0;
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      lines.push(`  ${a[i]}`);
+      unchanged++;
+      i++;
+      j++;
+    } else if (lcs[i + 1]![j]! >= lcs[i]![j + 1]!) {
+      lines.push(`- ${a[i]}`);
+      deletions++;
+      i++;
+    } else {
+      lines.push(`+ ${b[j]}`);
+      additions++;
+      j++;
+    }
+  }
+  while (i < n) {
+    lines.push(`- ${a[i++]}`);
+    deletions++;
+  }
+  while (j < m) {
+    lines.push(`+ ${b[j++]}`);
+    additions++;
+  }
+
+  return { additions, deletions, unchanged, patch: lines.join('\n') };
 }
 
 export async function executeArtifacts(

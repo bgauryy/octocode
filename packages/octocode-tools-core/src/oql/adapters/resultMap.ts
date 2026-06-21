@@ -49,6 +49,13 @@ export function mapCodeResult(
       continue;
     }
     for (const m of matches) {
+      // Structural metavariable captures ($X, $$$ARGS). The engine match type
+      // does not yet declare this field, so read it defensively: the moment the
+      // engine returns captures they flow into row.metavars with no further
+      // wiring. Until then it is absent (never a fabricated/ghost value) — the
+      // feature-capability check emits `partialResult` when captures are
+      // requested but unavailable. See OCTOCODE_OQL_OPEN_GAPS.md gap 12.
+      const captures = (m as { metavars?: Record<string, unknown> }).metavars;
       rows.push({
         kind: 'code',
         source,
@@ -56,6 +63,9 @@ export function mapCodeResult(
         line: m.line,
         ...(m.column !== undefined ? { column: m.column } : {}),
         ...(m.value !== undefined ? { snippet: m.value } : {}),
+        ...(captures && Object.keys(captures).length
+          ? { metavars: captures }
+          : {}),
       });
     }
   }

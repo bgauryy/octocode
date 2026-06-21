@@ -11,6 +11,7 @@
  *    emits `planTruncated` only).
  */
 import { routeLeafPredicate, type CapabilityContext } from './capabilities.js';
+import { checkOutputFeatures } from './features.js';
 import { diagnostic } from './diagnostics.js';
 import { DEFAULTS, appliedDefaults } from './defaults.js';
 import type {
@@ -160,6 +161,8 @@ function operationFor(target: OqlQueryV1['target']): string {
       return 'inspectArtifact';
     case 'diff':
       return 'diff';
+    case 'materialize':
+      return 'materialize';
   }
 }
 
@@ -216,6 +219,11 @@ export function planQuery(
       exact: true,
     });
   }
+
+  // Output-feature capability check (content view / select projections). Emits
+  // non-blocking diagnostics so a requested-but-unbackable feature is explicit,
+  // never silently degraded.
+  out.diagnostics.push(...checkOutputFeatures(query));
 
   // Materialization decision + safety checks
   const materializeDecision = decideMaterialization(query, out.diagnostics);
@@ -291,6 +299,8 @@ function backendForTargetless(query: OqlQueryV1): string {
       return 'localBinaryInspect';
     case 'diff':
       return 'ghHistoryResearch';
+    case 'materialize':
+      return 'ghCloneRepo';
     default:
       return local ? 'localSearchCode' : 'ghSearchCode';
   }
