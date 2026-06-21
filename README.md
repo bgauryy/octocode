@@ -65,13 +65,7 @@ npx octocode install
 **CLI fast install:**
 
 ```bash
-# Run the CLI without installing globally
 npx octocode
-
-# Or install once with Homebrew
-brew tap bgauryy/octocode
-brew install octocode
-octocode
 ```
 
 Authenticate GitHub when you want private repositories or higher API limits:
@@ -222,13 +216,7 @@ The CLI exposes the same research engine without an MCP client. Use quick comman
 ### Install
 
 ```bash
-# Run the CLI without installing globally
 npx octocode
-
-# Or install once with Homebrew
-brew tap bgauryy/octocode
-brew install octocode
-octocode
 ```
 
 ```bash
@@ -352,53 +340,30 @@ Per-project overrides and custom LSP servers live in a workspace `.octocode/` fo
 
 ## Authentication Methods
 
-GitHub-backed tools require authentication. Pick whichever method fits your setup; any one is enough. Full details: [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md).
+GitHub-backed tools require authentication. Any one method is enough. Full details: [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md).
 
 ### Option 1: Octocode CLI (Recommended)
 
-The simplest setup. Octocode stores OAuth credentials encrypted on disk.
-
 ```bash
-npx octocode auth login   # or: octocode login
+npx octocode auth login
 npx octocode status       # verify the active token source
 ```
 
-### Option 2: GitHub CLI
+Octocode stores OAuth credentials encrypted on disk.
 
-Use your existing `gh` credentials: automatic token management, works with 2FA and SSO.
+### Option 2: GitHub CLI (also supported)
 
 ```bash
-# Install GitHub CLI
-brew install gh                          # macOS
-winget install --id GitHub.cli           # Windows
-# Linux: https://github.com/cli/cli/blob/trunk/docs/install_linux.md
-
 gh auth login
 ```
 
-No `GITHUB_TOKEN` is needed; Octocode reads the `gh` token automatically.
+Octocode reads the `gh` token automatically — no further config needed.
 
-### Option 3: Personal Access Token
+### Option 3: Personal Access Token (also supported)
 
-Best for CI/CD, automation, MCP client configs, or GitHub Enterprise.
+Set `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in your shell. Required scopes: `repo`, `read:user`, `read:org`.
 
-1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens)
-2. Select scopes: `repo`, `read:user`, `read:org`
-3. Provide it via `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` (in your shell or MCP client `env`):
-
-```json
-{
-  "mcpServers": {
-    "octocode": {
-      "command": "npx",
-      "args": ["octocode-mcp@latest"],
-      "env": {
-        "GITHUB_TOKEN": "<your-token>"
-      }
-    }
-  }
-}
-```
+Create a token at [github.com/settings/tokens](https://github.com/settings/tokens).
 
 > **Security tip**: Never commit tokens to version control. Use environment variables or secure secret management.
 
