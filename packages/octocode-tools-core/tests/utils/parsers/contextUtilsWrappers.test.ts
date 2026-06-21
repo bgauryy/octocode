@@ -59,7 +59,7 @@ describe('context-utils parser wrappers', () => {
       },
     ]);
     expect(result.stats).toEqual({
-      matchCount: 1,
+      totalOccurrences: 1,
       matchedLines: 1,
       filesMatched: 1,
       filesSearched: 4,
