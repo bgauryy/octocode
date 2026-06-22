@@ -1,5 +1,4 @@
 import { CallToolResult } from '@modelcontextprotocol/sdk/types';
-import { maskSensitiveData } from '@octocodeai/octocode-engine/mask';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { getConfigSync } from './shared/index.js';
 import { contextUtils, type JsonInput } from './utils/contextUtils.js';
@@ -264,16 +263,14 @@ function cleanAndStructure(data: unknown): Record<string, unknown> | undefined {
 
 function sanitizeText(text: string): string {
   if (text == null || typeof text !== 'string') return '';
-  const sanitizationResult = ContentSanitizer.sanitizeContent(text);
-  return maskSensitiveData(sanitizationResult.content);
+  return ContentSanitizer.sanitizeContent(text).content;
 }
 
 export function sanitizeStructuredContent(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
 
   if (typeof obj === 'string') {
-    const sanitized = ContentSanitizer.sanitizeContent(obj);
-    return maskSensitiveData(sanitized.content);
+    return ContentSanitizer.sanitizeContent(obj).content;
   }
 
   if (Array.isArray(obj)) {
@@ -341,8 +338,7 @@ export function createResponseFormat(
     });
   }
 
-  const sanitizationResult = ContentSanitizer.sanitizeContent(serialized);
-  return maskSensitiveData(sanitizationResult.content);
+  return ContentSanitizer.sanitizeContent(serialized).content;
 }
 
 function sortObjectKeys(obj: unknown, priority: string[]): unknown {

@@ -124,3 +124,11 @@ Clone when:
 - LSP definition/references/call hierarchy is needed;
 - you need to inspect generated/local package relationships;
 - GitHub search is capped/noisy/empty but structure suggests code exists.
+
+---
+
+## Docs
+
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/GITHUB_TOOLS.md)
+- [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md)
+- [Tool Behavior Guide](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/TOOL_BEHAVIOR.md)

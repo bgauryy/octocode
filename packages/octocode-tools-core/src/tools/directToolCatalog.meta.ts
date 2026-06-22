@@ -69,6 +69,11 @@ import {
   LocalBinaryInspectQuerySchema,
   LocalBinaryInspectBulkQuerySchema,
 } from './local_binary_inspect/scheme.js';
+import {
+  OqlSearchInputSchema,
+  OqlSearchQuerySchema,
+} from './oql_search/scheme.js';
+import { OQL_SEARCH_TOOL_NAME } from './oql_search/constants.js';
 
 export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];
@@ -111,6 +116,7 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
+    OQL_SEARCH_TOOL_NAME,
   ].map((name, index) => [name, index])
 );
 
@@ -265,6 +271,11 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     name: STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT,
     schema: LocalBinaryInspectQuerySchema,
     inputSchema: LocalBinaryInspectBulkQuerySchema,
+  },
+  {
+    name: OQL_SEARCH_TOOL_NAME,
+    schema: OqlSearchQuerySchema,
+    inputSchema: OqlSearchInputSchema,
   },
 ];
 

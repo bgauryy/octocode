@@ -137,6 +137,28 @@ describe('OQL transformers: GitHub code search query', () => {
 
     expect(transformed.ok).toBe(false);
     if (transformed.ok) throw new Error('expected transform to fail');
-    expect(transformed.diagnostics[0]?.code).toBe('requiresMaterialization');
+    expect(transformed.diagnostics[0]?.code).toBe(
+      'unsupportedVendorPredicate'
+    );
+    expect(transformed.diagnostics[0]?.blocksAnswer).toBe(true);
+  });
+
+  it('blocks lossy multi-scope mappings instead of silently dropping values', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'code',
+        from: { kind: 'github', repo: 'facebook/react' },
+        scope: { language: ['ts', 'tsx'] },
+        where: { kind: 'text', value: 'useState' },
+      })
+    );
+
+    expect(transformed.ok).toBe(false);
+    if (transformed.ok) throw new Error('expected transform to fail');
+    expect(transformed.diagnostics[0]).toMatchObject({
+      code: 'lossyTransform',
+      queryPath: 'scope.language',
+      blocksAnswer: true,
+    });
   });
 });

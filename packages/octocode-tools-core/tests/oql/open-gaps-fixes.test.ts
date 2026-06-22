@@ -118,6 +118,7 @@ describe('gap 12: structural metavar captures flow into rows', () => {
       r => r.kind === 'code' && (r as OqlCodeResultRow).metavars
     ) as OqlCodeResultRow | undefined;
     expect(withCaptures).toBeDefined();
+    expect(withCaptures?.proofGrade).toBe('structural');
     expect(withCaptures?.metavars?.ARGS).toBeDefined();
     expect(Array.isArray(withCaptures?.metavars?.ARGS)).toBe(true);
   });

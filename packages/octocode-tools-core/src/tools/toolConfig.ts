@@ -53,6 +53,14 @@ import {
   LocalBinaryInspectQuerySchema,
   LocalBinaryInspectBulkQuerySchema,
 } from './local_binary_inspect/scheme.js';
+import {
+  OqlSearchInputSchema,
+  OqlSearchQuerySchema,
+} from './oql_search/scheme.js';
+import {
+  OQL_SEARCH_TOOL_DESCRIPTION,
+  OQL_SEARCH_TOOL_NAME,
+} from './oql_search/constants.js';
 import { executeInspectBinary } from './local_binary_inspect/execution.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
@@ -66,6 +74,7 @@ import { executeFindFiles } from './local_find_files/execution.js';
 import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
+import { executeOqlSearchTool } from './oql_search/execution.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
@@ -146,6 +155,7 @@ interface ToolCatalog {
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_GET_SEMANTIC_CONTENT: ToolConfig;
   LOCAL_BINARY_INSPECT: ToolConfig;
+  OQL_SEARCH: ToolConfig;
   ALL_TOOLS: ToolConfig[];
 }
 
@@ -340,6 +350,23 @@ function createToolCatalog(
     },
   });
 
+  const OQL_SEARCH: ToolConfig = {
+    name: OQL_SEARCH_TOOL_NAME,
+    description: OQL_SEARCH_TOOL_DESCRIPTION,
+    isDefault: true,
+    isLocal: false,
+    skipMetadataCheck: true,
+    type: 'search',
+    direct: {
+      schema: OqlSearchQuerySchema,
+      inputSchema: OqlSearchInputSchema,
+      executionFn: executeOqlSearchTool,
+      security: 'remote',
+      requiresServerRuntime: true,
+      requiresProviders: true,
+    },
+  };
+
   const ALL_TOOLS: ToolConfig[] = [
     GITHUB_SEARCH_CODE,
     GITHUB_FETCH_CONTENT,
@@ -354,6 +381,7 @@ function createToolCatalog(
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
     LOCAL_BINARY_INSPECT,
+    OQL_SEARCH,
   ];
 
   return {
@@ -370,6 +398,7 @@ function createToolCatalog(
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
     LOCAL_BINARY_INSPECT,
+    OQL_SEARCH,
     ALL_TOOLS,
   };
 }
@@ -393,4 +422,5 @@ export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_GET_SEMANTIC_CONTENT =
   DEFAULT_TOOL_CATALOG.LSP_GET_SEMANTIC_CONTENT;
 export const LOCAL_BINARY_INSPECT = DEFAULT_TOOL_CATALOG.LOCAL_BINARY_INSPECT;
+export const OQL_SEARCH = DEFAULT_TOOL_CATALOG.OQL_SEARCH;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

@@ -4,6 +4,8 @@ This skill is **CLI-first**. The **octocode CLI** and **octocode MCP tools** use
 
 Canonical, always-current CLI docs: **[docs/cli/REFERENCE.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)**. This file is the condensed map for engineering work; run `octocode <cmd> --help` for exact quick-command flags, and run `octocode tools <name> --scheme` before every raw-tool call. If the global `octocode` binary is missing, use `npx octocode <cmd>` for the same commands.
 
+For OQL patterns, surface selection, `--repo` shortcut, graph/reachability algorithm, and evidence rules see **[workflow.md](./workflow.md)**.
+
 ---
 
 ## Transport probe
@@ -100,6 +102,21 @@ octocode lsp <file> --type <type> --symbol <name> --line <n>
 
 `grep --mode discovery` (paths only) before `paginated`/`detailed`. `--concise` for the leanest discovery list.
 
+## `--repo` — remote as local
+
+`grep`, `find`, `cat`, and `ls` accept `--repo <owner/repo[@ref]>`. Materializes the repo or subpath under `.octocode`, runs the local tool against saved files, and returns `location` (absolute path). Reuse `location` with plain local tools — files stay materialized.
+
+```bash
+octocode grep "registerTool" --repo facebook/react packages/react --json --compact
+octocode grep --repo owner/repo src --pattern 'useMemo($$$ARGS)' --json   # AST on remote repo
+octocode find "*.test.ts" --repo owner/repo --json
+octocode cat src/index.ts --repo owner/repo@main --mode none --json
+```
+
+AST/structural search on a remote repo **requires** `--repo` or a prior clone; GitHub code-search cannot evaluate AST predicates. Path argument is repo-relative when `--repo` is set.
+
+---
+
 ## Raw tools and OQL
 
 Use raw tools only when a quick command cannot express the needed selector:
@@ -137,3 +154,11 @@ Local tools are confined to `$HOME` (+ `ALLOWED_PATHS`); paths outside are rejec
 ## What the native toolset does NOT do
 
 The CLI/MCP find **shapes** (AST), **relationships** (LSP, imports), and Smart OQL can now produce candidate reachability/package-drift rows. They still do **not** compute framework-complete entrypoint graphs, dependency cycle clusters, coupling/instability metrics, complexity/Halstead/Maintainability-Index numbers, or a full multi-detector scan. For those, approximate with fan-in/fan-out counts (see [SKILL.md](../SKILL.md) §4 Architecture, metrics & graph) or use an external measurement tool from [context_external_measurement_tools.md](./context_external_measurement_tools.md) — and **flag in the artifact** when a claim rests on approximation.
+
+---
+
+## Docs
+
+- [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
+- [Tool Behavior Guide](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/TOOL_BEHAVIOR.md)
+- [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md)

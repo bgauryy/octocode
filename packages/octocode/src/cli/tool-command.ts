@@ -764,9 +764,8 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
     // Engine-bearing modules are loaded only now, when a tool actually runs —
     // keeping the schema/help paths above engine-free (P3).
-    const { executeDirectTool, formatCallToolResultForOutput } = await import(
-      '@octocodeai/octocode-tools-core/direct'
-    );
+    const { executeDirectTool, formatCallToolResultForOutput } =
+      await import('@octocodeai/octocode-tools-core/direct');
     const result = await executeDirectTool(tool.name, input);
     printToolResult(result, getOutputMode(args), formatCallToolResultForOutput);
     if (result.isError) {

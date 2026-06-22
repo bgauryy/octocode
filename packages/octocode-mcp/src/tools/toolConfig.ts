@@ -11,6 +11,7 @@ import {
   ALL_TOOLS as CORE_ALL_TOOLS,
   STATIC_TOOL_NAMES,
   LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  OQL_SEARCH_TOOL_NAME,
   DEFAULT_TOOL_METADATA_GATEWAY,
   getDescription,
 } from '@octocodeai/octocode-tools-core';
@@ -28,6 +29,7 @@ import { registerLocalFindFilesTool } from './local_find_files/register.js';
 import { registerLocalFetchContentTool } from './local_fetch_content/register.js';
 import { registerLspGetSemanticsTool } from './lsp/semantic_content/register.js';
 import { registerLocalBinaryInspectTool } from './local_binary_inspect/register.js';
+import { registerOqlSearchTool } from './oql_search/register.js';
 
 export type {
   ToolConfig,
@@ -60,6 +62,7 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
   [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: registerLspGetSemanticsTool,
   [STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT]: registerLocalBinaryInspectTool,
+  [OQL_SEARCH_TOOL_NAME]: registerOqlSearchTool,
 };
 
 export const ALL_TOOLS: McpToolConfig[] = CORE_ALL_TOOLS.map(tool => {
@@ -109,3 +112,4 @@ export const LSP_GET_SEMANTIC_CONTENT = ALL_TOOLS.find(
 export const LOCAL_BINARY_INSPECT = ALL_TOOLS.find(
   t => t.name === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
 )!;
+export const OQL_SEARCH = ALL_TOOLS.find(t => t.name === OQL_SEARCH_TOOL_NAME)!;

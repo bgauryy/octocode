@@ -16,16 +16,16 @@ import type {
   OqlBackendCall,
   OqlDiagnostic,
   OqlExplainPlan,
+  OqlProofGradedResultRow,
   OqlProvenance,
   OqlResultEnvelope,
-  OqlResultRow,
   Pagination,
 } from './types.js';
 
 export interface BuildEnvelopeArgs {
   queryId?: string;
   queryIndex?: number;
-  results: OqlResultRow[];
+  results: OqlProofGradedResultRow[];
   pagination?: Pagination;
   next?: OqlResultEnvelope['next'];
   diagnostics: OqlDiagnostic[];
@@ -61,6 +61,9 @@ const UNSUPPORTED_CODES = new Set([
   'unsupportedPredicate',
   'unsupportedBoolean',
   'unsupportedScope',
+  'unsupportedVendorPredicate',
+  'vendorNoEquivalent',
+  'responseShapeMismatch',
 ]);
 
 function proofKind(args: BuildEnvelopeArgs): EvidenceKind {

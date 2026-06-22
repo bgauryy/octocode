@@ -3,6 +3,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
+import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/oql_search/constants.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const CORE_ROOT = resolve(ROOT, '../octocode-tools-core');
@@ -118,8 +119,10 @@ async function readProjectFile(relativePath: string): Promise<string> {
 }
 
 describe('tool stats emission contract', () => {
-  it('covers every registered tool from the catalog', async () => {
-    const catalogNames = ALL_TOOLS.map(tool => tool.name).sort();
+  it('covers every legacy bulk tool from the catalog', async () => {
+    const catalogNames = ALL_TOOLS.map(tool => tool.name)
+      .filter(name => name !== OQL_SEARCH_TOOL_NAME)
+      .sort();
     const coveredNames = registeredTools.map(tool => tool.name).sort();
 
     expect(catalogNames).toHaveLength(13);

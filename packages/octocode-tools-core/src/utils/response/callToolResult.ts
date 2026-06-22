@@ -1,6 +1,5 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/security';
-import { maskSensitiveData } from '@octocodeai/octocode-engine/mask';
 import { sanitizeStructuredContent } from '../../responses.js';
 
 export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
@@ -16,10 +15,7 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
           typeof item.text === 'string'
         ) {
           try {
-            const scan = ContentSanitizer.sanitizeContent(item.text);
-            const text = scan.hasSecrets
-              ? maskSensitiveData(scan.content)
-              : maskSensitiveData(item.text);
+            const { content: text } = ContentSanitizer.sanitizeContent(item.text);
             return { ...item, text };
           } catch {
             return item;

@@ -59,6 +59,10 @@ Inside this monorepo, the local built CLI is:
 node packages/octocode/out/octocode.js search --scheme
 ```
 
+MCP exposes the same schema through the thin `oqlSearch` tool. The CLI and MCP
+tool must import the shared OQL schema; do not duplicate the shape in an
+interface package.
+
 ## Minimal Query
 
 ```json
@@ -1066,7 +1070,7 @@ Single-query result:
 interface OqlResultEnvelope {
   queryId?: string;
   queryIndex?: number;
-  results: OqlResultRow[];
+  results: Array<OqlResultRow & { proofGrade: OqlProofGrade }>;
   pagination?: Pagination;
   next?: Record<string, OqlContinuation>;
   diagnostics: OqlDiagnostic[];
@@ -1084,11 +1088,14 @@ Result row kinds:
 
 | Row kind | Fields |
 |---|---|
-| `code` | `source`, `path`, `line`, `endLine`, `column`, `snippet`, `metavars`, `metavarRanges`, `next` |
-| `file` | `source`, `path`, `entryType`, `size`, `modified`, `next` |
-| `tree` | `source`, `path`, `entryType`, `depth`, `size`, `children`, `next` |
-| `content` | `source`, `path`, `content`, `range`, `contentView`, `next` |
-| `record` | `recordType`, `id`, `source`, `data`, `next` |
+| `code` | `proofGrade`, `source`, `path`, `line`, `endLine`, `column`, `snippet`, `metavars`, `metavarRanges`, `next` |
+| `file` | `proofGrade`, `source`, `path`, `entryType`, `size`, `modified`, `next` |
+| `tree` | `proofGrade`, `source`, `path`, `entryType`, `depth`, `size`, `children`, `next` |
+| `content` | `proofGrade`, `source`, `path`, `content`, `range`, `contentView`, `next` |
+| `record` | `proofGrade`, `recordType`, `id`, `source`, `data`, `next` |
+
+`proofGrade` is mandatory per row: `candidate`, `text`, `structural`,
+`semantic`, `graph`, or `missing`. Projection never removes it.
 
 Record types:
 

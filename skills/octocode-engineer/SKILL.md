@@ -32,6 +32,7 @@ Start with the primary reference, then add companions only when the scenario nee
 
 | Task / question | Read |
 |---|---|
+| **OQL patterns, `--repo` shortcut, surface selection, graph/reachability algorithm, evidence rules, diagnostics** | [`references/workflow.md`](./references/workflow.md) |
 | Local code research, implementation tracing, symbol lookup, AST/LSP, `matchString`, minify, pagination | [`references/research_local.md`](./references/research_local.md) |
 | Archives, compressed files, `.node`/`.wasm`/native binaries, unzip/unpack then inspect | [`references/research_binary.md`](./references/research_binary.md) |
 | GitHub/npm research, cross-repo comparison, package source lookup, PR/commit history, clone handoff | [`references/research_external.md`](./references/research_external.md) |
@@ -55,9 +56,11 @@ Start with the primary reference, then add companions only when the scenario nee
 | Compare external libraries/repos | `research_external.md`; add `research_local.md` after clone and `context_ast_pattern_cookbook.md` if comparing code shapes |
 | Inspect archive/binary package contents | `research_binary.md`; after `unpack`, continue with `research_local.md` |
 | Architecture/refactor risk | `workflow_engineering_research.md` + `research_local.md` + `checklist_quality_signals.md`; add `context_external_measurement_tools.md` only when a metric/graph number matters |
-| Dead-code/package-drift audit | `workflow_engineering_research.md` + `research_local.md`; add `context_external_measurement_tools.md` for knip confirmation |
+| Dead-code/package-drift audit | `workflow.md` + `workflow_engineering_research.md` + `research_local.md`; add `context_external_measurement_tools.md` for knip confirmation |
+| Reachability, retained-by, or safe-delete question | `workflow.md` (graph algorithm + OQL patterns) + `research_local.md` |
+| OQL surface selection or `--repo` shortcut | `workflow.md` |
 | Suspicious quality/security finding | `checklist_quality_signals.md` + `workflow_validation_playbooks.md`; add `context_ast_pattern_cookbook.md` for AST proof |
-      | Need exact syntax for any command/tool | `context_cli_mcp_commands.md` plus the workflow/reference for the task |
+| Need exact syntax for any command/tool | `context_cli_mcp_commands.md` plus the workflow/reference for the task |
 
 ## 3. Fast routing
 
@@ -66,8 +69,10 @@ Start with the primary reference, then add companions only when the scenario nee
 - **Archive/binary** → start `research_binary.md`; unpack before local code research.
 - **PR or local diff review** → start `workflow_pr_local_review.md` and add review checklist/template.
 - **Architecture/refactor/bug investigation** → start `workflow_engineering_research.md`, then add the relevant research reference.
+- **Dead-code / reachability / retained-by / safe-delete** → start `workflow.md` (graph algorithm + OQL patterns).
+- **OQL surface choice, `--repo` shortcut, diagnostic/failure handling** → use `workflow.md`.
 - **Quality smell or suspected issue** → start checklist, then validation playbook.
-      - **Exact CLI/raw-tool/MCP syntax** → use `context_cli_mcp_commands.md`.
+- **Exact CLI/raw-tool/MCP syntax** → use `context_cli_mcp_commands.md`.
 
 ## 4. Minimal operating loop
 

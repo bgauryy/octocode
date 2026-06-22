@@ -279,18 +279,77 @@ const ALL_TARGETS = [...ACTIVE_TARGETS, ...RESERVED_TARGETS] as unknown as [
   ...string[],
 ];
 
-export const OqlInputQuerySchema = z
-  .object({
-    schema: z.literal('oql').optional(),
-    // target is optional on raw input — the normalizer infers it from sugar
-    // (e.g. pattern/text -> "code", fetch.content -> "content").
-    target: z.enum(ALL_TARGETS).optional(),
-  })
-  .catchall(z.unknown());
+const OqlInputMetaShape = {
+  schema: z.literal('oql').optional(),
+  id: z.string().optional(),
+  mainResearchGoal: z.string().optional(),
+  researchGoal: z.string().optional(),
+  reasoning: z.string().optional(),
+} as const;
+
+const OqlInputQueryShape = {
+  ...OqlInputMetaShape,
+  // target is optional on raw input — the normalizer infers it from sugar
+  // (e.g. pattern/text -> "code", fetch.content -> "content").
+  target: z.enum(ALL_TARGETS).optional(),
+  from: QuerySourceSchema.optional(),
+  scope: QueryScopeSchema,
+  where: PredicateSchema.optional(),
+  materialize: z
+    .union([
+      MaterializePolicySchema,
+      z.enum(['never', 'auto', 'required']),
+    ])
+    .optional(),
+  fetch: FetchInstructionsSchema.optional(),
+  select: z.array(z.string()).optional(),
+  view: viewEnum.optional(),
+  controls: QueryControlsSchema.optional(),
+  limit: z.number().int().min(1).optional(),
+  page: z.number().int().min(1).optional(),
+  itemsPerPage: z.number().int().min(1).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
+  explain: z.boolean().optional(),
+  // Sugar fields consumed by normalize.ts.
+  repo: z.string().optional(),
+  owner: z.string().optional(),
+  ref: z.string().optional(),
+  path: stringOrArray.optional(),
+  text: z.string().optional(),
+  regex: z.string().optional(),
+  pattern: z.string().optional(),
+  rule: StructuralRuleSchema.optional(),
+  lang: z.string().optional(),
+  langType: z.string().optional(),
+  minify: z.enum(['none', 'standard', 'symbols']).optional(),
+  and: z.array(z.unknown()).optional(),
+  or: z.array(z.unknown()).optional(),
+  xor: z.array(z.unknown()).optional(),
+  noneOf: z.array(z.unknown()).optional(),
+  oneOf: z.array(z.unknown()).optional(),
+  invert: z.unknown().optional(),
+  filesOnly: z.boolean().optional(),
+  filesWithoutMatch: z.boolean().optional(),
+  verbose: z.boolean().optional(),
+} as const;
+
+export const OqlInputQuerySchema = z.object(OqlInputQueryShape).catchall(
+  z.unknown()
+);
 
 export const OqlInputBatchSchema = z
   .object({
-    schema: z.literal('oql').optional(),
+    ...OqlInputMetaShape,
     queries: z.array(z.unknown()).min(1),
+  })
+  .catchall(z.unknown());
+
+export const OqlSearchInputSchema = z
+  .object({
+    ...OqlInputQueryShape,
+    // Single-query fields are accepted alongside an optional batch envelope.
+    // Normalization decides whether the object is a single query or a batch.
+    queries: z.array(z.unknown()).min(1).max(5).optional(),
+    combine: z.enum(['independent', 'merge']).optional(),
   })
   .catchall(z.unknown());

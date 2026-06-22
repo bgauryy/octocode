@@ -17,6 +17,7 @@ export {
   OqlCanonicalInputSchema,
   OqlInputQuerySchema,
   OqlInputBatchSchema,
+  OqlSearchInputSchema,
   PredicateSchema,
   QuerySourceSchema,
   StructuralRuleSchema,

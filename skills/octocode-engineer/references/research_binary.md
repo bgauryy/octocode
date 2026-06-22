@@ -102,3 +102,9 @@ octocode ls <localPath> --depth 1 --json
 - Never LSP an archive path directly. LSP needs real source files on disk.
 - Treat `strings` findings as hints; prove behavior with source, exported symbols, docs, or runtime tests.
 - If content is sanitized/redacted, cite that caveat in findings.
+
+---
+
+## Docs
+
+- [Binary Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/BINARY_TOOLS.md)

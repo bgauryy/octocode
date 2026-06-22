@@ -51,6 +51,39 @@ function parseFrontmatter(text) {
   return fm;
 }
 
+// --- Prompt-hygiene helpers ---
+
+const STOPWORDS = new Set(
+  'the and for are but not you all can had her was one our out day get has him his how its may new now old see two way who did any use say she too via per etc only this that with from have been when will they than then them into your also just more other about after before there these their which where what each such some both does even same most well here over used need make very like been set run file path tool load read link list call'.split(' ')
+);
+
+function sigTokens(str) {
+  return new Set(str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w)));
+}
+
+function jaccard(a, b) {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const w of a) if (b.has(w)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+function stripNoise(str) {
+  // strip frontmatter, code blocks, tables, and HTML tags before prose analysis
+  return str
+    .replace(/^---[\s\S]*?---\n/, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/\|.*\|/g, '')
+    .replace(/<[^>]+>/g, '');
+}
+
+function splitSentences(str) {
+  return str
+    .split(/(?<=[.!?])\s+|\n\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s.split(/\s+/).length >= 10);
+}
+
 function lintSkill(skillDir) {
   const findings = [];
   const add = (sev, rule, msg) => findings.push({ sev, rule, msg });
@@ -58,13 +91,12 @@ function lintSkill(skillDir) {
   const text = readFileSync(mdPath, 'utf8');
   const lines = text.split('\n');
 
-  // E2: frontmatter
+  // E: frontmatter
   const fm = parseFrontmatter(text);
   if (!fm) add('ERROR', 'frontmatter', 'SKILL.md has no `---` frontmatter block');
   else {
     if (!fm.name) add('ERROR', 'frontmatter', 'frontmatter missing `name`');
     if (!fm.description) add('ERROR', 'frontmatter', 'frontmatter missing `description`');
-    // E3 / description style
     else {
       const d = fm.description.trim();
       if (!/^use\b/i.test(d) || !/\bwhen\b/i.test(d.slice(0, 80)))
@@ -73,49 +105,126 @@ function lintSkill(skillDir) {
     }
   }
 
-  // W1: SKILL.md leanness
+  // W: SKILL.md leanness
   if (lines.length > LIMITS.skillMd)
     add('WARN', 'skill-too-long', `SKILL.md is ${lines.length} lines > ${LIMITS.skillMd}; move conditional detail into references/`);
 
-  // W2: must use references
+  // W: must use references
   const refLinks = [...text.matchAll(/references\/([A-Za-z0-9._-]+\.md)/g)].map((m) => m[1]);
   if (refLinks.length === 0)
     add('WARN', 'no-references', 'SKILL.md links no references/*.md; lean skills push conditional detail into references');
 
-  // W5: each reference link line must carry a load condition
+  // W: each reference link line must carry a load condition
   lines.forEach((ln, i) => {
     if (/references\/[A-Za-z0-9._-]+\.md/.test(ln) && !COND.test(ln))
       add('WARN', 'link-no-condition', `line ${i + 1}: reference link lacks a load condition (when/if/before ...)`);
   });
 
-  // references/ files
+  // references/ files — read all once
   const refsDir = join(skillDir, 'references');
   const refFiles = existsSync(refsDir)
     ? readdirSync(refsDir).filter((f) => f.endsWith('.md'))
     : [];
-  for (const f of refFiles) {
-    const rl = readFileSync(join(refsDir, f), 'utf8').split('\n').length;
+  const refContents = refFiles.map((f) => ({
+    name: f,
+    label: `references/${f}`,
+    content: readFileSync(join(refsDir, f), 'utf8'),
+  }));
+
+  for (const { name: f, label, content: rc } of refContents) {
+    const rl = rc.split('\n').length;
     if (rl > LIMITS.reference)
-      add('WARN', 'reference-too-long', `references/${f} is ${rl} lines > ${LIMITS.reference}; split it`);
+      add('WARN', 'reference-too-long', `${label} is ${rl} lines > ${LIMITS.reference}; split it`);
     const stem = basename(f, '.md');
     if (NAME_EXEMPT.has(f)) continue;
     if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(stem))
-      add('WARN', 'reference-name', `references/${f} is not short kebab-case`);
+      add('WARN', 'reference-name', `${label} is not short kebab-case`);
     else if (stem.replace(/-/g, '').length > LIMITS.refNameChars)
-      add('WARN', 'reference-name', `references/${f} name too long; use a short indicative name`);
+      add('WARN', 'reference-name', `${label} name too long; use a short indicative name`);
     if (GENERIC.has(stem))
-      add('WARN', 'reference-name', `references/${f} is a generic name; use an indicative one`);
+      add('WARN', 'reference-name', `${label} is a generic name; use an indicative one`);
   }
 
-  // W6: linked references that do not exist
+  // E: linked references that do not exist
   for (const r of new Set(refLinks))
     if (!existsSync(join(refsDir, r)))
       add('ERROR', 'missing-reference', `SKILL.md links references/${r} but the file is missing`);
 
-  // info: cross-routing between references (references calling references)
+  // --- All-files collection for cross-file checks ---
+  const allMdFiles = [
+    { label: 'SKILL.md', content: text },
+    ...refContents.map((r) => ({ label: r.label, content: r.content })),
+  ];
+
+  // E: links that escape the skill folder (must use GitHub URLs instead)
+  const mdLinkRe = /\[([^\]]*)\]\(([^)]+)\)/g;
+  for (const { label, content } of allMdFiles) {
+    content.split('\n').forEach((ln, i) => {
+      for (const m of ln.matchAll(mdLinkRe)) {
+        const href = m[2].split(/[#?]/)[0].trim();
+        if (href.startsWith('../') || /^[/~]/.test(href) || href.startsWith('file://'))
+          add('ERROR', 'link-outside-skill', `${label} line ${i + 1}: "${href}" escapes the skill folder — use a GitHub URL instead`);
+      }
+    });
+  }
+
+  // --- Prompt-hygiene checks ---
+
+  for (const { label, content } of allMdFiles) {
+    const body = stripNoise(content);
+    const bodyLines = body.split('\n').filter((l) => l.trim());
+
+    // W-rigid: high density of imperative modals
+    const rigidHits = [...body.matchAll(/\b(MUST|NEVER|ALWAYS|FORBIDDEN|REQUIRED)\b/g)];
+    if (bodyLines.length > 0 && rigidHits.length / bodyLines.length > 0.12)
+      add('WARN', 'rigid', `${label}: ${rigidHits.length} rigid modals (MUST/NEVER/ALWAYS/FORBIDDEN) in ${bodyLines.length} lines — prefer defaults with escape hatches; reserve these for fragile/destructive steps`);
+
+    // W-verbose: filler phrases
+    const FILLER = /\b(in order to|it is important|make sure to|please note|note that|as mentioned|be sure to|ensure that you|take care to)\b/gi;
+    let fillerCount = 0;
+    content.split('\n').forEach((ln, i) => {
+      if (FILLER.test(ln) && ++fillerCount <= 3)
+        add('WARN', 'verbose', `${label} line ${i + 1}: filler phrase — rewrite concisely`);
+    });
+
+    // W-tautology: adjacent sentences with high token overlap
+    const sents = splitSentences(body);
+    for (let i = 0; i < sents.length - 1; i++) {
+      const a = sigTokens(sents[i]);
+      const b = sigTokens(sents[i + 1]);
+      if (a.size >= 5 && b.size >= 5 && jaccard(a, b) > 0.75) {
+        const sim = Math.round(jaccard(a, b) * 100);
+        add('WARN', 'tautology', `${label}: adjacent sentences are ${sim}% similar — one is likely redundant:\n         · "${sents[i].slice(0, 90)}"\n         · "${sents[i + 1].slice(0, 90)}"`);
+      }
+    }
+
+    // W-contradiction: verb appears after both MUST/ALWAYS and NEVER/MUST NOT in same file
+    const mustVerbs = new Set([...body.matchAll(/\b(?:MUST|ALWAYS)\s+(\w+)/gi)].map((m) => m[1].toLowerCase()));
+    const neverVerbs = new Set([...body.matchAll(/\b(?:NEVER|MUST NOT|must not|do not)\s+(\w+)/gi)].map((m) => m[1].toLowerCase()));
+    for (const v of mustVerbs)
+      if (neverVerbs.has(v))
+        add('WARN', 'contradiction', `${label}: "${v}" follows both MUST/ALWAYS and NEVER/MUST NOT — check for conflicting instructions`);
+  }
+
+  // W-duplicate: same non-trivial sentence (≥12 words) in 2+ locations across the skill
+  const seen = new Map(); // normalised sentence → first label
+  for (const { label, content } of allMdFiles) {
+    const body = stripNoise(content);
+    for (const s of splitSentences(body)) {
+      const words = s.split(/\s+/);
+      if (words.length < 12) continue;
+      const key = s.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!seen.has(key)) { seen.set(key, label); continue; }
+      const first = seen.get(key);
+      if (first !== label)
+        add('WARN', 'duplicate-content', `Sentence duplicated in ${first} and ${label}: "${s.slice(0, 100)}…"`);
+    }
+  }
+
+  // info: cross-routing between references
   let crossLinks = 0;
-  for (const f of refFiles)
-    crossLinks += [...readFileSync(join(refsDir, f), 'utf8').matchAll(/references?\/[A-Za-z0-9._-]+\.md|\.\.\/references\//g)].length;
+  for (const { content } of refContents)
+    crossLinks += [...content.matchAll(/references?\/[A-Za-z0-9._-]+\.md|\.\.\/references\//g)].length;
 
   return { skillDir, name: fm?.name ?? basename(skillDir), lines: lines.length, refFiles: refFiles.length, crossLinks, findings };
 }

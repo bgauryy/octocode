@@ -328,6 +328,10 @@ export type DiagnosticCode =
   | 'residualNotExact'
   | 'fieldTypeMismatch'
   | 'requiresMaterialization'
+  | 'vendorNoEquivalent'
+  | 'lossyTransform'
+  | 'unsupportedVendorPredicate'
+  | 'responseShapeMismatch'
   | 'materializationNotAllowed'
   | 'materializationFailed'
   | 'providerUnindexed'
@@ -395,7 +399,23 @@ export interface OqlExplainPlan {
 
 /* --------------------------- result envelope ---------------------------- */
 
-export interface OqlCodeResultRow {
+export type OqlProofGrade =
+  | 'candidate'
+  | 'text'
+  | 'structural'
+  | 'semantic'
+  | 'graph'
+  | 'missing';
+
+interface OqlProofGradedRow {
+  /**
+   * Mandatory on rows emitted by `runOqlSearch`; adapters may omit it while the
+   * runner computes the final proof grade from query semantics and row shape.
+   */
+  proofGrade?: OqlProofGrade;
+}
+
+export interface OqlCodeResultRow extends OqlProofGradedRow {
   kind: 'code';
   source: QuerySource;
   path: string;
@@ -436,7 +456,7 @@ export interface OqlCodeResultRow {
   next?: Record<string, OqlContinuation>;
 }
 
-export interface OqlFileResultRow {
+export interface OqlFileResultRow extends OqlProofGradedRow {
   kind: 'file';
   source: QuerySource;
   path: string;
@@ -446,7 +466,7 @@ export interface OqlFileResultRow {
   next?: Record<string, OqlContinuation>;
 }
 
-export interface OqlTreeResultRow {
+export interface OqlTreeResultRow extends OqlProofGradedRow {
   kind: 'tree';
   source: QuerySource;
   path: string;
@@ -457,7 +477,7 @@ export interface OqlTreeResultRow {
   next?: Record<string, OqlContinuation>;
 }
 
-export interface OqlContentResultRow {
+export interface OqlContentResultRow extends OqlProofGradedRow {
   kind: 'content';
   source: QuerySource;
   path: string;
@@ -477,7 +497,7 @@ export interface OqlContentResultRow {
  * (repository, package, PR, commit, symbol/location, artifact, diff, packet).
  * `recordType` names the family; `data` is the row payload.
  */
-export interface OqlRecordResultRow {
+export interface OqlRecordResultRow extends OqlProofGradedRow {
   kind: 'record';
   recordType:
     | 'semantics'
@@ -683,6 +703,10 @@ export type OqlResultRow =
   | OqlContentResultRow
   | OqlRecordResultRow;
 
+export type OqlProofGradedResultRow = OqlResultRow & {
+  proofGrade: OqlProofGrade;
+};
+
 export interface Pagination {
   currentPage?: number;
   totalPages?: number;
@@ -722,7 +746,7 @@ export type EvidenceKind = 'proof' | 'partial' | 'candidate' | 'unsupported';
 export interface OqlResultEnvelope {
   queryId?: string;
   queryIndex?: number;
-  results: OqlResultRow[];
+  results: OqlProofGradedResultRow[];
   pagination?: Pagination;
   next?: Record<string, OqlContinuation>;
   diagnostics: OqlDiagnostic[];

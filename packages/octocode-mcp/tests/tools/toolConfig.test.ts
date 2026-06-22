@@ -13,12 +13,14 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
+  OQL_SEARCH,
 } from '../../src/tools/toolConfig.js';
 import {
   TOOL_NAMES,
   DESCRIPTIONS,
 } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/oql_search/constants.js';
 
 const removedLspToolNames = [
   `lsp${'Goto'}Definition`,
@@ -28,8 +30,8 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP + 1 BinaryInspect = 13)', () => {
-      expect(ALL_TOOLS).toHaveLength(13);
+    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP + 1 BinaryInspect + 1 OQL = 14)', () => {
+      expect(ALL_TOOLS).toHaveLength(14);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
 
@@ -45,6 +47,7 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
+      expect(toolNames).toContain(OQL_SEARCH_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
         expect(toolNames).not.toContain(removedName);
       }
@@ -64,9 +67,9 @@ describe('Tool Configuration', () => {
     });
 
     it('should have isLocal correctly set for GitHub tools', () => {
-      const githubTools = ALL_TOOLS.filter(t => !t.isLocal);
-      expect(githubTools).toHaveLength(6);
-      githubTools.forEach(tool => {
+      const remoteCapableTools = ALL_TOOLS.filter(t => !t.isLocal);
+      expect(remoteCapableTools).toHaveLength(7);
+      remoteCapableTools.forEach(tool => {
         expect(tool.isLocal).toBe(false);
       });
     });
@@ -77,6 +80,15 @@ describe('Tool Configuration', () => {
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
       });
+    });
+  });
+
+  describe('OQL tool config', () => {
+    it('OQL_SEARCH should have correct config', () => {
+      expect(OQL_SEARCH.name).toBe(OQL_SEARCH_TOOL_NAME);
+      expect(OQL_SEARCH.type).toBe('search');
+      expect(OQL_SEARCH.isLocal).toBe(false);
+      expect(OQL_SEARCH.fn).toBeTypeOf('function');
     });
   });
 
@@ -208,7 +220,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(12);
+      expect(nonCloneTools).toHaveLength(13);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

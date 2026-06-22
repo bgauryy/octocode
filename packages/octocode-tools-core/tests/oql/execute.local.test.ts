@@ -47,6 +47,7 @@ describe('OQL local execution (target:"code")', () => {
     );
     expect(env.results.length).toBeGreaterThan(0);
     expect(env.results.every(r => r.kind === 'code')).toBe(true);
+    expect(env.results.every(r => r.proofGrade === 'text')).toBe(true);
     expect(env.evidence.kind).toBe('proof');
     expect(env.provenance[0]?.backend).toBe('localSearchCode');
   });

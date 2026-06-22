@@ -14,7 +14,7 @@ cross-repository flows?
 | Surface | What must be measured |
 |---|---|
 | CLI quick commands | `ls`, `cat`, `grep`, `find`, `repo`, `pr`, `history`, `pkg`, `binary`, `unzip`, `clone`, `tools`, `context`, help, JSON envelopes |
-| Raw tools | All 13 shared tool runners through `tools <name> --queries` |
+| Raw tools | All 14 shared tool runners through `tools <name> --queries` |
 | OQL | All active `octocode search` targets and the OQL-to-tool transformations that make them work |
 | GitHub research | Repo search, code search, file/path search, structure, content fetch, PR list/detail/comments/reviews/commits, commit history, clone/materialize |
 | Local research | Text/regex search, structural search, file finding, structure, content ranges, minification, LSP semantics |
@@ -60,6 +60,7 @@ Surface-level pass requires:
 - Token efficiency: triage commands use concise/discovery/compact output before detailed content or full PR/diff reads.
 - Error honesty: empty GitHub/provider results are not treated as proof of absence unless materialized/local proof was requested and completed.
 - OQL parity: OQL may normalize rows, but it must preserve the context needed to continue the same investigation.
+- OQL proof grading: every OQL result row must include `proofGrade` as one of `candidate`, `text`, `structural`, `semantic`, `graph`, or `missing`.
 
 ## Setup
 
@@ -103,13 +104,19 @@ tool calls. These transformations are part of the eval:
 | `target:"materialize"` | `ghCloneRepo`/cache checkpoint with local follow-up paths |
 | `target:"research"|"graph"` | Smart local/materialized corpus analysis with packet pagination and candidate/proof diagnostics |
 
+Transformer honesty rule: an OQL transformer that drops, narrows, or weakens a
+user-supplied predicate/scope must emit a blocking diagnostic such as
+`lossyTransform`, `unsupportedVendorPredicate`, `vendorNoEquivalent`, or
+`responseShapeMismatch`. A silent lossy mapping is an eval failure even when the
+returned rows look plausible.
+
 ## CLI Command Rows
 
 | ID | Question | Command | Measure |
 |---|---|---|---|
 | CLI-01 | Does top-level help expose the command surface and global flags? | `node packages/octocode/out/octocode.js --help --no-color` | Commands are discoverable; no stale command names |
 | CLI-02 | Does the agent context expose current tool guidance? | `node packages/octocode/out/octocode.js context --full --no-color` | Includes tool guidance and command guidance without implementation drift |
-| CLI-03 | Can raw tools be listed? | `node packages/octocode/out/octocode.js tools --no-color` | All 13 tools are present |
+| CLI-03 | Can raw tools be listed? | `node packages/octocode/out/octocode.js tools --no-color` | All 14 tools are present |
 | CLI-04 | Can an agent read a schema before calling a raw tool? | `node packages/octocode/out/octocode.js tools ghSearchCode --scheme --compact --no-color` | Field names, defaults, pagination, and output envelope are documented |
 | CLI-05 | Can repo discovery identify the corpus candidates? | `node packages/octocode/out/octocode.js repo langchain --json --compact` | Returns `LCJS`/`LCPY` candidates with owner/repo, stars, language |
 | CLI-06 | Can a remote structure be browsed cheaply? | `node packages/octocode/out/octocode.js ls langchain-ai/langgraphjs/libs --depth 2 --json --compact` | Directory rows page correctly and preserve paths |
@@ -246,6 +253,29 @@ to continue the same research.
 | `localBinaryInspect` | `artifacts` | Inspect/list/extract/decompress/strings/unpack modes and continuations |
 | `lspGetSemantics` | `semantics` | All semantic query types with line anchors and capability diagnostics |
 
+### Gold-Trace A/B Tasks
+
+Run each task twice with the same model, same prompt, same budget, and same
+corpus. Arm A may use the raw CLI command row or raw MCP/tool row listed below.
+Arm B must use the OQL row. Score the final answer and trace, not just the
+first response. OQL loses the row if any transformer mapping silently drops a
+predicate, scope, paging field, match anchor, or proof limitation.
+
+| ID | Source rows | Same prompt | Arm A: raw CLI/MCP | Arm B: OQL | Gold trace |
+|---|---|---|---|---|---|
+| AB-01 | CLI-08, TOOL-02, OQL-03/OQL-04 | Find where LangChain.js handles streaming events and show one follow-up read. | `grep` or `ghSearchCode` | `target:"code"` | Repo `langchain-ai/langchainjs`, TypeScript scope, code rows with path/snippet/match context, executable fetch continuation |
+| AB-02 | CLI-09, TOOL-03, OQL-05 | Find Zustand package manifests without reading file bodies. | `find` or `ghSearchCode` path mode | `target:"files"` | Path-level rows for `package.json`, no snippet-only dependency, page context preserved |
+| AB-03 | CLI-07, TOOL-04/TOOL-05, OQL-07/OQL-08 | Read Zustand `createStore` with exact proof after a cheap orienting view. | `cat` / `ghGetFileContent` | `target:"content"` | Symbols/compact view is cheaper; exact match read preserves line or range anchors |
+| AB-04 | CLI-06, TOOL-06, OQL-06 | Browse LangGraph.js `libs` cheaply and continue to page 2 if needed. | `ls` or `ghViewRepoStructure` | `target:"structure"` | Depth/path filters and `itemsPerPage` survive into `next.page` |
+| AB-05 | CLI-05, TOOL-01, OQL-09 | Discover benchmark repo candidates across LangChain, LangGraph, Zustand, OpenClaw, and Hermes. | `repo` or `ghSearchRepos` batch | `target:"repositories"` batch | Five independent result groups, candidate identity, filters, no merged ambiguity |
+| AB-06 | CLI-13, TOOL-11, OQL-10 | Resolve npm `zustand` to source repo and package metadata. | `pkg` or `npmSearch` | `target:"packages"` | Package version plus repository/source handoff fields |
+| AB-07 | CLI-10, TOOL-07, OQL-11 | Find merged LangChain.js PR candidates for streaming events. | `pr` list or `ghHistoryResearch` PR mode | `target:"pullRequests"` | PR number/title/state/date, query context, page continuation |
+| AB-08 | CLI-11, TOOL-08, OQL-12/OQL-14 | Deep-read LangChain.js PR `10924` around `_streamChatModelEvents`. | `pr --deep` or `ghHistoryResearch` detail | `pullRequests` plus `diff` | Body, comments, reviews, commits, changed files, scoped diff, honest independent pagination |
+| AB-09 | CLI-12, TOOL-09, OQL-13 | Read commit history for `libs/langchain-core`. | `history` or `ghHistoryResearch` commits | `target:"commits"` | Commit sha/date/author/message, path scope, next page when present |
+| AB-10 | TOOL-15, OQL structural code path | Prove local structural matches for `diagnostic($$$ARGS)` in OQL source. | `localSearchCode mode:"structural"` | `target:"code"` structural predicate | AST-backed rows, captures/ranges when available, `proofGrade:"structural"`, no string/comment false positives |
+| AB-11 | TOOL-18, OQL-16 | Get document symbols for the OQL runner. | `lspGetSemantics` | `target:"semantics"` | Symbol names/kinds/ranges, `proofGrade:"semantic"`, capability diagnostics if LSP is unavailable |
+| AB-12 | CLI-14/CLI-15, TOOL-17, OQL-19 | List archive entries, then pivot to local research after extraction. | `binary`/`unzip` or `localBinaryInspect` | `target:"artifacts"` | Archive entry rows, pagination/scan continuation, extracted local path usable by local follow-up |
+
 ## Result Sheet Columns
 
 Record run results outside this doc with these columns:
@@ -260,4 +290,6 @@ Record run results outside this doc with these columns:
 | `pagination_ok` | Did pagination continue correctly where applicable? |
 | `token_ok` | Was the cheapest adequate view used first? |
 | `diagnostics_ok` | Were empty, partial, unsupported, or provider-limited cases honest? |
+| `proofGrade_ok` | Did every OQL row carry a valid `proofGrade`, and did it match the evidence used? |
+| `lossy_transform_ok` | Did every lossy/unsupported transformer mapping emit a blocking diagnostic instead of silently narrowing? |
 | `notes` | Short actionable note only |

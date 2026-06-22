@@ -18,6 +18,7 @@ ERROR — must fix:
 
 - `frontmatter` — `SKILL.md` has a `---` block with both `name` and `description`.
 - `missing-reference` — every `references/<file>.md` linked in `SKILL.md` actually exists.
+- `link-outside-skill` — markdown links in `SKILL.md` or any `references/*.md` must not point outside the skill folder via `../`, absolute local paths (`/`, `~/`), or `file://` URLs. A skill is installed as a self-contained folder; relative escapes break on install. Use a GitHub URL instead (e.g. `https://github.com/owner/repo/blob/main/path/to/file.md`).
 
 WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and say why):
 
@@ -27,11 +28,17 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 - `link-no-condition` — every reference link states WHEN to load it (`when`/`if`/`before` ...). A bare "see references/" is too weak — the agent will not know which file matters.
 - `reference-too-long` — each `references/*.md` ≤ 150 lines. Split larger files and cross-link them.
 - `reference-name` — reference filenames are short, indicative, kebab-case (no generic `doc.md`/`notes.md`/`misc.md`).
+- `duplicate-content` — the same sentence (≥ 12 words) appears in two or more skill files. Cross-file duplication inflates context and creates drift when one copy is updated. Consolidate into the canonical file and cross-link.
+- `rigid` — density of imperative modals (`MUST`/`NEVER`/`ALWAYS`/`FORBIDDEN`/`REQUIRED`) exceeds 12% of content lines. Rigid prompts break on legitimate edge cases. Prefer defaults with escape hatches; reserve these keywords for genuinely fragile, destructive, or order-dependent steps.
+- `verbose` — filler phrases detected (`in order to`, `please note`, `make sure to`, `it is important`, etc.). These consume tokens without adding information. Cut or rewrite concisely.
+- `tautology` — two adjacent sentences share > 75% significant-token overlap. One is likely restating the other. Remove the weaker restatement.
+- `contradiction` — the same verb appears after both `MUST`/`ALWAYS` and `NEVER`/`MUST NOT`/`do not` in the same file. Conflicting instructions cause unpredictable agent behavior. Resolve to a single clear rule.
 
 ## Prompt rules the lint backs
 
 - Lean over complete: every token in `SKILL.md` competes with conversation context. Cut anything the agent already does well without the skill.
 - Not rigid, not verbose: prefer defaults with escape hatches over exhaustive menus; reserve MUST/NEVER for fragile, destructive, or order-dependent steps.
+- No duplication: each fact lives in one place. Cross-link instead of repeating.
 - Smart routing: `references/` files may link other `references/` files so an agent loads only the next file it needs — the lint counts these cross-links. Keep each reference single-purpose with a short indicative name.
 - Runnable logic lives in `scripts/`, invoked from `SKILL.md` by relative path (`scripts/x.mjs`), never pasted inline.
 - Deterministic over agentic: when a step is mechanical, repeatable, or token-heavy to spell out in prose, ship a `scripts/` helper and have `SKILL.md` *call* it. A script runs the same way every time and costs near-zero activation tokens; narrated steps get re-interpreted (and drift) on every run. Hand procedure to scripts; reserve natural-language instructions for genuine judgment. When reviewing or authoring a skill, flag any multi-step deterministic prose block that should be a script.
@@ -41,4 +48,6 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 1. Run the lint; group findings ERROR-first.
 2. For `skill-too-long`/`no-references`: extract the conditional sections into short `references/*.md` with explicit load conditions in `SKILL.md`.
 3. For `reference-too-long`: split by sub-topic and cross-link.
-4. Re-run until ERRORs clear; treat residual WARNs as a gated decision with the user.
+4. For `duplicate-content`: move the sentence to the canonical file; replace the other occurrence with a cross-link.
+5. For `rigid`/`verbose`/`tautology`/`contradiction`: edit the offending lines directly; the lint message quotes the exact text.
+6. Re-run until ERRORs clear; treat residual WARNs as a gated decision with the user.

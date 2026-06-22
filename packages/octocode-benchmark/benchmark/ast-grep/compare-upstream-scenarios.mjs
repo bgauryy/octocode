@@ -434,6 +434,24 @@ function loadEngine() {
 let directToolModule = null
 async function loadDirectToolModule() {
   if (!directToolModule) {
+    // The localSearchCode lane is the CLI direct-tool path. Declare the CLI
+    // runtime surface first — exactly as the octocode binary does — so local
+    // tools are enabled without needing ENABLE_LOCAL (the CLI ignores it).
+    const configModule = await import(
+      pathToFileURL(
+        join(
+          monorepoRoot,
+          'packages',
+          'octocode-tools-core',
+          'dist',
+          'shared',
+          'config',
+          'index.js',
+        ),
+      ).href
+    )
+    configModule.setRuntimeSurface('cli')
+    configModule.invalidateConfigCache?.()
     directToolModule = await import(
       pathToFileURL(join(monorepoRoot, 'packages', 'octocode-tools-core', 'dist', 'direct.js')).href
     )

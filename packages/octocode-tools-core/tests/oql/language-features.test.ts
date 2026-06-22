@@ -41,6 +41,7 @@ describe('select projection', () => {
     expect(row.path).toBeDefined();
     // identity is always kept
     expect(row.kind).toBe('code');
+    expect(row.proofGrade).toBe('text');
     // snippet/line were not selected -> projected out
     expect('snippet' in row).toBe(false);
     // only next.fetch survives in continuations

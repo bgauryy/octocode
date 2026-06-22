@@ -1,6 +1,6 @@
 import { compileWhere } from '../../adapters/compile.js';
 import { diagnostic } from '../../diagnostics.js';
-import type { OqlQuery } from '../../types.js';
+import type { OqlDiagnostic, OqlQuery } from '../../types.js';
 import type { TransformResult } from '../types.js';
 import { toGithubCodeLanguageParams } from '../language.js';
 import {
@@ -27,7 +27,7 @@ export function toGithubCodeSearchToolQuery(
       ok: false,
       diagnostics: [
         diagnostic(
-          'requiresMaterialization',
+          'vendorNoEquivalent',
           options.unsupportedMessage ??
             'GitHub code search needs a positive code predicate.',
           { backend: options.unsupportedBackend ?? 'ghSearchCode' }
@@ -46,12 +46,26 @@ export function toGithubCodeSearchToolQuery(
       ok: false,
       diagnostics: [
         diagnostic(
-          'requiresMaterialization',
-          options.unsupportedMessage ??
+          'unsupportedVendorPredicate',
+          compiled.unsupported?.message ??
+            options.unsupportedMessage ??
             'This predicate cannot be evaluated by GitHub code search; materialize for local proof.',
-          { backend: options.unsupportedBackend ?? 'ghSearchCode' }
+          {
+            backend: options.unsupportedBackend ?? 'ghSearchCode',
+            ...(compiled.unsupported?.predicateId
+              ? { predicateId: compiled.unsupported.predicateId }
+              : {}),
+          }
         ),
       ],
+    };
+  }
+
+  const lossyDiagnostics = githubCodeLossyScopeDiagnostics(query, options);
+  if (lossyDiagnostics.length > 0) {
+    return {
+      ok: false,
+      diagnostics: lossyDiagnostics,
     };
   }
 
@@ -90,4 +104,34 @@ export function toGithubCodeSearchToolQuery(
       ...(query.page ? { page: query.page } : {}),
     },
   };
+}
+
+function githubCodeLossyScopeDiagnostics(
+  query: OqlQuery,
+  options: GithubCodeSearchTransformOptions
+): OqlDiagnostic[] {
+  const diagnostics: OqlDiagnostic[] = [];
+  const backend = options.unsupportedBackend ?? 'ghSearchCode';
+
+  if (Array.isArray(query.scope?.language) && query.scope.language.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        'lossyTransform',
+        'GitHub code search cannot express multiple scope.language values without dropping values; materialize for local proof.',
+        { backend, queryPath: 'scope.language' }
+      )
+    );
+  }
+
+  if (Array.isArray(query.scope?.path) && query.scope.path.length > 1) {
+    diagnostics.push(
+      diagnostic(
+        'lossyTransform',
+        'GitHub code search cannot express multiple scope.path values without dropping values; materialize for local proof.',
+        { backend, queryPath: 'scope.path' }
+      )
+    );
+  }
+
+  return diagnostics;
 }
