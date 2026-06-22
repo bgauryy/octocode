@@ -115,6 +115,11 @@ nativeBinding.MINIFY_CONFIG = nativeBinding.getMINIFY_CONFIG()
 nativeBinding.SUPPORTED_SIGNATURE_EXTENSIONS = Object.freeze(
   nativeBinding.getSupportedSignatureExtensions().sort()
 )
+nativeBinding.SUPPORTED_GRAPH_FACT_EXTENSIONS = Object.freeze(
+  typeof nativeBinding.getSupportedGraphFactExtensions === 'function'
+    ? nativeBinding.getSupportedGraphFactExtensions().sort()
+    : []
+)
 nativeBinding.SUPPORTED_STRUCTURAL_EXTENSIONS = Object.freeze(
   nativeBinding.getSupportedStructuralExtensions().sort()
 )

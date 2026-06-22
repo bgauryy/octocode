@@ -17,23 +17,20 @@ import type {
   Pagination,
   QuerySource,
 } from '../types.js';
+import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
 
 export interface MappedResult {
   results: OqlResultRow[];
   pagination?: Pagination;
 }
 
+// Delegate to the single OQL pagination normalizer so the code/structure/file
+// paths recompute `totalPages`/`hasMore` from the resolved unit fields exactly
+// like every other target (P2 — one consistent page math everywhere).
 function toPagination(
-  p:
-    | { currentPage?: number; totalPages?: number; hasMore?: boolean }
-    | undefined
+  p: ToolPaginationPayload | undefined
 ): Pagination | undefined {
-  if (!p) return undefined;
-  return {
-    ...(p.currentPage !== undefined ? { currentPage: p.currentPage } : {}),
-    ...(p.totalPages !== undefined ? { totalPages: p.totalPages } : {}),
-    hasMore: Boolean(p.hasMore),
-  };
+  return toOqlPagination(p);
 }
 
 export function mapCodeResult(
@@ -53,7 +50,6 @@ export function mapCodeResult(
       // ranges. The engine produces these for structural matches that capture;
       // forward them verbatim (never fabricated when absent). The per-capture
       // ranges let an agent feed a capture straight to lspGetSemantics.
-      // See OCTOCODE_SEARCH_PARITY_CHECKLIST.md gap log #18 (structural metavars).
       const captures = m.metavars;
       const ranges = m.metavarRanges;
       rows.push({

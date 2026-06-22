@@ -11,6 +11,13 @@ export type {
   FileSystemEntry,
   FileSystemQueryOptions,
   FileSystemQueryResult,
+  GraphFactCapability,
+  GraphFactCall,
+  GraphFactDeclaration,
+  GraphFactEdge,
+  GraphFactExport,
+  GraphFactImport,
+  GraphFacts,
   MinifyResult,
   JsonInput,
   RipgrepParseOptions,
@@ -126,11 +133,34 @@ export const contextUtils = {
   },
 
   /**
+   * Native JS/TS graph facts as a JSON `GraphFacts` object. Syntax-level only:
+   * declarations/imports/exports, containment, and direct call expressions.
+   */
+  extractGraphFacts(content: string, filePath: string): string | null {
+    return loadNative().extractGraphFacts(content, filePath);
+  },
+
+  /**
    * Canonical lowercase extensions (no leading dot) the native oxc JS/TS path
    * handles. Source of truth lives in the engine — gate native dispatch on this.
    */
   getSupportedJsTsExtensions(): string[] {
     return loadNative().getSupportedJsTsExtensions();
+  },
+
+  /**
+   * Canonical lowercase extensions (no leading dot) that can emit native
+   * GraphFacts. JS/TS use OXC; other entries use tree-sitter syntax inventory.
+   */
+  getSupportedGraphFactExtensions(): string[] {
+    return loadNative().getSupportedGraphFactExtensions();
+  },
+
+  /**
+   * Native graph-fact capability matrix as a JSON `GraphFactCapability[]`.
+   */
+  getGraphFactCapabilities(): string {
+    return loadNative().getGraphFactCapabilities();
   },
 
   structuralSearch(

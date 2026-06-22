@@ -56,6 +56,18 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
+// Schema/help path imports the engine-free `/schema` subpath (P3).
+vi.mock('@octocodeai/octocode-tools-core/schema', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('@octocodeai/octocode-tools-core/schema')
+    >();
+  return {
+    ...actual,
+    loadToolContent: mocks.loadToolContent,
+  };
+});
+
 vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
   const actual =
     await importOriginal<

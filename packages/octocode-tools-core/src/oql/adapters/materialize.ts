@@ -6,6 +6,7 @@
  * scope or unbounded full-repo clone is refused at planning time; this adapter
  * additionally maps `scope.path` to a sparse checkout.
  */
+import path from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runDirect } from './runner.js';
 import { executeLocal, type AdapterResult } from './local.js';
@@ -38,14 +39,21 @@ function extractClone(result: CallToolResult): {
   status?: string;
 } {
   const sc = result.structuredContent as
-    | { results?: Array<{ status?: string; data?: Record<string, unknown> }> }
+    | {
+        base?: string;
+        results?: Array<{ status?: string; data?: Record<string, unknown> }>;
+      }
     | undefined;
   const first = sc?.results?.[0];
   const data = first?.data as
     | { localPath?: string; cached?: boolean; error?: string }
     | undefined;
+  const localPath =
+    data?.localPath && sc?.base && !path.isAbsolute(data.localPath)
+      ? path.join(sc.base, data.localPath)
+      : data?.localPath;
   return {
-    localPath: data?.localPath,
+    localPath,
     cached: data?.cached,
     error: data?.error,
     status: first?.status,
@@ -144,8 +152,7 @@ export async function executeMaterialize(
  * corpus once and return a stable local checkpoint row (localPath, repoRoot,
  * source, ref, cache, complete) that downstream queries can root at via the
  * `next.search` / `next.structure` / `next.fetch` continuations (attached in
- * run.ts). This makes materialization a first-class step, not a search
- * side-effect (see OCTOCODE_SEARCH_PARITY_CHECKLIST.md gap log #7).
+ * run.ts). This makes materialization a first-class step, not a search side-effect.
  */
 export async function executeMaterializeCheckpoint(
   query: OqlQuery

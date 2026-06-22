@@ -37,6 +37,8 @@ import {
   type SemanticEmptyCategory,
   type SemanticContentType,
   type SymbolAnchoredSemanticQuery,
+  type WorkspaceSymbolSemanticQuery,
+  type DiagnosticSemanticQuery,
 } from '../shared/semanticTypes.js';
 import {
   resolveFileAnchor,
@@ -225,6 +227,9 @@ function compactSemanticPayload(
       };
     case 'hover':
     case 'empty':
+    case 'workspaceSymbol':
+    case 'typeHierarchy':
+    case 'diagnostic':
       return payload;
   }
 }
@@ -350,6 +355,12 @@ async function getSemanticContent(
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
   if (query.type === 'documentSymbols') {
     return getDocumentSymbols(query);
+  }
+  if (query.type === 'workspaceSymbol') {
+    return getWorkspaceSymbols(query);
+  }
+  if (query.type === 'diagnostic') {
+    return getFileDiagnostics(query);
   }
 
   const anchor = await resolveSymbolAnchor(
@@ -508,6 +519,17 @@ async function getSemanticContent(
         );
       }
       return callsEnvelope(query, anchor.value, client);
+    case 'supertypes':
+    case 'subtypes':
+      if (!client.hasCapability('typeHierarchyProvider')) {
+        return emptyEnvelope(
+          query.type,
+          anchor.value,
+          'typeHierarchyProvider unsupported',
+          true
+        );
+      }
+      return typeHierarchyEnvelope(query, anchor.value, client);
   }
 }
 
@@ -887,6 +909,289 @@ async function callsEnvelope(
     },
     pagination,
   };
+}
+
+async function getWorkspaceSymbols(
+  query: WorkspaceSymbolSemanticQuery
+): Promise<LspSemanticEnvelope | Record<string, unknown>> {
+  const symbolQuery = query.symbolName ?? '';
+  const workspaceRoot = query.workspaceRoot ?? process.cwd();
+
+  // workspace/symbol is not file-anchored — any file in the workspace will do to
+  // acquire a pooled client. Use the URI if provided, else resolve from the root.
+  const anchorFile = query.uri ?? workspaceRoot;
+  const serverAvailable = await isLanguageServerAvailable(anchorFile, workspaceRoot);
+  if (!serverAvailable) {
+    return {
+      type: 'workspaceSymbol',
+      uri: anchorFile,
+      lsp: { serverAvailable: false },
+      payload: {
+        kind: 'empty',
+        category: 'serverUnavailable',
+        reason: 'Language server unavailable',
+      },
+    } satisfies LspSemanticEnvelope;
+  }
+
+  const client = await acquirePooledClient(workspaceRoot, anchorFile);
+  if (!client) {
+    return {
+      type: 'workspaceSymbol',
+      uri: anchorFile,
+      lsp: { serverAvailable: false },
+      payload: {
+        kind: 'empty',
+        category: 'serverUnavailable',
+        reason: 'Language server unavailable',
+      },
+    } satisfies LspSemanticEnvelope;
+  }
+
+  if (!client.hasCapability('workspaceSymbolProvider')) {
+    return {
+      type: 'workspaceSymbol',
+      uri: anchorFile,
+      lsp: { serverAvailable: true, provider: 'workspaceSymbolProvider' },
+      payload: {
+        kind: 'empty',
+        category: 'unsupportedOperation',
+        reason: 'workspaceSymbolProvider unsupported',
+      },
+    } satisfies LspSemanticEnvelope;
+  }
+
+  const raw = await client.workspaceSymbol(symbolQuery);
+  const symbols = compactWorkspaceSymbols(raw);
+  const { pageItems, pagination } = paginateItems(
+    symbols,
+    query.page ?? 1,
+    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+  );
+
+  return {
+    type: 'workspaceSymbol',
+    uri: anchorFile,
+    lsp: { serverAvailable: true, provider: 'workspaceSymbolProvider' },
+    summary: { query: symbolQuery, totalSymbols: symbols.length },
+    payload:
+      symbols.length > 0
+        ? { kind: 'workspaceSymbol', query: symbolQuery, symbols: pageItems, totalSymbols: symbols.length }
+        : {
+            kind: 'empty',
+            category: 'noWorkspaceSymbols',
+            reason: `workspaceSymbolProvider returned no symbols for query "${symbolQuery}"`,
+          },
+    pagination,
+  } satisfies LspSemanticEnvelope;
+}
+
+type CompactWorkspaceSymbol = CompactSymbol & { uri: string };
+
+function compactWorkspaceSymbols(raw: unknown[]): CompactWorkspaceSymbol[] {
+  return raw.flatMap(item => {
+    if (!item || typeof item !== 'object') return [];
+    const sym = item as Record<string, unknown>;
+    const name = typeof sym['name'] === 'string' ? sym['name'] : undefined;
+    if (!name) return [];
+    const kind = sym['kind'];
+    // WorkspaceSymbol has `location.uri + location.range`; SymbolInformation same shape.
+    const loc = sym['location'] as Record<string, unknown> | undefined;
+    const range = loc?.['range'] as { start?: { line?: number; character?: number }; end?: { line?: number } } | undefined;
+    const uri = typeof loc?.['uri'] === 'string' ? loc['uri'] : '';
+    const line = (range?.start?.line ?? 0) + 1;
+    const endLine = (range?.end?.line ?? range?.start?.line ?? 0) + 1;
+    const containerName = typeof sym['containerName'] === 'string' ? sym['containerName'] : undefined;
+    return [{
+      name,
+      kind: symbolKindName(kind),
+      line,
+      character: range?.start?.character ?? 0,
+      endLine,
+      childCount: 0,
+      ...(containerName ? { containerName } : {}),
+      uri,
+    }];
+  });
+}
+
+async function typeHierarchyEnvelope(
+  query: SymbolAnchoredSemanticQuery,
+  anchor: SymbolAnchor,
+  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>
+): Promise<LspSemanticEnvelope> {
+  const items = await client.prepareTypeHierarchy(
+    anchor.uri,
+    anchor.resolvedSymbol.position,
+    anchor.content
+  );
+  const root = items[0];
+  if (!root) {
+    return emptyEnvelope(query.type, anchor, 'No type-hierarchy item found at position', true);
+  }
+
+  const direction = query.type === 'supertypes' ? 'supertypes' : 'subtypes';
+  const relatives =
+    direction === 'supertypes'
+      ? await client.typeHierarchySupertypes(root)
+      : await client.typeHierarchySubtypes(root);
+
+  const { pageItems, pagination } = paginateItems(
+    relatives,
+    query.page ?? 1,
+    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+  );
+
+  return {
+    type: query.type,
+    uri: anchor.uri,
+    resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
+    lsp: { serverAvailable: true, provider: 'typeHierarchyProvider' },
+    payload:
+      relatives.length > 0
+        ? {
+            kind: 'typeHierarchy',
+            direction,
+            root,
+            items: pageItems,
+            totalItems: relatives.length,
+          }
+        : {
+            kind: 'empty',
+            category: 'noTypeHierarchy',
+            reason: `typeHierarchyProvider returned no ${direction} for this symbol`,
+          },
+    pagination,
+  };
+}
+
+async function getFileDiagnostics(
+  query: DiagnosticSemanticQuery
+): Promise<LspSemanticEnvelope | Record<string, unknown>> {
+  const uri = query.uri ?? '';
+  const workspaceRoot =
+    query.workspaceRoot ?? (uri ? await resolveWorkspaceRootForFile(uri) : process.cwd());
+
+  const serverAvailable = await isLanguageServerAvailable(uri, workspaceRoot);
+  if (!serverAvailable) {
+    return {
+      type: 'diagnostic',
+      uri,
+      lsp: { serverAvailable: false },
+      payload: {
+        kind: 'empty',
+        category: 'serverUnavailable',
+        reason: 'Language server unavailable',
+      },
+    } satisfies LspSemanticEnvelope;
+  }
+
+  const client = await acquirePooledClient(workspaceRoot, uri);
+  if (!client) {
+    return {
+      type: 'diagnostic',
+      uri,
+      lsp: { serverAvailable: false },
+      payload: {
+        kind: 'empty',
+        category: 'serverUnavailable',
+        reason: 'Language server unavailable',
+      },
+    } satisfies LspSemanticEnvelope;
+  }
+
+  if (!client.hasCapability('diagnosticProvider')) {
+    return {
+      type: 'diagnostic',
+      uri,
+      lsp: { serverAvailable: true, provider: 'diagnosticProvider' },
+      payload: {
+        kind: 'empty',
+        category: 'unsupportedOperation',
+        reason:
+          'diagnosticProvider (pull) unsupported — server uses push (publishDiagnostics) instead',
+      },
+      warnings: [
+        'This server pushes diagnostics via textDocument/publishDiagnostics. ' +
+          'Pull diagnostics (type: "diagnostic") require LSP 3.17 pull support. ' +
+          'Check server docs to enable it.',
+      ],
+    } satisfies LspSemanticEnvelope;
+  }
+
+  const raw = await client.getDiagnostics(uri);
+  const diags = extractDiagnostics(raw);
+  const errorCount = diags.filter(d => d.severity === 1).length;
+  const warningCount = diags.filter(d => d.severity === 2).length;
+
+  const { pageItems, pagination } = paginateItems(
+    diags,
+    query.page ?? 1,
+    query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
+  );
+
+  return {
+    type: 'diagnostic',
+    uri,
+    lsp: { serverAvailable: true, provider: 'diagnosticProvider' },
+    summary: {
+      totalDiagnostics: diags.length,
+      errorCount,
+      warningCount,
+    },
+    payload:
+      diags.length > 0
+        ? {
+            kind: 'diagnostic',
+            diagnostics: pageItems,
+            totalDiagnostics: diags.length,
+            errorCount,
+            warningCount,
+          }
+        : {
+            kind: 'empty',
+            category: 'noDiagnostics',
+            reason: 'No diagnostics — file has no errors or warnings',
+          },
+    pagination,
+  } satisfies LspSemanticEnvelope;
+}
+
+type DiagnosticItem = {
+  severity?: number;
+  message: string;
+  line: number;
+  endLine: number;
+  character: number;
+  code?: string | number;
+  source?: string;
+};
+
+function extractDiagnostics(raw: unknown): DiagnosticItem[] {
+  // Pull response shape: { kind: "full", items: Diagnostic[] }
+  if (raw && typeof raw === 'object') {
+    const report = raw as Record<string, unknown>;
+    const items = Array.isArray(report['items']) ? report['items'] : [];
+    return items.flatMap(item => parseDiagnostic(item));
+  }
+  return [];
+}
+
+function parseDiagnostic(item: unknown): DiagnosticItem[] {
+  if (!item || typeof item !== 'object') return [];
+  const d = item as Record<string, unknown>;
+  const range = d['range'] as { start?: { line?: number; character?: number }; end?: { line?: number } } | undefined;
+  const message = typeof d['message'] === 'string' ? d['message'] : '';
+  if (!message) return [];
+  return [{
+    severity: typeof d['severity'] === 'number' ? d['severity'] : undefined,
+    message,
+    line: (range?.start?.line ?? 0) + 1,
+    endLine: (range?.end?.line ?? range?.start?.line ?? 0) + 1,
+    character: range?.start?.character ?? 0,
+    ...(d['code'] !== undefined ? { code: d['code'] as string | number } : {}),
+    ...(typeof d['source'] === 'string' ? { source: d['source'] } : {}),
+  }];
 }
 
 function paginateItems<T>(

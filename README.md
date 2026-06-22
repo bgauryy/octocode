@@ -31,7 +31,6 @@ Run it as a **CLI** or an **MCP server**. A **Rust engine** keeps every call fas
 - [Skills](#skills)
 - [Architecture](#architecture)
 - [Documentation](#documentation)
-- [Contributing](#contributing)
 
 ---
 
@@ -414,10 +413,8 @@ These are the skills the Octocode team itself uses to build Octocode. ⭐ **[Eng
 | Skill | What it does |
 |-------|--------------|
 | ⭐ [**Engineer**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer) | Codebase understanding, implementation, bug investigation, refactors, PR review, and RFC validation with AST + LSP evidence |
-| [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | Deep code exploration with HTTP-based tool orchestration: trace flow, find usages, understand a codebase |
 | [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | Validate ideas against GitHub, npm, and web evidence; produces a decision-ready brief |
 | [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | Evidence-backed RFCs, design docs, migration and implementation plans before coding |
-| [**Install**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-install) | Interactive step-by-step Octocode installer for macOS and Windows |
 | [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | Search, evaluate, install, create, and update Agent Skills (SKILL.md format) |
 | [**Stats**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-stats) | Render an Octocode MCP usage dashboard from stats.json (tokens saved, cache hits, errors) |
 
@@ -473,7 +470,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Full docs: **[github.com/bgau
 **Docs map**
 - [`docs/mcp/`](https://github.com/bgauryy/octocode/tree/main/docs/mcp): MCP server configuration, authentication, tools, workflows, architecture
 - [`docs/cli/`](https://github.com/bgauryy/octocode/tree/main/docs/cli): CLI commands, flags, benchmarks
-- [`docs/`](https://github.com/bgauryy/octocode/tree/main/docs): guides for development, security, skills, Pi setup
+- [`docs/`](https://github.com/bgauryy/octocode/tree/main/docs): guides for development, security, and Pi setup
 
 **Setup**
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md)
@@ -489,7 +486,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Full docs: **[github.com/bgau
 **Security, CLI & Skills**
 - [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md)
 - [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
-- [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md) · [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
+- [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
 
 **Shared Internals**
 - [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) · [Session Persistence](https://github.com/bgauryy/octocode/blob/main/docs/mcp/SESSION.md)
@@ -504,7 +501,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Full docs: **[github.com/bgau
 - **Skill route — recommended, leanest.** Drop the [`octocode-engineer`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
 
   ```bash
-  npx -y degit bgauryy/octocode/skills/octocode-engineer ~/.pi/agent/skills/octocode-engineer
+  npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-engineer
   ```
 
 - **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose all 13 Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is actually called. Enable clone tools with `ENABLE_CLONE=true`.

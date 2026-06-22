@@ -740,7 +740,7 @@ describe('GitHub API Utils', () => {
         );
       });
 
-      it('should truncate long descriptions', async () => {
+      it('returns the full description without silent truncation (P6)', async () => {
         const longDescription =
           'This is a very long description that exceeds the 150 character limit and should be truncated with ellipsis to keep the output manageable and readable for users who are browsing repositories.';
 
@@ -772,7 +772,7 @@ describe('GitHub API Utils', () => {
             data: expect.objectContaining({
               repositories: [
                 expect.objectContaining({
-                  description: longDescription.substring(0, 150) + '...',
+                  description: longDescription,
                 }),
               ],
             }),

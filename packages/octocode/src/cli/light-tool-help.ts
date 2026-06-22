@@ -64,9 +64,9 @@ export function printLightInstructions(options: { full?: boolean } = {}): void {
   );
   console.log();
   console.log('Protocol:');
-  console.log('1. Authenticate before using GitHub tools:');
+  console.log('1. Authenticate for private GitHub repos and higher limits:');
   console.log('   login');
-  console.log('   status          # verify token/auth + cache');
+  console.log('   auth status --json  # auth-only token state');
   console.log('2. Inspect a tool schema before calling (required):');
   console.log('   tools <name>    # schema: fields, types, example');
   console.log('   tools <n1> <n2> ...  # batch schema reads');
@@ -77,8 +77,8 @@ export function printLightInstructions(options: { full?: boolean } = {}): void {
   );
   console.log('   context --full  # full tool descriptions');
   console.log('   context --json  # machine-readable context wrapper');
-  console.log('4. Use status for read-only token/auth state:');
-  console.log('   status --json');
+  console.log('4. Use auth status for read-only token/auth state:');
+  console.log('   auth status --json');
   console.log(
     '5. Read YAML output directly; use --json only when you need the envelope.'
   );

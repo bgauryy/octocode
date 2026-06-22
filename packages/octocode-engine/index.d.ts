@@ -6,6 +6,8 @@ export declare class NativeLspClient {
   stop(): Promise<void>
   waitForReady(timeoutMs?: number | undefined | null): Promise<void>
   hasCapability(capability: string): boolean
+  /** Server-selected LSP `positionEncoding` (utf-16 unless the server is non-conformant); null if omitted/not started. */
+  positionEncoding(): string | null
   getRecentStderr(): Array<string>
   openDocument(filePath: string, content: string): Promise<void>
   closeDocument(filePath: string): Promise<void>
@@ -18,6 +20,16 @@ export declare class NativeLspClient {
   prepareCallHierarchy(filePath: string, line: number, character: number): Promise<any>
   incomingCalls(item: any): Promise<any>
   outgoingCalls(item: any): Promise<any>
+  /** Project-wide fuzzy symbol search — `workspace/symbol`. Returns `WorkspaceSymbol[] | SymbolInformation[]`. */
+  workspaceSymbol(query: string): Promise<any>
+  /** Prepare a type-hierarchy item at a position — `textDocument/prepareTypeHierarchy`. */
+  prepareTypeHierarchy(filePath: string, line: number, character: number): Promise<any>
+  /** Supertypes (base classes / implemented interfaces) — `typeHierarchy/supertypes`. */
+  typeHierarchySupertypes(item: any): Promise<any>
+  /** Subtypes (subclasses / implementors) — `typeHierarchy/subtypes`. */
+  typeHierarchySubtypes(item: any): Promise<any>
+  /** Pull diagnostics for a single file — `textDocument/diagnostic` (LSP 3.17+). */
+  getDiagnostics(filePath: string): Promise<any>
 }
 
 /**
@@ -206,12 +218,112 @@ export declare function extractJsSymbols(content: string, filePath: string): str
  */
 export declare function findInFileReferences(content: string, filePath: string, line: number, character: number): string | null
 
+export interface GraphFactPosition {
+  line: number
+  character: number
+}
+
+export interface GraphFactRange {
+  start: GraphFactPosition
+  end: GraphFactPosition
+}
+
+export interface GraphFactDeclaration {
+  id: string
+  name: string
+  kind: string
+  line: number
+  range: GraphFactRange
+  selectionRange: GraphFactRange
+  exported: boolean
+  parent?: string
+}
+
+export interface GraphFactImport {
+  id: string
+  specifier: string
+  line: number
+  importKind: string
+  localName?: string
+  importedName?: string
+}
+
+export interface GraphFactExport {
+  id: string
+  name: string
+  line: number
+  exportKind: string
+  localName?: string
+  source?: string
+}
+
+export interface GraphFactCall {
+  id: string
+  caller: string
+  callee: string
+  line: number
+  range: GraphFactRange
+  kind: string
+}
+
+export interface GraphFactEdge {
+  id: string
+  from: string
+  to: string
+  relation: string
+  source: string
+  line: number
+}
+
+export interface GraphFacts {
+  kind: 'graphFacts'
+  source: 'native-ast'
+  language: string
+  file: string
+  declarations: Array<GraphFactDeclaration>
+  imports: Array<GraphFactImport>
+  exports: Array<GraphFactExport>
+  calls: Array<GraphFactCall>
+  edges: Array<GraphFactEdge>
+  diagnostics: Array<string>
+}
+
+export interface GraphFactCapability {
+  extension: string
+  language: string
+  languageId?: string
+  structuralSearch: boolean
+  signatureOutline: boolean
+  graphFacts: boolean
+  factFamilies: Array<string>
+}
+
+/**
+ * Native graph facts as a JSON `GraphFacts` object, or null when no graph-fact
+ * extractor supports the file. JS/TS use the richer OXC lane; other supported
+ * source languages use tree-sitter syntax inventory. Cross-file semantic
+ * identity still needs LSP proof.
+ */
+export declare function extractGraphFacts(content: string, filePath: string): string | null
+
 /**
  * Canonical list of file extensions (lowercase, no leading dot) handled by the
  * native oxc JS/TS path (`extractJsSymbols` / `findInFileReferences`). Gate
  * native dispatch on this list instead of hardcoding it.
  */
 export declare function getSupportedJsTsExtensions(): Array<string>
+
+/**
+ * Canonical list of file extensions (lowercase, no leading dot) that can emit
+ * native graph facts. JS/TS use OXC; other entries use tree-sitter syntax
+ * inventory.
+ */
+export declare function getSupportedGraphFactExtensions(): Array<string>
+
+/**
+ * JSON `GraphFactCapability[]` describing graph-fact coverage by extension.
+ */
+export declare function getGraphFactCapabilities(): string
 
 export interface FileSystemEntry {
   /** Absolute or input-root-relative path as returned by the platform. */
@@ -362,6 +474,7 @@ export interface MinifyConfigSnapshot {
 
 export declare const MINIFY_CONFIG: MinifyConfigSnapshot
 export declare const SUPPORTED_SIGNATURE_EXTENSIONS: readonly string[]
+export declare const SUPPORTED_GRAPH_FACT_EXTENSIONS: readonly string[]
 export declare const SUPPORTED_STRUCTURAL_EXTENSIONS: readonly string[]
 
 /**

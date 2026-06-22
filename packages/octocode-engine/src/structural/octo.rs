@@ -1105,6 +1105,12 @@ impl LineIndex {
         )
     }
 
+    /// Convert a tree-sitter byte column to an LSP-compatible **UTF-16 code-unit**
+    /// column. This is the unit `lspGetSemantics` uses, the JS resolver emits
+    /// (`resolver::byte_offset_to_utf16`), and the signatures layer reports
+    /// (`char::len_utf16`). Counting Unicode scalar values (`chars().count()`)
+    /// instead would disagree with every other layer on any line containing a
+    /// non-BMP character (e.g. an emoji is one code point but two UTF-16 units).
     fn point_column_to_char_column(&self, content: &str, row: usize, byte_column: usize) -> usize {
         let line_start = self.line_starts.get(row).copied().unwrap_or_default();
         let line_end = self
@@ -1116,8 +1122,7 @@ impl LineIndex {
         let byte_end = line_start.saturating_add(byte_column).min(line_end);
         content
             .get(line_start..byte_end)
-            .map(str::chars)
-            .map(Iterator::count)
+            .map(|slice| slice.chars().map(char::len_utf16).sum::<usize>())
             .unwrap_or(byte_column)
     }
 }
@@ -1223,6 +1228,20 @@ mod tests {
             ext,
             languages::find_entry(ext).expect("test language should exist"),
         )
+    }
+
+    #[test]
+    fn point_column_uses_utf16_code_units_not_code_points() {
+        // "🌍" is one Unicode scalar value but TWO UTF-16 code units (surrogate
+        // pair) and FOUR UTF-8 bytes. Columns must agree with the resolver /
+        // signatures layers, which count UTF-16 code units.
+        let content = "const 🌍x = 1;";
+        let index = LineIndex::new(content);
+        // "const " = 6 bytes, "🌍" = 4 bytes → byte column of `x` is 10.
+        // UTF-16: 6 (ascii) + 2 (emoji) = 8.
+        assert_eq!(index.point_column_to_char_column(content, 0, 10), 8);
+        // Pure-ASCII prefix is unchanged (byte == utf-16).
+        assert_eq!(index.point_column_to_char_column(content, 0, 6), 6);
     }
 
     fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {

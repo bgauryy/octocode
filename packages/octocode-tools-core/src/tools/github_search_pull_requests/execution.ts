@@ -67,7 +67,10 @@ export async function searchMultipleGitHubPullRequests(
             until?: string;
             page?: number;
             perPage?: number;
+            filePage?: number;
+            itemsPerPage?: number;
             includeDiff?: boolean;
+            charOffset?: number;
             charLength?: number;
           };
 
@@ -101,7 +104,15 @@ export async function searchMultipleGitHubPullRequests(
               author: q.author,
               page: Number(q.page) || 1,
               perPage: Number(q.perPage) || 30,
+              filePage:
+                typeof q.filePage === 'number' ? q.filePage : undefined,
+              itemsPerPage:
+                typeof q.itemsPerPage === 'number'
+                  ? q.itemsPerPage
+                  : undefined,
               includeDiff: Boolean(q.includeDiff),
+              charOffset:
+                typeof q.charOffset === 'number' ? q.charOffset : undefined,
               charLength:
                 typeof q.charLength === 'number' ? q.charLength : undefined,
             },

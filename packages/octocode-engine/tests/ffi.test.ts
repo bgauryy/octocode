@@ -82,7 +82,10 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'extractSignatures',
   'extractJsSymbols',
   'findInFileReferences',
+  'extractGraphFacts',
   'getSupportedJsTsExtensions',
+  'getSupportedGraphFactExtensions',
+  'getGraphFactCapabilities',
   'structuralSearchDetailed',
   'structuralSearchFiles',
   'structuralSearchFilesDetailed',
@@ -110,6 +113,7 @@ const PUBLIC_NATIVE_EXPORTS = [
   ...MINIFIER_FUNCTION_EXPORTS,
   'MINIFY_CONFIG',
   'SUPPORTED_SIGNATURE_EXTENSIONS',
+  'SUPPORTED_GRAPH_FACT_EXTENSIONS',
   'SUPPORTED_STRUCTURAL_EXTENSIONS',
 ] as const satisfies readonly (keyof typeof import('../index.js'))[];
 
@@ -498,6 +502,98 @@ describe('findInFileReferences (native oxc in-file references)', () => {
     expect(
       addon!.findInFileReferences('x = 1\nprint(x)\n', 'm.py', 0, 0)
     ).toBeNull();
+  });
+});
+
+describe('extractGraphFacts (native oxc graph facts)', () => {
+  it('returns declarations, imports, exports, and direct call facts', () => {
+    const src = `import { dep } from './dep';
+export function run() {
+  dep();
+  helper();
+}
+function helper() {}
+`;
+    const json = addon!.extractGraphFacts(src, 'main.ts');
+    expect(json).not.toBeNull();
+    const facts = JSON.parse(json!) as {
+      declarations: Array<{ name: string; kind: string; exported: boolean }>;
+      imports: Array<{ specifier: string; localName?: string }>;
+      calls: Array<{ caller: string; callee: string }>;
+    };
+    expect(facts.imports[0]).toMatchObject({
+      specifier: './dep',
+      localName: 'dep',
+    });
+    expect(facts.declarations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'run',
+          kind: 'function',
+          exported: true,
+        }),
+      ])
+    );
+    expect(facts.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ caller: 'run', callee: 'dep' }),
+        expect.objectContaining({ caller: 'run', callee: 'helper' }),
+      ])
+    );
+  });
+
+  it('falls back to tree-sitter graph facts for Rust', () => {
+    const src = `use crate::other::helper;
+
+pub fn run() {
+  helper();
+}
+`;
+    const json = addon!.extractGraphFacts(src, 'main.rs');
+    expect(json).not.toBeNull();
+    const facts = JSON.parse(json!) as {
+      language: string;
+      declarations: Array<{ name: string; exported: boolean }>;
+      imports: Array<{ specifier: string }>;
+      calls: Array<{ caller: string; callee: string }>;
+      diagnostics: string[];
+    };
+    expect(facts.language).toBe('rust');
+    expect(facts.declarations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'run', exported: true }),
+      ])
+    );
+    expect(facts.imports.some(item => item.specifier.includes('crate::other'))).toBe(
+      true
+    );
+    expect(facts.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ caller: 'run', callee: 'helper' }),
+      ])
+    );
+    expect(facts.diagnostics.join(' ')).toContain('tree-sitter');
+  });
+
+  it('exposes graph fact capability coverage', () => {
+    expect(addon!.getSupportedGraphFactExtensions()).toEqual(
+      expect.arrayContaining(['rs', 'py', 'go', 'ts'])
+    );
+    expect(addon!.SUPPORTED_GRAPH_FACT_EXTENSIONS).toEqual(
+      expect.arrayContaining(['rs', 'py', 'go', 'ts'])
+    );
+    const capabilities = JSON.parse(addon!.getGraphFactCapabilities()) as Array<{
+      extension: string;
+      factFamilies: string[];
+    }>;
+    expect(capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          extension: 'rs',
+          factFamilies: expect.arrayContaining(['declarations', 'calls']),
+        }),
+      ])
+    );
   });
 });
 
@@ -1282,6 +1378,22 @@ describe('ESM/CJS loader parity', () => {
       expect(addon).toHaveProperty(name);
       expect(esm).toHaveProperty(name);
     }
+  });
+
+  it('ESM facade re-exports every native binding symbol (drift guard)', async () => {
+    // The hand-authored loader/index.js facade must re-export every symbol the
+    // compiled .node binding exposes; otherwise a new Rust #[napi] export is
+    // declared in index.d.ts (and present on the binding) yet resolves to
+    // `undefined` for ESM consumers. This caught `PatchLineType` once.
+    // Non-literal specifier so TS types this as `any` (the .cjs loader has no
+    // declaration file), mirroring how `importEsmLoader` resolves index.js.
+    const cjsLoaderPath = '../index.cjs';
+    const cjsModule = await import(cjsLoaderPath);
+    const binding = (cjsModule.default ?? cjsModule) as Record<string, unknown>;
+    const esm = await importEsmLoader();
+    const facadeKeys = new Set(Object.keys(esm).filter(name => name !== 'default'));
+    const missing = Object.keys(binding).filter(name => !facadeKeys.has(name));
+    expect(missing).toEqual([]);
   });
 
   it('exposes the same minifier function exports from both loaders', async () => {

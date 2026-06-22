@@ -15,6 +15,11 @@ export const SEMANTIC_CONTENT_TYPES = [
   'documentSymbols',
   'typeDefinition',
   'implementation',
+  // LSP 3.17 additions
+  'workspaceSymbol',
+  'supertypes',
+  'subtypes',
+  'diagnostic',
 ] as const;
 
 export type SemanticContentType = (typeof SEMANTIC_CONTENT_TYPES)[number];
@@ -35,7 +40,10 @@ export type SemanticQueryBase = {
 };
 
 export type SymbolAnchoredSemanticQuery = SemanticQueryBase & {
-  type: Exclude<SemanticContentType, 'documentSymbols'>;
+  type: Exclude<
+    SemanticContentType,
+    'documentSymbols' | 'workspaceSymbol' | 'diagnostic'
+  >;
   symbolName: string;
   lineHint: number;
   orderHint?: number;
@@ -48,9 +56,22 @@ export type DocumentSymbolsSemanticQuery = SemanticQueryBase & {
   type: 'documentSymbols';
 };
 
+/** `workspace/symbol`: project-wide fuzzy symbol search. `symbolName` is the query string. */
+export type WorkspaceSymbolSemanticQuery = SemanticQueryBase & {
+  type: 'workspaceSymbol';
+  symbolName: string;
+};
+
+/** `textDocument/diagnostic` (pull): errors/warnings for a file without a position anchor. */
+export type DiagnosticSemanticQuery = SemanticQueryBase & {
+  type: 'diagnostic';
+};
+
 export type LspGetSemanticsQuery =
   | SymbolAnchoredSemanticQuery
-  | DocumentSymbolsSemanticQuery;
+  | DocumentSymbolsSemanticQuery
+  | WorkspaceSymbolSemanticQuery
+  | DiagnosticSemanticQuery;
 
 export type ResolvedSymbol = {
   name: string;
@@ -123,7 +144,10 @@ export type SemanticEmptyCategory =
   | 'noLocations'
   | 'noReferences'
   | 'noHover'
-  | 'noCalls';
+  | 'noCalls'
+  | 'noWorkspaceSymbols'
+  | 'noTypeHierarchy'
+  | 'noDiagnostics';
 
 export type SemanticEmptyState = {
   category: SemanticEmptyCategory;
@@ -176,6 +200,29 @@ export type LspSemanticEnvelope = {
         symbols: unknown[];
         totalSymbols?: number;
         topLevelSymbols?: number;
+        empty?: SemanticEmptyState;
+      }
+    | {
+        kind: 'workspaceSymbol';
+        query: string;
+        symbols: unknown[];
+        totalSymbols: number;
+        empty?: SemanticEmptyState;
+      }
+    | {
+        kind: 'typeHierarchy';
+        direction: 'supertypes' | 'subtypes';
+        root?: unknown;
+        items: unknown[];
+        totalItems: number;
+        empty?: SemanticEmptyState;
+      }
+    | {
+        kind: 'diagnostic';
+        diagnostics: unknown[];
+        totalDiagnostics: number;
+        errorCount: number;
+        warningCount: number;
         empty?: SemanticEmptyState;
       }
     | { kind: 'empty'; category: SemanticEmptyCategory; reason: string };

@@ -174,6 +174,40 @@ export class LSPClient {
     return Array.isArray(result) ? (result as OutgoingCall[]) : [];
   }
 
+  async workspaceSymbol(query: string): Promise<unknown[]> {
+    const result = await this.nativeClient.workspaceSymbol(query);
+    return Array.isArray(result) ? result : [];
+  }
+
+  async prepareTypeHierarchy(
+    filePath: string,
+    position: ExactPosition,
+    content?: string
+  ): Promise<unknown[]> {
+    await this.openDocument(filePath, content);
+    const result = await this.nativeClient.prepareTypeHierarchy(
+      filePath,
+      position.line,
+      position.character
+    );
+    return Array.isArray(result) ? result : [];
+  }
+
+  async typeHierarchySupertypes(item: unknown): Promise<unknown[]> {
+    const result = await this.nativeClient.typeHierarchySupertypes(item);
+    return Array.isArray(result) ? result : [];
+  }
+
+  async typeHierarchySubtypes(item: unknown): Promise<unknown[]> {
+    const result = await this.nativeClient.typeHierarchySubtypes(item);
+    return Array.isArray(result) ? result : [];
+  }
+
+  async getDiagnostics(filePath: string, content?: string): Promise<unknown> {
+    await this.openDocument(filePath, content);
+    return this.nativeClient.getDiagnostics(filePath);
+  }
+
   hasCapability(_capability: string): boolean {
     return (
       this.initialized &&

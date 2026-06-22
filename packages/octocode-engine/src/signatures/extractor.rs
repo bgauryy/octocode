@@ -52,9 +52,9 @@ fn predicates_satisfied(
                     .find(|c| c.index == *cap_idx)
                     .and_then(|c| c.node.utf8_text(content).ok())
                     .unwrap_or("");
-                let found = predicate.args[1..].iter().any(|arg| {
-                    matches!(arg, QueryPredicateArg::String(s) if s.as_ref() == cap_text)
-                });
+                let found = predicate.args[1..].iter().any(
+                    |arg| matches!(arg, QueryPredicateArg::String(s) if s.as_ref() == cap_text),
+                );
                 if !found {
                     return false;
                 }
@@ -213,17 +213,33 @@ mod tests {
     (do_block) @body)
 "#;
         let src = "defmodule M do\n  def foo(a) do\n    a + 1\n  end\n  defp bar(b) do\n    b * 2\n  end\nend\n";
-        let cfg = LangExtractConfig { language: lang, body_query: query_src };
+        let cfg = LangExtractConfig {
+            language: lang,
+            body_query: query_src,
+        };
         let result = extract(src, &cfg);
         // Should produce: defmodule M do, def foo(a) do, defp bar(b) do, end(defmodule)
         // NOT just 2 lines (all lines stripped by defmodule body capture)
         let lines = result.expect("should extract");
-        assert!(lines.len() > 2, "got only {} lines — defmodule body is still being stripped", lines.len());
+        assert!(
+            lines.len() > 2,
+            "got only {} lines — defmodule body is still being stripped",
+            lines.len()
+        );
         // defmodule line must be kept
-        assert!(lines.iter().any(|(_, t)| t.contains("defmodule")), "defmodule missing");
+        assert!(
+            lines.iter().any(|(_, t)| t.contains("defmodule")),
+            "defmodule missing"
+        );
         // def foo must be kept
-        assert!(lines.iter().any(|(_, t)| t.contains("def foo")), "def foo missing");
+        assert!(
+            lines.iter().any(|(_, t)| t.contains("def foo")),
+            "def foo missing"
+        );
         // defp bar must be kept
-        assert!(lines.iter().any(|(_, t)| t.contains("defp bar")), "defp bar missing");
+        assert!(
+            lines.iter().any(|(_, t)| t.contains("defp bar")),
+            "defp bar missing"
+        );
     }
 }

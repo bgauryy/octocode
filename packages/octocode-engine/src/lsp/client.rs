@@ -32,6 +32,12 @@ pub struct NativeLspClient {
     stderr_task: Mutex<Option<JoinHandle<()>>>,
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
+    /// The `positionEncoding` the server selected in its `InitializeResult`
+    /// (LSP 3.17). We advertise UTF-16 only, so this should be `utf-16` or absent
+    /// (absent ⇒ utf-16 by spec). Any other value means the server ignored our
+    /// capability and our offsets may be misaligned on non-ASCII lines — surfaced
+    /// as a stderr warning at start time.
+    position_encoding: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
     /// Open-document lifecycle state: `uri -> last sent version`. Drives the
     /// LSP `didOpen` (once) → `didChange` (incrementing version) → `didClose`
@@ -50,6 +56,7 @@ impl NativeLspClient {
             stderr_task: Mutex::new(None),
             stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
             capabilities: StdMutex::new(None),
+            position_encoding: StdMutex::new(None),
             progress: ProgressTracker::new(),
             open_docs: StdMutex::new(HashMap::new()),
         }
@@ -69,6 +76,9 @@ impl NativeLspClient {
         }
         if let Ok(mut capabilities) = self.capabilities.lock() {
             *capabilities = None;
+        }
+        if let Ok(mut encoding) = self.position_encoding.lock() {
+            *encoding = None;
         }
         if let Ok(mut open_docs) = self.open_docs.lock() {
             open_docs.clear();
@@ -143,6 +153,26 @@ impl NativeLspClient {
         if let Ok(mut capabilities) = self.capabilities.lock() {
             *capabilities = initialize_result.get("capabilities").cloned();
         }
+        // Reconcile the negotiated position encoding (LSP 3.17). We only emit
+        // UTF-16, so anything else means the server ignored our advertised
+        // capability and our offsets may be wrong on non-ASCII lines — make that
+        // observable instead of silently returning mis-positioned results.
+        let negotiated_encoding = extract_position_encoding(&initialize_result);
+        if let Some(encoding) = negotiated_encoding.as_deref() {
+            if encoding != "utf-16" {
+                push_stderr_line(
+                    &self.stderr_lines,
+                    format!(
+                        "[octocode] WARNING: language server negotiated positionEncoding \
+                         '{encoding}' but octocode only emits utf-16; positions on lines with \
+                         non-ASCII characters may be misaligned"
+                    ),
+                );
+            }
+        }
+        if let Ok(mut encoding) = self.position_encoding.lock() {
+            *encoding = negotiated_encoding;
+        }
         if let Err(error) = connection.notify("initialized", json!({})).await {
             cleanup_failed_start(&mut child, stderr_task).await;
             return Err(error);
@@ -170,6 +200,9 @@ impl NativeLspClient {
         if let Ok(mut capabilities) = self.capabilities.lock() {
             *capabilities = None;
         }
+        if let Ok(mut encoding) = self.position_encoding.lock() {
+            *encoding = None;
+        }
         if let Ok(mut open_docs) = self.open_docs.lock() {
             open_docs.clear();
         }
@@ -192,6 +225,18 @@ impl NativeLspClient {
             .as_ref()
             .map(|value| capability_supported(value, &capability))
             .unwrap_or(false)
+    }
+
+    /// The `positionEncoding` the server selected at initialize time, if any.
+    /// `None` means the server omitted it (implying the spec default, utf-16) or
+    /// the client has not started yet. octocode advertises utf-16 only, so a
+    /// value other than `Some("utf-16")` indicates a non-conformant server.
+    #[napi]
+    pub fn position_encoding(&self) -> Option<String> {
+        self.position_encoding
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
     }
 
     #[napi(js_name = "getRecentStderr")]
@@ -379,6 +424,65 @@ impl NativeLspClient {
         self.request("callHierarchy/outgoingCalls", json!({ "item": item }))
             .await
     }
+
+    /// Project-wide fuzzy symbol search — `workspace/symbol`.
+    /// Returns `WorkspaceSymbol[] | SymbolInformation[]` (raw JSON).
+    /// `query` is the fuzzy name string; empty string returns all symbols.
+    #[napi]
+    pub async fn workspace_symbol(&self, query: String) -> Result<Value> {
+        self.request("workspace/symbol", json!({ "query": query }))
+            .await
+    }
+
+    /// Prepare a type-hierarchy item at a given position — `textDocument/prepareTypeHierarchy`.
+    /// Returns `TypeHierarchyItem[] | null` (raw JSON).
+    #[napi]
+    pub async fn prepare_type_hierarchy(
+        &self,
+        file_path: String,
+        line: u32,
+        character: u32,
+    ) -> Result<Value> {
+        let uri = path_to_uri(&file_path)?;
+        self.request(
+            "textDocument/prepareTypeHierarchy",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character }
+            }),
+        )
+        .await
+    }
+
+    /// Retrieve supertypes (base classes / implemented interfaces) — `typeHierarchy/supertypes`.
+    /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
+    #[napi]
+    pub async fn type_hierarchy_supertypes(&self, item: Value) -> Result<Value> {
+        self.request("typeHierarchy/supertypes", json!({ "item": item }))
+            .await
+    }
+
+    /// Retrieve subtypes (subclasses / implementors) — `typeHierarchy/subtypes`.
+    /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
+    #[napi]
+    pub async fn type_hierarchy_subtypes(&self, item: Value) -> Result<Value> {
+        self.request("typeHierarchy/subtypes", json!({ "item": item }))
+            .await
+    }
+
+    /// Pull diagnostics for a single file — `textDocument/diagnostic` (LSP 3.17+).
+    /// Returns `DocumentDiagnosticReport` with `kind: "full"|"unchanged"` and `items: Diagnostic[]`.
+    /// Prefer pull diagnostics over push (`publishDiagnostics`) for agent/CLI use: you control
+    /// *when* to request them and avoid a notification firehose.
+    #[napi]
+    pub async fn get_diagnostics(&self, file_path: String) -> Result<Value> {
+        let uri = path_to_uri(&file_path)?;
+        self.request(
+            "textDocument/diagnostic",
+            json!({ "textDocument": { "uri": uri } }),
+        )
+        .await
+    }
 }
 
 impl Drop for NativeLspClient {
@@ -491,6 +595,17 @@ fn reason_has_error_code(reason: &str, code: i64) -> bool {
     false
 }
 
+/// Extracts the server-selected `positionEncoding` from an `InitializeResult`.
+/// Returns `None` when the server omits it (which the LSP spec defines as the
+/// utf-16 default).
+fn extract_position_encoding(initialize_result: &Value) -> Option<String> {
+    initialize_result
+        .get("capabilities")
+        .and_then(|capabilities| capabilities.get("positionEncoding"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 fn capability_supported(capabilities: &Value, capability: &str) -> bool {
     let Some(value) = capabilities.get(capability) else {
         return false;
@@ -516,6 +631,16 @@ async fn initialize(
         "rootUri": root_uri,
         "workspaceFolders": [{ "uri": root_uri, "name": "workspace" }],
         "capabilities": {
+            "general": {
+                // Advertise UTF-16 ONLY. Every position octocode sends is computed
+                // in UTF-16 code units (resolver::byte_offset_to_utf16) and the
+                // column/snippet layers are UTF-16 too, so a server that selected
+                // utf-8 would misread our offsets on any line with non-ASCII text.
+                // UTF-16 is the mandatory baseline encoding, so it is always
+                // supported. The server's choice is read back and asserted in
+                // `start()` via `extract_position_encoding`.
+                "positionEncodings": ["utf-16"]
+            },
             "textDocument": {
                 "definition": { "dynamicRegistration": false, "linkSupport": false },
                 "references": { "dynamicRegistration": false },
@@ -524,6 +649,12 @@ async fn initialize(
                 "implementation": { "dynamicRegistration": false, "linkSupport": false },
                 "documentSymbol": { "dynamicRegistration": false, "hierarchicalDocumentSymbolSupport": true },
                 "callHierarchy": { "dynamicRegistration": false },
+                // LSP 3.17: type hierarchy — navigate supertypes (base classes/interfaces)
+                // and subtypes (subclasses/implementors) without opening every file.
+                "typeHierarchy": { "dynamicRegistration": false },
+                // LSP 3.17: pull diagnostics — agent/CLI requests errors on demand instead
+                // of receiving an unprompted push stream after every didChange.
+                "diagnostic": { "dynamicRegistration": false, "relatedDocumentSupport": false },
                 "synchronization": { "didSave": true, "willSave": false, "willSaveWaitUntil": false }
             },
             "workspace": {
@@ -839,6 +970,27 @@ mod tests {
                 character: 0,
             },
         }
+    }
+
+    #[test]
+    fn extract_position_encoding_reads_server_choice() {
+        // Server echoes the negotiated encoding.
+        let result = json!({ "capabilities": { "positionEncoding": "utf-16" } });
+        assert_eq!(
+            extract_position_encoding(&result).as_deref(),
+            Some("utf-16")
+        );
+
+        // A non-conformant server that ignored our utf-16-only advertisement.
+        let result = json!({ "capabilities": { "positionEncoding": "utf-8" } });
+        assert_eq!(extract_position_encoding(&result).as_deref(), Some("utf-8"));
+
+        // Omitted ⇒ None (spec default is utf-16).
+        let result = json!({ "capabilities": {} });
+        assert_eq!(extract_position_encoding(&result), None);
+
+        // No capabilities at all.
+        assert_eq!(extract_position_encoding(&json!({})), None);
     }
 
     #[test]

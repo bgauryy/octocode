@@ -9,7 +9,11 @@ import type {
 } from '@octocodeai/octocode-engine/lsp/types';
 import { validateToolPath } from '../../../utils/file/toolHelpers.js';
 import { LSP_ERROR_CODES } from '@octocodeai/octocode-engine/lsp/lspErrorCodes';
-import type { LspGetSemanticsQuery, ResolvedSymbol } from './semanticTypes.js';
+import type {
+  DocumentSymbolsSemanticQuery,
+  SymbolAnchoredSemanticQuery,
+  ResolvedSymbol,
+} from './semanticTypes.js';
 
 export type FileAnchor = {
   uri: string;
@@ -63,7 +67,7 @@ export async function resolveFileAnchor(
 }
 
 export async function resolveSymbolAnchor(
-  query: LspGetSemanticsQuery,
+  query: SymbolAnchoredSemanticQuery | DocumentSymbolsSemanticQuery,
   toolName: string
 ): Promise<AnchorResolutionResult<SymbolAnchor>> {
   const file = await resolveFileAnchor(query, toolName);

@@ -45,6 +45,20 @@ describe('review fix #1: executable next.* continuations', () => {
     );
     expect(env.next?.['next.matchPage']).toBeDefined();
   });
+
+  it('itemsPerPage caps broad result rows and emits next.page', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: { kind: 'text', value: 'function' },
+        itemsPerPage: 2,
+      })
+    );
+    expect(env.results.length).toBeLessThanOrEqual(2);
+    expect(env.pagination?.hasMore).toBe(true);
+    expect(env.next?.['next.page']).toBeDefined();
+  });
 });
 
 describe('boolean predicate over target:"code" executes (set algebra)', () => {

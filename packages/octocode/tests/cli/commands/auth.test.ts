@@ -687,8 +687,13 @@ describe('cli/commands/auth', () => {
       expect(logout).toHaveBeenCalledWith('github.com');
     });
 
-    it('rejects removed auth status subcommand', async () => {
-      const { authCommand } = await loadAuthModule();
+    it('prints auth status subcommand', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+        tokenSource: 'none',
+      });
 
       await authCommand.handler!({
         command: 'auth',
@@ -697,13 +702,20 @@ describe('cli/commands/auth', () => {
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('auth status was removed')
+        expect.stringContaining('GitHub Authentication')
       );
-      expect(process.exitCode).toBe(EXIT.USAGE);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('anonymous requests may work')
+      );
+      expect(process.exitCode).toBeUndefined();
     });
 
-    it('rejects removed auth status subcommand in json mode', async () => {
-      const { authCommand } = await loadAuthModule();
+    it('prints auth status subcommand in json mode without failing unauthenticated checks', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        tokenSource: 'none',
+      });
 
       await authCommand.handler!({
         command: 'auth',
@@ -712,9 +724,12 @@ describe('cli/commands/auth', () => {
       });
 
       const parsed = findJsonLine();
-      expect(parsed.success).toBe(false);
-      expect(String(parsed.error)).toContain('auth status was removed');
-      expect(process.exitCode).toBe(EXIT.USAGE);
+      expect(parsed.success).toBe(true);
+      expect(parsed.authenticated).toBe(false);
+      expect(parsed.hostname).toBe('github.com');
+      expect(parsed.tokenPresent).toBe(false);
+      expect(parsed.publicGitHubAccess).toBe('anonymous');
+      expect(process.exitCode).toBeUndefined();
     });
 
     it('auth without subcommand in non-TTY with --json outputs JSON', async () => {
@@ -753,16 +768,32 @@ describe('cli/commands/auth', () => {
       expect(process.exitCode).toBe(EXIT.USAGE);
     });
 
-    it('does not run status lookup for removed auth status', async () => {
+    it('supports --status flag for auth status checks', async () => {
       const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: true,
+        hostname: 'github.enterprise.test',
+        username: 'agent',
+        tokenSource: 'octocode',
+      });
 
       await authCommand.handler!({
         command: 'auth',
-        args: ['status'],
-        options: { hostname: 'github.enterprise.test' },
+        args: [],
+        options: {
+          status: true,
+          json: true,
+          hostname: 'github.enterprise.test',
+        },
       });
 
-      expect(getAuthStatus).not.toHaveBeenCalled();
+      const parsed = findJsonLine();
+      expect(parsed.success).toBe(true);
+      expect(parsed.authenticated).toBe(true);
+      expect(parsed.username).toBe('agent');
+      expect(parsed.hostname).toBe('github.enterprise.test');
+      expect(parsed.publicGitHubAccess).toBe('authenticated');
+      expect(getAuthStatus).toHaveBeenCalledWith('github.enterprise.test');
     });
 
     it('rejects removed auth token subcommand', async () => {
@@ -936,8 +967,13 @@ describe('cli/commands/auth', () => {
       );
     });
 
-    it('removed status subcommand points users to status command', async () => {
-      const { authCommand } = await loadAuthModule();
+    it('status subcommand points users to auth-only status output', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+        tokenSource: 'none',
+      });
 
       await authCommand.handler!({
         command: 'auth',
@@ -946,13 +982,19 @@ describe('cli/commands/auth', () => {
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('auth status was removed')
+        expect.stringContaining('GitHub Authentication')
       );
-      expect(process.exitCode).toBe(EXIT.USAGE);
+      expect(process.exitCode).toBeUndefined();
     });
 
-    it('removed status subcommand in json mode returns usage error', async () => {
-      const { authCommand } = await loadAuthModule();
+    it('status subcommand in json mode returns auth-only status output', async () => {
+      const { authCommand, getAuthStatus } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: true,
+        username: 'status-user',
+        hostname: 'github.com',
+        tokenSource: 'gh-cli',
+      });
 
       await authCommand.handler!({
         command: 'auth',
@@ -961,9 +1003,12 @@ describe('cli/commands/auth', () => {
       });
 
       const parsed = findJsonLine();
-      expect(parsed.success).toBe(false);
-      expect(String(parsed.error)).toContain('auth status was removed');
-      expect(process.exitCode).toBe(EXIT.USAGE);
+      expect(parsed.success).toBe(true);
+      expect(parsed.authenticated).toBe(true);
+      expect(parsed.username).toBe('status-user');
+      expect(parsed.tokenSource).toBe('gh-cli');
+      expect(parsed.publicGitHubAccess).toBe('authenticated');
+      expect(process.exitCode).toBeUndefined();
     });
 
     it('without subcommand in non-TTY (no json) prints usage error', async () => {

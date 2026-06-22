@@ -7,7 +7,7 @@ use ignore::WalkBuilder;
 
 use super::language::AgLanguage;
 use super::octo::compile_matcher;
-use super::query::{invalid_query_explanation, StructuralQuery};
+use super::query::{invalid_query_explanation, Prefilter, StructuralQuery};
 use super::types::{
     structural_query_fingerprint, StructuralDetailedMatch, StructuralDiagnostic,
     StructuralSearchDetailedFileResult, StructuralSearchFileResult,
@@ -34,28 +34,11 @@ pub fn search_files(
         .max_file_bytes
         .map(|n| n as u64)
         .unwrap_or(1_000_000);
-    let anchor = query.literal_anchor();
+    let prefilter = query.prefilter();
 
     let overrides = build_overrides(&root, &include, &exclude)?;
-    let (candidate_files, skipped_by_pre_filter, skipped_unsupported) = if let Some(anchor) = anchor {
-        // `supported_only=false` so ripgrep searches every file — unsupported
-        // extensions that textually contain the anchor must surface as
-        // `skipped_unsupported`, not vanish into the prefilter lump.
-        matching_anchor_candidate_files(
-            &root,
-            &include,
-            &exclude,
-            &exclude_dir,
-            hidden,
-            no_ignore,
-            max_depth,
-            overrides,
-            anchor,
-            max_files,
-            false,
-        )?
-    } else {
-        (
+    let (candidate_files, skipped_by_pre_filter, skipped_unsupported) = match &prefilter {
+        Prefilter::None => (
             collect_candidate_files(
                 &root,
                 overrides,
@@ -67,7 +50,41 @@ pub fn search_files(
             )?,
             0,
             0,
-        )
+        ),
+        Prefilter::Single(anchor) => {
+            // `supported_only=false` so ripgrep searches every file — unsupported
+            // extensions that textually contain the anchor must surface as
+            // `skipped_unsupported`, not vanish into the prefilter lump.
+            matching_anchor_candidate_files(
+                &root,
+                &include,
+                &exclude,
+                &exclude_dir,
+                hidden,
+                no_ignore,
+                max_depth,
+                overrides,
+                anchor,
+                max_files,
+                false,
+            )?
+        }
+        Prefilter::Union(anchors) => {
+            // Union prefilter: files must contain at least one of the literals.
+            // Uses regex alternation (safe because anchors are validated identifiers).
+            matching_anchor_union_candidate_files(
+                &root,
+                &include,
+                &exclude,
+                &exclude_dir,
+                hidden,
+                no_ignore,
+                max_depth,
+                overrides,
+                anchors,
+                max_files,
+            )?
+        }
     };
 
     let mut by_ext: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
@@ -135,15 +152,26 @@ pub fn search_files(
         }
     }
 
-    if anchor.is_none() {
-        warnings.push(format!(
-            "No literal anchor in the {} — parsed all {parsed_files} candidate file(s) with no text pre-filter.",
-            if query.is_rule() { "rule" } else { "pattern" }
-        ));
-    } else if skipped_by_pre_filter > 0 {
-        warnings.push(format!(
-            "Pre-filter skipped parsing {skipped_by_pre_filter} supported file(s) (literal anchor absent); parsed {parsed_files}."
-        ));
+    match &prefilter {
+        Prefilter::None => {
+            warnings.push(format!(
+                "No literal anchor in the {} — parsed all {parsed_files} candidate file(s) with no text pre-filter.",
+                if query.is_rule() { "rule" } else { "pattern" }
+            ));
+        }
+        Prefilter::Single(_) if skipped_by_pre_filter > 0 => {
+            warnings.push(format!(
+                "Pre-filter skipped parsing {skipped_by_pre_filter} supported file(s) (literal anchor absent); parsed {parsed_files}."
+            ));
+        }
+        Prefilter::Union(anchors) if skipped_by_pre_filter > 0 => {
+            warnings.push(format!(
+                "Union pre-filter ({} anchors: {}) skipped {skipped_by_pre_filter} supported file(s); parsed {parsed_files}.",
+                anchors.len(),
+                anchors.join("|")
+            ));
+        }
+        _ => {}
     }
     if skipped_unsupported_ext > 0 {
         warnings.push(format!(
@@ -227,7 +255,7 @@ pub fn search_files_detailed(
     let exclude_dir = exclude_dir.unwrap_or_else(default_exclude_dirs);
     let max_files = max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = max_file_bytes.map(|n| n as u64).unwrap_or(1_000_000);
-    let anchor = query.literal_anchor();
+    let prefilter = query.prefilter();
     let query_explanation = query.explanation();
 
     let overrides = build_overrides(&root, &include, &exclude)?;
@@ -241,8 +269,9 @@ pub fn search_files_detailed(
         no_ignore,
         max_depth,
     )?;
-    let matching_paths = if let Some(anchor) = anchor {
-        Some(matching_anchor_paths(
+    let matching_paths: Option<HashSet<String>> = match &prefilter {
+        Prefilter::None => None,
+        Prefilter::Single(anchor) => Some(matching_anchor_paths(
             &root,
             &include,
             &exclude_dir,
@@ -250,9 +279,16 @@ pub fn search_files_detailed(
             no_ignore,
             max_depth,
             anchor,
-        )?)
-    } else {
-        None
+        )?),
+        Prefilter::Union(anchors) => Some(matching_anchor_union_paths(
+            &root,
+            &include,
+            &exclude_dir,
+            hidden,
+            no_ignore,
+            max_depth,
+            anchors,
+        )?),
     };
 
     let mut matchers = BTreeMap::new();
@@ -436,15 +472,26 @@ pub fn search_files_detailed(
     }
 
     let mut warnings = Vec::new();
-    if anchor.is_none() {
-        warnings.push(format!(
-            "No literal anchor in the {} — parsed all {parsed_files} supported candidate file(s) with no text pre-filter.",
-            if query.is_rule() { "rule" } else { "pattern" }
-        ));
-    } else if skipped_by_pre_filter > 0 {
-        warnings.push(format!(
-            "Pre-filter skipped parsing {skipped_by_pre_filter} file(s); parsed {parsed_files}."
-        ));
+    match &prefilter {
+        Prefilter::None => {
+            warnings.push(format!(
+                "No literal anchor in the {} — parsed all {parsed_files} supported candidate file(s) with no text pre-filter.",
+                if query.is_rule() { "rule" } else { "pattern" }
+            ));
+        }
+        Prefilter::Single(_) if skipped_by_pre_filter > 0 => {
+            warnings.push(format!(
+                "Pre-filter skipped parsing {skipped_by_pre_filter} file(s); parsed {parsed_files}."
+            ));
+        }
+        Prefilter::Union(anchors) if skipped_by_pre_filter > 0 => {
+            warnings.push(format!(
+                "Union pre-filter ({} anchors: {}) skipped {skipped_by_pre_filter} file(s); parsed {parsed_files}.",
+                anchors.len(),
+                anchors.join("|")
+            ));
+        }
+        _ => {}
     }
     if skipped_unsupported > 0 {
         warnings.push(format!(
@@ -594,6 +641,134 @@ fn matching_anchor_candidate_files(
     Ok((out, skipped_by_pre_filter, matched_unsupported))
 }
 
+/// Union prefilter variant of [`matching_anchor_paths`]: a file qualifies if it
+/// contains ANY of `anchors` (regex alternation with escaped literals).
+fn matching_anchor_union_paths(
+    root: &Path,
+    include: &[String],
+    exclude_dir: &[String],
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    _max_depth: Option<u32>,
+    anchors: &[&str],
+) -> Result<HashSet<String>, String> {
+    let pattern = anchors_to_regex(anchors);
+    let result = crate::ripgrep_search::search(RipgrepSearchOptions {
+        path: root.to_string_lossy().into_owned(),
+        pattern,
+        fixed_string: None, // regex alternation — not fixed-string
+        case_sensitive: Some(true),
+        files_only: Some(true),
+        include: (!include.is_empty()).then(|| include.to_vec()),
+        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
+        hidden,
+        no_ignore,
+        sort: Some("path".to_owned()),
+        ..RipgrepSearchOptions::default()
+    })
+    .map_err(|err| format!("union prefilter failed for anchors {anchors:?}: {err}"))?;
+    Ok(result.files.into_iter().map(|f| f.path).collect())
+}
+
+/// Union prefilter variant of [`matching_anchor_candidate_files`].
+#[allow(clippy::too_many_arguments)]
+fn matching_anchor_union_candidate_files(
+    root: &Path,
+    include: &[String],
+    exclude: &[String],
+    exclude_dir: &[String],
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    _max_depth: Option<u32>,
+    overrides: Override,
+    anchors: &[&str],
+    max_files: usize,
+) -> Result<(Vec<PathBuf>, u32, u32), String> {
+    let search_include = anchor_search_include_globs(include, false);
+    let pattern = anchors_to_regex(anchors);
+    let result = crate::ripgrep_search::search(RipgrepSearchOptions {
+        path: root.to_string_lossy().into_owned(),
+        pattern,
+        fixed_string: None, // regex alternation
+        case_sensitive: Some(true),
+        files_only: Some(true),
+        include: (!search_include.is_empty()).then_some(search_include),
+        exclude: (!exclude.is_empty()).then(|| exclude.to_vec()),
+        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
+        hidden,
+        no_ignore,
+        sort: Some("path".to_owned()),
+        ..RipgrepSearchOptions::default()
+    })
+    .map_err(|err| format!("union prefilter failed for anchors {anchors:?}: {err}"))?;
+
+    let files_searched = result.stats.files_searched.unwrap_or_default();
+    let mut matched_supported = 0u32;
+    let mut matched_unsupported = 0u32;
+    let mut out = Vec::new();
+    for file in result.files {
+        let path = PathBuf::from(file.path);
+        if overrides.matched(&path, false).is_ignore() {
+            continue;
+        }
+        let is_supported =
+            extension_for_path(&path).is_some_and(|ext| languages::find_entry(&ext).is_some());
+        if is_supported {
+            matched_supported = matched_supported.saturating_add(1);
+            if out.len() < max_files {
+                out.push(path);
+            }
+        } else {
+            matched_unsupported = matched_unsupported.saturating_add(1);
+        }
+    }
+    let skipped_by_pre_filter = files_searched
+        .saturating_sub(matched_supported)
+        .saturating_sub(matched_unsupported);
+    Ok((out, skipped_by_pre_filter, matched_unsupported))
+}
+
+/// Build a ripgrep regex alternation from anchor literals.
+/// Each anchor is escaped so operator characters (`&&`, `||`, etc.) are treated
+/// as literals, not regex metacharacters.
+fn anchors_to_regex(anchors: &[&str]) -> String {
+    anchors
+        .iter()
+        .map(|a| regex_escape_anchor(a))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// Escape regex metacharacters in an anchor string.
+/// Safe anchors from `derive_literal_anchor` contain only alphanumeric, `_`,
+/// and a small set of operator characters — all of which are safe after escaping.
+fn regex_escape_anchor(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for ch in s.chars() {
+        if matches!(
+            ch,
+            '.' | '+'
+                | '*'
+                | '?'
+                | '^'
+                | '$'
+                | '{'
+                | '}'
+                | '('
+                | ')'
+                | '|'
+                | '['
+                | ']'
+                | '\\'
+                | '&'
+        ) {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 fn anchor_search_include_globs(include: &[String], supported_only: bool) -> Vec<String> {
     if !include.is_empty() || !supported_only {
         return include.to_vec();
@@ -624,7 +799,11 @@ fn default_exclude_dirs() -> Vec<String> {
 /// the search path so relative globs like `src/**/*.ts` resolve as users expect.
 /// `exclude` globs are added negated (`!glob`) so they drop files that `include`
 /// would otherwise match — mirroring `localSearchCode.exclude`。
-fn build_overrides(root: &Path, include: &[String], exclude: &[String]) -> Result<Override, String> {
+fn build_overrides(
+    root: &Path,
+    include: &[String],
+    exclude: &[String],
+) -> Result<Override, String> {
     let mut builder = OverrideBuilder::new(root);
     for glob in include {
         builder

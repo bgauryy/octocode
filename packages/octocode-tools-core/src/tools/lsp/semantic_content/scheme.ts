@@ -93,6 +93,9 @@ const EmptyCategorySchema = z.enum([
   'noReferences',
   'noHover',
   'noCalls',
+  'noWorkspaceSymbols',
+  'noTypeHierarchy',
+  'noDiagnostics',
 ]);
 
 const EmptyStateSchema = z.object({
@@ -207,6 +210,29 @@ const PayloadSchema = z.discriminatedUnion('kind', [
     symbols: z.array(z.union([CompactSymbolSchema, CompactSymbolRowSchema])),
     totalSymbols: z.number().optional(),
     topLevelSymbols: z.number().optional(),
+    empty: EmptyStateSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('workspaceSymbol'),
+    query: z.string(),
+    symbols: z.array(z.unknown()),
+    totalSymbols: z.number(),
+    empty: EmptyStateSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('typeHierarchy'),
+    direction: z.enum(['supertypes', 'subtypes']),
+    root: z.unknown().optional(),
+    items: z.array(z.unknown()),
+    totalItems: z.number(),
+    empty: EmptyStateSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal('diagnostic'),
+    diagnostics: z.array(z.unknown()),
+    totalDiagnostics: z.number(),
+    errorCount: z.number(),
+    warningCount: z.number(),
     empty: EmptyStateSchema.optional(),
   }),
   z.object({

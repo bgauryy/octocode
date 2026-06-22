@@ -9,18 +9,17 @@
  * single entry's `data`.
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type {
-  GitHubFileContentData,
-  GitHubSearchCodeGroup,
-} from '@octocodeai/octocode-core/types';
+import type { GitHubFileContentData } from '@octocodeai/octocode-core/types';
 import { runDirect } from './runner.js';
-import { compileWhere } from './compile.js';
+import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
 import { diagnostic } from '../diagnostics.js';
+import { toGithubCodeSearchToolQuery } from '../transformers/github/code.js';
 import type { AdapterResult } from './local.js';
 import type {
   OqlCodeResultRow,
   OqlContentResultRow,
   OqlDiagnostic,
+  OqlFileResultRow,
   OqlQuery,
   OqlTreeResultRow,
   QueryScope,
@@ -44,19 +43,14 @@ function firstScopePath(scope: QueryScope | undefined): string | undefined {
   return Array.isArray(scope.path) ? scope.path[0] : scope.path;
 }
 
-function language(scope: QueryScope | undefined): string | undefined {
-  const l = scope?.language;
-  if (!l) return undefined;
-  return Array.isArray(l) ? l[0] : l;
-}
-
 /** Pull the single query's `data` payload from a bulk CallToolResult. */
 function extractData<T>(result: CallToolResult): T | undefined {
   const sc = result.structuredContent as
-    | { results?: Array<{ data?: unknown }> }
+    | { results?: Array<{ data?: unknown } | Record<string, unknown>> }
     | undefined;
   const first = sc?.results?.[0];
-  return first?.data as T | undefined;
+  if (!first) return undefined;
+  return ('data' in first ? first.data : first) as T | undefined;
 }
 
 function extractStatus(result: CallToolResult): string | undefined {
@@ -68,8 +62,8 @@ function extractStatus(result: CallToolResult): string | undefined {
 
 /**
  * GitHub provider zero-results are NOT silent proof — code search can be
- * unindexed/deprecated and repo names redirect. Emit a non-blocking
- * `providerUnindexed` so an empty result reads as "verify", not "absent".
+ * unindexed/deprecated and repo names redirect. Emit a blocking diagnostic so
+ * an empty provider read/search cannot be presented as complete proof.
  */
 function emptyProviderDiag(rowCount: number, backend: string): OqlDiagnostic[] {
   if (rowCount > 0) return [];
@@ -77,9 +71,85 @@ function emptyProviderDiag(rowCount: number, backend: string): OqlDiagnostic[] {
     diagnostic(
       'providerUnindexed',
       `${backend} returned no results — GitHub may not index this repo/branch (or the name redirected). Verify with structure/materialize before concluding absence.`,
-      { backend, severity: 'info', blocksAnswer: false }
+      { backend, severity: 'warning', blocksAnswer: true }
     ),
   ];
+}
+
+interface GithubStructureEntry {
+  dir?: string;
+  files?: readonly string[];
+  folders?: readonly string[];
+}
+
+interface GithubCodeSearchMatch {
+  value?: string;
+  matchIndices?: Array<{ start: number; end: number; lineOffset?: number }>;
+}
+
+interface GithubCodeSearchFile {
+  owner?: string;
+  repo?: string;
+  queryId?: string;
+  path: string;
+  matches?: readonly GithubCodeSearchMatch[];
+}
+
+interface GithubCodeSearchPayload {
+  files?: readonly (GithubCodeSearchFile | string)[];
+  pagination?: ToolPaginationPayload;
+}
+
+function cleanRepoPath(part: string | undefined): string {
+  if (!part || part === '.') return '';
+  return part.replace(/^\/+|\/+$/g, '');
+}
+
+function joinRepoPath(...parts: Array<string | undefined>): string {
+  return parts.map(cleanRepoPath).filter(Boolean).join('/');
+}
+
+function normalizeStructure(
+  structure:
+    | readonly GithubStructureEntry[]
+    | Record<string, { files?: readonly string[]; folders?: readonly string[] }>
+    | undefined
+): GithubStructureEntry[] {
+  if (!structure) return [];
+  if (Array.isArray(structure)) return [...structure];
+  return Object.entries(structure).map(([dir, entry]) => ({
+    dir,
+    files: entry.files,
+    folders: entry.folders,
+  }));
+}
+
+function structureDepth(pathValue: string): number {
+  return cleanRepoPath(pathValue).split('/').filter(Boolean).length;
+}
+
+function githubCodeFilePath(file: GithubCodeSearchFile | string): string {
+  if (typeof file !== 'string') return file.path;
+  const separator = file.indexOf(':');
+  return separator >= 0 ? file.slice(separator + 1) : file;
+}
+
+function githubCodeFileMetadata(
+  file: GithubCodeSearchFile | string
+): Record<string, unknown> | undefined {
+  if (typeof file === 'string') return undefined;
+  const metadata = {
+    ...(file.owner !== undefined ? { owner: file.owner } : {}),
+    ...(file.repo !== undefined ? { repo: file.repo } : {}),
+    ...(file.queryId !== undefined ? { queryId: file.queryId } : {}),
+  };
+  return Object.keys(metadata).length ? metadata : undefined;
+}
+
+function githubCodeFileMatches(
+  file: GithubCodeSearchFile | string
+): readonly GithubCodeSearchMatch[] {
+  return typeof file === 'string' ? [] : (file.matches ?? []);
 }
 
 export async function executeGithub(query: OqlQuery): Promise<AdapterResult> {
@@ -104,69 +174,40 @@ export async function executeGithub(query: OqlQuery): Promise<AdapterResult> {
  * `requiresMaterialization` rather than silently returning nothing.
  */
 async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
-  const where = query.where;
-  const needsMat = (): AdapterResult => ({
-    results: [],
-    diagnostics: [
-      diagnostic(
-        'requiresMaterialization',
-        'target:"files" over a GitHub source can only list files containing a term via the provider; everything else needs materialization (set materialize.mode:"auto" with a bounded scope.path, or use a local source).',
-        { backend: 'localFindFiles' }
-      ),
-    ],
-    provenance: [],
+  const transformed = toGithubCodeSearchToolQuery(query, {
+    defaultMatch: 'file',
+    unsupportedBackend: 'localFindFiles',
+    unsupportedMessage:
+      'target:"files" over a GitHub source can only list files containing a term via the provider; everything else needs materialization (set materialize.mode:"auto" with a bounded scope.path, or use a local source).',
   });
-
-  if (!where) return needsMat();
-  const compiled = compileWhere(where);
-  if (
-    compiled.unsupported ||
-    compiled.negate ||
-    compiled.match?.mode === 'structural'
-  ) {
-    return needsMat();
+  if (!transformed.ok) {
+    return {
+      results: [],
+      diagnostics: transformed.diagnostics,
+      provenance: [],
+    };
   }
 
-  const { owner, repo } = splitRepo(ghFrom(query));
-  const p = query.params ?? {};
-  const toolQuery: Record<string, unknown> = {
-    ...(owner ? { owner } : {}),
-    ...(repo ? { repo } : {}),
-    keywords: [compiled.match?.keywords ?? ''],
-    ...(language(query.scope) ? { language: language(query.scope) } : {}),
-    ...(firstScopePath(query.scope)
-      ? { path: firstScopePath(query.scope) }
-      : {}),
-    // `target:"files"` implies file-location intent — default to match:"path"
-    // (cheapest) unless the agent explicitly set match via params.
-    match: typeof p.match === 'string' ? p.match : 'path',
-    ...(typeof p.concise === 'boolean' ? { concise: p.concise } : {}),
-    ...(typeof p.extension === 'string' ? { extension: p.extension } : {}),
-    ...(typeof p.filename === 'string' ? { filename: p.filename } : {}),
-    ...(query.limit ? { limit: query.limit } : {}),
-    ...(query.page ? { page: query.page } : {}),
-  };
-  const result = await runDirect('ghSearchCode', toolQuery);
-  const data = extractData<{ results?: readonly GitHubSearchCodeGroup[] }>(
-    result
-  );
+  const result = await runDirect('ghSearchCode', transformed.query);
+  const data = extractData<GithubCodeSearchPayload>(result);
   // Distinct file paths — "files containing the term", not per-match rows.
   const seen = new Set<string>();
-  const rows: import('../types.js').OqlFileResultRow[] = [];
-  for (const group of data?.results ?? []) {
-    for (const match of group.matches) {
-      if (seen.has(match.path)) continue;
-      seen.add(match.path);
-      rows.push({
-        kind: 'file',
-        source: ghFrom(query),
-        path: match.path,
-        entryType: 'file',
-      });
-    }
+  const rows: OqlFileResultRow[] = [];
+  for (const file of data?.files ?? []) {
+    const path = githubCodeFilePath(file);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    rows.push({
+      kind: 'file',
+      source: ghFrom(query),
+      path,
+      entryType: 'file',
+    });
   }
+  const pagination = toOqlPagination(data?.pagination);
   return {
     results: rows,
+    ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...statusDiagnostics(result, 'ghSearchCode'),
       ...emptyProviderDiag(rows.length, 'ghSearchCode'),
@@ -174,7 +215,7 @@ async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
         ? [
             diagnostic(
               'providerSemanticsApproximate',
-              'GitHub lists files containing a term at path level (index may be incomplete); materialize for an exact file set.',
+              'GitHub lists files containing a term via provider code search (index may be incomplete); materialize for an exact file set.',
               { backend: 'ghSearchCode', severity: 'info', blocksAnswer: false }
             ),
           ]
@@ -191,62 +232,50 @@ function ghFrom(query: OqlQuery): GithubSource {
 }
 
 async function githubCode(query: OqlQuery): Promise<AdapterResult> {
-  const where = query.where!;
-  const compiled = compileWhere(where);
-  if (compiled.unsupported || compiled.match?.mode === 'structural') {
+  const transformed = toGithubCodeSearchToolQuery(query);
+  if (!transformed.ok) {
     return {
       results: [],
-      diagnostics: [
-        diagnostic(
-          'requiresMaterialization',
-          'This predicate cannot be evaluated by GitHub code search; materialize for local proof.',
-          { backend: 'ghSearchCode' }
-        ),
-      ],
+      diagnostics: transformed.diagnostics,
       provenance: [],
     };
   }
 
-  const { owner, repo } = splitRepo(ghFrom(query));
-  const p = query.params ?? {};
-  const toolQuery: Record<string, unknown> = {
-    ...(owner ? { owner } : {}),
-    ...(repo ? { repo } : {}),
-    keywords: [compiled.match?.keywords ?? ''],
-    ...(language(query.scope) ? { language: language(query.scope) } : {}),
-    ...(firstScopePath(query.scope)
-      ? { path: firstScopePath(query.scope) }
-      : {}),
-    // Forward the smart `code`-target params (now typed in targetParams.ts):
-    // match:"path" for cheap file-location, concise:true for flat results,
-    // plus extension/filename filters the provider supports natively.
-    ...(typeof p.match === 'string' ? { match: p.match } : {}),
-    ...(typeof p.concise === 'boolean' ? { concise: p.concise } : {}),
-    ...(typeof p.extension === 'string' ? { extension: p.extension } : {}),
-    ...(typeof p.filename === 'string' ? { filename: p.filename } : {}),
-    ...(query.limit ? { limit: query.limit } : {}),
-    ...(query.page ? { page: query.page } : {}),
-  };
-
-  const result = await runDirect('ghSearchCode', toolQuery);
-  const data = extractData<{ results?: readonly GitHubSearchCodeGroup[] }>(
-    result
-  );
+  const result = await runDirect('ghSearchCode', transformed.query);
+  const data = extractData<GithubCodeSearchPayload>(result);
   const rows: OqlCodeResultRow[] = [];
-  for (const group of data?.results ?? []) {
-    for (const match of group.matches) {
+  for (const file of data?.files ?? []) {
+    const path = githubCodeFilePath(file);
+    const metadata = githubCodeFileMetadata(file);
+    const matches = githubCodeFileMatches(file);
+    if (matches.length === 0) {
+      rows.push({
+        kind: 'code',
+        source: ghFrom(query),
+        path,
+        ...(metadata ? { metadata } : {}),
+      });
+      continue;
+    }
+    for (const match of matches) {
       // GitHub code search returns path-level matches with NO line — omit line
       // (do not fabricate); follow next.fetch for the exact location.
       rows.push({
         kind: 'code',
         source: ghFrom(query),
-        path: match.path,
+        path,
         ...(match.value !== undefined ? { snippet: match.value } : {}),
+        ...(match.matchIndices !== undefined
+          ? { matchIndices: match.matchIndices }
+          : {}),
+        ...(metadata ? { metadata } : {}),
       });
     }
   }
+  const pagination = toOqlPagination(data?.pagination);
   return {
     results: rows,
+    ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...statusDiagnostics(result, 'ghSearchCode'),
       ...emptyProviderDiag(rows.length, 'ghSearchCode'),
@@ -280,6 +309,7 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
     ...(owner ? { owner } : {}),
     ...(repo ? { repo } : {}),
     path: firstScopePath(query.scope) ?? '',
+    type: 'file',
     minify,
     ...(ghFrom(query).kind === 'github' && ghFrom(query).ref
       ? { branch: ghFrom(query).ref }
@@ -301,6 +331,7 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
   const result = await runDirect('ghGetFileContent', toolQuery);
   const data = extractData<{
     results?: readonly GitHubFileContentData[];
+    files?: readonly GitHubFileContentData[];
     pagination?: {
       hasMore?: boolean;
       charOffset?: number;
@@ -312,7 +343,8 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
     minify === 'none' ? 'exact' : minify === 'symbols' ? 'symbols' : 'compact';
   const pag = data?.pagination;
   const hasCharWindow = typeof pag?.charOffset === 'number';
-  const rows: OqlContentResultRow[] = (data?.results ?? []).map(d => {
+  const fileRows = data?.results ?? data?.files ?? [];
+  const rows: OqlContentResultRow[] = fileRows.map(d => {
     const range = {
       ...(d.startLine !== undefined ? { startLine: d.startLine } : {}),
       ...(d.endLine !== undefined ? { endLine: d.endLine } : {}),
@@ -360,34 +392,48 @@ async function githubStructure(query: OqlQuery): Promise<AdapterResult> {
       ? { maxDepth: query.fetch.tree.maxDepth }
       : {}),
     ...(query.fetch?.tree?.includeSizes ? { includeSizes: true } : {}),
+    ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
+    ...(query.page ? { page: query.page } : {}),
   };
   const result = await runDirect('ghViewRepoStructure', toolQuery);
   const data = extractData<{
-    structure?: Record<string, { files: string[]; folders: string[] }>;
+    structure?:
+      | readonly GithubStructureEntry[]
+      | Record<
+          string,
+          { files?: readonly string[]; folders?: readonly string[] }
+        >;
+    pagination?: ToolPaginationPayload;
   }>(result);
   const rows: OqlTreeResultRow[] = [];
-  for (const [dir, entry] of Object.entries(data?.structure ?? {})) {
+  const scopePath = firstScopePath(query.scope);
+  for (const entry of normalizeStructure(data?.structure)) {
+    const dir = entry.dir ?? '.';
     for (const folder of entry.folders ?? []) {
+      const pathValue = joinRepoPath(scopePath, dir, folder);
       rows.push({
         kind: 'tree',
         source: ghFrom(query),
-        path: `${dir}/${folder}`.replace(/\/+/g, '/'),
+        path: pathValue,
         entryType: 'directory',
-        depth: 0,
+        depth: structureDepth(pathValue),
       });
     }
     for (const file of entry.files ?? []) {
+      const pathValue = joinRepoPath(scopePath, dir, file);
       rows.push({
         kind: 'tree',
         source: ghFrom(query),
-        path: `${dir}/${file}`.replace(/\/+/g, '/'),
+        path: pathValue,
         entryType: 'file',
-        depth: 0,
+        depth: structureDepth(pathValue),
       });
     }
   }
+  const pagination = toOqlPagination(data?.pagination);
   return {
     results: rows,
+    ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...statusDiagnostics(result, 'ghViewRepoStructure'),
       ...emptyProviderDiag(rows.length, 'ghViewRepoStructure'),

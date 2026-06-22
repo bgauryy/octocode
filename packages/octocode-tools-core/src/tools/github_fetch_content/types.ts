@@ -58,6 +58,26 @@ export interface DirectoryFetchResult {
   files: Array<{ path: string; size: number; type: string }>;
   fileCount: number;
   totalSize: number;
+  complete: boolean;
+  directoryEntryCount: number;
+  eligibleFileCount: number;
+  savedFileCount: number;
+  skipped: {
+    nonFile: number;
+    missingDownloadUrl: number;
+    oversized: number;
+    binary: number;
+    fileLimit: number;
+    fetchFailed: number;
+    totalSizeLimit: number;
+    pathTraversal: number;
+  };
+  limits: {
+    maxDirectoryFiles: number;
+    maxTotalSize: number;
+    maxFileSize: number;
+  };
+  warnings?: string[];
   cached: boolean;
   expiresAt: string;
   owner: string;

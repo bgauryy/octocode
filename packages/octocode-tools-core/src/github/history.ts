@@ -14,13 +14,40 @@ function parseHasMore(linkHeader: string | undefined): boolean {
   return linkHeader.includes('rel="next"');
 }
 
-function truncatePatch(
+function windowPatch(
   patch: string | undefined,
+  charOffset: number | undefined,
   charLength: number | undefined
-): string | undefined {
+):
+  | {
+      patch: string;
+      patchPagination?: {
+        charOffset: number;
+        charLength: number;
+        totalChars: number;
+        hasMore: boolean;
+        nextCharOffset?: number;
+      };
+    }
+  | undefined {
   if (!patch) return undefined;
-  if (!charLength || patch.length <= charLength) return patch;
-  return patch.slice(0, charLength);
+  if (!charLength && !charOffset) return { patch };
+
+  const totalChars = patch.length;
+  const start = Math.min(Math.max(0, charOffset ?? 0), totalChars);
+  const length = Math.max(1, charLength ?? totalChars);
+  const end = Math.min(start + length, totalChars);
+  const hasMore = end < totalChars;
+  return {
+    patch: patch.slice(start, end),
+    patchPagination: {
+      charOffset: start,
+      charLength: end - start,
+      totalChars,
+      hasMore,
+      ...(hasMore ? { nextCharOffset: end } : {}),
+    },
+  };
 }
 
 export async function fetchHistory(
@@ -35,7 +62,10 @@ export async function fetchHistory(
     author?: string;
     page: number;
     perPage: number;
+    filePage?: number;
+    itemsPerPage?: number;
     includeDiff: boolean;
+    charOffset?: number;
     charLength?: number;
   },
   authInfo?: AuthInfo
@@ -130,17 +160,27 @@ export async function fetchHistory(
               f => f.filename === filePath || f.previous_filename === filePath
             );
             if (fileData) {
-              const patch =
+              const patchWindow =
                 fileData.patch !== undefined
-                  ? truncatePatch(fileData.patch, params.charLength)
+                  ? windowPatch(
+                      fileData.patch,
+                      params.charOffset,
+                      params.charLength
+                    )
                   : undefined;
               return {
                 ...commit,
                 additions: fileData.additions,
                 deletions: fileData.deletions,
                 status: fileData.status,
-                ...(patch !== undefined
-                  ? { patch, diff: buildDiffPreview(patch) }
+                ...(patchWindow !== undefined
+                  ? {
+                      patch: patchWindow.patch,
+                      ...(patchWindow.patchPagination
+                        ? { patchPagination: patchWindow.patchPagination }
+                        : {}),
+                      diff: buildDiffPreview(patchWindow.patch),
+                    }
                   : {}),
                 ...(fileData.previous_filename
                   ? { previousFilename: fileData.previous_filename }
@@ -153,24 +193,53 @@ export async function fetchHistory(
             const allFiles: HistoryCommitFile[] = (detail.data.files ?? [])
               .filter(f => !dirPath || f.filename.startsWith(dirPath))
               .map(f => {
-                const patch =
+                const patchWindow =
                   f.patch !== undefined
-                    ? truncatePatch(f.patch, params.charLength)
+                    ? windowPatch(f.patch, params.charOffset, params.charLength)
                     : undefined;
                 return {
                   filename: f.filename,
                   status: f.status,
                   additions: f.additions,
                   deletions: f.deletions,
-                  ...(patch !== undefined
-                    ? { patch, diff: buildDiffPreview(patch) }
+                  ...(patchWindow !== undefined
+                    ? {
+                        patch: patchWindow.patch,
+                        ...(patchWindow.patchPagination
+                          ? { patchPagination: patchWindow.patchPagination }
+                          : {}),
+                        diff: buildDiffPreview(patchWindow.patch),
+                      }
                     : {}),
                   ...(f.previous_filename
                     ? { previousFilename: f.previous_filename }
                     : {}),
                 };
               });
-            return { ...commit, files: allFiles };
+            const filePage = Math.max(1, params.filePage ?? 1);
+            const itemsPerPage = Math.max(1, params.itemsPerPage ?? 20);
+            const totalFiles = allFiles.length;
+            const totalPages = Math.max(
+              1,
+              Math.ceil(totalFiles / itemsPerPage)
+            );
+            const currentPage = Math.min(filePage, totalPages);
+            const start = (currentPage - 1) * itemsPerPage;
+            const files = allFiles.slice(start, start + itemsPerPage);
+            return {
+              ...commit,
+              files,
+              filesPagination: {
+                currentPage,
+                totalPages,
+                itemsPerPage,
+                totalFiles,
+                hasMore: currentPage < totalPages,
+                ...(currentPage < totalPages
+                  ? { nextFilePage: currentPage + 1 }
+                  : {}),
+              },
+            };
           }
         } catch {
           // diff fetch is non-fatal — return base commit without diff

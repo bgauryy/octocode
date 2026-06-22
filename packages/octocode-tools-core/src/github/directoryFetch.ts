@@ -93,6 +93,48 @@ interface DirectoryEntry {
   download_url: string | null;
 }
 
+type DirectorySkipCounts = DirectoryFetchResult['skipped'];
+
+const DIRECTORY_FETCH_LIMITS = {
+  maxDirectoryFiles: MAX_DIRECTORY_FILES,
+  maxTotalSize: MAX_TOTAL_SIZE,
+  maxFileSize: MAX_FILE_SIZE,
+};
+
+function emptyDirectorySkipCounts(): DirectorySkipCounts {
+  return {
+    nonFile: 0,
+    missingDownloadUrl: 0,
+    oversized: 0,
+    binary: 0,
+    fileLimit: 0,
+    fetchFailed: 0,
+    totalSizeLimit: 0,
+    pathTraversal: 0,
+  };
+}
+
+function directoryFetchComplete(skipped: DirectorySkipCounts): boolean {
+  return Object.values(skipped).every(count => count === 0);
+}
+
+function directoryFetchWarnings(
+  complete: boolean,
+  cached: boolean
+): string[] | undefined {
+  if (cached) {
+    return [
+      'Cached directory materialization cannot prove remote completeness; use forceRefresh or ghCloneRepo for repo-wide proof.',
+    ];
+  }
+  if (!complete) {
+    return [
+      'Directory materialization is partial; inspect skipped counts or use ghCloneRepo before repo-wide reachability/dead-code conclusions.',
+    ];
+  }
+  return undefined;
+}
+
 export async function fetchDirectoryContents(
   owner: string,
   repo: string,
@@ -115,12 +157,20 @@ export async function fetchDirectoryContents(
   if (cacheResult.hit) {
     if (!forceRefresh && existsSync(dirPath)) {
       const cached = scanDirectoryStats(dirPath, treeRoot);
+      const skipped = emptyDirectorySkipCounts();
       return {
         localPath: dirPath,
         repoRoot: treeRoot,
         files: cached.files,
         fileCount: cached.fileCount,
         totalSize: cached.totalSize,
+        complete: false,
+        directoryEntryCount: cached.fileCount,
+        eligibleFileCount: cached.fileCount,
+        savedFileCount: cached.fileCount,
+        skipped,
+        limits: DIRECTORY_FETCH_LIMITS,
+        warnings: directoryFetchWarnings(false, true),
         cached: true,
         expiresAt: cacheResult.meta.expiresAt,
         owner,
@@ -145,19 +195,36 @@ export async function fetchDirectoryContents(
     );
   }
 
-  const fileEntries = (data as DirectoryEntry[])
-    .filter((item): item is DirectoryEntry & { download_url: string } => {
-      if (item.type !== 'file') return false;
-      if (!item.download_url) return false;
-      if (item.size > MAX_FILE_SIZE) return false;
-      const ext = getExtension(item.name, {
-        lowercase: true,
-        leadingDot: true,
-      });
-      if (BINARY_EXTENSIONS.has(ext)) return false;
-      return true;
-    })
-    .slice(0, MAX_DIRECTORY_FILES);
+  const directoryEntries = data as DirectoryEntry[];
+  const skipped = emptyDirectorySkipCounts();
+  const eligibleEntries: Array<DirectoryEntry & { download_url: string }> = [];
+
+  for (const item of directoryEntries) {
+    if (item.type !== 'file') {
+      skipped.nonFile += 1;
+      continue;
+    }
+    if (!item.download_url) {
+      skipped.missingDownloadUrl += 1;
+      continue;
+    }
+    if (item.size > MAX_FILE_SIZE) {
+      skipped.oversized += 1;
+      continue;
+    }
+    const ext = getExtension(item.name, {
+      lowercase: true,
+      leadingDot: true,
+    });
+    if (BINARY_EXTENSIONS.has(ext)) {
+      skipped.binary += 1;
+      continue;
+    }
+    eligibleEntries.push(item as DirectoryEntry & { download_url: string });
+  }
+
+  skipped.fileLimit = Math.max(0, eligibleEntries.length - MAX_DIRECTORY_FILES);
+  const fileEntries = eligibleEntries.slice(0, MAX_DIRECTORY_FILES);
 
   const token = authInfo?.token;
   const fetchedFiles = await fetchFilesInBatches(
@@ -165,11 +232,16 @@ export async function fetchDirectoryContents(
     CONCURRENCY,
     token
   );
+  skipped.fetchFailed = fileEntries.length - fetchedFiles.length;
 
   let totalSize = 0;
   const filesToSave: Array<{ entry: DirectoryEntry; content: string }> = [];
-  for (const { entry, content } of fetchedFiles) {
-    if (totalSize + content.length > MAX_TOTAL_SIZE) break;
+  for (let i = 0; i < fetchedFiles.length; i += 1) {
+    const { entry, content } = fetchedFiles[i]!;
+    if (totalSize + content.length > MAX_TOTAL_SIZE) {
+      skipped.totalSizeLimit = fetchedFiles.length - i;
+      break;
+    }
     totalSize += content.length;
     filesToSave.push({ entry, content });
   }
@@ -184,7 +256,10 @@ export async function fetchDirectoryContents(
   const savedFiles: GitHubDirectoryFileEntry[] = [];
   for (const { entry, content } of filesToSave) {
     const filePath = resolve(join(treeRoot, entry.path));
-    if (!filePath.startsWith(treeRoot + sep)) continue;
+    if (!filePath.startsWith(treeRoot + sep)) {
+      skipped.pathTraversal += 1;
+      continue;
+    }
     const fileDir = dirname(filePath);
     if (!existsSync(fileDir)) {
       mkdirSync(fileDir, { recursive: true, mode: 0o700 });
@@ -199,6 +274,7 @@ export async function fetchDirectoryContents(
 
   const meta = createCacheMeta(owner, repo, branch, 'treeFetch');
   writeCacheMeta(treeRoot, meta);
+  const complete = directoryFetchComplete(skipped);
 
   return {
     localPath: dirPath,
@@ -206,6 +282,13 @@ export async function fetchDirectoryContents(
     files: savedFiles,
     fileCount: savedFiles.length,
     totalSize,
+    complete,
+    directoryEntryCount: directoryEntries.length,
+    eligibleFileCount: eligibleEntries.length,
+    savedFileCount: savedFiles.length,
+    skipped,
+    limits: DIRECTORY_FETCH_LIMITS,
+    warnings: directoryFetchWarnings(complete, false),
     cached: false,
     expiresAt: meta.expiresAt,
     owner,

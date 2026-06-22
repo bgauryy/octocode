@@ -75,12 +75,14 @@ export function resolveLocal(
   const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
 
   return {
-    // Local tools: both surfaces honor ENABLE_LOCAL and file config. Only the
-    // fallback differs: CLI defaults on for terminal use; MCP defaults off.
-    enabled:
-      envEnableLocal ??
-      fileConfig?.enabled ??
-      (isCli ? true : DEFAULT_LOCAL_CONFIG.enabled),
+    // Local tools: the CLI is a local-first interface, so it IGNORES
+    // ENABLE_LOCAL entirely and is always enabled — that flag only gates the MCP
+    // server surface (which still honors ENABLE_LOCAL and file config, defaulting
+    // off). This keeps `octocode <local command>` working in a terminal without
+    // any env setup while leaving MCP gating intact.
+    enabled: isCli
+      ? true
+      : (envEnableLocal ?? fileConfig?.enabled ?? DEFAULT_LOCAL_CONFIG.enabled),
     // Clone: an explicit ENABLE_CLONE (env) or .octocoderc value wins for both
     // surfaces, so `false` disables everywhere. Otherwise the default is
     // surface-specific: ENABLED for the CLI, DISABLED for the MCP server.

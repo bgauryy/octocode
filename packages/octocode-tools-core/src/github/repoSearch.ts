@@ -153,11 +153,10 @@ async function listGitHubOrgReposAPIInternal(
       repo: repoName,
       defaultBranch: repo.default_branch,
       stars: repo.stargazers_count || 0,
-      description: repo.description
-        ? repo.description.length > 150
-          ? repo.description.substring(0, 150) + '...'
-          : repo.description
-        : 'No description',
+      // P6: return the full description (no silent 150-char '...' cut). Oversized
+      // output is governed losslessly by the unified response char-pagination,
+      // so a slice is never silently presented as the whole value.
+      description: repo.description ? repo.description : 'No description',
       url: repo.html_url,
       createdAt: repo.created_at,
       updatedAt: repo.updated_at,
@@ -276,11 +275,9 @@ async function searchGitHubReposAPIInternal(
         repo: repoName,
         defaultBranch: repo.default_branch,
         stars: repo.stargazers_count || 0,
-        description: repo.description
-          ? repo.description.length > 150
-            ? repo.description.substring(0, 150) + '...'
-            : repo.description
-          : 'No description',
+        // P6: full description (no silent 150-char '...' cut); the unified
+        // response char-pagination losslessly windows oversized output.
+        description: repo.description ? repo.description : 'No description',
         url: repo.html_url,
         createdAt: repo.created_at,
         updatedAt: repo.updated_at,

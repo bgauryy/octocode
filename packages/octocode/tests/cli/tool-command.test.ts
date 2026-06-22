@@ -56,6 +56,20 @@ const publicMocks = vi.hoisted(() => ({
   }),
 }));
 
+// Schema/help path now imports the engine-free `/schema` subpath (P3) — that is
+// where `loadToolContent` and the meta/schema fns live.
+vi.mock('@octocodeai/octocode-tools-core/schema', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('@octocodeai/octocode-tools-core/schema')
+    >();
+  return {
+    ...actual,
+    loadToolContent: publicMocks.loadToolContent,
+  };
+});
+
+// Execution path is dynamically imported from `/direct`.
 vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
   const actual =
     await importOriginal<

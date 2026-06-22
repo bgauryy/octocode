@@ -136,6 +136,13 @@ async function handleDirectoryFetch(
     repoRoot: result.repoRoot,
     fileCount: result.fileCount,
     totalSize: result.totalSize,
+    complete: result.complete,
+    directoryEntryCount: result.directoryEntryCount,
+    eligibleFileCount: result.eligibleFileCount,
+    savedFileCount: result.savedFileCount,
+    skipped: result.skipped,
+    limits: result.limits,
+    ...(result.warnings ? { warnings: result.warnings } : {}),
     files: result.files,
     ...(result.cached ? { cached: true } : {}),
     ...(query.branch !== result.branch

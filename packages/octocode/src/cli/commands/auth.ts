@@ -11,7 +11,11 @@ import {
 } from '../../features/github-oauth.js';
 import { loadInquirer, select } from '../../utils/prompts.js';
 import { Spinner } from '../../utils/spinner.js';
-import { printAuthStatus, printLoginHint } from './shared.js';
+import {
+  formatAuthStatusAsJson,
+  printAuthStatus,
+  printLoginHint,
+} from './shared.js';
 
 export const loginCommand: CLICommand = {
   name: 'login',
@@ -272,7 +276,11 @@ export const logoutCommand: CLICommand = {
 
 export const authCommand: CLICommand = {
   name: 'auth',
-  options: [{ name: 'hostname', hasValue: true }, { name: 'json' }],
+  options: [
+    { name: 'hostname', hasValue: true },
+    { name: 'json' },
+    { name: 'status' },
+  ],
   handler: async (args: ParsedArgs) => {
     const subcommand = args.args[0];
     const hostnameOpt = args.options['hostname'];
@@ -287,11 +295,24 @@ export const authCommand: CLICommand = {
     if (subcommand === 'logout') {
       return logoutCommand.handler(args);
     }
-    if (subcommand === 'status' || subcommand === 'token') {
+    if (subcommand === 'status' || args.options['status']) {
+      if (jsonOutput) {
+        console.log(
+          JSON.stringify({
+            success: true,
+            ...formatAuthStatusAsJson(hostname),
+          })
+        );
+        return;
+      }
+
+      printAuthStatus(hostname);
+      return;
+    }
+
+    if (subcommand === 'token') {
       const message =
-        subcommand === 'status'
-          ? 'auth status was removed. Use `status` instead.'
-          : 'auth token was removed. Use `status --json` to check token presence.';
+        'auth token was removed. Use `auth status --json` to check token presence.';
       if (jsonOutput) {
         console.log(
           JSON.stringify({
@@ -424,16 +445,16 @@ export const authCommand: CLICommand = {
           JSON.stringify({
             success: false,
             error:
-              'Provide an auth action: login, logout, or refresh. Use `status` for read-only auth state.',
+              'Provide an auth action: login, logout, refresh, or status. Use `auth status --json` for read-only auth state.',
           })
         );
       } else {
         console.log();
         console.log(
-          `  ${c('red', '✗')} Provide an auth action: login, logout, or refresh.`
+          `  ${c('red', '✗')} Provide an auth action: login, logout, refresh, or status.`
         );
         console.log(
-          `  ${dim('Use')} ${c('cyan', 'status')} ${dim('for read-only auth state.')}`
+          `  ${dim('Use')} ${c('cyan', 'auth status --json')} ${dim('for read-only auth state.')}`
         );
         console.log();
       }

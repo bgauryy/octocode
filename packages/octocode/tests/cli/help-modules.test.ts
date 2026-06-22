@@ -260,7 +260,7 @@ describe('help (dynamic fallback)', () => {
 });
 
 describe('agent protocol help', () => {
-  it('shows protocol with login, status, tools, and context steps', async () => {
+  it('shows protocol with login, auth status, tools, and context steps', async () => {
     const stdoutSpy = vi
       .spyOn(console, 'log')
       .mockImplementation(() => undefined);
@@ -275,10 +275,10 @@ describe('agent protocol help', () => {
     // Smart commands temporarily unhooked — fallback now shows protocol steps.
     // Command examples omit the `octocode` prefix — agents know how to invoke the CLI.
     expect(output).toContain('login');
-    expect(output).toContain('status');
+    expect(output).toContain('auth status');
     expect(output).toContain('tools <name>');
     expect(output).toContain('context');
-    expect(output).toContain('status --json');
+    expect(output).toContain('auth status --json');
 
     stdoutSpy.mockRestore();
   });

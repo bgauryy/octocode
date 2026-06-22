@@ -1,4 +1,5 @@
 pub mod extractor;
+pub mod graph_facts;
 pub mod js_oxc;
 pub mod languages;
 pub mod renderer;

@@ -40,6 +40,15 @@ export type NativeLspClientBinding = {
   ): Promise<unknown>;
   incomingCalls(item: unknown): Promise<unknown>;
   outgoingCalls(item: unknown): Promise<unknown>;
+  workspaceSymbol(query: string): Promise<unknown>;
+  prepareTypeHierarchy(
+    filePath: string,
+    line: number,
+    character: number
+  ): Promise<unknown>;
+  typeHierarchySupertypes(item: unknown): Promise<unknown>;
+  typeHierarchySubtypes(item: unknown): Promise<unknown>;
+  getDiagnostics(filePath: string): Promise<unknown>;
 };
 
 type NativeBinding = {

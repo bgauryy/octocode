@@ -6,13 +6,10 @@
  * the agent's unit for "what looks dead, why, what keeps it alive, what proof is
  * missing, and is it safe to delete".
  *
- * HONESTY CONTRACT: this layer never invents proof. The underlying reference
- * scan is token-appearance over file content, not LSP — so every packet is
- * `proofStatus:"candidate"` with an explicit `lsp-unavailable` in `missingProof`,
- * and each packet carries a `next.semantic` continuation that upgrades it to
- * real proof via `lspGetSemantics references`. The LSP/AST proof expansion
- * itself (`mode:"prove"`) is still future; this builds the candidate graph and
- * the executable path to prove it.
+ * HONESTY CONTRACT: this layer never invents proof. Native AST facts can prove
+ * syntax-level declarations/imports/exports, but cross-file references remain
+ * heuristic until LSP proof is attached by the graph adapter or followed via
+ * `next.semantic`.
  */
 import path from 'node:path';
 import type { OqlContinuation } from '../types.js';
@@ -157,6 +154,7 @@ export interface ResearchEvidencePacket {
   retainedBy: EvidenceEdge[];
   retains?: EvidenceEdge[];
   missingProof: MissingProof[];
+  proof?: Record<string, unknown>;
   risk: {
     deleteRisk: 'low' | 'medium' | 'high' | 'unknown';
     reason: string;
@@ -169,7 +167,6 @@ export interface ResearchGraphSummary {
   facts: number;
   edges: number;
   byVerdict: Record<PacketVerdict, number>;
-  packetsTruncated: boolean;
 }
 
 export interface ResearchPacketBundle {
@@ -177,19 +174,14 @@ export interface ResearchPacketBundle {
   graphSummary: ResearchGraphSummary;
 }
 
-/** Default cap so a large repo cannot flood the response with packets. */
-const DEFAULT_MAX_PACKETS = 200;
-
 /* ------------------------------ builder --------------------------------- */
 
 export function buildResearchPackets(
-  analysis: ResearchAnalysisResult,
-  options: { maxPackets?: number } = {}
+  analysis: ResearchAnalysisResult
 ): ResearchPacketBundle {
-  const max = options.maxPackets ?? DEFAULT_MAX_PACKETS;
   const root = analysis.root;
 
-  const all: ResearchEvidencePacket[] = [
+  const packets: ResearchEvidencePacket[] = [
     ...analysis.symbols.map(s => symbolPacket(root, s)),
     ...analysis.files.map(f => filePacket(root, f)),
     ...analysis.dependencies
@@ -197,13 +189,10 @@ export function buildResearchPackets(
       .map(d => dependencyPacket(d)),
   ];
 
-  // Actionable (dead/unused) packets first, so a cap keeps the useful ones.
+  // Actionable (dead/unused) packets first; page/itemsPerPage controls response size.
   const rank = (v: PacketVerdict): number =>
     v === 'reachable' ? 1 : v === 'unknown' ? 0.5 : 0;
-  all.sort((a, b) => rank(a.verdict) - rank(b.verdict));
-
-  const packetsTruncated = all.length > max;
-  const packets = packetsTruncated ? all.slice(0, max) : all;
+  packets.sort((a, b) => rank(a.verdict) - rank(b.verdict));
 
   const byVerdict = {
     reachable: 0,
@@ -228,7 +217,6 @@ export function buildResearchPackets(
       facts,
       edges,
       byVerdict,
-      packetsTruncated,
     },
   };
 }
@@ -255,8 +243,8 @@ function symbolPacket(
       id: `${subject.id}:exports`,
       subject,
       claim: 'exports',
-      source: 'regex',
-      confidence: 'heuristic',
+      source: s.evidenceSource,
+      confidence: s.evidenceSource === 'ast' ? 'exact' : 'heuristic',
       flags: ['declaration'],
     },
   ];

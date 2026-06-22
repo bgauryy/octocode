@@ -8,15 +8,26 @@
  * (clone → local LSP). This keeps the planner/dispatch uniform; per-target
  * specifics live behind one `params` bag validated by the backing tool.
  */
+import nodePath from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runDirect } from './runner.js';
+import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
 import { diagnostic } from '../diagnostics.js';
 import { classifyDiffLane } from '../diffLanes.js';
 import { analyzeResearchFlow } from '../research/analyze.js';
-import { buildResearchPackets } from '../research/packets.js';
+import {
+  buildResearchPackets,
+  type EvidenceEdge,
+  type EvidenceFact,
+  type EvidenceSubject,
+  type MissingProof,
+  type ResearchEvidencePacket,
+} from '../research/packets.js';
 import type { AdapterResult } from './local.js';
 import type {
+  OqlGraphData,
   OqlDiagnostic,
+  Pagination,
   OqlQuery,
   OqlRecordResultRow,
   QuerySource,
@@ -32,6 +43,15 @@ function firstQueryData<T = Record<string, unknown>>(
     | undefined;
   const first = sc?.results?.[0];
   return { data: first?.data as T | undefined, status: first?.status };
+}
+
+function materializedClonePath(
+  result: CallToolResult,
+  localPath: string | undefined
+): string | undefined {
+  if (!localPath || nodePath.isAbsolute(localPath)) return localPath;
+  const sc = result.structuredContent as { base?: string } | undefined;
+  return sc?.base ? nodePath.join(sc.base, localPath) : localPath;
 }
 
 /** Known array-valued payload fields, in priority order. */
@@ -50,6 +70,13 @@ const RECORD_ARRAY_KEYS = [
   'outgoingCalls',
 ];
 
+const RECORD_PARENT_METADATA_EXCLUDE = new Set([
+  ...RECORD_ARRAY_KEYS,
+  'pagination',
+  'contentPagination',
+  'next',
+]);
+
 /** Expand a tool `data` payload into row items (an inner array if present). */
 function expandData(data: Record<string, unknown> | undefined): unknown[] {
   if (!data) return [];
@@ -60,10 +87,30 @@ function expandData(data: Record<string, unknown> | undefined): unknown[] {
   return [data];
 }
 
+function parentMetadata(
+  data: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!data) return undefined;
+  const metadata: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (RECORD_PARENT_METADATA_EXCLUDE.has(key)) continue;
+    if (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      metadata[key] = value;
+    }
+  }
+  return Object.keys(metadata).length ? metadata : undefined;
+}
+
 function records(
   items: unknown[],
   recordType: OqlRecordResultRow['recordType'],
-  source?: QuerySource
+  source?: QuerySource,
+  metadata?: Record<string, unknown>
 ): OqlRecordResultRow[] {
   return items.map(item => {
     const data = (
@@ -77,9 +124,648 @@ function records(
       recordType,
       ...(id ? { id } : {}),
       ...(source ? { source } : {}),
+      ...(metadata ? { metadata } : {}),
       data,
     };
   });
+}
+
+const DEFAULT_RESEARCH_PACKET_PAGE_SIZE = 25;
+
+function requestedResearchMode(mode: unknown): 'plan' | 'analyze' | 'prove' {
+  if (mode === 'plan' || mode === 'prove') return mode;
+  return 'analyze';
+}
+
+function packetPage(
+  query: OqlQuery,
+  totalItems: number
+): {
+  packetsStart: number;
+  packetsEnd: number;
+  pagination: Pagination;
+} {
+  const currentPage = Math.max(1, query.page ?? 1);
+  const itemsPerPage = Math.max(
+    1,
+    query.itemsPerPage ?? query.limit ?? DEFAULT_RESEARCH_PACKET_PAGE_SIZE
+  );
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const packetsStart = (currentPage - 1) * itemsPerPage;
+  return {
+    packetsStart,
+    packetsEnd: packetsStart + itemsPerPage,
+    pagination: {
+      currentPage,
+      totalPages,
+      itemsPerPage,
+      totalItems,
+      hasMore: currentPage < totalPages,
+    },
+  };
+}
+
+/** Domains the `view:"detailed"` research record can expand. */
+const DETAILED_DOMAINS = [
+  'manifests',
+  'files',
+  'dependencies',
+  'symbols',
+  'graphFacts',
+] as const;
+type DetailedDomain = (typeof DETAILED_DOMAINS)[number];
+
+/**
+ * Which detailed domains the agent asked for via `select`. Accepts both the bare
+ * form (`select:["symbols"]`) and the dotted record-data form
+ * (`select:["data.symbols"]`). Returns `undefined` when no domain selector is
+ * present (→ include all domains).
+ */
+function requestedDetailedDomains(
+  select: string[] | undefined
+): ReadonlySet<DetailedDomain> | undefined {
+  if (!select || select.length === 0) return undefined;
+  const requested = new Set<DetailedDomain>();
+  for (const raw of select) {
+    const token = raw.trim();
+    const bare = token.startsWith('data.') ? token.slice(5) : token;
+    if ((DETAILED_DOMAINS as readonly string[]).includes(bare)) {
+      requested.add(bare as DetailedDomain);
+    }
+  }
+  return requested.size > 0 ? requested : undefined;
+}
+
+/**
+ * Build the `view:"detailed"` payload as per-domain *windows* instead of whole
+ * arrays (P1). Each requested domain emits a sliced `data.<domain>` window plus
+ * a typed `data.<domain>Page` pagination object, all sharing the query's
+ * page/itemsPerPage. Returns the combined pagination (max totalPages, OR-ed
+ * hasMore) so a single `next.page` advances every detailed domain together.
+ */
+function buildDetailedDomains(
+  query: OqlQuery,
+  data: Awaited<ReturnType<typeof analyzeResearchFlow>>
+): { fields: Record<string, unknown>; pagination?: Pagination } {
+  const requested = requestedDetailedDomains(query.select);
+  const arrays: Record<DetailedDomain, readonly unknown[]> = {
+    manifests: data.manifests,
+    files: data.files,
+    dependencies: data.dependencies,
+    symbols: data.symbols,
+    graphFacts: data.graphFacts,
+  };
+
+  const fields: Record<string, unknown> = {};
+  const currentPage = Math.max(1, query.page ?? 1);
+  let itemsPerPage: number | undefined;
+  let maxTotalPages = 1;
+  let anyMore = false;
+  for (const domain of DETAILED_DOMAINS) {
+    if (requested && !requested.has(domain)) continue;
+    const items = arrays[domain] ?? [];
+    const { packetsStart, packetsEnd, pagination } = packetPage(
+      query,
+      items.length
+    );
+    fields[domain] = items.slice(packetsStart, packetsEnd);
+    fields[`${domain}Page`] = pagination;
+    itemsPerPage = pagination.itemsPerPage;
+    maxTotalPages = Math.max(maxTotalPages, pagination.totalPages ?? 1);
+    if (pagination.hasMore) anyMore = true;
+  }
+
+  if (Object.keys(fields).length === 0) return { fields };
+  return {
+    fields,
+    pagination: {
+      currentPage,
+      ...(itemsPerPage !== undefined ? { itemsPerPage } : {}),
+      totalPages: maxTotalPages,
+      hasMore: anyMore || currentPage < maxTotalPages,
+    },
+  };
+}
+
+/** Combine the packet-page window with the detailed-domain window so the
+ *  envelope's `hasMore` (and thus `next.page`) reflects either having more. */
+function combinePagination(
+  a: Pagination | undefined,
+  b: Pagination | undefined
+): Pagination | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const currentPage = a.currentPage ?? b.currentPage;
+  const itemsPerPage = a.itemsPerPage ?? b.itemsPerPage;
+  return {
+    ...(currentPage !== undefined ? { currentPage } : {}),
+    ...(itemsPerPage !== undefined ? { itemsPerPage } : {}),
+    totalPages: Math.max(a.totalPages ?? 1, b.totalPages ?? 1),
+    ...(a.totalItems !== undefined ? { totalItems: a.totalItems } : {}),
+    hasMore: Boolean(a.hasMore || b.hasMore),
+  };
+}
+
+type GraphDirection = 'incoming' | 'outgoing' | 'both';
+
+interface GraphFilters {
+  subject?: string;
+  subjectKind?: string;
+  relations?: ReadonlySet<string>;
+  verdicts?: ReadonlySet<string>;
+  direction: GraphDirection;
+  includePackets: boolean;
+  includeFacts: boolean;
+  includeEdges: boolean;
+}
+
+function stringFilterSet(value: unknown): ReadonlySet<string> | undefined {
+  const values = Array.isArray(value)
+    ? value
+    : value === undefined
+      ? []
+      : [value];
+  const normalized = values
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map(v => v.trim().toLowerCase());
+  return normalized.length ? new Set(normalized) : undefined;
+}
+
+function graphFilters(p: Record<string, unknown>): GraphFilters {
+  return {
+    ...(typeof p.subject === 'string' && p.subject.trim()
+      ? { subject: p.subject.trim().toLowerCase() }
+      : {}),
+    ...(typeof p.subjectKind === 'string' && p.subjectKind.trim()
+      ? { subjectKind: p.subjectKind.trim().toLowerCase() }
+      : {}),
+    relations: stringFilterSet(p.relation),
+    verdicts: stringFilterSet(p.verdict),
+    direction:
+      p.direction === 'incoming' || p.direction === 'outgoing'
+        ? p.direction
+        : 'both',
+    includePackets: p.includePackets !== false,
+    includeFacts: p.includeFacts !== false,
+    includeEdges: p.includeEdges !== false,
+  };
+}
+
+function subjectMatches(
+  subject: EvidenceSubject,
+  filters: GraphFilters
+): boolean {
+  if (filters.subjectKind) {
+    const kind = subject.kind.toLowerCase();
+    const symbolKind =
+      subject.symbolKind === undefined
+        ? undefined
+        : String(subject.symbolKind).toLowerCase();
+    if (kind !== filters.subjectKind && symbolKind !== filters.subjectKind) {
+      return false;
+    }
+  }
+
+  if (!filters.subject) return true;
+  const haystack = [subject.id, subject.name, subject.uri]
+    .filter((v): v is string => typeof v === 'string')
+    .map(v => v.toLowerCase());
+  return haystack.some(v => v.includes(filters.subject!));
+}
+
+function relationAllowed(
+  relation: string | undefined,
+  filters: GraphFilters
+): boolean {
+  if (!filters.relations || !relation) return true;
+  return filters.relations.has(relation.toLowerCase());
+}
+
+function packetMatchesGraphFilters(
+  packet: ResearchEvidencePacket,
+  filters: GraphFilters
+): boolean {
+  if (!subjectMatches(packet.subject, filters)) return false;
+  if (filters.verdicts && !filters.verdicts.has(packet.verdict.toLowerCase())) {
+    return false;
+  }
+
+  if (!filters.relations) return true;
+  const incoming =
+    filters.direction !== 'outgoing' &&
+    packet.retainedBy.some(e => relationAllowed(e.relation, filters));
+  const outgoing =
+    filters.direction !== 'incoming' &&
+    (packet.retains ?? []).some(e => relationAllowed(e.relation, filters));
+  const fact = packet.why.some(f => relationAllowed(f.claim, filters));
+  return incoming || outgoing || fact;
+}
+
+function addNode(
+  nodes: Map<string, EvidenceSubject>,
+  subject: EvidenceSubject
+): void {
+  nodes.set(subject.id, subject);
+}
+
+function addFact(
+  facts: Map<string, EvidenceFact>,
+  fact: EvidenceFact,
+  filters: GraphFilters
+): void {
+  if (relationAllowed(fact.claim, filters)) facts.set(fact.id, fact);
+}
+
+function addEdge(
+  nodes: Map<string, EvidenceSubject>,
+  edges: Map<string, EvidenceEdge>,
+  edge: EvidenceEdge,
+  filters: GraphFilters
+): void {
+  if (!relationAllowed(edge.relation, filters)) return;
+  addNode(nodes, edge.from);
+  addNode(nodes, edge.to);
+  edges.set(edge.id, edge);
+}
+
+function missingProofKey(proof: MissingProof): string {
+  const line = proof.location?.range?.start.line;
+  return [
+    proof.kind,
+    proof.severity,
+    proof.location?.uri ?? '',
+    line === undefined ? '' : String(line),
+  ].join(':');
+}
+
+function buildGraphView(
+  query: OqlQuery,
+  packets: ResearchEvidencePacket[],
+  graphSummary: ReturnType<typeof buildResearchPackets>['graphSummary'],
+  filters: GraphFilters
+): {
+  data: OqlGraphData;
+  pagination: Pagination;
+} {
+  const filteredPackets = packets.filter(p =>
+    packetMatchesGraphFilters(p, filters)
+  );
+  const pageWindow = packetPage(query, filteredPackets.length);
+  const pagedPackets = filteredPackets.slice(
+    pageWindow.packetsStart,
+    pageWindow.packetsEnd
+  );
+
+  const nodes = new Map<string, EvidenceSubject>();
+  const edges = new Map<string, EvidenceEdge>();
+  const facts = new Map<string, EvidenceFact>();
+  const missingProof = new Map<string, MissingProof>();
+  const byVerdict: Record<string, number> = {};
+  const proofStatus: Record<string, number> = {};
+
+  for (const packet of filteredPackets) {
+    byVerdict[packet.verdict] = (byVerdict[packet.verdict] ?? 0) + 1;
+    proofStatus[packet.proofStatus] =
+      (proofStatus[packet.proofStatus] ?? 0) + 1;
+  }
+
+  for (const packet of pagedPackets) {
+    addNode(nodes, packet.subject);
+
+    if (filters.includeFacts) {
+      for (const fact of packet.why) addFact(facts, fact, filters);
+    }
+    if (filters.includeEdges) {
+      if (filters.direction !== 'outgoing') {
+        for (const edge of packet.retainedBy) {
+          addEdge(nodes, edges, edge, filters);
+        }
+      }
+      if (filters.direction !== 'incoming') {
+        for (const edge of packet.retains ?? []) {
+          addEdge(nodes, edges, edge, filters);
+        }
+      }
+    }
+    for (const proof of packet.missingProof) {
+      missingProof.set(missingProofKey(proof), proof);
+    }
+  }
+
+  return {
+    data: {
+      kind: 'relationshipGraph',
+      filters: {
+        ...(filters.subject ? { subject: filters.subject } : {}),
+        ...(filters.subjectKind ? { subjectKind: filters.subjectKind } : {}),
+        ...(filters.relations ? { relation: [...filters.relations] } : {}),
+        ...(filters.verdicts ? { verdict: [...filters.verdicts] } : {}),
+        direction: filters.direction,
+        includePackets: filters.includePackets,
+        includeFacts: filters.includeFacts,
+        includeEdges: filters.includeEdges,
+      },
+      summary: {
+        totalPackets: filteredPackets.length,
+        returnedPackets: pagedPackets.length,
+        nodes: nodes.size,
+        edges: edges.size,
+        facts: facts.size,
+        missingProof: missingProof.size,
+        byVerdict,
+        proofStatus,
+      },
+      graphSummary,
+      packetPage: pageWindow.pagination,
+      nodes: [...nodes.values()],
+      edges: [...edges.values()],
+      facts: [...facts.values()],
+      missingProof: [...missingProof.values()],
+      ...(filters.includePackets ? { packets: pagedPackets } : {}),
+      caveats: [
+        'target:"graph" uses native AST facts where available plus research-packet reachability. LSP proof is page-bounded; follow next.page / next.semantic before treating deletion as safe.',
+      ],
+    },
+    pagination: pageWindow.pagination,
+  };
+}
+
+function nativeGraphSummary(
+  facts: Awaited<ReturnType<typeof analyzeResearchFlow>>['graphFacts']
+): Record<string, number> {
+  return {
+    files: facts.length,
+    declarations: facts.reduce(
+      (total, file) => total + file.declarations.length,
+      0
+    ),
+    imports: facts.reduce((total, file) => total + file.imports.length, 0),
+    exports: facts.reduce((total, file) => total + file.exports.length, 0),
+    calls: facts.reduce((total, file) => total + file.calls.length, 0),
+    edges: facts.reduce((total, file) => total + file.edges.length, 0),
+  };
+}
+
+function shouldRunLspProof(
+  mode: 'plan' | 'analyze' | 'prove',
+  p: Record<string, unknown>
+): boolean {
+  if (mode === 'plan') return false;
+  if (p.proof === 'none') return false;
+  return p.proof === 'lsp' || mode === 'prove';
+}
+
+function graphProofLimit(query: OqlQuery, p: Record<string, unknown>): number {
+  if (typeof p.proofLimit === 'number') return Math.min(25, p.proofLimit);
+  const pageSize = query.itemsPerPage ?? query.limit ?? 5;
+  return Math.max(1, Math.min(5, pageSize));
+}
+
+async function escalateGraphPacketsWithLsp(
+  root: string,
+  query: OqlQuery,
+  packets: ResearchEvidencePacket[],
+  filters: GraphFilters,
+  limit: number
+): Promise<OqlDiagnostic[]> {
+  const filteredPackets = packets.filter(packet =>
+    packetMatchesGraphFilters(packet, filters)
+  );
+  const pageWindow = packetPage(query, filteredPackets.length);
+  const pagePackets = filteredPackets
+    .slice(pageWindow.packetsStart, pageWindow.packetsEnd)
+    .filter(packet => packet.subject.kind === 'symbol')
+    .slice(0, limit);
+
+  const diagnostics: OqlDiagnostic[] = [];
+  for (const packet of pagePackets) {
+    const proof = await proveSymbolPacketWithLsp(root, packet);
+    packet.proof = { ...(packet.proof ?? {}), lsp: proof };
+
+    if (proof.status === 'unavailable' || proof.status === 'error') {
+      diagnostics.push(
+        diagnostic(
+          proof.status === 'unavailable' ? 'lspUnavailable' : 'partialResult',
+          proof.message ?? 'LSP proof escalation did not complete.',
+          { backend: 'lspGetSemantics', severity: 'warning' }
+        )
+      );
+      continue;
+    }
+
+    if (typeof proof.totalReferences !== 'number') {
+      diagnostics.push(
+        diagnostic(
+          'partialResult',
+          'LSP proof escalation returned without a numeric reference count.',
+          { backend: 'lspGetSemantics', blocksAnswer: true }
+        )
+      );
+      continue;
+    }
+
+    packet.missingProof = packet.missingProof.filter(
+      item => item.kind !== 'lsp-unavailable'
+    );
+    if (proof.paginationOpen) {
+      packet.missingProof.push({
+        kind: 'pagination-open',
+        severity: 'high',
+        location: packet.subject,
+      });
+      diagnostics.push(
+        diagnostic(
+          'partialResult',
+          'LSP proof result is paginated; follow the semantic continuation before deletion.',
+          { backend: 'lspGetSemantics', blocksAnswer: true }
+        )
+      );
+    }
+
+    if (proof.totalReferences === 0) {
+      packet.proofStatus = 'confirmed-by-lsp';
+      packet.risk = {
+        deleteRisk: packet.verdict === 'reachable' ? 'high' : 'medium',
+        reason:
+          'LSP references found zero non-declaration references for this symbol. Still verify dynamic/framework retention before deleting.',
+      };
+    } else if (typeof proof.totalReferences === 'number') {
+      packet.proofStatus =
+        packet.verdict === 'reachable'
+          ? 'confirmed-by-lsp'
+          : 'conflicting-evidence';
+      packet.risk = {
+        deleteRisk: 'high',
+        reason:
+          'LSP found non-declaration references. Inspect proof.lsp.files and next.fetch before deleting.',
+      };
+    }
+  }
+  return diagnostics;
+}
+
+type LspPacketProof = {
+  readonly status: 'ok' | 'unavailable' | 'error';
+  readonly totalReferences?: number;
+  readonly files: readonly string[];
+  readonly paginationOpen: boolean;
+  readonly message?: string;
+};
+
+async function proveSymbolPacketWithLsp(
+  root: string,
+  packet: ResearchEvidencePacket
+): Promise<LspPacketProof> {
+  const symbolName = packet.subject.name;
+  const lineHint = packet.subject.range?.start.line;
+  if (!symbolName || typeof lineHint !== 'number') {
+    return {
+      status: 'error',
+      files: [],
+      paginationOpen: false,
+      message: 'Symbol packet has no name or line hint for LSP proof.',
+    };
+  }
+
+  const uri = nodePath.isAbsolute(packet.subject.uri)
+    ? packet.subject.uri
+    : nodePath.resolve(root, packet.subject.uri);
+  try {
+    const result = await runDirect('lspGetSemantics', {
+      type: 'references',
+      uri,
+      symbolName,
+      lineHint,
+      includeDeclaration: false,
+      groupByFile: true,
+      itemsPerPage: 50,
+    });
+    const { data, status } = firstQueryData<Record<string, unknown>>(result);
+    if (status === 'error') {
+      return {
+        status: 'error',
+        files: [],
+        paginationOpen: false,
+        message: stringFrom(data?.error) ?? 'lspGetSemantics returned error.',
+      };
+    }
+    const lsp = data?.lsp as
+      | { serverAvailable?: boolean; source?: string }
+      | undefined;
+    if (lsp?.serverAvailable === false) {
+      return {
+        status: 'unavailable',
+        files: [],
+        paginationOpen: false,
+        message:
+          lsp.source === 'native'
+            ? 'Language server unavailable; native fallback cannot prove cross-file references.'
+            : 'Language server unavailable; reference proof is incomplete.',
+      };
+    }
+
+    const payload =
+      data?.payload && typeof data.payload === 'object'
+        ? (data.payload as Record<string, unknown>)
+        : undefined;
+    const pagination = data?.pagination as
+      | { hasMore?: boolean; totalItems?: number }
+      | undefined;
+    const totalReferences =
+      numberFrom(data?.totalReferences) ??
+      numberFrom(payload?.totalReferences) ??
+      numberFrom(data?.referenceCount) ??
+      numberFrom(payload?.referenceCount) ??
+      numberFrom(pagination?.totalItems) ??
+      countReferenceLikeItems(payload) ??
+      countReferenceLikeItems(data);
+    return {
+      status: 'ok',
+      ...(typeof totalReferences === 'number' ? { totalReferences } : {}),
+      files: referenceFiles(data, root),
+      paginationOpen: pagination?.hasMore === true,
+    };
+  } catch (err) {
+    return {
+      status: 'error',
+      files: [],
+      paginationOpen: false,
+      message:
+        err instanceof Error ? err.message : 'Could not run LSP proof.',
+    };
+  }
+}
+
+function countReferenceLikeItems(
+  data: Record<string, unknown> | undefined
+): number | undefined {
+  if (!data) return undefined;
+  for (const key of ['references', 'locations', 'results']) {
+    const value = data[key];
+    if (Array.isArray(value)) return value.length;
+  }
+  return undefined;
+}
+
+function referenceFiles(
+  data: Record<string, unknown> | undefined,
+  root: string
+): readonly string[] {
+  const out = new Set<string>();
+  collectReferenceFiles(data, out, root);
+  return [...out].slice(0, 25);
+}
+
+function collectReferenceFiles(
+  value: unknown,
+  out: Set<string>,
+  root: string
+): void {
+  if (out.size >= 25 || value === null || value === undefined) return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectReferenceFiles(item, out, root);
+    return;
+  }
+  if (typeof value !== 'object') return;
+  const record = value as Record<string, unknown>;
+  for (const key of ['uri', 'file', 'path']) {
+    const maybeFile = record[key];
+    if (typeof maybeFile === 'string' && looksLikePath(maybeFile)) {
+      out.add(
+        nodePath.isAbsolute(maybeFile)
+          ? nodePath.relative(root, maybeFile)
+          : maybeFile
+      );
+    }
+  }
+  for (const key of [
+    'references',
+    'locations',
+    'results',
+    'files',
+    'groups',
+    'items',
+  ]) {
+    collectReferenceFiles(record[key], out, root);
+  }
+}
+
+function looksLikePath(value: string): boolean {
+  return (
+    value.includes('/') ||
+    value.includes('\\') ||
+    /\.[cm]?[jt]sx?$/.test(value)
+  );
+}
+
+function numberFrom(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function stringFrom(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 /** Citeable identity per record type, extracted from the backend payload. */
@@ -119,7 +805,10 @@ function stableId(
     }
     case 'research':
       return s('intent') ?? s('goal') ?? 'research';
+    case 'graph':
+      return s('intent') ? `graph:${s('intent')}` : 'graph';
   }
+  return undefined;
 }
 
 function statusDiagnostics(
@@ -162,6 +851,21 @@ function params(query: OqlQuery): Record<string, unknown> {
   return query.params ?? {};
 }
 
+function withOqlPaging(
+  query: OqlQuery,
+  limitKey?: 'limit' | 'perPage'
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...params(query) };
+  if (out.page === undefined && query.page !== undefined) {
+    out.page = query.page;
+  }
+  if (limitKey && out[limitKey] === undefined) {
+    const limit = query.limit ?? query.itemsPerPage;
+    if (limit !== undefined) out[limitKey] = limit;
+  }
+  return out;
+}
+
 /**
  * Build an AdapterResult from a backing-tool result: map records (none on
  * error), carry status diagnostics, and emit `zeroMatches` on a clean empty so
@@ -190,38 +894,113 @@ function finishRecords(
   }
   // Promote the backing tool's pagination into the OQL envelope so run.ts can
   // emit a first-class next.page (instead of leaking raw data.next).
-  const pag = (
-    data as {
-      pagination?: {
-        hasMore?: boolean;
-        currentPage?: number;
-        totalPages?: number;
-      };
-    }
-  )?.pagination;
+  const pag = (data as { pagination?: ToolPaginationPayload })?.pagination;
   const hasMore =
     pag?.hasMore === true ||
     Boolean((data as { next?: unknown })?.next) ||
     (typeof pag?.currentPage === 'number' &&
       typeof pag?.totalPages === 'number' &&
       pag.currentPage < pag.totalPages);
+  const pagination = toOqlPagination(pag, hasMore);
   return {
-    results: records(items, recordType, source),
-    ...(hasMore
-      ? {
-          pagination: {
-            hasMore: true,
-            ...(pag?.currentPage !== undefined
-              ? { currentPage: pag.currentPage }
-              : {}),
-            ...(pag?.totalPages !== undefined
-              ? { totalPages: pag.totalPages }
-              : {}),
-          },
-        }
-      : {}),
+    results: records(items, recordType, source, parentMetadata(data)),
+    ...(pagination ? { pagination } : {}),
     diagnostics,
     provenance: [{ backend, source }],
+  };
+}
+
+function semanticDiagnostics(
+  data: Record<string, unknown> | undefined,
+  query: OqlQuery
+): OqlDiagnostic[] {
+  const diagnostics: OqlDiagnostic[] = [];
+  const lsp = data?.lsp as
+    | { serverAvailable?: boolean; source?: string }
+    | undefined;
+  if (lsp?.serverAvailable === false) {
+    diagnostics.push(
+      diagnostic(
+        'lspUnavailable',
+        lsp.source === 'native'
+          ? 'Language server was unavailable; native fallback returned partial semantic data.'
+          : 'Language server was unavailable; semantic proof is incomplete.',
+        { backend: 'lspGetSemantics' }
+      )
+    );
+  }
+
+  const pag = data?.pagination as
+    | {
+        hasMore?: boolean;
+        currentPage?: number;
+        nextPage?: number;
+        totalPages?: number;
+      }
+    | undefined;
+  if (pag?.hasMore) {
+    diagnostics.push(
+      diagnostic(
+        'partialResult',
+        'Semantic result is paginated; follow the continuation before treating it as complete proof.',
+        {
+          backend: 'lspGetSemantics',
+          blocksAnswer: true,
+          continuation: semanticPageContinuation(pag, query),
+        }
+      )
+    );
+  }
+  return diagnostics;
+}
+
+function semanticPageContinuation(
+  pag: {
+    currentPage?: number;
+    nextPage?: number;
+  },
+  query: OqlQuery
+) {
+  const nextPage =
+    typeof pag.nextPage === 'number'
+      ? pag.nextPage
+      : typeof pag.currentPage === 'number'
+        ? pag.currentPage + 1
+        : (query.page ?? 1) + 1;
+  return {
+    query: {
+      ...query,
+      params: { ...(query.params ?? {}), page: nextPage },
+    },
+    why: 'Continue the LSP semantic result page.',
+    confidence: 'exact' as const,
+  };
+}
+
+function semanticPagination(
+  data: Record<string, unknown> | undefined,
+  query: OqlQuery
+): Pagination | undefined {
+  const pag = data?.pagination as
+    | {
+        hasMore?: boolean;
+        currentPage?: number;
+        nextPage?: number;
+        totalPages?: number;
+        itemsPerPage?: number;
+        totalItems?: number;
+      }
+    | undefined;
+  if (!pag?.hasMore) return undefined;
+  return {
+    hasMore: true,
+    ...(pag.currentPage !== undefined ? { currentPage: pag.currentPage } : {}),
+    ...(pag.totalPages !== undefined ? { totalPages: pag.totalPages } : {}),
+    ...(pag.itemsPerPage !== undefined
+      ? { itemsPerPage: pag.itemsPerPage }
+      : {}),
+    ...(pag.totalItems !== undefined ? { totalItems: pag.totalItems } : {}),
+    next: semanticPageContinuation(pag, query),
   };
 }
 
@@ -233,7 +1012,7 @@ export async function executeRepositories(
   const { owner } = splitRepo(query.from);
   const result = await runDirect('ghSearchRepos', {
     ...(owner ? { owner } : {}),
-    ...params(query),
+    ...withOqlPaging(query, 'limit'),
   });
   return finishRecords(
     result,
@@ -244,7 +1023,7 @@ export async function executeRepositories(
 }
 
 export async function executePackages(query: OqlQuery): Promise<AdapterResult> {
-  const result = await runDirect('npmSearch', { ...params(query) });
+  const result = await runDirect('npmSearch', { ...withOqlPaging(query) });
   return finishRecords(
     result,
     'package',
@@ -256,18 +1035,129 @@ export async function executePackages(query: OqlQuery): Promise<AdapterResult> {
 export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
   const { owner, repo } = splitRepo(query.from);
   const commits = query.target === 'commits';
+
+  // P4: pullRequests `matchString` is an OQL-layer *content* filter applied to
+  // the fetched PR bodies/comments/reviews — never a backing search-index claim.
+  // Strip it (and matchScope) from the params forwarded to ghHistoryResearch so
+  // the tool is not asked to interpret it as a query field.
+  const pr = !commits ? pullRequestMatch(query) : undefined;
+  const forwarded = withOqlPaging(query, commits ? 'perPage' : 'limit');
+  if (pr) {
+    delete forwarded.matchString;
+    delete forwarded.matchScope;
+  }
+
   const result = await runDirect('ghHistoryResearch', {
     ...(owner ? { owner } : {}),
     ...(repo ? { repo } : {}),
     ...(commits ? { type: 'commits' } : {}),
-    ...params(query),
+    ...forwarded,
   });
-  return finishRecords(
+  const mapped = finishRecords(
     result,
     commits ? 'commit' : 'pullRequest',
     'ghHistoryResearch',
     query.from ?? { kind: 'github' }
   );
+  return pr ? filterPullRequestsByMatch(mapped, pr) : mapped;
+}
+
+export interface PullRequestMatch {
+  needle: string;
+  scope: 'body' | 'title' | 'comments' | 'reviews' | 'all';
+}
+
+/** Read the validated PR content-match params, if present. */
+function pullRequestMatch(query: OqlQuery): PullRequestMatch | undefined {
+  const p = params(query);
+  const needle = typeof p.matchString === 'string' ? p.matchString : undefined;
+  if (!needle) return undefined;
+  const scope =
+    p.matchScope === 'title' ||
+    p.matchScope === 'comments' ||
+    p.matchScope === 'reviews' ||
+    p.matchScope === 'all'
+      ? p.matchScope
+      : 'body';
+  return { needle, scope };
+}
+
+/** Collect the searchable text for a PR record under the requested scope. */
+function pullRequestScopeText(
+  data: Record<string, unknown>,
+  scope: PullRequestMatch['scope']
+): string {
+  const parts: string[] = [];
+  const push = (v: unknown) => {
+    if (typeof v === 'string' && v.length > 0) parts.push(v);
+  };
+  const bodies = (key: string) => {
+    const list = data[key];
+    if (Array.isArray(list)) {
+      for (const c of list) {
+        if (c && typeof c === 'object') push((c as { body?: unknown }).body);
+      }
+    }
+  };
+  if (scope === 'body' || scope === 'all') push(data.body);
+  if (scope === 'title' || scope === 'all') push(data.title);
+  if (scope === 'comments' || scope === 'all') bodies('comments');
+  if (scope === 'reviews' || scope === 'all') bodies('reviews');
+  return parts.join('\n');
+}
+
+/**
+ * Keep only PR records whose scope text contains `matchString` (case-insensitive
+ * substring), spotlight where each matched, and surface honest diagnostics: a
+ * `partialResult` when some were dropped, `zeroMatches` when none matched.
+ */
+export function filterPullRequestsByMatch(
+  result: AdapterResult,
+  match: PullRequestMatch
+): AdapterResult {
+  const needleLower = match.needle.toLowerCase();
+  const total = result.results.length;
+  const kept = result.results.filter(row => {
+    if (row.kind !== 'record') return false;
+    const data = (row as OqlRecordResultRow).data;
+    const haystack = pullRequestScopeText(data, match.scope);
+    const idx = haystack.toLowerCase().indexOf(needleLower);
+    if (idx < 0) return false;
+    // Additive spotlight: a bounded window around the first hit (full body/
+    // comment text is left intact on the record).
+    const start = Math.max(0, idx - 80);
+    const end = Math.min(haystack.length, idx + match.needle.length + 80);
+    (data as Record<string, unknown>).match = {
+      matchString: match.needle,
+      scope: match.scope,
+      spotlight:
+        (start > 0 ? '…' : '') +
+        haystack.slice(start, end) +
+        (end < haystack.length ? '…' : ''),
+    };
+    return true;
+  });
+
+  const diagnostics = result.diagnostics.filter(d => d.code !== 'zeroMatches');
+  if (kept.length === 0) {
+    diagnostics.push(
+      diagnostic(
+        'zeroMatches',
+        `No pull request ${match.scope} matched "${match.needle}" (content filter over ${total} fetched PR(s); not a search-index query). Broaden the fetch (state/keywordsToSearch/page) or the match scope.`,
+        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+      )
+    );
+  } else if (kept.length < total) {
+    diagnostics.push(
+      diagnostic(
+        'partialResult',
+        `Content filter kept ${kept.length} of ${total} fetched PR(s) matching "${match.needle}" in ${match.scope}. This filters fetched content only — page the fetch to widen the candidate set.`,
+        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+      )
+    );
+  }
+
+  return { ...result, results: kept, diagnostics };
 }
 
 /**
@@ -276,7 +1166,7 @@ export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
  *   - direct file: { baseRef, headRef, path }      -> two ghGetFileContent reads
  *                                                     + a pure local line diff
  * A request that fits neither returns a repair diagnostic rather than silently
- * falling through to a PR-patch call (see OCTOCODE_SEARCH_PARITY_CHECKLIST.md gap log #8).
+ * falling through to a PR-patch call.
  */
 export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
   const p = params(query);
@@ -567,7 +1457,8 @@ export async function executeSemantics(
       ...(sparsePath ? { sparsePath } : {}),
     });
     const cloneData = firstQueryData<{ localPath?: string }>(clone).data;
-    if (!cloneData?.localPath) {
+    const cloneLocalPath = materializedClonePath(clone, cloneData?.localPath);
+    if (!cloneLocalPath) {
       diagnostics.push(
         diagnostic(
           'materializationFailed',
@@ -580,12 +1471,12 @@ export async function executeSemantics(
     provenance.push({
       backend: 'ghCloneRepo',
       source: query.from,
-      materializedPath: cloneData.localPath,
+      materializedPath: cloneLocalPath,
     });
     uri =
       sparsePath && !sparsePath.startsWith('/')
-        ? `${cloneData.localPath.replace(/\/$/, '')}/${sparsePath}`
-        : cloneData.localPath;
+        ? nodePath.join(cloneLocalPath, sparsePath)
+        : cloneLocalPath;
   }
 
   if (!uri) {
@@ -604,14 +1495,18 @@ export async function executeSemantics(
   } & Record<string, unknown>;
   const result = await runDirect('lspGetSemantics', { ...lspParams, uri });
   const { data, status } = firstQueryData(result);
+  const recordData = data as Record<string, unknown> | undefined;
+  const pagination = semanticPagination(recordData, query);
   return {
     results:
       status === 'error'
         ? []
-        : records(expandData(data), 'semantics', query.from),
+        : records(expandData(recordData), 'semantics', query.from),
+    ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...diagnostics,
       ...statusDiagnostics(result, 'lspGetSemantics'),
+      ...semanticDiagnostics(recordData, query),
     ],
     provenance: [
       ...provenance,
@@ -655,46 +1550,271 @@ export async function executeResearch(query: OqlQuery): Promise<AdapterResult> {
   const facets = Array.isArray(p.facets)
     ? p.facets.filter((facet): facet is string => typeof facet === 'string')
     : undefined;
-  const data = await analyzeResearchFlow({
-    root,
-    goal: typeof p.goal === 'string' ? p.goal : undefined,
-    intent: typeof p.intent === 'string' ? p.intent : undefined,
-    facets,
-    mode: p.mode === 'plan' ? 'plan' : 'analyze',
-    maxFiles: typeof p.maxFiles === 'number' ? p.maxFiles : undefined,
-  });
+  const mode = requestedResearchMode(p.mode);
+  if (mode === 'prove' && typeof p.intent !== 'string') {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'invalidQuery',
+          'target:"research" mode:"prove" requires params.intent so the proof lane is deterministic. Use intent:"reachability"|"dependencies"|"symbols"|"general", then follow packet next.semantic/next.fetch continuations for missing proof.',
+          {
+            backend: 'smartOqlResearch',
+            queryPath: 'params.intent',
+            repair: {
+              message:
+                'Add params.intent. Example: params:{ mode:"prove", intent:"reachability", facets:["symbols","files","relations"] }.',
+            },
+          }
+        ),
+      ],
+      provenance: [{ backend: 'smartOqlResearch', source: query.from }],
+    };
+  }
+
+  let data: Awaited<ReturnType<typeof analyzeResearchFlow>>;
+  try {
+    data = await analyzeResearchFlow({
+      root,
+      goal: typeof p.goal === 'string' ? p.goal : undefined,
+      intent: typeof p.intent === 'string' ? p.intent : undefined,
+      facets,
+      mode,
+      maxFiles: typeof p.maxFiles === 'number' ? p.maxFiles : undefined,
+    });
+  } catch (err) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'invalidQuery',
+          err instanceof Error
+            ? err.message
+            : 'Could not analyze the requested research root.',
+          { backend: 'smartOqlResearch' }
+        ),
+      ],
+      provenance: [{ backend: 'smartOqlResearch', source: query.from }],
+    };
+  }
 
   // Plan mode returns the flow only (no scan), so there is nothing to packetize.
   const { packets, graphSummary } =
     data.mode === 'plan'
       ? { packets: [], graphSummary: undefined }
-      : buildResearchPackets(data, {
-          maxPackets:
-            typeof p.maxPackets === 'number' ? p.maxPackets : undefined,
-        });
+      : buildResearchPackets(data);
 
   const caveats = [...data.caveats];
   if (p.mode === 'prove') {
     caveats.push(
-      'mode:"prove" requested: packets are candidate-grade only — LSP/AST proof expansion is not yet run. Follow each packet\'s next.semantic to confirm references.'
+      'mode:"prove" requested on target:"research": packets are candidate-grade unless LSP proof is attached. Native AST facts are included where available, but LSP reference proof is not run here. Use target:"graph" with proof:"lsp" or follow each packet\'s next.semantic.'
     );
   }
-  if (graphSummary?.packetsTruncated) {
+  const pageWindow = graphSummary
+    ? packetPage(query, packets.length)
+    : undefined;
+  const pagedPackets = pageWindow
+    ? packets.slice(pageWindow.packetsStart, pageWindow.packetsEnd)
+    : [];
+  if (
+    pageWindow &&
+    packets.length > 0 &&
+    pageWindow.packetsStart >= packets.length
+  ) {
     caveats.push(
-      `Packet list truncated to ${packets.length}; raise params.maxPackets to see more.`
+      `Packet page ${pageWindow.pagination.currentPage} is outside the available packet range (${pageWindow.pagination.totalPages} page(s)).`
     );
   }
 
+  // P1: detailed view returns per-domain *windows* (sliced + paged), not whole
+  // arrays — honoring `select` so a narrow projection drops unrequested domains.
+  const detailed =
+    query.view === 'detailed'
+      ? buildDetailedDomains(query, data)
+      : { fields: {} as Record<string, unknown> };
+
   const enriched: Record<string, unknown> = {
-    ...data,
+    kind: data.kind,
+    goal: data.goal,
+    intent: data.intent,
+    facets: data.facets,
+    mode: data.mode,
+    root: data.root,
+    flow: data.flow,
+    summary: data.summary,
+    graphCapabilities: data.graphCapabilities,
+    nativeGraphSummary: nativeGraphSummary(data.graphFacts),
     caveats,
-    ...(graphSummary ? { graphSummary, packets } : {}),
+    ...(graphSummary
+      ? {
+          graphSummary,
+          packetPage: pageWindow?.pagination,
+          packets: pagedPackets,
+        }
+      : {}),
+    ...detailed.fields,
   };
+
+  // The envelope pagination drives `next.page`; for detailed view it must
+  // advance the packet window AND every detailed domain together.
+  const pagination = combinePagination(
+    pageWindow?.pagination,
+    detailed.pagination
+  );
 
   return {
     results: records([enriched], 'research', query.from),
+    ...(pagination ? { pagination } : {}),
     diagnostics: [],
     provenance: [{ backend: 'smartOqlResearch', source: query.from }],
+  };
+}
+
+export async function executeGraph(query: OqlQuery): Promise<AdapterResult> {
+  const p = params(query);
+  const root =
+    query.from?.kind === 'local'
+      ? query.from.path
+      : query.from?.kind === 'materialized'
+        ? query.from.localPath
+        : undefined;
+
+  if (!root) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'requiresMaterialization',
+          'target:"graph" needs a complete local file universe. Use a local/materialized source, or materialize a bounded GitHub corpus first.',
+          {
+            backend: 'smartOqlGraph',
+            repair: {
+              message:
+                'Run target:"materialize" for a bounded GitHub repo/subtree, then run target:"graph" against the returned localPath.',
+            },
+          }
+        ),
+      ],
+      provenance: [],
+    };
+  }
+
+  const facets = Array.isArray(p.facets)
+    ? p.facets.filter((facet): facet is string => typeof facet === 'string')
+    : undefined;
+  const mode = requestedResearchMode(p.mode);
+  if (mode === 'prove' && typeof p.intent !== 'string') {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'invalidQuery',
+          'target:"graph" mode:"prove" requires params.intent so the proof lane is deterministic. Use intent:"reachability"|"dependencies"|"symbols"|"general", then follow graph packet next.semantic/next.fetch continuations for missing proof.',
+          {
+            backend: 'smartOqlGraph',
+            queryPath: 'params.intent',
+            repair: {
+              message:
+                'Add params.intent. Example: params:{ mode:"prove", intent:"reachability", direction:"incoming" }.',
+            },
+          }
+        ),
+      ],
+      provenance: [{ backend: 'smartOqlGraph', source: query.from }],
+    };
+  }
+
+  let analysis: Awaited<ReturnType<typeof analyzeResearchFlow>>;
+  try {
+    analysis = await analyzeResearchFlow({
+      root,
+      goal: typeof p.goal === 'string' ? p.goal : undefined,
+      intent: typeof p.intent === 'string' ? p.intent : undefined,
+      facets,
+      mode,
+      maxFiles: typeof p.maxFiles === 'number' ? p.maxFiles : undefined,
+    });
+  } catch (err) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'invalidQuery',
+          err instanceof Error
+            ? err.message
+            : 'Could not analyze the requested graph root.',
+          { backend: 'smartOqlGraph' }
+        ),
+      ],
+      provenance: [{ backend: 'smartOqlGraph', source: query.from }],
+    };
+  }
+
+  const bundle =
+    analysis.mode === 'plan' ? undefined : buildResearchPackets(analysis);
+  const filters = graphFilters(p);
+  const packets = bundle?.packets ?? [];
+  const proofDiagnostics = shouldRunLspProof(analysis.mode, p)
+    ? await escalateGraphPacketsWithLsp(
+        root,
+        query,
+        packets,
+        filters,
+        graphProofLimit(query, p)
+      )
+    : [];
+  const view = buildGraphView(
+    query,
+    packets,
+    bundle?.graphSummary ?? {
+      subjects: 0,
+      facts: 0,
+      edges: 0,
+      byVerdict: {
+        reachable: 0,
+        'candidate-dead': 0,
+        'transitive-dead': 0,
+        'candidate-unused-file': 0,
+        'candidate-unused-dependency': 0,
+        unknown: 0,
+      },
+    },
+    filters
+  );
+
+  const caveats = [
+    ...(view.data.caveats ?? []),
+    ...analysis.caveats,
+    ...(analysis.mode === 'plan'
+      ? ['mode:"plan" requested: graph packets were not built.']
+      : []),
+    ...(p.mode === 'prove'
+      ? [
+          shouldRunLspProof(analysis.mode, p)
+            ? 'mode:"prove" requested: LSP proof escalation ran for the current graph page only. Follow next.page and next.semantic for remaining/open proof.'
+            : 'mode:"prove" requested: graph rows are candidate-grade only. Follow packet next.semantic to confirm references.',
+        ]
+      : []),
+  ];
+
+  const enriched: OqlGraphData = {
+    ...view.data,
+    goal: analysis.goal,
+    intent: analysis.intent,
+    facets: analysis.facets,
+    mode: analysis.mode,
+    root: analysis.root,
+    flow: analysis.flow,
+    graphCapabilities: analysis.graphCapabilities,
+    nativeGraphSummary: nativeGraphSummary(analysis.graphFacts),
+    caveats,
+  };
+
+  return {
+    results: records([enriched], 'graph', query.from),
+    pagination: view.pagination,
+    diagnostics: proofDiagnostics,
+    provenance: [{ backend: 'smartOqlGraph', source: query.from }],
   };
 }
 
@@ -711,4 +1831,5 @@ export const RESEARCH_TARGET_ADAPTERS: Record<
   artifacts: executeArtifacts,
   semantics: executeSemantics,
   research: executeResearch,
+  graph: executeGraph,
 };

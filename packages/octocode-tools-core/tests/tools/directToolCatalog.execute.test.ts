@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { executeDirectTool } from '../../src/tools/directToolCatalog.js';
 import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { cleanup } from '../../src/serverConfig.js';
+import {
+  setRuntimeSurface,
+  _resetRuntimeSurface,
+} from '../../src/shared/config/runtimeSurface.js';
 
 describe('executeDirectTool - invalid input handling (finding 3)', () => {
   const originalEnableClone = process.env.ENABLE_CLONE;
@@ -19,10 +23,38 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     } else {
       process.env.ENABLE_LOCAL = originalEnableLocal;
     }
+    _resetRuntimeSurface();
     cleanup();
   });
 
-  it('rejects a local tool when ENABLE_LOCAL is false', async () => {
+  it('ignores ENABLE_LOCAL=false on the CLI surface (local always enabled)', async () => {
+    // The CLI is local-first: ENABLE_LOCAL must NOT gate it. The local gate
+    // (localToolsDisabled) must not fire regardless of ENABLE_LOCAL.
+    setRuntimeSurface('cli');
+    process.env.ENABLE_LOCAL = 'false';
+    cleanup();
+
+    const result = await executeDirectTool(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
+      queries: [
+        {
+          path: 'src/shared/config',
+          keywords: 'resolveLocal',
+          maxFiles: 3,
+          mainResearchGoal: 'Verify CLI ignores ENABLE_LOCAL',
+          researchGoal: 'CLI local-first gate bypass',
+          reasoning: 'Regression test: CLI must ignore ENABLE_LOCAL',
+        },
+      ],
+    });
+
+    const structured = result.structuredContent as
+      | { error?: { code?: string } }
+      | undefined;
+    expect(structured?.error?.code).not.toBe('localToolsDisabled');
+  });
+
+  it('rejects a local tool when ENABLE_LOCAL is false on the MCP surface', async () => {
+    setRuntimeSurface('mcp');
     process.env.ENABLE_LOCAL = 'false';
     cleanup(); // invalidate the cached config so the new env is read
 

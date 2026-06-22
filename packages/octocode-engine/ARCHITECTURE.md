@@ -26,6 +26,25 @@ bindings; Rust modules own the actual logic and are tested with `cargo test`.
 - `src/signatures/` owns semantic outlines and JS/TS symbol extraction.
 - `src/security/` owns secret detection and sanitization.
 
+## Research Graph Direction
+
+Future reachability/dead-code work belongs in a generic native graph domain, not
+in tool-specific regex logic. The engine should provide language-neutral facts
+and deterministic graph algorithms:
+
+- parse files through the shared grammar registry;
+- extract AST facts for declarations, imports, exports, calls, classes, and
+  functions;
+- normalize language-specific syntax into common symbol/relation facts;
+- connect facts into file/symbol/dependency graph nodes and edges;
+- run reachability, retainer lookup, strongly connected components, and
+  transitive-dead pruning.
+
+LSP remains the semantic proof layer for cross-file identity, references,
+definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
+is discovery only and must not produce deletion-grade proof. Framework/package
+entrypoint policy and agent-facing packets stay in `octocode-tools-core` / OQL.
+
 ## Rules
 
 - Do not put logic in `lib.rs` or `bindings/`.

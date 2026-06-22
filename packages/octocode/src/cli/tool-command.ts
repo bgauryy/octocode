@@ -2,14 +2,16 @@ import type { CLICommand, ParsedArgs } from './types.js';
 import './cjs-shim.js';
 import { EXIT, classifyToolErrorText } from './exit-codes.js';
 import { c, bold, dim } from '../utils/colors.js';
+// Schema/help/`--scheme`/`context` use the engine-FREE `/schema` subpath so the
+// CLI can read schemas on runtimes that cannot load the native engine (e.g.
+// Codex.app Node). `executeDirectTool` + result formatting (which pull the
+// engine) are dynamically imported from `/direct` only inside the execute path.
 import {
   buildDirectToolExampleQuery,
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
   DirectToolInputError,
-  executeDirectTool,
   findDirectToolDefinition,
-  formatCallToolResultForOutput,
   formatDirectToolSchemaText,
   getDirectToolAutoFilledFields,
   getDirectToolCategory,
@@ -20,7 +22,8 @@ import {
   sortDirectToolNames,
   type DirectToolDefinition,
   type DirectToolDisplayField,
-} from '@octocodeai/octocode-tools-core/direct';
+} from '@octocodeai/octocode-tools-core/schema';
+import type { formatCallToolResultForOutput } from '@octocodeai/octocode-tools-core/direct';
 
 type ToolResult = Parameters<typeof formatCallToolResultForOutput>[0];
 
@@ -650,19 +653,18 @@ function getOutputMode(args: ParsedArgs): OutputMode {
   return 'text';
 }
 
-function printToolResult(result: ToolResult, outputMode: OutputMode): void {
+function printToolResult(
+  result: ToolResult,
+  outputMode: OutputMode,
+  formatResult: typeof formatCallToolResultForOutput
+): void {
   if (outputMode === 'compact') {
     const structured = (result as { structuredContent?: unknown })
       .structuredContent;
     console.log(JSON.stringify(structured ?? result));
     return;
   }
-  console.log(
-    formatCallToolResultForOutput(
-      result,
-      outputMode === 'json' ? 'json' : 'text'
-    )
-  );
+  console.log(formatResult(result, outputMode === 'json' ? 'json' : 'text'));
 }
 
 function printToolError(message: string, details: string[] = []): void {
@@ -760,8 +762,13 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
       return true;
     }
 
+    // Engine-bearing modules are loaded only now, when a tool actually runs —
+    // keeping the schema/help paths above engine-free (P3).
+    const { executeDirectTool, formatCallToolResultForOutput } = await import(
+      '@octocodeai/octocode-tools-core/direct'
+    );
     const result = await executeDirectTool(tool.name, input);
-    printToolResult(result, getOutputMode(args));
+    printToolResult(result, getOutputMode(args), formatCallToolResultForOutput);
     if (result.isError) {
       process.exitCode = classifyToolErrorText(JSON.stringify(result));
       return false;

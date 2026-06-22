@@ -57,7 +57,7 @@ function buildAgentInstructionsBlock(instructions: string | null): string[] {
     `  ${dim('Tools:')} ${c('yellow', 'tools <name> --scheme')} ${dim('to read a schema (never guess fields), then')} ${c('yellow', "tools <name> --queries '<json>'")} ${dim('to run it. QUICK COMMANDS below cover the common path.')}`,
     `  ${dim('Skill reference — read the')} ${c('cyan', 'octocode-engineer')} ${dim('flows to understand the research loop and leverage every tool fully:')}`,
     `    ${underline(ENGINEER_SKILL_URL)}`,
-    `  ${dim('Auth: humans run')} ${c('yellow', 'login')}${dim('; use')} ${c('yellow', 'status')} ${dim('to confirm token presence; agents pass GITHUB_TOKEN / OCTOCODE_TOKEN / GH_TOKEN via env. Deeper protocol:')} ${c('cyan', 'context')}${dim('.')}`,
+    `  ${dim('Auth: humans run')} ${c('yellow', 'login')}${dim('; agents run')} ${c('yellow', 'auth status --json')} ${dim('for token state; pass GITHUB_TOKEN / OCTOCODE_TOKEN / GH_TOKEN via env. Deeper protocol:')} ${c('cyan', 'context')}${dim('.')}`,
     `  ${dim('</AGENT_INSTRUCTIONS>')}`
   );
 
@@ -134,7 +134,8 @@ export async function showHelp(): Promise<void> {
     ? []
     : [
         `  ${c('red', '─'.repeat(62))}`,
-        `  ${c('red', bold('  ⚠  NOT AUTHENTICATED'))}  ${c('red', 'GitHub token required for tool calls.')}`,
+        `  ${c('red', bold('  ⚠  NOT AUTHENTICATED'))}  ${c('red', 'No GitHub token configured.')}`,
+        `  ${c('red', '     Public GitHub calls may run anonymously; login enables private repos and higher limits.')}`,
         `  ${c('red', '     Run: ')}${c('yellow', bold('login'))}`,
         `  ${c('red', '─'.repeat(62))}`,
         '',

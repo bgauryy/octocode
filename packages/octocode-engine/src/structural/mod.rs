@@ -90,7 +90,11 @@ pub fn search_detailed(
             analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
             status: "truncated".to_owned(),
             language_id: None,
-            query: invalid_query_explanation(pattern, rule, "content exceeds single-content byte limit"),
+            query: invalid_query_explanation(
+                pattern,
+                rule,
+                "content exceeds single-content byte limit",
+            ),
             matches: Vec::new(),
             diagnostics: vec![diagnostic],
         };
@@ -1041,8 +1045,14 @@ mod tests {
 
         assert_eq!(result.total_matches, 1);
         assert_eq!(result.parsed_files, 1);
-        assert_eq!(result.skipped_by_pre_filter, 1, "only noanchor.ts is a proof-skip");
-        assert_eq!(result.skipped_unsupported, 1, "hasanchor.txt is unsupported, not prefilter");
+        assert_eq!(
+            result.skipped_by_pre_filter, 1,
+            "only noanchor.ts is a proof-skip"
+        );
+        assert_eq!(
+            result.skipped_unsupported, 1,
+            "hasanchor.txt is unsupported, not prefilter"
+        );
         // The warning text must name unsupported files distinctly — the lumped
         // "Pre-filter skipped parsing N file(s)" line is the imprecision we fix.
         let prefilter_warning = result

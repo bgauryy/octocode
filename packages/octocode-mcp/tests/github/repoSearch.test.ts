@@ -114,7 +114,7 @@ describe('GitHub Repository Search', () => {
       }
     });
 
-    it('should truncate long descriptions', async () => {
+    it('returns the full description without silent truncation (P6)', async () => {
       const longDescription = 'A'.repeat(200);
       const mockResponse = {
         data: {
@@ -140,9 +140,11 @@ describe('GitHub Repository Search', () => {
       const result = await searchGitHubReposAPI(params);
 
       if ('data' in result) {
-        expect(result.data.repositories[0]!.description).toHaveLength(153);
+        // Full description preserved (no 150-char '...' cut); the unified
+        // response char-pagination governs oversized output losslessly.
+        expect(result.data.repositories[0]!.description).toHaveLength(200);
         expect(result.data.repositories[0]!.description.endsWith('...')).toBe(
-          true
+          false
         );
       }
     });

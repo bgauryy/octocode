@@ -11,6 +11,7 @@ vi.mock('../../src/oql/adapters/runner.js', () => ({ runDirect }));
 import { runOqlSearch } from '../../src/oql/run.js';
 import {
   isBatchEnvelope,
+  type OqlCodeResultRow,
   type OqlRecordResultRow,
   type OqlResultEnvelope,
 } from '../../src/oql/types.js';
@@ -21,10 +22,17 @@ function single(
   if (isBatchEnvelope(r)) throw new Error('expected single envelope');
   return r;
 }
-function toolResult(data: Record<string, unknown>, status = 'success') {
+function toolResult(
+  data: Record<string, unknown>,
+  status = 'success',
+  extraStructuredContent: Record<string, unknown> = {}
+) {
   return {
     content: [],
-    structuredContent: { results: [{ status, data }] },
+    structuredContent: {
+      ...extraStructuredContent,
+      results: [{ status, data }],
+    },
   };
 }
 
@@ -57,6 +65,29 @@ describe('gap 7: target:"materialize" returns a checkpoint row + continuations',
     expect(row.data.complete).toBe(false); // bounded sparse subtree
     expect(env.provenance[0]?.backend).toBe('ghCloneRepo');
     expect(env.provenance[0]?.materializedPath).toBe('/cache/facebook/react');
+  });
+
+  it('resolves relative clone localPath against the clone base', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({ localPath: 'main__sp_abc123', cached: false }, 'success', {
+        base: '/cache/facebook/react',
+      })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'materialize',
+        repo: 'facebook/react',
+        path: 'packages/react',
+      })
+    );
+    const row = env.results[0] as OqlRecordResultRow;
+    expect(row.data.localPath).toBe('/cache/facebook/react/main__sp_abc123');
+    expect(env.provenance[0]?.materializedPath).toBe(
+      '/cache/facebook/react/main__sp_abc123'
+    );
+    expect(row.next?.['next.structure']?.query).toMatchObject({
+      from: { kind: 'local', path: '/cache/facebook/react/main__sp_abc123' },
+    });
   });
 
   it('the checkpoint row carries next.structure / next.files', async () => {
@@ -138,6 +169,293 @@ describe('#4 typed record rows: data carries the documented fields', () => {
     expect(row.id).toBe('facebook/react');
     expect(row.data.stars).toBe(1000);
     expect(row.data.language).toBe('JavaScript');
+  });
+});
+
+/* ---------------- provider output regressions from CLI dogfooding -------- */
+
+describe('provider regressions: GitHub content/structure and proof gates', () => {
+  it('GitHub content forwards type:file so exact file reads do not look unindexed', async () => {
+    runDirect.mockResolvedValue({
+      content: [],
+      structuredContent: {
+        results: [
+          {
+            id: 'vercel/ai',
+            files: [
+              {
+                path: 'packages/ai/package.json',
+                content: '{"name":"ai"}',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const env = single(
+      await runOqlSearch({
+        target: 'content',
+        repo: 'vercel/ai',
+        path: 'packages/ai/package.json',
+      })
+    );
+    expect(runDirect).toHaveBeenCalledWith(
+      'ghGetFileContent',
+      expect.objectContaining({ type: 'file' })
+    );
+    expect(env.results[0]?.kind).toBe('content');
+    expect(env.diagnostics.map(d => d.code)).not.toContain('providerUnindexed');
+  });
+
+  it('empty GitHub provider results block proof/answerReady', async () => {
+    runDirect.mockResolvedValue(toolResult({ results: [] }, 'empty'));
+    const env = single(
+      await runOqlSearch({
+        target: 'content',
+        repo: 'vercel/ai',
+        path: 'packages/ai/package.json',
+      })
+    );
+    const providerDiag = env.diagnostics.find(
+      d => d.code === 'providerUnindexed'
+    );
+    expect(providerDiag?.blocksAnswer).toBe(true);
+    expect(env.evidence.answerReady).toBe(false);
+  });
+
+  it('GitHub structure maps array payloads to clean repo paths and top-level pagination', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        structure: [
+          { dir: '.', files: [], folders: ['ai', 'src'] },
+          { dir: 'ai', files: ['package.json'], folders: ['src'] },
+        ],
+        pagination: {
+          currentPage: 1,
+          totalPages: 2,
+          hasMore: true,
+          entriesPerPage: 100,
+          totalEntries: 3,
+        },
+      })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'structure',
+        repo: 'vercel/ai',
+        path: 'packages',
+        itemsPerPage: 2,
+      })
+    );
+    expect(runDirect).toHaveBeenCalledWith(
+      'ghViewRepoStructure',
+      expect.objectContaining({ itemsPerPage: 2 })
+    );
+    expect(env.results).toHaveLength(2);
+    const paths = env.results.map(r => (r as { path: string }).path);
+    expect(paths).toEqual(['packages/ai', 'packages/src']);
+    expect(paths.some(path => /^\d+\//.test(path))).toBe(false);
+    expect(env.pagination?.hasMore).toBe(true);
+    expect(env.next?.['next.page']).toBeDefined();
+  });
+
+  it('GitHub commit rows preserve parent context and full pagination metadata', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        type: 'file',
+        owner: 'langchain-ai',
+        repo: 'langchainjs',
+        path: 'libs/langchain-core/src/runnables',
+        commits: [
+          {
+            sha: '6cf39fe9636804f6280db0b98c4a4c72d5b103a0',
+            messageHeadline: 'chore(core): deprecate streamEvents',
+          },
+        ],
+        pagination: {
+          currentPage: 1,
+          perPage: 2,
+          totalMatches: 23,
+          reportedTotalMatches: 31,
+          reachableTotalMatches: 20,
+          totalMatchesKind: 'reported',
+          totalMatchesCapped: false,
+          hasMore: true,
+          nextPage: 2,
+        },
+      })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'commits',
+        repo: 'langchain-ai/langchainjs',
+        params: {
+          path: 'libs/langchain-core/src/runnables',
+          perPage: 2,
+        },
+      })
+    );
+
+    const row = env.results[0] as OqlRecordResultRow;
+    expect(row.recordType).toBe('commit');
+    expect(row.data.sha).toBe('6cf39fe9636804f6280db0b98c4a4c72d5b103a0');
+    expect(row.metadata).toEqual({
+      type: 'file',
+      owner: 'langchain-ai',
+      repo: 'langchainjs',
+      path: 'libs/langchain-core/src/runnables',
+    });
+    expect(env.pagination).toMatchObject({
+      currentPage: 1,
+      nextPage: 2,
+      itemsPerPage: 2,
+      totalItems: 23,
+      reportedTotalItems: 31,
+      reachableTotalItems: 20,
+      totalItemsKind: 'reported',
+      totalItemsCapped: false,
+      hasMore: true,
+    });
+    expect(env.next?.['next.page']?.query).toMatchObject({ page: 2 });
+  });
+
+  it('GitHub PR list next.page lowers OQL page into backing tool params', async () => {
+    runDirect
+      .mockResolvedValueOnce(
+        toolResult({
+          pull_requests: [{ number: 1, title: 'first page' }],
+          pagination: {
+            currentPage: 1,
+            totalPages: 2,
+            perPage: 2,
+            hasMore: true,
+            nextPage: 2,
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        toolResult({
+          pull_requests: [{ number: 2, title: 'second page' }],
+          pagination: {
+            currentPage: 2,
+            totalPages: 2,
+            perPage: 2,
+            hasMore: false,
+          },
+        })
+      );
+
+    const first = single(
+      await runOqlSearch({
+        target: 'pullRequests',
+        repo: 'langchain-ai/langchainjs',
+        params: { keywordsToSearch: ['streamEvents'], limit: 2 },
+      })
+    );
+    const nextQuery = first.next?.['next.page']?.query;
+    expect(nextQuery).toMatchObject({ page: 2 });
+
+    const second = single(await runOqlSearch(nextQuery!));
+    expect(runDirect).toHaveBeenLastCalledWith(
+      'ghHistoryResearch',
+      expect.objectContaining({ page: 2, limit: 2 })
+    );
+    expect(second.pagination?.currentPage).toBe(2);
+    expect((second.results[0] as OqlRecordResultRow).id).toBe('#2');
+  });
+
+  it('GitHub code rows preserve query metadata and provider match indices', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        files: [
+          {
+            owner: 'langchain-ai',
+            repo: 'langchainjs',
+            queryId: 'ghSearchCode-1',
+            path: 'libs/providers/langchain-openai/src/chat_models/completions.ts',
+            matches: [
+              {
+                value: 'async *_streamChatModelEvents(...)',
+                matchIndices: [{ start: 7, end: 29, lineOffset: 0 }],
+              },
+            ],
+          },
+        ],
+        pagination: {
+          currentPage: 1,
+          totalPages: 8,
+          perPage: 3,
+          totalMatches: 23,
+          uniqueFileCount: 3,
+          hasMore: true,
+          nextPage: 2,
+        },
+      })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'github', repo: 'langchain-ai/langchainjs' },
+        scope: { language: 'ts' },
+        where: { kind: 'text', value: '_streamChatModelEvents' },
+        limit: 3,
+      })
+    );
+
+    const row = env.results[0] as OqlCodeResultRow;
+    expect(row.path).toBe(
+      'libs/providers/langchain-openai/src/chat_models/completions.ts'
+    );
+    expect(row.snippet).toBe('async *_streamChatModelEvents(...)');
+    expect(row.matchIndices).toEqual([{ start: 7, end: 29, lineOffset: 0 }]);
+    expect(row.metadata).toEqual({
+      owner: 'langchain-ai',
+      repo: 'langchainjs',
+      queryId: 'ghSearchCode-1',
+    });
+    expect(env.pagination).toMatchObject({
+      currentPage: 1,
+      totalPages: 8,
+      nextPage: 2,
+      itemsPerPage: 3,
+      totalItems: 23,
+      uniqueFileCount: 3,
+      hasMore: true,
+    });
+    expect(row.next?.['next.fetch']?.query).toMatchObject({
+      target: 'content',
+      fetch: {
+        content: {
+          contentView: 'exact',
+          match: { text: '_streamChatModelEvents' },
+        },
+      },
+    });
+  });
+
+  it('LSP unavailable and nested semantic pagination are partial, not proof', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        lsp: { serverAvailable: false, source: 'native' },
+        symbols: [{ name: 'StateGraph', uri: '/tmp/x.ts', line: 1 }],
+        pagination: { currentPage: 1, totalPages: 2, hasMore: true },
+      })
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'semantics',
+        from: { kind: 'local', path: '/tmp/x.ts' },
+        params: { type: 'documentSymbols' },
+      })
+    );
+    expect(env.diagnostics.map(d => d.code)).toContain('lspUnavailable');
+    expect(env.diagnostics.map(d => d.code)).toContain('partialResult');
+    expect(env.evidence.answerReady).toBe(false);
+    expect(env.pagination?.hasMore).toBe(true);
+    expect(
+      (env.next?.['next.page']?.query as { params?: { page?: number } }).params
+        ?.page
+    ).toBe(2);
   });
 });
 

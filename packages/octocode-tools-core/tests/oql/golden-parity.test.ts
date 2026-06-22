@@ -2,7 +2,6 @@
  * Golden parity: raw tool output vs OQL output for the local targets, proving
  * the OQL mapping preserves the information the raw tool returns (no rows
  * dropped/added, identity + content preserved). No network — local tools only.
- * Parity: OCTOCODE_SEARCH_PARITY_CHECKLIST gap #12.
  */
 import { describe, expect, it, beforeAll } from 'vitest';
 import path from 'node:path';

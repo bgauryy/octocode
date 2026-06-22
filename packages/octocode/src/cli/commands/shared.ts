@@ -74,11 +74,12 @@ export function formatAuthStatusAsJson(
   return {
     authenticated: status.authenticated,
     username: status.username || null,
-    hostname: status.hostname,
+    hostname: status.hostname || hostname,
     tokenPresent,
     tokenConfigured: tokenPresent,
     tokenSource,
     tokenExpired: Boolean(status.tokenExpired),
+    publicGitHubAccess: status.authenticated ? 'authenticated' : 'anonymous',
   };
 }
 
@@ -118,6 +119,9 @@ export function printAuthStatus(hostname: string = 'github.com'): void {
         `  ${dim('Source:')} ${formatTokenSource(tokenSource, status.envTokenSource)}`
       );
     }
+    console.log(
+      `  ${dim('Public GitHub:')} anonymous requests may work; login enables private repos and higher rate limits`
+    );
     console.log();
     console.log(`  ${bold('To authenticate:')}`);
     printLoginHint();

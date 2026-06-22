@@ -23,6 +23,7 @@ export type OqlActiveTarget =
   | 'artifacts'
   | 'diff'
   | 'research'
+  | 'graph'
   // Addressable materialization: clone/cache a bounded corpus and return a
   // stable local checkpoint (not a side-effect of a search).
   | 'materialize';
@@ -45,6 +46,7 @@ export const ACTIVE_TARGETS: readonly OqlActiveTarget[] = [
   'artifacts',
   'diff',
   'research',
+  'graph',
   'materialize',
 ];
 
@@ -405,6 +407,10 @@ export interface OqlCodeResultRow {
   endLine?: number;
   column?: number;
   snippet?: string;
+  /** Provider snippet offsets when available, e.g. GitHub code search indices. */
+  matchIndices?: Array<{ start: number; end: number; lineOffset?: number }>;
+  /** Row-level provider/context metadata that is useful but not identity. */
+  metadata?: Record<string, unknown>;
   /**
    * Structural (AST) metavariable captures. `$X` → single-element list; `$$$X`
    * → node list. Keyed by bare metavar name. Present only for structural
@@ -482,10 +488,13 @@ export interface OqlRecordResultRow {
     | 'artifact'
     | 'diff'
     | 'research'
+    | 'graph'
     | 'materialized';
   /** Stable, citeable identity (repo, name@version, #PR, SHA, path, uri). */
   id?: string;
   source?: QuerySource;
+  /** Parent/query metadata preserved from the backing tool payload. */
+  metadata?: Record<string, unknown>;
   data: Record<string, unknown>;
   next?: Record<string, OqlContinuation>;
 }
@@ -493,7 +502,7 @@ export interface OqlRecordResultRow {
 /* --- typed `data` contracts per recordType (documented payload shapes) ----
  * The backing tool owns the exhaustive payload; these name the fields agents
  * rely on to cite + continue. All optional (backend-dependent); never fabricated.
- * Parity: OCTOCODE_SEARCH_PARITY_CHECKLIST gap #4. */
+ */
 
 export interface OqlRepositoryData {
   fullName?: string;
@@ -577,12 +586,50 @@ export interface OqlResearchData {
   kind?: 'researchFlow';
   goal?: string;
   intent?: string;
-  facets?: string[];
+  facets?: readonly string[];
+  mode?: 'plan' | 'analyze' | 'prove';
   summary?: Record<string, unknown>;
-  flow?: unknown[];
+  flow?: readonly unknown[];
+  nativeGraphSummary?: Record<string, unknown>;
+  graphSummary?: Record<string, unknown>;
+  packetPage?: Pagination;
+  packets?: unknown[];
+  /** Present only in detailed view — a windowed slice (see `manifestsPage`). */
+  manifests?: unknown[];
+  manifestsPage?: Pagination;
+  /** Present only in detailed view — a windowed slice (see `filesPage`). */
   files?: unknown[];
+  filesPage?: Pagination;
+  /** Present only in detailed view — a windowed slice (see `dependenciesPage`). */
   dependencies?: unknown[];
+  dependenciesPage?: Pagination;
+  /** Present only in detailed view — a windowed slice (see `symbolsPage`). */
   symbols?: unknown[];
+  symbolsPage?: Pagination;
+  /** Present only in detailed view — a windowed slice (see `graphFactsPage`). */
+  graphFacts?: unknown[];
+  graphFactsPage?: Pagination;
+  caveats?: string[];
+  [k: string]: unknown;
+}
+export interface OqlGraphData {
+  kind?: 'relationshipGraph';
+  goal?: string;
+  intent?: string;
+  facets?: readonly string[];
+  mode?: 'plan' | 'analyze' | 'prove';
+  root?: string;
+  filters?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+  flow?: readonly unknown[];
+  nativeGraphSummary?: Record<string, unknown>;
+  graphSummary?: unknown;
+  packetPage?: Pagination;
+  nodes?: unknown[];
+  edges?: unknown[];
+  facts?: unknown[];
+  packets?: unknown[];
+  missingProof?: unknown[];
   caveats?: string[];
   [k: string]: unknown;
 }
@@ -624,6 +671,10 @@ export type OqlResearchRow = OqlRecordResultRow & {
   recordType: 'research';
   data: OqlResearchData;
 };
+export type OqlGraphRow = OqlRecordResultRow & {
+  recordType: 'graph';
+  data: OqlGraphData;
+};
 
 export type OqlResultRow =
   | OqlCodeResultRow
@@ -635,8 +686,14 @@ export type OqlResultRow =
 export interface Pagination {
   currentPage?: number;
   totalPages?: number;
+  nextPage?: number;
   itemsPerPage?: number;
   totalItems?: number;
+  reportedTotalItems?: number;
+  reachableTotalItems?: number;
+  totalItemsKind?: string;
+  totalItemsCapped?: boolean;
+  uniqueFileCount?: number;
   hasMore: boolean;
   next?: OqlContinuation;
 }

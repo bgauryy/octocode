@@ -2,7 +2,7 @@
  * Typed target-specific `params` schemas.
  *
  * Research targets (semantics/repositories/packages/pullRequests/commits/
- * artifacts/diff/research) carry a `params` bag that the backing tool validates
+ * artifacts/diff/research/graph) carry a `params` bag that the backing tool validates
  * exhaustively. These schemas type the documented common fields so a type
  * mistake (e.g. `prNumber:"abc"`) is caught at the OQL layer with a clear
  * `invalidQuery` instead of failing opaquely at the tool, while `.passthrough()`
@@ -106,6 +106,13 @@ const pullRequestsParams = z
     minify: z.enum(['none', 'standard']).optional(),
     limit: intMin1.optional(),
     page: intMin1.optional(),
+    // A *content* filter (not a search-index query): after PRs are fetched,
+    // keep only those whose `matchScope` text contains `matchString`
+    // (case-insensitive). Defaults to the PR body. Absent matches → zeroMatches.
+    matchString: z.string().optional(),
+    matchScope: z
+      .enum(['body', 'title', 'comments', 'reviews', 'all'])
+      .optional(),
   })
   .passthrough();
 
@@ -155,12 +162,48 @@ const researchParams = z
       .enum(['general', 'reachability', 'dependencies', 'symbols'])
       .optional(),
     facets: z.array(researchFacet).optional(),
-    // "prove" is accepted; LSP/AST proof expansion is not yet run, so packets
-    // stay proofStatus:"candidate" with missingProof:["lsp-unavailable"] and a
-    // next.semantic continuation to upgrade them.
+    // For target:"research", "prove" requires explicit intent but does not run
+    // LSP reference proof internally (results stay candidate-grade). The research
+    // row carries a one-call `next.graph` upgrade — a pre-filled target:"graph"
+    // proof:"lsp" query, page-aligned and bounded by proofLimit — so a single
+    // follow-up run escalates the current page's candidates to LSP-proven facts.
     mode: z.enum(['plan', 'analyze', 'prove']).optional(),
     maxFiles: intMin1.optional(),
-    maxPackets: intMin1.optional(),
+  })
+  .passthrough();
+
+const graphParams = z
+  .object({
+    goal: z.string().optional(),
+    intent: z
+      .enum(['general', 'reachability', 'dependencies', 'symbols'])
+      .optional(),
+    facets: z.array(researchFacet).optional(),
+    mode: z.enum(['plan', 'analyze', 'prove']).optional(),
+    maxFiles: intMin1.optional(),
+    subject: z.string().optional(),
+    subjectKind: z
+      .enum([
+        'file',
+        'symbol',
+        'function',
+        'class',
+        'method',
+        'interface',
+        'type',
+        'dependency',
+        'package',
+        'entrypoint',
+      ])
+      .optional(),
+    relation: z.union([z.string(), z.array(z.string())]).optional(),
+    verdict: z.union([z.string(), z.array(z.string())]).optional(),
+    direction: z.enum(['incoming', 'outgoing', 'both']).optional(),
+    proof: z.enum(['none', 'lsp']).optional(),
+    proofLimit: intMin1.max(25).optional(),
+    includePackets: z.boolean().optional(),
+    includeFacts: z.boolean().optional(),
+    includeEdges: z.boolean().optional(),
   })
   .passthrough();
 
@@ -176,6 +219,7 @@ export const TARGET_PARAM_SCHEMAS: Partial<
   artifacts: artifactsParams,
   diff: diffParams,
   research: researchParams,
+  graph: graphParams,
   code: codeParams,
 };
 

@@ -16,6 +16,10 @@
       "types": "./dist/direct.d.ts",
       "import": "./dist/direct.js"
     },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
     "./oql": {
       "types": "./dist/oql/index.d.ts",
       "import": "./dist/oql/index.js"

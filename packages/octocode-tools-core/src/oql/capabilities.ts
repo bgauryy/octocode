@@ -111,11 +111,11 @@ function routeGithub(
         backend: GH_SEARCH,
         exact: false,
         reason:
-          'files containing the term listed via provider code search (path-level, approximate)',
+          'files containing the term listed via provider code search (approximate)',
         diagnostic: {
           code: 'providerSemanticsApproximate',
           message:
-            'GitHub lists files containing a term at path level; materialize for an exact file set.',
+            'GitHub lists files containing a term via provider code search; materialize for an exact file set.',
         },
       };
     }

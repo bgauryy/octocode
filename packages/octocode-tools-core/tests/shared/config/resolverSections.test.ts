@@ -5,6 +5,10 @@ import {
   parseStringArrayEnv,
   resolveLocal,
 } from '../../../src/shared/config/resolverSections.js';
+import {
+  setRuntimeSurface,
+  _resetRuntimeSurface,
+} from '../../../src/shared/config/runtimeSurface.js';
 
 describe('parseBooleanEnv', () => {
   it('should return undefined for undefined', () => {
@@ -148,6 +152,29 @@ describe('resolveLocal', () => {
 
   afterEach(() => {
     process.env = originalEnv;
+  });
+
+  describe('CLI surface ignores ENABLE_LOCAL (local always enabled)', () => {
+    afterEach(() => {
+      _resetRuntimeSurface();
+    });
+
+    it('enables local on the CLI surface even when ENABLE_LOCAL=false', () => {
+      setRuntimeSurface('cli');
+      process.env.ENABLE_LOCAL = 'false';
+      expect(resolveLocal(undefined).enabled).toBe(true);
+    });
+
+    it('enables local on the CLI surface even when file config disables it', () => {
+      setRuntimeSurface('cli');
+      expect(resolveLocal({ enabled: false }).enabled).toBe(true);
+    });
+
+    it('still honors ENABLE_LOCAL=false on the MCP surface (contrast)', () => {
+      setRuntimeSurface('mcp');
+      process.env.ENABLE_LOCAL = 'false';
+      expect(resolveLocal(undefined).enabled).toBe(false);
+    });
   });
 
   describe('enabled defaults', () => {

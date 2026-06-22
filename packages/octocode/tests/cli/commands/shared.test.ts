@@ -244,6 +244,9 @@ describe('cli/commands/shared', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Not authenticated')
       );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('anonymous requests may work')
+      );
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('login'));
     });
   });

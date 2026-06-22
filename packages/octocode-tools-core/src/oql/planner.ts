@@ -197,6 +197,8 @@ function operationFor(target: OqlQuery['target']): string {
       return 'diff';
     case 'research':
       return 'runResearchFlow';
+    case 'graph':
+      return 'queryRelationshipGraph';
     case 'materialize':
       return 'materialize';
   }
@@ -277,7 +279,7 @@ export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
       backend: backendForTargetless(query),
       source,
       operation: operationFor(query.target),
-      exact: query.target !== 'research',
+      exact: query.target !== 'research' && query.target !== 'graph',
     });
   }
 
@@ -388,6 +390,8 @@ function backendForTargetless(query: OqlQuery): string {
       return 'localBinaryInspect';
     case 'research':
       return 'smartOqlResearch';
+    case 'graph':
+      return 'smartOqlGraph';
     // 'diff' is owned by the lane-aware branch in planQuery (diffLanes.ts) and
     // never reaches here.
     case 'materialize':

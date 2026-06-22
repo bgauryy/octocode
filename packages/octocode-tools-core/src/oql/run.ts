@@ -81,13 +81,8 @@ async function runSingle(
 
   const exec = await dispatch(query, planned);
   relativizeResultPaths(query, exec.results);
+  applyResultRowWindow(query, exec);
   const next = attachContinuations(query, exec);
-
-  // limit: cap the primary result-row domain (local/record adapters page with
-  // itemsPerPage/page but do not enforce the logical `limit`).
-  if (typeof query.limit === 'number' && exec.results.length > query.limit) {
-    exec.results = exec.results.slice(0, query.limit);
-  }
 
   // select: project row fields + continuations (projection only — never changes
   // result domains or triggers fetches). Unknown fields are reported, not fatal.
@@ -109,6 +104,32 @@ async function runSingle(
     approximate: backendsApproximate(planned.plan.backendCalls),
     plan,
   });
+}
+
+function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
+  // Content has its own char-window pagination and per-row next.charRange.
+  if (query.target === 'content') return;
+
+  const cap =
+    typeof query.limit === 'number'
+      ? query.limit
+      : typeof query.itemsPerPage === 'number'
+        ? query.itemsPerPage
+        : undefined;
+  if (!cap || cap < 1 || exec.results.length <= cap) return;
+
+  const totalItems = exec.pagination?.totalItems ?? exec.results.length;
+  const currentPage = exec.pagination?.currentPage ?? query.page ?? 1;
+  exec.results = exec.results.slice(0, cap);
+  exec.pagination = {
+    ...exec.pagination,
+    currentPage,
+    itemsPerPage: exec.pagination?.itemsPerPage ?? cap,
+    totalItems,
+    totalPages:
+      exec.pagination?.totalPages ?? Math.max(1, Math.ceil(totalItems / cap)),
+    hasMore: true,
+  };
 }
 
 /**
@@ -139,6 +160,27 @@ type RowContinuationBuilder = (
   ctx: ContinuationCtx
 ) => Record<string, OqlContinuation> | undefined;
 
+function contentMatchFromQuery(
+  query: OqlQuery
+): NonNullable<NonNullable<OqlQuery['fetch']>['content']>['match'] | undefined {
+  const where = query.where;
+  if (!where) return undefined;
+  if (where.kind === 'text') {
+    return {
+      text: where.value,
+      ...(where.case === 'sensitive' ? { caseSensitive: true } : {}),
+    };
+  }
+  if (where.kind === 'regex') {
+    return {
+      text: where.value,
+      regex: true,
+      ...(where.case === 'sensitive' ? { caseSensitive: true } : {}),
+    };
+  }
+  return undefined;
+}
+
 function attachContinuations(
   query: OqlQuery,
   exec: AdapterResult
@@ -149,7 +191,7 @@ function attachContinuations(
   // per-row `next.charRange` is the executable continuation there, so never
   // emit a misleading `next.page` for target:"content".
   if (exec.pagination?.hasMore && query.target !== 'content') {
-    next['next.page'] = {
+    next['next.page'] = exec.pagination.next ?? {
       query: { ...query, page: (query.page ?? 1) + 1 },
       why: 'More result pages remain.',
       confidence: 'exact',
@@ -196,6 +238,7 @@ const ROW_CONTINUATION_BUILDERS: Record<string, RowContinuationBuilder> = {
   'record:artifact': buildArtifactContinuations,
   'record:materialized': buildMaterializedContinuations,
   'record:semantics': buildSemanticsContinuations,
+  'record:research': buildResearchContinuations,
 };
 
 function buildCodeContinuations(
@@ -211,6 +254,7 @@ function buildCodeContinuations(
     typeof code.line === 'number'
       ? { startLine: code.line, contextLines: 2 }
       : undefined;
+  const match = range ? undefined : contentMatchFromQuery(ctx.query);
   const out: Record<string, OqlContinuation> = {
     'next.fetch': {
       query: {
@@ -219,7 +263,11 @@ function buildCodeContinuations(
         from,
         ...(ctx.fileFrom ? {} : { scope: { path: code.path } }),
         fetch: {
-          content: { contentView: 'exact', ...(range ? { range } : {}) },
+          content: {
+            contentView: 'exact',
+            ...(range ? { range } : {}),
+            ...(match ? { match } : {}),
+          },
         },
       },
       why: 'Read the exact content at this hit.',
@@ -324,6 +372,53 @@ function buildMaterializedContinuations(
 ): Record<string, OqlContinuation> | undefined {
   const lp = derivedLocalPath(row);
   return lp ? localRootContinuations(lp, 'materialized') : undefined;
+}
+
+/**
+ * P5 (Option A): `target:"research"` stays candidate-grade — it never runs LSP
+ * internally — but it emits a *one-call* upgrade. `next.graph` is a pre-filled
+ * `proof:"lsp"` graph query over the same root/intent, page-aligned and bounded
+ * by `proofLimit`, so a single follow-up run turns the current page's candidate
+ * packets into LSP-proven relationships without blurring the research/graph
+ * honesty boundary.
+ */
+function buildResearchContinuations(
+  row: OqlResultRow,
+  ctx: ContinuationCtx
+): Record<string, OqlContinuation> | undefined {
+  const from = ctx.query.from;
+  // Graph proof needs a complete local file universe (local/materialized).
+  if (from?.kind !== 'local' && from?.kind !== 'materialized') return undefined;
+  const data = (row as OqlRecordResultRow).data;
+  const intent =
+    typeof data?.intent === 'string' && data.intent.length > 0
+      ? data.intent
+      : 'reachability';
+  // proofLimit is bounded (graphParams caps at 25); align it to the page size so
+  // the upgrade proves roughly the same number of subjects shown this page.
+  const proofLimit = Math.min(25, Math.max(1, ctx.query.itemsPerPage ?? 10));
+  return {
+    'next.graph': {
+      query: {
+        schema: 'oql',
+        target: 'graph',
+        from,
+        params: {
+          mode: 'prove',
+          proof: 'lsp',
+          intent,
+          proofLimit,
+          ...(Array.isArray(data?.facets) ? { facets: data.facets } : {}),
+        },
+        ...(ctx.query.page ? { page: ctx.query.page } : {}),
+        ...(ctx.query.itemsPerPage
+          ? { itemsPerPage: ctx.query.itemsPerPage }
+          : {}),
+      },
+      why: 'Upgrade this candidate research to LSP-proven relationships for the current page (bounded proof).',
+      confidence: 'exact',
+    },
+  };
 }
 
 function buildSemanticsContinuations(
@@ -444,6 +539,8 @@ const SELECTABLE_ROW_FIELDS = new Set([
   'endLine',
   'column',
   'snippet',
+  'matchIndices',
+  'metadata',
   'content',
   'contentView',
   'range',
@@ -455,6 +552,22 @@ const SELECTABLE_ROW_FIELDS = new Set([
   'depth',
   'children',
   'data',
+]);
+
+// Record-data sub-domains (research/graph detailed payloads). A bare selector
+// like "symbols" or "files" sub-projects WITHIN `data` — the research/graph
+// adapter performs that projection — so here the token just keeps the carrying
+// `data` field and never warns (P1: narrow `select` drops unrequested domains).
+const RECORD_DATA_SUBFIELDS = new Set([
+  'manifests',
+  'files',
+  'dependencies',
+  'symbols',
+  'graphFacts',
+  'packets',
+  'nodes',
+  'edges',
+  'facts',
 ]);
 
 // Envelope-level select tokens: recognized, no per-row effect (the envelope
@@ -496,6 +609,9 @@ function applySelect(
       nextKeys.add(token);
     } else if (SELECTABLE_ROW_FIELDS.has(token)) {
       rowFields.add(token);
+    } else if (RECORD_DATA_SUBFIELDS.has(token)) {
+      // bare record-data sub-domain → keep `data`; adapter sub-projects it.
+      rowFields.add('data');
     } else if (SELECT_ENVELOPE_TOKENS.has(token)) {
       // recognized envelope token — no row projection needed
     } else if (token.includes('.')) {

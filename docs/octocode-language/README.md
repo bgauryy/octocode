@@ -8,7 +8,7 @@ Language.
 | Doc | Use it for |
 |---|---|
 | https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md | XML-tagged canonical OQL contract and examples |
-| https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_SEARCH_PARITY_CHECKLIST.md | Agent checklist for replacing raw tools and quick commands with `octocode search` |
+| https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OQL_RESEARCH_GRAPH_FLOW.md | AST/LSP-first research graph flow, language tiers, Rust/tool-core split, and dead-code proof contract |
 | https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE_PLAN.md | Implementation plan, prerequisites, package split, milestones, tests, and risks |
 
 ## One-page Decision
@@ -19,7 +19,8 @@ can chunk the prompt into stable instruction blocks. It has one canonical shape:
 `target`, `from`, `scope`, discriminated `where.kind`, `materialize`, `fetch`,
 `select`, `view`, `controls`, result bounds, diagnostics, provenance,
 evidence, and executable `next.*` continuations. It also defines a bounded
-batch envelope for 1-5 independent queries.
+batch envelope for 1-5 independent queries, plus `target:"graph"` for
+agent-readable relationship nodes, edges, facts, packets, and missing proof.
 
 Command split:
 
@@ -40,6 +41,18 @@ Implementation split (as shipped):
 - Native primitives stay in `packages/octocode-engine`.
 - CLI (`octocode search`) and MCP stay thin wrappers over `runOqlSearch`.
 
+Research-graph split:
+
+- Structure/files bound the corpus before semantic claims.
+- Ripgrep and file predicates are discovery only, never deletion proof.
+- AST and LSP are the proof foundation.
+- `target:"research"` returns packet candidates; `target:"graph"` projects
+  those packets into relationship queries such as "what keeps this alive?".
+- Rust should parse files, extract normalized AST facts, connect graph
+  nodes/edges, and run deterministic graph algorithms.
+- tools-core/OQL should own research intent, framework/package entrypoint
+  policy, LSP proof escalation, and agent-facing packets.
+
 ## Implementation Checklist
 
 1. Add strict OQL schema types.
@@ -53,8 +66,8 @@ Implementation split (as shipped):
 7. Add `--explain` with normalized query, per-predicate routing, defaults,
    budgets, backend calls, materialization, diagnostics, and continuations.
 8. Wire CLI and MCP without duplicating logic.
-9. Use the search parity checklist before replacing any quick command or raw
-   tool path.
+9. Use the OQL contract and golden parity tests as the gate before replacing any
+   quick command or raw tool path.
 
 ## Editing Rules
 

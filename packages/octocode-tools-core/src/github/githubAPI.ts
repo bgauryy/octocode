@@ -56,6 +56,13 @@ export interface HistoryCommitFile {
   additions: number;
   deletions: number;
   patch?: string;
+  patchPagination?: {
+    charOffset: number;
+    charLength: number;
+    totalChars: number;
+    hasMore: boolean;
+    nextCharOffset?: number;
+  };
   diff?: DiffPreview;
   previousFilename?: string;
 }
@@ -81,10 +88,25 @@ export interface HistoryCommit {
   deletions?: number;
   status?: string;
   patch?: string;
+  patchPagination?: {
+    charOffset: number;
+    charLength: number;
+    totalChars: number;
+    hasMore: boolean;
+    nextCharOffset?: number;
+  };
   diff?: DiffPreview;
   previousFilename?: string;
   // type:"repo" fields (present when includeDiff:true)
   files?: HistoryCommitFile[];
+  filesPagination?: {
+    currentPage: number;
+    totalPages: number;
+    itemsPerPage: number;
+    totalFiles: number;
+    hasMore: boolean;
+    nextFilePage?: number;
+  };
 }
 
 export interface HistoryResult {

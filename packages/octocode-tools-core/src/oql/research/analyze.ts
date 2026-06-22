@@ -1,8 +1,13 @@
 import { builtinModules } from 'node:module';
 import path from 'node:path';
 import { readFile, readdir } from 'node:fs/promises';
+import {
+  contextUtils,
+  type GraphFactCapability,
+  type GraphFacts,
+} from '../../utils/contextUtils.js';
 
-const SOURCE_EXTENSIONS = new Set([
+const FALLBACK_SOURCE_EXTENSIONS = [
   '.ts',
   '.tsx',
   '.js',
@@ -11,7 +16,7 @@ const SOURCE_EXTENSIONS = new Set([
   '.cjs',
   '.mts',
   '.cts',
-]);
+] as const;
 
 const MANIFEST_NAME = 'package.json';
 
@@ -40,7 +45,7 @@ export type ResearchIntent =
   | 'dependencies'
   | 'symbols';
 
-export type ResearchMode = 'plan' | 'analyze';
+export type ResearchMode = 'plan' | 'analyze' | 'prove';
 
 export type ResearchFlowStep = {
   readonly id: string;
@@ -62,10 +67,52 @@ export type ResearchSymbolRow = {
   readonly kind: string;
   readonly file: string;
   readonly line: number;
+  readonly evidenceSource: 'ast' | 'regex';
   readonly directRefs: number;
   readonly externalRefs: number;
   readonly retainedBy: readonly string[];
   readonly verdict: ResearchSymbolVerdict;
+};
+
+export type ResearchGraphFactFile = {
+  readonly file: string;
+  readonly source: 'native-ast';
+  readonly language: string;
+  readonly declarations: readonly {
+    readonly name: string;
+    readonly kind: string;
+    readonly line: number;
+    readonly exported: boolean;
+    readonly parent?: string;
+  }[];
+  readonly imports: readonly {
+    readonly specifier: string;
+    readonly line: number;
+    readonly importKind: string;
+    readonly localName?: string;
+    readonly importedName?: string;
+  }[];
+  readonly exports: readonly {
+    readonly name: string;
+    readonly line: number;
+    readonly exportKind: string;
+    readonly localName?: string;
+    readonly source?: string;
+  }[];
+  readonly calls: readonly {
+    readonly caller: string;
+    readonly callee: string;
+    readonly line: number;
+    readonly kind: string;
+  }[];
+  readonly edges: readonly {
+    readonly from: string;
+    readonly to: string;
+    readonly relation: string;
+    readonly source: string;
+    readonly line: number;
+  }[];
+  readonly diagnostics: readonly string[];
 };
 
 export type ResearchFileIssue = {
@@ -94,6 +141,19 @@ export type ResearchManifestSummary = {
   readonly dependencyCount: number;
 };
 
+export type ResearchGraphCapabilitySummary = {
+  readonly graphFactExtensions: readonly string[];
+  readonly capabilityCount: number;
+  readonly factFamilies: readonly string[];
+  readonly sourceFilesByLanguage: Readonly<Record<string, number>>;
+  readonly graphFilesByLanguage: Readonly<Record<string, number>>;
+  readonly missingGraphFacts: readonly {
+    readonly extension: string;
+    readonly files: number;
+    readonly reason: string;
+  }[];
+};
+
 export type ResearchAnalysisResult = {
   readonly kind: 'researchFlow';
   readonly goal: string;
@@ -114,11 +174,16 @@ export type ResearchAnalysisResult = {
     readonly exportedSymbols: number;
     readonly candidateUnusedExports: number;
     readonly transitiveDeadExports: number;
+    readonly nativeGraphFiles: number;
+    readonly nativeGraphDeclarations: number;
+    readonly nativeGraphCalls: number;
   };
   readonly manifests: readonly ResearchManifestSummary[];
   readonly files: readonly ResearchFileIssue[];
   readonly dependencies: readonly ResearchDependencyIssue[];
   readonly symbols: readonly ResearchSymbolRow[];
+  readonly graphFacts: readonly ResearchGraphFactFile[];
+  readonly graphCapabilities: ResearchGraphCapabilitySummary;
   readonly caveats: readonly string[];
 };
 
@@ -142,8 +207,11 @@ type Manifest = {
 type SourceFile = {
   readonly path: string;
   readonly rel: string;
+  readonly extension: string;
+  readonly language: string;
   readonly imports: readonly string[];
   readonly externalPackages: readonly string[];
+  readonly graphFacts?: ResearchGraphFactFile;
 };
 
 type ExportSymbol = {
@@ -151,6 +219,7 @@ type ExportSymbol = {
   readonly kind: string;
   readonly file: string;
   readonly line: number;
+  readonly evidenceSource: 'ast' | 'regex';
 };
 
 export async function analyzeResearchFlow(
@@ -162,9 +231,18 @@ export async function analyzeResearchFlow(
   const intent = inferIntent(goal, options.intent, options.facets);
   const facets = normalizeFacets(intent, options.facets);
   const flow = buildResearchFlow(intent, facets);
+  const capabilityMatrix = graphFactCapabilities();
 
   if (mode === 'plan') {
-    return emptyResult({ root, goal, intent, facets, mode, flow });
+    return emptyResult({
+      root,
+      goal,
+      intent,
+      facets,
+      mode,
+      flow,
+      graphCapabilities: summarizeGraphCapabilities([], [], capabilityMatrix),
+    });
   }
 
   const files = await walkFiles(root, options.maxFiles ?? 5000);
@@ -172,6 +250,14 @@ export async function analyzeResearchFlow(
     files.filter(file => file.endsWith(MANIFEST_NAME))
   );
   const sourceFiles = await readSourceFiles(root, files);
+  const graphFacts = sourceFiles
+    .map(file => file.graphFacts)
+    .filter((facts): facts is ResearchGraphFactFile => facts !== undefined);
+  const graphCapabilities = summarizeGraphCapabilities(
+    sourceFiles,
+    graphFacts,
+    capabilityMatrix
+  );
   await cacheTokens(sourceFiles);
   const workspacePackages = new Set(
     manifests.map(manifest => manifest.name).filter(isNonEmptyString)
@@ -230,6 +316,15 @@ export async function analyzeResearchFlow(
       exportedSymbols: symbolRows.length,
       candidateUnusedExports,
       transitiveDeadExports,
+      nativeGraphFiles: graphFacts.length,
+      nativeGraphDeclarations: graphFacts.reduce(
+        (total, facts) => total + facts.declarations.length,
+        0
+      ),
+      nativeGraphCalls: graphFacts.reduce(
+        (total, facts) => total + facts.calls.length,
+        0
+      ),
     },
     manifests: manifests.map(manifest => ({
       manifest: relative(root, manifest.path),
@@ -240,8 +335,11 @@ export async function analyzeResearchFlow(
     files: fileIssues,
     dependencies: dependencyIssues,
     symbols: symbolRows,
+    graphFacts,
+    graphCapabilities,
     caveats: [
-      'This is a smart research flow with heuristic graph evidence. LSP references and structural AST refinement should be used before destructive cleanup.',
+      'This is a smart research flow with native AST graph facts where available plus heuristic cross-file reachability. LSP references should be used before destructive cleanup.',
+      'Graph capability coverage is explicit: tree-sitter/OXC facts are syntax inventory, not semantic deletion proof.',
       'Dynamic imports, framework entrypoints, generated files, test-only retention, and package-manager-specific workspace rules may require project-specific refinement.',
     ],
   };
@@ -356,6 +454,7 @@ function emptyResult(input: {
   readonly facets: readonly string[];
   readonly mode: ResearchMode;
   readonly flow: readonly ResearchFlowStep[];
+  readonly graphCapabilities: ResearchGraphCapabilitySummary;
 }): ResearchAnalysisResult {
   return {
     kind: 'researchFlow',
@@ -377,11 +476,16 @@ function emptyResult(input: {
       exportedSymbols: 0,
       candidateUnusedExports: 0,
       transitiveDeadExports: 0,
+      nativeGraphFiles: 0,
+      nativeGraphDeclarations: 0,
+      nativeGraphCalls: 0,
     },
     manifests: [],
     files: [],
     dependencies: [],
     symbols: [],
+    graphFacts: [],
+    graphCapabilities: input.graphCapabilities,
     caveats: [
       'Planning mode returned the research flow without scanning files.',
     ],
@@ -478,6 +582,15 @@ function manifestEntrypoints(
     'src/index.js',
     'index.ts',
     'index.js',
+    'src/lib.rs',
+    'src/main.rs',
+    'main.rs',
+    '__init__.py',
+    'main.py',
+    'src/main.py',
+    'main.go',
+    'cmd/main.go',
+    'src/main/java/Main.java',
   ]) {
     candidates.add(path.resolve(dir, fallback));
   }
@@ -503,26 +616,196 @@ async function readSourceFiles(
   root: string,
   files: readonly string[]
 ): Promise<SourceFile[]> {
+  const supportedExtensions = sourceExtensions();
   const sourcePaths = files.filter(file =>
-    SOURCE_EXTENSIONS.has(path.extname(file))
+    supportedExtensions.has(path.extname(file).toLowerCase())
   );
   const records = await Promise.all(
     sourcePaths.map(async file => {
       const text = await readFile(file, 'utf8').catch(() => '');
-      const imports = importSpecifiers(text);
+      const extension = path.extname(file).toLowerCase();
+      const graphFacts = extractNativeGraphFacts(text, file, relative(root, file));
+      const imports = uniqueStrings(
+        graphFacts
+          ? graphFacts.imports.map(item => item.specifier)
+          : importSpecifiers(text)
+      );
       return {
         path: file,
         rel: relative(root, file),
+        extension,
+        language: graphFacts?.language ?? extension.slice(1),
         imports,
         externalPackages: imports
           .filter(specifier => !isRelativeSpecifier(specifier))
           .map(packageNameFromSpecifier)
           .filter(isNonEmptyString)
           .filter(name => !NODE_BUILTINS.has(name)),
+        ...(graphFacts ? { graphFacts } : {}),
       };
     })
   );
   return records;
+}
+
+function extractNativeGraphFacts(
+  text: string,
+  file: string,
+  rel: string
+): ResearchGraphFactFile | undefined {
+  try {
+    const raw = contextUtils.extractGraphFacts(text, file);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<GraphFacts>;
+    if (
+      parsed.kind !== 'graphFacts' ||
+      parsed.source !== 'native-ast' ||
+      !Array.isArray(parsed.declarations) ||
+      !Array.isArray(parsed.imports) ||
+      !Array.isArray(parsed.exports) ||
+      !Array.isArray(parsed.calls) ||
+      !Array.isArray(parsed.edges)
+    ) {
+      return undefined;
+    }
+    return {
+      file: rel,
+      source: parsed.source,
+      language: parsed.language ?? path.extname(file).slice(1),
+      declarations: parsed.declarations.map(decl => ({
+        name: decl.name,
+        kind: decl.kind,
+        line: decl.line,
+        exported: decl.exported,
+        ...(decl.parent ? { parent: decl.parent } : {}),
+      })),
+      imports: parsed.imports.map(item => ({
+        specifier: item.specifier,
+        line: item.line,
+        importKind: item.importKind,
+        ...(item.localName ? { localName: item.localName } : {}),
+        ...(item.importedName ? { importedName: item.importedName } : {}),
+      })),
+      exports: parsed.exports.map(item => ({
+        name: item.name,
+        line: item.line,
+        exportKind: item.exportKind,
+        ...(item.localName ? { localName: item.localName } : {}),
+        ...(item.source ? { source: item.source } : {}),
+      })),
+      calls: parsed.calls.map(call => ({
+        caller: call.caller,
+        callee: call.callee,
+        line: call.line,
+        kind: call.kind,
+      })),
+      edges: parsed.edges.map(edge => ({
+        from: edge.from,
+        to: edge.to,
+        relation: edge.relation,
+        source: edge.source,
+        line: edge.line,
+      })),
+      diagnostics: Array.isArray(parsed.diagnostics)
+        ? parsed.diagnostics.filter(isString)
+        : [],
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+let cachedSourceExtensions: ReadonlySet<string> | undefined;
+let cachedGraphCapabilities: readonly GraphFactCapability[] | undefined;
+
+function sourceExtensions(): ReadonlySet<string> {
+  if (cachedSourceExtensions) return cachedSourceExtensions;
+  try {
+    const extensions = contextUtils
+      .getSupportedGraphFactExtensions()
+      .map(ext => (ext.startsWith('.') ? ext : `.${ext}`).toLowerCase());
+    cachedSourceExtensions = new Set(
+      extensions.length > 0 ? extensions : FALLBACK_SOURCE_EXTENSIONS
+    );
+  } catch {
+    cachedSourceExtensions = new Set(FALLBACK_SOURCE_EXTENSIONS);
+  }
+  return cachedSourceExtensions;
+}
+
+function graphFactCapabilities(): readonly GraphFactCapability[] {
+  if (cachedGraphCapabilities) return cachedGraphCapabilities;
+  try {
+    const parsed = JSON.parse(contextUtils.getGraphFactCapabilities()) as unknown;
+    cachedGraphCapabilities = Array.isArray(parsed)
+      ? parsed.filter(isGraphFactCapability)
+      : [];
+  } catch {
+    cachedGraphCapabilities = [];
+  }
+  return cachedGraphCapabilities;
+}
+
+function isGraphFactCapability(value: unknown): value is GraphFactCapability {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<GraphFactCapability>;
+  return (
+    typeof record.extension === 'string' &&
+    typeof record.language === 'string' &&
+    Array.isArray(record.factFamilies)
+  );
+}
+
+function summarizeGraphCapabilities(
+  sourceFiles: readonly SourceFile[],
+  graphFacts: readonly ResearchGraphFactFile[],
+  capabilities: readonly GraphFactCapability[]
+): ResearchGraphCapabilitySummary {
+  const graphFactExtensions =
+    capabilities.length > 0
+      ? capabilities.map(capability => capability.extension).sort()
+      : [...sourceExtensions()].map(ext => ext.slice(1)).sort();
+  const factFamilies = [
+    ...new Set(capabilities.flatMap(capability => capability.factFamilies)),
+  ].sort();
+  const sourceFilesByLanguage = countBy(sourceFiles, file => file.language);
+  const graphFilesByLanguage = countBy(graphFacts, facts => facts.language);
+  const graphByFile = new Set(graphFacts.map(facts => facts.file));
+  const missingByExtension = new Map<string, number>();
+  for (const file of sourceFiles) {
+    if (graphByFile.has(file.rel)) continue;
+    missingByExtension.set(
+      file.extension,
+      (missingByExtension.get(file.extension) ?? 0) + 1
+    );
+  }
+  return {
+    graphFactExtensions,
+    capabilityCount: capabilities.length,
+    factFamilies,
+    sourceFilesByLanguage,
+    graphFilesByLanguage,
+    missingGraphFacts: [...missingByExtension.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([extension, files]) => ({
+        extension: extension.startsWith('.') ? extension.slice(1) : extension,
+        files,
+        reason:
+          'extension entered the source universe, but native graph facts were unavailable or parser output was empty',
+      })),
+  };
+}
+
+function countBy<T>(
+  items: readonly T[],
+  key: (item: T) => string
+): Readonly<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    const value = key(item) || 'unknown';
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
 }
 
 function importSpecifiers(text: string): readonly string[] {
@@ -690,11 +973,27 @@ async function collectExportSymbols(
 ): Promise<ExportSymbol[]> {
   const rows = await Promise.all(
     sourceFiles.map(async file => {
+      const astExports = exportSymbolsFromGraphFacts(file);
+      if (astExports.length > 0) return astExports;
       const text = await readFile(file.path, 'utf8').catch(() => '');
       return exportSymbols(file.rel, text);
     })
   );
   return rows.flat();
+}
+
+function exportSymbolsFromGraphFacts(file: SourceFile): readonly ExportSymbol[] {
+  const facts = file.graphFacts;
+  if (!facts) return [];
+  return facts.declarations
+    .filter(declaration => declaration.exported)
+    .map(declaration => ({
+      symbol: declaration.name,
+      kind: declaration.kind,
+      file: file.rel,
+      line: declaration.line,
+      evidenceSource: 'ast' as const,
+    }));
 }
 
 function exportSymbols(file: string, text: string): readonly ExportSymbol[] {
@@ -712,6 +1011,7 @@ function exportSymbols(file: string, text: string): readonly ExportSymbol[] {
         kind: exportKind(line),
         file,
         line: index + 1,
+        evidenceSource: 'regex',
       });
     }
     const list = /\bexport\s*\{([^}]+)\}/.exec(line);
@@ -722,7 +1022,13 @@ function exportSymbols(file: string, text: string): readonly ExportSymbol[] {
           .split(/\s+as\s+/)[0]
           ?.trim();
         if (symbol && /^[A-Za-z_$][\w$]*$/.test(symbol)) {
-          symbols.push({ symbol, kind: 'export', file, line: index + 1 });
+          symbols.push({
+            symbol,
+            kind: 'export',
+            file,
+            line: index + 1,
+            evidenceSource: 'regex',
+          });
         }
       }
     }
@@ -758,6 +1064,7 @@ function scoreSymbols(
       kind: symbol.kind,
       file: symbol.file,
       line: symbol.line,
+      evidenceSource: symbol.evidenceSource,
       directRefs: refs.length,
       externalRefs: reachableRefs.length,
       retainedBy: refs.map(file => file.rel),
@@ -804,9 +1111,10 @@ function resolveExistingPath(
   base: string,
   known: ReadonlySet<string>
 ): string | undefined {
+  const extensions = sourceExtensions();
   const candidates = [base];
-  for (const ext of SOURCE_EXTENSIONS) candidates.push(`${base}${ext}`);
-  for (const ext of SOURCE_EXTENSIONS)
+  for (const ext of extensions) candidates.push(`${base}${ext}`);
+  for (const ext of extensions)
     candidates.push(path.join(base, `index${ext}`));
   return candidates.find(candidate => known.has(candidate));
 }
@@ -835,6 +1143,14 @@ function stringValue(value: unknown): string | undefined {
 
 function isNonEmptyString(value: string | undefined): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 function relative(root: string, file: string): string {

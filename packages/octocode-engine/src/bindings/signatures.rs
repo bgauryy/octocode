@@ -60,6 +60,33 @@ pub fn find_in_file_references(
     crate::signatures::js_oxc::find_in_file_references(&content, &file_path, line, character)
 }
 
+/// Native graph facts as JSON.
+///
+/// Uses the richer OXC JS/TS graph extractor when available, then falls back to
+/// generic tree-sitter graph facts for other source languages. Syntax-level
+/// only: declarations, imports, exports, containment, and direct call edges.
+/// Cross-file identity and type-aware proof remain LSP work.
+#[napi(js_name = "extractGraphFacts")]
+pub fn extract_graph_facts(content: String, file_path: String) -> Option<String> {
+    crate::signatures::js_oxc::extract_graph_facts(&content, &file_path)
+        .or_else(|| crate::signatures::graph_facts::extract_graph_facts(&content, &file_path))
+}
+
+/// Canonical lowercase extensions (no leading dot) that can produce native
+/// `GraphFacts`. JS/TS use the OXC lane; other entries use tree-sitter syntax
+/// inventory. LSP proof is still required for semantic reference certainty.
+#[napi(js_name = "getSupportedGraphFactExtensions")]
+pub fn get_supported_graph_fact_extensions() -> Vec<String> {
+    crate::signatures::graph_facts::graph_fact_extensions()
+}
+
+/// JSON array describing graph fact coverage by extension/language. This is an
+/// agent-facing capability matrix, not proof that every fact family is complete.
+#[napi(js_name = "getGraphFactCapabilities")]
+pub fn get_graph_fact_capabilities() -> String {
+    crate::signatures::graph_facts::graph_fact_capabilities_json()
+}
+
 /// Structural (AST) search — octocode's L2 layer. Resolves the grammar from
 /// `file_path`'s extension and matches a code-shaped `pattern` OR a YAML `rule`
 /// (exactly one). Returns node ranges (1-based lines, ready as `lineHint`s)
@@ -174,15 +201,17 @@ mod tests {
     fn supported_signature_extensions_are_tree_sitter_only_and_sorted() {
         let exts = get_supported_signature_extensions();
         // Languages that must have signature extraction (body_query set)
-        for required in ["ts", "py", "rs", "go", "java", "rb", "php", "kt", "ex", "lua",
-                         "erl", "zig", "r", "swift", "scala", "sc", "sbt", "tf", "hcl",
-                         "tfvars", "proto"] {
-            assert!(exts.iter().any(|e| e == required), "missing {required} from signature list");
+        for required in [
+            "ts", "py", "rs", "go", "java", "rb", "php", "kt", "ex", "lua", "erl", "zig", "r",
+            "swift", "scala", "sc", "sbt", "tf", "hcl", "tfvars", "proto",
+        ] {
+            assert!(
+                exts.iter().any(|e| e == required),
+                "missing {required} from signature list"
+            );
         }
         // Languages that must NOT have signature extraction (no body_query)
-        for absent in [
-            "vue", "svelte", "md", "markdown", "sql", "html", "jl", "ml",
-        ] {
+        for absent in ["vue", "svelte", "md", "markdown", "sql", "html", "jl", "ml"] {
             assert!(
                 !exts.iter().any(|e| e == absent),
                 "{absent} must not have a signature outline (no grammar / structural-only)"

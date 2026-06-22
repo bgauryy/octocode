@@ -27,11 +27,12 @@ Install, configure, and use the Octocode MCP server.
 
 **Workflows**
 
-      | Doc | When to read |
-      |-----|--------------|
+| Doc | When to read |
+|-----|--------------|
 | [Agent Research Workflows](https://github.com/bgauryy/octocode/blob/main/docs/AGENT_RESEARCH_WORKFLOWS.md) | Product-level workflows for package, GitHub, OQL, cache/fetch/clone, local ripgrep, AST, LSP, artifacts, and diff research |
-      | [Clone & Local Workflow](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) | Pull a GitHub repo, then analyze locally with LSP |
-      | [Tool Verification](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Release-grade tool contract verification playbook |
+| [Search Guide](https://github.com/bgauryy/octocode/blob/main/docs/SEARCH_GUIDE.md) | Practical ripgrep, structural AST, LSP, and exact-read best practices for code research |
+| [Clone & Local Workflow](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) | Pull a GitHub repo, then analyze locally with LSP |
+| [Tool Verification](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Release-grade tool contract verification playbook |
 
 ---
 

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use napi_derive::napi;
 
 /// Precise position of one captured metavariable node. Line is 1-based (usable
-/// as an `lspGetSemantics` `lineHint`); columns are 0-based char offsets — the
-/// same convention as `StructuralMatch.start_col`.
+/// as an `lspGetSemantics` `lineHint`); columns are 0-based UTF-16 code-unit
+/// offsets — the same convention as `StructuralMatch.start_col` and LSP.
 #[napi(object)]
 pub struct MetavarRange {
     pub text: String,
@@ -15,8 +15,9 @@ pub struct MetavarRange {
 }
 
 /// One structural match. Line numbers are 1-based so `start_line` can be fed
-/// directly as an `lspGetSemantics` `lineHint`; columns are 0-based char
-/// offsets (tree-sitter native).
+/// directly as an `lspGetSemantics` `lineHint`; columns are 0-based UTF-16
+/// code-unit offsets (converted from tree-sitter's native byte columns to match
+/// the resolver, signatures, and LSP layers).
 #[napi(object)]
 pub struct StructuralMatch {
     pub start_line: u32,

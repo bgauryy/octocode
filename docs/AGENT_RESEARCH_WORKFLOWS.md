@@ -71,6 +71,7 @@ know where the current language is still partial.
 | Artifacts, archives, binaries | Partly | `binary`, `unzip`, raw `localBinaryInspect`; manually continue from returned `localPath`. |
 | Diffs | Partly | CLI `diff` or raw PR patch/history tools. OQL `diff` currently represents PR patch lanes better than direct file/ref diff lanes. |
 | Dead code, reachability, unused files, package drift | Partly | Start with OQL `target:"research"` for a repo-level candidate flow; confirm destructive cleanup with LSP references, AST import search, exact reads, and/or knip. |
+| Relationship graph, retained-by chains, missing proof | Partly | Use OQL `target:"graph"` after bounding a local/materialized corpus; follow packet `next.semantic` / `next.fetch` before deletion claims. |
 | Structural metavariable captures | Partly | Use quick/raw structural search when captures are required; OQL rows may not expose `metavars` yet. |
 
 ## Diagnostic And Failure Handling
@@ -90,6 +91,47 @@ Agents should report diagnostics as evidence about completeness, not as noise.
 | Empty provider result | Could be true absence or bad scope | Verify ref/path/spelling/filters and try structure/read/materialization before concluding. |
 | Cache hit/stale cache | Local evidence may reflect cached remote content | Use `--force-refresh` only when freshness matters. |
 
+## AST/LSP Research Graph Flow
+
+Use this flow for dead-code, reachability, retained-by, and safe-delete
+questions. Text search can start the investigation, but proof must come from AST,
+LSP, and graph reasoning.
+
+```text
+Structure
+  -> repo shape, package roots, manifests, source dirs, tests, generated dirs
+
+Discovery
+  -> ripgrep patterns, file predicates, dynamic strings, candidate anchors
+
+AST inventory
+  -> declarations, imports, exports, calls, class/function structure
+
+LSP proof
+  -> documentSymbols, references, definition, typeDefinition,
+     implementation, callers, callees, callHierarchy
+
+Graph reasoning
+  -> entrypoint reachability
+  -> internal-only export detection
+  -> transitive dead-code pruning
+  -> retainedBy / why / missingProof
+
+OQL packet
+  -> agent-readable answer + exact next inspection
+```
+
+Language tiers:
+
+| Tier | Capability | Agent rule |
+|---|---|---|
+| Tier 1 | Structure + AST + LSP + graph | Best proof. Bound the corpus, inventory with AST, prove with LSP, reason over the graph. |
+| Tier 2 | Structure + AST + graph | Good structural candidate evidence. Mark missing semantic proof. |
+| Tier 3 | Structure + ripgrep/file search | Discovery only. Never treat as deletion proof. |
+
+Full contract:
+https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OQL_RESEARCH_GRAPH_FLOW.md
+
 ## Product Guidance For Octocode
 
 Octocode should teach agents this decision ladder:
@@ -107,7 +149,8 @@ Octocode should teach agents this decision ladder:
 | Symbol identity | `lspGetSemantics` | definition/references/callers/callees | LSP without a search anchor |
 | Why code changed | `ghHistoryResearch` | direct `prNumber` metadata, files, patches | broad PR comment search first |
 | Unified multi-domain query | CLI `search` / OQL | routed backing tool evidence | guessing raw tool fields |
-| Dead-code/package-drift sweep | `search target:"research"` | candidate reachability rows + LSP/AST/knip proof | deleting from heuristic counts alone |
+| Dead-code/package-drift sweep | `search target:"research"` | AST inventory + LSP proof + graph reachability packets | deleting from text/ripgrep or heuristic counts alone |
+| Relationship/keeper chain | `search target:"graph"` | nodes, edges, facts, packets, missing proof, and exact next inspection | reading whole files before using graph filters |
 | Remote content cache | CLI `cache fetch` | returned `localPath` + local tools | repeated remote file reads |
 | Repository tree shape | `ghViewRepoStructure` / CLI `ls` | targeted file reads | path guessing |
 | Local metadata/path search | `localFindFiles` / CLI `find` | exact file slices | content search for filenames only |
@@ -427,10 +470,8 @@ search(target:"research", from:{kind:"local"|"materialized"},
   params:{goal:"find unused exports, transitive dead code, unused files, and package drift",
           mode:"plan"|"analyze"})
 -> inspect data.flow for the planned evidence chain
--> inspect data.symbols rows: symbol, kind, file, line, directRefs, externalRefs,
-   retainedBy, verdict
--> inspect data.files and data.dependencies for candidate unused files, unlisted
-   deps, unused deps, duplicates
+-> inspect data.packets, data.graphSummary, packetPage, and missingProof
+-> when the question is "what keeps this alive?", switch to target:"graph"
 -> because evidence.kind is candidate, prove destructive edits with LSP/AST/exact reads
 ```
 
@@ -438,6 +479,7 @@ Executable CLI pattern:
 
 ```bash
 octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
+octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"goal":"what keeps candidate-dead exports alive?","intent":"reachability","verdict":["candidate-dead","transitive-dead"],"direction":"incoming","includePackets":true},"itemsPerPage":25}' --json
 octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"how should an agent prove unused exports?","mode":"plan"}}' --json
 ```
 
@@ -523,8 +565,8 @@ Question routing:
 |---|---|
 | What looks dead? | `target:"research"` with `mode:"analyze"` and facets `symbols/files/dependencies` |
 | Why? | inspect packet `why` facts and `missingProof` diagnostics |
-| What keeps it alive? | inspect reverse `retainedBy` edges from refs/calls/type uses/imports |
-| Is that keeper itself dead? | recurse on the retained-by subject with cycle guards |
+| What keeps it alive? | `target:"graph"` with `direction:"incoming"` and optional `subject` / `verdict` filters |
+| Is that keeper itself dead? | re-query `target:"graph"` for the retained-by subject with cycle guards, then prove with LSP |
 | What proof is missing? | inspect `missingProof`; follow `next.semantic`, `next.search`, or `next.fetch` |
 | What exact file/line next? | use packet `subject.uri/range` and `next.fetch` |
 | Is this safe to delete? | require no reachable external refs, no high-severity missing proof, and exact source inspection |

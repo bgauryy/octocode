@@ -194,6 +194,12 @@ where
             )),
             Err(_) => {
                 self.pending.lock().await.remove(&id);
+                // Tell the server to stop computing the now-abandoned request via
+                // LSP `$/cancelRequest`; otherwise it keeps burning CPU on a
+                // result nobody will read (and can head-of-line block later work
+                // on single-threaded servers). Best-effort: we are already
+                // returning a timeout error, so a write failure here is moot.
+                let _ = self.notify("$/cancelRequest", json!({ "id": id })).await;
                 Err(Error::new(
                     Status::GenericFailure,
                     format!("LSP request timed out after {timeout_ms}ms"),
@@ -564,6 +570,50 @@ mod tests {
             values.sort();
             assert_eq!(values, [Some("first"), Some("second")]);
             server.await.expect("server task");
+        });
+    }
+
+    #[test]
+    fn timed_out_request_emits_cancel_request_to_server() {
+        // A request whose response never arrives must (a) return a timeout error
+        // and (b) send a `$/cancelRequest` for its id so the server stops working.
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            // client_w -> server_r is the client->server channel we inspect.
+            let (client_w, mut server_r) = duplex(8192);
+            // server_w -> client_r is never written to (server never responds).
+            let (_server_w, client_r) = duplex(8192);
+
+            let conn = Arc::new(JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            ));
+
+            // Fire a request with a short timeout; the server never answers.
+            let result = conn
+                .request("textDocument/definition", Value::Null, 50)
+                .await;
+            assert!(result.is_err(), "request should time out");
+            assert!(result.unwrap_err().reason.contains("timed out"));
+
+            // Drain what the client wrote to the server: the original request
+            // (id 1) followed by a `$/cancelRequest` for that id.
+            let mut buf = vec![0u8; 4096];
+            let n = server_r.read(&mut buf).await.expect("read client output");
+            let written = String::from_utf8_lossy(&buf[..n]);
+            assert!(
+                written.contains("$/cancelRequest"),
+                "expected a $/cancelRequest frame, got: {written}"
+            );
+            assert!(
+                written.contains("\"id\":1"),
+                "cancel must reference the timed-out request id, got: {written}"
+            );
         });
     }
 

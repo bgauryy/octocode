@@ -43,14 +43,16 @@ export const OQL_SCHEMA_DOC = {
     packages:
       '{ packageName | keywords, mode?:"lean"|"full", page? } — backing tool npmSearch',
     pullRequests:
-      '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page? } — backing tool ghHistoryResearch',
+      '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page?, matchString?, matchScope?:"body"|"title"|"comments"|"reviews"|"all" } — backing tool ghHistoryResearch; matchString is an OQL content filter over fetched PR text (default scope body), not a search-index query — no match → zeroMatches',
     commits:
-      '{ path?, branch?, since?, until?, includeDiff?, limit?, page? } — backing tool ghHistoryResearch type:"commits"',
+      '{ path?, branch?, since?, until?, includeDiff?, limit?, page?, filePage?, itemsPerPage? } — backing tool ghHistoryResearch type:"commits"; repo/directory diffs page changed files per commit with filePage/itemsPerPage',
     artifacts:
       '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset? } — backing tool localBinaryInspect',
     diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
     research:
-      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — smart internal research flow over a complete local/materialized corpus; prove is candidate-grade until followed with semantic continuations',
+      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — smart internal research flow over a complete local/materialized corpus; uses native AST graph facts where available; packet output pages with page/itemsPerPage; results stay candidate-grade (mode:"prove" never runs LSP here) — follow the row\'s one-call next.graph (pre-filled proof:"lsp", page-aligned, bounded by proofLimit) to upgrade to LSP-proven facts',
+    graph:
+      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles?, subject?, subjectKind?, relation?, verdict?, direction?:"incoming"|"outgoing"|"both", proof?:"none"|"lsp", proofLimit?, includePackets?, includeFacts?, includeEdges? } — relationship graph over research packets plus native AST graph facts; pages the filtered packet domain with page/itemsPerPage; proof:"lsp" or mode:"prove" runs bounded LSP reference proof for current-page symbol packets',
     materialize:
       '(no params; no `where`) clone/cache a bounded corpus (from:{kind:"github",repo} + scope.path) and return a stable materialized checkpoint row (localPath/repoRoot/ref/cache/complete) with next.structure/next.files',
   },

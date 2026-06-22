@@ -14,11 +14,12 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingPattern, Class, ClassElement, Declaration, ExportDefaultDeclarationKind, Expression,
-    Function, MethodDefinitionKind, Program, PropertyKey, Statement, TSEnumDeclaration,
-    TSEnumMemberName, TSInterfaceDeclaration, TSModuleDeclaration, TSModuleDeclarationBody,
-    TSModuleDeclarationName, TSSignature, TSTypeAliasDeclaration, VariableDeclaration,
-    VariableDeclarationKind,
+    BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration,
+    ExportDefaultDeclarationKind, ExportNamedDeclaration, Expression, ForStatementInit, Function,
+    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind,
+    ModuleExportName, Program, PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName,
+    TSInterfaceDeclaration, TSModuleDeclaration, TSModuleDeclarationBody, TSModuleDeclarationName,
+    TSSignature, TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -64,6 +65,83 @@ struct DocumentSymbol {
     selection_range: Range,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<DocumentSymbol>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphFacts {
+    kind: &'static str,
+    source: &'static str,
+    language: String,
+    file: String,
+    declarations: Vec<GraphDeclaration>,
+    imports: Vec<GraphImport>,
+    exports: Vec<GraphExport>,
+    calls: Vec<GraphCall>,
+    edges: Vec<GraphEdge>,
+    diagnostics: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphDeclaration {
+    id: String,
+    name: String,
+    kind: &'static str,
+    line: u32,
+    range: Range,
+    selection_range: Range,
+    exported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphImport {
+    id: String,
+    specifier: String,
+    line: u32,
+    import_kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imported_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphExport {
+    id: String,
+    name: String,
+    line: u32,
+    export_kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphCall {
+    id: String,
+    caller: String,
+    callee: String,
+    line: u32,
+    range: Range,
+    kind: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphEdge {
+    id: String,
+    from: String,
+    to: String,
+    relation: &'static str,
+    source: &'static str,
+    line: u32,
 }
 
 /// Maps byte offsets to LSP `(line, character)` positions, where `character`
@@ -217,6 +295,97 @@ pub fn find_in_file_references(
     .unwrap_or(None)
 }
 
+/// Native JS/TS graph facts as JSON.
+///
+/// This is a syntax-level AST inventory: declarations, imports, exports,
+/// function/class containment, and direct call expressions. It deliberately
+/// avoids type inference and cross-file resolution; callers combine it with LSP
+/// proof when they need semantic identity.
+pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
+    if content.len() > crate::minifier::MAX_SIZE {
+        return None;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        extract_graph_facts_inner(content, file_path)
+    }))
+    .unwrap_or(None)
+}
+
+fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
+    let ext = crate::file_extension::get_extension_internal(file_path, true, "ts");
+    if !is_js_ts_extension(&ext) {
+        return None;
+    }
+
+    let allocator = Allocator::default();
+    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext)).parse();
+    if parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty() {
+        return None;
+    }
+
+    let line_index = LineIndex::new(content);
+    let mut symbols = Vec::new();
+    collect_program(&parser_ret.program, &line_index, &mut symbols);
+
+    let mut export_names = Vec::new();
+    let mut imports = Vec::new();
+    let mut exports = Vec::new();
+    collect_module_facts(
+        &parser_ret.program,
+        &line_index,
+        &mut imports,
+        &mut exports,
+        &mut export_names,
+    );
+    export_names.sort();
+    export_names.dedup();
+
+    let mut declarations = Vec::new();
+    let mut edges = Vec::new();
+    flatten_symbols(
+        file_path,
+        &symbols,
+        None,
+        &export_names,
+        &mut declarations,
+        &mut edges,
+    );
+
+    let mut calls = Vec::new();
+    collect_program_calls(&parser_ret.program, &line_index, &mut calls);
+    for call in &calls {
+        edges.push(GraphEdge {
+            id: format!(
+                "{}:{}->{}:{}",
+                file_path, call.caller, call.callee, call.line
+            ),
+            from: format!("symbol:{}#{}", file_path, call.caller),
+            to: format!("symbol:{}#{}", file_path, call.callee),
+            relation: call.kind,
+            source: "ast",
+            line: call.line,
+        });
+    }
+
+    let facts = GraphFacts {
+        kind: "graphFacts",
+        source: "native-ast",
+        language: ext,
+        file: file_path.to_string(),
+        declarations,
+        imports,
+        exports,
+        calls,
+        edges,
+        diagnostics: parser_ret
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic.message.to_string())
+            .collect(),
+    };
+    serde_json::to_string(&facts).ok()
+}
+
 fn find_in_file_references_inner(
     content: &str,
     file_path: &str,
@@ -279,6 +448,516 @@ fn find_in_file_references_inner(
         .map(|span| line_index.range(span))
         .collect();
     serde_json::to_string(&ranges).ok()
+}
+
+fn collect_module_facts(
+    program: &Program,
+    li: &LineIndex,
+    imports: &mut Vec<GraphImport>,
+    exports: &mut Vec<GraphExport>,
+    export_names: &mut Vec<String>,
+) {
+    for stmt in &program.body {
+        match stmt {
+            Statement::ImportDeclaration(decl) => collect_import_declaration(decl, li, imports),
+            Statement::ExportNamedDeclaration(decl) => {
+                collect_export_named(decl, li, exports, export_names);
+            }
+            Statement::ExportDefaultDeclaration(decl) => {
+                let range = li.range(decl.span);
+                let name = match &decl.declaration {
+                    ExportDefaultDeclarationKind::FunctionDeclaration(function) => function
+                        .id
+                        .as_ref()
+                        .map(|id| id.name.as_str().to_string())
+                        .unwrap_or_else(|| "default".to_string()),
+                    ExportDefaultDeclarationKind::ClassDeclaration(class) => class
+                        .id
+                        .as_ref()
+                        .map(|id| id.name.as_str().to_string())
+                        .unwrap_or_else(|| "default".to_string()),
+                    _ => "default".to_string(),
+                };
+                export_names.push(name.clone());
+                exports.push(GraphExport {
+                    id: format!("export:{}:{}", name, range.start.line + 1),
+                    name,
+                    line: range.start.line + 1,
+                    export_kind: "value",
+                    local_name: None,
+                    source: None,
+                });
+            }
+            Statement::ExportAllDeclaration(decl) => {
+                collect_export_all(decl, li, exports, export_names);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_import_declaration(
+    decl: &ImportDeclaration,
+    li: &LineIndex,
+    out: &mut Vec<GraphImport>,
+) {
+    let range = li.range(decl.span);
+    let line = range.start.line + 1;
+    let specifier = decl.source.value.as_str().to_string();
+    if let Some(specifiers) = &decl.specifiers {
+        for (index, item) in specifiers.iter().enumerate() {
+            let (local_name, imported_name) = match item {
+                ImportDeclarationSpecifier::ImportSpecifier(spec) => (
+                    Some(spec.local.name.as_str().to_string()),
+                    module_export_name(&spec.imported),
+                ),
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(spec) => (
+                    Some(spec.local.name.as_str().to_string()),
+                    Some("default".to_string()),
+                ),
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(spec) => (
+                    Some(spec.local.name.as_str().to_string()),
+                    Some("*".to_string()),
+                ),
+            };
+            out.push(GraphImport {
+                id: format!("import:{}:{}:{}", specifier, line, index),
+                specifier: specifier.clone(),
+                line,
+                import_kind: import_export_kind(decl.import_kind),
+                local_name,
+                imported_name,
+            });
+        }
+    } else {
+        out.push(GraphImport {
+            id: format!("import:{}:{}", specifier, line),
+            specifier,
+            line,
+            import_kind: import_export_kind(decl.import_kind),
+            local_name: None,
+            imported_name: None,
+        });
+    }
+}
+
+fn collect_export_named(
+    decl: &ExportNamedDeclaration,
+    li: &LineIndex,
+    out: &mut Vec<GraphExport>,
+    export_names: &mut Vec<String>,
+) {
+    if let Some(inner) = &decl.declaration {
+        for name in declaration_names(inner) {
+            let range = li.range(decl.span);
+            export_names.push(name.clone());
+            out.push(GraphExport {
+                id: format!("export:{}:{}", name, range.start.line + 1),
+                name,
+                line: range.start.line + 1,
+                export_kind: import_export_kind(decl.export_kind),
+                local_name: None,
+                source: decl.source.as_ref().map(|s| s.value.as_str().to_string()),
+            });
+        }
+    }
+
+    for (index, specifier) in decl.specifiers.iter().enumerate() {
+        let name = module_export_name(&specifier.exported)
+            .or_else(|| module_export_name(&specifier.local))
+            .unwrap_or_else(|| "unknown".to_string());
+        export_names.push(name.clone());
+        let range = li.range(specifier.span);
+        out.push(GraphExport {
+            id: format!("export:{}:{}:{}", name, range.start.line + 1, index),
+            name,
+            line: range.start.line + 1,
+            export_kind: import_export_kind(specifier.export_kind),
+            local_name: module_export_name(&specifier.local),
+            source: decl.source.as_ref().map(|s| s.value.as_str().to_string()),
+        });
+    }
+}
+
+fn collect_export_all(
+    decl: &ExportAllDeclaration,
+    li: &LineIndex,
+    out: &mut Vec<GraphExport>,
+    export_names: &mut Vec<String>,
+) {
+    let range = li.range(decl.span);
+    let name = decl
+        .exported
+        .as_ref()
+        .and_then(module_export_name)
+        .unwrap_or_else(|| "*".to_string());
+    export_names.push(name.clone());
+    out.push(GraphExport {
+        id: format!("export:{}:{}", name, range.start.line + 1),
+        name,
+        line: range.start.line + 1,
+        export_kind: import_export_kind(decl.export_kind),
+        local_name: None,
+        source: Some(decl.source.value.as_str().to_string()),
+    });
+}
+
+fn declaration_names(decl: &Declaration) -> Vec<String> {
+    match decl {
+        Declaration::FunctionDeclaration(function) => function
+            .id
+            .as_ref()
+            .map(|id| vec![id.name.as_str().to_string()])
+            .unwrap_or_default(),
+        Declaration::ClassDeclaration(class) => class
+            .id
+            .as_ref()
+            .map(|id| vec![id.name.as_str().to_string()])
+            .unwrap_or_default(),
+        Declaration::VariableDeclaration(variable) => variable
+            .declarations
+            .iter()
+            .filter_map(|declarator| match &declarator.id {
+                BindingPattern::BindingIdentifier(id) => Some(id.name.as_str().to_string()),
+                _ => None,
+            })
+            .collect(),
+        Declaration::TSInterfaceDeclaration(interface) => {
+            vec![interface.id.name.as_str().to_string()]
+        }
+        Declaration::TSEnumDeclaration(en) => vec![en.id.name.as_str().to_string()],
+        Declaration::TSModuleDeclaration(module) => match &module.id {
+            TSModuleDeclarationName::Identifier(id) => vec![id.name.as_str().to_string()],
+            TSModuleDeclarationName::StringLiteral(s) => vec![s.value.as_str().to_string()],
+        },
+        Declaration::TSTypeAliasDeclaration(alias) => vec![alias.id.name.as_str().to_string()],
+        _ => Vec::new(),
+    }
+}
+
+fn flatten_symbols(
+    file_path: &str,
+    symbols: &[DocumentSymbol],
+    parent: Option<&str>,
+    export_names: &[String],
+    declarations: &mut Vec<GraphDeclaration>,
+    edges: &mut Vec<GraphEdge>,
+) {
+    for symbol in symbols {
+        let id = format!("symbol:{}#{}", file_path, symbol.name);
+        let line = symbol.selection_range.start.line + 1;
+        declarations.push(GraphDeclaration {
+            id: id.clone(),
+            name: symbol.name.clone(),
+            kind: symbol_kind_name(symbol.kind),
+            line,
+            range: symbol_range(symbol),
+            selection_range: symbol_selection_range(symbol),
+            exported: export_names.iter().any(|name| name == &symbol.name),
+            parent: parent.map(str::to_string),
+        });
+        if let Some(parent_id) = parent {
+            edges.push(GraphEdge {
+                id: format!("{}->{}:contains", parent_id, id),
+                from: parent_id.to_string(),
+                to: id.clone(),
+                relation: "contains",
+                source: "ast",
+                line,
+            });
+        }
+        flatten_symbols(
+            file_path,
+            &symbol.children,
+            Some(&id),
+            export_names,
+            declarations,
+            edges,
+        );
+    }
+}
+
+fn collect_program_calls(program: &Program, li: &LineIndex, calls: &mut Vec<GraphCall>) {
+    for stmt in &program.body {
+        collect_statement_calls(stmt, li, calls);
+    }
+}
+
+fn collect_statement_calls(stmt: &Statement, li: &LineIndex, calls: &mut Vec<GraphCall>) {
+    match stmt {
+        Statement::FunctionDeclaration(function) => {
+            if let Some(id) = &function.id {
+                collect_function_calls(id.name.as_str(), function, li, calls);
+            }
+        }
+        Statement::ClassDeclaration(class) => collect_class_calls(class, li, calls),
+        Statement::VariableDeclaration(variable) => collect_variable_calls(variable, li, calls),
+        Statement::ExportNamedDeclaration(decl) => {
+            if let Some(inner) = &decl.declaration {
+                collect_declaration_calls(inner, li, calls);
+            }
+        }
+        Statement::ExportDefaultDeclaration(decl) => match &decl.declaration {
+            ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
+                let owner = function
+                    .id
+                    .as_ref()
+                    .map(|id| id.name.as_str())
+                    .unwrap_or("default");
+                collect_function_calls(owner, function, li, calls);
+            }
+            ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                collect_class_calls(class, li, calls);
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+}
+
+fn collect_declaration_calls(decl: &Declaration, li: &LineIndex, calls: &mut Vec<GraphCall>) {
+    match decl {
+        Declaration::FunctionDeclaration(function) => {
+            if let Some(id) = &function.id {
+                collect_function_calls(id.name.as_str(), function, li, calls);
+            }
+        }
+        Declaration::ClassDeclaration(class) => collect_class_calls(class, li, calls),
+        Declaration::VariableDeclaration(variable) => collect_variable_calls(variable, li, calls),
+        _ => {}
+    }
+}
+
+fn collect_class_calls(class: &Class, li: &LineIndex, calls: &mut Vec<GraphCall>) {
+    for element in &class.body.body {
+        if let ClassElement::MethodDefinition(method) = element {
+            if let Some((name, _span)) = property_key_name(&method.key) {
+                collect_function_calls(&name, &method.value, li, calls);
+            }
+        }
+    }
+}
+
+fn collect_variable_calls(
+    variable: &VariableDeclaration,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    for declarator in &variable.declarations {
+        let BindingPattern::BindingIdentifier(id) = &declarator.id else {
+            continue;
+        };
+        match &declarator.init {
+            Some(Expression::ArrowFunctionExpression(arrow)) => {
+                for stmt in &arrow.body.statements {
+                    collect_owned_statement_calls(id.name.as_str(), stmt, li, calls);
+                }
+            }
+            Some(Expression::FunctionExpression(function)) => {
+                collect_function_calls(id.name.as_str(), function, li, calls);
+            }
+            Some(expression) => collect_expression_calls(id.name.as_str(), expression, li, calls),
+            None => {}
+        }
+    }
+}
+
+fn collect_function_calls(
+    owner: &str,
+    function: &Function,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    if let Some(body) = &function.body {
+        for stmt in &body.statements {
+            collect_owned_statement_calls(owner, stmt, li, calls);
+        }
+    }
+}
+
+fn collect_owned_statement_calls(
+    owner: &str,
+    stmt: &Statement,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    match stmt {
+        Statement::BlockStatement(block) => {
+            for child in &block.body {
+                collect_owned_statement_calls(owner, child, li, calls);
+            }
+        }
+        Statement::ExpressionStatement(expression) => {
+            collect_expression_calls(owner, &expression.expression, li, calls);
+        }
+        Statement::ReturnStatement(ret) => {
+            if let Some(argument) = &ret.argument {
+                collect_expression_calls(owner, argument, li, calls);
+            }
+        }
+        Statement::VariableDeclaration(variable) => {
+            for declarator in &variable.declarations {
+                if let Some(init) = &declarator.init {
+                    collect_expression_calls(owner, init, li, calls);
+                }
+            }
+        }
+        Statement::IfStatement(if_stmt) => {
+            collect_expression_calls(owner, &if_stmt.test, li, calls);
+            collect_owned_statement_calls(owner, &if_stmt.consequent, li, calls);
+            if let Some(alternate) = &if_stmt.alternate {
+                collect_owned_statement_calls(owner, alternate, li, calls);
+            }
+        }
+        Statement::ForStatement(for_stmt) => {
+            if let Some(ForStatementInit::VariableDeclaration(variable)) = &for_stmt.init {
+                for declarator in &variable.declarations {
+                    if let Some(init) = &declarator.init {
+                        collect_expression_calls(owner, init, li, calls);
+                    }
+                }
+            }
+            if let Some(test) = &for_stmt.test {
+                collect_expression_calls(owner, test, li, calls);
+            }
+            if let Some(update) = &for_stmt.update {
+                collect_expression_calls(owner, update, li, calls);
+            }
+            collect_owned_statement_calls(owner, &for_stmt.body, li, calls);
+        }
+        Statement::WhileStatement(while_stmt) => {
+            collect_expression_calls(owner, &while_stmt.test, li, calls);
+            collect_owned_statement_calls(owner, &while_stmt.body, li, calls);
+        }
+        Statement::DoWhileStatement(do_while) => {
+            collect_owned_statement_calls(owner, &do_while.body, li, calls);
+            collect_expression_calls(owner, &do_while.test, li, calls);
+        }
+        Statement::ThrowStatement(throw_stmt) => {
+            collect_expression_calls(owner, &throw_stmt.argument, li, calls);
+        }
+        _ => {}
+    }
+}
+
+fn collect_expression_calls(
+    owner: &str,
+    expr: &Expression,
+    li: &LineIndex,
+    calls: &mut Vec<GraphCall>,
+) {
+    match expr {
+        Expression::CallExpression(call) => {
+            if let Some(callee) = callee_name(&call.callee) {
+                let range = li.range(call.span);
+                let line = range.start.line + 1;
+                calls.push(GraphCall {
+                    id: format!("call:{}:{}:{}", owner, callee, line),
+                    caller: owner.to_string(),
+                    callee,
+                    line,
+                    range,
+                    kind: "calls",
+                });
+            }
+        }
+        Expression::NewExpression(new_expr) => {
+            if let Some(callee) = callee_name(&new_expr.callee) {
+                let range = li.range(new_expr.span);
+                let line = range.start.line + 1;
+                calls.push(GraphCall {
+                    id: format!("construct:{}:{}:{}", owner, callee, line),
+                    caller: owner.to_string(),
+                    callee,
+                    line,
+                    range,
+                    kind: "constructs",
+                });
+            }
+        }
+        _ => {}
+    }
+}
+
+fn callee_name(expr: &Expression) -> Option<String> {
+    match expr {
+        Expression::Identifier(identifier) => Some(identifier.name.as_str().to_string()),
+        Expression::StaticMemberExpression(member) => {
+            let property = member.property.name.as_str();
+            Some(
+                expression_name(&member.object)
+                    .map(|object| format!("{object}.{property}"))
+                    .unwrap_or_else(|| property.to_string()),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn expression_name(expr: &Expression) -> Option<String> {
+    match expr {
+        Expression::Identifier(identifier) => Some(identifier.name.as_str().to_string()),
+        Expression::ThisExpression(_) => Some("this".to_string()),
+        _ => None,
+    }
+}
+
+fn module_export_name(name: &ModuleExportName) -> Option<String> {
+    match name {
+        ModuleExportName::IdentifierName(id) => Some(id.name.as_str().to_string()),
+        ModuleExportName::IdentifierReference(id) => Some(id.name.as_str().to_string()),
+        ModuleExportName::StringLiteral(s) => Some(s.value.as_str().to_string()),
+    }
+}
+
+fn import_export_kind(kind: ImportOrExportKind) -> &'static str {
+    match kind {
+        ImportOrExportKind::Type => "type",
+        ImportOrExportKind::Value => "value",
+    }
+}
+
+fn symbol_kind_name(kind: u8) -> &'static str {
+    match kind {
+        kind::NAMESPACE => "namespace",
+        kind::CLASS => "class",
+        kind::METHOD => "method",
+        kind::PROPERTY => "property",
+        kind::CONSTRUCTOR => "constructor",
+        kind::ENUM => "enum",
+        kind::INTERFACE => "interface",
+        kind::FUNCTION => "function",
+        kind::VARIABLE => "variable",
+        kind::CONSTANT => "constant",
+        kind::ENUM_MEMBER => "enumMember",
+        _ => "symbol",
+    }
+}
+
+fn symbol_range(symbol: &DocumentSymbol) -> Range {
+    Range {
+        start: Position {
+            line: symbol.range.start.line,
+            character: symbol.range.start.character,
+        },
+        end: Position {
+            line: symbol.range.end.line,
+            character: symbol.range.end.character,
+        },
+    }
+}
+
+fn symbol_selection_range(symbol: &DocumentSymbol) -> Range {
+    Range {
+        start: Position {
+            line: symbol.selection_range.start.line,
+            character: symbol.selection_range.start.character,
+        },
+        end: Position {
+            line: symbol.selection_range.end.line,
+            character: symbol.selection_range.end.character,
+        },
+    }
 }
 
 fn collect_program(program: &Program, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
@@ -534,6 +1213,11 @@ mod tests {
         serde_json::from_str(&json).expect("valid json")
     }
 
+    fn graph(content: &str, path: &str) -> Value {
+        let json = extract_graph_facts(content, path).expect("graph facts expected");
+        serde_json::from_str(&json).expect("valid json")
+    }
+
     fn names(value: &Value) -> Vec<String> {
         value
             .as_array()
@@ -568,6 +1252,29 @@ mod tests {
             members.contains(&"constructor".to_string()),
             "ctor: {members:?}"
         );
+    }
+
+    #[test]
+    fn extracts_graph_facts_for_imports_exports_and_calls() {
+        let src = "import { dep } from './dep';\nexport function run() {\n  dep();\n  helper();\n}\nfunction helper() {}\n";
+        let v = graph(src, "main.ts");
+
+        let declarations = v["declarations"].as_array().unwrap();
+        let run = declarations.iter().find(|d| d["name"] == "run").unwrap();
+        assert_eq!(run["kind"], "function");
+        assert_eq!(run["exported"], true);
+
+        let imports = v["imports"].as_array().unwrap();
+        assert_eq!(imports[0]["specifier"], "./dep");
+        assert_eq!(imports[0]["localName"], "dep");
+
+        let calls = v["calls"].as_array().unwrap();
+        let callees = calls
+            .iter()
+            .map(|call| call["callee"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(callees.contains(&"dep"), "callee list: {callees:?}");
+        assert!(callees.contains(&"helper"), "callee list: {callees:?}");
     }
 
     #[test]

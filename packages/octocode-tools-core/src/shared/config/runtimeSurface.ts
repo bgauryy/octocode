@@ -2,8 +2,8 @@
  * Which interface is driving the shared tool core right now.
  *
  * Some config defaults differ by surface (see `resolveLocal`):
- *   - `cli`: `ENABLE_LOCAL` is honored and defaults to ENABLED; clone defaults
- *     to ENABLED.
+ *   - `cli`: `ENABLE_LOCAL` is IGNORED — local tools are always enabled (the CLI
+ *     is a local-first interface); clone defaults to ENABLED.
  *   - `mcp`: `ENABLE_LOCAL` is honored and defaults to DISABLED; clone defaults
  *     to DISABLED.
  *
