@@ -568,7 +568,7 @@ async function runLoginFlow(): Promise<boolean> {
     console.log(c('green', '  └' + '─'.repeat(50) + '┘'));
     console.log();
     console.log(
-      `  ${c('green', '✅')} Logged in as ${c('cyan', '@' + (result.username || 'unknown'))}`
+      `  ${c('green', '✅')} Signed in as ${c('cyan', '@' + (result.username || 'unknown'))}`
     );
     console.log(`  ${dim('Credentials stored in:')} ${getStoragePath()}`);
     console.log();

@@ -679,11 +679,6 @@ export async function executeResearch(query: OqlQuery): Promise<AdapterResult> {
       'mode:"prove" requested: packets are candidate-grade only — LSP/AST proof expansion is not yet run. Follow each packet\'s next.semantic to confirm references.'
     );
   }
-  if (Array.isArray(facets) && facets.includes('flows')) {
-    caveats.push(
-      'facet "flows" is not yet implemented; no dataflow edges were produced.'
-    );
-  }
   if (graphSummary?.packetsTruncated) {
     caveats.push(
       `Packet list truncated to ${packets.length}; raise params.maxPackets to see more.`

@@ -25,7 +25,7 @@ Browse all Octocode skills: **[skills.sh/bgauryy/octocode-mcp](https://www.skill
 | `octocode-brainstorming` | Validate ideas against GitHub, npm, and web evidence; produces a decision-ready brief. Add a [Tavily API key](https://tavily.com) (`TAVILY_API_KEY`) for richer web search results |
 | `octocode-rfc-generator` | Evidence-backed RFCs and design docs before starting implementations |
 | `octocode-pull-request-reviewer` | Structured code reviews grounded in evidence |
-| `octocode-search-skill` | Find, evaluate, install, and create Agent Skills |
+| `octocode-skills` | Search, evaluate, install, create, and update Agent Skills |
 
 Install with `npx skills add`:
 
@@ -35,7 +35,7 @@ npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-research
 npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-brainstorming
 npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-rfc-generator
 npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-pull-request-reviewer
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-search-skill
+npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-skills
 ```
 
 > Default scope is global (`~/.pi/agent/skills/`). Add `--scope project` to install under `.pi/skills/` for the current repo only. Pi discovers skills automatically on next start; force one with `/skill:octocode-engineer`.

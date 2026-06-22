@@ -61,10 +61,6 @@ import {
 } from '../../octocode-tools-core/src/serverConfig.js';
 import { registerTools } from '../src/tools/toolsManager.js';
 import { TOOL_NAMES } from '../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
-import {
-  allowExpectedStderrWarning,
-  allowUnexpectedWarningFailureForCurrentTest,
-} from './warningPolicy.js';
 
 const mockMcpServer = {
   connect: vi.fn(function () {}),
@@ -516,11 +512,9 @@ describe('Index Module', () => {
   });
 
   describe('registerAllTools', () => {
-    it('should handle missing GitHub token with warning', async () => {
+    it('should handle missing GitHub token silently', async () => {
       mockGetGitHubToken.mockResolvedValue(null);
       const { registerAllTools } = await import('../src/index.js');
-      allowExpectedStderrWarning(/No GitHub token available/);
-      allowUnexpectedWarningFailureForCurrentTest();
 
       const stderrSpy = vi
         .spyOn(process.stderr, 'write')
@@ -529,9 +523,7 @@ describe('Index Module', () => {
       await registerAllTools(mockMcpServer as unknown as McpServer);
 
       expect(mockRegisterTools).toHaveBeenCalled();
-      expect(stderrSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No GitHub token available')
-      );
+      expect(stderrSpy).not.toHaveBeenCalled();
 
       stderrSpy.mockRestore();
     });

@@ -70,6 +70,16 @@ function includeGlobsForLangType(langType?: string): string[] | undefined {
 }
 
 /**
+ * Resolve the `include` globs for a structural query: explicit include wins;
+ * otherwise derive from `langType` (`langType:'ts'` -> `*.ts`+aliases) so
+ * `mode:'structural', langType:'ts'` doesn't parse HTML/CSS/Scala/etc.
+ */
+function deriveInclude(query: RipgrepQuery): string[] | undefined {
+  if (query.include?.length) return query.include;
+  return includeGlobsForLangType(query.langType);
+}
+
+/**
  * mode:"structural" execution path. Path validation and result shaping stay in
  * TypeScript with the rest of localSearchCode; filesystem traversal, file reads,
  * pre-filtering, parsing, and Octocode AST matching run in native Rust.
@@ -88,14 +98,23 @@ export async function searchContentStructural(
       path: pathValidation.sanitizedPath,
       pattern: query.pattern,
       rule: query.rule,
-      // Honor langType by scoping to its extensions when no explicit include was
-      // given; explicit include globs always win.
-      include: query.include?.length
-        ? query.include
-        : includeGlobsForLangType(query.langType),
-      excludeDir: query.excludeDir?.length
-        ? query.excludeDir
-        : DEFAULT_STRUCTURAL_EXCLUDE_DIRS,
+      // Honor langType by scoping to its extensions when no explicit include
+      // was given; explicit include globs always win.
+      ...(deriveInclude(query) ? { include: deriveInclude(query) } : {}),
+      // Scope parity: forward every OQL `scope` field the text lane forwards,
+      // so `exclude`/`hidden`/`noIgnore`/`maxDepth` are honored on AST search
+      // (previously silently dropped — typed-contract violation).
+      ...(query.exclude?.length ? { exclude: query.exclude } : {}),
+      ...(query.excludeDir?.length
+        ? { excludeDir: query.excludeDir }
+        : DEFAULT_STRUCTURAL_EXCLUDE_DIRS.length
+          ? { excludeDir: DEFAULT_STRUCTURAL_EXCLUDE_DIRS }
+          : {}),
+      ...(query.hidden !== undefined ? { hidden: query.hidden } : {}),
+      ...(query.noIgnore !== undefined ? { noIgnore: query.noIgnore } : {}),
+      // maxDepth is a localFindFiles concept, not a RipgrepQuery field — the
+      // engine walker honors it (StructuralSearchFilesOptions.maxDepth) for
+      // direct napi callers, but the localSearchCode query path can't populate it.
       maxFiles: query.maxFiles ?? DEFAULT_MAX_STRUCTURAL_FILES,
       maxFileBytes: MAX_STRUCTURAL_FILE_BYTES,
     });

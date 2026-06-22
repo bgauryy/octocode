@@ -21,7 +21,7 @@ Specialized AI agent skills extending OctoCode. 19 skills live under `skills/`.
 | **Design** | `octocode-design/` | Generate design-system and UI architecture guidance. |
 | **Doc Writer** | `octocode-documentation-writer/` | Produce comprehensive project documentation. |
 | **News** | `octocode-news/` | Research recent AI, DevTools, web, and security updates. |
-| **Search Skill** | `octocode-search-skill/` | Find, preview, and download agent skills. |
+| **Skills** | `octocode-skills/` | Search, evaluate, create, and update agent skills. |
 | **Chrome DevTools** | `octocode-chrome-devtools/` | Open Chrome via CDP, generate inspection scripts, trace errors to source. |
 | **Agentic Flow Best Practices** | `agentic-flow-best-practices/` | Design agentic workflow patterns, agent collaboration, MCP/tool boundaries, context, memory scopes, caching, prompts, model settings, gates, and verification. |
 | **Stats** | `octocode-stats/` | Render Octocode usage dashboards from local stats files. |

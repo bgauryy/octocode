@@ -203,4 +203,18 @@ describe('target:"research" emits packets + graphSummary', () => {
       true
     );
   });
+
+  it('rejects unimplemented facets instead of silently no-oping', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'research',
+        from: { kind: 'local', path: OQL_SRC },
+        params: { goal: 'find flows', facets: ['flows'] },
+      } as never)
+    );
+
+    expect(env.evidence.kind).toBe('unsupported');
+    expect(env.diagnostics.some(d => d.code === 'invalidQuery')).toBe(true);
+    expect(env.diagnostics[0]?.message).toContain('params.facets.0');
+  });
 });

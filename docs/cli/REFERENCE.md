@@ -267,7 +267,7 @@ octocode grep "useState" packages/react --repo facebook/react --type js --mode d
 octocode grep "executeCloneRepo" bgauryy/octocode-mcp --concise
 octocode grep src --pattern 'eval($X)'
 octocode grep packages/react --repo facebook/react --pattern 'useState($$$ARGS)' --type js
-octocode grep packages/octocode/src --pattern 'console.log($$$ARGS)' --type ts
+octocode grep packages/octocode/src --pattern 'track($$$ARGS)' --type ts
 octocode grep packages/octocode/src --pattern '$A && $A()' --type ts
 # --rule is YAML. In single quotes `\n` stays LITERAL — use $'...' (bash/zsh
 # interpret \n) or paste a real multiline string:

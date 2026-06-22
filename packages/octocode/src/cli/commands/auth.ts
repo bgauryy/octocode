@@ -170,7 +170,7 @@ export const loginCommand: CLICommand = {
     if (result.success) {
       console.log(`  ${c('green', '✓')} Authentication complete!`);
       console.log(
-        `  ${c('green', '✓')} Logged in as ${c('cyan', result.username || 'unknown')}`
+        `  ${c('green', '✓')} Signed in as ${c('cyan', result.username || 'unknown')}`
       );
       console.log();
       console.log(`  ${dim('Credentials stored in:')} ${getStoragePath()}`);
@@ -258,7 +258,7 @@ export const logoutCommand: CLICommand = {
     console.log();
     if (result.success) {
       console.log(
-        `  ${c('green', '✓')} Successfully logged out from ${hostname}`
+        `  ${c('green', '✓')} Successfully signed out from ${hostname}`
       );
     } else {
       console.log(
@@ -471,13 +471,13 @@ export const authCommand: CLICommand = {
     } else if (action === 'logout') {
       await oauthLogout(hostname);
       console.log();
-      console.log(`  ${c('green', '✓')} Successfully logged out`);
+      console.log(`  ${c('green', '✓')} Successfully signed out`);
       console.log();
     } else if (action === 'switch') {
       console.log();
-      console.log(`  ${dim('Logging out...')}`);
+      console.log(`  ${dim('Signing out...')}`);
       await oauthLogout(hostname);
-      console.log(`  ${c('green', '✓')} Logged out`);
+      console.log(`  ${c('green', '✓')} Signed out`);
       console.log();
       console.log(`  ${dim('Starting new login...')}`);
       await loginCommand.handler({

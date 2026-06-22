@@ -93,7 +93,7 @@ export function printAuthStatus(hostname: string = 'github.com'): void {
     console.log(
       `  ${c('green', '✓')} Authenticated as ${c('cyan', status.username || 'unknown')}`
     );
-    console.log(`  ${dim('Logged in:')} yes`);
+    console.log(`  ${dim('Signed in:')} yes`);
     if (status.tokenExpired) {
       console.log(
         `  ${c('yellow', '⚠')} Token has expired - please login again`
@@ -108,7 +108,7 @@ export function printAuthStatus(hostname: string = 'github.com'): void {
     const tokenSource = status.tokenSource || 'none';
     const tokenPresent = tokenSource !== 'none';
     console.log(
-      `  ${c('yellow', '⚠')} ${c('yellow', 'Not authenticated')} ${dim('(Not logged in)')}`
+      `  ${c('yellow', '⚠')} ${c('yellow', 'Not authenticated')} ${dim('(Not signed in)')}`
     );
     console.log(
       `  ${dim('Token:')} ${tokenPresent ? 'present but not usable' : 'missing'}`

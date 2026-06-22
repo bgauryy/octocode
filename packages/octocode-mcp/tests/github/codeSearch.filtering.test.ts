@@ -707,13 +707,6 @@ describe('Code Search Filtering - File Filters', () => {
               repository: { full_name: 'test/repo', url: 'url' },
               text_matches: [],
             },
-            {
-              name: 'error.log',
-              path: 'logs/error.log',
-              html_url: 'https://github.com/test/repo/blob/main/logs/error.log',
-              repository: { full_name: 'test/repo', url: 'url' },
-              text_matches: [],
-            },
           ],
         },
       };
@@ -887,13 +880,6 @@ describe('Code Search Filtering - File Filters', () => {
               name: 'app.exe',
               path: 'bin/app.exe',
               html_url: 'https://github.com/test/repo/blob/main/bin/app.exe',
-              repository: { full_name: 'test/repo', url: 'url' },
-              text_matches: [],
-            },
-            {
-              name: 'data.log',
-              path: 'logs/data.log',
-              html_url: 'https://github.com/test/repo/blob/main/logs/data.log',
               repository: { full_name: 'test/repo', url: 'url' },
               text_matches: [],
             },

@@ -5,13 +5,11 @@ describe('trySafe', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    delete process.env.OCTOCODE_DEBUG;
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     errorSpy.mockRestore();
-    delete process.env.OCTOCODE_DEBUG;
   });
 
   it('returns fn result on success', async () => {
@@ -29,9 +27,7 @@ describe('trySafe', () => {
     ).toBe('fallback');
   });
 
-  it('does not log when OCTOCODE_DEBUG is not 1', async () => {
-    process.env.OCTOCODE_DEBUG = '0';
-    vi.resetModules();
+  it('stays silent on throw', async () => {
     const { trySafe } = await import('../../src/utils/try-safe.js');
     trySafe(() => {
       throw new Error('silent');
@@ -39,24 +35,14 @@ describe('trySafe', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('logs when OCTOCODE_DEBUG is 1', async () => {
-    process.env.OCTOCODE_DEBUG = '1';
-    vi.resetModules();
+  it('handles non-Error throws', async () => {
     const { trySafe } = await import('../../src/utils/try-safe.js');
-    trySafe(() => {
-      throw new Error('loud');
-    }, null);
-    expect(errorSpy).toHaveBeenCalledWith('[trySafe]', 'loud');
-  });
-
-  it('handles non-Error throws in debug mode', async () => {
-    process.env.OCTOCODE_DEBUG = '1';
-    vi.resetModules();
-    const { trySafe } = await import('../../src/utils/try-safe.js');
-    trySafe(() => {
-      throw 'plain';
-    }, 'fb');
-    expect(errorSpy).toHaveBeenCalledWith('[trySafe]', 'plain');
+    expect(
+      trySafe(() => {
+        throw 'plain';
+      }, 'fb')
+    ).toBe('fb');
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -65,13 +51,11 @@ describe('trySafeAsync', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    delete process.env.OCTOCODE_DEBUG;
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     errorSpy.mockRestore();
-    delete process.env.OCTOCODE_DEBUG;
   });
 
   it('returns resolved value on success', async () => {
@@ -89,7 +73,7 @@ describe('trySafeAsync', () => {
     ).resolves.toBe('fb');
   });
 
-  it('does not log async errors when debug off', async () => {
+  it('stays silent on rejection', async () => {
     const { trySafeAsync } = await import('../../src/utils/try-safe.js');
     await trySafeAsync(async () => {
       throw new Error('quiet');
@@ -97,23 +81,13 @@ describe('trySafeAsync', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('logs async errors when OCTOCODE_DEBUG is 1', async () => {
-    process.env.OCTOCODE_DEBUG = '1';
-    vi.resetModules();
+  it('handles non-Error rejection', async () => {
     const { trySafeAsync } = await import('../../src/utils/try-safe.js');
-    await trySafeAsync(async () => {
-      throw new Error('async loud');
-    }, undefined);
-    expect(errorSpy).toHaveBeenCalledWith('[trySafeAsync]', 'async loud');
-  });
-
-  it('handles non-Error rejection in debug mode', async () => {
-    process.env.OCTOCODE_DEBUG = '1';
-    vi.resetModules();
-    const { trySafeAsync } = await import('../../src/utils/try-safe.js');
-    await trySafeAsync(async () => {
-      throw 'async plain';
-    }, null);
-    expect(errorSpy).toHaveBeenCalledWith('[trySafeAsync]', 'async plain');
+    await expect(
+      trySafeAsync(async () => {
+        throw 'async plain';
+      }, null)
+    ).resolves.toBeNull();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

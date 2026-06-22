@@ -24,9 +24,9 @@ describe('skill doc command examples', () => {
       'tools',
       'context',
     ]);
-    const invocations = [...doc.matchAll(/octocode\.js\s+([a-z-]+)/g)].map(
-      m => m[1]!
-    );
+    const invocations = [...doc.matchAll(/octocode\.js\s+([a-z-]+)/g)]
+      .map(m => m[1]!)
+      .filter(cmd => !cmd.startsWith('-'));
     const unknown = invocations.filter(cmd => !allowed.has(cmd));
     expect(unknown).toEqual([]);
   });

@@ -87,9 +87,19 @@ export async function executeLocal(query: OqlQuery): Promise<AdapterResult> {
 /** A boolean `where` that needs multi-call evaluation (not a single leaf). */
 function needsBooleanEval(p: Predicate): boolean {
   if (p.kind === 'all' || p.kind === 'any') return true;
-  // not(leaf) compiles to a single invertMatch call; not(boolean) does not.
+  // not(leaf) compiles to a single call; not(boolean) needs set algebra.
   if (p.kind === 'not') return isBooleanPredicate(p.predicate);
   return false;
+}
+
+function isRipgrepContentLeaf(p: Predicate): boolean {
+  return p.kind === 'text' || p.kind === 'regex';
+}
+
+function isNegatedRipgrepContentLeaf(
+  p: Predicate | undefined
+): p is Predicate & { kind: 'not'; predicate: Predicate } {
+  return p?.kind === 'not' && isRipgrepContentLeaf(p.predicate);
 }
 
 async function executeCode(
@@ -105,6 +115,10 @@ async function executeCode(
   // call — but it IS expressible as set logic over per-leaf match rows.
   if (needsBooleanEval(where)) {
     return executeCodeBoolean(query, source, searchPath, where);
+  }
+
+  if (query.view === 'discovery' && isNegatedRipgrepContentLeaf(where)) {
+    return executeCodeFilesWithoutMatch(query, source, searchPath, where);
   }
 
   const compiled = compileWhere(where);
@@ -217,6 +231,10 @@ async function executeFiles(
   searchPath: string
 ): Promise<AdapterResult> {
   const where = query.where;
+
+  if (isNegatedRipgrepContentLeaf(where)) {
+    return executeFilesWithoutMatch(query, source, searchPath, where);
+  }
 
   // Boolean composition (all/any/not) is well-defined at the FILE level:
   // all=intersection, any=union, not=universe−set. Local scope IS the complete
@@ -357,6 +375,75 @@ async function evalFilesPredicate(
     default:
       return leafFiles(query, p, searchPath, prov, diags);
   }
+}
+
+async function executeFilesWithoutMatch(
+  query: OqlQuery,
+  source: QuerySource,
+  searchPath: string,
+  where: Predicate & { kind: 'not'; predicate: Predicate }
+): Promise<AdapterResult> {
+  const result = await searchContentRipgrep(
+    withoutMatchToolQuery(query, searchPath, where.predicate) as never
+  );
+  const diagnostics = resultDiagnostics(result, 'localSearchCode');
+  const files = (result.files ?? []).map(r => ({
+    kind: 'file' as const,
+    source,
+    path: r.path,
+    entryType: 'file' as const,
+  }));
+  return {
+    results: files,
+    diagnostics,
+    provenance: [provenance('localSearchCode', source, where)],
+  };
+}
+
+async function executeCodeFilesWithoutMatch(
+  query: OqlQuery,
+  source: QuerySource,
+  searchPath: string,
+  where: Predicate & { kind: 'not'; predicate: Predicate }
+): Promise<AdapterResult> {
+  const result = await searchContentRipgrep(
+    withoutMatchToolQuery(query, searchPath, where.predicate) as never
+  );
+  const mapped = mapCodeResult(result, source);
+  return {
+    ...mapped,
+    diagnostics: resultDiagnostics(result, 'localSearchCode'),
+    provenance: [provenance('localSearchCode', source, where)],
+  };
+}
+
+function withoutMatchToolQuery(
+  query: OqlQuery,
+  searchPath: string,
+  leaf: Predicate
+): Record<string, unknown> {
+  const compiled = compileWhere(leaf);
+  const m = compiled.match!;
+  const langType = m.langType ?? languageInclude(query.scope);
+  const toolQuery: Record<string, unknown> = {
+    path: searchPath,
+    filesWithoutMatch: true,
+    ...scopeToCommon(query.scope),
+    ...(langType ? { langType } : {}),
+    ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
+    ...(query.page ? { page: query.page } : {}),
+    ...searchControls(query),
+  };
+
+  toolQuery.keywords = m.keywords;
+  if (m.fixedString) toolQuery.fixedString = true;
+  if (m.perlRegex) toolQuery.perlRegex = true;
+  if (m.caseSensitive) toolQuery.caseSensitive = true;
+  if (m.caseInsensitive) toolQuery.caseInsensitive = true;
+  if (m.wholeWord) toolQuery.wholeWord = true;
+  if (m.multiline) toolQuery.multiline = true;
+  if (m.multilineDotall) toolQuery.multilineDotall = true;
+  return toolQuery;
 }
 
 function intersect(a: Set<string>, b: Set<string>): Set<string> {

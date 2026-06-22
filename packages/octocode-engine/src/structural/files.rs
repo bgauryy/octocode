@@ -24,7 +24,11 @@ pub fn search_files(
     let query = StructuralQuery::new(options.pattern.as_deref(), options.rule.as_deref())?;
 
     let include = options.include.unwrap_or_default();
+    let exclude = options.exclude.unwrap_or_default();
     let exclude_dir = options.exclude_dir.unwrap_or_else(default_exclude_dirs);
+    let hidden = options.hidden;
+    let no_ignore = options.no_ignore;
+    let max_depth = options.max_depth;
     let max_files = options.max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = options
         .max_file_bytes
@@ -32,7 +36,7 @@ pub fn search_files(
         .unwrap_or(1_000_000);
     let anchor = query.literal_anchor();
 
-    let overrides = build_overrides(&root, &include)?;
+    let overrides = build_overrides(&root, &include, &exclude)?;
     let (candidate_files, skipped_by_pre_filter, skipped_unsupported) = if let Some(anchor) = anchor {
         // `supported_only=false` so ripgrep searches every file — unsupported
         // extensions that textually contain the anchor must surface as
@@ -40,7 +44,11 @@ pub fn search_files(
         matching_anchor_candidate_files(
             &root,
             &include,
+            &exclude,
             &exclude_dir,
+            hidden,
+            no_ignore,
+            max_depth,
             overrides,
             anchor,
             max_files,
@@ -48,7 +56,15 @@ pub fn search_files(
         )?
     } else {
         (
-            collect_candidate_files(&root, overrides, &exclude_dir, max_files)?,
+            collect_candidate_files(
+                &root,
+                overrides,
+                &exclude_dir,
+                max_files,
+                hidden,
+                no_ignore,
+                max_depth,
+            )?,
             0,
             0,
         )
@@ -165,7 +181,11 @@ pub fn search_files_detailed(
         pattern,
         rule,
         include,
+        exclude,
         exclude_dir,
+        hidden,
+        no_ignore,
+        max_depth,
         max_files,
         max_file_bytes,
     } = options;
@@ -203,19 +223,32 @@ pub fn search_files_detailed(
 
     let root = PathBuf::from(&path);
     let include = include.unwrap_or_default();
+    let exclude = exclude.unwrap_or_default();
     let exclude_dir = exclude_dir.unwrap_or_else(default_exclude_dirs);
     let max_files = max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = max_file_bytes.map(|n| n as u64).unwrap_or(1_000_000);
     let anchor = query.literal_anchor();
     let query_explanation = query.explanation();
 
-    let overrides = build_overrides(&root, &include)?;
-    let candidate_files = collect_files(&root, overrides, &exclude_dir, max_files, false)?;
+    let overrides = build_overrides(&root, &include, &exclude)?;
+    let candidate_files = collect_files(
+        &root,
+        overrides,
+        &exclude_dir,
+        max_files,
+        false,
+        hidden,
+        no_ignore,
+        max_depth,
+    )?;
     let matching_paths = if let Some(anchor) = anchor {
         Some(matching_anchor_paths(
             &root,
             &include,
             &exclude_dir,
+            hidden,
+            no_ignore,
+            max_depth,
             anchor,
         )?)
     } else {
@@ -465,6 +498,11 @@ fn matching_anchor_paths(
     root: &Path,
     include: &[String],
     exclude_dir: &[String],
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    // Accepted for API uniformity; ripgrep-native has no max_depth, so the
+    // anchor-prefilter path can't enforce it. The no-anchor walker path does.
+    _max_depth: Option<u32>,
     anchor: &str,
 ) -> Result<HashSet<String>, String> {
     let result = crate::ripgrep_search::search(RipgrepSearchOptions {
@@ -475,6 +513,10 @@ fn matching_anchor_paths(
         files_only: Some(true),
         include: (!include.is_empty()).then(|| include.to_vec()),
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
+        hidden,
+        no_ignore,
+        // max_depth is not a RipgrepSearchOptions field — enforced by the
+        // `collect_files` walker instead (this prefilter path holes it).
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
@@ -483,10 +525,20 @@ fn matching_anchor_paths(
     Ok(result.files.into_iter().map(|file| file.path).collect())
 }
 
+// Both anchor-prefilter helpers thread the 6 scope fields the OQL contract
+// requires (include/exclude/exclude_dir/hidden/no_ignore/max_depth); bundling
+// into a `FileScope` struct is a future cleanup, not warranted for this fix.
+#[allow(clippy::too_many_arguments)]
 fn matching_anchor_candidate_files(
     root: &Path,
     include: &[String],
+    exclude: &[String],
     exclude_dir: &[String],
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    // Accepted for API uniformity; ripgrep-native has no max_depth, so the
+    // anchor-prefilter path can't enforce it. The no-anchor walker path does.
+    _max_depth: Option<u32>,
     overrides: Override,
     anchor: &str,
     max_files: usize,
@@ -500,7 +552,12 @@ fn matching_anchor_candidate_files(
         case_sensitive: Some(true),
         files_only: Some(true),
         include: (!search_include.is_empty()).then_some(search_include),
+        exclude: (!exclude.is_empty()).then(|| exclude.to_vec()),
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
+        hidden,
+        no_ignore,
+        // max_depth is not a RipgrepSearchOptions field — enforced by the
+        // `collect_files` walker instead (this prefilter path holes it).
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
@@ -563,18 +620,30 @@ fn default_exclude_dirs() -> Vec<String> {
     .collect()
 }
 
-/// Compile the `include` patterns into a gitignore-style override set, rooted at
+/// Compile `include` + `exclude` into a gitignore-style override set, rooted at
 /// the search path so relative globs like `src/**/*.ts` resolve as users expect.
-fn build_overrides(root: &Path, include: &[String]) -> Result<Override, String> {
+/// `exclude` globs are added negated (`!glob`) so they drop files that `include`
+/// would otherwise match — mirroring `localSearchCode.exclude`。
+fn build_overrides(root: &Path, include: &[String], exclude: &[String]) -> Result<Override, String> {
     let mut builder = OverrideBuilder::new(root);
     for glob in include {
         builder
             .add(glob)
             .map_err(|err| format!("invalid include glob '{glob}': {err}"))?;
     }
+    for glob in exclude {
+        let negated = if glob.starts_with('!') {
+            glob.to_owned()
+        } else {
+            format!("!{glob}")
+        };
+        builder
+            .add(&negated)
+            .map_err(|err| format!("invalid exclude glob '{glob}': {err}"))?;
+    }
     builder
         .build()
-        .map_err(|err| format!("failed to compile include globs: {err}"))
+        .map_err(|err| format!("failed to compile include/exclude globs: {err}"))
 }
 
 /// Walk `root` with ripgrep's own `ignore` engine and yields deterministic
@@ -584,16 +653,34 @@ fn collect_candidate_files(
     overrides: Override,
     exclude_dir: &[String],
     max_files: usize,
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    max_depth: Option<u32>,
 ) -> Result<Vec<PathBuf>, String> {
-    collect_files(root, overrides, exclude_dir, max_files, true)
+    collect_files(
+        root,
+        overrides,
+        exclude_dir,
+        max_files,
+        true,
+        hidden,
+        no_ignore,
+        max_depth,
+    )
 }
 
+// Walker threads the 6 scope fields the OQL contract requires; a `FileScope`
+// struct would reduce the param count but is out of scope for this parity fix.
+#[allow(clippy::too_many_arguments)]
 fn collect_files(
     root: &Path,
     overrides: Override,
     exclude_dir: &[String],
     max_files: usize,
     supported_only: bool,
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    max_depth: Option<u32>,
 ) -> Result<Vec<PathBuf>, String> {
     let metadata = fs::metadata(root).map_err(|err| {
         format!(
@@ -617,6 +704,13 @@ fn collect_files(
     let mut builder = WalkBuilder::new(root);
     builder
         .overrides(overrides)
+        // `hidden`/`no_ignore`/`max_depth` mirror the text lane (RipgrepSearchOptions)
+        // so OQL `scope` parity holds on the structural walker too. Default
+        // (None) preserves the ignore crate's standard behavior.
+        .hidden(hidden != Some(true))
+        .git_ignore(no_ignore != Some(true))
+        .ignore(no_ignore != Some(true))
+        .max_depth(max_depth.map(|n| n as usize))
         .sort_by_file_path(|a, b| a.cmp(b))
         .filter_entry(move |entry| {
             if entry.depth() == 0 {

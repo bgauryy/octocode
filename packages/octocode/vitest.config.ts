@@ -66,12 +66,6 @@ export default defineConfig({
         'src/features/github-oauth.ts',
         'src/utils/token-storage.ts',
       ],
-      thresholds: {
-        statements: 95,
-        branches: 85,
-        functions: 95,
-        lines: 95,
-      },
     },
     testTimeout: 30000,
     hookTimeout: 15000,

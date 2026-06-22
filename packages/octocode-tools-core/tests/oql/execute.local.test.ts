@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,6 +12,21 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 // the OQL source dir — a stable corpus to search against
 const OQL_SRC = path.resolve(here, '../../src/oql');
+
+async function withFixture(
+  files: Record<string, string>,
+  run: (dir: string) => Promise<void>
+): Promise<void> {
+  const dir = mkdtempSync(path.join(here, '.tmp-oql-'));
+  try {
+    for (const [name, content] of Object.entries(files)) {
+      writeFileSync(path.join(dir, name), content);
+    }
+    await run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function single(
   result: Awaited<ReturnType<typeof runOqlSearch>>
@@ -321,5 +337,60 @@ describe('OQL boolean execution over target:"files" (improvement: was unsupporte
     // never returns a directory entry
     expect(notEnv.results.every(r => r.entryType === 'file')).toBe(true);
     expect(notEnv.results.every(r => r.path.endsWith('.ts'))).toBe(true);
+  });
+
+  it('not(content leaf) uses the single-call filesWithoutMatch fast path', async () => {
+    await withFixture(
+      {
+        'has.txt': 'needle\nother\n',
+        'miss.txt': 'other\n',
+      },
+      async fixture => {
+        const env = single(
+          await runOqlSearch({
+            target: 'files',
+            from: { kind: 'local', path: fixture },
+            where: {
+              kind: 'not',
+              predicate: { kind: 'text', value: 'needle' },
+            },
+          })
+        );
+
+        expect(env.results.map(r => path.basename(r.path))).toEqual([
+          'miss.txt',
+        ]);
+        expect(env.provenance.map(p => p.backend)).toEqual(['localSearchCode']);
+      }
+    );
+  });
+});
+
+describe('OQL negated discovery over target:"code"', () => {
+  it('not(content leaf) is file-level absence, not line-level inversion', async () => {
+    await withFixture(
+      {
+        'mixed.ts': 'needle\nother\n',
+        'miss.ts': 'other\n',
+      },
+      async fixture => {
+        const env = single(
+          await runOqlSearch({
+            target: 'code',
+            from: { kind: 'local', path: fixture },
+            view: 'discovery',
+            where: {
+              kind: 'not',
+              predicate: { kind: 'text', value: 'needle' },
+            },
+          })
+        );
+
+        expect(env.results.map(r => path.basename(r.path))).toEqual([
+          'miss.ts',
+        ]);
+        expect(env.provenance.map(p => p.backend)).toEqual(['localSearchCode']);
+      }
+    );
   });
 });

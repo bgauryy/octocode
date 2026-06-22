@@ -1,12 +1,7 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 
-type Logger = (message: string) => void;
-
-export async function readJsonFile<T>(
-  filePath: string,
-  logger?: Logger
-): Promise<T | null> {
+export async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
     try {
       await fsPromises.access(filePath, fs.constants.R_OK);
@@ -20,8 +15,7 @@ export async function readJsonFile<T>(
     }
 
     return JSON.parse(content) as T;
-  } catch (error) {
-    logger?.(`Failed to read/parse JSON at ${filePath}: ${error}`);
+  } catch {
     return null;
   }
 }

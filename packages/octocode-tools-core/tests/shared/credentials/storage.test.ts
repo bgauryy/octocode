@@ -2801,8 +2801,7 @@ describe('Token Storage', () => {
   });
 
   describe('readCredentialsStore read failures', () => {
-    it('returns empty store and masks GitHub token in logged reason when readFileSync throws', async () => {
-      const tokenSuffix = 'ghp_abc123456789012345678901234567890123';
+    it('returns empty store without emitting read errors when readFileSync throws', async () => {
       vi.mocked(fs.existsSync).mockImplementation((path: unknown) => {
         if (String(path).includes('.key')) return true;
         if (String(path).includes('credentials.json')) return true;
@@ -2811,7 +2810,7 @@ describe('Token Storage', () => {
       vi.mocked(fs.readFileSync).mockImplementation((path: unknown) => {
         if (String(path).includes('.key')) return mockKey.toString('hex');
         if (String(path).includes('credentials.json')) {
-          throw new Error(`corrupt read ${tokenSuffix}`);
+          throw new Error('corrupt read');
         }
         return '';
       });
@@ -2826,10 +2825,7 @@ describe('Token Storage', () => {
       const result = readCredentialsStore();
 
       expect(result).toEqual({ version: 1, credentials: {} });
-      const stderrOutput = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-      expect(stderrOutput).toContain('Could not read credentials file');
-      expect(stderrOutput).toContain('***MASKED***');
-      expect(stderrOutput).not.toContain(tokenSuffix);
+      expect(stderrSpy).not.toHaveBeenCalled();
 
       stderrSpy.mockRestore();
     });
@@ -2858,8 +2854,7 @@ describe('Token Storage', () => {
       const result = readCredentialsStore();
 
       expect(result).toEqual({ version: 1, credentials: {} });
-      const stderrOutput = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-      expect(stderrOutput).toContain('Could not read credentials file');
+      expect(stderrSpy).not.toHaveBeenCalled();
 
       stderrSpy.mockRestore();
     });
@@ -2906,9 +2901,7 @@ describe('Token Storage', () => {
       const result = readCredentialsStore();
 
       expect(result).toEqual({ version: 1, credentials: {} });
-      expect(stderrSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Credentials file has invalid format')
-      );
+      expect(stderrSpy).not.toHaveBeenCalled();
 
       stderrSpy.mockRestore();
     });

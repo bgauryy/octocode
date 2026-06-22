@@ -76,8 +76,6 @@ export const DISCOVERY_IGNORED_FOLDER_NAMES = [
   '.history',
   'coverage',
   '.nyc_output',
-  'logs',
-  'log',
   '.DS_Store',
 ];
 
@@ -128,7 +126,6 @@ export const DISCOVERY_IGNORED_FILE_NAMES = [
 
 export const DISCOVERY_IGNORED_FILE_EXTENSIONS = [
   '.lock',
-  '.log',
   '.tmp',
   '.temp',
   '.cache',

@@ -1385,7 +1385,7 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
     id: 'browser-tools-mcp',
     name: 'BrowserTools MCP',
     description:
-      'Monitor browser logs and capture browser data from Cursor and MCP-compatible IDEs via Chrome extension',
+      'Monitor browser diagnostics and capture browser data from Cursor and MCP-compatible IDEs via Chrome extension',
     category: 'browser-automation',
     repository: 'https://github.com/AgentDeskAI/browser-tools-mcp',
     website: 'https://browsertools.agentdesk.ai',
@@ -1396,7 +1396,7 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
       command: 'npx',
       args: ['-y', '@agentdeskai/browser-tools-mcp@latest'],
     },
-    tags: ['browser', 'devtools', 'chrome', 'logs', 'debugging'],
+    tags: ['browser', 'devtools', 'chrome', 'diagnostics', 'debugging'],
   },
   {
     id: 'hexstrike-ai',

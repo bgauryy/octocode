@@ -32,18 +32,16 @@ While the software is free to use, we offer commercial support packages for ente
 
 **Contact:** bgauryy@octocodeai.com
 
-## 4. Telemetry and Privacy
+## 4. Privacy
 
-We collect certain de-identified usage data to improve the software. Octocode never collects Personally Identifiable Information (PII), Secrets (OR API Keys) or actual code. By using Octocode, you acknowledge that we may collect and use data as described in our [Privacy Policy](./PRIVACY.md).
-
-You may opt-out of telemetry at any time by setting the environment variable `LOG=false` or configuring your user settings as described in the Privacy Policy.
+Octocode is designed to keep your code, secrets, and local workspace data under your control. See the [Privacy Policy](./PRIVACY.md) for the current data handling details.
 
 ## 5. Prohibited Conduct
 
 You agree not to:
 - Use the software for any illegal purpose.
 - Remove or alter the copyright notices or license terms in the software.
-- Attempt to flood or disrupt our telemetry services.
+- Attempt to disrupt the software or any services it depends on.
 
 ## 6. Disclaimer of Warranties
 

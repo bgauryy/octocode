@@ -8,34 +8,32 @@ Octocode ("we", "us", or "our") is an open-source project committed to protectin
 
 ## 2. Data Collection & Classification
 
-We collect **de-identified telemetry data** to maintain the stability and performance of our tools. This data is pseudonymous: it allows us to see trends without identifying you personally.
+Octocode does not collect remote usage events from the CLI, MCP Server, or VS Code Extension.
 
 ### What We Collect
-- **Command Usage**: Which commands (e.g., `octocode/research`, `octocode/plan`) are executed.
-- **Tool Usage**: Which specific tools (e.g., `ghSearchCode`) are utilized.
-- **Performance Metrics**: Execution time, success/failure rates, and error codes.
-- **Session IDs**: Randomly generated UUIDs used to group related events within a single session.
+- **Local runtime state**: Configuration, encrypted credentials, sessions, stats, and temporary materialization caches may be stored on your machine to run the tools.
+- **Authentication data you provide**: Tokens or credentials you configure are stored locally using the supported credential storage path for your platform.
 
 ### What We DO NOT Collect
 - **Source Code**: Your code stays on your machine. We never upload or "peek" at your local files.
 - **Secrets & Env Vars**: We do not collect API keys, passwords, or environment variables.
-- **PII**: We do not collect names, emails
+- **PII**: We do not collect names or emails through product usage reporting.
 
 ## 3. Legal Basis (GDPR/CCPA)
 
-For users in the EEA and UK, we process data based on **Legitimate Interest** (Article 6(1)(f) GDPR). This allows us to monitor the health of the open-source tool and provide a stable experience for the community.
+For users in the EEA and UK, local product state remains under your control unless you choose to send data to an external service, such as GitHub, npm, or a third-party LLM provider. Those services process data under their own terms and privacy policies.
 
 ## 4. Data Retention
 
-We retain telemetry logs for a maximum of **90 days**. After this period, data is either permanently deleted or aggregated into high-level statistics that contain no session identifiers.
+Octocode does not retain remote usage records. Local runtime state remains on your machine until you remove it.
 
 ## 5. Consent and Data Disputes
 
-### 5.1 Affirmative Consent
-By using Octocode, you consent to the collection of de-identified telemetry as outlined in Section 2. For features involving external AI processing, we will provide a one-time "Opt-In" prompt to ensure you are aware of data flows before they occur. You may withdraw your consent at any time through the methods listed in Section 7.
+### 5.1 External Services
+For features involving external services, you control which credentials and providers are configured. Data sent to those services is governed by their respective policies.
 
 ### 5.2 The Right to Contest
-If you believe your data has been collected, stored, or processed in a way that violates this policy or your local privacy laws (such as GDPR or CCPA), you have the right to contest our practices. 
+If you believe your data has been collected, stored, or processed in a way that violates this policy or your local privacy laws (such as GDPR or CCPA), you have the right to contest our practices.
 
 **To File a Contest:**
 1. **Email:** Contact us at bgauryy@octocodeai.com with the subject "Privacy Contest."
@@ -45,30 +43,15 @@ If you believe your data has been collected, stored, or processed in a way that 
 ## 6. Your Rights
 
 Under global privacy laws, you have the right to:
-- **Access/Export**: Request a copy of the telemetry data associated with your session ID.
-- **Deletion**: Request that your session data be purged from our logs.
-- **Opt-Out**: Disable all future collection at any time.
+- **Access/Export**: Request information about any data you believe was shared with Octocode maintainers.
+- **Deletion**: Request deletion of any data you believe was shared with Octocode maintainers.
+- **Provider Control**: Remove configured credentials or stop using external providers at any time.
 
-## 7. How to Opt-Out
-
-You can disable telemetry by using any of the following methods:
-
-**Environment Variable:**
-```bash
-export LOG=false
-```
-
-**Config File:**
-Set `telemetry: false` in your `.octocoderc` file.
-
-**VS Code Settings:**
-Disable "Octocode: Enable Telemetry" in the extension settings.
-
-## 8. AI Transparency (EU AI Act Compliance)
-Octocode functions as an AI-orchestration layer. 
-* **Model Privacy:** We do not use your telemetry, prompts, or source code to train Octocode-owned models.
+## 7. AI Transparency (EU AI Act Compliance)
+Octocode functions as an AI-orchestration layer.
+* **Model Privacy:** We do not use your prompts or source code to train Octocode-owned models.
 * **Third-Party LLMs:** When you use external providers (e.g., OpenAI, Anthropic), your data is governed by their respective privacy policies. Octocode does not store the content of these external AI interactions.
 
-## 9. Contact & Issues
+## 8. Contact & Issues
 
 For privacy inquiries or to exercise your data rights, please open a Privacy Issue on our GitHub repository or contact the maintainers at bgauryy@octocodeai.com.

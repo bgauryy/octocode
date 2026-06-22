@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { incrementToolCharSavings } from '@octocodeai/octocode-tools-core/session';
 import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
 
+const mockIncrementToolCharSavings = vi.hoisted(() => vi.fn());
 const mockGetProvider = vi.hoisted(() => vi.fn());
 const mockCheckNpmAvailability = vi.hoisted(() => vi.fn());
 const mockCheckNpmRegistryReachable = vi.hoisted(() => vi.fn());
@@ -11,6 +11,16 @@ const mockCheckNpmDeprecation = vi.hoisted(() => vi.fn());
 const mockCreateLazyProviderContext = vi.hoisted(() => vi.fn());
 const mockProviderSupports = vi.hoisted(() => vi.fn());
 const mockCloneRepo = vi.hoisted(() => vi.fn());
+
+vi.mock('../../../octocode-tools-core/src/shared/index.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../octocode-tools-core/src/shared/index.js')
+  >('../../../octocode-tools-core/src/shared/index.js');
+  return {
+    ...actual,
+    incrementToolCharSavings: mockIncrementToolCharSavings,
+  };
+});
 
 vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
   getProvider: mockGetProvider,
@@ -314,7 +324,7 @@ describe('remote tool stats runtime contract', () => {
       [TOOL_NAMES.PACKAGE_SEARCH, 5_000],
     ]);
     const expectedToolNames = [...expectedRawCharsByTool.keys()];
-    const statsCalls = vi.mocked(incrementToolCharSavings).mock.calls;
+    const statsCalls = mockIncrementToolCharSavings.mock.calls;
     const recordedToolNames = statsCalls.map(([toolName]) => toolName);
 
     expect(recordedToolNames).toEqual(expectedToolNames);

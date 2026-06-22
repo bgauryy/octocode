@@ -87,13 +87,14 @@ describe('searchContentStructural', () => {
       path: '/repo',
       pattern: 'target($X)',
       rule: undefined,
-      include: undefined,
-      // No directories are excluded by default — structural search must not
-      // silently skip node_modules/build/dist (see DEFAULT_STRUCTURAL_EXCLUDE_DIRS).
-      excludeDir: [],
       maxFiles: 10,
       maxFileBytes: 1_000_000,
     });
+    const nativeOptions = mocks.structuralSearchFiles.mock.calls[0]?.[0] ?? {};
+    // No directories are excluded by default — structural search must not
+    // silently skip node_modules/build/dist (see DEFAULT_STRUCTURAL_EXCLUDE_DIRS).
+    expect(nativeOptions).not.toHaveProperty('excludeDir');
+    expect(nativeOptions).not.toHaveProperty('include');
     expect(result.searchEngine).toBe('structural');
     expect(result.files).toHaveLength(1);
     expect(result.warnings?.join('\n')).toContain('Pre-filter skipped');

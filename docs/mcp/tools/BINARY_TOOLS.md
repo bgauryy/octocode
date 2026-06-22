@@ -118,11 +118,11 @@ localBinaryInspect(path="build.zip", mode="extract", archiveFile="dist/index.js"
 localBinaryInspect(path="build.zip", mode="extract", archiveFile="dist/index.js",
   matchString="createServer", matchStringContextLines=10)
 
-# Decompress a log file
-localBinaryInspect(path="app.log.gz", mode="decompress")
+# Decompress a gzip file
+localBinaryInspect(path="report.txt.gz", mode="decompress")
 
 # Decompress and paginate large content
-localBinaryInspect(path="app.log.gz", mode="decompress", charLength=10000)
+localBinaryInspect(path="report.txt.gz", mode="decompress", charLength=10000)
 # → response hints[] contains charOffset=N for next page
 
 # Extract symbols from a native addon

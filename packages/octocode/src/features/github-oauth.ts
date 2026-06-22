@@ -179,7 +179,7 @@ export async function logout(
   if (!credentials) {
     return {
       success: false,
-      error: `Not logged in to ${hostname}`,
+      error: `Not signed in to ${hostname}`,
     };
   }
 

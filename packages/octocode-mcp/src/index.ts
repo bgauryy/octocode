@@ -36,10 +36,7 @@ const SERVER_CONFIG: Implementation = {
 
 const SHUTDOWN_TIMEOUT_MS = 5000;
 
-function createShutdownHandler(
-  server: McpServer,
-  state: ShutdownState
-) {
+function createShutdownHandler(server: McpServer, state: ShutdownState) {
   return async (signal?: string) => {
     if (state.inProgress) return;
     state.inProgress = true;
@@ -104,25 +101,15 @@ export async function registerAllTools(server: McpServer) {
 
   if (activeProvider === 'github') {
     const token = await getGitHubToken();
-    if (!token) {
-      process.stderr.write(
-        '⚠️  No GitHub token available - some features may be limited\n'
-      );
-    }
+    void token;
   }
 
   const { registerTools } = await import('./tools/toolsManager.js');
   const { successCount, failedTools, failedToolErrors } =
     await registerTools(server);
 
-  if (failedTools.length > 0) {
-    process.stderr.write(
-      `⚠️  ${failedTools.length} tool(s) failed to register: ${failedTools.join(', ')}\n`
-    );
-    if (failedToolErrors && Object.keys(failedToolErrors).length > 0) {
-      process.stderr.write(`${JSON.stringify(failedToolErrors)}\n`);
-    }
-  }
+  void failedTools;
+  void failedToolErrors;
 
   if (successCount === 0) {
     throw new Error(STARTUP_ERRORS.NO_TOOLS_REGISTERED.message);
@@ -164,7 +151,7 @@ async function startServer() {
     if (isCloneEnabled()) {
       startCacheGC(getOctocodeDir());
     }
-  } catch (startupError) {
+  } catch {
     process.exit(1);
   }
 }

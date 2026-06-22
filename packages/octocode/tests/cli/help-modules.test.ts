@@ -196,7 +196,7 @@ describe('command-help-specs', () => {
     expect(output).toContain('EXAMPLES');
     expect(output).toContain('SCHEME');
     expect(output).toContain(
-      'required option: --type enum(definition|references'
+      'required option: --type enum(documentSymbols|definition|references'
     );
     expect(output).toContain('lspGetSemantics');
     expect(output).toContain('after grep');

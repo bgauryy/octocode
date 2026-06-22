@@ -88,8 +88,6 @@ describe('GitHub View Repo Structure Filters', () => {
         '.history',
         'coverage',
         '.nyc_output',
-        'logs',
-        'log',
         '.DS_Store',
       ]);
     });
@@ -148,7 +146,6 @@ describe('GitHub View Repo Structure Filters', () => {
     it('should have complete list of ignored extensions', () => {
       expect(IGNORED_FILE_EXTENSIONS).toEqual([
         '.lock',
-        '.log',
         '.tmp',
         '.temp',
         '.cache',
@@ -297,10 +294,6 @@ describe('GitHub View Repo Structure Filters', () => {
 
     it('should not ignore LICENSE', () => {
       expect(shouldIgnoreFile('LICENSE')).toEqual(false);
-    });
-
-    it('should ignore debug.log', () => {
-      expect(shouldIgnoreFile('debug.log')).toEqual(true);
     });
 
     it('should ignore temp.tmp', () => {

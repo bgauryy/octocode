@@ -230,11 +230,11 @@ describe('OAuth Security Gaps', () => {
       expect(mockDeleteCredentials).toHaveBeenCalledWith('github.com');
     });
 
-    it('returns error when not logged in', async () => {
+    it('returns error when not signed in', async () => {
       const { logout } = await import('../../src/features/github-oauth.js');
       const result = await logout('github.com');
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Not logged in');
+      expect(result.error).toContain('Not signed in');
     });
   });
 

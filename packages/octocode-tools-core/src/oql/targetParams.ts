@@ -13,6 +13,22 @@ import type { OqlActiveTarget } from './types.js';
 
 const intMin1 = z.number().int().min(1);
 const nonNegInt = z.number().int().min(0);
+const researchFacet = z.enum(['symbols', 'files', 'dependencies', 'relations']);
+
+const codeParams = z
+  .object({
+    // `match:"path"` locates files by name (no snippets, far cheaper);
+    // `match:"file"` (default) reads snippets. `concise:true` flattens to
+    // "owner/repo:path" strings. Both are ghSearchCode smart controls an agent
+    // should be able to toggle via OQL — previously untyped on the `code` target.
+    match: z.enum(['file', 'path']).optional(),
+    concise: z.boolean().optional(),
+    extension: z.string().optional(),
+    filename: z.string().optional(),
+    page: intMin1.optional(),
+    limit: intMin1.optional(),
+  })
+  .passthrough();
 
 const semanticsParams = z
   .object({
@@ -138,7 +154,7 @@ const researchParams = z
     intent: z
       .enum(['general', 'reachability', 'dependencies', 'symbols'])
       .optional(),
-    facets: z.array(z.string()).optional(),
+    facets: z.array(researchFacet).optional(),
     // "prove" is accepted; LSP/AST proof expansion is not yet run, so packets
     // stay proofStatus:"candidate" with missingProof:["lsp-unavailable"] and a
     // next.semantic continuation to upgrade them.
@@ -160,6 +176,7 @@ export const TARGET_PARAM_SCHEMAS: Partial<
   artifacts: artifactsParams,
   diff: diffParams,
   research: researchParams,
+  code: codeParams,
 };
 
 /**

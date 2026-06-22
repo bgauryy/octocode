@@ -21,7 +21,7 @@ Skills are markdown instruction sets that teach AI coding clients how to perform
 | `octocode-design` | Design-system and UI architecture guidance |
 | `octocode-documentation-writer` | Generate or refresh project documentation |
 | `octocode-news` | Recent AI/devtools/web/security update research |
-| `octocode-search-skill` | Find, preview, install, or review Agent Skills |
+| `octocode-skills` | Search, create, update, install, or review Agent Skills |
 | `octocode-chrome-devtools` | Browser debugging through Chrome DevTools Protocol |
 | `agentic-flow-best-practices` | Design/review agentic workflows and MCP/tool boundaries |
 | `octocode-slides` | Generate polished HTML slide decks |

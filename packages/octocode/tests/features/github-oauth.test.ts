@@ -428,7 +428,7 @@ describe('GitHub OAuth', () => {
       const result = await logout('github.com');
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Not logged in');
+      expect(result.error).toContain('Not signed in');
     });
 
     it('should delete credentials on logout', async () => {

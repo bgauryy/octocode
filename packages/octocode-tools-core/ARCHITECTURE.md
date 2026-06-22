@@ -74,7 +74,7 @@ structure, history) lives in `src/github/`.
 - `src/hints/` — dynamic next-step hints attached to results.
 - `src/errors/` — `ToolError` hierarchy and domain/local error factories.
 - `src/shared/` — `config`, `credentials` (token storage/refresh/env/gh-cli),
-  `session` (stats), `platform`, `paths`, `logger`. These are exported as
+  `session` (stats), `platform`, `paths`. These are exported as
   subpath entry points (`./config`, `./credentials`, `./session`, …).
 
 ## Public surface

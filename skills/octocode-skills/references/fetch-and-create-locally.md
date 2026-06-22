@@ -26,10 +26,11 @@ https://github.com/<owner>/<repo>/blob/<branch>/<path>/SKILL.md
 
 1. Confirm intent with the user: install verbatim, or adapt into a new local skill?
 2. Resolve destination(s) using `references/install-reference.md` — provider(s), scope (user vs project vs custom path), project root if project-scoped, and install mode.
-3. Fetch the source folder with Octocode:
-   - Default: `ghGetFileContent` in directory mode for a single skill folder.
-   - Use `ghCloneRepo` when the skill has many sibling assets or the user wants the whole repo for context.
-   - Stage downloads under a scratch path the user controls (e.g. `/tmp/skill-fetch/<skill-name>/` or a directory the user names); do not write directly into final destinations yet.
+3. Fetch the source folder with `npx octocode`:
+   - Inspect first: `npx octocode ls owner/repo/path` to confirm the folder contents, then `npx octocode cat owner/repo/path/SKILL.md` to verify it's a real skill.
+   - Default fetch: `npx octocode clone owner/repo/path[@branch]` to download the skill folder/subtree.
+   - Use `npx octocode clone owner/repo[@branch]` (whole repo) when the skill has many sibling assets or the user wants the whole repo for context.
+   - Octocode `clone` writes under its own tmp dir; if the user wants a different scratch path, copy from there. Do not write directly into final destinations yet.
 4. Validate the download: the folder contains `SKILL.md` with valid `name` and `description` frontmatter.
 5. Safety scan: read `SKILL.md`, then any `scripts/`, install hooks, or executable helpers. Flag risky behavior to the user before writing.
 6. If adapting (not verbatim):

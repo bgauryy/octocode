@@ -275,7 +275,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
 
       expect(converted).toBe('undefined');
     });
-
   });
 
   describe('Top-Level Error Handler Pattern', () => {
@@ -364,5 +363,4 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       expect(mockCleanup).toHaveBeenCalled();
     });
   });
-
 });

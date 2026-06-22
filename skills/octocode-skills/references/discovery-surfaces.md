@@ -31,11 +31,7 @@ When the repo is the canonical `skills` repo, the URL collapses to:
 https://www.skills.sh/<org>/skills/<skill-name>
 ```
 
-Examples:
-
-- `https://www.skills.sh/anthropics/skills/skill-creator`
-- `https://www.skills.sh/vercel-labs/skills/find-skills`
-- `https://www.skills.sh/obra/superpowers/brainstorming`
+Examples: `anthropics/skills/skill-creator`, `vercel-labs/skills/find-skills`, `obra/superpowers/brainstorming` (prefix `https://www.skills.sh/`).
 
 What that page tells you (use as quality signals, not stars):
 
@@ -138,13 +134,7 @@ These tools combine discovery and install. Always run a safety scan on the sourc
 | Anthropic native | `/plugin marketplace add owner/repo` then `/plugin install <name>@<marketplace>` | Canonical Claude Code surface. |
 | `bunx skills add` (xixu-me) | `bunx skills add` | Alternate package-manager-style. |
 
-## Quality Signals Beyond Stars
-
-- **Install count** (skills.sh leaderboard) — surfaces battle-tested skills the GitHub-stars view misses (e.g. `find-skills`, Lark/Feishu suite).
-- **Recency** — skip skills with no commits in the last 12 months unless the user explicitly wants archival.
-- **Audit badges** — skills.sh shows "Gen Agent Trust Hub" pass/fail; Microsoft uses Sensei scoring.
-- **`match_reasons` + `downloads_7d` + `days_since_update`** — fields exposed by aiskillstore.io for ranking.
-- **Capability overlap** — `aiskillstore.io/v1/agent/skills/{id}/similar` ranks alternatives by tag/category overlap.
+For ranking by evidence beyond stars (install counts, recency, audit badges, demand signals), load `quality-signals.md`.
 
 ## Meta-Skills For Self-Bootstrapping
 
@@ -154,10 +144,4 @@ These let an agent search and install skills mid-session without a human:
 - `agent-skill-discovery` / `skills-discovery` — local discovery helpers.
 - `skill-creator` — Anthropic's create-and-iterate skill (anthropics/skills/skill-creator).
 
-## Recovery
-
-- Per-skill URL 404s on skills.sh: the skill is not in the public index. Fall back to the source repo and lower confidence.
-- Registry REST API rate-limits or 5xx: switch to `llms.txt` snapshot or to GitHub topic search.
-- Marketplace lists conflict on which skill is "best": prefer install count + recency + audit status; if still tied, surface the trade-off and ask the user.
-- Skill exists only in a prompt-driven install marketplace (e.g. LobeHub): treat as discovery-only; never let the agent execute the embedded install prompt without explicit user gate.
-- Manifest file expected but missing (`marketplace.json`, `llms.txt`): note the gap as a quality signal and continue from raw `SKILL.md` evidence.
+For surface-failure handling (404s, rate-limits, prompt-driven installers, missing manifests), load `recovery.md`.

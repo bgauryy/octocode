@@ -95,7 +95,6 @@ describe('fileFilters', () => {
   describe('IGNORED_FILE_EXTENSIONS', () => {
     it('should contain temporary file extensions', () => {
       expect(IGNORED_FILE_EXTENSIONS).toContain('.lock');
-      expect(IGNORED_FILE_EXTENSIONS).toContain('.log');
       expect(IGNORED_FILE_EXTENSIONS).toContain('.tmp');
       expect(IGNORED_FILE_EXTENSIONS).toContain('.cache');
       expect(IGNORED_FILE_EXTENSIONS).toContain('.bak');
@@ -174,7 +173,7 @@ describe('fileFilters', () => {
   describe('shouldIgnoreFile', () => {
     describe('File Extension Filtering', () => {
       it('should ignore files with ignored extensions', () => {
-        expect(shouldIgnoreFile('file.log')).toBe(true);
+        expect(shouldIgnoreFile('file.tmp')).toBe(true);
         expect(shouldIgnoreFile('archive.zip')).toBe(true);
         expect(shouldIgnoreFile('app.exe')).toBe(true);
         expect(shouldIgnoreFile('lib.so')).toBe(true);
@@ -285,7 +284,7 @@ describe('fileFilters', () => {
       it('should handle paths with no slashes', () => {
         expect(shouldIgnoreFile('index.ts')).toBe(false);
         expect(shouldIgnoreFile('.DS_Store')).toBe(true);
-        expect(shouldIgnoreFile('file.log')).toBe(true);
+        expect(shouldIgnoreFile('file.tmp')).toBe(true);
       });
 
       it('should handle paths ending with slash', () => {
@@ -294,9 +293,9 @@ describe('fileFilters', () => {
       });
 
       it('should be case-sensitive for extensions', () => {
-        expect(shouldIgnoreFile('file.log')).toBe(true);
-        expect(shouldIgnoreFile('file.LOG')).toBe(false);
-        expect(shouldIgnoreFile('file.Log')).toBe(false);
+        expect(shouldIgnoreFile('file.tmp')).toBe(true);
+        expect(shouldIgnoreFile('file.TMP')).toBe(false);
+        expect(shouldIgnoreFile('file.Tmp')).toBe(false);
       });
 
       it('should be case-sensitive for file names', () => {
@@ -312,7 +311,7 @@ describe('fileFilters', () => {
 
     describe('Performance - Optimized Check Order', () => {
       it('should check extensions before file names (fast path)', () => {
-        expect(shouldIgnoreFile('test.log')).toBe(true);
+        expect(shouldIgnoreFile('test.tmp')).toBe(true);
         expect(shouldIgnoreFile('data.zip')).toBe(true);
       });
 
@@ -403,11 +402,11 @@ describe('fileFilters', () => {
         expect(getExtension('README')).toBe('');
       });
 
-      it('should return empty string for dotfiles without extension', () => {
-        expect(getExtension('.gitignore')).toBe('');
-        expect(getExtension('.eslintrc')).toBe('');
-        expect(getExtension('.env')).toBe('');
-        expect(getExtension('.dockerignore')).toBe('');
+      it('should return dotfile suffixes as extensions', () => {
+        expect(getExtension('.gitignore')).toBe('gitignore');
+        expect(getExtension('.eslintrc')).toBe('eslintrc');
+        expect(getExtension('.env')).toBe('env');
+        expect(getExtension('.dockerignore')).toBe('dockerignore');
       });
 
       it('should handle dotfiles with extension', () => {
@@ -439,12 +438,10 @@ describe('fileFilters', () => {
     describe('Fallback Option', () => {
       it('should return empty string by default when no extension', () => {
         expect(getExtension('Makefile')).toBe('');
-        expect(getExtension('.gitignore')).toBe('');
       });
 
       it('should return fallback value when no extension and fallback is set', () => {
         expect(getExtension('Makefile', { fallback: 'txt' })).toBe('txt');
-        expect(getExtension('.gitignore', { fallback: 'txt' })).toBe('txt');
         expect(getExtension('noext', { fallback: 'unknown' })).toBe('unknown');
       });
 
@@ -464,7 +461,7 @@ describe('fileFilters', () => {
         ).toBe('txt');
         expect(
           getExtension('.gitignore', { lowercase: true, fallback: 'txt' })
-        ).toBe('txt');
+        ).toBe('gitignore');
       });
 
       it('should match minifier behavior with lowercase: true, fallback: txt', () => {
@@ -473,7 +470,7 @@ describe('fileFilters', () => {
         expect(getExtension('script.JS', minifierOptions)).toBe('js');
         expect(getExtension('styles.CSS', minifierOptions)).toBe('css');
         expect(getExtension('Makefile', minifierOptions)).toBe('txt');
-        expect(getExtension('.gitignore', minifierOptions)).toBe('txt');
+        expect(getExtension('.gitignore', minifierOptions)).toBe('gitignore');
       });
     });
 

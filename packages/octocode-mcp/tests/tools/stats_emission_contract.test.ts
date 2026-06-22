@@ -1,9 +1,10 @@
 import { readFile } from 'fs/promises';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
-import { resolve } from 'path';
-const ROOT = process.cwd();
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const CORE_ROOT = resolve(ROOT, '../octocode-tools-core');
 
 const registeredTools = [
@@ -43,7 +44,10 @@ const registeredTools = [
   {
     name: 'ghCloneRepo',
     executionFiles: ['src/tools/github_clone_repo/execution.ts'],
-    rawEvidence: [/rawResponse:\s*getDirectorySizeBytes\(result\.localPath\)/],
+    rawEvidence: [
+      /const totalSize = getDirectorySizeBytes\(result\.localPath\)/,
+      /rawResponse:\s*totalSize/,
+    ],
   },
   {
     name: 'localSearchCode',
@@ -52,8 +56,8 @@ const registeredTools = [
       'src/tools/local_ripgrep/ripgrepExecutor.ts',
     ],
     rawEvidence: [
-      /rawResponse:\s*result\.stdout\.length\s*\+\s*result\.stderr\.length/,
-      /attachRawResponseChars\(searchResult,\s*result\.stdout\.length\)/,
+      /const responseChars = estimateResponseChars\(files\)/,
+      /attachRawResponseChars\(searchResult,\s*responseChars\)/,
     ],
   },
   {
@@ -157,7 +161,7 @@ describe('tool stats emission contract', () => {
 
   it('security wrappers keep remote and local tools on the shared secure path', async () => {
     const securitySource = await readProjectFile(
-      '../octocode-security/src/withSecurityValidation.ts'
+      '../octocode-engine/src/security/withSecurityValidation.ts'
     );
 
     expect(securitySource).toMatch(/withSecurityValidation[\s\S]*runSecure\(/);

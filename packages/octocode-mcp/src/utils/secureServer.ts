@@ -3,7 +3,7 @@ import {
   type CallToolResult,
   McpError,
   ErrorCode,
-  } from '@modelcontextprotocol/sdk/types.js';
+} from '@modelcontextprotocol/sdk/types.js';
 import {
   ContentSanitizer,
   maskSensitiveData,
@@ -76,13 +76,13 @@ function wrapToolCallback(
       )(...args);
       try {
         return sanitizeCallToolResult(result);
-        } catch {
-          return result;
-        }
-      } catch (error) {
-        return buildToolErrorResult(name, error);
+      } catch {
+        return result;
       }
-    };
+    } catch (error) {
+      return buildToolErrorResult(name, error);
+    }
+  };
 }
 
 function wrapNonToolCallback<T>(
@@ -95,12 +95,12 @@ function wrapNonToolCallback<T>(
       return (await Promise.resolve(
         (cb as (...a: unknown[]) => T | Promise<T>)(...args)
       )) as T;
-      } catch (error) {
-        const normalized = normalizeError(error);
-        const safeMessage = sanitizeErrorMessage(normalized.message);
-        throw new McpError(
-          ErrorCode.InternalError,
-          `${kind} "${name}" failed: ${safeMessage}`
+    } catch (error) {
+      const normalized = normalizeError(error);
+      const safeMessage = sanitizeErrorMessage(normalized.message);
+      throw new McpError(
+        ErrorCode.InternalError,
+        `${kind} "${name}" failed: ${safeMessage}`
       );
     }
   };

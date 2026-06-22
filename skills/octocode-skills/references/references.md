@@ -1,6 +1,6 @@
 # References
 
-Sources actually consulted to research and create the `octocode-search-skill`.
+Sources actually consulted to research and create the `octocode-skills` skill.
 
 ## Skills.sh API Results
 

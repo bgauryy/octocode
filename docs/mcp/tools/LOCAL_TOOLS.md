@@ -183,7 +183,7 @@ Use `mode:"structural"` for code-shape queries regex cannot express (find all `a
 **Supported languages:** ts, tsx, js, jsx, mjs, cjs, py, go, rs, java, c/h, cpp/cc/cxx, cs, sh/bash/zsh.
 
 ```bash
-localSearchCode(path="src", mode="structural", pattern="console.log($$$ARGS)")
+localSearchCode(path="src", mode="structural", pattern="track($$$ARGS)")
 # `rule` is a YAML string: \n below are real newline escapes in the JSON tool
 # arg (not literal backslash-n). On the CLI, use $'...' or a real multiline string.
 localSearchCode(path="src", mode="structural", rule="rule:\n  pattern: await $C\n  inside:\n    kind: for_statement\n    stopBy: end")

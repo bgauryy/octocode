@@ -265,7 +265,7 @@ environment variables  >  <octocode-home>/.octocoderc  >  built-in defaults
 2. **Global config**: `<octocode-home>/.octocoderc`, machine-wide defaults read by **both the CLI and the MCP server**.
 3. **Built-in defaults**: used when neither is set.
 
-**Octocode home** (`<octocode-home>`) holds the global config, encrypted credentials, sessions, stats, logs, and tmp materialization caches. Its location is fixed per platform (there is no override):
+**Octocode home** (`<octocode-home>`) holds the global config, encrypted credentials, sessions, stats, and tmp materialization caches. Its location is fixed per platform (there is no override):
 
 | Platform | Location |
 |----------|----------|
@@ -371,7 +371,7 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 
 ## Security
 
-**Every byte that reaches the model is scanned and redacted first.** All content (local files, GitHub and npm responses, error messages, and tool outputs) passes through the Rust engine's secret scanner on the way *in* (tool inputs) and on the way *out* (results), so secrets never reach the LLM or logs. The same enforcement runs identically under MCP and the CLI.
+**Every byte that reaches the model is scanned and redacted first.** All content (local files, GitHub and npm responses, error messages, and tool outputs) passes through the Rust engine's secret scanner on the way *in* (tool inputs) and on the way *out* (results), so secrets never reach the LLM. The same enforcement runs identically under MCP and the CLI.
 
 - **Secret redaction, in and out.** 270+ provider credential patterns (AWS, Azure, GCP, GitHub, OpenAI, Anthropic, Stripe, Slack, 1Password, and more) plus generic JWTs, PEM/private keys, bearer tokens, database connection strings, and high-entropy strings. Masked values surface a `Secrets detected and redacted` warning so the agent knows.
 - **Content sanitized at the source.** Local reads (`localGetFileContent`, ripgrep, structural search, binary, find, structure) and external fetches (GitHub code/files, npm) are scanned as they are read, not only at the boundary.
@@ -418,7 +418,7 @@ These are the skills the Octocode team itself uses to build Octocode. ⭐ **[Eng
 | [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | Validate ideas against GitHub, npm, and web evidence; produces a decision-ready brief |
 | [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | Evidence-backed RFCs, design docs, migration and implementation plans before coding |
 | [**Install**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-install) | Interactive step-by-step Octocode installer for macOS and Windows |
-| [**Search Skill**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-search-skill) | Find, evaluate, install, rate, and refactor Agent Skills (SKILL.md format) |
+| [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | Search, evaluate, install, create, and update Agent Skills (SKILL.md format) |
 | [**Stats**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-stats) | Render an Octocode MCP usage dashboard from stats.json (tokens saved, cache hits, errors) |
 
 ---

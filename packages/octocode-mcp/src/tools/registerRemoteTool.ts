@@ -97,12 +97,12 @@ export function createRemoteToolRegistration<TQuery>(
       );
     };
 
-          if (registrationGuard) {
-            return registrationGuard().then(ok => {
-              if (ok) return doRegister();
-              return null;
-            });
-          }
+    if (registrationGuard) {
+      return registrationGuard().then(ok => {
+        if (ok) return doRegister();
+        return null;
+      });
+    }
     return doRegister();
   };
 }

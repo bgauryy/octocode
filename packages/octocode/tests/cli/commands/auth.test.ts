@@ -295,7 +295,7 @@ describe('cli/commands/auth', () => {
       expect(login).not.toHaveBeenCalled();
     });
 
-    it('--force logs out first then re-logs in', async () => {
+    it('--force signs out first then signs in again', async () => {
       const { loginCommand, getAuthStatus, login, logout } =
         await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
@@ -491,7 +491,7 @@ describe('cli/commands/auth', () => {
       expect(process.exitCode).toBeUndefined();
     });
 
-    it('logs out successfully', async () => {
+    it('signs out successfully', async () => {
       const { logout, logoutCommand, getAuthStatus } = await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: true,
@@ -508,7 +508,7 @@ describe('cli/commands/auth', () => {
 
       expect(logout).toHaveBeenCalledWith('github.com');
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Successfully logged out')
+        expect.stringContaining('Successfully signed out')
       );
     });
 
@@ -598,7 +598,7 @@ describe('cli/commands/auth', () => {
       expect(confirm).toHaveBeenCalled();
       expect(logout).toHaveBeenCalledWith('github.com');
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Successfully logged out')
+        expect.stringContaining('Successfully signed out')
       );
     });
 
@@ -895,11 +895,11 @@ describe('cli/commands/auth', () => {
 
       expect(logout).toHaveBeenCalledWith('enterprise.github.com');
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Successfully logged out')
+        expect.stringContaining('Successfully signed out')
       );
     });
 
-    it('menu switch logs out globally then logs in again', async () => {
+    it('menu switch signs out globally then signs in again', async () => {
       const { authCommand, getAuthStatus, select, logout, login } =
         await loadAuthModule();
 

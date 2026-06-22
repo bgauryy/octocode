@@ -76,7 +76,6 @@ describe('executeBulkOperation', () => {
           totalChars: number;
           nextCharOffset?: number;
         };
-        hints?: string[];
       };
 
       expect(responseText).toContain('Next: responseCharOffset=');
@@ -91,9 +90,6 @@ describe('executeBulkOperation', () => {
         structured.responsePagination?.charLength
       );
       expect(responseText.endsWith('\n')).toBe(true);
-      expect(
-        structured.hints?.some(h => h.includes('responseCharOffset='))
-      ).toBe(true);
     });
 
     it('uses newline boundaries inside block-scalar multiline content when available', async () => {

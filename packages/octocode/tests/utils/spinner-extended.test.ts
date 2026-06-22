@@ -191,7 +191,7 @@ describe('Spinner (extended)', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it('uncaughtException handler restores cursor, logs, and exits 1', async () => {
+  it('uncaughtException handler restores cursor, reports, and exits 1', async () => {
     const { Spinner } = await import('../../src/utils/spinner.js');
     new Spinner('err').start();
 

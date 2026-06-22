@@ -144,9 +144,7 @@ async function updateMcpConfigToken(
   configPath: string,
   token: string | undefined
 ): Promise<void> {
-  const existingConfig = await readJsonFile<McpConfig>(configPath, message =>
-    outputChannel?.appendLine(message)
-  );
+  const existingConfig = await readJsonFile<McpConfig>(configPath);
 
   if (!existingConfig?.mcpServers?.[MCP_SERVER_NAME]) {
     return;
@@ -223,10 +221,7 @@ async function installMcpServer(
 
     let mcpConfig: McpConfig = { mcpServers: {} };
 
-    const existingConfig = await readJsonFile<McpConfig>(
-      mcpConfigPath,
-      message => outputChannel?.appendLine(message)
-    );
+    const existingConfig = await readJsonFile<McpConfig>(mcpConfigPath);
     if (existingConfig && typeof existingConfig === 'object') {
       mcpConfig = {
         ...existingConfig,
@@ -638,8 +633,7 @@ export async function activate(
         let needsInstall = true;
 
         const existingConfig = await readJsonFile<McpConfig>(
-          editorInfo.mcpConfigPath,
-          message => outputChannel?.appendLine(message)
+          editorInfo.mcpConfigPath
         );
         if (existingConfig?.mcpServers?.[MCP_SERVER_NAME]) {
           needsInstall = false;

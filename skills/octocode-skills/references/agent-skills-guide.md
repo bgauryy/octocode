@@ -113,6 +113,8 @@ Use plan-validate-execute for batch, stateful, or destructive operations. The pl
 
 ## Bundling Scripts
 
+**Prefer deterministic scripts over agentic prose.** If a step is mechanical, repeatable, or expensive to describe, a script is more reliable and far more token-efficient than instructions the agent re-interprets each run — it executes identically every time and keeps the activation context lean. Reserve natural-language steps for judgment calls; hand procedure to `scripts/`.
+
 Use one-off commands when an existing tool already does the job and the command is simple. Pin versions when reproducibility matters, and state prerequisites.
 
 Move complex or repeatedly reinvented logic into `scripts/`. A good script for agents:
@@ -130,47 +132,11 @@ Move complex or repeatedly reinvented logic into `scripts/`. A good script for a
 
 Reference scripts from `SKILL.md` with paths relative to the skill root, for example `scripts/validate.sh`.
 
-## Description Optimization
+## Optimizing And Ranking
 
-The `description` field is the primary trigger. At startup, agents see only `name` and `description`, so the description must tell the agent when to load the skill.
-
-Good descriptions:
-
-- Use imperative phrasing: "Use this skill when..."
-- Focus on user intent, not implementation internals.
-- Include non-obvious trigger situations where the user may not name the domain directly.
-- Stay concise and under the 1024-character limit.
-- Avoid being so broad that near-miss prompts trigger the skill.
-
-Test descriptions with realistic eval queries:
-
-- Should-trigger prompts: vary phrasing, typos, explicitness, detail, and task complexity.
-- Should-not-trigger prompts: include near-misses that share keywords but need a different skill.
-- Use train/validation splits so edits do not overfit to the test prompts.
-- Run multiple times when behavior is nondeterministic and compare trigger rates.
-
-Optimization loop:
-
-1. Evaluate current description on train and validation sets.
-2. Identify train failures: missed triggers and false triggers.
-3. Revise for the general category of failure, not exact query keywords.
-4. Keep the description under 1024 characters.
-5. Select the best iteration by validation pass rate.
-6. Sanity-check with fresh queries that were not used during optimization.
-
-## Quality Signals Beyond Stars
-
-When ranking candidates, prefer evidence-based signals over raw star count:
-
-- **Install count via search API** — query `https://www.skills.sh/api/search?q=<topic>&limit=100` (see `discovery-surfaces.md` for the full curl command), sort results by `installs` descending. High install count with modest GitHub stars is usually a stronger battle-tested signal than the reverse.
-- **Per-skill index page** — check `https://www.skills.sh/<owner>/<repo>/<skill-name>` (or `https://www.skills.sh/<org>/skills/<skill-name>` when the repo is named `skills`) for install count, install command, audit badge, and related skills.
-- **Leaderboard** — `https://www.skills.sh` shows install-count ranked skills across all agents; useful for spotting dominant skills in a domain without knowing names in advance.
-- **Recency** — `pushed:>YYYY-MM-DD` on GitHub. Skip skills with no commits in the last 12 months unless the user wants archival.
-- **Audit badges** — skills.sh exposes Gen Agent Trust Hub pass/fail; Microsoft uses the Sensei rubric (triggers + anti-triggers + compatibility scored Low/Medium/High).
-- **Registry-side fields** — `aiskillstore.io` exposes `match_reasons`, `downloads_7d`, `days_since_update`, and a `/similar` endpoint for overlap-ranked alternatives.
-- **Demand signal** — `aiskillstore.io/v1/demand/most-wanted` shows what users searched for and did not find; useful when deciding whether to adapt vs create.
-
-For full registry details, manifest formats, and CLI installers, load `discovery-surfaces.md`.
+- Tuning a skill's `description` trigger with eval queries → load `description-tuning.md`.
+- Ranking candidates by evidence beyond stars (installs, recency, audit badges) → load `quality-signals.md`.
+- Full registry details, manifest formats, and CLI installers → load `discovery-surfaces.md`.
 
 ## External Documentation Index
 

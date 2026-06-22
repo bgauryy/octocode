@@ -1,7 +1,7 @@
 import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { readJsonFile } from '../src/jsonUtils';
 
@@ -55,13 +55,11 @@ describe('readJsonFile', () => {
     await expect(readJsonFile(filePath)).resolves.toBeNull();
   });
 
-  it('logs and returns null for invalid JSON', async () => {
+  it('returns null for invalid JSON', async () => {
     const dirPath = await makeTempDir();
     const filePath = path.join(dirPath, 'broken.json');
-    const logger = vi.fn();
     await fsPromises.writeFile(filePath, '{ broken', 'utf8');
 
-    await expect(readJsonFile(filePath, logger)).resolves.toBeNull();
-    expect(logger).toHaveBeenCalledTimes(1);
+    await expect(readJsonFile(filePath)).resolves.toBeNull();
   });
 });

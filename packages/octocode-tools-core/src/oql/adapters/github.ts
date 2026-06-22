@@ -128,6 +128,7 @@ async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
   }
 
   const { owner, repo } = splitRepo(ghFrom(query));
+  const p = query.params ?? {};
   const toolQuery: Record<string, unknown> = {
     ...(owner ? { owner } : {}),
     ...(repo ? { repo } : {}),
@@ -136,6 +137,12 @@ async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
     ...(firstScopePath(query.scope)
       ? { path: firstScopePath(query.scope) }
       : {}),
+    // `target:"files"` implies file-location intent — default to match:"path"
+    // (cheapest) unless the agent explicitly set match via params.
+    match: typeof p.match === 'string' ? p.match : 'path',
+    ...(typeof p.concise === 'boolean' ? { concise: p.concise } : {}),
+    ...(typeof p.extension === 'string' ? { extension: p.extension } : {}),
+    ...(typeof p.filename === 'string' ? { filename: p.filename } : {}),
     ...(query.limit ? { limit: query.limit } : {}),
     ...(query.page ? { page: query.page } : {}),
   };
@@ -201,6 +208,7 @@ async function githubCode(query: OqlQuery): Promise<AdapterResult> {
   }
 
   const { owner, repo } = splitRepo(ghFrom(query));
+  const p = query.params ?? {};
   const toolQuery: Record<string, unknown> = {
     ...(owner ? { owner } : {}),
     ...(repo ? { repo } : {}),
@@ -209,6 +217,13 @@ async function githubCode(query: OqlQuery): Promise<AdapterResult> {
     ...(firstScopePath(query.scope)
       ? { path: firstScopePath(query.scope) }
       : {}),
+    // Forward the smart `code`-target params (now typed in targetParams.ts):
+    // match:"path" for cheap file-location, concise:true for flat results,
+    // plus extension/filename filters the provider supports natively.
+    ...(typeof p.match === 'string' ? { match: p.match } : {}),
+    ...(typeof p.concise === 'boolean' ? { concise: p.concise } : {}),
+    ...(typeof p.extension === 'string' ? { extension: p.extension } : {}),
+    ...(typeof p.filename === 'string' ? { filename: p.filename } : {}),
     ...(query.limit ? { limit: query.limit } : {}),
     ...(query.page ? { page: query.page } : {}),
   };
