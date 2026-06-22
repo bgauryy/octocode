@@ -24,7 +24,7 @@ const MCPCategorySchema = z.enum([
 
 export type MCPCategory = z.infer<typeof MCPCategorySchema>;
 
-const MCPRegistryEntrySchema = z.object({
+const _MCPRegistryEntrySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().min(1),
@@ -54,7 +54,7 @@ const MCPRegistryEntrySchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
-export type MCPRegistryEntry = z.infer<typeof MCPRegistryEntrySchema>;
+export type MCPRegistryEntry = z.infer<typeof _MCPRegistryEntrySchema>;
 
 export const MCP_REGISTRY: MCPRegistryEntry[] = [
   {
@@ -2148,14 +2148,4 @@ export function getMCPsByTag(tag: string): MCPRegistryEntry[] {
 
 export function getTagCount(tag: string): number {
   return MCP_REGISTRY.filter(mcp => mcp.tags?.includes(tag)).length;
-}
-
-if (process.env.OCTOCODE_DEBUG === '1') {
-  const result = z.array(MCPRegistryEntrySchema).safeParse(MCP_REGISTRY);
-  if (!result.success) {
-    console.error(
-      '[mcp-registry] Schema validation failed:',
-      result.error.message
-    );
-  }
 }
