@@ -88,8 +88,8 @@ Invalid file values fall back to defaults or env overrides. Unknown keys warn an
 | Env | `.octocoderc` | Default | Meaning |
 |-----|---------------|---------|---------|
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | GitHub API endpoint. Use `/api/v3` for GitHub Enterprise. |
-| `ENABLE_LOCAL` | `local.enabled` | CLI `true`, MCP `false` | Enable local filesystem and LSP tools. |
-| `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Enable `ghCloneRepo` and directory fetch (requires local enabled). Default is surface-specific; an explicit `false` (env or file) disables it in either surface. |
+| `ENABLE_LOCAL` | `local.enabled` | CLI always on (ignored), MCP `false` | Enable local filesystem and LSP tools. **The CLI ignores this flag** (local-first interface); it only gates the MCP server. |
+| `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Enable `ghCloneRepo` and directory fetch. The CLI respects an explicit `ENABLE_CLONE=false`; on MCP, clone also requires `ENABLE_LOCAL`. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Root used for relative local paths and project context. Must be absolute when set. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Comma-separated env list or JSON array. Empty means unrestricted after path validation. |
 | `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict whitelist. Overrides add/remove filters. |
@@ -127,7 +127,7 @@ Env-only options:
 
 - Auth tokens are env-only. Do not put tokens in `.octocoderc`.
 - `TOOLS_TO_RUN` is a strict whitelist and overrides `ENABLE_TOOLS` and `DISABLE_TOOLS`.
-- **Surface-specific local/clone defaults.** The CLI honors `ENABLE_LOCAL` and defaults local tools on; clone is enabled by default. The MCP server honors `ENABLE_LOCAL` and defaults local tools and clone off. Explicit env or `.octocoderc` values override those defaults; clone always requires local enabled.
+- **Surface-specific local/clone defaults.** The CLI **ignores `ENABLE_LOCAL`** — local tools are always enabled (local-first interface); clone is enabled by default but still honors an explicit `ENABLE_CLONE=false`. The MCP server honors `ENABLE_LOCAL` and defaults local tools and clone off; on MCP, explicit env or `.octocoderc` values override those defaults and clone also requires local enabled.
 - LSP requires local tools enabled. If `OCTOCODE_LSP_CONFIG` is unset, Octocode checks `<workspace>/.octocode/lsp-servers.json`, then `<octocode-home>/lsp-servers.json`.
 - `WORKSPACE_ROOT` env overrides `local.workspaceRoot`.
 
@@ -201,7 +201,7 @@ Common fixes:
 | Symptom | Check |
 |---------|-------|
 | Token missing | Set `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, or run `octocode auth login`. |
-| Local tools unavailable | Set `ENABLE_LOCAL=true` or ensure `.octocoderc` enables `local.enabled`, and check that tool filters did not hide them. The CLI defaults local on unless explicitly disabled. |
+| Local tools unavailable | MCP only: set `ENABLE_LOCAL=true` or enable `local.enabled` in `.octocoderc`, and check that tool filters did not hide them. The CLI always has local tools on — `ENABLE_LOCAL` is ignored there. |
 | Clone unavailable (MCP) | Set `ENABLE_CLONE=true` (and keep local enabled). The CLI enables clone by default unless you set `ENABLE_CLONE=false`. |
 | Tool hidden | Check `TOOLS_TO_RUN`, `ENABLE_TOOLS`, and `DISABLE_TOOLS`. |
 | Timeout | Increase `REQUEST_TIMEOUT` up to `300000`. |
