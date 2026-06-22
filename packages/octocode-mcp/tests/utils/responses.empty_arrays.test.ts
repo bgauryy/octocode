@@ -12,7 +12,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   initialize: vi.fn(),
   getServerConfig: mockGetServerConfig,
   getGitHubToken: vi.fn(() => Promise.resolve('mock-token')),
-  isLoggingEnabled: vi.fn(() => false),
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',
     baseUrl: undefined,
@@ -47,7 +46,6 @@ describe('Empty Arrays Removal in Responses', () => {
       disableTools: [],
       timeout: 30000,
       maxRetries: 3,
-      loggingEnabled: false,
     });
 
     mockProvider = {

@@ -49,7 +49,6 @@ describe('paths', () => {
     expect(mod.paths.tree).toBe('/Users/tester/.octocode/tmp/tree');
     expect(mod.paths.binary).toBe('/Users/tester/.octocode/tmp/binary');
     expect(mod.paths.repos).toBe('/Users/tester/.octocode/tmp/clone');
-    expect(mod.paths.logs).toBe('/Users/tester/.octocode/logs');
     expect(mod.paths.unzip).toBe('/Users/tester/.octocode/tmp/unzip');
     expect(mod.paths.lspConfig).toBe(
       '/Users/tester/.octocode/lsp-servers.json'
@@ -142,20 +141,6 @@ describe('paths', () => {
       mode: 0o700,
     });
     expect(mkdirSync).toHaveBeenCalledWith(mod.paths.binary, {
-      recursive: true,
-      mode: 0o700,
-    });
-  });
-
-  it('ensureLogs creates logs with 0o700', async () => {
-    const mod = await import('../../../src/shared/paths.js');
-    mod.ensureLogs();
-
-    expect(mkdirSync).toHaveBeenCalledWith(mod.paths.home, {
-      recursive: true,
-      mode: 0o700,
-    });
-    expect(mkdirSync).toHaveBeenCalledWith(mod.paths.logs, {
       recursive: true,
       mode: 0o700,
     });

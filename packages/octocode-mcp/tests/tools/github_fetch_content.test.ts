@@ -13,7 +13,6 @@ const mockGetProvider = vi.hoisted(() => vi.fn());
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   initialize: mockInitialize,
   getServerConfig: mockGetServerConfig,
-  isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',
@@ -60,7 +59,6 @@ describe('GitHub Fetch Content Tool', () => {
       disableTools: [],
       timeout: 30000,
       maxRetries: 3,
-      loggingEnabled: true,
       enableLocal: false,
       enableClone: false,
       tokenSource: 'env:GITHUB_TOKEN',

@@ -1,15 +1,16 @@
 /**
- * Octocode Query Language (OQL) V1 — canonical type definitions.
+ * Octocode Query Language (OQL) — canonical type definitions.
  *
  * These mirror the contract in
  * docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md. OQL is a typed research
  * query object that compiles into existing Octocode tool runners; it is not a
  * raw string DSL. Schemas/descriptions co-locate here for now (tools-core) and
- * may migrate to `@octocodeai/octocode-core/oql` per the plan's Phase 8.
+ * may migrate to `@octocodeai/octocode-core/oql` once a second consumer needs
+ * OQL validation without the rest of tools-core.
  */
 
-// V1 code-research targets + V2 research-surface targets (now active).
-export type OqlActiveTargetV1 =
+// Active OQL targets.
+export type OqlActiveTarget =
   | 'code'
   | 'content'
   | 'structure'
@@ -26,12 +27,12 @@ export type OqlActiveTargetV1 =
   // stable local checkpoint (not a side-effect of a search).
   | 'materialize';
 
-// V3 (fixes/dataflow) remain reserved — they need engine proof support.
+// Reserved capabilities need proof/dry-run engines before they become targets.
 export type OqlReservedTarget = 'fixes' | 'dataflow';
 
-export type OqlTarget = OqlActiveTargetV1 | OqlReservedTarget;
+export type OqlTarget = OqlActiveTarget | OqlReservedTarget;
 
-export const ACTIVE_TARGETS: readonly OqlActiveTargetV1[] = [
+export const ACTIVE_TARGETS: readonly OqlActiveTarget[] = [
   'code',
   'content',
   'structure',
@@ -53,7 +54,7 @@ export const RESERVED_TARGETS: readonly OqlReservedTarget[] = [
 ];
 
 /** Targets that do not need a code corpus (provider/registry discovery). */
-export const CORPUS_OPTIONAL_TARGETS: readonly OqlActiveTargetV1[] = [
+export const CORPUS_OPTIONAL_TARGETS: readonly OqlActiveTarget[] = [
   'packages',
   'repositories',
 ];
@@ -231,10 +232,10 @@ export type SelectField = string;
 
 export type QueryView = 'discovery' | 'paginated' | 'detailed';
 
-export interface OqlQueryV1 {
-  schema: 'oql/v1';
+export interface OqlQuery {
+  schema: 'oql';
   id?: string;
-  target: OqlActiveTargetV1;
+  target: OqlActiveTarget;
   from?: QuerySource;
   scope?: QueryScope;
   where?: Predicate;
@@ -247,18 +248,17 @@ export interface OqlQueryV1 {
   page?: number;
   itemsPerPage?: number;
   /**
-   * Target-specific parameter bag for V2 research targets (semantics,
-   * repositories, packages, pullRequests, commits, artifacts, diff). The
-   * backing tool's schema validates it; the planner only routes by target.
+   * Target-specific parameter bag. The backing tool's schema remains the
+   * exhaustive validator; OQL validates the documented common fields early.
    */
   params?: Record<string, unknown>;
   explain?: boolean;
 }
 
-export interface OqlBatchV1 {
-  schema: 'oql/v1';
+export interface OqlBatch {
+  schema: 'oql';
   id?: string;
-  queries: OqlQueryV1[];
+  queries: OqlQuery[];
   combine?: 'independent' | 'merge';
   limit?: number;
   page?: number;
@@ -266,10 +266,10 @@ export interface OqlBatchV1 {
   explain?: boolean;
 }
 
-export type OqlCanonicalInputV1 = OqlQueryV1 | OqlBatchV1;
+export type OqlCanonicalInput = OqlQuery | OqlBatch;
 
-export interface OqlInputQueryV1 {
-  schema?: 'oql/v1';
+export interface OqlInputQuery {
+  schema?: 'oql';
   id?: string;
   target: OqlTarget;
   from?: QuerySource;
@@ -299,10 +299,10 @@ export interface OqlInputQueryV1 {
   [key: string]: unknown;
 }
 
-export interface OqlInputBatchV1 {
-  schema?: 'oql/v1';
+export interface OqlInputBatch {
+  schema?: 'oql';
   id?: string;
-  queries: OqlInputQueryV1[];
+  queries: OqlInputQuery[];
   combine?: 'independent' | 'merge';
   limit?: number;
   page?: number;
@@ -310,7 +310,7 @@ export interface OqlInputBatchV1 {
   explain?: boolean;
 }
 
-export type OqlSearchInputV1 = OqlInputQueryV1 | OqlInputBatchV1;
+export type OqlSearchInput = OqlInputQuery | OqlInputBatch;
 
 /* ----------------------------- diagnostics ------------------------------ */
 
@@ -354,7 +354,7 @@ export interface OqlDiagnostic {
   blocksAnswer: boolean;
   repair?: {
     message: string;
-    suggestedQuery?: OqlSearchInputV1;
+    suggestedQuery?: OqlSearchInput;
   };
   continuation?: OqlContinuation;
 }
@@ -380,7 +380,7 @@ export interface OqlBackendCall {
 
 export interface OqlExplainPlan {
   input: unknown;
-  normalized: OqlCanonicalInputV1;
+  normalized: OqlCanonicalInput;
   defaults: Record<string, unknown>;
   nodes: OqlPlanNode[];
   backendCalls: OqlBackendCall[];
@@ -467,9 +467,9 @@ export interface OqlContentResultRow {
 }
 
 /**
- * Generic record row for V2 research targets whose payload is the backing
- * tool's typed result (repository, package, PR, commit, symbol/location,
- * artifact, diff). `recordType` names the family; `data` is the row payload.
+ * Generic record row for targets whose payload is a typed research object
+ * (repository, package, PR, commit, symbol/location, artifact, diff, packet).
+ * `recordType` names the family; `data` is the row payload.
  */
 export interface OqlRecordResultRow {
   kind: 'record';
@@ -653,7 +653,7 @@ export interface OqlProvenance {
 }
 
 export interface OqlContinuation {
-  query: OqlCanonicalInputV1;
+  query: OqlCanonicalInput;
   baseQueryId?: string;
   queryIndex?: number;
   why: string;
@@ -693,16 +693,12 @@ export interface OqlBatchResultEnvelope {
 
 export type OqlRunResult = OqlResultEnvelope | OqlBatchResultEnvelope;
 
-export function isBatchInput(
-  input: OqlSearchInputV1
-): input is OqlInputBatchV1 {
-  return Array.isArray((input as OqlInputBatchV1).queries);
+export function isBatchInput(input: OqlSearchInput): input is OqlInputBatch {
+  return Array.isArray((input as OqlInputBatch).queries);
 }
 
-export function isCanonicalBatch(
-  input: OqlCanonicalInputV1
-): input is OqlBatchV1 {
-  return Array.isArray((input as OqlBatchV1).queries);
+export function isCanonicalBatch(input: OqlCanonicalInput): input is OqlBatch {
+  return Array.isArray((input as OqlBatch).queries);
 }
 
 export function isBatchEnvelope(

@@ -33,7 +33,7 @@ Every capability below has at least one eval row.
 
 ---
 
-## V1 — code (`localSearchCode` / `ghSearchCode`)
+## Active — code (`localSearchCode` / `ghSearchCode`)
 
 | # | Question | Tool |
 |---|---|---|
@@ -48,7 +48,7 @@ Every capability below has at least one eval row.
 | 8b | **Context per line**: matches with 3 lines of surrounding context (detailed). | `octocode search --query '{"target":"code","from":{"kind":"local","path":"<DIR>"},"where":{"kind":"text","value":"diagnostic"},"view":"detailed","controls":{"search":{"matchContentLength":500}}}'` |
 | 8c | **Enumerate** each hit on a minified one-liner (`onlyMatching` + window). | `octocode search --query '{"target":"code","from":{"kind":"local","path":"<DIR>"},"where":{"kind":"regex","value":"\\bdiagnostic\\b"},"controls":{"search":{"onlyMatching":true,"unique":true,"matchWindow":20}}}'` |
 
-## V1 — content (`localGetFileContent` / `ghGetFileContent`)
+## Active — content (`localGetFileContent` / `ghGetFileContent`)
 
 | # | Question | Tool |
 |---|---|---|
@@ -61,14 +61,14 @@ Every capability below has at least one eval row.
 | 11d | PR body content view supports `none`/`standard` only (not `symbols`). | `octocode search --query '{"target":"pullRequests","from":{"kind":"github","repo":"<repo>"},"params":{"prNumber":<N>,"minify":"none"}}'` |
 | 12 | Is `where` on content rejected (no silent drop)? | `octocode search --query '{"target":"content","from":{"kind":"local","path":"x"},"where":{"kind":"text","value":"y"}}'` |
 
-## V1 — structure (`localViewStructure` / `ghViewRepoStructure`)
+## Active — structure (`localViewStructure` / `ghViewRepoStructure`)
 
 | # | Question | Tool |
 |---|---|---|
 | 13 | What's the directory tree (depth 1) with sizes? | `octocode search --query '{"target":"structure","from":{"kind":"local","path":"<DIR>"},"fetch":{"tree":{"maxDepth":1,"includeSizes":true}}}'` |
 | 14 | Browse a GitHub repo's top-level tree. | `octocode search --query '{"target":"structure","from":{"kind":"github","repo":"<repo>"},"fetch":{"tree":{"maxDepth":1}}}'` |
 
-## V1 — files (`localFindFiles`)
+## Active — files (`localFindFiles`)
 
 | # | Question | Tool |
 |---|---|---|
@@ -77,7 +77,7 @@ Every capability below has at least one eval row.
 | 17 | Files that do NOT contain a term (negation, local universe). | `octocode search --query '{"target":"files","from":{"kind":"local","path":"<DIR>"},"where":{"kind":"not","predicate":{"kind":"text","value":"TODO"}}}'` |
 | 18 | Files modified within the last week. | `octocode search --query '{"target":"files","from":{"kind":"local","path":"<DIR>"},"where":{"kind":"field","field":"modified","op":"within","value":"7d"}}'` |
 
-## V2 — semantics (`lspGetSemantics`)
+## Active — semantics (`lspGetSemantics`)
 
 | # | Question | Tool |
 |---|---|---|
@@ -89,21 +89,21 @@ Every capability below has at least one eval row.
 | 21d | Other 5 LSP ops — `callees`, `callHierarchy`, `typeDefinition`, `implementation` (member), and grouped/paged output. | `octocode search --query '{"target":"semantics","from":{"kind":"local","path":"<DIR>/file.ts"},"params":{"type":"callHierarchy","symbolName":"X","lineHint":<N>,"groupByFile":true}}'` |
 | 22 | Resolve a symbol semantically in a GitHub file (clone→LSP). | `octocode search --query '{"target":"semantics","from":{"kind":"github","repo":"<repo>"},"params":{"type":"definition","uri":"src/x.ts","symbolName":"X","lineHint":<N>}}'` |
 
-## V2 — repositories (`ghSearchRepos`)
+## Active — repositories (`ghSearchRepos`)
 
 | # | Question | Tool |
 |---|---|---|
 | 23 | Find repos about "tree-sitter", top 5 by relevance. | `octocode search --query '{"target":"repositories","params":{"keywords":["tree-sitter"],"limit":5}}'` |
 | 24 | Find TypeScript repos with >1000 stars on a topic. | `octocode search --query '{"target":"repositories","params":{"topicsToSearch":["parser"],"language":"typescript","stars":">1000"}}'` |
 
-## V2 — packages (`npmSearch`)
+## Active — packages (`npmSearch`)
 
 | # | Question | Tool |
 |---|---|---|
 | 25 | What is the npm package `zod` (version, repo)? | `octocode search --query '{"target":"packages","params":{"packageName":"zod"}}'` |
 | 26 | Discover packages by keyword. | `octocode search --query '{"target":"packages","params":{"keywords":["json schema"],"mode":"lean"}}'` |
 
-## V2 — pullRequests / commits / diff (`ghHistoryResearch`)
+## Active — pullRequests / commits / diff (`ghHistoryResearch`)
 
 | # | Question | Tool |
 |---|---|---|
@@ -112,7 +112,7 @@ Every capability below has at least one eval row.
 | 29 | Commit history for a path. | `octocode search --query '{"target":"commits","from":{"kind":"github","repo":"<repo>"},"params":{"path":"src","limit":5}}'` |
 | 30 | The patch/diff of a specific PR. | `octocode search --query '{"target":"diff","from":{"kind":"github","repo":"<repo>"},"params":{"prNumber":<N>}}'` |
 
-## V2 — artifacts (`localBinaryInspect`)
+## Active — artifacts (`localBinaryInspect`)
 
 | # | Question | Tool |
 |---|---|---|
@@ -129,7 +129,7 @@ Every capability below has at least one eval row.
 | P3 | Char-window a large content body (`charOffset`/`charLength` → `next.charRange`). | `octocode search --query '{"target":"content","from":{"kind":"local","path":"<DIR>/big.ts"},"fetch":{"content":{"charOffset":0,"charLength":2000}}}'` |
 | P4 | Page GitHub repo/PR/commit result rows (provider page). | `octocode search --query '{"target":"repositories","params":{"keywords":["parser"],"limit":5,"page":2}}'` |
 
-## Reserved (V3) — must refuse
+## Reserved — must refuse
 
 | # | Question | Tool |
 |---|---|---|

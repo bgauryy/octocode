@@ -27,14 +27,6 @@ vi.mock('../../octocode-tools-core/src/providers/factory.js', () => ({
 vi.mock('../../octocode-tools-core/src/github/client.js', () => ({
   clearOctokitInstances: vi.fn(),
 }));
-vi.mock('../../octocode-tools-core/src/session.js', () => ({
-  initializeSession: vi
-    .fn()
-    .mockReturnValue({ getSessionId: () => 'test-session-id' }),
-  logSessionInit: vi.fn().mockResolvedValue(undefined),
-  logSessionError: vi.fn().mockResolvedValue(undefined),
-  logToolCall: vi.fn().mockResolvedValue(undefined),
-}));
 vi.mock('octocode-security/withSecurityValidation', () => ({
   configureSecurity: vi.fn(),
 }));
@@ -54,19 +46,6 @@ vi.mock(
     stopCacheGC: vi.fn(),
   })
 );
-vi.mock('../src/utils/core/logger.js', () => {
-  const mockLogger = {
-    info: vi.fn().mockResolvedValue(undefined),
-    warning: vi.fn().mockResolvedValue(undefined),
-    error: vi.fn().mockResolvedValue(undefined),
-  };
-  return {
-    createLogger: vi.fn().mockReturnValue(mockLogger),
-    LoggerFactory: { getLogger: vi.fn().mockReturnValue(mockLogger) },
-    Logger: vi.fn(),
-  };
-});
-
 import { registerGitHubSearchCodeTool } from '../src/tools/github_search_code/github_search_code.js';
 import { registerFetchGitHubFileContentTool } from '../src/tools/github_fetch_content/github_fetch_content.js';
 import { registerSearchGitHubReposTool } from '../src/tools/github_search_repos/github_search_repos.js';
@@ -214,7 +193,6 @@ describe('Index Module', () => {
       disableTools: [],
       timeout: 30000,
       maxRetries: 3,
-      loggingEnabled: true,
       enableLocal: false,
       enableClone: false,
       outputFormat: 'yaml',

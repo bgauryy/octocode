@@ -87,6 +87,24 @@ structure, history) lives in `src/github/`.
   `./paths`, `./fs-utils`, `./testing` — focused subpath entries (see
   `package.json#exports`).
 
+## Distribution
+
+`@octocodeai/octocode-tools-core` is a workspace-only build package. It is not
+published to npm and should not appear in any interface package's published
+runtime `dependencies`.
+
+- `octocode-mcp` and `octocode` list tools-core as a workspace
+  `devDependency` so local builds can import the source package.
+- Their esbuild bundles inline tools-core into the shipped `dist/` or `out/`
+  entrypoints.
+- Runtime dependencies that cannot be bundled — most importantly
+  `@octocodeai/octocode-engine` and its native platform packages — are declared
+  directly by the interface packages.
+
+This keeps the source ownership centralized here while making npm installs
+resolve as `octocode-mcp` / `octocode` → `@octocodeai/octocode-engine` → one
+platform `.node` package.
+
 ## Rules
 
 - Keep logic here, not in consumers — the CLI/MCP only select and render.

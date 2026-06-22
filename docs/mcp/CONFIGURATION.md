@@ -69,9 +69,6 @@ The file is JSON with comments/trailing commas tolerated. Tokens do not belong h
     "timeout": 30000,
     "maxRetries": 3
   },
-  "telemetry": {
-    "logging": true
-  },
   "lsp": {
     "configPath": null
   },
@@ -100,7 +97,6 @@ Invalid file values fall back to defaults or env overrides. Unknown keys warn an
 | `DISABLE_TOOLS` | `tools.disabled` | `null` | Remove tools from the default enabled set. |
 | `REQUEST_TIMEOUT` | `network.timeout` | `30000` | Request timeout in ms. Clamped to `5000..300000`. |
 | `MAX_RETRIES` | `network.maxRetries` | `3` | Retry attempts. Clamped to `0..10`. |
-| `LOG` | `telemetry.logging` | `true` | Remote/session logging switch. `false` or `0` disables. |
 | `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | unset | Custom LSP server config path. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | `yaml` or `json`. |
 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | `20000` | Auto-pagination character budget. Clamped to `1000..50000`. |
@@ -126,7 +122,6 @@ Env-only options:
 | Boolean | `"true"` / `"1"` / `"false"` / `"0"` | `true` / `false` |
 | Number | Integer string | Number |
 | List | Comma-separated string, such as `"a,b,c"` | JSON array |
-| Logging | `"false"` or `"0"` disables; anything else enables | Boolean |
 
 ## Important Interactions
 
@@ -135,7 +130,6 @@ Env-only options:
 - **Surface-specific local/clone defaults.** The CLI honors `ENABLE_LOCAL` and defaults local tools on; clone is enabled by default. The MCP server honors `ENABLE_LOCAL` and defaults local tools and clone off. Explicit env or `.octocoderc` values override those defaults; clone always requires local enabled.
 - LSP requires local tools enabled. If `OCTOCODE_LSP_CONFIG` is unset, Octocode checks `<workspace>/.octocode/lsp-servers.json`, then `<octocode-home>/lsp-servers.json`.
 - `WORKSPACE_ROOT` env overrides `local.workspaceRoot`.
-- `LOG=false` disables remote/session logging, but local usage stats may still be updated.
 
 ## Local State
 
@@ -153,7 +147,6 @@ All state lives under Octocode home, a fixed per-platform directory (macOS `~/.o
 | `tmp/tree/` | GitHub API file/tree materialization cache. |
 | `tmp/binary/` | Text derived from binary/archive modes such as `extract`, `decompress`, and `strings`. |
 | `tmp/unzip/` | Archive unpack output from `localBinaryInspect` / `unzip`. |
-| `logs/` | Local logs. |
 | `lsp-servers.json` | User-level LSP server config. |
 
 Architecture details: [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) · [Session](https://github.com/bgauryy/octocode/blob/main/docs/mcp/SESSION.md)

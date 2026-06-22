@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeWithErrorIsolation } from '../../../octocode-tools-core/src/utils/core/promise.js';
 
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 describe('promiseUtils - Branch Coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -6,7 +6,7 @@ import { normalizeQuery, normalizeInput } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
 import { runOqlSearch } from '../../src/oql/run.js';
 import { OqlValidationError } from '../../src/oql/diagnostics.js';
-import { isBatchEnvelope, type OqlQueryV1 } from '../../src/oql/types.js';
+import { isBatchEnvelope, type OqlQuery } from '../../src/oql/types.js';
 
 const OQL_SRC = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -27,7 +27,7 @@ describe('review fix #1: executable next.* continuations', () => {
       })
     );
     const code = env.results.find(r => r.kind === 'code') as {
-      next?: Record<string, { query: OqlQueryV1 }>;
+      next?: Record<string, { query: OqlQuery }>;
     };
     const fetch = code.next?.['next.fetch'];
     expect(fetch).toBeDefined();
@@ -47,8 +47,8 @@ describe('review fix #1: executable next.* continuations', () => {
   });
 });
 
-describe('review fix #3: unsupported evidence (not partial)', () => {
-  it('boolean predicate over target:"code" -> unsupported', async () => {
+describe('boolean predicate over target:"code" executes (set algebra)', () => {
+  it('all(text,text) -> match rows from files matching both, not unsupported', async () => {
     const env = single(
       await runOqlSearch({
         target: 'code',
@@ -56,16 +56,39 @@ describe('review fix #3: unsupported evidence (not partial)', () => {
         where: {
           kind: 'all',
           of: [
-            { kind: 'text', value: 'a' },
-            { kind: 'text', value: 'b' },
+            { kind: 'text', value: 'diagnostic' },
+            { kind: 'text', value: 'export' },
           ],
         },
       })
     );
-    expect(env.evidence.kind).toBe('unsupported');
+    // Boolean over code is now implemented via file-set algebra; it must NOT
+    // report unsupported, and rows are code occurrences.
+    expect(env.evidence.kind).not.toBe('unsupported');
     expect(env.diagnostics.some(d => d.code === 'unsupportedBoolean')).toBe(
-      true
+      false
     );
+    expect(env.results.every(r => r.kind === 'code')).toBe(true);
+    expect(env.results.length).toBeGreaterThan(0);
+  });
+
+  it('any(text,text) -> union of occurrences', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: {
+          kind: 'any',
+          of: [
+            { kind: 'text', value: 'requiresMaterialization' },
+            { kind: 'text', value: 'negativeUniverseRequired' },
+          ],
+        },
+      })
+    );
+    expect(env.evidence.kind).not.toBe('unsupported');
+    expect(env.results.length).toBeGreaterThan(0);
+    expect(env.results.every(r => r.kind === 'code')).toBe(true);
   });
 });
 
@@ -96,7 +119,7 @@ describe('review fix #5: unbounded materialization blocks', () => {
       from: { kind: 'github', repo: 'facebook/react' },
       where: { kind: 'structural', lang: 'js', pattern: 'x($A)' },
       materialize: { mode: 'required', strategy: 'subtree' },
-    } as never) as OqlQueryV1;
+    } as never) as OqlQuery;
     const { executable, plan } = planQuery(q, {});
     expect(executable).toBe(false);
     expect(

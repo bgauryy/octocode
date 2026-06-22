@@ -314,7 +314,7 @@ function renderRow(row: OqlResultEnvelope['results'][number]): string {
   }
 }
 
-/** Render a V2 record row meaningfully per recordType (id + key fields). */
+/** Render a record row meaningfully per recordType (id + key fields). */
 function renderRecord(row: {
   recordType: string;
   id?: string;

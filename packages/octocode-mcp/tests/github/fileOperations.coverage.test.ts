@@ -9,11 +9,7 @@ import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache
 import { RequestError } from 'octokit';
 import * as minifierModule from '@octocodeai/octocode-engine';
 
-vi.mock('../../../octocode-tools-core/src/github/client.js');
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-vi.mock('@octocodeai/octocode-engine', async importOriginal => {
+vi.mock('../../../octocode-tools-core/src/github/client.js');vi.mock('@octocodeai/octocode-engine', async importOriginal => {
   const actual = await importOriginal();
   return { ...actual, minifyContent: vi.fn(), minifyContentSync: vi.fn() };
 });

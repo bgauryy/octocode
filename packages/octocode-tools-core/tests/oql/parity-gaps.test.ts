@@ -11,7 +11,7 @@ describe('parity gap #1: --scheme query.target lists every active target', () =>
       expect(doc.query.target).toContain(t);
     }
   });
-  it('per-target params hints exist for V2 targets', () => {
+  it('per-target params hints exist for research targets', () => {
     for (const t of [
       'semantics',
       'repositories',
@@ -30,7 +30,7 @@ describe('parity gap #1: --scheme query.target lists every active target', () =>
 });
 
 describe('parity gap #2: unsupportedTarget repair names current active targets', () => {
-  it('repair message lists active targets, not the old V1-only set', () => {
+  it('repair message lists active targets, not the old code-only set', () => {
     try {
       normalizeQuery({
         target: 'fixes',

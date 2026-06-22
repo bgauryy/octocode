@@ -102,10 +102,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   isCloneEnabled: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(),
-}));
-
 import { ALL_TOOLS, type ToolConfig } from '../../src/tools/toolConfig.js';
 import {
   getServerConfig,
@@ -116,13 +112,11 @@ import {
   TOOL_NAMES,
   isToolInMetadata,
 } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
-import { logSessionError } from '../../../octocode-tools-core/src/session.js';
 
 const mockGetServerConfig = vi.mocked(getServerConfig);
 const mockIsToolAvailableSync = vi.mocked(isToolInMetadata);
 const mockIsLocalEnabled = vi.mocked(isLocalEnabled);
 const mockIsCloneEnabled = vi.mocked(isCloneEnabled);
-const mockLogSessionError = vi.mocked(logSessionError);
 
 describe('ToolsManager', () => {
   let mockServer: McpServer;
@@ -156,7 +150,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -200,7 +193,6 @@ describe('ToolsManager', () => {
         toolsToRun: allowedTools,
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -237,7 +229,6 @@ describe('ToolsManager', () => {
         ],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -265,7 +256,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['nonExistentTool1', 'nonExistentTool2'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -292,7 +282,6 @@ describe('ToolsManager', () => {
         enableTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -324,7 +313,6 @@ describe('ToolsManager', () => {
         disableTools: [TOOL_NAMES.GITHUB_FETCH_CONTENT],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -347,7 +335,6 @@ describe('ToolsManager', () => {
         disableTools: [TOOL_NAMES.GITHUB_FETCH_CONTENT],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -370,7 +357,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['ghSearchCode'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -397,7 +383,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['localSearchCode', 'localGetFileContent'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -431,7 +416,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['localSearchCode', 'ghSearchCode'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -458,7 +442,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['ghCloneRepo', 'ghSearchCode'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -485,7 +468,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['ghCloneRepo'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: true,
         outputFormat: 'yaml',
@@ -514,7 +496,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['experimentalDebugTool'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -541,7 +522,6 @@ describe('ToolsManager', () => {
         toolsToRun: [],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -573,7 +553,6 @@ describe('ToolsManager', () => {
         toolsToRun: ['ghSearchCode', 'localSearchCode', 'localFindFiles'],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -610,7 +589,6 @@ describe('ToolsManager', () => {
         enableTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -640,7 +618,6 @@ describe('ToolsManager', () => {
         ],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -663,7 +640,6 @@ describe('ToolsManager', () => {
         disableTools: [TOOL_NAMES.GITHUB_SEARCH_CODE],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -686,7 +662,6 @@ describe('ToolsManager', () => {
         disableTools: [TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS],
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -709,7 +684,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -736,7 +710,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -769,7 +742,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -799,7 +771,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -823,7 +794,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -851,7 +821,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -876,7 +845,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -890,8 +858,6 @@ describe('ToolsManager', () => {
       ALL_TOOLS.forEach(tool => {
         expect(tool.fn).not.toHaveBeenCalled();
       });
-
-      expect(mockLogSessionError).toHaveBeenCalledTimes(9);
     });
   });
 
@@ -903,7 +869,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -945,7 +910,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',
@@ -995,7 +959,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -1027,7 +990,6 @@ describe('ToolsManager', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 30000,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: false,
         enableClone: false,
         outputFormat: 'yaml',

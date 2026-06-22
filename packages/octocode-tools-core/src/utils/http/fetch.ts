@@ -1,11 +1,9 @@
 import { version } from '../../../package.json';
 import { FETCH_ERRORS } from '../../errors/domainErrors.js';
 import {
-  logPackageRegistryFailure,
-  logRateLimit,
-  logSessionError,
+  recordPackageRegistryFailure,
+  recordRateLimit,
 } from '../../session.js';
-import { ignoreBestEffortFailure } from '../core/bestEffort.js';
 import {
   assertCircuitAvailable,
   recordCircuitFailure,
@@ -52,13 +50,13 @@ function recordFetchRateLimit(
 ): void {
   if (!provider) return;
 
-  void logRateLimit({
+  recordRateLimit({
     limit_type: 'primary',
     retry_after_seconds: parseRetryAfterSeconds(headers),
     api_method: method,
     api_url: url,
     provider,
-  }).catch(ignoreBestEffortFailure('fetch rate-limit session logging'));
+  });
 }
 
 function buildHttpResponseError(
@@ -68,13 +66,8 @@ function buildHttpResponseError(
   packageRegistry: string | undefined,
   rateLimitProvider: string | undefined
 ): ExtendedError {
-  res.body
-    ?.cancel?.()
-    .catch(ignoreBestEffortFailure('response body cancellation'));
+  res.body?.cancel?.().catch(() => {});
 
-  logSessionError('fetchWithRetries', FETCH_ERRORS.FETCH_HTTP_ERROR.code).catch(
-    ignoreBestEffortFailure('fetch retry session logging')
-  );
   const error = new Error(
     FETCH_ERRORS.FETCH_HTTP_ERROR.message(res.status, res.statusText)
   ) as ExtendedError;
@@ -83,7 +76,7 @@ function buildHttpResponseError(
   error.headers = res.headers;
 
   if (packageRegistry && res.status !== 404) {
-    logPackageRegistryFailure(packageRegistry);
+    recordPackageRegistryFailure(packageRegistry);
   }
 
   if (res.status === 429) {
@@ -150,10 +143,6 @@ export async function fetchWithRetries(
 
   const f = globalThis.fetch;
   if (!f) {
-    logSessionError(
-      'fetchWithRetries',
-      FETCH_ERRORS.FETCH_NOT_AVAILABLE.code
-    ).catch(ignoreBestEffortFailure('fetch retry session logging'));
     throw new Error(FETCH_ERRORS.FETCH_NOT_AVAILABLE.message);
   }
 
@@ -225,10 +214,6 @@ export async function fetchWithRetries(
 
   recordCircuitFailure(finalUrl);
 
-  await logSessionError(
-    'fetchWithRetries',
-    FETCH_ERRORS.FETCH_FAILED_AFTER_RETRIES.code
-  );
   throw new Error(
     FETCH_ERRORS.FETCH_FAILED_AFTER_RETRIES.message(
       maxAttempts,

@@ -8,7 +8,6 @@ import { withSecurityValidation } from '@octocodeai/octocode-tools-core';
 import {
   DESCRIPTIONS,
   invokeCallbackSafely,
-  logSessionError,
 } from '@octocodeai/octocode-tools-core';
 import type {
   ToolInvocationCallback,
@@ -98,16 +97,12 @@ export function createRemoteToolRegistration<TQuery>(
       );
     };
 
-    if (registrationGuard) {
-      return registrationGuard().then(ok => {
-        if (ok) return doRegister();
-        void logSessionError(
-          name,
-          'registration-skipped: registrationGuard returned false (precondition unmet)'
-        );
-        return null;
-      });
-    }
+          if (registrationGuard) {
+            return registrationGuard().then(ok => {
+              if (ok) return doRegister();
+              return null;
+            });
+          }
     return doRegister();
   };
 }

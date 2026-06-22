@@ -54,7 +54,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
     token: 'mock-token',
   })),
   getActiveProvider: mockGetActiveProvider,
-  isLoggingEnabled: vi.fn(() => false),
   isCloneEnabled: mockIsCloneEnabled,
 }));
 

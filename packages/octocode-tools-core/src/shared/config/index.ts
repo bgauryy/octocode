@@ -7,7 +7,6 @@ export type {
   LocalConfigOptions,
   ToolsConfigOptions,
   NetworkConfigOptions,
-  TelemetryConfigOptions,
   LspConfigOptions,
   OutputConfigOptions,
   OutputPaginationConfigOptions,
@@ -15,7 +14,6 @@ export type {
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
-  RequiredTelemetryConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
@@ -30,7 +28,6 @@ export {
   DEFAULT_LOCAL_CONFIG,
   DEFAULT_TOOLS_CONFIG,
   DEFAULT_NETWORK_CONFIG,
-  DEFAULT_TELEMETRY_CONFIG,
   DEFAULT_LSP_CONFIG,
   DEFAULT_OUTPUT_CONFIG,
   MIN_TIMEOUT,
@@ -64,8 +61,6 @@ export {
   _resetConfigCache,
   _getCacheState,
 } from './resolver.js';
-
-export { parseLoggingEnv } from './resolverSections.js';
 
 export {
   setRuntimeSurface,

@@ -9,8 +9,7 @@ import {
   RATE_LIMIT_CONFIG,
   type ErrorCode,
 } from './errorConstants.js';
-import { logRateLimit } from '../session.js';
-import { ignoreBestEffortFailure } from '../utils/core/bestEffort.js';
+import { recordRateLimit } from '../session.js';
 
 const NO_RESULTS_SEARCH_PHRASES = [
   'cannot be searched',
@@ -106,13 +105,13 @@ function handle429RateLimit(
         )
       : undefined);
 
-  logRateLimit({
+  recordRateLimit({
     limit_type: 'primary',
     retry_after_seconds: retryAfterSeconds,
     rate_limit_remaining: remaining,
     rate_limit_reset_ms: resetTime ? resetTime.getTime() : undefined,
     provider: 'github',
-  }).catch(ignoreBestEffortFailure('rate-limit logging'));
+  });
 
   return createErrorResponse(ERROR_CODES.RATE_LIMIT_PRIMARY, {
     error:
@@ -157,11 +156,11 @@ function handleSecondaryRateLimit(
     ? parsed
     : RATE_LIMIT_CONFIG.SECONDARY_FALLBACK_SECONDS;
 
-  logRateLimit({
+  recordRateLimit({
     limit_type: 'secondary',
     retry_after_seconds: retryAfter,
     provider: 'github',
-  }).catch(ignoreBestEffortFailure('rate-limit logging'));
+  });
 
   return createErrorResponse(ERROR_CODES.RATE_LIMIT_SECONDARY, {
     error: ERROR_MESSAGES[ERROR_CODES.RATE_LIMIT_SECONDARY].message(retryAfter),
@@ -195,13 +194,13 @@ function handlePrimaryRateLimit(
       )
     : ERROR_MESSAGES[ERROR_CODES.RATE_LIMIT_PRIMARY].messageWithoutTime;
 
-  logRateLimit({
+  recordRateLimit({
     limit_type: 'primary',
     retry_after_seconds: retryAfterSeconds,
     rate_limit_remaining: 0,
     rate_limit_reset_ms: resetTime ? resetTime.getTime() : undefined,
     provider: 'github',
-  }).catch(ignoreBestEffortFailure('rate-limit logging'));
+  });
 
   return createErrorResponse(ERROR_CODES.RATE_LIMIT_PRIMARY, {
     error: errorMessage,

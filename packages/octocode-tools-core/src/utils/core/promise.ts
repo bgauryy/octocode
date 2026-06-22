@@ -6,18 +6,12 @@ import {
   VALIDATION_ERRORS,
   PROMISE_ERRORS,
 } from '../../errors/domainErrors.js';
-import { logSessionError } from '../../session.js';
-import { ignoreBestEffortFailure } from './bestEffort.js';
 
 export async function executeWithErrorIsolation<T>(
   promises: Array<() => Promise<T>>,
   options: PromiseExecutionOptions = {}
 ): Promise<PromiseResult<T>[]> {
   if (!Array.isArray(promises)) {
-    logSessionError(
-      'promiseUtils',
-      VALIDATION_ERRORS.PROMISES_NOT_ARRAY.code
-    ).catch(ignoreBestEffortFailure('promise utility session logging'));
     throw new Error(VALIDATION_ERRORS.PROMISES_NOT_ARRAY.message);
   }
 
@@ -28,17 +22,9 @@ export async function executeWithErrorIsolation<T>(
   const { timeout = 30000, concurrency = promises.length, onError } = options;
 
   if (timeout <= 0) {
-    logSessionError(
-      'promiseUtils',
-      VALIDATION_ERRORS.TIMEOUT_NOT_POSITIVE.code
-    ).catch(ignoreBestEffortFailure('promise utility session logging'));
     throw new Error(VALIDATION_ERRORS.TIMEOUT_NOT_POSITIVE.message);
   }
   if (concurrency <= 0) {
-    logSessionError(
-      'promiseUtils',
-      VALIDATION_ERRORS.CONCURRENCY_NOT_POSITIVE.code
-    ).catch(ignoreBestEffortFailure('promise utility session logging'));
     throw new Error(VALIDATION_ERRORS.CONCURRENCY_NOT_POSITIVE.message);
   }
 
@@ -46,10 +32,6 @@ export async function executeWithErrorIsolation<T>(
     typeof promiseFn === 'function'
       ? promiseFn
       : () => {
-          logSessionError(
-            'promiseUtils',
-            PROMISE_ERRORS.NOT_A_FUNCTION.code
-          ).catch(ignoreBestEffortFailure('promise utility session logging'));
           return Promise.reject(
             new Error(PROMISE_ERRORS.NOT_A_FUNCTION.message(index))
           );
@@ -107,9 +89,6 @@ async function createIsolatedPromise<T>(
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
-        logSessionError('promiseUtils', PROMISE_ERRORS.TIMEOUT.code).catch(
-          () => {}
-        );
         reject(new Error(PROMISE_ERRORS.TIMEOUT.message(index, timeout)));
       }, timeout);
     });
@@ -159,10 +138,6 @@ async function executeWithConcurrencyLimit<T>(
       const promiseFn = promiseFns[currentIndex];
 
       if (!promiseFn) {
-        logSessionError(
-          'promiseUtils',
-          PROMISE_ERRORS.FUNCTION_UNDEFINED.code
-        ).catch(ignoreBestEffortFailure('promise utility session logging'));
         results[currentIndex] = {
           success: false,
           error: new Error(PROMISE_ERRORS.FUNCTION_UNDEFINED.message),

@@ -40,7 +40,7 @@ describe('OQL local execution (target:"code")', () => {
       await runOqlSearch({
         target: 'code',
         from: { kind: 'local', path: OQL_SRC },
-        where: { kind: 'text', value: 'OqlQueryV1' },
+        where: { kind: 'text', value: 'OqlQuery' },
         view: 'discovery',
       })
     );
@@ -124,7 +124,7 @@ describe('OQL runner: validation + dry-run + GitHub routing', () => {
     expect(env.diagnostics.some(d => d.code === 'invalidQuery')).toBe(true);
   });
 
-  it('reserved (V3) target -> unsupported envelope with unsupportedTarget', async () => {
+  it('reserved target -> unsupported envelope with unsupportedTarget', async () => {
     const env = single(
       await runOqlSearch({
         target: 'dataflow',

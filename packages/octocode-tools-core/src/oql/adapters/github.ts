@@ -21,7 +21,7 @@ import type {
   OqlCodeResultRow,
   OqlContentResultRow,
   OqlDiagnostic,
-  OqlQueryV1,
+  OqlQuery,
   OqlTreeResultRow,
   QueryScope,
   QuerySource,
@@ -82,39 +82,108 @@ function emptyProviderDiag(rowCount: number, backend: string): OqlDiagnostic[] {
   ];
 }
 
-export async function executeGithub(query: OqlQueryV1): Promise<AdapterResult> {
+export async function executeGithub(query: OqlQuery): Promise<AdapterResult> {
   switch (query.target) {
     case 'content':
       return githubContent(query);
     case 'structure':
       return githubStructure(query);
     case 'files':
-      // `files` is an active target; GitHub just can't enumerate files without
-      // materialization — that's requiresMaterialization, not unsupportedTarget.
-      return {
-        results: [],
-        diagnostics: [
-          diagnostic(
-            'requiresMaterialization',
-            'target:"files" over a GitHub source needs materialization to enumerate the file universe; set materialize.mode:"auto" with a bounded scope.path, or use a local source.',
-            { backend: 'localFindFiles' }
-          ),
-        ],
-        provenance: [],
-      };
+      return githubFiles(query);
     case 'code':
     default:
       return githubCode(query);
   }
 }
 
+/**
+ * GitHub `files` lane: list files *containing* a positive text/regex predicate
+ * via path-level code search (approximate). Predicates the provider cannot
+ * enumerate by (field/structural/PCRE2/negation/boolean) are routed to
+ * materialization by the planner and should not reach here; if one does, report
+ * `requiresMaterialization` rather than silently returning nothing.
+ */
+async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
+  const where = query.where;
+  const needsMat = (): AdapterResult => ({
+    results: [],
+    diagnostics: [
+      diagnostic(
+        'requiresMaterialization',
+        'target:"files" over a GitHub source can only list files containing a term via the provider; everything else needs materialization (set materialize.mode:"auto" with a bounded scope.path, or use a local source).',
+        { backend: 'localFindFiles' }
+      ),
+    ],
+    provenance: [],
+  });
+
+  if (!where) return needsMat();
+  const compiled = compileWhere(where);
+  if (
+    compiled.unsupported ||
+    compiled.negate ||
+    compiled.match?.mode === 'structural'
+  ) {
+    return needsMat();
+  }
+
+  const { owner, repo } = splitRepo(ghFrom(query));
+  const toolQuery: Record<string, unknown> = {
+    ...(owner ? { owner } : {}),
+    ...(repo ? { repo } : {}),
+    keywords: [compiled.match?.keywords ?? ''],
+    ...(language(query.scope) ? { language: language(query.scope) } : {}),
+    ...(firstScopePath(query.scope)
+      ? { path: firstScopePath(query.scope) }
+      : {}),
+    ...(query.limit ? { limit: query.limit } : {}),
+    ...(query.page ? { page: query.page } : {}),
+  };
+  const result = await runDirect('ghSearchCode', toolQuery);
+  const data = extractData<{ results?: readonly GitHubSearchCodeGroup[] }>(
+    result
+  );
+  // Distinct file paths — "files containing the term", not per-match rows.
+  const seen = new Set<string>();
+  const rows: import('../types.js').OqlFileResultRow[] = [];
+  for (const group of data?.results ?? []) {
+    for (const match of group.matches) {
+      if (seen.has(match.path)) continue;
+      seen.add(match.path);
+      rows.push({
+        kind: 'file',
+        source: ghFrom(query),
+        path: match.path,
+        entryType: 'file',
+      });
+    }
+  }
+  return {
+    results: rows,
+    diagnostics: [
+      ...statusDiagnostics(result, 'ghSearchCode'),
+      ...emptyProviderDiag(rows.length, 'ghSearchCode'),
+      ...(rows.length > 0
+        ? [
+            diagnostic(
+              'providerSemanticsApproximate',
+              'GitHub lists files containing a term at path level (index may be incomplete); materialize for an exact file set.',
+              { backend: 'ghSearchCode', severity: 'info', blocksAnswer: false }
+            ),
+          ]
+        : []),
+    ],
+    provenance: [{ backend: 'ghSearchCode', source: ghFrom(query) }],
+  };
+}
+
 /** GitHub source, guaranteed by dispatch. */
 type GithubSource = Extract<QuerySource, { kind: 'github' }>;
-function ghFrom(query: OqlQueryV1): GithubSource {
+function ghFrom(query: OqlQuery): GithubSource {
   return (query.from ?? { kind: 'github' }) as GithubSource;
 }
 
-async function githubCode(query: OqlQueryV1): Promise<AdapterResult> {
+async function githubCode(query: OqlQuery): Promise<AdapterResult> {
   const where = query.where!;
   const compiled = compileWhere(where);
   if (compiled.unsupported || compiled.match?.mode === 'structural') {
@@ -183,7 +252,7 @@ async function githubCode(query: OqlQueryV1): Promise<AdapterResult> {
   };
 }
 
-async function githubContent(query: OqlQueryV1): Promise<AdapterResult> {
+async function githubContent(query: OqlQuery): Promise<AdapterResult> {
   const { owner, repo } = splitRepo(ghFrom(query));
   const c = query.fetch?.content;
   const minify =
@@ -204,7 +273,12 @@ async function githubContent(query: OqlQueryV1): Promise<AdapterResult> {
       ? { startLine: c.range.startLine }
       : {}),
     ...(c?.range?.endLine !== undefined ? { endLine: c.range.endLine } : {}),
+    ...(c?.range?.contextLines !== undefined
+      ? { contextLines: c.range.contextLines }
+      : {}),
     ...(c?.match?.text !== undefined ? { matchString: c.match.text } : {}),
+    ...(c?.match?.regex ? { matchStringIsRegex: true } : {}),
+    ...(c?.match?.caseSensitive ? { matchStringCaseSensitive: true } : {}),
     ...(c?.charOffset !== undefined ? { charOffset: c.charOffset } : {}),
     ...(c?.charLength !== undefined ? { charLength: c.charLength } : {}),
     ...(c?.fullContent ? { fullContent: true } : {}),
@@ -258,7 +332,7 @@ async function githubContent(query: OqlQueryV1): Promise<AdapterResult> {
   };
 }
 
-async function githubStructure(query: OqlQueryV1): Promise<AdapterResult> {
+async function githubStructure(query: OqlQuery): Promise<AdapterResult> {
   const { owner, repo } = splitRepo(ghFrom(query));
   const toolQuery: Record<string, unknown> = {
     ...(owner ? { owner } : {}),

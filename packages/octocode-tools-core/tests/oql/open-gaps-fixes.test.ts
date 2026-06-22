@@ -14,11 +14,11 @@ import { normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
 import { checkOutputFeatures } from '../../src/oql/features.js';
 import { mapCodeResult } from '../../src/oql/adapters/resultMap.js';
-import { computeLineDiff, executeDiff } from '../../src/oql/adapters/v2.js';
+import { computeLineDiff, executeDiff } from '../../src/oql/adapters/researchTargets.js';
 import {
   isBatchEnvelope,
   type OqlCodeResultRow,
-  type OqlQueryV1,
+  type OqlQuery,
   type OqlResultEnvelope,
 } from '../../src/oql/types.js';
 
@@ -32,7 +32,7 @@ function single(
   return r;
 }
 function plan(input: unknown) {
-  const q = normalizeQuery(input as never) as OqlQueryV1;
+  const q = normalizeQuery(input as never) as OqlQuery;
   return planQuery(q, input);
 }
 
@@ -70,7 +70,7 @@ describe('gap 11: symbols content view on PR/commit/diff -> signatureUnsupported
       repo: 'facebook/react',
       minify: 'symbols',
       params: { prNumber: 1 },
-    } as never) as OqlQueryV1;
+    } as never) as OqlQuery;
     const codes = checkOutputFeatures(q).map(d => d.code);
     expect(codes).toContain('signatureUnsupported');
   });
@@ -80,7 +80,7 @@ describe('gap 11: symbols content view on PR/commit/diff -> signatureUnsupported
       target: 'content',
       from: { kind: 'local', path: './x.ts' },
       minify: 'symbols',
-    } as never) as OqlQueryV1;
+    } as never) as OqlQuery;
     expect(checkOutputFeatures(q).map(d => d.code)).not.toContain(
       'signatureUnsupported'
     );
@@ -129,7 +129,7 @@ describe('gap 12: structural metavar captures flow into rows', () => {
       pattern: 'foo($$$ARGS)',
       lang: 'ts',
       select: ['metavars'],
-    } as never) as OqlQueryV1;
+    } as never) as OqlQuery;
     expect(checkOutputFeatures(q).map(d => d.code)).not.toContain(
       'partialResult'
     );
@@ -160,11 +160,11 @@ describe('gap 8: computeLineDiff (pure)', () => {
 describe('gap 8: diff with neither prNumber nor base/head refs -> repair', () => {
   it('returns invalidQuery repair instead of a silent PR call', async () => {
     const res = await executeDiff({
-      schema: 'oql/v1',
+      schema: 'oql',
       target: 'diff',
       from: { kind: 'github', repo: 'facebook/react' },
       params: {},
-    } as OqlQueryV1);
+    } as OqlQuery);
     expect(res.results).toHaveLength(0);
     const d = res.diagnostics[0];
     expect(d?.code).toBe('invalidQuery');
@@ -207,9 +207,9 @@ describe('gap 7: target:"materialize" planning', () => {
   });
 });
 
-/* -------------------- #3: typed V2 params validation -------------------- */
+/* -------------------- #3: typed target params validation -------------------- */
 
-describe('#3 typed V2 params: type mistakes -> invalidQuery', () => {
+describe('#3 typed target params: type mistakes -> invalidQuery', () => {
   it('rejects a wrongly-typed prNumber on diff', () => {
     expect(() =>
       normalizeQuery({
@@ -234,7 +234,7 @@ describe('#3 typed V2 params: type mistakes -> invalidQuery', () => {
       target: 'pullRequests',
       repo: 'facebook/react',
       params: { prNumber: 5, state: 'merged', someFutureField: true },
-    } as never) as OqlQueryV1;
+    } as never) as OqlQuery;
     expect(q.params?.prNumber).toBe(5);
     expect(q.params?.someFutureField).toBe(true);
   });

@@ -11,8 +11,6 @@ import {
   PullRequestItem,
   IssueComment,
 } from './githubAPI.js';
-import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
-import { logSessionError } from '../session.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { contextUtils } from '../utils/contextUtils.js';
 import { getOctokit, OctokitWithThrottling } from './client.js';
@@ -363,7 +361,6 @@ export async function transformPullRequestItemFromSearch(
         }
       }
     } catch (error: unknown) {
-      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
         `Partial Data: Failed to fetch details (files): ${error instanceof Error ? error.message : String(error)}`,
@@ -423,7 +420,6 @@ export async function transformPullRequestItemFromSearch(
         result.reviews = reviews;
       }
     } catch (error: unknown) {
-      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
         `Partial Data: Failed to fetch reviews: ${error instanceof Error ? error.message : String(error)}`,
@@ -447,7 +443,6 @@ export async function transformPullRequestItemFromSearch(
         }
       }
     } catch (error: unknown) {
-      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
         `Partial Data: Failed to fetch details (commits): ${error instanceof Error ? error.message : String(error)}`,
@@ -655,7 +650,6 @@ export async function transformPullRequestItemFromREST(
         result.file_changes = fileChanges;
       }
     } catch (error: unknown) {
-      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
         `Partial Data: Failed to fetch details (files): ${error instanceof Error ? error.message : String(error)}`,
@@ -705,7 +699,6 @@ export async function transformPullRequestItemFromREST(
       rawResponseChars += getRawResponseChars(reviews) ?? 0;
       result.reviews = reviews;
     } catch (error: unknown) {
-      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
         `Partial Data: Failed to fetch reviews: ${error instanceof Error ? error.message : String(error)}`,
@@ -727,7 +720,6 @@ export async function transformPullRequestItemFromREST(
         result.commits = commits;
       }
     } catch (error: unknown) {
-      logSessionError(TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS, String(error));
       result._sanitization_warnings = [
         ...(result._sanitization_warnings || []),
         `Partial Data: Failed to fetch details (commits): ${error instanceof Error ? error.message : String(error)}`,

@@ -12,35 +12,30 @@ export const nodeExternals = [
   ...builtinModules.map((m) => `node:${m}`),
 ];
 
-// Runtime `dependency` entries stay external — installed by npm and loaded at
-// runtime rather than inlined into the bundle. mcp's only runtime deps are
-// @modelcontextprotocol/sdk and @octocodeai/octocode-tools-core.
+// @octocodeai/octocode-tools-core is INLINED into this bundle — it is a
+// build-time (dev) dependency, never published to npm. esbuild bundles its
+// first-party code precisely because it is NOT listed in `external`.
 //
-// All other packages (octocode-security, zod, …) are owned
-// by tools-core and declared in transitiveExternals below.
+// tools-core's own runtime deps cannot be inlined and must stay external:
+//   • @octocodeai/octocode-engine ships a native .node addon (unbundlable)
+//   • the rest are registry packages resolved by npm at install time
+// All of them are declared in octocode-mcp's own `dependencies`, so a consumer
+// `npm install octocode-mcp` pulls them in directly (no tools-core hop). Every
+// runtime `dependency` therefore stays external.
 export const bundledRuntimeDependencies = new Set([]);
 
 export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
   (dependencyName) => !bundledRuntimeDependencies.has(dependencyName)
 );
 
-// Packages directly imported in mcp/src that are NOT in mcp's package.json
-// dependencies because ownership belongs to @octocodeai/octocode-tools-core.
-// They install transitively when a consumer installs tools-core; we just need
-// to tell esbuild not to bundle them (native .node modules cannot be bundled).
+// Subpath-export wildcards for the externalized packages (esbuild matches `*`).
+// The base specifiers are already covered by runtimeExternals above; these keep
+// deep imports (e.g. `@octocodeai/octocode-core/schemas`) external too.
 export const transitiveExternals = [
-  // octocode-security ships native .node binaries
-  'octocode-security',
-  'octocode-security/mask',
-  'octocode-security/withSecurityValidation',
-  // @octocodeai/octocode-core — schemas, types, extra-types, outputs subpaths
-  '@octocodeai/octocode-core',
-  '@octocodeai/octocode-core/schemas',
-  '@octocodeai/octocode-core/schemas/outputs',
-  '@octocodeai/octocode-core/types',
-  '@octocodeai/octocode-core/extra-types',
-  // zod — owned by tools-core; mcp uses it for MCP-layer schema fragments
-  'zod',
+  '@octocodeai/octocode-engine/*',
+  '@octocodeai/octocode-core/*',
+  '@modelcontextprotocol/sdk/*',
+  '@octokit/*',
 ];
 
 export const external = [...nodeExternals, ...runtimeExternals, ...transitiveExternals];

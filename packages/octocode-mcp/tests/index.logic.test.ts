@@ -159,45 +159,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     });
   });
 
-  describe('Logger Conditional Pattern', () => {
-    it('should call logger methods only when logger exists', async () => {
-      const mockLogger = {
-        info: vi.fn().mockResolvedValue(undefined),
-        error: vi.fn().mockResolvedValue(undefined),
-      };
-
-      type LoggerType = typeof mockLogger;
-      let logger: LoggerType | null = mockLogger;
-
-      if (logger) {
-        await logger.info('test');
-      }
-
-      expect(mockLogger.info).toHaveBeenCalledWith('test');
-
-      logger = null;
-      mockLogger.info.mockClear();
-
-      expect(mockLogger.info).not.toHaveBeenCalled();
-    });
-
-    it('should handle logger calls with context', async () => {
-      const mockLogger = {
-        info: vi.fn().mockResolvedValue(undefined),
-      };
-
-      const logger = mockLogger;
-
-      if (logger) {
-        await logger.info('Shutting down', { signal: 'SIGINT' });
-      }
-
-      expect(mockLogger.info).toHaveBeenCalledWith('Shutting down', {
-        signal: 'SIGINT',
-      });
-    });
-  });
-
   describe('Signal Handler Pattern', () => {
     it('should call handler function with signal name', async () => {
       const handlerCalls: string[] = [];
@@ -263,100 +224,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     });
   });
 
-  describe('Startup Error Handling', () => {
-    it('should handle startup errors', async () => {
-      const mockLogger = {
-        error: vi.fn().mockResolvedValue(undefined),
-      };
-
-      const logger: typeof mockLogger | null = mockLogger;
-
-      const startupError = new Error('Startup failed');
-
-      try {
-        throw startupError;
-      } catch (error) {
-        if (logger) {
-          await logger.error('Startup failed', { error: String(error) });
-        }
-      }
-
-      expect(mockLogger.error).toHaveBeenCalledWith('Startup failed', {
-        error: 'Error: Startup failed',
-      });
-    });
-
-    it('should handle logger being null during startup error', async () => {
-      const mockErrorFn = vi.fn().mockResolvedValue(undefined);
-      type LoggerType = {
-        error: (msg: string, ctx: Record<string, unknown>) => Promise<void>;
-      };
-      let logger: LoggerType | null = {
-        error: mockErrorFn,
-      };
-
-      const startupError = new Error('Startup failed');
-
-      try {
-        throw startupError;
-      } catch {
-        if (logger) {
-          await logger.error('Startup failed', {});
-        }
-      }
-
-      expect(mockErrorFn).toHaveBeenCalledWith('Startup failed', {});
-
-      logger = null;
-      let errorHandled = false;
-
-      try {
-        throw startupError;
-      } catch {
-        if (!logger) {
-          errorHandled = true;
-        }
-      }
-
-      expect(errorHandled).toBe(true);
-    });
-  });
-
-  describe('Session Error Logging Pattern', () => {
-    it('should call logSessionError with correct parameters', async () => {
-      const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
-
-      await mockLogSessionError('startup', 'UNCAUGHT_EXCEPTION').catch(
-        () => {}
-      );
-
-      await mockLogSessionError('startup', 'UNHANDLED_REJECTION').catch(
-        () => {}
-      );
-
-      expect(mockLogSessionError).toHaveBeenNthCalledWith(
-        1,
-        'startup',
-        'UNCAUGHT_EXCEPTION'
-      );
-      expect(mockLogSessionError).toHaveBeenNthCalledWith(
-        2,
-        'startup',
-        'UNHANDLED_REJECTION'
-      );
-    });
-
-    it('should catch and ignore logSessionError failures', async () => {
-      const mockLogSessionError = vi
-        .fn()
-        .mockRejectedValue(new Error('Logging failed'));
-
-      await mockLogSessionError('startup', 'ERROR_CODE').catch(() => {});
-
-      expect(mockLogSessionError).toHaveBeenCalled();
-    });
-  });
-
   describe('Process Stream Control', () => {
     it('should not call uncork on stdout (stdio MCP safety)', () => {
       const mockStdout = {
@@ -409,33 +276,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
       expect(converted).toBe('undefined');
     });
 
-    it('should call error logger with rejection reason', async () => {
-      const mockLogger = {
-        error: vi.fn().mockResolvedValue(undefined),
-      };
-
-      const logger: typeof mockLogger | null = mockLogger;
-      const reason = 'Test unhandled rejection';
-
-      if (logger) {
-        await logger.error('Unhandled rejection', { reason: String(reason) });
-      }
-
-      expect(mockLogger.error).toHaveBeenCalledWith('Unhandled rejection', {
-        reason: 'Test unhandled rejection',
-      });
-    });
-
-    it('should handle logger being null during unhandled rejection', async () => {
-      type LoggerType = {
-        error: (msg: string, ctx: Record<string, unknown>) => Promise<void>;
-      };
-      const logger: LoggerType | null = null;
-
-      const handledWithoutLogger = !logger;
-
-      expect(handledWithoutLogger).toBe(true);
-    });
   });
 
   describe('Top-Level Error Handler Pattern', () => {
@@ -486,38 +326,6 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     });
   });
 
-  describe('Async Error Handler Chains', () => {
-    it('should chain multiple catch handlers', async () => {
-      const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
-      const mockLogger = {
-        error: vi.fn().mockResolvedValue(undefined),
-      };
-
-      const logger: typeof mockLogger | null = mockLogger;
-
-      const reason = 'Test error';
-
-      if (logger) {
-        await logger.error('Unhandled rejection', { reason: String(reason) });
-      }
-
-      await mockLogSessionError('startup', 'ERROR_CODE').catch(() => {});
-
-      expect(mockLogger.error).toHaveBeenCalled();
-      expect(mockLogSessionError).toHaveBeenCalled();
-    });
-
-    it('should handle errors in async catch handlers', async () => {
-      const mockLogSessionError = vi
-        .fn()
-        .mockRejectedValue(new Error('Logging failed'));
-
-      await mockLogSessionError('startup', 'ERROR_CODE').catch(() => {});
-
-      expect(mockLogSessionError).toHaveBeenCalled();
-    });
-  });
-
   describe('Initialize and Cleanup Pattern', () => {
     it('should call initialize before starting server', async () => {
       const mockInitialize = vi.fn().mockResolvedValue(undefined);
@@ -557,37 +365,4 @@ describe('index.ts - Shutdown Logic Patterns', () => {
     });
   });
 
-  describe('Session Logging Patterns', () => {
-    it('should call logSessionInit and suppress errors', async () => {
-      const mockLogSessionInit = vi.fn().mockResolvedValue(undefined);
-
-      await mockLogSessionInit().catch(() => {});
-
-      expect(mockLogSessionInit).toHaveBeenCalled();
-    });
-
-    it('should handle logSessionInit errors silently', async () => {
-      const mockLogSessionInit = vi
-        .fn()
-        .mockRejectedValue(new Error('Logging failed'));
-
-      await mockLogSessionInit().catch(() => {});
-
-      expect(mockLogSessionInit).toHaveBeenCalled();
-    });
-
-    it('should log multiple error codes', async () => {
-      const mockLogSessionError = vi.fn().mockResolvedValue(undefined);
-
-      await mockLogSessionError('startup', 'UNCAUGHT_EXCEPTION').catch(
-        () => {}
-      );
-      await mockLogSessionError('startup', 'UNHANDLED_REJECTION').catch(
-        () => {}
-      );
-      await mockLogSessionError('startup', 'STARTUP_FAILED').catch(() => {});
-
-      expect(mockLogSessionError).toHaveBeenCalledTimes(3);
-    });
-  });
 });

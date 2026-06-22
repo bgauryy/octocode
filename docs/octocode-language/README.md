@@ -30,20 +30,23 @@ Command split:
 - Raw `tools NAME` calls remain the schema-exact compatibility and debug
   surface.
 
-Implementation split:
+Implementation split (as shipped):
 
-- Schemas and descriptions live in `@octocodeai/octocode-core`.
-- Planning and execution live in `packages/octocode-tools-core`.
+- OQL schema, types, normalizer, planner, adapters, and result envelope live in
+  `packages/octocode-tools-core/src/oql` (co-located for now; may migrate to a
+  `@octocodeai/octocode-core/oql` export once a second consumer needs OQL
+  validation without the rest of tools-core).
+- Public descriptions / command text live in `@octocodeai/octocode-core`.
 - Native primitives stay in `packages/octocode-engine`.
-- CLI and MCP stay thin.
+- CLI (`octocode search`) and MCP stay thin wrappers over `runOqlSearch`.
 
 ## Implementation Checklist
 
-1. Add strict OQL V1 schema types.
+1. Add strict OQL schema types.
 2. Build the normalizer: sugar in, canonical OQL out.
 3. Build planner with predicate-node IDs and `PUSHDOWN`, `RESIDUAL`, `ROUTE`,
    and `UNSUPPORTED`.
-4. Adapt canonical OQL to current local and GitHub V1 tools.
+4. Adapt canonical OQL to current local and GitHub tools.
 5. Promote bounded remote-as-local from CLI behavior into tools-core.
 6. Standardize result envelope: `results`, `pagination`, executable `next`,
    `diagnostics`, `provenance`, and `evidence`.

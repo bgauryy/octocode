@@ -36,7 +36,6 @@ describe('config/resolver', () => {
     delete process.env.DISABLE_TOOLS;
     delete process.env.REQUEST_TIMEOUT;
     delete process.env.MAX_RETRIES;
-    delete process.env.LOG;
     delete process.env.OCTOCODE_LSP_CONFIG;
     delete process.env.OCTOCODE_OUTPUT_FORMAT;
     delete process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH;
@@ -230,24 +229,6 @@ describe('config/resolver', () => {
       it('allows MAX_RETRIES=0 (valid value, no retries)', () => {
         process.env.MAX_RETRIES = '0';
         expect(resolveConfigSync().network.maxRetries).toBe(0);
-      });
-
-      it('parses LOG=false as false', () => {
-        process.env.LOG = 'false';
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(false);
-      });
-
-      it('parses LOG=yes as true (default-to-true semantics)', () => {
-        process.env.LOG = 'yes';
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(true);
-      });
-
-      it('parses LOG=anything as true (default-to-true semantics)', () => {
-        process.env.LOG = 'anything';
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(true);
       });
 
       it('parses OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH', () => {
@@ -629,58 +610,6 @@ describe('config/resolver', () => {
       });
     });
 
-    describe('telemetry.logging (LOG)', () => {
-      it('LOG=false overrides file logging: true', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({ telemetry: { logging: true } })
-        );
-        process.env.LOG = 'false';
-
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(false);
-      });
-
-      it('LOG=yes overrides file logging: false (default-to-true semantics)', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({ telemetry: { logging: false } })
-        );
-        process.env.LOG = 'yes';
-
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(true);
-      });
-
-      it('LOG=anything overrides file logging: false', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({ telemetry: { logging: false } })
-        );
-        process.env.LOG = 'enabled';
-
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(true);
-      });
-
-      it('file overrides default', () => {
-        vi.mocked(existsSync).mockReturnValue(true);
-        vi.mocked(readFileSync).mockReturnValue(
-          JSON.stringify({ telemetry: { logging: false } })
-        );
-
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(false);
-      });
-
-      it('falls back to default when neither env nor file', () => {
-        vi.mocked(existsSync).mockReturnValue(false);
-
-        const config = resolveConfigSync();
-        expect(config.telemetry.logging).toBe(DEFAULT_CONFIG.telemetry.logging);
-      });
-    });
-
     describe('lsp.configPath (OCTOCODE_LSP_CONFIG)', () => {
       it('env overrides file', () => {
         vi.mocked(existsSync).mockReturnValue(true);
@@ -732,10 +661,10 @@ describe('config/resolver', () => {
       expect(config.source).toBe('file');
     });
 
-    it('source is "mixed" when file exists and env overrides are set', () => {
-      vi.mocked(existsSync).mockReturnValue(true);
-      vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
-      process.env.LOG = 'false';
+      it('source is "mixed" when file exists and env overrides are set', () => {
+        vi.mocked(existsSync).mockReturnValue(true);
+        vi.mocked(readFileSync).mockReturnValue(JSON.stringify({ version: 1 }));
+        process.env.ALLOWED_PATHS = '/some/path';
 
       const config = resolveConfigSync();
       expect(config.source).toBe('mixed');
@@ -927,7 +856,6 @@ describe('config/resolver', () => {
       expect(config.local).toEqual(DEFAULT_CONFIG.local);
       expect(config.tools).toEqual(DEFAULT_CONFIG.tools);
       expect(config.network).toEqual(DEFAULT_CONFIG.network);
-      expect(config.telemetry).toEqual(DEFAULT_CONFIG.telemetry);
       expect(config.lsp).toEqual(DEFAULT_CONFIG.lsp);
       expect(config.output).toEqual(DEFAULT_CONFIG.output);
     });
@@ -943,7 +871,6 @@ describe('config/resolver', () => {
       expect(config.local).toEqual(DEFAULT_CONFIG.local);
       expect(config.tools).toEqual(DEFAULT_CONFIG.tools);
       expect(config.network).toEqual(DEFAULT_CONFIG.network);
-      expect(config.telemetry).toEqual(DEFAULT_CONFIG.telemetry);
       expect(config.lsp).toEqual(DEFAULT_CONFIG.lsp);
       expect(config.output).toEqual(DEFAULT_CONFIG.output);
     });
@@ -967,7 +894,6 @@ describe('config/resolver', () => {
           local: {},
           tools: {},
           network: {},
-          telemetry: {},
           lsp: {},
           output: {},
         })
@@ -979,7 +905,6 @@ describe('config/resolver', () => {
       expect(config.local).toEqual(DEFAULT_CONFIG.local);
       expect(config.tools).toEqual(DEFAULT_CONFIG.tools);
       expect(config.network).toEqual(DEFAULT_CONFIG.network);
-      expect(config.telemetry).toEqual(DEFAULT_CONFIG.telemetry);
       expect(config.lsp).toEqual(DEFAULT_CONFIG.lsp);
       expect(config.output).toEqual(DEFAULT_CONFIG.output);
     });

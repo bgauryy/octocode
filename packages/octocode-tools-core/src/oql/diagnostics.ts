@@ -6,7 +6,7 @@ import type {
   DiagnosticCode,
   OqlContinuation,
   OqlDiagnostic,
-  OqlSearchInputV1,
+  OqlSearchInput,
 } from './types.js';
 
 /** Diagnostic codes that, when present, prevent `evidence.kind:"proof"`. */
@@ -54,7 +54,7 @@ export interface DiagnosticOptions {
   severity?: OqlDiagnostic['severity'];
   repair?: {
     message: string;
-    suggestedQuery?: OqlSearchInputV1;
+    suggestedQuery?: OqlSearchInput;
   };
   continuation?: OqlContinuation;
 }

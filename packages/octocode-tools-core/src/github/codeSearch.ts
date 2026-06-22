@@ -18,8 +18,6 @@ import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { shouldIgnoreFile } from '../utils/file/filters.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
-import { logSessionError } from '../session.js';
-import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
 
@@ -78,10 +76,6 @@ async function searchGitHubCodeAPIInternal(
     if (params.keywords && params.keywords.length > 0) {
       const validTerms = params.keywords.filter(term => term && term.trim());
       if (validTerms.length === 0) {
-        await logSessionError(
-          TOOL_NAMES.GITHUB_SEARCH_CODE,
-          SEARCH_ERRORS.QUERY_EMPTY.code
-        );
         return {
           error: SEARCH_ERRORS.QUERY_EMPTY.message,
           type: 'http',
@@ -93,10 +87,6 @@ async function searchGitHubCodeAPIInternal(
     const query = buildCodeSearchQuery(params);
 
     if (!query.trim()) {
-      await logSessionError(
-        TOOL_NAMES.GITHUB_SEARCH_CODE,
-        SEARCH_ERRORS.QUERY_EMPTY.code
-      );
       return {
         error: SEARCH_ERRORS.QUERY_EMPTY.message,
         type: 'http',

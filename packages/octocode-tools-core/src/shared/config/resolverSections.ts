@@ -4,7 +4,6 @@ import type {
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
-  RequiredTelemetryConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
 } from './types.js';
@@ -13,7 +12,6 @@ import {
   DEFAULT_LOCAL_CONFIG,
   DEFAULT_TOOLS_CONFIG,
   DEFAULT_NETWORK_CONFIG,
-  DEFAULT_TELEMETRY_CONFIG,
   DEFAULT_LSP_CONFIG,
   DEFAULT_OUTPUT_CONFIG,
   MIN_TIMEOUT,
@@ -55,16 +53,6 @@ export function parseStringArrayEnv(
     .split(',')
     .map(s => s.trim())
     .filter(s => s.length > 0);
-}
-
-export function parseLoggingEnv(
-  value: string | undefined
-): boolean | undefined {
-  if (value === undefined || value === null) return undefined;
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === '') return undefined;
-  if (trimmed === 'false' || trimmed === '0') return false;
-  return true;
 }
 
 export function resolveGitHub(
@@ -147,17 +135,6 @@ export function resolveNetwork(
   maxRetries = Math.max(MIN_RETRIES, Math.min(MAX_RETRIES, maxRetries));
 
   return { timeout, maxRetries };
-}
-
-export function resolveTelemetry(
-  fileConfig?: OctocodeConfig['telemetry']
-): RequiredTelemetryConfig {
-  const envLogging = parseLoggingEnv(process.env.LOG);
-
-  return {
-    logging:
-      envLogging ?? fileConfig?.logging ?? DEFAULT_TELEMETRY_CONFIG.logging,
-  };
 }
 
 export function resolveLsp(

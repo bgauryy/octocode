@@ -11,7 +11,7 @@ import { runDirect } from './runner.js';
 import { executeLocal, type AdapterResult } from './local.js';
 import { diagnostic } from '../diagnostics.js';
 import type {
-  OqlQueryV1,
+  OqlQuery,
   OqlRecordResultRow,
   QueryScope,
   QuerySource,
@@ -53,7 +53,7 @@ function extractClone(result: CallToolResult): {
 }
 
 export async function executeMaterialize(
-  query: OqlQueryV1
+  query: OqlQuery
 ): Promise<AdapterResult> {
   if (query.from?.kind !== 'github') {
     // already local/materialized — no clone needed
@@ -106,7 +106,7 @@ export async function executeMaterialize(
 
   // Re-root the query at the materialized path. scope.path already became the
   // sparse checkout root, so drop it from the local scope to avoid double-join.
-  const localQuery: OqlQueryV1 = {
+  const localQuery: OqlQuery = {
     ...query,
     from: { kind: 'materialized', localPath, source: from },
     ...(query.scope ? { scope: { ...query.scope, path: undefined } } : {}),
@@ -148,7 +148,7 @@ export async function executeMaterialize(
  * side-effect (see OCTOCODE_SEARCH_PARITY_CHECKLIST.md gap log #7).
  */
 export async function executeMaterializeCheckpoint(
-  query: OqlQueryV1
+  query: OqlQuery
 ): Promise<AdapterResult> {
   // Already materialized: echo the existing checkpoint (no re-clone).
   if (query.from?.kind === 'materialized') {

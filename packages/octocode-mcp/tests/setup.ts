@@ -54,9 +54,6 @@ const mockDefaultConfig = {
     timeout: 30000,
     maxRetries: 3,
   },
-  telemetry: {
-    logging: true,
-  },
   lsp: {
     configPath: undefined,
   },
@@ -77,14 +74,6 @@ function mockParseBooleanEnv(value: string | undefined): boolean | undefined {
   if (trimmed === 'true' || trimmed === '1') return true;
   if (trimmed === 'false' || trimmed === '0') return false;
   return undefined;
-}
-
-function mockParseLoggingEnv(value: string | undefined): boolean | undefined {
-  if (value === undefined || value === null) return undefined;
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === '') return undefined;
-  if (trimmed === 'false' || trimmed === '0') return false;
-  return true;
 }
 
 function mockParseIntEnv(value: string | undefined): number | undefined {
@@ -111,7 +100,6 @@ function mockParseStringArrayEnv(
 const buildMockConfig = () => {
   const envEnableLocal = mockParseBooleanEnv(process.env.ENABLE_LOCAL);
   const envEnableClone = mockParseBooleanEnv(process.env.ENABLE_CLONE);
-  const envLogging = mockParseLoggingEnv(process.env.LOG);
   const envTimeout = mockParseIntEnv(process.env.REQUEST_TIMEOUT);
   const envMaxRetries = mockParseIntEnv(process.env.MAX_RETRIES);
   const envApiUrl = process.env.GITHUB_API_URL?.trim();
@@ -147,9 +135,6 @@ const buildMockConfig = () => {
     network: {
       timeout,
       maxRetries,
-    },
-    telemetry: {
-      logging: envLogging ?? mockDefaultConfig.telemetry.logging,
     },
   };
 };

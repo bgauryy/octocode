@@ -33,7 +33,10 @@ pub fn search_files(
     let anchor = query.literal_anchor();
 
     let overrides = build_overrides(&root, &include)?;
-    let (candidate_files, skipped_by_pre_filter) = if let Some(anchor) = anchor {
+    let (candidate_files, skipped_by_pre_filter, skipped_unsupported) = if let Some(anchor) = anchor {
+        // `supported_only=false` so ripgrep searches every file — unsupported
+        // extensions that textually contain the anchor must surface as
+        // `skipped_unsupported`, not vanish into the prefilter lump.
         matching_anchor_candidate_files(
             &root,
             &include,
@@ -41,18 +44,27 @@ pub fn search_files(
             overrides,
             anchor,
             max_files,
-            true,
+            false,
         )?
     } else {
         (
             collect_candidate_files(&root, overrides, &exclude_dir, max_files)?,
             0,
+            0,
         )
     };
 
     let mut by_ext: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    let mut skipped_unsupported_ext = skipped_unsupported;
     for path in candidate_files {
         let ext = extension_for_path(&path).unwrap_or_default();
+        if languages::find_entry(&ext).is_none() {
+            // Defense-in-depth: `matching_anchor_candidate_files` already
+            // partitioned unsupported files out, but `collect_candidate_files`
+            // (no-anchor path) returns supported-only, so this is a no-op there.
+            skipped_unsupported_ext = skipped_unsupported_ext.saturating_add(1);
+            continue;
+        }
         by_ext.entry(ext).or_default().push(path);
     }
 
@@ -65,6 +77,9 @@ pub fn search_files(
 
     for (ext, paths) in by_ext {
         let Some(entry) = languages::find_entry(&ext) else {
+            // Unreachable (unsupported exts were partitioned above) but kept as
+            // a guard so a future refactor can't silently re-introduce the drop.
+            skipped_unsupported_ext = skipped_unsupported_ext.saturating_add(paths.len() as u32);
             continue;
         };
         let lang = AgLanguage::new(&ext, entry);
@@ -111,7 +126,12 @@ pub fn search_files(
         ));
     } else if skipped_by_pre_filter > 0 {
         warnings.push(format!(
-            "Pre-filter skipped parsing {skipped_by_pre_filter} file(s); parsed {parsed_files}."
+            "Pre-filter skipped parsing {skipped_by_pre_filter} supported file(s) (literal anchor absent); parsed {parsed_files}."
+        ));
+    }
+    if skipped_unsupported_ext > 0 {
+        warnings.push(format!(
+            "Skipped {skipped_unsupported_ext} candidate file(s) with unsupported extensions."
         ));
     }
     if skipped_unreadable > 0 {
@@ -130,6 +150,7 @@ pub fn search_files(
         total_matches,
         parsed_files,
         skipped_by_pre_filter,
+        skipped_unsupported: skipped_unsupported_ext,
         skipped_unreadable,
         skipped_large,
         warnings,
@@ -470,7 +491,7 @@ fn matching_anchor_candidate_files(
     anchor: &str,
     max_files: usize,
     supported_only: bool,
-) -> Result<(Vec<PathBuf>, u32), String> {
+) -> Result<(Vec<PathBuf>, u32, u32), String> {
     let search_include = anchor_search_include_globs(include, supported_only);
     let result = crate::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
@@ -487,19 +508,33 @@ fn matching_anchor_candidate_files(
 
     let files_searched = result.stats.files_searched.unwrap_or_default();
     let mut matched_supported = 0u32;
+    let mut matched_unsupported = 0u32;
     let mut out = Vec::new();
     for file in result.files {
         let path = PathBuf::from(file.path);
-        if !file_is_candidate(&path, &overrides, supported_only) {
+        if overrides.matched(&path, false).is_ignore() {
             continue;
         }
-        matched_supported = matched_supported.saturating_add(1);
-        if out.len() < max_files {
-            out.push(path);
+        let is_supported =
+            extension_for_path(&path).is_some_and(|ext| languages::find_entry(&ext).is_some());
+        if is_supported {
+            matched_supported = matched_supported.saturating_add(1);
+            if out.len() < max_files {
+                out.push(path);
+            }
+        } else {
+            matched_unsupported = matched_unsupported.saturating_add(1);
         }
     }
 
-    Ok((out, files_searched.saturating_sub(matched_supported)))
+    // `skipped_by_pre_filter` = supported files ripgrep searched but the anchor
+    // was absent (proof of no match); `skipped_unsupported` = unsupported-ext
+    // files that contained the anchor (not evaluated, not proof). Splitting
+    // them keeps the legacy result honest about evidence kind.
+    let skipped_by_pre_filter = files_searched
+        .saturating_sub(matched_supported)
+        .saturating_sub(matched_unsupported);
+    Ok((out, skipped_by_pre_filter, matched_unsupported))
 }
 
 fn anchor_search_include_globs(include: &[String], supported_only: bool) -> Vec<String> {

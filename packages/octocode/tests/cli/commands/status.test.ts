@@ -28,7 +28,6 @@ const { mockPaths } = vi.hoisted(() => ({
     binary: '/fake/tmp/binary',
     unzip: '/fake/tmp/unzip',
     repos: '/fake/tmp/clone',
-    logs: '/fake/logs',
   },
 }));
 
@@ -90,7 +89,6 @@ describe('statusCommand', () => {
     mockPaths.binary = '/fake/tmp/binary';
     mockPaths.unzip = '/fake/tmp/unzip';
     mockPaths.repos = '/fake/tmp/clone';
-    mockPaths.logs = '/fake/logs';
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     originalExitCode = process.exitCode;
     process.exitCode = undefined;
@@ -140,7 +138,6 @@ describe('statusCommand', () => {
     expect(out('tree:')).toBe(true);
     expect(out('binary:')).toBe(true);
     expect(out('unzip:')).toBe(true);
-    expect(out('logs:')).toBe(true);
     expect(out('status --sync')).toBe(true);
     expect(process.exitCode).toBeUndefined();
   });
@@ -201,7 +198,6 @@ describe('statusCommand', () => {
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/tree');
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/binary');
     expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/tmp/unzip');
-    expect(getDirectorySizeBytes).toHaveBeenCalledWith('/fake/logs');
 
     const payload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0])) as {
       cache: {
@@ -211,7 +207,6 @@ describe('statusCommand', () => {
         tree: { path: string };
         binary: { path: string };
         unzip: { path: string };
-        logs: { path: string };
       };
     };
     expect(payload.cache.home).toBe('/fake/octocode');
@@ -220,7 +215,6 @@ describe('statusCommand', () => {
     expect(payload.cache.tree.path).toBe('/fake/tmp/tree');
     expect(payload.cache.binary.path).toBe('/fake/tmp/binary');
     expect(payload.cache.unzip.path).toBe('/fake/tmp/unzip');
-    expect(payload.cache.logs.path).toBe('/fake/logs');
   });
 
   it('--json sets EXIT.AUTH when not authenticated', async () => {

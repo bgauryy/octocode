@@ -5,10 +5,6 @@ import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache
 import { isGitHubAPISuccess } from '../../../octocode-tools-core/src/github/githubAPI.js';
 
 vi.mock('../../../octocode-tools-core/src/github/client.js');
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 describe('Pagination and Hints Fixes', () => {
   beforeEach(() => {
     vi.clearAllMocks();

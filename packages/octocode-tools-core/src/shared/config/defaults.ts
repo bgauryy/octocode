@@ -3,7 +3,6 @@ import type {
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
-  RequiredTelemetryConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
   ResolvedConfig,
@@ -31,10 +30,6 @@ export const DEFAULT_NETWORK_CONFIG: RequiredNetworkConfig = {
   maxRetries: 3,
 };
 
-export const DEFAULT_TELEMETRY_CONFIG: RequiredTelemetryConfig = {
-  logging: true,
-};
-
 export const DEFAULT_LSP_CONFIG: RequiredLspConfig = {
   configPath: undefined,
 };
@@ -52,7 +47,6 @@ export const DEFAULT_CONFIG: Omit<ResolvedConfig, 'source' | 'configPath'> = {
   local: DEFAULT_LOCAL_CONFIG,
   tools: DEFAULT_TOOLS_CONFIG,
   network: DEFAULT_NETWORK_CONFIG,
-  telemetry: DEFAULT_TELEMETRY_CONFIG,
   lsp: DEFAULT_LSP_CONFIG,
   output: DEFAULT_OUTPUT_CONFIG,
 };

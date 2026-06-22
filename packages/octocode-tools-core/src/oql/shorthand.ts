@@ -8,7 +8,7 @@
  * tools-core (not re-implemented in the interface) and is unit-testable without
  * argv or a terminal.
  */
-import type { OqlInputQueryV1 } from './types.js';
+import type { OqlInputQuery } from './types.js';
 
 /** Corpus already classified by the caller (local path vs GitHub ref). */
 export type ShorthandCorpus =
@@ -32,7 +32,7 @@ export interface SearchShorthand {
   materialize?: 'never' | 'auto' | 'required';
 }
 
-export type ShorthandResult = { input: OqlInputQueryV1 } | { error: string };
+export type ShorthandResult = { input: OqlInputQuery } | { error: string };
 
 /**
  * Lower shorthand parts into the OQL sugar object. Predicate precedence:
@@ -78,5 +78,5 @@ export function buildShorthandInput(parts: SearchShorthand): ShorthandResult {
   if (parts.type) sugar.langType = parts.type;
   if (parts.materialize) sugar.materialize = parts.materialize;
 
-  return { input: sugar as OqlInputQueryV1 };
+  return { input: sugar as OqlInputQuery };
 }

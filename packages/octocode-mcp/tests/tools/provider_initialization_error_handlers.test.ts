@@ -19,7 +19,6 @@ vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
 }));
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
-  isLoggingEnabled: vi.fn(() => false),
   isCloneEnabled: vi.fn(() => true),
   getActiveProvider: vi.fn(() => 'github'),
   getActiveProviderConfig: vi.fn(() => ({
@@ -32,7 +31,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
     version: '1.0.0',
     timeout: 30000,
     maxRetries: 3,
-    loggingEnabled: false,
     enableLocal: true,
     enableClone: true,
   })),

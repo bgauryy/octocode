@@ -83,16 +83,11 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
     githubApiUrl: 'https://api.github.com',
     timeout: 30000,
     maxRetries: 3,
-    loggingEnabled: true,
     enableLocal: true,
     enableClone: false,
   }),
   isLocalEnabled: vi.fn().mockReturnValue(true),
   isCloneEnabled: vi.fn().mockReturnValue(false),
-}));
-
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(),
 }));
 
 vi.mock('../../src/tools/local_ripgrep/register.js', () => ({

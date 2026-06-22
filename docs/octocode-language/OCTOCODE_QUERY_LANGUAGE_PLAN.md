@@ -1,9 +1,25 @@
 # Octocode Query Language Implementation Plan
 
-**Status:** implementation plan for the canonical OQL contract.
+**Status (2026-06-22): Foundation and most of Expansion are shipped and live.**
+The OQL engine (schema, normalizer, capability registry, planner/explain,
+execution adapters, materialization lane, result envelope) is implemented in
+`packages/octocode-tools-core/src/oql` and surfaced as `octocode search`.
+Active targets: `code`, `content`, `structure`, `files`, `semantics`,
+`repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`,
+`research`, `materialize`. Per-target completion and remaining work are tracked
+in the parity checklist (see below), not here.
+
+Still open: quick-command lowering into OQL, reusable structural rule refs +
+rule validation, richer structural constraints, full `controls.budget`
+enforcement, and the Reserved `fixes`/`dataflow` targets. This document is kept
+as the sequencing/ownership rationale; treat the contract + parity checklist as
+the source of truth for what is live.
 
 Authoritative contract:
 https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md
+
+Per-target status / parity:
+https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_SEARCH_PARITY_CHECKLIST.md
 
 This document explains how to implement OQL without turning it into a second
 engine or duplicating command semantics across CLI, MCP, and tools.
@@ -15,13 +31,20 @@ tool runners. The first release should prioritize planner correctness,
 capability diagnostics, materialization safety, and continuation data over a
 large new command surface.
 
-Recommended package path:
+Package path (the original options below are kept for rationale):
+
+**Shipped decision:** the schema/types/normalizer/planner co-locate in
+`packages/octocode-tools-core/src/oql`, exported from `oql/index.ts`. Drift
+between guidance and validation is held off by serving `--scheme` from the same
+module (`schemeText.ts`) and by the parity checklist, rather than by living in
+`octocode-core`. A migration to `@octocodeai/octocode-core/oql` is still the
+plan once a second consumer needs OQL validation without the rest of tools-core.
 
 | Option | Rating | Decision |
 |---|---:|---|
-| `@octocodeai/octocode-core/oql` export first | 9/10 | Best first step. Keeps schemas/descriptions with the current content source of truth and avoids another publish unit while the contract settles. |
+| OQL schema/planner in `octocode-tools-core/src/oql` (pure submodule, `--scheme` served from it) | shipped | What was built. Single source for validation + scheme text + planner keeps CLI/MCP thin without a premature publish unit. |
+| `@octocodeai/octocode-core/oql` export | 9/10 | Still the migration target once a second consumer needs OQL validation standalone. |
 | Standalone `@octocodeai/octocode-query-language` later | 8/10 | Good once OQL has more than one serious consumer or the schema/normalizer becomes too large for `octocode-core`. |
-| Put OQL schema/planner in `octocode-tools-core` only | 4/10 | Too easy for CLI/MCP guidance to drift from validation. |
 | Put OQL behavior in `octocode` or `octocode-mcp` | 1/10 | Violates the thin-interface rule. |
 
 If a standalone package is created, it must be pure: Zod schemas, TypeScript
@@ -29,13 +52,13 @@ types, normalization, short-form expansion, public diagnostics, examples, and
 capability type definitions only. It must not import GitHub clients, filesystem
 adapters, the native engine, or interface code.
 
-## V1 / V2 / V3 Roadmap
+## Capability Track Roadmap
 
-The implementation should move in three deliberate releases. The important
-rule: each version must make the planner more trustworthy before it makes the
+The implementation should move in capability tracks. The important
+rule: each capability track must make the planner more trustworthy before it makes the
 surface area larger.
 
-### V1: Universal Local + GitHub Code Research
+### Foundation: Universal Local + GitHub Code Research
 
 Goal: implement the OQL runner for local and GitHub code research, including
 remote-as-local proof when the provider cannot evaluate the predicate.
@@ -57,8 +80,8 @@ Scope:
   scopes.
 - Matching lanes: local text, fixed string, regex, PCRE2, exact match
   enumeration, path/file predicates, and structural AST.
-- Structural V1 uses only `where:{kind:"structural", lang, pattern | rule}`.
-  Reusable rule refs and rule decoration fields are V2/V3.
+- Structural Foundation uses only `where:{kind:"structural", lang, pattern | rule}`.
+  Reusable rule refs and rule decoration fields are Expansion/Reserved.
 - GitHub lanes: code search/content/tree when pushdown is valid.
 - Remote-as-local lane: bounded GitHub repo/path/ref materialization for AST,
   PCRE2, exact local proof, repeatable reads, and provider-gap verification.
@@ -68,7 +91,7 @@ Scope:
   partial, truncated, stale cache, sanitized, parser failed, provider
   unindexed, partial parse, and true zero result.
 
-V1 does not include:
+Foundation does not include:
 
 - LSP over remote/materialized sources.
 - Repository/package/PR/history/binary/diff targets.
@@ -79,11 +102,11 @@ V1 does not include:
 - Relationship syntax.
 - Fixes or dataflow.
 
-V1 success means agents can use one command for local and GitHub code/content/
+Foundation success means agents can use one command for local and GitHub code/content/
 structure/files research, and can prove provider-limited searches locally when
 the query is bounded.
 
-### V2: Universal Research Surface + Reusable Rules
+### Expansion: Universal Research Surface + Reusable Rules
 
 Goal: expand OQL to the rest of Octocode's research tools while keeping the
 same planner/explain/diagnostic model.
@@ -108,11 +131,11 @@ Scope:
   `unsupportedLanguage`, archive/binary continuation diagnostics, and
   provider-specific rate/index diagnostics.
 
-V2 success means every current research command and every current MCP research
+Expansion success means every current research command and every current MCP research
 tool has an OQL lowering path, an OQL explain path, and parity tests against the
 legacy runner.
 
-### V3: Fixes And Dataflow
+### Reserved: Fixes And Dataflow
 
 Goal: add rule-driven edits and flow research only where proof strength is
 honest and backend support exists.
@@ -129,24 +152,24 @@ Scope:
 - Global taint/dataflow only when backed by an engine that can return traces,
   truncation state, dependency/source availability, and proof provenance.
 
-V3 does not allow:
+Reserved does not allow:
 
 - Reporting `flowsTo` without engine proof.
 - Reporting a vulnerability solely from `proof:"candidate"`.
 - Mutating files from a search command without an explicit future edit/apply
   surface.
 
-V3 success means OQL can be used for safe codemod planning and flow-oriented
+Reserved success means OQL can be used for safe codemod planning and flow-oriented
 security research without misleading agents about confidence.
 
 ## Layer Ownership
 
 | Layer | OQL Responsibility |
 |---|---|
-| `@octocodeai/octocode-core` | Public OQL schema, descriptions, command/tool text, examples, and exported types. If split later, re-export `@octocodeai/octocode-query-language`. |
-| `packages/octocode-tools-core` | OQL planner, capability registry, legacy-tool adapters, execution routing, materialization lane, result envelope, and provenance. |
+| `@octocodeai/octocode-core` | Public descriptions and command/tool text. (Migration target for the OQL schema/types/examples once a standalone consumer needs them; today those live in tools-core — see Decision Summary.) |
+| `packages/octocode-tools-core/src/oql` | OQL schema, types, normalizer, capability registry, planner/explain, legacy-tool adapters, execution routing, materialization lane, result envelope, provenance, and `--scheme` text. |
 | `packages/octocode-engine` | Native primitives only: ripgrep, structural AST, minify/content views, LSP anchoring, binary/archive inspection, secret/path-safe primitives. |
-| `packages/octocode` | Thin CLI parsing/rendering. `octocode search` accepts OQL in V1; quick commands lower to OQL in V2. |
+| `packages/octocode` | Thin CLI parsing/rendering. `octocode search` accepts OQL in Foundation; quick commands lower to OQL in Expansion. |
 | `packages/octocode-mcp` | Thin MCP registration. It exposes OQL schemas loaded from core and delegates execution to tools-core. |
 | `packages/octocode-vscode` | Consumer only. It should call the same CLI/MCP surfaces, not own OQL logic. |
 
@@ -166,8 +189,8 @@ Before implementing behavior:
 1. Keep `OCTOCODE_QUERY_LANGUAGE.md` as the only canonical language contract.
 2. Add an OQL schema export in `octocode-core`, or create a pure
    `@octocodeai/octocode-query-language` package and re-export it from core.
-3. Add fixture examples for every V1 target first: `code`, `content`,
-   `structure`, and `files`; add V2/V3 fixtures before implementing their
+3. Add fixture examples for every Foundation target first: `code`, `content`,
+   `structure`, and `files`; add Expansion/Reserved fixtures before implementing their
    targets.
 4. Add a schema-test suite that parses every documented example.
 5. Add an eval row in `docs/OCTOCODE_EVALS.md` for OQL schema, planner,
@@ -206,8 +229,8 @@ Tasks:
   `kind`.
 - Add `QueryScope`; path/language/include/exclude constraints normalize there,
   not into `controls`.
-- Add strict parsing: unknown fields fail, ambiguous sugar fails, and V2/V3
-  fields fail in the V1 schema unless explicitly behind a version gate.
+- Add strict parsing: unknown fields fail, ambiguous sugar fails, and Expansion/Reserved
+  fields fail in the Foundation schema unless explicitly behind a capability gate.
 - Normalize short forms:
   - `repo: "owner/name"` -> GitHub source object.
   - GitHub `path` -> `scope.path`.
@@ -219,7 +242,7 @@ Tasks:
   - `pattern` with `rule`.
   - local-only predicates with `materialize.mode:"never"` over external
     sources.
-  - V2/V3 targets in the V1 schema.
+  - Expansion/Reserved targets in the Foundation schema.
   - unbounded materialization.
 - Preserve bulk support rules: one OQL call can contain one query or a bounded
   batch if/when the public schema adds batch input. Current raw tool batches are
@@ -296,20 +319,20 @@ Goal: compile OQL plans into current tools without changing engine semantics.
 
 Adapters:
 
-| OQL Target | Primary Adapter | Version |
+| OQL Target | Primary Adapter | Track |
 |---|---|---|
-| `code` | `localSearchCode` or `ghSearchCode` | V1 |
-| `content` | `localGetFileContent`, `ghGetFileContent` | V1 |
-| `structure` | `localViewStructure`, `ghViewRepoStructure` | V1 |
-| `files` | `localFindFiles`, path search/tree info | V1 |
-| `symbols` | signature outlines or `lspGetSemantics documentSymbols` | V2 |
-| `relationships` | `lspGetSemantics`, derived syntax/semantic edges | V2 |
-| `binary` | `localBinaryInspect` | V2 |
-| `diff` | bounded content fetch plus diff renderer | V2 |
-| `repos` | `ghSearchRepos` | V2 |
-| `packages` | `npmSearch` | V2 |
-| `prs` / `commits` | `ghHistoryResearch` | V2 |
-| `materialization` | `ghCloneRepo`, cache fetch, archive unpack | V1 for GitHub code/content/tree, V2 for artifacts/binary/LSP |
+| `code` | `localSearchCode` or `ghSearchCode` | Foundation |
+| `content` | `localGetFileContent`, `ghGetFileContent` | Foundation |
+| `structure` | `localViewStructure`, `ghViewRepoStructure` | Foundation |
+| `files` | `localFindFiles`, path search/tree info | Foundation |
+| `symbols` | signature outlines or `lspGetSemantics documentSymbols` | Expansion |
+| `relationships` | `lspGetSemantics`, derived syntax/semantic edges | Expansion |
+| `binary` | `localBinaryInspect` | Expansion |
+| `diff` | bounded content fetch plus diff renderer | Expansion |
+| `repos` | `ghSearchRepos` | Expansion |
+| `packages` | `npmSearch` | Expansion |
+| `prs` / `commits` | `ghHistoryResearch` | Expansion |
+| `materialization` | `ghCloneRepo`, cache fetch, archive unpack | Foundation for GitHub code/content/tree, Expansion for artifacts/binary/LSP |
 
 Tasks:
 
@@ -320,10 +343,10 @@ Tasks:
 
 Tests:
 
-- V1 parity: local text, local regex/PCRE2, local structural, local content,
+- Foundation parity: local text, local regex/PCRE2, local structural, local content,
   local tree/files, GitHub code, GitHub content, GitHub tree, and GitHub
   remote-as-local proof.
-- V2 parity: npm package lookup, repo search, LSP symbols/relationships, binary
+- Expansion parity: npm package lookup, repo search, LSP symbols/relationships, binary
   strings, archive continuation, PR detail slices, commit/history slices, and
   diff output.
 
@@ -338,9 +361,9 @@ Tasks:
 - Support `mode:"never" | "auto" | "required"`.
 - Return `localPath`, `repoRoot`, source, ref, cache status, refresh hints, and
   local follow-up handles.
-- V1: route AST, PCRE2, exact match enumeration, content proof, and repeated
+- Foundation: route AST, PCRE2, exact match enumeration, content proof, and repeated
   local proof work through this lane.
-- V2: add LSP, binary/artifact inspection, package source handoff, PR/history
+- Expansion: add LSP, binary/artifact inspection, package source handoff, PR/history
   file proof, and diff inputs through the same lane.
 
 Gotchas:
@@ -399,8 +422,8 @@ CLI:
 - Add `octocode search --query JSON`.
 - Add `octocode search --scheme`.
 - Add `octocode search --explain`.
-- V1 keeps existing quick commands on their current implementation.
-- V2 lowers `grep`, `ls`, `cat`, `find`, `lsp`, `repo`, `pkg`, `pr`,
+- Foundation keeps existing quick commands on their current implementation.
+- Expansion lowers `grep`, `ls`, `cat`, `find`, `lsp`, `repo`, `pkg`, `pr`,
   `history`, `binary`, `unzip`, `clone`, `diff`, and `cache fetch` into OQL
   internally after parity gates pass.
 
@@ -425,7 +448,7 @@ these thresholds:
 - VS Code or another external consumer needs OQL validation without CLI/MCP;
 - OQL examples, fixtures, normalizer, and diagnostics exceed a comfortable core
   submodule size;
-- independent versioning for the language becomes useful.
+- independent package lifecycle for the language becomes useful.
 
 Then split to:
 
@@ -444,13 +467,13 @@ Allowed dependencies: `zod` and tiny pure utilities.
 Forbidden dependencies: Octokit, MCP SDK, filesystem execution, native engine,
 CLI renderer, provider clients, cache implementations.
 
-### 9. V2 Structural Rules And Budgets
+### 9. Expansion Structural Rules And Budgets
 
 Goal: make structural search reusable and safe for broad agent workflows.
 
 Tasks:
 
-- Add reusable structural rule references that resolve to canonical V1
+- Add reusable structural rule references that resolve to canonical Foundation
   `where:{kind:"structural", lang, pattern | rule}`.
 - Add `structuralRef` resolution from local/project/package rule registries.
 - Add `octocode search --validate-rule` or an equivalent validation surface.
@@ -466,7 +489,7 @@ Tests:
 - Budget caps produce continuations or typed truncation diagnostics, not silent
   loss.
 
-### 10. V3 Fixes And Dataflow
+### 10. Reserved Fixes And Dataflow
 
 Goal: support codemod planning and flow research without overstating proof.
 
@@ -528,7 +551,7 @@ Tests:
 - LSP availability is runtime-dependent and must not be treated as absence.
 - Materialization must be bounded and explicit.
 - `proof:"candidate"` is not proof of a bug or correctness property.
-- Fix fields are not part of V1 or V2 execution. V3 may return dry-run patches
+- Fix fields are not part of Foundation or Expansion execution. Reserved may return dry-run patches
   only through an explicit edit/apply surface.
 - Budget exhaustion must be visible as diagnostics/continuations.
 - Secret sanitization and path validation contracts must survive every adapter.
@@ -539,15 +562,15 @@ Tests:
 
 Minimum required gates:
 
-1. Schema examples: every example in the V1 contract parses.
+1. Schema examples: every example in the Foundation contract parses.
 2. Planner snapshots: every active target/source/predicate family has expected
    routing.
-3. V1 legacy parity: local text, regex, PCRE2, structural, content, files,
+3. Foundation legacy parity: local text, regex, PCRE2, structural, content, files,
    tree, GitHub code, GitHub content, GitHub tree, and GitHub remote-as-local
    proof match current tools.
-4. V2 legacy parity: LSP, repo search, npm search, PR/history, binary/archive,
+4. Expansion legacy parity: LSP, repo search, npm search, PR/history, binary/archive,
    diff, materialization, and quick-command lowering match current tools.
-5. V3 proof parity: dry-run fixes never mutate files; candidate dataflow never
+5. Reserved proof parity: dry-run fixes never mutate files; candidate dataflow never
    emits engine-proof relations; engine-backed dataflow includes trace and
    truncation state.
 6. Materialization safety: bounded route works; unbounded route fails.
@@ -566,7 +589,7 @@ Minimum required gates:
 The first useful OQL release is:
 
 1. `octocode search --query`, `--scheme`, and `--explain`.
-2. Canonical `oql/v1` shape with strict unknown-field rejection,
+2. Canonical `oql` shape with strict unknown-field rejection,
    discriminated `where.kind`, and `scope`.
 3. `target:"code"` over local paths for text, fixed string, regex, PCRE2, file
    filters, exact match enumeration, and structural AST search.
@@ -582,27 +605,27 @@ The first useful OQL release is:
 9. MCP schema exposure from core.
 10. Clear unsupported diagnostics for everything not yet implemented.
 
-After V1, add LSP remote-as-local, repository/package discovery, PR/history,
+After Foundation, add LSP remote-as-local, repository/package discovery, PR/history,
 binary/archive, relationships, diff, quick-command lowering, reusable
-structural rules, rule validation, and budget controls in V2. Add dry-run
-fixes and dataflow in V3.
+structural rules, rule validation, and budget controls in Expansion. Add dry-run
+fixes and dataflow in Reserved.
 
 ## Availability Milestones
 
-| Milestone | Version | Available To Users |
+| Milestone | Track | Available To Users |
 |---|---|---|
-| Schema only | V1 | `octocode search --scheme`, docs, example validation. |
-| Planner explain | V1 | Dry-run routing, capability decisions, diagnostics, and continuations. |
-| Local execution | V1 | OQL local code/content/structure/files parity with current tools. |
-| GitHub execution | V1 | GitHub code/content/tree/file plans with provider pushdown. |
-| Remote-as-local proof | V1 | GitHub repo/path/ref OQL can route to local AST, PCRE2, exact matching, and content proof. |
-| MCP OQL schema/tool | V1 | AI assistants get the same OQL schema and execution path for V1 targets. |
-| Universal research targets | V2 | OQL handles LSP, repos, packages, PR/history, binary/archive, diff, and materialization. |
-| Quick command lowering | V2 | Existing CLI research commands compile to OQL internally. |
-| Reusable rule system | V2 | Named structural rules, validation, tests, and budget controls. |
-| Dry-run fixes | V3 | Structural rules can propose safe patches without mutation. |
-| Candidate dataflow | V3 | OQL can produce `mayFlowTo` candidates with explicit uncertainty. |
-| Engine-backed dataflow | V3+ | OQL can report local/global proof only when `octocode-engine` backs it. |
+| Schema only | Foundation | `octocode search --scheme`, docs, example validation. |
+| Planner explain | Foundation | Dry-run routing, capability decisions, diagnostics, and continuations. |
+| Local execution | Foundation | OQL local code/content/structure/files parity with current tools. |
+| GitHub execution | Foundation | GitHub code/content/tree/file plans with provider pushdown. |
+| Remote-as-local proof | Foundation | GitHub repo/path/ref OQL can route to local AST, PCRE2, exact matching, and content proof. |
+| MCP OQL schema/tool | Foundation | AI assistants get the same OQL schema and execution path for Foundation targets. |
+| Universal research targets | Expansion | OQL handles LSP, repos, packages, PR/history, binary/archive, diff, and materialization. |
+| Quick command lowering | Expansion | Existing CLI research commands compile to OQL internally. |
+| Reusable rule system | Expansion | Named structural rules, validation, tests, and budget controls. |
+| Dry-run fixes | Reserved | Structural rules can propose safe patches without mutation. |
+| Candidate dataflow | Reserved | OQL can produce `mayFlowTo` candidates with explicit uncertainty. |
+| Engine-backed dataflow | proof-backed future | OQL can report local/global proof only when `octocode-engine` backs it. |
 
 Do not remove legacy quick commands or raw tools until the quick-command lowering
 milestone has parity tests.

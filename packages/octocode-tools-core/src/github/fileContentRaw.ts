@@ -14,7 +14,6 @@ import { handleGitHubAPIError } from './errors.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { FILE_OPERATION_ERRORS } from '../errors/domainErrors.js';
-import { logSessionError } from '../session.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 
 export interface RawContentResult {
@@ -107,10 +106,6 @@ async function decodeBase64Content(
 ): Promise<GitHubAPIResponse<string>> {
   const stripped = base64.replace(/\s/g, '');
   if (!stripped) {
-    await logSessionError(
-      TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      FILE_OPERATION_ERRORS.FILE_EMPTY.code
-    );
     return {
       error: FILE_OPERATION_ERRORS.FILE_EMPTY.message,
       type: 'unknown' as const,
@@ -120,10 +115,6 @@ async function decodeBase64Content(
   try {
     const buffer = Buffer.from(stripped, 'base64');
     if (buffer.indexOf(0) !== -1) {
-      await logSessionError(
-        TOOL_NAMES.GITHUB_FETCH_CONTENT,
-        FILE_OPERATION_ERRORS.BINARY_FILE.code
-      );
       return {
         error: FILE_OPERATION_ERRORS.BINARY_FILE.message,
         type: 'unknown' as const,
@@ -132,10 +123,6 @@ async function decodeBase64Content(
     }
     return { data: buffer.toString('utf-8'), status: 200 };
   } catch {
-    await logSessionError(
-      TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      FILE_OPERATION_ERRORS.DECODE_FAILED.code
-    );
     return {
       error: FILE_OPERATION_ERRORS.DECODE_FAILED.message,
       type: 'unknown' as const,
@@ -313,10 +300,6 @@ export async function fetchRawGitHubFileContent(
     const data = result.data;
 
     if (Array.isArray(data)) {
-      await logSessionError(
-        TOOL_NAMES.GITHUB_FETCH_CONTENT,
-        FILE_OPERATION_ERRORS.PATH_IS_DIRECTORY.code
-      );
       return {
         error: FILE_OPERATION_ERRORS.PATH_IS_DIRECTORY.message(
           TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
@@ -347,10 +330,6 @@ export async function fetchRawGitHubFileContent(
           filePath
         );
       } else {
-        await logSessionError(
-          TOOL_NAMES.GITHUB_FETCH_CONTENT,
-          FILE_OPERATION_ERRORS.FILE_EMPTY.code
-        );
         return {
           error: FILE_OPERATION_ERRORS.FILE_EMPTY.message,
           type: 'unknown' as const,
@@ -380,10 +359,6 @@ export async function fetchRawGitHubFileContent(
       };
     }
 
-    await logSessionError(
-      TOOL_NAMES.GITHUB_FETCH_CONTENT,
-      FILE_OPERATION_ERRORS.UNSUPPORTED_TYPE.code
-    );
     return {
       error: FILE_OPERATION_ERRORS.UNSUPPORTED_TYPE.message(data.type),
       type: 'unknown' as const,

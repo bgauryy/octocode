@@ -1,19 +1,19 @@
 /**
  * Human/agent-readable OQL schema description, served by
- * `octocode search --scheme`. This is the V1 contract surface; the canonical
+ * `octocode search --scheme`. This is the current contract surface; the canonical
  * language reference lives in docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md.
  */
 import { DEFAULTS } from './defaults.js';
 import { ACTIVE_TARGETS, RESERVED_TARGETS } from './types.js';
 
 export const OQL_SCHEMA_DOC = {
-  schema: 'oql/v1',
+  schema: 'oql',
   description:
     'Use octocode search for bounded research over local paths and GitHub scopes: search code matches, file lists, directory trees, or exact/minified content; set from, scope, and where.kind; keep output small with view/select/controls; materialize only for bounded local proof; use --explain and follow next.* continuations when routing or paging is uncertain.',
   activeTargets: ACTIVE_TARGETS,
   reservedTargets: RESERVED_TARGETS,
   query: {
-    schema: '"oql/v1" (inserted by normalization)',
+    schema: '"oql" (inserted by normalization)',
     target: ACTIVE_TARGETS.join(' | '),
     from: '{ kind:"local", path } | { kind:"github", repo?, owner?, ref? } | { kind:"materialized", localPath, source? } | { kind:"npm" }',
     scope:
@@ -25,7 +25,7 @@ export const OQL_SCHEMA_DOC = {
     fetch:
       '{ content?: { contentView:"exact"|"compact"|"symbols", range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?: {...} }',
     params:
-      'target-specific options for V2 targets (validated by the backing tool) — see params hints below',
+      'target-specific options (validated by OQL for common fields and by the backing tool exhaustively) — see params hints below',
     select: 'string[] projection of result/continuation fields',
     view: 'discovery | paginated | detailed',
     controls: '{ search?: {...}, budget?: {...} }',
@@ -34,7 +34,7 @@ export const OQL_SCHEMA_DOC = {
     itemsPerPage: 'number',
     explain: 'boolean',
   },
-  // Per-target `params` for V2 targets (full schema: `tools <name> --scheme`).
+  // Per-target `params` hints (full schema: `tools <name> --scheme`).
   params: {
     semantics:
       '{ type:"definition"|"references"|"callers"|"callees"|"callHierarchy"|"hover"|"documentSymbols"|"typeDefinition"|"implementation", symbolName?, lineHint?, orderHint?, depth?, includeDeclaration?, groupByFile?, format? } — backing tool lspGetSemantics',

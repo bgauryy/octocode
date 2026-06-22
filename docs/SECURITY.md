@@ -2,7 +2,7 @@
 
 Octocode is built for agent workflows where the context window can fill with secrets, tokens, and untrusted paths. Its core security principle:
 
-> **Every byte that reaches the model is scanned and redacted first.** Secrets are stripped on the way *in* (tool inputs) and on the way *out* (tool results) — they never reach the LLM, logs, or error messages.
+> **Every byte that reaches the model is scanned and redacted first.** Secrets are stripped on the way *in* (tool inputs) and on the way *out* (tool results) — they never reach the LLM or error messages.
 
 All security primitives live in the Rust engine (`@octocodeai/octocode-engine`), so the same enforcement runs identically under the MCP server and the CLI.
 
@@ -25,7 +25,7 @@ Redaction happens at **three** points, not one:
 
 | Stage | Where | What it protects against |
 |-------|-------|--------------------------|
-| **Input** | `withSecurityValidation` wraps every tool handler | A secret pasted into a query argument being echoed back or logged |
+| **Input** | `withSecurityValidation` wraps every tool handler | A secret pasted into a query argument being echoed back |
 | **Content** | Each reader (`localGetFileContent`, ripgrep, structural search, binary inspect, find, view-structure, GitHub code/file fetch, npm) sanitizes content as it is read | A `.env`, key file, or repo file with embedded credentials being surfaced verbatim |
 | **Output** | `callToolResult` scans and masks every returned text item | Any secret that slipped through earlier stages reaching the model |
 
@@ -83,7 +83,7 @@ The canonical lists are `IGNORED_FILE_PATTERNS` and `IGNORED_PATH_PATTERNS` in t
 
 - GitHub auth resolves in priority order: `OCTOCODE_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN`, then encrypted on-disk Octocode OAuth credentials, then the `gh` CLI token.
 - On-disk OAuth credentials are stored **AES-256-GCM encrypted** under `OCTOCODE_HOME`.
-- Tokens are read from the environment / secure store at request time and are themselves subject to output masking — they are never written to logs or echoed in results.
+- Tokens are read from the environment / secure store at request time and are themselves subject to output masking — they are never echoed in results.
 - See [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md) and [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md).
 
 ---

@@ -7,7 +7,6 @@ export const OctocodeConfigSchema = z.looseObject({
   local: z.record(z.string(), z.unknown()).optional(),
   tools: z.record(z.string(), z.unknown()).optional(),
   network: z.record(z.string(), z.unknown()).optional(),
-  telemetry: z.record(z.string(), z.unknown()).optional(),
   lsp: z.record(z.string(), z.unknown()).optional(),
   output: z.record(z.string(), z.unknown()).optional(),
 });

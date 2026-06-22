@@ -57,7 +57,7 @@ The key is generated once and stored in `.key`; every encryption uses a new rand
 | Stored token without refresh token | No | Expired token resolves as unavailable. |
 | `gh` CLI | No | `gh` manages its own auth. |
 
-Refresh errors are sanitized so token-like strings are masked before returning/logging.
+Refresh errors are sanitized so token-like strings are masked before returning.
 
 ## Cache
 
@@ -99,7 +99,7 @@ Hostname normalization lowercases hostnames and strips protocol/trailing slash, 
 - AES-GCM auth tags detect tampering.
 - Error messages mask GitHub-token-like strings.
 - The encryption key is file-based, so this is for single-user workstations and CI contexts, not multi-tenant secret custody.
-- Consumers must never log raw tokens.
+- Consumers must never expose raw tokens.
 
 ## Related Documentation
 

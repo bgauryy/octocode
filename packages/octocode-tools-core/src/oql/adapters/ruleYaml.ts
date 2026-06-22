@@ -4,8 +4,8 @@
  * The structural engine's `rule` field is a YAML string with a top-level
  * `rule:` key (matching the `grep --rule` surface), NOT a JSON object. Agents
  * author the JSON object form (per the contract); this lowers it to the engine
- * format. Covers the V1 subset: pattern, kind, inside, has, not, all, any,
- * stopBy.
+ * format. Covers the currently supported rule fields: pattern, kind, inside,
+ * has, not, all, any, stopBy.
  */
 import type { StructuralRule } from '../types.js';
 

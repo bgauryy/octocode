@@ -22,7 +22,7 @@ import type {
   OqlDiagnostic,
   OqlExplainPlan,
   OqlPlanNode,
-  OqlQueryV1,
+  OqlQuery,
   PlanRoute,
   Predicate,
   QuerySource,
@@ -44,7 +44,7 @@ function predicateId(p: Predicate, path: string): string {
  * child routes.
  */
 function walkPredicate(
-  query: OqlQueryV1,
+  query: OqlQuery,
   predicate: Predicate,
   path: string,
   ctx: CapabilityContext,
@@ -57,13 +57,46 @@ function walkPredicate(
     const childRoutes = predicate.of.map((c, i) =>
       walkPredicate(query, c, `${path}.of[${i}]`, ctx, out, inNegation)
     );
-    const route = combineBooleanRoute(predicate.kind, childRoutes);
-    out.nodes.push({
-      predicateId: id,
-      path,
-      route,
-      reason: `${predicate.kind} over ${childRoutes.length} children`,
-    });
+    let route = combineBooleanRoute(predicate.kind, childRoutes);
+    let reason = `${predicate.kind} over ${childRoutes.length} children`;
+
+    // A multi-leaf boolean is not a single provider call. Over a GitHub
+    // `code`/`files` source it must materialize (clone -> local set-algebra) or
+    // it is unsupported — so the plan matches execution (the boolean evaluators
+    // run only on a local/materialized corpus).
+    if (
+      ctx.sourceKind === 'github' &&
+      (ctx.target === 'code' || ctx.target === 'files') &&
+      route !== 'UNSUPPORTED'
+    ) {
+      const canMat =
+        ctx.materialize?.mode === 'auto' ||
+        ctx.materialize?.mode === 'required';
+      if (canMat) {
+        route = 'ROUTE';
+        reason +=
+          ' (routed to materialization: GitHub cannot evaluate a multi-leaf boolean in one call)';
+      } else {
+        route = 'UNSUPPORTED';
+        reason +=
+          ' (GitHub cannot evaluate a multi-leaf boolean; materialize for local proof)';
+        out.diagnostics.push(
+          diagnostic(
+            'requiresMaterialization',
+            'A multi-leaf boolean over a GitHub code source needs bounded materialization (clone then local set-algebra).',
+            {
+              queryPath: path,
+              repair: {
+                message:
+                  'Add materialize:{mode:"auto"} with scope.path, or run one query per branch.',
+              },
+            }
+          )
+        );
+      }
+    }
+
+    out.nodes.push({ predicateId: id, path, route, reason });
     return route;
   }
 
@@ -138,7 +171,7 @@ function combineBooleanRoute(
   return children[0] ?? 'PUSHDOWN';
 }
 
-function operationFor(target: OqlQueryV1['target']): string {
+function operationFor(target: OqlQuery['target']): string {
   switch (target) {
     case 'code':
       return 'searchCode';
@@ -196,10 +229,7 @@ export interface PlanQueryResult {
   executable: boolean;
 }
 
-export function planQuery(
-  query: OqlQueryV1,
-  rawInput: unknown
-): PlanQueryResult {
+export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
   const out: WalkResult = { nodes: [], diagnostics: [], backendCalls: [] };
   const materialize = query.materialize;
   const source: QuerySource = query.from ?? { kind: 'github' };
@@ -242,14 +272,41 @@ export function planQuery(
       );
     }
   } else {
-    // targetless families (content/structure/files + V2 research targets):
-    // a single fetch/list/inspect backend call.
+    // Targetless families use one fetch/list/inspect/analyze backend call.
     out.backendCalls.push({
       backend: backendForTargetless(query),
       source,
       operation: operationFor(query.target),
       exact: query.target !== 'research',
     });
+  }
+
+  // `files` over a GitHub source with no `where` has no leaf to route through
+  // the capability layer, but still cannot enumerate the file universe from the
+  // provider. Enforce the same materialization requirement so the plan matches
+  // executeGithub's files lane.
+  if (source.kind === 'github' && query.target === 'files' && !query.where) {
+    const canMat =
+      materialize?.mode === 'auto' || materialize?.mode === 'required';
+    if (!canMat) {
+      out.diagnostics.push(
+        diagnostic(
+          'requiresMaterialization',
+          'target:"files" over a GitHub source needs bounded materialization to enumerate files (set materialize.mode "auto"/"required" with scope.path), or use a local source.',
+          {
+            queryPath: 'target',
+            backend: 'localFindFiles',
+            // error: there is no provider lane to list the whole file set, and
+            // no predicate node to carry an UNSUPPORTED route — block execution.
+            severity: 'error',
+            repair: {
+              message:
+                'Add materialize:{mode:"auto"} with scope.path, or use a local `from`.',
+            },
+          }
+        )
+      );
+    }
   }
 
   // Output-feature capability check (content view / select projections). Emits
@@ -309,7 +366,7 @@ export function planQuery(
   return { plan, executable };
 }
 
-function backendForTargetless(query: OqlQueryV1): string {
+function backendForTargetless(query: OqlQuery): string {
   const local = query.from?.kind !== 'github';
   switch (query.target) {
     case 'content':
@@ -341,7 +398,7 @@ function backendForTargetless(query: OqlQueryV1): string {
 }
 
 function decideMaterialization(
-  query: OqlQueryV1,
+  query: OqlQuery,
   diagnostics: OqlDiagnostic[]
 ): (MaterializePolicy & { required: boolean; reason: string }) | undefined {
   const m = query.materialize;

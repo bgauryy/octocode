@@ -78,7 +78,6 @@ export async function initialize(): Promise<void> {
       disableTools: resolved.tools.disabled ?? undefined,
       timeout: resolved.network.timeout,
       maxRetries: resolved.network.maxRetries,
-      loggingEnabled: resolved.telemetry.logging,
       enableLocal: resolved.local.enabled,
       enableClone: resolved.local.enableClone,
       outputFormat: resolved.output.format,
@@ -127,10 +126,6 @@ export function isLocalEnabled(): boolean {
 export function isCloneEnabled(): boolean {
   const cfg = getServerConfig();
   return cfg.enableLocal && cfg.enableClone;
-}
-
-export function isLoggingEnabled(): boolean {
-  return config?.loggingEnabled ?? false;
 }
 
 export async function getTokenSource(): Promise<TokenSourceType> {

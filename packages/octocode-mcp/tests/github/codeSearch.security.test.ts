@@ -19,10 +19,6 @@ vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
   }),
 }));
 
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 import { searchGitHubCodeAPI } from '../../../octocode-tools-core/src/github/codeSearch.js';
 import { SEARCH_ERRORS } from '../../../octocode-tools-core/src/errors/domainErrors.js';
 

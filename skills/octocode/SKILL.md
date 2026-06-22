@@ -26,8 +26,8 @@ Binary: `octocode`. Run `octocode --help` to see everything; it prints an `<AGEN
 | Read (and minify) a file | `octocode cat <path\|owner/repo/path> [--mode none\|standard\|symbols] [--match-string '<anchor>']` |
 | Text / regex code search | `octocode grep '<keywords>' <path\|owner/repo> [--type ts]` |
 | Find files by name/path/content | `octocode find '<query>' [path\|owner/repo] [--search path\|content\|both]` |
-| Code-shape search (AST, local) | `octocode ast '<pattern>' [path]` |
-| Symbol outline of a file/dir | `octocode symbols <file\|dir>` |
+| Code-shape search (AST, local) | `octocode grep <path> --pattern '<shape>'` (`--rule '<yaml>'` for relational) |
+| Symbol outline of a file/dir | `octocode ls <dir> --symbols` · `octocode cat <file> --mode symbols` |
 | Symbol identity (defs/refs/callers) | `octocode lsp <file> --type references --symbol <name> --line <n>` |
 | Discover GitHub repositories | `octocode repo '<keywords>' [--language ts --stars '>100']` |
 | Pull requests (list or deep-read) | `octocode pr <owner/repo[#N]\|PR-URL> [--deep]` |
@@ -48,7 +48,7 @@ octocode tools <name> --queries '<json>'          # run it (one object, or an ar
 octocode tools <name> --queries '<json>' --json   # raw envelope
 ```
 
-Never guess fields — read the schema. `id`, `mainResearchGoal`, `researchGoal`, `reasoning` are auto-filled; don't pass them. Batch up to 5 independent sub-queries in one call:
+`id`, `mainResearchGoal`, `researchGoal`, `reasoning` are auto-filled; don't pass them. Batch up to 5 independent sub-queries in one call:
 
 ```bash
 octocode tools ghSearchCode --queries '[
@@ -67,7 +67,7 @@ octocode cat bgauryy/octocode-mcp/packages/octocode/src/cli/index.ts --match-str
 
 **Workspace mapping (layout + each package.json):** one `ls --depth 2`, then parallel `cat` calls for each `package.json` in a single message.
 
-**Deep multi-file work in one repo (>~3 files):** `octocode clone owner/repo`, then run `grep`/`ast`/`symbols`/`lsp`/`cat` on the local clone instead of many GitHub round-trips.
+**Deep multi-file work in one repo (>~3 files):** `octocode clone owner/repo`, then run `grep`, `grep --pattern` (AST), `ls --symbols`, `lsp`, and `cat` on the local clone instead of many GitHub round-trips.
 
 ## On failure
 

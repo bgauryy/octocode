@@ -17,9 +17,7 @@ import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
 import { generateStructurePaginationHints } from '../utils/pagination/hints.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types';
 import { shouldIgnoreDir, shouldIgnoreFile } from '../utils/file/filters.js';
-import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { REPOSITORY_ERRORS } from '../errors/domainErrors.js';
-import { logSessionError } from '../session.js';
 import {
   countSerializedChars,
   getRawResponseChars,
@@ -32,8 +30,6 @@ import {
 } from './repoStructureRecursive.js';
 
 import type { Octokit } from 'octokit';
-
-const TOOL_NAME = TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE;
 
 type GitHubStructureFetchQuery = GitHubViewRepoStructureQuery & {
   includeSizes?: boolean;
@@ -59,7 +55,6 @@ async function resolveContentWithBranchFallback(
       branch ?? (await resolveDefaultBranch(owner, repo, authInfo));
   } catch (repoError) {
     const apiError = handleGitHubAPIError(repoError);
-    await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.NOT_FOUND.code);
     return {
       error: REPOSITORY_ERRORS.NOT_FOUND.message(owner, repo, apiError.error),
       status: apiError.status,
@@ -77,7 +72,6 @@ async function resolveContentWithBranchFallback(
   } catch (error: unknown) {
     if (!(error instanceof RequestError && error.status === 404)) {
       const apiError = handleGitHubAPIError(error);
-      await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.ACCESS_FAILED.code);
       return {
         error: REPOSITORY_ERRORS.ACCESS_FAILED.message(
           owner,
@@ -92,7 +86,6 @@ async function resolveContentWithBranchFallback(
     }
 
     const apiError = handleGitHubAPIError(error);
-    await logSessionError(TOOL_NAME, REPOSITORY_ERRORS.PATH_NOT_FOUND.code);
     return {
       error: REPOSITORY_ERRORS.PATH_NOT_FOUND.message(
         cleanPath,
@@ -394,10 +387,6 @@ async function viewGitHubRepositoryStructureAPIInternal(
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);
-    await logSessionError(
-      TOOL_NAME,
-      REPOSITORY_ERRORS.STRUCTURE_EXPLORATION_FAILED.code
-    );
     return {
       error: REPOSITORY_ERRORS.STRUCTURE_EXPLORATION_FAILED.message,
       status: apiError.status,

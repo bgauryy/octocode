@@ -15,25 +15,23 @@ const nodeExternals = [
 ];
 
 // Every runtime `dependency` MUST stay external — never inlined into the bundle.
+// @octocodeai/octocode-tools-core is deliberately NOT a runtime dependency: it
+// is a build-time (dev) dependency that esbuild INLINES into out/octocode.js, so
+// it is never published to npm. Its own runtime deps (engine native addon, core,
+// octokit, …) stay external and are declared in this package's `dependencies`.
 const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
-// Transitive packages owned by octocode-tools-core; cli does not declare them
-// directly but they must remain external so native .node binaries are resolved
-// at runtime by the package manager rather than bundled.
+// Subpath-export wildcards for the externalized packages tools-core pulls in
+// (esbuild matches `*`). Base specifiers are covered by runtimeExternals; the
+// native engine addon in particular can never be bundled.
 const transitiveExternals = [
   '@octocodeai/octocode-engine',
-  '@octocodeai/octocode-engine/security',
-  '@octocodeai/octocode-engine/mask',
-  '@octocodeai/octocode-engine/contentSanitizer',
-  '@octocodeai/octocode-engine/pathValidator',
-  '@octocodeai/octocode-engine/commandValidator',
-  '@octocodeai/octocode-engine/withSecurityValidation',
-  '@octocodeai/octocode-engine/registry',
-  '@octocodeai/octocode-engine/pathUtils',
+  '@octocodeai/octocode-engine/*',
   '@octocodeai/octocode-core',
-  '@octocodeai/octocode-core/cli',
-  '@octocodeai/octocode-core/schemas',
-  '@octocodeai/octocode-core/types',
+  '@octocodeai/octocode-core/*',
+  '@modelcontextprotocol/sdk',
+  '@modelcontextprotocol/sdk/*',
+  '@octokit/*',
   'zod',
 ];
 

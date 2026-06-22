@@ -30,31 +30,74 @@ Only these workspace packages are part of the monorepo:
 | `packages/octocode` | `octocode` | CLI/interface package: direct tool runner, auth, install, status, token, MCP marketplace, cache, and skills workflows. |
 | `packages/octocode-mcp` | `octocode-mcp` | MCP server/interface package for AI assistants. |
 | `packages/octocode-engine` | `@octocodeai/octocode-engine` | Rust-based native engine. |
-| `packages/octocode-tools-core` | `@octocodeai/octocode-tools-core` | Core tool implementations and shared credentials/session/config/platform utilities. |
+| `packages/octocode-tools-core` | `@octocodeai/octocode-tools-core` | Core tool implementations and shared credentials/session/config/platform utilities. **Bundled into its consumers at build time — NOT published to npm** (see [Bundled, not published](#tools-core-is-bundled-not-published)). |
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension. |
 
 ### Dependency tree
 
+`@octocodeai/octocode-tools-core` is **inlined into each interface package's build output** by esbuild — it is a build-time (dev) dependency, never an installed runtime dependency. tools-core's own runtime deps cannot be inlined (the native engine especially), so they are hoisted into each consumer's `dependencies` and installed directly from npm:
+
 ```
-octocode-mcp ──────────────────────────────────────────────────────────────────┐
-octocode ──────────────────────────────────────────────────────────────────────┤
-                                                                              │
-    └─▶ @octocodeai/octocode-tools-core  (compiled; core tool implementations)
-              ├─▶ @octocodeai/octocode-engine  (Rust .node native engine)
-              └─▶ shared interfaces            (credentials/session/config/platform)
+octocode-mcp ─┐  (tools-core inlined into dist/index.js)
+octocode ─────┤  (tools-core inlined into out/octocode.js)
+              │
+              ├─▶ @octocodeai/octocode-engine  (Rust .node native engine — unbundlable)
+              ├─▶ @octocodeai/octocode-core     (schemas / types)
+              ├─▶ octokit, @octokit/*, node-cache, zod
+              └─▶ @modelcontextprotocol/sdk     (octocode-mcp only)
 ```
 
-`octocode-mcp` adds `@modelcontextprotocol/sdk` and the MCP server layer on top. `octocode` skips the MCP layer and talks to `@octocodeai/octocode-tools-core` directly, so the CLI has no runtime dependency on `octocode-mcp`.
+`octocode-mcp` adds `@modelcontextprotocol/sdk` and the MCP server layer on top. `octocode` skips the MCP layer entirely (it never references the SDK). Neither CLI has a runtime dependency on the other, and neither installs `@octocodeai/octocode-tools-core` — its code rides along inside their bundles.
+
+### Publish/install invariant
+
+There are two graphs to keep separate:
+
+- **Source/build graph**: `@octocodeai/octocode-engine` →
+  `@octocodeai/octocode-tools-core` → `octocode-mcp` / `octocode`.
+- **npm install graph**: `octocode-mcp` / `octocode` →
+  `@octocodeai/octocode-engine` → one matching platform
+  `@octocodeai/octocode-engine-*` optional dependency.
+
+`@octocodeai/octocode-tools-core` is intentionally missing from the npm install
+graph. Therefore the engine root and all six engine platform packages must exist
+on npm before publishing any interface package that depends on the engine.
 
 ### What each package bundles vs. externalizes
 
 | Package | Bundles (build output packs into dist/out) | Externalizes (npm installs separately) |
 |---|---|---|
 | `@octocodeai/octocode-engine` | TypeScript wrapper/build output | `zod`; ships its Rust `.node` via 6 platform `optionalDependencies` |
-| `@octocodeai/octocode-tools-core` | Core tool implementation build output | `@modelcontextprotocol/sdk`, `@octocodeai/octocode-core`, `@octocodeai/octocode-engine`, `@octokit/*`, `@vscode/ripgrep`, `node-cache`, `octokit`, `zod` |
-| `octocode-mcp` | MCP server build output | `@modelcontextprotocol/sdk`, `@octocodeai/octocode-tools-core` |
-| `octocode` | CLI build output | `@inquirer/prompts`, `@octocodeai/octocode-tools-core`, `@octokit/*`, `open` |
+| `@octocodeai/octocode-tools-core` | Core tool implementation build output (consumed locally only — **not published**) | `@modelcontextprotocol/sdk`, `@octocodeai/octocode-core`, `@octocodeai/octocode-engine`, `@octokit/*`, `node-cache`, `octokit`, `zod` |
+| `octocode-mcp` | MCP server build output **+ inlined `@octocodeai/octocode-tools-core`** | `@modelcontextprotocol/sdk`, `@octocodeai/octocode-core`, `@octocodeai/octocode-engine`, `@octokit/oauth-methods`, `@octokit/plugin-throttling`, `@octokit/request`, `node-cache`, `octokit`, `zod` |
+| `octocode` | CLI build output **+ inlined `@octocodeai/octocode-tools-core`** **+ the bundled `skills/` dir** (copied from repo root by `prepack.mjs`, `.env.example` files stripped) | `@inquirer/prompts`, `@octocodeai/octocode-core`, `@octocodeai/octocode-engine`, `@octokit/auth-oauth-device`, `@octokit/oauth-methods`, `@octokit/plugin-throttling`, `@octokit/request`, `node-cache`, `octokit`, `open`, `zod` |
 | `octocode-mcp-vscode` | VS Code extension bundle | VS Code runtime APIs |
+
+> The `octocode` tarball ships the repo-root `skills/` directory verbatim (every
+> skill under `skills/`, e.g. `octocode`, `octocode-engineer`, `octocode-rfc-generator`),
+> bundled by `packages/octocode/scripts/prepack.mjs`. Before publishing `octocode`,
+> make sure those skills are current — stale CLI examples, tool names, or modes in a
+> skill ship to every user. `docs/` does **not** ship in the tarball (`files` is
+> `out`, `skills`, `assets/example.png`, `README.md`, `LICENSE`).
+
+### tools-core is bundled, not published
+
+`@octocodeai/octocode-tools-core` holds the shared tool implementations, but it is **never published to npm**. Each interface package inlines it at build time and ships it inside its own tarball. This removes one published package from the release and guarantees the consumers always run the exact tools-core build they were compiled against.
+
+How it works:
+
+1. **Runtime JS** — esbuild inlines tools-core because it is *not* listed in the bundler `external` set (`packages/octocode-mcp/buildConfig.mjs`, `packages/octocode/build.mjs`). tools-core's own runtime deps stay external (the native engine cannot be bundled; the rest are normal registry packages) and are declared in each consumer's `dependencies` so `npm install` pulls them directly — no tools-core hop.
+2. **Manifest** — `@octocodeai/octocode-tools-core` lives in each consumer's **`devDependencies`** as `workspace:^` (a build-time-only link). It is absent from `dependencies`, so consumers never try to fetch it. `npm publish` auto-corrects the leftover `workspace:` devDep ref; `sync-packages-version.mjs` keeps it on the workspace protocol even in `--pin-for-publish` mode (it is in `UNPUBLISHED_INTERNAL`), so it is never pinned to a non-existent registry version.
+3. **Types (octocode-mcp only)** — `tsc` emits per-file `.d.ts` into `dist/.types`, then `scripts/bundle-dts.mjs` (rollup + `rollup-plugin-dts`) rolls `public.d.ts` into a single declaration file that **inlines tools-core's types** while keeping still-published packages (`@octocodeai/octocode-core`, `zod`) as external imports. Only the bundled `dist/public.d.ts` ships. `octocode` is `bin`-only and ships no `.d.ts`, so it needs no type bundling.
+
+Verify after a build that no tools-core reference leaked into a published artifact:
+
+```bash
+# JS bundles + type surface must contain zero tools-core import specifiers:
+grep -rl 'octocode-tools-core' packages/octocode-mcp/dist packages/octocode/out || echo "✓ clean"
+# Published runtime deps must NOT include tools-core (devDeps may keep the workspace ref):
+node -e "const p=require('./packages/octocode-mcp/package.json'); if(p.dependencies['@octocodeai/octocode-tools-core'])throw Error('tools-core leaked into runtime deps'); console.log('✓ not a runtime dep')"
+```
 
 ---
 
@@ -83,13 +126,13 @@ At `npm install` time, npm checks `os` + `cpu` + `libc` on each platform package
 
 ### How users get the binary
 
-Both interface packages deliver the same native engine through `@octocodeai/octocode-tools-core`:
+Both interface packages declare `@octocodeai/octocode-engine` as a direct dependency (tools-core, which used to be the intermediary, is now inlined into their bundles — see [Bundled, not published](#tools-core-is-bundled-not-published)):
 
 ```
 npm install octocode-mcp            npm install octocode
-  └─ @octocodeai/octocode-tools-core  └─ @octocodeai/octocode-tools-core
-       └─ @octocodeai/octocode-engine      └─ @octocodeai/octocode-engine
-            └─ one matching platform optionalDependency
+  └─ @octocodeai/octocode-engine      └─ @octocodeai/octocode-engine
+       └─ one matching platform           └─ one matching platform
+          optionalDependency                 optionalDependency
 ```
 
 ### Runtime loader resolution order
@@ -142,13 +185,20 @@ yarn verify        # lint + typecheck + tests everywhere
 
 ### Keep versions in sync
 
-When you bump the version in `packages/octocode-mcp/package.json`, align every other package:
+Versions are independent by package family: engine `16.5.x`, MCP `16.2.x`, CLI
+`2.x`. Use the narrowest sync command for the release you are doing:
 
 ```bash
+# Engine-only release:
+yarn workspace @octocodeai/octocode-engine run version:sync
+
+# Full same-version monorepo release only:
 node release/sync-packages-version.mjs
-# → sets the same version on every package.json
-# → converts any pinned internal dep back to workspace:*
 ```
+
+Do not run `release/sync-packages-version.mjs` for an engine-only release; it
+uses `packages/octocode-mcp/package.json` as its source and would collapse the
+engine version onto the MCP version.
 
 To check that no package has accidentally lost its `workspace:*` ref:
 
@@ -228,11 +278,14 @@ yarn build          # full build
 yarn workspaces foreach -pt run build:dev
 ```
 
-Build order is fixed — build dependencies before consumers:
+Local source build order is fixed — build dependencies before consumers:
 
 ```
 @octocodeai/octocode-engine → @octocodeai/octocode-tools-core → octocode-mcp / octocode / octocode-mcp-vscode
 ```
+
+This is not the npm publish graph. `@octocodeai/octocode-tools-core` is built so
+the interface bundles can inline it, but it is not published.
 
 ---
 
@@ -240,7 +293,7 @@ Build order is fixed — build dependencies before consumers:
 
 ### Pre-publish checks
 
-> **Versioned independently** (engine `16.5.x`, tools-core `16.3.x`, octocode-mcp `16.2.x`). For an engine-only release, bump `packages/octocode-engine/package.json` and use the engine's `version:sync`. Do **not** run `release/sync-packages-version.mjs` — it forces every package to octocode-mcp's version and would downgrade the engine.
+> **Versioned independently** (engine `16.5.x`, octocode-mcp `16.2.x`, octocode `2.x`). For an engine-only release, bump `packages/octocode-engine/package.json` and use the engine's `version:sync`. Do **not** run `release/sync-packages-version.mjs` — it forces every package to octocode-mcp's version and would downgrade the engine. `@octocodeai/octocode-tools-core` is **not published** (it is bundled into the interface packages — see [Bundled, not published](#tools-core-is-bundled-not-published)), so its own version only matters for local builds.
 
 #### The engine is Rust → TS — verify both layers
 
@@ -251,6 +304,24 @@ Build order is fixed — build dependencies before consumers:
 | TS build | `tsc` | `dist/` (security + lsp) | `tsc` / `verify` |
 
 The 6 `.npm` platform packages (`@octocodeai/octocode-engine-<platform>`) each carry exactly one `.node` and are exact-pinned in the root's `optionalDependencies`. The root tarball ships **no** `.node`.
+
+Before publishing `octocode-mcp` or `octocode`, verify the engine package family
+is already visible from the registry:
+
+```bash
+ENGINE_VERSION=$(node -p "require('./packages/octocode-engine/package.json').version")
+for pkg in \
+  @octocodeai/octocode-engine \
+  @octocodeai/octocode-engine-darwin-arm64 \
+  @octocodeai/octocode-engine-darwin-x64 \
+  @octocodeai/octocode-engine-linux-arm64-gnu \
+  @octocodeai/octocode-engine-linux-x64-gnu \
+  @octocodeai/octocode-engine-linux-x64-musl \
+  @octocodeai/octocode-engine-win32-x64-msvc
+do
+  npm view "$pkg@$ENGINE_VERSION" version
+done
+```
 
 #### Engine readiness (from repo root)
 
@@ -296,8 +367,16 @@ cd ../..
 
 ```bash
 rg '"workspace:|"file:' packages/*/package.json packages/*/npm/*/package.json
-# → must be empty for whatever you publish. (CLI keeps a dev file: dep on
-#   @octocodeai/octocode-core — pin it before publishing the CLI. Engine has none.)
+# Expected non-empty matches (NOT blockers):
+#   • devDependencies."@octocodeai/octocode-tools-core": "workspace:^" in
+#     octocode-mcp and octocode — tools-core is bundled, not published; the ref
+#     is a build-time-only link that npm auto-corrects on publish and is never
+#     installed by consumers (see "tools-core is bundled, not published").
+#   • CLI keeps a dev file: dep on @octocodeai/octocode-core — pin it before
+#     publishing the CLI.
+# The authoritative gate is each package's prepack guard (runtime deps only):
+node packages/octocode-mcp/scripts/check-no-workspace-protocol.mjs
+node packages/octocode/scripts/check-no-workspace-protocol.mjs
 yarn verify
 ```
 
@@ -308,12 +387,16 @@ Dependencies must exist on npm before dependents. Publish in this order:
 ```
 1. @octocodeai/octocode-engine npm/{platform} × 6
 2. @octocodeai/octocode-engine
-3. @octocodeai/octocode-tools-core
-4. octocode-mcp
-5. octocode
-6. octocode-mcp-vscode, when releasing the VS Code extension
-7. Homebrew tap update for octocode
+3. octocode-mcp
+4. octocode
+5. octocode-mcp-vscode, when releasing the VS Code extension
+6. Homebrew tap update for octocode
 ```
+
+> `@octocodeai/octocode-tools-core` is **not** in this list — it is bundled into
+> `octocode-mcp` and `octocode` at build time, never published. The interface
+> packages depend directly on `@octocodeai/octocode-engine` (+ `octocode-core`,
+> `octokit`, …), so the engine still publishes first.
 
 ### Publish commands
 
@@ -321,13 +404,13 @@ Dependencies must exist on npm before dependents. Publish in this order:
 
 ```bash
 npm whoami   # confirm auth
+ENGINE_VERSION=$(node -p "require('./packages/octocode-engine/package.json').version")
 
 # Dry-run first:
 for dir in packages/octocode-engine/npm/*; do
   npm publish "$dir" --access public --provenance --dry-run
 done
 npm publish packages/octocode-engine          --access public --provenance --ignore-scripts --dry-run
-npm publish packages/octocode-tools-core      --access public --provenance --dry-run
 npm publish packages/octocode-mcp             --access public --provenance --ignore-scripts --dry-run
 npm publish packages/octocode                 --access public --provenance --dry-run
 
@@ -336,19 +419,41 @@ for dir in packages/octocode-engine/npm/*; do
   npm publish "$dir" --access public --provenance
 done
 npm publish packages/octocode-engine          --access public --provenance --ignore-scripts
-npm publish packages/octocode-tools-core      --access public --provenance
+
+# Stop here until the freshly published engine root + platform packages resolve.
+for pkg in \
+  @octocodeai/octocode-engine \
+  @octocodeai/octocode-engine-darwin-arm64 \
+  @octocodeai/octocode-engine-darwin-x64 \
+  @octocodeai/octocode-engine-linux-arm64-gnu \
+  @octocodeai/octocode-engine-linux-x64-gnu \
+  @octocodeai/octocode-engine-linux-x64-musl \
+  @octocodeai/octocode-engine-win32-x64-msvc
+do
+  npm view "$pkg@$ENGINE_VERSION" version
+done
+
 npm publish packages/octocode-mcp             --access public --provenance --ignore-scripts
 npm publish packages/octocode                 --access public --provenance
 ```
 
+> `@octocodeai/octocode-tools-core` is intentionally absent — it is bundled into
+> the two interface packages, not published.
+
 ### Restore workspace refs after publish
 
-After publishing, internal deps are pinned to the exact version. Restore `workspace:*` so local development works again:
+After a full monorepo publish that used `release/sync-packages-version.mjs
+--pin-for-publish`, restore local workspace refs so development links siblings
+again:
 
 ```bash
 node release/sync-packages-version.mjs
 yarn install
 ```
+
+For an engine-only release, use the engine's `version:sync`; no monorepo
+workspace-ref restore is needed unless you separately pinned interface package
+manifests.
 
 Or verify first, then fix:
 
@@ -362,17 +467,65 @@ yarn install
 
 ```bash
 tmp=$(mktemp -d) && cd "$tmp" && npm init -y >/dev/null
-npm install octocode-mcp@X.Y.Z octocode@X.Y.Z
+ENGINE_VERSION=16.5.1
+MCP_VERSION=16.2.0
+CLI_VERSION=2.0.0
+npm install "octocode-mcp@$MCP_VERSION" "octocode@$CLI_VERSION"
+npm ls "@octocodeai/octocode-engine@$ENGINE_VERSION"
 node --input-type=module -e "const e = await import('@octocodeai/octocode-engine'); console.log('engine:', typeof e.applyContentViewMinification === 'function')"
+# tools-core is bundled, not published — it must NOT be installed in node_modules:
+test ! -e node_modules/@octocodeai/octocode-tools-core && echo "✓ tools-core not installed (bundled)" || echo "✗ tools-core leaked as a runtime dep"
 npx octocode-mcp --help
 npx octocode --version
+```
+
+### Recovering from a bad interface publish
+
+If a published `octocode` or `octocode-mcp` version depends on
+`@octocodeai/octocode-tools-core`, that version is broken by design: tools-core
+is unpublished and must stay bundled. Do **not** fix it by publishing
+`@octocodeai/octocode-tools-core`.
+
+Recovery sequence:
+
+```bash
+# 1. Publish/verify the engine package family first.
+ENGINE_VERSION=$(node -p "require('./packages/octocode-engine/package.json').version")
+for pkg in \
+  @octocodeai/octocode-engine \
+  @octocodeai/octocode-engine-darwin-arm64 \
+  @octocodeai/octocode-engine-darwin-x64 \
+  @octocodeai/octocode-engine-linux-arm64-gnu \
+  @octocodeai/octocode-engine-linux-x64-gnu \
+  @octocodeai/octocode-engine-linux-x64-musl \
+  @octocodeai/octocode-engine-win32-x64-msvc
+do
+  npm view "$pkg@$ENGINE_VERSION" version
+done
+
+# 2. Publish a new patch of the broken interface package from a build where:
+#    - package.json has tools-core only in devDependencies
+#    - out/dist contains no tools-core import specifier
+#    - check-no-workspace-protocol passes
+npm publish packages/octocode --access public --provenance
+
+# 3. Mark the broken version so new users do not pick it by accident.
+npm deprecate "octocode@<bad-version>" \
+  "Broken publish: depended on unpublished @octocodeai/octocode-tools-core. Use a newer patch."
 ```
 
 ---
 
 ## Standalone Binaries
 
-Standalone binaries bundle Bun + runtime assets (`rg`, `.node` files) into a single executable per platform. Used for the GitHub Release and Homebrew tap.
+Standalone binaries are separate from npm publishing. They compile the MCP server
+with Bun and copy native `.node` runtime files next to the executable because
+native addons cannot be embedded into the Bun binary. The npm optionalDependency
+chain is not used in this path.
+
+The current native runtime is `@octocodeai/octocode-engine`; any legacy
+standalone script that still expects a separate security native package must be
+removed or updated before cutting a standalone release.
 
 ```bash
 yarn workspace octocode-mcp run build:bin:darwin-arm64
@@ -394,11 +547,11 @@ Upload the 6 binaries + `checksums-sha256.txt` to the GitHub Release for `vX.Y.Z
 dist/
   octocode-mcp-darwin-arm64
   runtime/
-    rg/rg-darwin-arm64
     engine/octocode-engine.darwin-arm64.node
 ```
 
-The loader checks bundled runtime paths before falling back to npm `optionalDependencies`, so standalone users need no npm install.
+The loader checks bundled runtime paths before falling back to npm
+`optionalDependencies`, so standalone users need no npm install.
 
 ---
 
@@ -418,7 +571,7 @@ brew install bgauryy/octocode/octocode
 octocode --version && octocode tools
 ```
 
-Homebrew users get native binaries through the same `optionalDependencies` chain: `octocode → @octocodeai/octocode-tools-core → @octocodeai/octocode-engine → platform .node`.
+Homebrew users get native binaries through the same `optionalDependencies` chain: `octocode → @octocodeai/octocode-engine → platform .node` (tools-core is bundled into `octocode`, so it is no longer a link in this chain).
 
 ---
 

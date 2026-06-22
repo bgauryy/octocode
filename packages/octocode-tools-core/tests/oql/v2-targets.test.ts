@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
-import type { OqlQueryV1 } from '../../src/oql/types.js';
+import type { OqlQuery } from '../../src/oql/types.js';
 
 function plan(input: unknown) {
-  const q = normalizeQuery(input as never) as OqlQueryV1;
+  const q = normalizeQuery(input as never) as OqlQuery;
   return planQuery(q, input);
 }
 
-describe('OQL V2 targets are active and route to their backend', () => {
+describe('OQL research targets are active and route to their backend', () => {
   const cases: Array<{ input: unknown; backend: string; op: string }> = [
     {
       input: { target: 'repositories', params: { keywords: ['oql'] } },
@@ -133,7 +133,7 @@ describe('OQL V2 targets are active and route to their backend', () => {
     expect(q.params).toEqual({ state: 'merged', author: 'me' });
   });
 
-  it('V3 fixes/dataflow still unsupported', () => {
+  it('reserved fixes/dataflow still unsupported', () => {
     for (const target of ['fixes', 'dataflow']) {
       expect(() =>
         normalizeQuery({ target, from: { kind: 'local', path: '.' } } as never)

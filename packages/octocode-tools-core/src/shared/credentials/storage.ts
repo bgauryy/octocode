@@ -1,5 +1,4 @@
 import type { StoredCredentials, StoreResult, DeleteResult } from './types.js';
-import { createLogger } from '../logger/index.js';
 
 import {
   invalidateCredentialsCache,
@@ -48,8 +47,6 @@ import {
   isRefreshTokenExpired,
 } from './credentialUtils.js';
 
-const logger = createLogger('token-storage');
-
 export { getTokenFromEnv, getEnvTokenSource, hasEnvToken, ENV_TOKEN_VARS };
 
 export async function storeCredentials(
@@ -70,17 +67,7 @@ export async function storeCredentials(
     invalidateCredentialsCache(hostname);
 
     return { success: true };
-  } catch (fileError) {
-    const errorMsg =
-      fileError instanceof Error ? fileError.message : String(fileError);
-    logger.error('CRITICAL: Storage failed', {
-      error: errorMsg
-        .replace(
-          /\b(ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{36,}\b/g,
-          '***MASKED***'
-        )
-        .replace(/\b[a-zA-Z0-9]{40,}\b/g, '***MASKED***'),
-    });
+  } catch {
     throw new Error('Failed to store credentials');
   }
 }

@@ -7,12 +7,12 @@ import {
 import { normalizeInput, normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
 import { OqlValidationError } from '../../src/oql/diagnostics.js';
-import type { OqlQueryV1 } from '../../src/oql/types.js';
+import type { OqlQuery } from '../../src/oql/types.js';
 
 /** Canonical examples copied verbatim from OCTOCODE_QUERY_LANGUAGE.md §examples. */
 const CANONICAL_EXAMPLES: Record<string, unknown> = {
   'local-literal-search': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'code',
     from: { kind: 'local', path: './packages/octocode/src' },
     scope: { language: ['ts'] },
@@ -22,14 +22,14 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     limit: 25,
   },
   'local-regex-pcre2': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'code',
     from: { kind: 'local', path: './src' },
     where: { kind: 'regex', value: 'function\\s+(?=handle)', dialect: 'pcre2' },
     view: 'detailed',
   },
   'local-structural-search': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'code',
     from: { kind: 'local', path: './src' },
     where: {
@@ -41,7 +41,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     view: 'detailed',
   },
   'local-structural-rule': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'code',
     from: { kind: 'local', path: './src' },
     where: {
@@ -56,7 +56,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     view: 'detailed',
   },
   'github-provider-search': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'code',
     from: { kind: 'github', repo: 'facebook/react', ref: 'main' },
     scope: { path: 'packages/react', language: ['js'] },
@@ -66,7 +66,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     view: 'paginated',
   },
   'github-structural-materialized': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'code',
     from: { kind: 'github', repo: 'facebook/react', ref: 'main' },
     scope: { path: 'packages/react', language: ['js'] },
@@ -84,7 +84,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     explain: true,
   },
   'content-fetch': {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'content',
     from: { kind: 'local', path: './src/index.ts' },
     fetch: {
@@ -93,7 +93,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     select: ['path', 'content', 'next.search'],
   },
   structure: {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'structure',
     from: { kind: 'github', repo: 'facebook/react', ref: 'main' },
     scope: { path: 'packages/react' },
@@ -101,7 +101,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
     view: 'discovery',
   },
   files: {
-    schema: 'oql/v1',
+    schema: 'oql',
     target: 'files',
     from: { kind: 'local', path: './packages' },
     scope: { language: ['ts'], excludeDir: ['node_modules', 'dist'] },
@@ -116,7 +116,7 @@ const CANONICAL_EXAMPLES: Record<string, unknown> = {
   },
 };
 
-describe('OQL gate 1: every canonical example parses as oql/v1', () => {
+describe('OQL gate 1: every canonical example parses as oql', () => {
   for (const [name, example] of Object.entries(CANONICAL_EXAMPLES)) {
     it(`parses ${name}`, () => {
       const result = OqlCanonicalInputSchema.safeParse(example);
@@ -144,7 +144,7 @@ describe('OQL gate 2: sugar normalizes to documented canonical shape', () => {
     };
     const normalized = normalizeQuery(sugar as never);
     expect(normalized).toEqual({
-      schema: 'oql/v1',
+      schema: 'oql',
       target: 'code',
       from: { kind: 'github', repo: 'facebook/react' },
       scope: { path: 'packages/react' },
@@ -268,9 +268,9 @@ describe('OQL gate 3: unknown fields fail', () => {
   });
 });
 
-describe('OQL gate 4: reserved (V3) targets fail with unsupportedTarget', () => {
-  // V2 targets (semantics/repositories/packages/pullRequests/commits/artifacts/
-  // diff) are now active; only V3 fixes/dataflow remain reserved.
+describe('OQL gate 4: reserved targets fail with unsupportedTarget', () => {
+  // research targets (semantics/repositories/packages/pullRequests/commits/artifacts/
+  // diff) are now active; only reserved fixes/dataflow remain reserved.
   for (const target of ['fixes', 'dataflow']) {
     it(`rejects target:"${target}"`, () => {
       try {
@@ -329,7 +329,7 @@ describe('OQL: ambiguous/impossible sugar', () => {
 
 describe('OQL planner: predicate routing', () => {
   function plan(input: unknown) {
-    const q = normalizeQuery(input as never) as OqlQueryV1;
+    const q = normalizeQuery(input as never) as OqlQuery;
     return planQuery(q, input);
   }
 
@@ -402,7 +402,7 @@ describe('OQL planner: predicate routing', () => {
 
   it('explain shows applied defaults', () => {
     const { plan: p } = plan({ path: './src', text: 'x' });
-    expect(p.defaults.schema).toBe('oql/v1');
+    expect(p.defaults.schema).toBe('oql');
     expect(p.defaults.view).toBe('paginated');
     expect(p.defaults.page).toBe(1);
   });
@@ -418,7 +418,7 @@ describe('OQL gate 21: plan truncation', () => {
         { kind: 'text', value: 'c' },
       ],
       controls: { budget: { maxPlanNodes: 2 } },
-    } as never) as OqlQueryV1;
+    } as never) as OqlQuery;
     const { plan: p } = planQuery(q, {});
     expect(p.truncated).toBe(true);
     expect(p.nodes.length).toBe(2);

@@ -24,6 +24,14 @@ use octo::compile_matcher;
 use query::{invalid_query_explanation, StructuralQuery};
 use types::{structural_query_fingerprint, STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION};
 
+/// Defense-in-depth cap on content handed to the single-content structural
+/// entry points (`search`, `search_detailed`). The file walker already bounds
+/// per-file bytes via `max_file_bytes`; this mirrors that backstop on the path
+/// OQL continuations and the public napi export hand off to, so a multi-MB blob
+/// can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
+/// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
+const MAX_STRUCTURAL_CONTENT_BYTES: usize = 1_000_000;
+
 /// Run a structural search over `content`, parsed with the grammar resolved
 /// from `ext`. Exactly one of `pattern` / `rule` must be `Some`.
 ///
@@ -43,6 +51,11 @@ pub fn search(
     pattern: Option<&str>,
     rule: Option<&str>,
 ) -> Result<Vec<StructuralMatch>, String> {
+    if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
+        return Err(format!(
+            "structural search content exceeds {MAX_STRUCTURAL_CONTENT_BYTES} byte limit"
+        ));
+    }
     let query = StructuralQuery::new(pattern, rule)?;
     let entry = languages::find_entry(ext)
         .ok_or_else(|| format!("structural search does not support .{ext} files"))?;
@@ -59,6 +72,29 @@ pub fn search_detailed(
     rule: Option<&str>,
 ) -> StructuralSearchDetailedResult {
     let query_fingerprint = structural_query_fingerprint(pattern, rule);
+    if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
+        let diagnostic = StructuralDiagnostic::new(
+            "structural.content.tooLarge",
+            "warning",
+            "parse",
+            format!(
+                "Structural search content is {} bytes, above the single-content limit of {MAX_STRUCTURAL_CONTENT_BYTES} bytes.",
+                content.len()
+            ),
+        )
+        .with_path(file_path)
+        .with_recovery("Scope the content with fetch.content charLength/charOffset or run a file search with maxFileBytes instead.");
+        return StructuralSearchDetailedResult {
+            path: file_path.to_owned(),
+            analyzer: STRUCTURAL_ANALYZER.to_owned(),
+            analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
+            status: "truncated".to_owned(),
+            language_id: None,
+            query: invalid_query_explanation(pattern, rule, "content exceeds single-content byte limit"),
+            matches: Vec::new(),
+            diagnostics: vec![diagnostic],
+        };
+    }
     let query = match StructuralQuery::new(pattern, rule) {
         Ok(query) => query,
         Err(message) => {
@@ -428,6 +464,102 @@ mod tests {
         fs::remove_dir_all(root).expect("cleanup");
     }
 
+    // ── single-content size cap (defense-in-depth on the public napi path) ──
+    //
+    // The file walker bounds content at `max_file_bytes`; the single-content
+    // `search`/`search_detailed` entry points did NOT, so a multi-MB blob passed
+    // straight to the public napi export could hang in tree-sitter parsing +
+    // `match_multi_capture` backtracking with no timeoutMs escape. The cap is
+    // the engine's own backstop — OQL defers caps to backends, so the contract
+    // is satisfied by enforcing one here, mirroring `max_file_bytes`.
+
+    fn content_of_at_least(byte_len: usize) -> String {
+        // Build valid AST source then pad with line comments to >= byte_len.
+        // Padding with `// x` lines keeps the TS grammar happy so the cap — not
+        // a parse error — is what trips for oversize fixtures.
+        let line = "target(v);\n";
+        let mut out = String::from(line);
+        while out.len() < byte_len {
+            out.push_str("// padding\n");
+        }
+        out
+    }
+
+    fn content_of_exactly(byte_len: usize) -> String {
+        // Valid AST source truncated to an exact byte length (newline-terminated
+        // repetitions, then a final partial line). Used for the at-cap case so
+        // the cap boundary is exact, not soft.
+        let line = "target(v);\n";
+        let mut out = String::with_capacity(byte_len);
+        while out.len() + line.len() <= byte_len {
+            out.push_str(line);
+        }
+        while out.len() < byte_len {
+            out.push(' ');
+        }
+        out
+    }
+
+    #[test]
+    fn search_rejects_oversize_content() {
+        const CAP: usize = 1_000_000;
+        let content = content_of_at_least(CAP + 1);
+        assert!(content.len() > CAP, "fixture must be over the cap");
+        let err = match search(&content, "ts", Some("target($X)"), None) {
+            Ok(_) => panic!("oversize content must error, not hang"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("exceeds"),
+            "error must explain the cap: got {err:?}"
+        );
+        assert!(
+            err.contains(&CAP.to_string()),
+            "error must name the byte limit: got {err:?}"
+        );
+    }
+
+    #[test]
+    fn search_accepts_content_at_cap() {
+        const CAP: usize = 1_000_000;
+        let content = content_of_exactly(CAP);
+        assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
+        let matches = search(&content, "ts", Some("nomatch($X)"), None)
+            .expect("content at the cap must parse, not error");
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn search_detailed_reports_oversize_as_truncated() {
+        const CAP: usize = 1_000_000;
+        let content = content_of_at_least(CAP + 1);
+        assert!(content.len() > CAP, "fixture must be over the cap");
+        let result = search_detailed(&content, "a.ts", "ts", Some("target($X)"), None);
+        assert_eq!(
+            result.status, "truncated",
+            "oversize single content is a size truncation, not a parse failure"
+        );
+        assert!(result.matches.is_empty());
+        let diag = result
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "structural.content.tooLarge")
+            .expect("a tooLarge diagnostic must explain the cap");
+        assert!(diag.message.contains(&CAP.to_string()));
+        assert!(diag.recovery.is_some());
+    }
+
+    #[test]
+    fn search_detailed_accepts_content_at_cap() {
+        const CAP: usize = 1_000_000;
+        let content = content_of_exactly(CAP);
+        assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
+        let result = search_detailed(&content, "a.ts", "ts", Some("nomatch($X)"), None);
+        assert_eq!(result.status, "ok");
+        assert!(result.matches.is_empty());
+        assert!(result.diagnostics.is_empty());
+    }
+
     #[test]
     fn both_or_neither_query_errors() {
         assert!(search("x", "ts", Some("a"), Some("b")).is_err());
@@ -703,6 +835,62 @@ mod tests {
         assert_eq!(result.skipped_by_pre_filter, 1);
         assert_eq!(result.files.len(), 1);
         assert!(result.files[0].path.ends_with("match.js"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    // ── prefilter vs unsupported conflation (OQL evidence: proof vs unevaluated) ─
+    //
+    // A `.txt` file that textually contains the anchor is not "anchor-absent"
+    // (proof of no match) — it's "unsupported extension" (not evaluated).
+    // `search_files` must report them on separate counters so the warning text
+    // can't collapse a proof-skip into an unevaluated-skip, the exact
+    // anti-pattern OQL's evidence kinds forbid.
+
+    #[test]
+    fn search_files_separates_unsupported_from_prefilter_skips() {
+        let root = temp_root("conflation");
+        // `match.ts` carries the anchor and matches the pattern.
+        fs::write(root.join("match.ts"), "target(value);\n").expect("match");
+        // `hasanchor.txt` textually contains the anchor but .txt has no
+        // grammar — it must read as unsupported, NOT as a prefilter skip.
+        fs::write(root.join("hasanchor.txt"), "target(value);\n").expect("txt");
+        // `noanchor.ts` lacks the anchor — a genuine prefilter (proof) skip.
+        fs::write(root.join("noanchor.ts"), "other(value);\n").expect("noanchor");
+
+        let result = search_files(StructuralSearchFilesOptions {
+            path: root.to_string_lossy().to_string(),
+            pattern: Some("target($X)".to_owned()),
+            rule: None,
+            include: None,
+            exclude_dir: None,
+            max_files: Some(10),
+            max_file_bytes: None,
+        })
+        .expect("search files");
+
+        assert_eq!(result.total_matches, 1);
+        assert_eq!(result.parsed_files, 1);
+        assert_eq!(result.skipped_by_pre_filter, 1, "only noanchor.ts is a proof-skip");
+        assert_eq!(result.skipped_unsupported, 1, "hasanchor.txt is unsupported, not prefilter");
+        // The warning text must name unsupported files distinctly — the lumped
+        // "Pre-filter skipped parsing N file(s)" line is the imprecision we fix.
+        let prefilter_warning = result
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("Pre-filter skipped parsing"));
+        let unsupported_warning = result
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("Skipped") && w.contains("unsupported"));
+        assert!(
+            prefilter_warning.is_some(),
+            "prefilter warning still present for the genuine proof-skip"
+        );
+        assert!(
+            unsupported_warning.is_some(),
+            "unsupported files need their own warning line, not lumped into prefilter: {:?}",
+            result.warnings
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

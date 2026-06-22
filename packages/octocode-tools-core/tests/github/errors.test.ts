@@ -1,12 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { RequestError } from 'octokit';
-
-// logRateLimit is best-effort; mock it so we can assert it is called and so we
-// can make it reject to prove the call site swallows rejections.
-const logRateLimitMock = vi.fn();
-vi.mock('../../src/session.js', () => ({
-  logRateLimit: (...args: unknown[]) => logRateLimitMock(...args),
-}));
 
 import { handleGitHubAPIError } from '../../src/github/errors.js';
 
@@ -28,11 +21,6 @@ function makeRequestError(
 }
 
 describe('handleGitHubAPIError - 403 rate-limit header parsing', () => {
-  beforeEach(() => {
-    logRateLimitMock.mockReset();
-    logRateLimitMock.mockResolvedValue(undefined);
-  });
-
   it('treats string "0" remaining as a primary rate limit', () => {
     const result = handleGitHubAPIError(
       makeRequestError(403, 'forbidden', {
@@ -65,52 +53,5 @@ describe('handleGitHubAPIError - 403 rate-limit header parsing', () => {
     );
 
     expect(result.error).toContain('Access forbidden');
-  });
-});
-
-describe('handleGitHubAPIError - rate-limit logging is best-effort', () => {
-  beforeEach(() => {
-    logRateLimitMock.mockReset();
-    logRateLimitMock.mockResolvedValue(undefined);
-  });
-
-  it('does not throw or reject when logRateLimit rejects (429 primary)', async () => {
-    logRateLimitMock.mockRejectedValue(new Error('logging down'));
-    const unhandled: unknown[] = [];
-    const onUnhandled = (e: unknown) => unhandled.push(e);
-    process.on('unhandledRejection', onUnhandled);
-
-    expect(() =>
-      handleGitHubAPIError(
-        makeRequestError(429, 'too many', {
-          'retry-after': '30',
-        })
-      )
-    ).not.toThrow();
-    expect(logRateLimitMock).toHaveBeenCalledTimes(1);
-
-    // Allow any pending microtasks / rejections to surface.
-    await new Promise(resolve => setTimeout(resolve, 0));
-    process.off('unhandledRejection', onUnhandled);
-    expect(unhandled).toHaveLength(0);
-  });
-
-  it('does not throw when logRateLimit rejects (403 secondary)', async () => {
-    logRateLimitMock.mockRejectedValue(new Error('logging down'));
-    const unhandled: unknown[] = [];
-    const onUnhandled = (e: unknown) => unhandled.push(e);
-    process.on('unhandledRejection', onUnhandled);
-
-    expect(() =>
-      handleGitHubAPIError(
-        makeRequestError(403, 'You have exceeded a secondary rate limit', {
-          'retry-after': '30',
-        })
-      )
-    ).not.toThrow();
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    process.off('unhandledRejection', onUnhandled);
-    expect(unhandled).toHaveLength(0);
   });
 });

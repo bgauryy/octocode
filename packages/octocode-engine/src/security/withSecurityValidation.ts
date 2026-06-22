@@ -1,11 +1,5 @@
 import { ContentSanitizer } from './contentSanitizer.js';
 import type { ISanitizer, ToolResult } from './types.js';
-import {
-  extractResearchFields,
-  extractRepoOwnerFromParams,
-} from './paramExtractors.js';
-
-const SECURITY_VALIDATION_FAILED_CODE = 'TOOL_SECURITY_VALIDATION_FAILED';
 
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 
@@ -13,15 +7,6 @@ export interface SecurityDepsConfig {
   sanitizer?: ISanitizer;
 
   defaultTimeoutMs?: number;
-  logToolCall?: (
-    toolName: string,
-    repos: string[],
-    goal?: string,
-    rGoal?: string,
-    reasoning?: string
-  ) => Promise<void>;
-  logSessionError?: (toolName: string, errorCode: string) => Promise<void>;
-  isLoggingEnabled?: () => boolean;
 }
 
 let _deps: SecurityDepsConfig = {};
@@ -134,23 +119,17 @@ async function runSecure<T extends Record<string, unknown>, TAuth>(
       string,
       unknown
     >;
-    const rawResult = await withToolTimeout(
-      toolName,
-      handler(sanitizedParams as T, authInfo, sessionId),
-      signal,
-      timeoutMs
-    );
-    if (!rawResult.isError && _deps.isLoggingEnabled?.()) {
-      handleBulk(toolName, sanitizedParams);
-    }
-    return rawResult;
-  } catch (error) {
-    _deps
-      .logSessionError?.(toolName, SECURITY_VALIDATION_FAILED_CODE)
-      .catch(() => {});
-    return createErrorResult(
-      `Security validation error: ${
-        error instanceof Error ? error.message : 'Unknown error'
+      const rawResult = await withToolTimeout(
+        toolName,
+        handler(sanitizedParams as T, authInfo, sessionId),
+        signal,
+        timeoutMs
+      );
+      return rawResult;
+    } catch (error) {
+      return createErrorResult(
+        `Security validation error: ${
+          error instanceof Error ? error.message : 'Unknown error'
       }`
     );
   }
@@ -199,33 +178,11 @@ export function withBasicSecurityValidation<T extends object>(
     toolHandler(sanitizedArgs as T);
   const effectiveName = toolName ?? 'tool';
   return (args: unknown, extra?: { signal?: AbortSignal }) =>
-    runSecure({
-      toolName: effectiveName,
-      handler,
-      args,
-      signal: extra?.signal,
-      timeoutMs: options?.timeoutMs,
-    });
-}
-
-function handleBulk(toolName: string, params: Record<string, unknown>): void {
-  const queries = params.queries;
-  const items =
-    queries && Array.isArray(queries) && queries.length > 0
-      ? (queries as Array<Record<string, unknown>>)
-      : [params];
-
-  for (const item of items) {
-    const repos = extractRepoOwnerFromParams(item);
-    const fields = extractResearchFields(item);
-    _deps
-      .logToolCall?.(
-        toolName,
-        repos,
-        fields.mainResearchGoal,
-        fields.researchGoal,
-        fields.reasoning
-      )
-      .catch(() => {});
-  }
+      runSecure({
+        toolName: effectiveName,
+        handler,
+        args,
+        signal: extra?.signal,
+        timeoutMs: options?.timeoutMs,
+      });
 }

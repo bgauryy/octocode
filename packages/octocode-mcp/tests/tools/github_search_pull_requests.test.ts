@@ -24,14 +24,12 @@ vi.mock('../../../octocode-tools-core/src/tools/utils/tokenManager.js', () => ({
 const mockGetActiveProviderConfig = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
-  isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: mockGetActiveProviderConfig,
   getServerConfig: vi.fn(() => ({
     version: '1.0.0',
     timeout: 30000,
     maxRetries: 3,
-    loggingEnabled: false,
   })),
 }));
 

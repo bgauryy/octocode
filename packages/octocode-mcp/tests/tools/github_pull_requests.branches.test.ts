@@ -28,12 +28,7 @@ vi.mock('../../../octocode-tools-core/src/tools/utils/tokenManager.js', () => ({
 
 vi.mock('../../../octocode-tools-core/src/github/client.js');
 
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
-  isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',
@@ -44,7 +39,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
     version: '1.0.0',
     timeout: 30000,
     maxRetries: 3,
-    loggingEnabled: false,
   })),
 }));
 

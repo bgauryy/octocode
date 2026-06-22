@@ -108,7 +108,6 @@ async function readProjectFile(relativePath: string): Promise<string> {
     relativePath.startsWith('src/tools/toolsManager') ||
     relativePath.startsWith('src/tools/toolConfig') ||
     relativePath.startsWith('src/tools/toolFilters') ||
-    relativePath.startsWith('src/utils/core/logger') ||
     relativePath.startsWith('src/utils/secureServer');
   const root = isMcpOnly ? ROOT : CORE_ROOT;
   return readFile(`${root}/${relativePath}`, 'utf-8');
@@ -136,7 +135,7 @@ describe('tool stats emission contract', () => {
   });
 
   for (const tool of registeredTools) {
-    it(`${tool.name} routes through bulk telemetry and attaches raw source metrics`, async () => {
+    it(`${tool.name} routes through bulk accounting and attaches raw source metrics`, async () => {
       const sources = await Promise.all(
         tool.executionFiles.map(readProjectFile)
       );
@@ -156,17 +155,11 @@ describe('tool stats emission contract', () => {
     });
   }
 
-  it('security wrappers emit tool-call state for both remote and local tools', async () => {
-    const indexSource = await readProjectFile('src/index.ts');
+  it('security wrappers keep remote and local tools on the shared secure path', async () => {
     const securitySource = await readProjectFile(
       '../octocode-security/src/withSecurityValidation.ts'
     );
 
-    expect(indexSource).toMatch(/configureSecurity\(\{[\s\S]*logToolCall/);
-    expect(indexSource).not.toMatch(/configureSecurity\(\{[\s\S]*isLocalTool/);
-    expect(securitySource).toMatch(
-      /runSecure[\s\S]*handleBulk\(toolName, sanitizedParams\)/
-    );
     expect(securitySource).toMatch(/withSecurityValidation[\s\S]*runSecure\(/);
     expect(securitySource).toMatch(
       /withBasicSecurityValidation[\s\S]*runSecure\(/

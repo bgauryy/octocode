@@ -6,7 +6,7 @@ import { getGitHubToken } from '../serverConfig.js';
 import { getServerConfig } from '../serverConfig.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { version } from '../../package.json';
-import { logRateLimit } from '../session.js';
+import { recordRateLimit } from '../session.js';
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex').substring(0, 16);
@@ -73,7 +73,7 @@ function recordThrottleRateLimit(
   retryAfter: number,
   options: { method: string; url: string }
 ): void {
-  void logRateLimit({
+  recordRateLimit({
     limit_type: limitType,
     retry_after_seconds: retryAfter,
     api_method: options.method,

@@ -2,10 +2,11 @@
 
 `octocode` is the user-facing **CLI and installer** package. It is a thin
 presentation layer: it parses input, routes to a handler, and renders output.
-All tool logic — schemas, execution, pagination, security — lives in
-`@octocodeai/octocode-tools-core` (which in turn calls the native
-`@octocodeai/octocode-engine` and reads metadata from `@octocodeai/octocode-core`).
-Nothing in this package shapes tool data; it only formats it for a terminal.
+At source/build time, all tool logic — schemas, execution, pagination,
+security — comes from `@octocodeai/octocode-tools-core` (which in turn calls the
+native `@octocodeai/octocode-engine` and reads metadata from
+`@octocodeai/octocode-core`). Nothing in this package shapes tool data; it only
+formats it for a terminal.
 
 ## Boundary
 
@@ -48,10 +49,19 @@ Nothing in this package shapes tool data; it only formats it for a terminal.
 - `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
   (ESM, minified, code-split, with a CJS-compat banner and a `#!/usr/bin/env node`
   shebang).
-- All runtime `dependencies`, plus transitive native packages
-  (`octocode-engine`, `octocode-core`, `zod`), stay **external** — never inlined —
-  so `.node` binaries are resolved by the package manager at runtime.
+- `@octocodeai/octocode-tools-core` is deliberately bundled into the CLI output.
+  It is a workspace `devDependency`, not a package npm users install.
+- All published runtime `dependencies`, especially
+  `@octocodeai/octocode-engine`, `@octocodeai/octocode-core`, and `zod`, stay
+  **external** so npm resolves them normally. The native `.node` binary comes
+  from the engine package's platform `optionalDependencies`.
 - `__APP_VERSION__` is injected at build time from `package.json`.
+
+## Publish Boundary
+
+`octocode` is published after `@octocodeai/octocode-engine` because the CLI
+declares the engine as a direct runtime dependency. `@octocodeai/octocode-tools-core`
+is absent from the publish order: its code is already inside `out/octocode.js`.
 
 ## Rules
 

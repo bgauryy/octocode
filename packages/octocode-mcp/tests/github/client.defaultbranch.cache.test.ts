@@ -64,7 +64,6 @@ describe('resolveDefaultBranch - caching', () => {
       githubApiUrl: 'https://api.github.com',
       timeout: 30000,
       maxRetries: 3,
-      loggingEnabled: true,
       enableLocal: true,
       enableClone: false,
       outputFormat: 'yaml',

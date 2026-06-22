@@ -10,7 +10,7 @@ import path from 'node:path';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { normalizeInput } from './normalize.js';
 import { planQuery, type PlanQueryResult } from './planner.js';
-import { OqlValidationError } from './diagnostics.js';
+import { OqlValidationError, diagnostic } from './diagnostics.js';
 import {
   backendsApproximate,
   buildEnvelope,
@@ -22,20 +22,20 @@ import {
   executeMaterialize,
   executeMaterializeCheckpoint,
 } from './adapters/materialize.js';
-import { V2_ADAPTERS } from './adapters/v2.js';
+import { RESEARCH_TARGET_ADAPTERS } from './adapters/researchTargets.js';
 import {
   isCanonicalBatch,
   type OqlBatchResultEnvelope,
-  type OqlBatchV1,
+  type OqlBatch,
   type OqlCodeResultRow,
   type OqlContinuation,
   type OqlContentResultRow,
-  type OqlQueryV1,
+  type OqlQuery,
   type OqlRecordResultRow,
   type OqlResultEnvelope,
   type OqlResultRow,
   type OqlRunResult,
-  type OqlSearchInputV1,
+  type OqlSearchInput,
 } from './types.js';
 
 export interface RunOptions {
@@ -45,7 +45,7 @@ export interface RunOptions {
 }
 
 export async function runOqlSearch(
-  input: OqlSearchInputV1,
+  input: OqlSearchInput,
   options: RunOptions = {}
 ): Promise<OqlRunResult> {
   let canonical;
@@ -65,7 +65,7 @@ export async function runOqlSearch(
 }
 
 async function runSingle(
-  query: OqlQueryV1,
+  query: OqlQuery,
   rawInput: unknown,
   options: RunOptions,
   queryIndex?: number
@@ -83,13 +83,27 @@ async function runSingle(
   relativizeResultPaths(query, exec.results);
   const next = attachContinuations(query, exec);
 
+  // limit: cap the primary result-row domain (local/record adapters page with
+  // itemsPerPage/page but do not enforce the logical `limit`).
+  if (typeof query.limit === 'number' && exec.results.length > query.limit) {
+    exec.results = exec.results.slice(0, query.limit);
+  }
+
+  // select: project row fields + continuations (projection only — never changes
+  // result domains or triggers fetches). Unknown fields are reported, not fatal.
+  const projectionDiagnostics = applySelect(query, exec.results);
+
   return buildEnvelope({
     queryId: query.id,
     queryIndex,
     results: exec.results,
     ...(exec.pagination ? { pagination: exec.pagination } : {}),
     ...(Object.keys(next).length ? { next } : {}),
-    diagnostics: [...planned.plan.diagnostics, ...exec.diagnostics],
+    diagnostics: [
+      ...planned.plan.diagnostics,
+      ...exec.diagnostics,
+      ...projectionDiagnostics,
+    ],
     provenance: exec.provenance,
     executable: true,
     approximate: backendsApproximate(planned.plan.backendCalls),
@@ -115,9 +129,9 @@ async function runSingle(
  *  - semantics   → next.fetch (read the code at a symbol location)
  */
 interface ContinuationCtx {
-  query: OqlQueryV1;
+  query: OqlQuery;
   /** code rows: rebuild an absolute `from` from a relativized row path. */
-  fileFrom?: (rowPath: string) => OqlQueryV1['from'];
+  fileFrom?: (rowPath: string) => OqlQuery['from'];
 }
 
 type RowContinuationBuilder = (
@@ -126,7 +140,7 @@ type RowContinuationBuilder = (
 ) => Record<string, OqlContinuation> | undefined;
 
 function attachContinuations(
-  query: OqlQueryV1,
+  query: OqlQuery,
   exec: AdapterResult
 ): Record<string, OqlContinuation> {
   const next: Record<string, OqlContinuation> = {};
@@ -200,7 +214,7 @@ function buildCodeContinuations(
   const out: Record<string, OqlContinuation> = {
     'next.fetch': {
       query: {
-        schema: 'oql/v1',
+        schema: 'oql',
         target: 'content',
         from,
         ...(ctx.fileFrom ? {} : { scope: { path: code.path } }),
@@ -217,7 +231,7 @@ function buildCodeContinuations(
   if (ctx.fileFrom) {
     out['next.semantic'] = {
       query: {
-        schema: 'oql/v1',
+        schema: 'oql',
         target: 'semantics',
         from,
         params: { type: 'documentSymbols' },
@@ -262,12 +276,12 @@ function localRootContinuations(
   const from = { kind: 'local' as const, path: localPath };
   return {
     'next.structure': {
-      query: { schema: 'oql/v1', target: 'structure', from },
+      query: { schema: 'oql', target: 'structure', from },
       why: `List the ${label} tree.`,
       confidence: 'exact',
     },
     'next.files': {
-      query: { schema: 'oql/v1', target: 'files', from },
+      query: { schema: 'oql', target: 'files', from },
       why: `Enumerate files in the ${label}.`,
       confidence: 'exact',
     },
@@ -327,7 +341,7 @@ function buildSemanticsContinuations(
   return {
     'next.fetch': {
       query: {
-        schema: 'oql/v1',
+        schema: 'oql',
         target: 'content',
         from: { kind: 'local', path: uri },
         fetch: {
@@ -349,8 +363,8 @@ function buildSemanticsContinuations(
  * `dirname(resolve(root)) + '/'`, so re-adding it round-trips).
  */
 function localFileSource(
-  query: OqlQueryV1
-): ((rowPath: string) => OqlQueryV1['from']) | undefined {
+  query: OqlQuery
+): ((rowPath: string) => OqlQuery['from']) | undefined {
   const root =
     query.from?.kind === 'local'
       ? query.from.path
@@ -398,7 +412,7 @@ function unsupportedEnvelopeFromPlan(
  * Provider (GitHub) paths are already repo-relative and left untouched.
  */
 function relativizeResultPaths(
-  query: OqlQueryV1,
+  query: OqlQuery,
   results: OqlResultEnvelope['results']
 ): void {
   const root =
@@ -418,9 +432,117 @@ function relativizeResultPaths(
   }
 }
 
+/* ------------------------------ select ---------------------------------- */
+
+// Row identity always survives projection (needed to cite + continue).
+const SELECT_ALWAYS_KEEP = new Set(['kind', 'source', 'recordType', 'id']);
+
+// Projectable per-row fields across all row kinds.
+const SELECTABLE_ROW_FIELDS = new Set([
+  'path',
+  'line',
+  'endLine',
+  'column',
+  'snippet',
+  'content',
+  'contentView',
+  'range',
+  'metavars',
+  'metavarRanges',
+  'size',
+  'modified',
+  'entryType',
+  'depth',
+  'children',
+  'data',
+]);
+
+// Envelope-level select tokens: recognized, no per-row effect (the envelope
+// always carries them). `repo`/`localPath` are identity carried by `source`.
+const SELECT_ENVELOPE_TOKENS = new Set([
+  'pagination',
+  'diagnostics',
+  'provenance',
+  'evidence',
+  'repo',
+  'localPath',
+]);
+
+/**
+ * Project result rows to the requested `select` fields. Projection only: it
+ * filters which fields/continuations appear, never adds data or changes the
+ * result domain. Identity fields always survive. Unknown selectors yield a
+ * non-blocking `unknownField` diagnostic. Dotted record-data selectors
+ * (e.g. `data.summary`) are accepted but not sub-projected (the whole `data`
+ * stays if `data` is selected).
+ */
+function applySelect(
+  query: OqlQuery,
+  results: OqlResultRow[]
+): OqlResultEnvelope['diagnostics'] {
+  const select = query.select;
+  if (!select || select.length === 0) return [];
+
+  const nextKeys = new Set<string>();
+  const rowFields = new Set<string>();
+  let keepAllNext = false;
+  const unknown: string[] = [];
+
+  for (const raw of select) {
+    const token = raw.trim();
+    if (token === 'next') {
+      keepAllNext = true;
+    } else if (token.startsWith('next.')) {
+      nextKeys.add(token);
+    } else if (SELECTABLE_ROW_FIELDS.has(token)) {
+      rowFields.add(token);
+    } else if (SELECT_ENVELOPE_TOKENS.has(token)) {
+      // recognized envelope token — no row projection needed
+    } else if (token.includes('.')) {
+      // dotted record-data selector (e.g. packets.subject / data.summary):
+      // keep the carrying field; do not sub-project.
+      rowFields.add('data');
+    } else {
+      unknown.push(token);
+    }
+  }
+
+  for (const row of results) {
+    const r = row as unknown as Record<string, unknown>;
+    for (const key of Object.keys(r)) {
+      if (SELECT_ALWAYS_KEEP.has(key)) continue;
+      if (key === 'next') {
+        if (keepAllNext) continue;
+        const next = r.next as Record<string, unknown> | undefined;
+        if (!next) continue;
+        if (nextKeys.size === 0) {
+          delete r.next;
+          continue;
+        }
+        for (const nk of Object.keys(next)) {
+          if (!nextKeys.has(nk)) delete next[nk];
+        }
+        if (Object.keys(next).length === 0) delete r.next;
+        continue;
+      }
+      if (!rowFields.has(key)) delete r[key];
+    }
+  }
+
+  return unknown.length
+    ? [
+        diagnostic(
+          'unknownField',
+          `select contains unknown field(s): ${unknown.join(', ')}. They were ignored.`,
+          { queryPath: 'select', severity: 'warning', blocksAnswer: false }
+        ),
+      ]
+    : [];
+}
+
 /** Choose the execution lane from the plan. */
 async function dispatch(
-  query: OqlQueryV1,
+  query: OqlQuery,
   planned: PlanQueryResult
 ): Promise<AdapterResult> {
   // Addressable materialization: clone/cache once, return a checkpoint row.
@@ -428,17 +550,21 @@ async function dispatch(
     return executeMaterializeCheckpoint(query);
   }
 
-  // V2 research targets each own their lane (incl. semantics' internal
+  // Research targets each own their lane (incl. semantics' internal
   // materialize-for-remote); route by target first.
-  const v2 = V2_ADAPTERS[query.target];
-  if (v2) return v2(query);
+  const targetAdapter = RESEARCH_TARGET_ADAPTERS[query.target];
+  if (targetAdapter) return targetAdapter(query);
 
   if (query.from?.kind === 'local' || query.from?.kind === 'materialized') {
     return executeLocal(query);
   }
   // GitHub source: route to materialization when any predicate needs local
-  // proof or materialization is required.
+  // proof, materialization is required, or `files` is requested with no `where`
+  // (listing the whole file set has no provider lane — needs the local universe).
   const needsMaterialize =
+    (query.from?.kind === 'github' &&
+      query.target === 'files' &&
+      !query.where) ||
     planned.plan.nodes.some(n => n.route === 'ROUTE') ||
     planned.plan.materialization?.required === true ||
     query.materialize?.mode === 'required';
@@ -451,7 +577,7 @@ async function dispatch(
 /* ------------------------------- batch ---------------------------------- */
 
 async function runBatch(
-  batch: OqlBatchV1,
+  batch: OqlBatch,
   rawInput: unknown,
   options: RunOptions
 ): Promise<OqlBatchResultEnvelope> {

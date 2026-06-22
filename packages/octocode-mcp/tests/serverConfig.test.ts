@@ -4,7 +4,6 @@ import {
   cleanup,
   getGitHubToken,
   getServerConfig,
-  isLoggingEnabled,
   isLocalEnabled,
   isCloneEnabled,
   getTokenSource,
@@ -92,7 +91,6 @@ describe('ServerConfig - Simplified Version', () => {
     delete process.env.TOOLS_TO_RUN;
     delete process.env.ENABLE_TOOLS;
     delete process.env.DISABLE_TOOLS;
-    delete process.env.LOG;
     delete process.env.TEST_GITHUB_TOKEN;
     delete process.env.ENABLE_LOCAL;
     delete process.env.GITHUB_API_URL;
@@ -117,7 +115,6 @@ describe('ServerConfig - Simplified Version', () => {
       expect(typeof config.version).toEqual('string');
       expect(config.timeout).toEqual(30000);
       expect(config.maxRetries).toEqual(3);
-      expect(config.loggingEnabled).toEqual(true);
     });
 
     it('should have correct defaults for all fields when no env vars set', async () => {
@@ -131,7 +128,6 @@ describe('ServerConfig - Simplified Version', () => {
       expect(config.disableTools).toBeUndefined();
       expect(config.timeout).toBe(30000);
       expect(config.maxRetries).toBe(3);
-      expect(config.loggingEnabled).toBe(true);
       expect(config.enableLocal).toBe(true);
       expect(config.enableClone).toBe(false);
       expect(config.tokenSource).toBe('none');
@@ -144,18 +140,8 @@ describe('ServerConfig - Simplified Version', () => {
       await initialize();
       const config = getServerConfig();
 
-      expect(config.loggingEnabled).toBe(true);
       expect(config.timeout).toBe(60000);
       expect(config.maxRetries).toBe(5);
-    });
-
-    it('should disable logging when LOG is false', async () => {
-      process.env.LOG = 'false';
-
-      await initialize();
-      const config = getServerConfig();
-
-      expect(config.loggingEnabled).toBe(false);
     });
 
     it('should throw when accessing config before initialization', () => {
@@ -338,72 +324,6 @@ describe('ServerConfig - Simplified Version', () => {
       const token = await getGitHubToken();
 
       expect(token).toBeNull();
-    });
-  });
-
-  describe('Logging Configuration', () => {
-    it('should enable logging by default when LOG is not set', async () => {
-      delete process.env.LOG;
-      mockSpawnFailure();
-
-      await initialize();
-
-      expect(isLoggingEnabled()).toBe(true);
-      expect(getServerConfig().loggingEnabled).toBe(true);
-    });
-
-    it('should enable logging when LOG is set to true', async () => {
-      process.env.LOG = 'true';
-      mockSpawnFailure();
-
-      await initialize();
-
-      expect(isLoggingEnabled()).toBe(true);
-      expect(getServerConfig().loggingEnabled).toBe(true);
-    });
-
-    it('should disable logging when LOG is set to false', async () => {
-      process.env.LOG = 'false';
-      mockSpawnFailure();
-
-      await initialize();
-
-      expect(isLoggingEnabled()).toBe(false);
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should handle various LOG flag formats', async () => {
-      const testCases = [
-        {
-          value: undefined,
-          expected: true,
-          description: 'undefined (default)',
-        },
-        { value: 'true', expected: true, description: 'true' },
-        { value: 'TRUE', expected: true, description: 'TRUE' },
-        { value: 'false', expected: false, description: 'false' },
-        { value: 'FALSE', expected: false, description: 'FALSE' },
-        { value: 'False', expected: false, description: 'False' },
-        { value: '1', expected: true, description: '1 (truthy)' },
-        { value: '0', expected: false, description: '0 (falsy)' },
-        { value: '', expected: true, description: 'empty string' },
-        { value: 'anything', expected: true, description: 'any other value' },
-      ];
-
-      for (const testCase of testCases) {
-        cleanup();
-        if (testCase.value === undefined) {
-          delete process.env.LOG;
-        } else {
-          process.env.LOG = testCase.value;
-        }
-        mockSpawnFailure();
-
-        await initialize();
-
-        expect(isLoggingEnabled()).toBe(testCase.expected);
-        expect(getServerConfig().loggingEnabled).toBe(testCase.expected);
-      }
     });
   });
 
@@ -792,67 +712,6 @@ describe('ServerConfig - Simplified Version', () => {
     });
   });
 
-  describe('LOG Configuration with Whitespace', () => {
-    beforeEach(() => {
-      delete process.env.LOG;
-    });
-
-    it('should handle LOG with leading/trailing whitespace for false', async () => {
-      process.env.LOG = '  false  ';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should handle LOG with tabs for false', async () => {
-      process.env.LOG = '\tfalse\t';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should handle LOG = "0" as false', async () => {
-      process.env.LOG = '0';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should handle LOG = " 0 " with whitespace as false', async () => {
-      process.env.LOG = ' 0 ';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should handle LOG = "FALSE" uppercase as false', async () => {
-      process.env.LOG = 'FALSE';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should handle LOG = "  FALSE  " with whitespace and uppercase', async () => {
-      process.env.LOG = '  FALSE  ';
-      mockSpawnFailure();
-      await initialize();
-      expect(getServerConfig().loggingEnabled).toBe(false);
-    });
-
-    it('should default to true for non-false values', async () => {
-      const trueValues = ['true', 'TRUE', '1', 'yes', 'enabled', 'anything'];
-
-      for (const value of trueValues) {
-        cleanup();
-        delete process.env.LOG;
-        process.env.LOG = value;
-        mockSpawnFailure();
-        await initialize();
-        expect(getServerConfig().loggingEnabled).toBe(true);
-      }
-    });
-  });
-
   describe('Numeric Configuration with Whitespace', () => {
     it('should handle REQUEST_TIMEOUT with whitespace', async () => {
       process.env.REQUEST_TIMEOUT = '  60000  ';
@@ -1014,7 +873,6 @@ describe('ServerConfig - Simplified Version', () => {
   describe('Configuration Edge Cases', () => {
     it('should handle all configs with various whitespace simultaneously', async () => {
       process.env.ENABLE_LOCAL = '  true  ';
-      process.env.LOG = '  false  ';
       process.env.GITHUB_API_URL = '  https://custom.api.com  ';
       process.env.REQUEST_TIMEOUT = '  45000  ';
       process.env.MAX_RETRIES = '  7  ';
@@ -1025,7 +883,6 @@ describe('ServerConfig - Simplified Version', () => {
       const config = getServerConfig();
 
       expect(config.enableLocal).toBe(true);
-      expect(config.loggingEnabled).toBe(false);
       expect(config.githubApiUrl).toBe('https://custom.api.com');
       expect(config.timeout).toBe(45000);
       expect(config.maxRetries).toBe(7);

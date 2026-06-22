@@ -1285,7 +1285,6 @@ const mockGetProvider = vi.hoisted(() => vi.fn());
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getActiveProvider: mockGetActiveProvider,
   getActiveProviderConfig: mockGetActiveProviderConfig,
-  isLoggingEnabled: vi.fn(() => false),
 }));
 
 vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({

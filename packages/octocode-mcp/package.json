@@ -60,9 +60,10 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn clean && node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types",
     "build:publish": "yarn build",
-    "build:dev": "yarn readme:sync && OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
+    "build:dev": "yarn readme:sync && OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-engine.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
     "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-engine.mjs darwin-arm64 dist",
@@ -100,16 +101,24 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-tools-core": "workspace:^",
+    "@octocodeai/octocode-core": "16.5.2",
+    "@octocodeai/octocode-engine": "^16.5.1",
+    "@octokit/oauth-methods": "^6.0.2",
+    "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/request": "^10.0.10",
+    "node-cache": "^5.1.2",
+    "octokit": "^5.0.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@octocodeai/octocode-tools-core": "workspace:^",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "@vitest/ui": "^4.1.9",
     "esbuild": "^0.28.1",
     "eslint": "^9.18.0",
-    "octokit": "^5.0.5",
+    "rollup": "^4.52.5",
+    "rollup-plugin-dts": "^6.2.3",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   },

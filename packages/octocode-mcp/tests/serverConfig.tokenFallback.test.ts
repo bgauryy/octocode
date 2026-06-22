@@ -49,12 +49,10 @@ describe('Token Fallback Chain Behavior', () => {
     savedEnvVars.OCTOCODE_TOKEN = process.env.OCTOCODE_TOKEN;
     savedEnvVars.GH_TOKEN = process.env.GH_TOKEN;
     savedEnvVars.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-    savedEnvVars.LOG = process.env.LOG;
 
     delete process.env.OCTOCODE_TOKEN;
     delete process.env.GH_TOKEN;
     delete process.env.GITHUB_TOKEN;
-    delete process.env.LOG;
 
     mockResolveTokenFull = vi.fn(async () => null);
     _setTokenResolvers({ resolveTokenFull: mockResolveTokenFull });

@@ -9,8 +9,12 @@
  * leaks it into the tarball and breaks every npm consumer. This guard runs on
  * prepack/prepublish so the leak is caught before the artifact is built.
  *
- * Only checks dependency sections that are actually published. devDependencies
- * are stripped from the tarball, so a `workspace:` there is harmless.
+ * Only checks the dependency sections a consumer actually installs. A consumer
+ * of a published package never installs its devDependencies, so a `workspace:`
+ * ref there cannot trigger EUNSUPPORTEDPROTOCOL — and @octocodeai/octocode-tools-core
+ * legitimately lives in devDependencies now: it is bundled into the build output
+ * (esbuild) and never published, so it is a build-time-only workspace link.
+ * (npm also auto-corrects any leftover workspace: ref on publish.)
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -27,6 +31,10 @@ const PUBLISHED_DEP_FIELDS = [
   'bundleDependencies',
 ];
 
+const UNPUBLISHED_RUNTIME_PACKAGES = new Set([
+  '@octocodeai/octocode-tools-core',
+]);
+
 const offenders = [];
 for (const field of PUBLISHED_DEP_FIELDS) {
   const deps = pkg[field];
@@ -34,6 +42,12 @@ for (const field of PUBLISHED_DEP_FIELDS) {
   for (const [name, spec] of Object.entries(deps)) {
     if (typeof spec === 'string' && spec.startsWith('workspace:')) {
       offenders.push(`  ${field}.${name}: "${spec}"`);
+      continue;
+    }
+    if (UNPUBLISHED_RUNTIME_PACKAGES.has(name)) {
+      offenders.push(
+        `  ${field}.${name}: "${spec}" (unpublished package must be bundled, not installed)`
+      );
     }
   }
 }
@@ -48,4 +62,6 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log(`✓ ${pkg.name}@${pkg.version}: no workspace: protocol in published deps.`);
+console.log(
+  `✓ ${pkg.name}@${pkg.version}: no workspace: protocol or unpublished packages in published deps.`
+);

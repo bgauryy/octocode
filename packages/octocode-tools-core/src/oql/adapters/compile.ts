@@ -2,8 +2,8 @@
  * Compile a canonical OQL `where` predicate into local-search (ripgrep /
  * structural) query fields, or report why it can't be compiled.
  *
- * V1 local execution evaluates ONE effective leaf per call (ripgrep `keywords`
- * is a single pattern). Supported shapes:
+ * The local-search adapter evaluates one effective leaf per call (ripgrep
+ * `keywords` is a single pattern). Supported shapes:
  *   - a single leaf (text / regex / structural)
  *   - not(leaf)            -> negated (invertMatch or filesWithoutMatch)
  * Anything else (boolean all/any, nested negation) returns `unsupportedBoolean`
@@ -79,7 +79,7 @@ function compileLeaf(p: Predicate): CompileResult {
       return {
         unsupported: {
           code: 'unsupportedBoolean',
-          message: `Boolean predicate "${p.kind}" is not compilable to a single local-search call in V1.`,
+          message: `Boolean predicate "${p.kind}" is not compilable to a single local-search call.`,
         },
       };
   }
@@ -109,14 +109,14 @@ export function compileWhere(where: Predicate): CompileResult {
       unsupported: {
         code: 'unsupportedBoolean',
         message:
-          'not() over structural/boolean predicates is not supported in V1 local execution.',
+          'not() over structural/boolean predicates is not supported by the local-search adapter.',
       },
     };
   }
   return {
     unsupported: {
       code: 'unsupportedBoolean',
-      message: `Boolean predicate "${where.kind}" requires multiple backend calls; not supported in V1 single-call execution.`,
+      message: `Boolean predicate "${where.kind}" requires multiple backend calls; not supported by the single-call local-search adapter.`,
     },
   };
 }

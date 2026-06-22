@@ -1,19 +1,15 @@
 import type { OctocodeConfig, ResolvedConfig } from './types.js';
 import { DEFAULT_CONFIG } from './defaults.js';
-import { loadConfigSync, configExists } from './loader.js';
+import { loadConfigSync } from './loader.js';
 import { validateConfig } from './validator.js';
-import { createLogger } from '../logger/index.js';
 import {
   resolveGitHub,
   resolveLocal,
   resolveTools,
   resolveNetwork,
-  resolveTelemetry,
   resolveLsp,
   resolveOutput,
 } from './resolverSections.js';
-
-const logger = createLogger('octocode-config');
 
 function buildResolvedConfig(
   fileConfig: OctocodeConfig | undefined,
@@ -31,7 +27,6 @@ function buildResolvedConfig(
     process.env.DISABLE_TOOLS !== undefined ||
     process.env.REQUEST_TIMEOUT !== undefined ||
     process.env.MAX_RETRIES !== undefined ||
-    process.env.LOG !== undefined ||
     process.env.OCTOCODE_LSP_CONFIG !== undefined ||
     process.env.OCTOCODE_OUTPUT_FORMAT !== undefined ||
     process.env.OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH !== undefined;
@@ -51,7 +46,6 @@ function buildResolvedConfig(
     local: resolveLocal(fileConfig?.local),
     tools: resolveTools(fileConfig?.tools),
     network: resolveNetwork(fileConfig?.network),
-    telemetry: resolveTelemetry(fileConfig?.telemetry),
     lsp: resolveLsp(fileConfig?.lsp),
     output: resolveOutput(fileConfig?.output),
     source,
@@ -65,27 +59,11 @@ export function resolveConfigSync(): ResolvedConfig {
   if (loadResult.success && loadResult.config) {
     const validation = validateConfig(loadResult.config);
 
-    if (validation.warnings.length > 0) {
-      for (const warning of validation.warnings) {
-        logger.warn(`Warning: ${warning}`);
-      }
-    }
-
     if (!validation.valid) {
-      for (const error of validation.errors) {
-        logger.warn(`Validation error: ${error}`);
-      }
-      logger.warn(
-        'Config file has validation errors — falling back to defaults with env overrides'
-      );
       return buildResolvedConfig(undefined);
     }
 
     return buildResolvedConfig(loadResult.config, loadResult.path);
-  }
-
-  if (loadResult.error && configExists()) {
-    logger.warn(loadResult.error);
   }
 
   return buildResolvedConfig(undefined);

@@ -320,7 +320,6 @@ export type {
   LocalConfigOptions,
   ToolsConfigOptions,
   NetworkConfigOptions,
-  TelemetryConfigOptions,
   LspConfigOptions,
   OutputConfigOptions,
   OutputPaginationConfigOptions,
@@ -328,7 +327,6 @@ export type {
   RequiredLocalConfig,
   RequiredToolsConfig,
   RequiredNetworkConfig,
-  RequiredTelemetryConfig,
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
@@ -341,7 +339,6 @@ export {
   DEFAULT_LOCAL_CONFIG,
   DEFAULT_TOOLS_CONFIG,
   DEFAULT_NETWORK_CONFIG,
-  DEFAULT_TELEMETRY_CONFIG,
   DEFAULT_LSP_CONFIG,
   DEFAULT_OUTPUT_CONFIG,
   MIN_TIMEOUT,
@@ -366,15 +363,8 @@ export {
   getConfigValue,
   _resetConfigCache,
   _getCacheState,
-  parseLoggingEnv,
   OctocodeConfigSchema,
 } from './shared/config/index.js';
-export {
-  createLogger,
-  setLogHandler,
-  _getLogHandler,
-} from './shared/logger/index.js';
-export type { LogLevel, LogEntry } from './shared/logger/index.js';
 export {
   OCTOCODE_HOME,
   getDefaultOctocodeHome,
@@ -383,7 +373,6 @@ export {
   ensureTmp,
   ensureClone,
   ensureRepos,
-  ensureLogs,
   ensureTree,
   ensureBinary,
   ensureUnzip,

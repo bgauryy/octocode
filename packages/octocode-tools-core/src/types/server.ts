@@ -14,7 +14,6 @@ export interface ServerConfig {
   disableTools?: string[];
   timeout: number;
   maxRetries: number;
-  loggingEnabled: boolean;
   enableLocal: boolean;
 
   enableClone: boolean;

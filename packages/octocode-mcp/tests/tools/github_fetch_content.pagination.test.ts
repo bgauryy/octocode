@@ -11,7 +11,6 @@ const mockGetProvider = vi.hoisted(() => vi.fn());
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   initialize: vi.fn(),
   getServerConfig: mockGetServerConfig,
-  isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',

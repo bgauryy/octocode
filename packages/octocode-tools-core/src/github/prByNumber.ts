@@ -5,8 +5,6 @@ import type {
 } from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
-import { logSessionError } from '../session.js';
-import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { getOctokit } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
@@ -72,10 +70,6 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
   const { owner, repo, prNumber } = params;
 
   if (!owner || !repo || !prNumber) {
-    await logSessionError(
-      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-      SEARCH_ERRORS.PR_REQUIRED_PARAMS.code
-    );
     return {
       pull_requests: [],
       total_count: 0,
@@ -85,10 +79,6 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
   }
 
   if (Array.isArray(owner) || Array.isArray(repo)) {
-    await logSessionError(
-      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-      SEARCH_ERRORS.PR_SINGLE_VALUES.code
-    );
     return {
       pull_requests: [],
       total_count: 0,
@@ -126,10 +116,6 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);
 
-    await logSessionError(
-      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-      SEARCH_ERRORS.PULL_REQUEST_FETCH_FAILED.code
-    );
     return createPullRequestByNumberErrorResult(
       apiError,
       SEARCH_ERRORS.PULL_REQUEST_FETCH_FAILED.message(prNumber, apiError.error),

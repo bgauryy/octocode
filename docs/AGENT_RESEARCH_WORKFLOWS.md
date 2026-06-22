@@ -480,6 +480,60 @@ transitively-dead `MCPCategory` type. Whole-repo agreement is useful but still
 candidate-grade: the Smart OQL pass overlapped most knip files/symbols, while
 over-reporting until entrypoint and workspace semantics are made more precise.
 
+### 13. LSP-Compatible Evidence Graph For Research Questions
+
+Use this when the agent needs to answer repo research questions without reading
+the whole repository: "What looks dead?", "Why?", "What keeps it alive?", "Is
+that keeper itself dead?", "What proof is missing?", "What exact file/line
+should I inspect next?", or "Is this safe to delete?"
+
+The design rule: use LSP concepts for identity and proof. Subjects and edges
+should carry `uri`, `range`, `SymbolKind`, definitions, references,
+implementations, and call hierarchy where available. AST and ripgrep are still
+first-class, but they should feed the same evidence graph instead of inventing a
+separate symbol model.
+
+| Layer | Use it for | Evidence status |
+|---|---|---|
+| ripgrep text/regex | cheap anchors, broad counts, dynamic/string hints, config name checks | candidate unless exact read confirms |
+| structural AST | imports, exports, declarations, class/function shapes, call shapes, syntactic containment | strong syntax fact, not semantic identity |
+| signatures/symbols | compact repo inventory and line hints for follow-up LSP | exact-ish declaration inventory |
+| LSP | definitions, references, type definitions, implementations, callers, callees, call hierarchy | semantic proof when pages and capabilities are complete |
+| exact content read | citations, final inspection, destructive-change proof | exact source proof |
+
+Ask OQL for packets, not raw dumps:
+
+```text
+subject, verdict, proofStatus, why, retainedBy, retains, missingProof, risk, next
+```
+
+Minimal-ingest flow:
+
+```text
+1. inventory files, manifests, source roots, tests, generated/output dirs
+2. collect AST/signature facts: declarations, imports, exports, functions, classes, calls
+3. build candidate packets from facts and edges
+4. expand LSP proof only for selected packets or bounded batches
+5. exact-read only the next file/line needed for a citation or deletion decision
+```
+
+Question routing:
+
+| Agent question | Preferred path |
+|---|---|
+| What looks dead? | `target:"research"` with `mode:"analyze"` and facets `symbols/files/dependencies` |
+| Why? | inspect packet `why` facts and `missingProof` diagnostics |
+| What keeps it alive? | inspect reverse `retainedBy` edges from refs/calls/type uses/imports |
+| Is that keeper itself dead? | recurse on the retained-by subject with cycle guards |
+| What proof is missing? | inspect `missingProof`; follow `next.semantic`, `next.search`, or `next.fetch` |
+| What exact file/line next? | use packet `subject.uri/range` and `next.fetch` |
+| Is this safe to delete? | require no reachable external refs, no high-severity missing proof, and exact source inspection |
+| Function/class flow? | prefer LSP `callHierarchy`/`callers`/`callees`; fall back to AST call-shape edges flagged as candidate |
+
+Never treat a graph candidate alone as deletion proof. A safe answer should say
+what is known, what retains the subject, what proof is missing, and which exact
+file/line to inspect next.
+
 ## Exact Agent Recipes
 
 These are copy-pasteable patterns agents can adapt. Replace placeholders, then
@@ -579,7 +633,7 @@ from the candidate repository.
 - Use pagination and match windows before expanding scope.
 - Batch independent queries; serialize dependent steps that rely on returned
   anchors.
-- If OQL returns generic records or missing continuations for V2 targets, switch
+- If OQL returns generic records or missing continuations for research targets, switch
   to the quick command or raw tool and preserve that fallback in the final
   evidence trail.
 - If structural `metavars` are absent from OQL output, use exact snippets/lines

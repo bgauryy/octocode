@@ -9,11 +9,6 @@ const mockWithDataCache = vi.hoisted(() => vi.fn());
 const mockContentSanitizer = vi.hoisted(() => ({
   sanitizeContent: vi.fn(),
 }));
-const mockLogSessionError = vi.hoisted(() => vi.fn());
-
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: mockLogSessionError,
-}));
 
 vi.mock('../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: mockGetOctokit,

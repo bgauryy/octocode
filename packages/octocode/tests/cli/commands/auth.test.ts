@@ -315,11 +315,11 @@ describe('cli/commands/auth', () => {
       expect(logout).toHaveBeenCalledWith('github.com');
       expect(login).toHaveBeenCalled();
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Logging out')
+        expect.stringContaining('Signing out')
       );
     });
 
-    it('--force in json mode skips the logging-out message line', async () => {
+    it('--force in json mode skips the sign-out message line', async () => {
       const { loginCommand, getAuthStatus, login, logout } =
         await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({

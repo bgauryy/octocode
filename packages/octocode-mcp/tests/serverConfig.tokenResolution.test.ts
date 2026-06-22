@@ -51,12 +51,10 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     savedEnvVars.OCTOCODE_TOKEN = process.env.OCTOCODE_TOKEN;
     savedEnvVars.GH_TOKEN = process.env.GH_TOKEN;
     savedEnvVars.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-    savedEnvVars.LOG = process.env.LOG;
 
     delete process.env.OCTOCODE_TOKEN;
     delete process.env.GH_TOKEN;
     delete process.env.GITHUB_TOKEN;
-    delete process.env.LOG;
 
     mockResolveTokenFull = vi.fn(async () => null);
 
@@ -81,12 +79,6 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
     } else {
       delete process.env.GITHUB_TOKEN;
     }
-    if (savedEnvVars.LOG !== undefined) {
-      process.env.LOG = savedEnvVars.LOG;
-    } else {
-      delete process.env.LOG;
-    }
-
     cleanup();
     _resetTokenResolvers();
   });

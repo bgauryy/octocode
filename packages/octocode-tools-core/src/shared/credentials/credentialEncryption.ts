@@ -10,15 +10,6 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { ensureHome, paths } from '../paths.js';
 import { CredentialsStoreSchema } from './schemas.js';
 import type { CredentialsStore } from './types.js';
-import { createLogger } from '../logger/index.js';
-
-const logger = createLogger('token-storage');
-
-function maskErrorMessage(message: string): string {
-  return message
-    .replace(/\b(ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{36,}\b/g, '***MASKED***')
-    .replace(/\b[a-zA-Z0-9]{40,}\b/g, '***MASKED***');
-}
 
 export const OCTOCODE_DIR = paths.home;
 export const CREDENTIALS_FILE = paths.credentials;
@@ -92,24 +83,10 @@ export function readCredentialsStore(): CredentialsStore {
     const parsed = JSON.parse(decrypted);
     const result = CredentialsStoreSchema.safeParse(parsed);
     if (!result.success) {
-      logger.warn('Credentials file has invalid format — starting fresh', {
-        file: CREDENTIALS_FILE,
-      });
       return { version: 1, credentials: {} };
     }
     return result.data;
-  } catch (error) {
-    const reason =
-      error instanceof Error && error.message
-        ? maskErrorMessage(error.message)
-        : undefined;
-    logger.warn(
-      'Could not read credentials file — you may need to login again',
-      {
-        file: CREDENTIALS_FILE,
-        ...(reason && { reason }),
-      }
-    );
+  } catch {
     return { version: 1, credentials: {} };
   }
 }

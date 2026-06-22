@@ -11,8 +11,6 @@ import type {
 } from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
-import { logSessionError } from '../session.js';
-import { TOOL_NAMES } from '../tools/toolMetadata/proxies.js';
 import { getOctokit, OctokitWithThrottling } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import {
@@ -203,10 +201,6 @@ async function searchGitHubPullRequestsAPIInternal(
     const searchQuery = buildPullRequestSearchQuery(searchParams);
 
     if (!searchQuery) {
-      await logSessionError(
-        TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-        SEARCH_ERRORS.NO_VALID_PARAMETERS.code
-      );
       return {
         pull_requests: [],
         total_count: 0,
@@ -300,10 +294,6 @@ async function searchGitHubPullRequestsAPIInternal(
       return createPullRequestEmptyResult(params);
     }
     const apiError = handleGitHubAPIError(error);
-    await logSessionError(
-      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-      SEARCH_ERRORS.PULL_REQUEST_SEARCH_FAILED.code
-    );
     return createPullRequestErrorResult(
       apiError,
       SEARCH_ERRORS.PULL_REQUEST_SEARCH_FAILED.message(apiError.error),
@@ -381,10 +371,6 @@ async function searchPullRequestsWithREST(
       return createPullRequestEmptyResult(params);
     }
     const apiError = handleGitHubAPIError(error);
-    await logSessionError(
-      TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
-      SEARCH_ERRORS.PULL_REQUEST_LIST_FAILED.code
-    );
     return createPullRequestErrorResult(
       apiError,
       SEARCH_ERRORS.PULL_REQUEST_LIST_FAILED.message(apiError.error),

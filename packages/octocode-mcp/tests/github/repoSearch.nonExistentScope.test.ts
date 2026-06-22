@@ -5,13 +5,6 @@ const mockGetOctokit = vi.hoisted(() => vi.fn());
 const mockBuildRepoSearchQuery = vi.hoisted(() => vi.fn());
 const mockGenerateCacheKey = vi.hoisted(() => vi.fn());
 const mockWithDataCache = vi.hoisted(() => vi.fn());
-const mockLogSessionError = vi.hoisted(() => vi.fn());
-const mockLogRateLimit = vi.hoisted(() => vi.fn());
-
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: mockLogSessionError,
-  logRateLimit: mockLogRateLimit,
-}));
 
 vi.mock('../../../octocode-tools-core/src/github/client.js', () => ({
   getOctokit: mockGetOctokit,

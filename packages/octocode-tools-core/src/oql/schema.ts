@@ -1,5 +1,5 @@
 /**
- * OQL V1 Zod schemas.
+ * OQL Zod schemas.
  *
  * Two layers:
  *  - canonical (`OqlQuerySchema` / `OqlBatchSchema`): STRICT. Unknown fields
@@ -233,7 +233,7 @@ export const QueryControlsSchema = z.strictObject({
 const viewEnum = z.enum(['discovery', 'paginated', 'detailed']);
 
 export const OqlQuerySchema = z.strictObject({
-  schema: z.literal('oql/v1'),
+  schema: z.literal('oql'),
   id: z.string().optional(),
   target: z.enum(ACTIVE_TARGETS as unknown as [string, ...string[]]),
   from: QuerySourceSchema.optional(),
@@ -252,7 +252,7 @@ export const OqlQuerySchema = z.strictObject({
 });
 
 export const OqlBatchSchema = z.strictObject({
-  schema: z.literal('oql/v1'),
+  schema: z.literal('oql'),
   id: z.string().optional(),
   queries: z.array(OqlQuerySchema).min(1).max(5),
   combine: z.enum(['independent', 'merge']).optional(),
@@ -281,7 +281,7 @@ const ALL_TARGETS = [...ACTIVE_TARGETS, ...RESERVED_TARGETS] as unknown as [
 
 export const OqlInputQuerySchema = z
   .object({
-    schema: z.literal('oql/v1').optional(),
+    schema: z.literal('oql').optional(),
     // target is optional on raw input — the normalizer infers it from sugar
     // (e.g. pattern/text -> "code", fetch.content -> "content").
     target: z.enum(ALL_TARGETS).optional(),
@@ -290,7 +290,7 @@ export const OqlInputQuerySchema = z
 
 export const OqlInputBatchSchema = z
   .object({
-    schema: z.literal('oql/v1').optional(),
+    schema: z.literal('oql').optional(),
     queries: z.array(z.unknown()).min(1),
   })
   .catchall(z.unknown());

@@ -9,10 +9,6 @@ import { searchGitHubReposAPI } from '../../../octocode-tools-core/src/github/re
 import { searchGitHubPullRequestsAPI } from '../../../octocode-tools-core/src/github/pullRequestSearch';
 
 vi.mock('../../../octocode-tools-core/src/github/client');
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 const createMockOctokit = () => ({
   rest: {
     search: {

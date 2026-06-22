@@ -4,8 +4,6 @@ import {
   getServerConfig,
   isLocalEnabled,
   isCloneEnabled,
-  logSessionError,
-  ignoreBestEffortFailure,
   DEFAULT_TOOL_METADATA_GATEWAY,
 } from '@octocodeai/octocode-tools-core';
 import type {
@@ -63,21 +61,10 @@ export async function registerTools(
     tool =>
       hasValidMetadata(tool, {
         hasTool: metadataGateway.hasTool,
-        logSessionErrorSafe,
       })
   );
 
   return summarizeOutcomes(outcomes);
-}
-
-function logSessionErrorSafe(toolName: string, errorCode: string): void {
-  try {
-    void Promise.resolve(logSessionError(toolName, errorCode)).catch(
-      ignoreBestEffortFailure('tool registration session logging')
-    );
-  } catch {
-    void 0;
-  }
 }
 
 async function loadTools(

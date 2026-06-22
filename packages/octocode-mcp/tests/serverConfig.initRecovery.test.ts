@@ -41,7 +41,6 @@ describe('serverConfig initialize recovery', () => {
           disabled: undefined,
         },
         network: { timeout: 30000, maxRetries: 3 },
-        telemetry: { logging: true },
         local: { enabled: false, enableClone: false },
         output: { format: 'yaml' },
       });

@@ -25,7 +25,7 @@ import type {
   FieldPredicate,
   OqlDiagnostic,
   OqlProvenance,
-  OqlQueryV1,
+  OqlQuery,
   Predicate,
   QueryScope,
   QuerySource,
@@ -37,7 +37,7 @@ export interface AdapterResult extends MappedResult {
 }
 
 /** Resolve the local filesystem root for a query (local or materialized). */
-function localRoot(query: OqlQueryV1): string {
+function localRoot(query: OqlQuery): string {
   if (query.from?.kind === 'local') return query.from.path;
   if (query.from?.kind === 'materialized') return query.from.localPath;
   throw new Error('localExecute requires a local or materialized source.');
@@ -51,6 +51,7 @@ function firstScopePath(scope: QueryScope | undefined): string | undefined {
 function scopeToCommon(scope: QueryScope | undefined): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (scope?.include) out.include = scope.include;
+  if (scope?.exclude) out.exclude = scope.exclude;
   if (scope?.excludeDir) out.excludeDir = scope.excludeDir;
   if (scope?.hidden !== undefined) out.hidden = scope.hidden;
   if (scope?.noIgnore !== undefined) out.noIgnore = scope.noIgnore;
@@ -63,7 +64,7 @@ function languageInclude(scope: QueryScope | undefined): string | undefined {
   return Array.isArray(lang) ? lang[0] : lang;
 }
 
-export async function executeLocal(query: OqlQueryV1): Promise<AdapterResult> {
+export async function executeLocal(query: OqlQuery): Promise<AdapterResult> {
   // dispatch only routes local/materialized code/content/structure/files here.
   const source = query.from as QuerySource;
   const root = localRoot(query);
@@ -83,12 +84,29 @@ export async function executeLocal(query: OqlQueryV1): Promise<AdapterResult> {
   }
 }
 
+/** A boolean `where` that needs multi-call evaluation (not a single leaf). */
+function needsBooleanEval(p: Predicate): boolean {
+  if (p.kind === 'all' || p.kind === 'any') return true;
+  // not(leaf) compiles to a single invertMatch call; not(boolean) does not.
+  if (p.kind === 'not') return isBooleanPredicate(p.predicate);
+  return false;
+}
+
 async function executeCode(
-  query: OqlQueryV1,
+  query: OqlQuery,
   source: QuerySource,
   searchPath: string
 ): Promise<AdapterResult> {
   const where = query.where as Predicate;
+
+  // Boolean predicate over code: evaluate each leaf and combine match rows by
+  // file-set algebra (all = intersection, any = union, not = universe−set).
+  // localSearchCode is single-pattern, so a multi-leaf boolean cannot be one
+  // call — but it IS expressible as set logic over per-leaf match rows.
+  if (needsBooleanEval(where)) {
+    return executeCodeBoolean(query, source, searchPath, where);
+  }
+
   const compiled = compileWhere(where);
   if (compiled.unsupported) {
     return {
@@ -194,7 +212,7 @@ function matchTruncatedFiles(result: {
 }
 
 async function executeFiles(
-  query: OqlQueryV1,
+  query: OqlQuery,
   source: QuerySource,
   searchPath: string
 ): Promise<AdapterResult> {
@@ -269,7 +287,7 @@ function isBooleanPredicate(p: Predicate): boolean {
  * predicates, localFindFiles for field predicates); results combine as sets.
  */
 async function executeFilesBoolean(
-  query: OqlQueryV1,
+  query: OqlQuery,
   source: QuerySource,
   searchPath: string,
   where: Predicate
@@ -302,7 +320,7 @@ async function executeFilesBoolean(
 }
 
 async function evalFilesPredicate(
-  query: OqlQueryV1,
+  query: OqlQuery,
   p: Predicate,
   searchPath: string,
   prov: OqlProvenance[],
@@ -347,7 +365,7 @@ function intersect(a: Set<string>, b: Set<string>): Set<string> {
 
 /** All files in scope — the candidate universe for negation. */
 async function universeFiles(
-  query: OqlQueryV1,
+  query: OqlQuery,
   searchPath: string,
   prov: OqlProvenance[]
 ): Promise<Set<string>> {
@@ -369,7 +387,7 @@ async function universeFiles(
 
 /** File-set for a single (non-boolean) predicate. */
 async function leafFiles(
-  query: OqlQueryV1,
+  query: OqlQuery,
   leaf: Predicate,
   searchPath: string,
   prov: OqlProvenance[],
@@ -418,8 +436,173 @@ async function leafFiles(
   return new Set((r.files ?? []).map(f => f.path));
 }
 
+/* ---------------------- boolean evaluation over code -------------------- */
+
+interface CodeEval {
+  /** Files satisfying this sub-predicate (the candidate universe slice). */
+  files: Set<string>;
+  /** Positive match occurrences (empty for negation/field constraints). */
+  rows: import('../types.js').OqlCodeResultRow[];
+}
+
+/**
+ * Evaluate a boolean `where` over `target:"code"` and return match rows.
+ * Match rows come only from positive (non-negated) content leaves; `not` and
+ * `field` leaves contribute file-set constraints, not occurrences. Local scope
+ * is the complete universe, so negation is exact.
+ */
+async function executeCodeBoolean(
+  query: OqlQuery,
+  source: QuerySource,
+  searchPath: string,
+  where: Predicate
+): Promise<AdapterResult> {
+  const prov: OqlProvenance[] = [];
+  const diags: OqlDiagnostic[] = [];
+  const evaluated = await evalCodePredicate(
+    query,
+    where,
+    source,
+    searchPath,
+    prov,
+    diags
+  );
+  // Restrict positive rows to the satisfying file set, dedup by path:line.
+  const seen = new Set<string>();
+  const rows = evaluated.rows
+    .filter(r => evaluated.files.has(r.path))
+    .filter(r => {
+      const key = `${r.path}:${r.line ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (rows.length === 0 && !diags.some(d => d.severity === 'error')) {
+    diags.push(
+      diagnostic('zeroMatches', 'Boolean code query matched no occurrences.', {
+        backend: 'localSearchCode',
+        severity: 'info',
+        blocksAnswer: false,
+      })
+    );
+  }
+  return { results: rows, diagnostics: diags, provenance: prov };
+}
+
+async function evalCodePredicate(
+  query: OqlQuery,
+  p: Predicate,
+  source: QuerySource,
+  searchPath: string,
+  prov: OqlProvenance[],
+  diags: OqlDiagnostic[]
+): Promise<CodeEval> {
+  switch (p.kind) {
+    case 'all': {
+      const parts = await Promise.all(
+        p.of.map(c =>
+          evalCodePredicate(query, c, source, searchPath, prov, diags)
+        )
+      );
+      const files = parts
+        .map(part => part.files)
+        .reduce((acc, s) => (acc === undefined ? s : intersect(acc, s)));
+      const rows = parts.flatMap(part => part.rows);
+      return { files, rows };
+    }
+    case 'any': {
+      const parts = await Promise.all(
+        p.of.map(c =>
+          evalCodePredicate(query, c, source, searchPath, prov, diags)
+        )
+      );
+      const files = new Set<string>();
+      for (const part of parts) for (const f of part.files) files.add(f);
+      const rows = parts.flatMap(part => part.rows);
+      return { files, rows };
+    }
+    case 'not': {
+      const universe = await universeFiles(query, searchPath, prov);
+      const inner = await evalCodePredicate(
+        query,
+        p.predicate,
+        source,
+        searchPath,
+        prov,
+        diags
+      );
+      // Negation yields a file-set constraint, no positive occurrences.
+      return {
+        files: new Set([...universe].filter(f => !inner.files.has(f))),
+        rows: [],
+      };
+    }
+    case 'field': {
+      const files = await leafFiles(query, p, searchPath, prov, diags);
+      return { files, rows: [] };
+    }
+    default: {
+      // content leaf (text/regex/structural) -> match rows
+      const rows = await leafCodeRows(
+        query,
+        p,
+        source,
+        searchPath,
+        prov,
+        diags
+      );
+      return { files: new Set(rows.map(r => r.path)), rows };
+    }
+  }
+}
+
+/** Match rows for a single content leaf (no boolean composition). */
+async function leafCodeRows(
+  query: OqlQuery,
+  leaf: Predicate,
+  source: QuerySource,
+  searchPath: string,
+  prov: OqlProvenance[],
+  diags: OqlDiagnostic[]
+): Promise<import('../types.js').OqlCodeResultRow[]> {
+  const compiled = compileWhere(leaf);
+  if (compiled.unsupported) {
+    diags.push(
+      diagnostic(compiled.unsupported.code, compiled.unsupported.message, {
+        backend: 'localSearchCode',
+      })
+    );
+    return [];
+  }
+  const m = compiled.match!;
+  const lang = m.langType ?? languageInclude(query.scope);
+  const tq: Record<string, unknown> = {
+    path: searchPath,
+    ...scopeToCommon(query.scope),
+    ...(lang ? { langType: lang } : {}),
+  };
+  if (m.mode === 'structural') {
+    tq.mode = 'structural';
+    if (m.pattern !== undefined) tq.pattern = m.pattern;
+    if (m.rule !== undefined) tq.rule = m.rule;
+  } else {
+    tq.keywords = m.keywords;
+    if (m.fixedString) tq.fixedString = true;
+    if (m.perlRegex) tq.perlRegex = true;
+    if (m.caseSensitive) tq.caseSensitive = true;
+    if (m.caseInsensitive) tq.caseInsensitive = true;
+    if (m.wholeWord) tq.wholeWord = true;
+    if (m.multiline) tq.multiline = true;
+    if (m.multilineDotall) tq.multilineDotall = true;
+  }
+  const r = await searchContentRipgrep(tq as never);
+  prov.push({ backend: 'localSearchCode', source });
+  return mapCodeResult(r, source)
+    .results as import('../types.js').OqlCodeResultRow[];
+}
+
 async function executeStructure(
-  query: OqlQueryV1,
+  query: OqlQuery,
   source: QuerySource,
   searchPath: string
 ): Promise<AdapterResult> {
@@ -447,7 +630,7 @@ async function executeStructure(
 }
 
 async function executeContent(
-  query: OqlQueryV1,
+  query: OqlQuery,
   source: QuerySource,
   searchPath: string
 ): Promise<AdapterResult> {
@@ -511,7 +694,7 @@ function applyFieldPredicate(
     diags.push(
       diagnostic(
         'unsupportedPredicate',
-        'Only field predicates (and field-negation) compile to the files backend in V1.',
+        'Only field predicates (and field-negation) compile to the files backend.',
         { backend: 'localFindFiles' }
       )
     );
@@ -563,7 +746,7 @@ function applyFieldPredicate(
     diags.push(
       diagnostic(
         'residualNotExact',
-        'Negated field predicates over findFiles are best-effort in V1.',
+        'Negated field predicates over findFiles are best-effort.',
         { backend: 'localFindFiles', severity: 'warning' }
       )
     );
@@ -573,12 +756,12 @@ function applyFieldPredicate(
 function unsupportedField(f: FieldPredicate): OqlDiagnostic {
   return diagnostic(
     'unsupportedPredicate',
-    `field "${f.field}" with operator "${f.op}" is not supported by the files backend in V1.`,
+    `field "${f.field}" with operator "${f.op}" is not supported by the files backend.`,
     { backend: 'localFindFiles' }
   );
 }
 
-function searchControls(query: OqlQueryV1): Record<string, unknown> {
+function searchControls(query: OqlQuery): Record<string, unknown> {
   const s = query.controls?.search;
   if (!s) return {};
   const out: Record<string, unknown> = {};
@@ -595,6 +778,8 @@ function searchControls(query: OqlQueryV1): Record<string, unknown> {
   if (s.matchPage !== undefined) out.matchPage = s.matchPage;
   if (s.sort) out.sort = s.sort;
   if (s.sortReverse) out.sortReverse = true;
+  if (s.rankingProfile) out.rankingProfile = s.rankingProfile;
+  if (s.debugRanking) out.debugRanking = true;
   if (query.controls?.budget?.maxFiles !== undefined)
     out.maxFiles = query.controls.budget.maxFiles;
   return out;

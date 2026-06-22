@@ -33,9 +33,6 @@ describe('config/validator', () => {
           timeout: 30000,
           maxRetries: 3,
         },
-        telemetry: {
-          logging: true,
-        },
         lsp: {
           configPath: '~/.octocode/lsp-servers.json',
         },
@@ -240,18 +237,6 @@ describe('config/validator', () => {
         });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('Must be a number'))).toBe(
-          true
-        );
-      });
-    });
-
-    describe('telemetry validation', () => {
-      it('rejects non-boolean logging', () => {
-        const result = validateConfig({
-          telemetry: { logging: 'true' },
-        });
-        expect(result.valid).toBe(false);
-        expect(result.errors.some(e => e.includes('telemetry.logging'))).toBe(
           true
         );
       });
@@ -478,25 +463,6 @@ describe('config/validator', () => {
       });
     });
 
-    describe('telemetry validation (extended)', () => {
-      it('rejects non-object telemetry', () => {
-        const result = validateConfig({ telemetry: 'invalid' });
-        expect(result.valid).toBe(false);
-        expect(
-          result.errors.some(e => e.includes('telemetry: Must be an object'))
-        ).toBe(true);
-      });
-
-      it('accepts valid boolean logging', () => {
-        expect(validateConfig({ telemetry: { logging: true } }).valid).toBe(
-          true
-        );
-        expect(validateConfig({ telemetry: { logging: false } }).valid).toBe(
-          true
-        );
-      });
-    });
-
     describe('lsp validation (extended)', () => {
       it('accepts valid configPath string', () => {
         const result = validateConfig({
@@ -537,10 +503,9 @@ describe('config/validator', () => {
         const result = validateConfig({
           github: { apiUrl: 'not-a-url' },
           network: { timeout: -1, maxRetries: 999 },
-          telemetry: { logging: 'yes' },
         });
         expect(result.valid).toBe(false);
-        expect(result.errors.length).toBeGreaterThanOrEqual(4);
+        expect(result.errors.length).toBeGreaterThanOrEqual(3);
       });
     });
 

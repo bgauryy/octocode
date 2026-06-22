@@ -16,10 +16,6 @@ vi.mock(
   })
 );
 
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(),
-}));
-
 vi.mock('../../src/utils/secureServer.js', () => ({
   withOutputSanitization: vi.fn((server: unknown) => server),
 }));

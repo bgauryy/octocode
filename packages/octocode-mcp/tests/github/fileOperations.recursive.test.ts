@@ -6,10 +6,6 @@ import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache
 import { countSerializedChars } from '../../../octocode-tools-core/src/utils/response/charSavings.js';
 
 vi.mock('../../../octocode-tools-core/src/github/client.js');
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 describe('fetchDirectoryContentsRecursivelyAPI — branch coverage', () => {
   it('returns empty array immediately when currentDepth > maxDepth', async () => {
     const mockOctokit = {

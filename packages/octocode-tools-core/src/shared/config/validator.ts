@@ -242,20 +242,6 @@ function validateNetwork(network: unknown, errors: string[]): void {
   if (retriesError) errors.push(retriesError);
 }
 
-function validateTelemetry(telemetry: unknown, errors: string[]): void {
-  if (telemetry === undefined || telemetry === null) return;
-
-  if (typeof telemetry !== 'object' || Array.isArray(telemetry)) {
-    errors.push('telemetry: Must be an object');
-    return;
-  }
-
-  const tel = telemetry as Record<string, unknown>;
-
-  const loggingError = validateBoolean(tel.logging, 'telemetry.logging');
-  if (loggingError) errors.push(loggingError);
-}
-
 function validateLsp(lsp: unknown, errors: string[]): void {
   if (lsp === undefined || lsp === null) return;
 
@@ -332,7 +318,6 @@ export function validateConfig(config: unknown): ValidationResult {
   validateLocal(cfg.local, errors);
   validateTools(cfg.tools, errors);
   validateNetwork(cfg.network, errors);
-  validateTelemetry(cfg.telemetry, errors);
   validateLsp(cfg.lsp, errors);
   validateOutput(cfg.output, errors);
 
@@ -343,7 +328,6 @@ export function validateConfig(config: unknown): ValidationResult {
     'local',
     'tools',
     'network',
-    'telemetry',
     'lsp',
     'output',
   ]);

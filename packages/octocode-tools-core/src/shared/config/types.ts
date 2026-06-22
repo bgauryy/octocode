@@ -30,10 +30,6 @@ export interface NetworkConfigOptions {
   maxRetries?: number;
 }
 
-export interface TelemetryConfigOptions {
-  logging?: boolean;
-}
-
 export interface LspConfigOptions {
   configPath?: string;
 }
@@ -63,8 +59,6 @@ export interface OctocodeConfig {
 
   network?: NetworkConfigOptions;
 
-  telemetry?: TelemetryConfigOptions;
-
   lsp?: LspConfigOptions;
 
   output?: OutputConfigOptions;
@@ -92,10 +86,6 @@ export interface RequiredNetworkConfig {
   maxRetries: number;
 }
 
-export interface RequiredTelemetryConfig {
-  logging: boolean;
-}
-
 export interface RequiredLspConfig {
   configPath: string | undefined;
 }
@@ -119,8 +109,6 @@ export interface ResolvedConfig {
   tools: RequiredToolsConfig;
 
   network: RequiredNetworkConfig;
-
-  telemetry: RequiredTelemetryConfig;
 
   lsp: RequiredLspConfig;
 

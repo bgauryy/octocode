@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
 import { runOqlSearch } from '../../src/oql/run.js';
-import { isBatchEnvelope, type OqlQueryV1 } from '../../src/oql/types.js';
+import { isBatchEnvelope, type OqlQuery } from '../../src/oql/types.js';
 
 function plan(input: unknown) {
-  const q = normalizeQuery(input as never) as OqlQueryV1;
+  const q = normalizeQuery(input as never) as OqlQuery;
   return planQuery(q, input);
 }
 function single(r: Awaited<ReturnType<typeof runOqlSearch>>) {

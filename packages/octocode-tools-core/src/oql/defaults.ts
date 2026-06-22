@@ -1,11 +1,11 @@
 /**
- * OQL V1 defaults (see OCTOCODE_QUERY_LANGUAGE.md §defaults). `--explain` must
+ * OQL defaults (see OCTOCODE_QUERY_LANGUAGE.md §defaults). `--explain` must
  * surface every applied default, so they live in one place.
  */
-import type { OqlQueryV1 } from './types.js';
+import type { OqlQuery } from './types.js';
 
 export const DEFAULTS = {
-  schema: 'oql/v1' as const,
+  schema: 'oql' as const,
   view: 'paginated' as const,
   page: 1,
   itemsPerPage: 25,
@@ -25,7 +25,7 @@ export const DEFAULTS = {
 };
 
 /** The subset of defaults actually applied to (or relevant for) this query. */
-export function appliedDefaults(query: OqlQueryV1): Record<string, unknown> {
+export function appliedDefaults(query: OqlQuery): Record<string, unknown> {
   const applied: Record<string, unknown> = {
     schema: DEFAULTS.schema,
     view: query.view ?? DEFAULTS.view,

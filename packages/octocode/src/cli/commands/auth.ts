@@ -57,7 +57,7 @@ export const loginCommand: CLICommand = {
       if (!jsonOutput) {
         console.log();
         console.log(
-          `  ${dim('Logging out')} ${c('cyan', status.username || hostname)} ${dim('before re-authenticating...')}`
+          `  ${dim('Signing out')} ${c('cyan', status.username || hostname)} ${dim('before re-authenticating...')}`
         );
       }
       await oauthLogout(hostname);

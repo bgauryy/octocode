@@ -39,7 +39,9 @@ bindings; Rust modules own the actual logic and are tested with `cargo test`.
 
 ## Cargo Deps
 
-`Cargo.toml` is the version source of truth.
+`package.json#version` is the release version source of truth for the engine.
+`yarn version:sync` updates `Cargo.toml`, `Cargo.lock`, the root
+`optionalDependencies`, and every `npm/<platform>/package.json` to match it.
 
 - NAPI: `napi`, `napi-derive`; build: `napi-build`; dev: `napi`.
 - Serialization/text: `serde`, `serde_json`, `serde_yaml_ng`, `regex`, `url`.
@@ -56,12 +58,33 @@ bindings; Rust modules own the actual logic and are tested with `cargo test`.
   `tree-sitter-css`, `tree-sitter-scss`, `tree-sitter-less`,
   `tree-sitter-scala`.
 
+## Distribution
+
+`@octocodeai/octocode-engine` is the only published native package in this
+repo. It ships as:
+
+- a root package with JS/TS loader files and `dist/` wrappers, but no `.node`
+  binary in the root tarball;
+- six platform packages under `npm/<platform>/`, each containing exactly one
+  `octocode-engine.<platform>.node` binary;
+- exact root `optionalDependencies` pointing at those six platform packages.
+
+The root loader supports both ESM and CJS entrypoints, detects the current
+platform/libc, then loads the local dev binary, bundled standalone runtime
+binary, or matching npm optional dependency.
+
+Publish the six platform packages first, then publish the engine root. Interface
+packages (`octocode-mcp` and `octocode`) are published only after this package is
+available on npm because they depend on it directly at runtime.
+
 ## Verification
 
 Run from `packages/octocode-engine/`:
 
 ```bash
+yarn version:sync
+yarn build:all
+yarn prepublish:verify
 yarn verify:rust
-yarn build:dev
-yarn test:node
+yarn verify
 ```

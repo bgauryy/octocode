@@ -4,7 +4,7 @@
  * Rules (see OCTOCODE_QUERY_LANGUAGE.md §normalization):
  *  - sugar is accepted only when it has a deterministic rewrite;
  *  - ambiguous sugar fails with `ambiguousSugar`;
- *  - reserved (V2/V3) targets fail with `unsupportedTarget`;
+ *  - reserved targets fail with `unsupportedTarget`;
  *  - unknown fields fail with `unknownField`;
  *  - canonical output contains no shorthand fields.
  *
@@ -18,18 +18,18 @@ import {
   PredicateSchema,
 } from './schema.js';
 import { OqlValidationError, diagnostic } from './diagnostics.js';
-import { validateV2Params } from './v2params.js';
+import { validateTargetParams } from './targetParams.js';
 import {
   ACTIVE_TARGETS,
   RESERVED_TARGETS,
   CORPUS_OPTIONAL_TARGETS,
   type MaterializePolicy,
-  type OqlBatchV1,
-  type OqlCanonicalInputV1,
-  type OqlInputBatchV1,
-  type OqlInputQueryV1,
-  type OqlQueryV1,
-  type OqlSearchInputV1,
+  type OqlBatch,
+  type OqlCanonicalInput,
+  type OqlInputBatch,
+  type OqlInputQuery,
+  type OqlQuery,
+  type OqlSearchInput,
   type Predicate,
   type QueryScope,
   type QuerySource,
@@ -94,19 +94,19 @@ function asArray<T>(v: T | T[] | undefined): T[] | undefined {
 
 /* ----------------------------- public API ------------------------------- */
 
-export function normalizeInput(input: OqlSearchInputV1): OqlCanonicalInputV1 {
+export function normalizeInput(input: OqlSearchInput): OqlCanonicalInput {
   if (isBatchInput(input)) {
     return normalizeBatch(input);
   }
-  return normalizeQuery(input as OqlInputQueryV1);
+  return normalizeQuery(input as OqlInputQuery);
 }
 
-function normalizeBatch(input: OqlInputBatchV1): OqlBatchV1 {
+function normalizeBatch(input: OqlInputBatch): OqlBatch {
   const parsed = OqlInputBatchSchema.safeParse(input);
   if (!parsed.success) {
     fail(diagnostic('invalidQuery', formatZodError(parsed.error)));
   }
-  const raw = parsed.data as OqlInputBatchV1;
+  const raw = parsed.data as OqlInputBatch;
   // Reject unknown batch-level keys (same strictness as query level — e.g.
   // `batchId` is not a field; the id field is `id`).
   const KNOWN_BATCH_KEYS = new Set([
@@ -124,7 +124,7 @@ function normalizeBatch(input: OqlInputBatchV1): OqlBatchV1 {
       fail(
         diagnostic(
           'unknownField',
-          `Unknown batch field "${key}" is not part of OQL V1.`,
+          `Unknown batch field "${key}" is not part of OQL.`,
           { queryPath: key }
         )
       );
@@ -141,7 +141,7 @@ function normalizeBatch(input: OqlInputBatchV1): OqlBatchV1 {
   }
   const queries = raw.queries.map((q, i) => {
     try {
-      return normalizeQuery(q as OqlInputQueryV1);
+      return normalizeQuery(q as OqlInputQuery);
     } catch (err) {
       if (err instanceof OqlValidationError) {
         // prefix queryPath with the child index for traceability
@@ -156,7 +156,7 @@ function normalizeBatch(input: OqlInputBatchV1): OqlBatchV1 {
     }
   });
   return {
-    schema: 'oql/v1',
+    schema: 'oql',
     ...(raw.id ? { id: raw.id } : {}),
     queries,
     combine: raw.combine ?? 'independent',
@@ -169,14 +169,14 @@ function normalizeBatch(input: OqlInputBatchV1): OqlBatchV1 {
   };
 }
 
-export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
+export function normalizeQuery(input: OqlInputQuery): OqlQuery {
   const parsed = OqlInputQuerySchema.safeParse(input);
   if (!parsed.success) {
     fail(diagnostic('invalidQuery', formatZodError(parsed.error)));
   }
   const raw = {
     ...(parsed.data as Record<string, unknown>),
-  } as OqlInputQueryV1;
+  } as OqlInputQuery;
 
   // 1. resolve target. legacy `filesWithoutMatch` forces "files"; otherwise use
   // the explicit target or infer it from sugar.
@@ -196,7 +196,7 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
     fail(
       diagnostic(
         'unsupportedTarget',
-        `Target "${target}" is reserved (V3 fixes/dataflow) and not active yet.`,
+        `Target "${target}" is reserved until proof/dry-run support exists.`,
         {
           queryPath: 'target',
           repair: {
@@ -216,7 +216,7 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
       fail(
         diagnostic(
           'unknownField',
-          `Unknown field "${key}" is not part of OQL V1.`,
+          `Unknown field "${key}" is not part of OQL.`,
           {
             queryPath: key,
           }
@@ -227,7 +227,7 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
 
   // legacy `filesOnly` -> discovery view + path-only projection (unless a
   // stricter `select` is already present).
-  const legacy: { view?: OqlQueryV1['view']; select?: string[] } = {};
+  const legacy: { view?: OqlQuery['view']; select?: string[] } = {};
   if (raw.filesOnly === true) {
     legacy.view = 'discovery';
     legacy.select = Array.isArray(raw.select)
@@ -235,21 +235,21 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
       : ['path', 'next.fetch'];
   }
 
-  const from = normalizeSource(raw, target as OqlQueryV1['target']);
+  const from = normalizeSource(raw, target as OqlQuery['target']);
   const scope = normalizeScope(raw, from);
-  const where = normalizeWhere(raw, target as OqlQueryV1['target']);
+  const where = normalizeWhere(raw, target as OqlQuery['target']);
   const materialize = normalizeMaterialize(
     raw,
     from,
     where,
-    target as OqlQueryV1['target']
+    target as OqlQuery['target']
   );
   const fetch = normalizeFetch(raw);
 
-  const canonical: OqlQueryV1 = {
-    schema: 'oql/v1',
+  const canonical: OqlQuery = {
+    schema: 'oql',
     ...(raw.id ? { id: raw.id } : {}),
-    target: target as OqlQueryV1['target'],
+    target: target as OqlQuery['target'],
     ...(from ? { from } : {}),
     ...(raw.params ? { params: raw.params as Record<string, unknown> } : {}),
     ...(scope ? { scope } : {}),
@@ -352,10 +352,13 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
     }
   }
 
-  // Typed V2 params check: catch type mistakes on known params fields early
+  // Typed params check: catch type mistakes on known params fields early
   // (the backing tool remains the exhaustive validator for the rest).
   if (canonical.params !== undefined) {
-    const paramsError = validateV2Params(canonical.target, canonical.params);
+    const paramsError = validateTargetParams(
+      canonical.target,
+      canonical.params
+    );
     if (paramsError) {
       fail(diagnostic('invalidQuery', paramsError, { queryPath: 'params' }));
     }
@@ -366,7 +369,7 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
   if (!check.success) {
     fail(diagnostic('invalidQuery', formatZodError(check.error)));
   }
-  return check.data as OqlQueryV1;
+  return check.data as OqlQuery;
 }
 
 /**
@@ -375,7 +378,7 @@ export function normalizeQuery(input: OqlInputQueryV1): OqlQueryV1 {
  *  - fetch.content -> "content"
  *  - fetch.tree -> "structure"
  */
-function inferTarget(raw: OqlInputQueryV1): OqlQueryV1['target'] | undefined {
+function inferTarget(raw: OqlInputQuery): OqlQuery['target'] | undefined {
   const hasMatch =
     raw.where !== undefined ||
     typeof raw.text === 'string' ||
@@ -396,8 +399,8 @@ function inferTarget(raw: OqlInputQueryV1): OqlQueryV1['target'] | undefined {
 /* ------------------------------ source ---------------------------------- */
 
 function normalizeSource(
-  raw: OqlInputQueryV1,
-  target: OqlQueryV1['target']
+  raw: OqlInputQuery,
+  target: OqlQuery['target']
 ): QuerySource | undefined {
   const explicitFrom = raw.from;
   const hasRepoSugar =
@@ -472,7 +475,7 @@ function normalizeGithubIdentity(from: QuerySource): QuerySource {
 /* ------------------------------- scope ---------------------------------- */
 
 function normalizeScope(
-  raw: OqlInputQueryV1,
+  raw: OqlInputQuery,
   from: QuerySource | undefined
 ): QueryScope | undefined {
   const scope: QueryScope = { ...(raw.scope ?? {}) };
@@ -509,8 +512,8 @@ function normalizeScope(
 /* ------------------------------- where ---------------------------------- */
 
 function normalizeWhere(
-  raw: OqlInputQueryV1,
-  target: OqlQueryV1['target']
+  raw: OqlInputQuery,
+  target: OqlQuery['target']
 ): Predicate | undefined {
   const sugarPredicate = buildSugarPredicate(raw);
 
@@ -556,11 +559,46 @@ function normalizeWhere(
   return check.data as Predicate;
 }
 
+/** Generated predicate-node count, for the maxBooleanExpansion budget. */
+function countNodes(p: Predicate): number {
+  if (p.kind === 'all' || p.kind === 'any') {
+    return 1 + p.of.reduce((n, c) => n + countNodes(c), 0);
+  }
+  if (p.kind === 'not') return 1 + countNodes(p.predicate);
+  return 1;
+}
+
+/** Default mirrors DEFAULTS.maxBooleanExpansion (kept local to avoid a cycle). */
+const DEFAULT_MAX_BOOLEAN_EXPANSION = 64;
+
+function booleanExpansionBudget(raw: OqlInputQuery): number {
+  const b = (
+    raw.controls as { budget?: { maxBooleanExpansion?: number } } | undefined
+  )?.budget?.maxBooleanExpansion;
+  return typeof b === 'number' && b > 0 ? b : DEFAULT_MAX_BOOLEAN_EXPANSION;
+}
+
 /**
  * Build a predicate from top-level match sugar. Boolean sugar (and/or/xor/
- * noneOf/oneOf) is normalized to canonical all/any/not here.
+ * noneOf/oneOf) is normalized to canonical all/any/not here. Expansions that
+ * generate more nodes than `controls.budget.maxBooleanExpansion` fail with
+ * `budgetExhausted` rather than ballooning the plan.
  */
-function buildSugarPredicate(raw: OqlInputQueryV1): Predicate | undefined {
+function buildSugarPredicate(raw: OqlInputQuery): Predicate | undefined {
+  const checkBudget = (p: Predicate): Predicate => {
+    const nodes = countNodes(p);
+    const budget = booleanExpansionBudget(raw);
+    if (nodes > budget) {
+      fail(
+        diagnostic(
+          'budgetExhausted',
+          `Boolean sugar expanded to ${nodes} predicate nodes, over controls.budget.maxBooleanExpansion (${budget}). Narrow the query or raise the budget.`,
+          { queryPath: 'where' }
+        )
+      );
+    }
+    return p;
+  };
   // boolean sugar
   if (Array.isArray(raw.and)) {
     return { kind: 'all', of: raw.and.map(coercePredicate) };
@@ -579,23 +617,23 @@ function buildSugarPredicate(raw: OqlInputQueryV1): Predicate | undefined {
       fail(
         diagnostic(
           'invalidQuery',
-          'xor is binary in V1; use oneOf for multi-way exclusive matching.',
+          'xor is binary; use oneOf for multi-way exclusive matching.',
           { queryPath: 'xor' }
         )
       );
     }
     const a = coercePredicate(raw.xor[0]);
     const b = coercePredicate(raw.xor[1]);
-    return {
+    return checkBudget({
       kind: 'any',
       of: [
         { kind: 'all', of: [a, { kind: 'not', predicate: b }] },
         { kind: 'all', of: [{ kind: 'not', predicate: a }, b] },
       ],
-    };
+    });
   }
   if (Array.isArray(raw.oneOf)) {
-    return expandOneOf(raw.oneOf.map(coercePredicate));
+    return checkBudget(expandOneOf(raw.oneOf.map(coercePredicate)));
   }
 
   // structural sugar
@@ -751,7 +789,9 @@ function isLocalOnlyPredicate(p: Predicate | undefined): boolean {
       return p.dialect === 'pcre2';
     case 'all':
     case 'any':
-      return p.of.some(isLocalOnlyPredicate);
+      // A multi-leaf boolean cannot be a single provider call, so it needs a
+      // local/materialized corpus (set-algebra over per-leaf results).
+      return true;
     case 'not':
       return isLocalOnlyPredicate(p.predicate);
     default:
@@ -760,10 +800,10 @@ function isLocalOnlyPredicate(p: Predicate | undefined): boolean {
 }
 
 function normalizeMaterialize(
-  raw: OqlInputQueryV1,
+  raw: OqlInputQuery,
   from: QuerySource | undefined,
   where: Predicate | undefined,
-  target: OqlQueryV1['target']
+  target: OqlQuery['target']
 ): MaterializePolicy | undefined {
   let policy: MaterializePolicy | undefined;
   if (typeof raw.materialize === 'string') {
@@ -802,7 +842,7 @@ function normalizeMaterialize(
 
 /* ------------------------------- fetch ---------------------------------- */
 
-function normalizeFetch(raw: OqlInputQueryV1): OqlQueryV1['fetch'] | undefined {
+function normalizeFetch(raw: OqlInputQuery): OqlQuery['fetch'] | undefined {
   const fetch = raw.fetch ? { ...raw.fetch } : undefined;
 
   // minify sugar -> fetch.content.contentView

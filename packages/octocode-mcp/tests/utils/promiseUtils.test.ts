@@ -1,15 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { executeWithErrorIsolation } from '../../../octocode-tools-core/src/utils/core/promise.js';
 import type { PromiseExecutionOptions } from '../../../octocode-tools-core/src/types/promise.js';
-import {
-  VALIDATION_ERRORS,
-  PROMISE_ERRORS,
-} from '../../../octocode-tools-core/src/errors/domainErrors.js';
-import { logSessionError } from '../../../octocode-tools-core/src/session';
-
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
+import { VALIDATION_ERRORS } from '../../../octocode-tools-core/src/errors/domainErrors.js';
 
 describe('promiseUtils', () => {
   beforeEach(() => {
@@ -221,10 +213,6 @@ describe('promiseUtils', () => {
             >[0]
           )
         ).rejects.toThrow(VALIDATION_ERRORS.PROMISES_NOT_ARRAY.message);
-        expect(logSessionError).toHaveBeenCalledWith(
-          'promiseUtils',
-          VALIDATION_ERRORS.PROMISES_NOT_ARRAY.code
-        );
       });
 
       it('should throw if timeout is not positive', async () => {
@@ -232,10 +220,6 @@ describe('promiseUtils', () => {
         await expect(
           executeWithErrorIsolation(promises, { timeout: 0 })
         ).rejects.toThrow(VALIDATION_ERRORS.TIMEOUT_NOT_POSITIVE.message);
-        expect(logSessionError).toHaveBeenCalledWith(
-          'promiseUtils',
-          VALIDATION_ERRORS.TIMEOUT_NOT_POSITIVE.code
-        );
       });
 
       it('should throw if concurrency is not positive', async () => {
@@ -243,10 +227,6 @@ describe('promiseUtils', () => {
         await expect(
           executeWithErrorIsolation(promises, { concurrency: 0 })
         ).rejects.toThrow(VALIDATION_ERRORS.CONCURRENCY_NOT_POSITIVE.message);
-        expect(logSessionError).toHaveBeenCalledWith(
-          'promiseUtils',
-          VALIDATION_ERRORS.CONCURRENCY_NOT_POSITIVE.code
-        );
       });
 
       it('should handle non-function elements in promises array', async () => {
@@ -261,10 +241,6 @@ describe('promiseUtils', () => {
         expect(results[1]?.success).toBe(false);
         expect(results[1]?.error?.message).toContain(
           'Promise function at index 1 is not a function'
-        );
-        expect(logSessionError).toHaveBeenCalledWith(
-          'promiseUtils',
-          PROMISE_ERRORS.NOT_A_FUNCTION.code
         );
       });
     });

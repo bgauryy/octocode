@@ -56,14 +56,12 @@ export const statusCommand: CLICommand = {
     const treeDir = paths.tree;
     const binaryDir = paths.binary;
     const unzipDir = paths.unzip;
-    const logsDir = paths.logs;
     const cloneBytes = getDirectorySizeBytes(cloneDir);
     const treeBytes = getDirectorySizeBytes(treeDir);
     const binaryBytes = getDirectorySizeBytes(binaryDir);
     const unzipBytes = getDirectorySizeBytes(unzipDir);
-    const logsBytes = getDirectorySizeBytes(logsDir);
     const tmpBytes = cloneBytes + treeBytes + binaryBytes + unzipBytes;
-    const totalCacheBytes = tmpBytes + logsBytes;
+    const totalCacheBytes = tmpBytes;
 
     let syncData: {
       summary: {
@@ -129,11 +127,6 @@ export const statusCommand: CLICommand = {
               sizeBytes: unzipBytes,
               sizeFormatted: formatBytes(unzipBytes),
             },
-            logs: {
-              path: logsDir,
-              sizeBytes: logsBytes,
-              sizeFormatted: formatBytes(logsBytes),
-            },
             totalBytes: totalCacheBytes,
             totalFormatted: formatBytes(totalCacheBytes),
           },
@@ -178,7 +171,6 @@ export const statusCommand: CLICommand = {
     console.log(`    ${c('cyan', '•')} tree:   ${formatBytes(treeBytes)}`);
     console.log(`    ${c('cyan', '•')} binary: ${formatBytes(binaryBytes)}`);
     console.log(`    ${c('cyan', '•')} unzip:  ${formatBytes(unzipBytes)}`);
-    console.log(`    ${c('cyan', '•')} logs:   ${formatBytes(logsBytes)}`);
 
     if (syncData) {
       console.log();

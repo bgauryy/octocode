@@ -5,8 +5,6 @@ import type {
   ToolInvocationCallback,
 } from '../types/toolResults.js';
 import type { ProviderResponse } from '../providers/types.js';
-import { logSessionError } from '../session.js';
-import { TOOL_ERRORS } from '../errors/domainErrors.js';
 import {
   createErrorResult,
   safeParseOrError,
@@ -24,9 +22,7 @@ export async function invokeCallbackSafely(
   try {
     await callback(toolName, queries);
   } catch {
-    logSessionError(toolName, TOOL_ERRORS.EXECUTION_FAILED.code).catch(() => {
-      /* Secondary log failure is non-fatal */
-    });
+    return;
   }
 }
 
@@ -102,10 +98,7 @@ export function handleCatchError(
     ? `${contextMessage}: ${errorMessage}`
     : errorMessage;
 
-  const logToolName = toolName || contextMessage || 'unknown_tool';
-  logSessionError(logToolName, TOOL_ERRORS.EXECUTION_FAILED.code).catch(() => {
-    /* Session log failure is non-fatal */
-  });
+  void toolName;
 
   return createErrorResult(fullErrorMessage, query) as ToolErrorResult;
 }

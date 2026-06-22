@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const runOqlSearch = vi.fn();
-const oqlSchemaText = vi.fn(() => '{"schema":"oql/v1"}');
+const oqlSchemaText = vi.fn(() => '{"schema":"oql"}');
 
 vi.mock('@octocodeai/octocode-tools-core/oql', async () => {
   // keep the real shorthand lowering (tools-core owns it); mock only execution
@@ -72,7 +72,7 @@ function proofEnvelope() {
 describe('octocode search command', () => {
   it('--scheme prints the OQL schema without running a query', async () => {
     await run({ scheme: true });
-    expect(stdout).toContain('oql/v1');
+    expect(stdout).toContain('oql');
     expect(runOqlSearch).not.toHaveBeenCalled();
   });
 

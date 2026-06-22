@@ -7,7 +7,6 @@ import {
 } from 'node:fs';
 import { ensureOctocodeDir } from '../credentials/storage.js';
 import { paths } from '../paths.js';
-import { createLogger } from '../logger/index.js';
 import {
   PersistedSessionSchema,
   PersistedStatsSchema,
@@ -15,8 +14,6 @@ import {
 } from './schemas.js';
 import { createDefaultStats, withDerivedUsageTotals } from './statsDefaults.js';
 import type { PersistedSession, SessionStats } from './types.js';
-
-const logger = createLogger('session');
 
 export const SESSION_FILE = paths.session;
 export const STATS_FILE = paths.stats;
@@ -69,7 +66,6 @@ function readStatsFromDisk(fallbackStats?: SessionStats): SessionStats {
     const content = readFileSync(STATS_FILE, 'utf8');
     const stats = parseStatsFileContent(content);
     if (!stats) {
-      logger.warn('Stats file has invalid format', { file: STATS_FILE });
       return fallback;
     }
     return stats;
@@ -98,7 +94,6 @@ export function readSessionFromDisk(): PersistedSession | null {
     const parsed = JSON.parse(content);
     const result = PersistedSessionSchema.safeParse(parsed);
     if (!result.success) {
-      logger.warn('Session file has invalid format', { file: SESSION_FILE });
       return null;
     }
 

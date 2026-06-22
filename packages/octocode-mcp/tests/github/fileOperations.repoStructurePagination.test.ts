@@ -5,10 +5,6 @@ import { clearAllCache } from '../../../octocode-tools-core/src/utils/http/cache
 import { GITHUB_STRUCTURE_DEFAULTS } from '../../../octocode-tools-core/src/tools/github_view_repo_structure/constants.js';
 
 vi.mock('../../../octocode-tools-core/src/github/client.js');
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn(() => Promise.resolve()),
-}));
-
 describe('GitHub Repository Structure - Pagination', () => {
   beforeEach(() => {
     vi.clearAllMocks();

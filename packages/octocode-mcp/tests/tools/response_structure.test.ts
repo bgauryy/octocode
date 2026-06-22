@@ -23,24 +23,12 @@ vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   initialize: vi.fn(),
   getServerConfig: mockGetServerConfig,
-  isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: mockGetGitHubToken,
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',
     baseUrl: undefined,
     token: 'mock-token',
   })),
-}));
-
-const mockLogToolCall = vi.hoisted(() => vi.fn());
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logToolCall: mockLogToolCall,
-  getSessionManager: vi.fn(() => null),
-  SessionManager: vi.fn(),
-  logSessionError: vi.fn(),
-  logSessionInit: vi.fn(),
-  initializeSession: vi.fn(),
-  resetSessionManager: vi.fn(),
 }));
 
 import { registerGitHubSearchCodeTool } from '../../src/tools/github_search_code/github_search_code.js';
@@ -77,7 +65,6 @@ describe('Response Structure Tests - All Tools', () => {
       version: '1.0.0',
       timeout: 30000,
       maxRetries: 3,
-      loggingEnabled: false,
     });
 
     mockGetGitHubToken.mockResolvedValue('test-token');

@@ -14,7 +14,6 @@ vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
 }));
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
-  isLoggingEnabled: vi.fn(() => false),
   getGitHubToken: vi.fn(() => Promise.resolve('test-token')),
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',

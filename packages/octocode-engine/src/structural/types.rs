@@ -93,6 +93,11 @@ pub struct StructuralSearchFilesResult {
     pub total_matches: u32,
     pub parsed_files: u32,
     pub skipped_by_pre_filter: u32,
+    /// Candidate files whose extension has no grammar — not evaluated, hence
+    /// not proof of absence. Mirrors the detailed result's counter so the two
+    /// shapes agree and the warning text can't collapse unevaluated into
+    /// anchor-absent.
+    pub skipped_unsupported: u32,
     pub skipped_unreadable: u32,
     pub skipped_large: u32,
     pub warnings: Vec<String>,

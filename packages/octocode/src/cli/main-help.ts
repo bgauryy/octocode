@@ -170,7 +170,7 @@ export async function showHelp(): Promise<void> {
     quick(
       'search',
       '--query <oql-json> | --scheme',
-      'OQL: one typed query → local+GitHub code/content/structure/files (--explain for routing)'
+      'OQL: one typed research query across code/content/files/LSP/repos/packages/history/artifacts/diff/research'
     ),
     quick(
       'find',

@@ -40,6 +40,15 @@ const EXTERNAL_FILE_DEPS = {
   },
 };
 
+// Internal workspace packages that are BUNDLED into their consumers' build
+// output and never published to npm. They appear only in consumers'
+// devDependencies as build-time workspace links, so they must stay on the
+// workspace protocol even in --pin-for-publish mode: pinning them to a registry
+// version would reference a package that does not exist on npm, and would break
+// `yarn install` if anyone re-installed while pinned. npm auto-corrects the
+// harmless leftover devDependency ref on publish; consumers never install it.
+const UNPUBLISHED_INTERNAL = new Set(['@octocodeai/octocode-tools-core']);
+
 function bumpExternalFileDeps(deps) {
   if (!deps) return false;
   let changed = false;
@@ -69,6 +78,16 @@ function bumpDeps(deps, version, internalPackageNames) {
   let changed = false;
   for (const [name, val] of Object.entries(deps)) {
     if (!internalPackageNames.has(name)) continue;
+
+    // Bundled-not-published packages stay on the workspace protocol in BOTH
+    // modes — they are never pinned to a registry version (see above).
+    if (UNPUBLISHED_INTERNAL.has(name)) {
+      if (!String(val).startsWith('workspace:')) {
+        deps[name] = WORKSPACE_PROTOCOL;
+        changed = true;
+      }
+      continue;
+    }
 
     if (PIN_FOR_PUBLISH) {
       if (val !== version) {

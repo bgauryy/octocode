@@ -7,11 +7,6 @@ import {
   invokeCallbackSafely,
 } from '../../../octocode-tools-core/src/tools/utils.js';
 import type { ToolInvocationCallback } from '../../../octocode-tools-core/src/types/toolResults.js';
-import { logSessionError } from '../../../octocode-tools-core/src/session.js';
-
-vi.mock('../../../octocode-tools-core/src/session.js', () => ({
-  logSessionError: vi.fn().mockResolvedValue(undefined),
-}));
 
 function expectNoResearchContext(result: Record<string, unknown>): void {
   expect(result).not.toHaveProperty('mainResearchGoal');
@@ -150,7 +145,7 @@ describe('Tools Utils', () => {
       expect(result.error).toBe('Failed to fetch data: Network failure');
     });
 
-    it('should use toolName for logging when provided', () => {
+    it('should accept toolName without changing the returned error', () => {
       const query = { researchGoal: 'Test', reasoning: 'Testing' };
       const error = new Error('Tool execution failed');
 
@@ -163,10 +158,6 @@ describe('Tools Utils', () => {
 
       expect(result.status).toBe('error');
       expect(result.error).toBe('Package search failed: Tool execution failed');
-      expect(logSessionError).toHaveBeenCalledWith(
-        'npmSearch',
-        expect.any(String)
-      );
     });
 
     it('should handle unknown error types', () => {
@@ -205,8 +196,6 @@ describe('Tools Utils', () => {
       await expect(
         invokeCallbackSafely(undefined, 'TEST_TOOL', [{ query: 'test' }])
       ).resolves.toBeUndefined();
-
-      expect(logSessionError).not.toHaveBeenCalled();
     });
 
     it('should invoke callback with correct arguments', async () => {
@@ -219,10 +208,9 @@ describe('Tools Utils', () => {
 
       expect(mockCallback).toHaveBeenCalledTimes(1);
       expect(mockCallback).toHaveBeenCalledWith('GITHUB_SEARCH_CODE', queries);
-      expect(logSessionError).not.toHaveBeenCalled();
     });
 
-    it('should catch and log synchronous errors from callback', async () => {
+    it('should catch synchronous errors from callback', async () => {
       const mockCallback: ToolInvocationCallback = vi
         .fn()
         .mockImplementation(() => {
@@ -234,14 +222,9 @@ describe('Tools Utils', () => {
       ).resolves.toBeUndefined();
 
       expect(mockCallback).toHaveBeenCalledTimes(1);
-      expect(logSessionError).toHaveBeenCalledTimes(1);
-      expect(logSessionError).toHaveBeenCalledWith(
-        'GITHUB_FETCH_CONTENT',
-        'TOOL_EXECUTION_FAILED'
-      );
     });
 
-    it('should catch and log async rejected promises from callback', async () => {
+    it('should catch async rejected promises from callback', async () => {
       const mockCallback: ToolInvocationCallback = vi
         .fn()
         .mockRejectedValue(new Error('Async callback error'));
@@ -253,11 +236,6 @@ describe('Tools Utils', () => {
       ).resolves.toBeUndefined();
 
       expect(mockCallback).toHaveBeenCalledTimes(1);
-      expect(logSessionError).toHaveBeenCalledTimes(1);
-      expect(logSessionError).toHaveBeenCalledWith(
-        'GITHUB_SEARCH_REPOSITORIES',
-        'TOOL_EXECUTION_FAILED'
-      );
     });
 
     it('should not propagate errors to caller', async () => {
@@ -270,8 +248,6 @@ describe('Tools Utils', () => {
         'GITHUB_VIEW_REPO_STRUCTURE',
         []
       );
-
-      expect(logSessionError).toHaveBeenCalled();
     });
 
     it('should handle callback that returns rejected promise', async () => {
@@ -284,11 +260,6 @@ describe('Tools Utils', () => {
       await expect(
         invokeCallbackSafely(mockCallback, 'GITHUB_SEARCH_PULL_REQUESTS', [])
       ).resolves.toBeUndefined();
-
-      expect(logSessionError).toHaveBeenCalledWith(
-        'GITHUB_SEARCH_PULL_REQUESTS',
-        'TOOL_EXECUTION_FAILED'
-      );
     });
 
     it('should handle non-Error thrown values', async () => {
@@ -301,11 +272,6 @@ describe('Tools Utils', () => {
       await expect(
         invokeCallbackSafely(mockCallback, 'PACKAGE_SEARCH', [])
       ).resolves.toBeUndefined();
-
-      expect(logSessionError).toHaveBeenCalledWith(
-        'PACKAGE_SEARCH',
-        'TOOL_EXECUTION_FAILED'
-      );
     });
 
     it('should work with all tool types', async () => {
@@ -327,7 +293,6 @@ describe('Tools Utils', () => {
         await invokeCallbackSafely(mockCallback, toolName, [{ test: true }]);
 
         expect(mockCallback).toHaveBeenCalledWith(toolName, [{ test: true }]);
-        expect(logSessionError).not.toHaveBeenCalled();
       }
     });
   });

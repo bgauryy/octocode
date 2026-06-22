@@ -11,7 +11,6 @@ vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
 }));
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
-  isLoggingEnabled: vi.fn(() => false),
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',
     baseUrl: undefined,
@@ -22,7 +21,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
     version: '1.0.0',
     timeout: 30000,
     maxRetries: 3,
-    loggingEnabled: false,
   })),
 }));
 

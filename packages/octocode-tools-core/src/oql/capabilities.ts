@@ -15,14 +15,14 @@ import type {
   DiagnosticCode,
   LeafPredicate,
   MaterializePolicy,
-  OqlActiveTargetV1,
+  OqlActiveTarget,
   PlanRoute,
   QuerySource,
 } from './types.js';
 
 export interface CapabilityContext {
   sourceKind: QuerySource['kind'];
-  target: OqlActiveTargetV1;
+  target: OqlActiveTarget;
   materialize: MaterializePolicy | undefined;
 }
 
@@ -43,7 +43,7 @@ function materializeAllowed(m: MaterializePolicy | undefined): boolean {
   return m?.mode === 'auto' || m?.mode === 'required';
 }
 
-/** Local/materialized sources: every V1 predicate is evaluated locally. */
+/** Local/materialized sources: every supported predicate is evaluated locally. */
 function routeLocal(
   ctx: CapabilityContext,
   predicate: LeafPredicate
@@ -80,9 +80,63 @@ function routeGithub(
   // Under negation, the provider can never prove *absence*: provider zero-
   // results are not proof unless the candidate universe is complete. Any
   // predicate evaluated inside a `not` must therefore be proven locally
-  // (materialize) or reported as needing a complete universe.
+  // (materialize) or reported as needing a complete universe. (Handled before
+  // the files lane so a negated files predicate keeps `negativeUniverseRequired`
+  // semantics rather than a generic materialization message.)
   if (inNegation) {
     return negatedOverProvider(ctx, predicate, canMaterialize);
+  }
+
+  // `files` target: the GitHub provider can list files *containing a term*
+  // (path-level, approximate, via code search), but cannot enumerate files by
+  // attribute (field) or run structural/PCRE2. The latter need the local
+  // universe. This mirrors executeGithub's files lane so plan and execution
+  // agree. Negation already returned above (negativeUniverseRequired/ROUTE).
+  if (ctx.target === 'files') {
+    const positiveContent =
+      predicate.kind === 'text' ||
+      (predicate.kind === 'regex' && predicate.dialect !== 'pcre2');
+    if (positiveContent) {
+      if (canMaterialize) {
+        return {
+          route: 'ROUTE',
+          backend: LOCAL_FIND,
+          exact: true,
+          reason:
+            'files-containing-term routed to materialization for an exact file set',
+        };
+      }
+      return {
+        route: 'PUSHDOWN',
+        backend: GH_SEARCH,
+        exact: false,
+        reason:
+          'files containing the term listed via provider code search (path-level, approximate)',
+        diagnostic: {
+          code: 'providerSemanticsApproximate',
+          message:
+            'GitHub lists files containing a term at path level; materialize for an exact file set.',
+        },
+      };
+    }
+    if (canMaterialize) {
+      return {
+        route: 'ROUTE',
+        backend: LOCAL_FIND,
+        exact: true,
+        reason: `${describeLeaf(predicate)} over a file listing routed to materialization`,
+      };
+    }
+    return {
+      route: 'UNSUPPORTED',
+      backend: LOCAL_FIND,
+      exact: false,
+      reason: `GitHub cannot enumerate files by ${describeLeaf(predicate)} without materialization`,
+      diagnostic: {
+        code: 'requiresMaterialization',
+        message: `target:"files" over GitHub cannot enumerate by ${describeLeaf(predicate)} without materialization (set materialize.mode "auto"/"required" with scope.path).`,
+      },
+    };
   }
 
   switch (predicate.kind) {

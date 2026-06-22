@@ -18,7 +18,6 @@ vi.mock('../../../octocode-tools-core/src/providers/factory.js', () => ({
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(async () => 'test-token'),
-  isLoggingEnabled: vi.fn(() => false),
   getActiveProviderConfig: vi.fn(() => ({
     provider: 'github',
     baseUrl: undefined,
@@ -220,7 +219,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'code',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise ghSearchCode stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
@@ -233,7 +232,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'content',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise ghGetFileContent stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
@@ -246,7 +245,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'structure',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise ghViewRepoStructure stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
@@ -259,7 +258,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'repos',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise ghSearchRepos stats',
           reasoning: 'prove runtime char savings emission',
           keywords: ['repo'],
@@ -271,7 +270,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'prs',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise ghHistoryResearch stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
@@ -284,7 +283,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'clone',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise ghCloneRepo stats',
           reasoning: 'prove runtime char savings emission',
           owner: 'owner',
@@ -297,7 +296,7 @@ describe('remote tool stats runtime contract', () => {
       queries: [
         {
           id: 'pkg',
-          mainResearchGoal: 'stats telemetry',
+          mainResearchGoal: 'stats runtime',
           researchGoal: 'exercise npmSearch stats',
           reasoning: 'prove runtime char savings emission',
           packageName: 'lodash',

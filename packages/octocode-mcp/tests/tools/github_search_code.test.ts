@@ -21,7 +21,6 @@ vi.mock('../../../octocode-tools-core/src/utils/http/cache.js', () => ({
 
 vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
   getGitHubToken: vi.fn(() => Promise.resolve('test-token')),
-  isLoggingEnabled: vi.fn(() => false),
 }));
 
 import { searchGitHubCodeAPI } from '../../../octocode-tools-core/src/github/codeSearch.js';

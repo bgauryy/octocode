@@ -87,7 +87,7 @@ Use the built CLI for repo research whenever possible:
 node packages/octocode/out/octocode.js ls   ./packages/octocode/src
 node packages/octocode/out/octocode.js cat  ./packages/octocode/src/cli/index.ts --mode symbols
 node packages/octocode/out/octocode.js grep toolName ./packages --compact
-node packages/octocode/out/octocode.js find ./packages --name '*.test.ts'
+node packages/octocode/out/octocode.js find '*.test.ts' ./packages
 node packages/octocode/out/octocode.js lsp  ./packages/octocode/src/cli/index.ts --symbol runCLI --type references
 ```
 
@@ -106,6 +106,13 @@ After each session, append one concise dated line to `.octocode/CLI_OVERVIEW.md`
 
 - `## Good flows`: command or chain that worked well.
 - `## Known limits`: friction, bug, or doc gap discovered while dogfooding.
+
+`CLI_OVERVIEW.md` is a review log, not the manual. When a good flow proves itself
+as a *general, reusable* pattern, promote it into the right home — `docs/AGENT_RESEARCH_WORKFLOWS.md`
+or the matching skill reference (`skills/octocode-engineer/references/`, etc.) —
+and then remove the now-covered entry from the log. Keep dated session records,
+known limits, and not-yet-documented signal; prune flows once they live in the
+manual so the log stays signal, not a second copy.
 
 ## Tool Surface
 

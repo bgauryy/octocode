@@ -41,8 +41,8 @@ Use when the current repo matters.
 | Find files | `localFindFiles` | `octocode find` |
 | Search code | `localSearchCode` | `octocode grep` |
 | Read exact code | `localGetFileContent` | `octocode cat` |
-| AST shape proof | `localSearchCode(mode:"structural")` | `octocode ast` |
-| Symbols / LSP | `lspGetSemantics` | `octocode symbols` / `octocode lsp` |
+| AST shape proof | `localSearchCode(mode:"structural")` | `octocode grep <path> --pattern '<shape>'` |
+| Symbols / LSP | `lspGetSemantics` | `octocode ls --symbols` / `octocode lsp` |
 
 Local flow:
 

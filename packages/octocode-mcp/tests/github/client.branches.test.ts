@@ -11,7 +11,6 @@ vi.mock('../../../octocode-tools-core/src/serverConfig.js', () => ({
     version: '1.0.0',
     githubApiUrl: 'https://api.github.com',
     maxRetries: 3,
-    loggingEnabled: true,
   })),
 }));
 
@@ -65,7 +64,6 @@ describe('GitHub Client Branch Coverage', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: undefined as unknown as number,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -87,7 +85,6 @@ describe('GitHub Client Branch Coverage', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: 0,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',
@@ -109,7 +106,6 @@ describe('GitHub Client Branch Coverage', () => {
         githubApiUrl: 'https://api.github.com',
         timeout: null as unknown as number,
         maxRetries: 3,
-        loggingEnabled: true,
         enableLocal: true,
         enableClone: false,
         outputFormat: 'yaml',

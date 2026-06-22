@@ -17,10 +17,10 @@
  * new conditional scattered across adapters.
  */
 import { diagnostic } from './diagnostics.js';
-import type { OqlDiagnostic, OqlQueryV1 } from './types.js';
+import type { OqlDiagnostic, OqlQuery } from './types.js';
 
 /** Targets whose content is PR/commit/diff text — no symbol-skeleton view. */
-const NO_SYMBOLS_VIEW_TARGETS = new Set<OqlQueryV1['target']>([
+const NO_SYMBOLS_VIEW_TARGETS = new Set<OqlQuery['target']>([
   'pullRequests',
   'commits',
   'diff',
@@ -31,7 +31,7 @@ const NO_SYMBOLS_VIEW_TARGETS = new Set<OqlQueryV1['target']>([
  * non-blocking diagnostics. Called by the planner so the limitation rides in the
  * plan and the envelope alike.
  */
-export function checkOutputFeatures(query: OqlQueryV1): OqlDiagnostic[] {
+export function checkOutputFeatures(query: OqlQuery): OqlDiagnostic[] {
   const out: OqlDiagnostic[] = [];
 
   // 1. symbols content view on PR/commit/diff content.
