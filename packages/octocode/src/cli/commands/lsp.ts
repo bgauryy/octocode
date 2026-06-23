@@ -490,8 +490,9 @@ export const lspCommand: CLICommand = {
       // callers are invisible. Emit a hint whenever references returns very few
       // results without an explicit --workspace-root override.
       if (!jsonOutput && rawType === 'references' && !workspaceRoot) {
-        const items = outputResult.structuredContent?.results ?? [];
-        const totalRefs = items.reduce((sum, item) => {
+        const items: readonly LspQueryResult[] =
+          (outputResult as LspToolResult).structuredContent?.results ?? [];
+        const totalRefs = items.reduce((sum: number, item: LspQueryResult) => {
           const total = (
             item.data?.payload as { totalReferences?: number } | undefined
           )?.totalReferences;
