@@ -153,6 +153,44 @@ function markLspSemanticFailure(result: LspToolResult): void {
   }
 }
 
+/** Return the failure category from any result item, or undefined if all OK. */
+function lspFailureCategory(result: LspToolResult): string | undefined {
+  for (const item of result.structuredContent?.results ?? []) {
+    const payload = item.data?.payload;
+    const category =
+      payload?.kind === 'empty' ? payload.category : payload?.empty?.category;
+    if (category) return category as string;
+  }
+  return undefined;
+}
+
+/** Map a file extension to the LSP server that handles it. */
+const LSP_SERVER_FOR_EXT: Record<string, string> = {
+  '.rs': 'rust-analyzer  (rustup component add rust-analyzer)',
+  '.go': 'gopls  (go install golang.org/x/tools/gopls@latest)',
+  '.py': 'pyright or pylsp  (npm i -g pyright / pip install python-lsp-server)',
+  '.rb': 'solargraph  (gem install solargraph)',
+  '.java': 'eclipse.jdt.ls',
+  '.kt': 'kotlin-language-server',
+  '.c': 'clangd  (brew install llvm or apt install clangd)',
+  '.cpp': 'clangd  (brew install llvm or apt install clangd)',
+  '.h': 'clangd  (brew install llvm or apt install clangd)',
+  '.cs': 'OmniSharp  (dotnet tool install -g csharp-ls)',
+};
+
+const TS_EXTENSIONS = new Set([
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.mts',
+  '.cts',
+  '.vue',
+  '.svelte',
+]);
+
 function formatLocation(location: LspLocation): string {
   if (typeof location === 'string') return location;
   const range = location.displayRange
@@ -503,6 +541,36 @@ export const lspCommand: CLICommand = {
             `\n  ${dim('Scope note:')} references is scoped to the anchor file's package. ` +
               `Pass ${dim('--workspace-root <monorepo-root>')} to search across packages.\n`
           );
+        }
+      }
+
+      // When LSP can't resolve a symbol on a non-TS/JS file, tell the user
+      // which language server they need to install.
+      if (!jsonOutput && !repoOption) {
+        const failCategory = lspFailureCategory(outputResult as LspToolResult);
+        const isSemanticMiss =
+          failCategory === 'noLocations' ||
+          failCategory === 'symbolNotFound' ||
+          failCategory === 'serverUnavailable' ||
+          failCategory === 'noReferences';
+        if (isSemanticMiss) {
+          const ext = path.extname(uri).toLowerCase();
+          const isNativeTs = TS_EXTENSIONS.has(ext);
+          if (!isNativeTs) {
+            const server = LSP_SERVER_FOR_EXT[ext];
+            if (server) {
+              process.stderr.write(
+                `\n  ${dim('LSP note:')} ${ext} files require ${c('cyan', server.split('  ')[0])} to be installed and on PATH.\n` +
+                  `  Install: ${dim(server)}\n` +
+                  `  Once installed, re-run the same command — Octocode auto-detects it.\n`
+              );
+            } else if (ext) {
+              process.stderr.write(
+                `\n  ${dim('LSP note:')} No built-in language server for ${ext} files.\n` +
+                  `  Configure a custom server in ${dim('~/.octocode/lsp-servers.json')}.\n`
+              );
+            }
+          }
         }
       }
 

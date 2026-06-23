@@ -6,6 +6,7 @@ import { executeDirectTool } from '@octocodeai/octocode-tools-core/direct';
 import {
   markDirectToolFailure,
   printDirectToolResult,
+  getDirectToolText,
 } from './direct-tool-output.js';
 
 type BinaryMode = 'inspect' | 'list' | 'extract' | 'decompress' | 'strings';
@@ -178,6 +179,20 @@ export const binaryCommand: CLICommand = {
       });
 
       printDirectToolResult(result, jsonOutput);
+
+      if (!jsonOutput && result.isError) {
+        const errText = getDirectToolText(result);
+        if (
+          errText.includes('pathValidationFailed') ||
+          errText.includes('outside allowed directories')
+        ) {
+          process.stderr.write(
+            `\n  ${dim('Tip:')} To inspect files outside the project, set the ${dim('ALLOWED_PATHS')} env var:\n` +
+              `      ${c('cyan', `ALLOWED_PATHS=/usr/bin:/usr/local/bin binary ${file}`)}\n`
+          );
+        }
+      }
+
       markDirectToolFailure(result);
 
       // The strings scan covers one window; more of the file is reachable

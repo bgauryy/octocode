@@ -76,6 +76,11 @@ export const pkgCommand: CLICommand = {
       });
 
       printDirectToolResult(result, jsonOutput);
+      if (!jsonOutput) {
+        process.stderr.write(
+          `  ${dim('Tip: Searches npm only. For Rust crates: crates.io · Python: pypi.org · Ruby: rubygems.org')}\n`
+        );
+      }
       markDirectToolFailure(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -33,6 +33,11 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
   (`manager.ts`), symbol resolver, URI/path validation, and workspace-root
   detection. tools-core consumes the TS tier through the `./lsp/*` subpath
   exports.
+  `config.rs` also owns language-server command resolution: environment
+  overrides first, then known fast paths such as `tsgo`, then package-local
+  fallbacks such as `node_modules/typescript-language-server/lib/cli.mjs`.
+  Resolver tests must inject cwd/PATH availability through helpers instead of
+  mutating process-global cwd.
 - `src/signatures/` owns semantic outlines and JS/TS symbol extraction.
 - `src/security/` owns secret detection and sanitization across two tiers: Rust
   (`detector.rs`, `sanitizer.rs`, `patterns.rs`) for the detection engine and

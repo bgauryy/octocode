@@ -103,6 +103,14 @@ The TS/JS server resolves in this order:
 2. **`tsgo` on `PATH`** — Microsoft's Go-native server (`tsgo --lsp -stdio`, Node-free, ~10× faster). Opt-in: present-on-PATH only, no flag. References/rename are still maturing upstream.
 3. **`typescript-language-server`** — the bundled zero-config default.
 
+For the bundled default, Octocode first honors an executable
+`typescript-language-server` already available on `PATH`. If the command is not
+available, the resolver looks for `node_modules/typescript-language-server/lib/cli.mjs`
+from the detected `workspaceRoot` and then from Octocode's package root. That
+fallback keeps cloned or external workspaces working without installing a
+language server inside every analyzed repository; the CLI path is run through the
+current Node executable.
+
 ## Language Servers
 
 TypeScript and JavaScript are bundled through `typescript-language-server` and `typescript`; JS/TS also has the server-free native path above. Other languages require their language server to be installed or configured.

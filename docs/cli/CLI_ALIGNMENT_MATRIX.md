@@ -1,8 +1,21 @@
 # Octocode CLI — Alignment Matrix
 
-> All 15 quick commands + `search` mapped across every decision dimension.  
+> 15 command surfaces total: 11 read-only quick commands targeted for `search`
+> absorption, 3 write/materialization commands that stay separate, plus `search`
+> itself.
 > Generated 2026-06-23 from `--help` output and live CLI inspection.  
-> §9 documents what `search` still needs to replace `grep` and `cat` entirely.
+> §9 documents what `search` still needs before any quick command can be removed.
+>
+> **Current-vs-target warning:** `octocode-core` already documents the target
+> `search` surface, but the built CLI still rejects several target-state flags
+> (`--target`, `--op`, `--mode`, `--raw`, `--limit`). Treat this matrix as a
+> migration guide, not proof that removal is safe today.
+>
+> **OQL source of truth:** full OQL scheme, language-selector logic,
+> transformer/adaptor inventory, evidence semantics, diagnostics, pagination,
+> and continuation rules live in
+> [`docs/OCTOCODE_QUERY_LANGUAGE.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md).
+> This matrix maps CLI commands to that language; it does not redefine it.
 
 ---
 
@@ -82,7 +95,7 @@
 | `find`   | —                  |                | ✅         | ✅                       | ✅          | ✅       |
 | `diff`   | —                  |                |            |                          |             | ✅       |
 | `lsp`    | `structured` `compact` | —          | ✅         | ✅                       |             | ✅       |
-| `search` | all (per target)   | ✅             | ✅         | via `materialize`        | `--compact` | ✅       |
+| `search` | all (per target)   | ✅             | ✅         | via `materialize`        | target: `--concise`; current built CLI: `--compact` renderer only | ✅       |
 | `repo`   | —                  |                | ✅         |                          | ✅          | ✅       |
 | `pr`     | —                  |                | ✅         |                          | ✅          | ✅       |
 | `history`| —                  |                | ✅         |                          |             | ✅       |
@@ -101,7 +114,7 @@
 | OQL `target`    | Equivalent quick command(s)      | What it adds over the quick cmd |
 |-----------------|----------------------------------|---------------------------------|
 | `code`          | `grep`                           | Typed routing, `--explain`, materialization policy, provenance |
-| `content`       | `grep` (file-level)              | Field predicates, view controls |
+| `content`       | `cat`                            | Typed file reads, slices, minification, continuations |
 | `structure`     | `ls`                             | Typed query, depth controls     |
 | `files`         | `find`                           | Typed field predicates          |
 | `semantics`     | `lsp`                            | Typed, composable with `where`  |
@@ -180,9 +193,29 @@ Cache TTL: **24 h**. Use `--force-refresh` or `cache clear --clone` to invalidat
 
 ---
 
-## 9. `search` Gaps vs `grep` + `cat` (Consolidation Roadmap)
+## 9. `search` Gaps Before Command Absorption
 
-Goal: make `search` the single CLI entry-point, removing `grep`, `cat`, `ls`, `lsp`, `repo`, `pr`, `history`, `pkg`, `binary`.
+Goal: make `search` the single read-only CLI entry-point, removing `find`,
+`grep`, `cat`, `ls`, `lsp`, `repo`, `pr`, `history`, `pkg`, `binary`, and
+eventually `diff`. `clone`, `cache`, and `unzip` stay separate because they write
+to disk / materialize state.
+
+### Layer 0 — parser/context synchronization
+
+The first implementation PR must make the executable CLI parser, built
+`search --help`, `search --scheme`, and `octocode-core` `search.ts` describe the
+same command surface. Today the built CLI only accepts the small shorthand set
+(`text`, `regex`, `pcre2`, `pattern`, `rule`, `lang`, `type`, `corpus`,
+`materialize`) while the target context already mentions broader flags.
+
+| Must parse before removal | Why |
+|---|---|
+| `--target` | Needed for repositories, pullRequests, commits, packages, artifacts, diff, files |
+| `--op` | Needed to replace `lsp --type` without colliding with language filters |
+| `--view` / `--mode` | Separates grep-style result density from cat-style minification |
+| `--raw` | Required for `cat --raw` parity |
+| `--search path\|content\|both` | Required for `find` parity |
+| `--limit`, `--page`, `--page-size` | Shared pagination parity across old commands |
 
 ### Layer 1 — OQL schema (2 missing fields)
 
@@ -237,7 +270,26 @@ All other predicate-level fields (`caseSensitive`, `caseInsensitive`, `wholeWord
 | `--context-lines <n>` | `controls.search.contextLines` | ✅ Layer 1 |
 | `--invert-match` | `controls.search.invertMatch` | ✅ Layer 1 |
 
-#### 2b — cat compatibility flags (route to `target:"content"`)
+#### 2b — find compatibility flags
+
+`find` is in scope because it is read-only research. Its path/name branch maps to
+`target:"files"`; its content branch maps to content-backed file discovery.
+
+| Flag | OQL field / behavior |
+|---|---|
+| `--target files` | explicit file-discovery replacement |
+| `--search path\|content\|both` | field predicate, text predicate, or batch of both |
+| `--source auto\|local\|github` | CLI source-routing policy over `from.kind` |
+| `--ext <list>` | extension/language scope |
+| `--path <subpath>` | `scope.path` |
+| `--filename <name>` / `--name <pattern>` | basename field predicate / GitHub filename filter |
+| `--path-pattern <pattern>` | path field predicate |
+| `--regex <pattern>` | local path regex predicate |
+| `--entry f\|d`, `--min-depth`, `--max-depth` | files-target params / field predicates |
+| size/time/permission flags | files-target field predicates or explicit unsupported notes |
+| local content flags | same mappings as grep compatibility branch |
+
+#### 2c — cat compatibility flags (route to `target:"content"`)
 
 | Flag | OQL field |
 |---|---|
@@ -278,8 +330,10 @@ Both flag values are disjoint sets, so `search` can resolve it by value (no `pag
 
 | Layer | Item | Count |
 |---|---|---|
+| Parser/context sync | Built parser, `search --help`, `search --scheme`, and `octocode-core` `search.ts` agree | **gate** |
 | OQL schema | `controls.search.contextLines` + `controls.search.invertMatch` | **2** |
 | CLI flags — grep compat | ripgrep control/scope/output flags missing from `buildSugar()` | **31** |
+| CLI flags — find compat | path/name discovery, content discovery, metadata filters, and `--search path\|content\|both` | **broad; must enumerate before implementation** |
 | CLI flags — cat compat | content-read flags + file-path auto-routing | **11 + routing** |
 | Render layer | `--raw` body-only output | **1** |
 | Design decision | `--mode` naming conflict between grep view and cat minification | **1** |

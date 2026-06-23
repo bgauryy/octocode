@@ -142,7 +142,11 @@ function buildQuery(
     };
   }
 
-  const keywords = args.args.map(arg => arg.trim()).filter(Boolean);
+  // Split space-separated words within each arg so `repo "rayon parallel rust"`
+  // and `repo rayon parallel rust` both produce the same keyword array.
+  const keywords = args.args
+    .flatMap(arg => arg.trim().split(/\s+/))
+    .filter(Boolean);
   const topics = parseList(getString(args.options, 'topic'));
   const match = parseList(getString(args.options, 'match'));
   const sort = getString(args.options, 'sort');

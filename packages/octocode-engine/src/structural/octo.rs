@@ -8,7 +8,7 @@ use super::language::AgLanguage;
 use super::query::StructuralQuery;
 use super::types::{MetavarRange, StructuralMatch};
 
-pub(super) type OctoCompiledMatcher = Box<dyn Fn(&str) -> Vec<StructuralMatch>>;
+pub(super) type OctoCompiledMatcher = Box<dyn Fn(&str) -> Vec<StructuralMatch> + Send + Sync>;
 
 pub(super) fn compile_matcher(
     lang: &AgLanguage,

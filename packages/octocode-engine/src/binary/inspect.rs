@@ -232,8 +232,8 @@ fn inspect_elf(elf: &goblin::elf::Elf, info: &mut BinaryInspectInfo) {
     info.symbol_count = syms.total;
 
     // Dynamic symbols split into imports (undefined) and exports (defined global/weak).
-    let mut imports = Vec::new();
-    let mut exports = Vec::new();
+    let mut imports: Vec<String> = Vec::with_capacity(64);
+    let mut exports: Vec<String> = Vec::with_capacity(64);
     let mut import_total = 0u32;
     let mut export_total = 0u32;
     for sym in elf.dynsyms.iter() {
@@ -299,7 +299,7 @@ fn inspect_macho(macho: &goblin::mach::MachO, info: &mut BinaryInspectInfo) {
     info.libraries = macho.libs.iter().map(|l| l.to_string()).collect();
 
     // Section names live under each load segment (`SEGMENT,section`).
-    let mut sections = Vec::new();
+    let mut sections: Vec<String> = Vec::with_capacity(32);
     for segment in &macho.segments {
         if let Ok(secs) = segment.sections() {
             for (sec, _data) in secs {

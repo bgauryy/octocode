@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::overrides::{Override, OverrideBuilder};
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 
 use super::language::AgLanguage;
 use super::octo::compile_matcher;
@@ -108,6 +109,13 @@ pub fn search_files(
     let mut skipped_large = 0u32;
     let mut warnings = Vec::new();
 
+    enum SearchOutcome {
+        Unreadable,
+        Large,
+        ParsedNoMatch,
+        Matched(StructuralSearchFileResult),
+    }
+
     for (ext, paths) in by_ext {
         let Some(entry) = languages::find_entry(&ext) else {
             // Unreachable (unsupported exts were partitioned above) but kept as
@@ -118,37 +126,44 @@ pub fn search_files(
         let lang = AgLanguage::new(&ext, entry);
         let run = compile_matcher(&lang, query)?;
 
-        for file_path in paths {
-            let metadata = match fs::metadata(&file_path) {
-                Ok(metadata) => metadata,
-                Err(_) => {
-                    skipped_unreadable += 1;
-                    continue;
+        let outcomes: Vec<SearchOutcome> = paths
+            .into_par_iter()
+            .map(|file_path| {
+                let metadata = match fs::metadata(&file_path) {
+                    Ok(m) => m,
+                    Err(_) => return SearchOutcome::Unreadable,
+                };
+                if metadata.len() > max_file_bytes {
+                    return SearchOutcome::Large;
                 }
-            };
-            if metadata.len() > max_file_bytes {
-                skipped_large += 1;
-                continue;
-            }
-
-            let content = match fs::read_to_string(&file_path) {
-                Ok(content) => content,
-                Err(_) => {
-                    skipped_unreadable += 1;
-                    continue;
+                let content = match fs::read_to_string(&file_path) {
+                    Ok(c) => c,
+                    Err(_) => return SearchOutcome::Unreadable,
+                };
+                let matches = run(&content);
+                if matches.is_empty() {
+                    SearchOutcome::ParsedNoMatch
+                } else {
+                    SearchOutcome::Matched(StructuralSearchFileResult {
+                        path: file_path.to_string_lossy().to_string(),
+                        matches,
+                    })
                 }
-            };
+            })
+            .collect();
 
-            let matches = run(&content);
-            parsed_files += 1;
-            if matches.is_empty() {
-                continue;
+        for outcome in outcomes {
+            match outcome {
+                SearchOutcome::Unreadable => skipped_unreadable += 1,
+                SearchOutcome::Large => skipped_large += 1,
+                SearchOutcome::ParsedNoMatch => parsed_files += 1,
+                SearchOutcome::Matched(result) => {
+                    parsed_files += 1;
+                    total_matches =
+                        total_matches.saturating_add(result.matches.len() as u32);
+                    files.push(result);
+                }
             }
-            total_matches = total_matches.saturating_add(matches.len() as u32);
-            files.push(StructuralSearchFileResult {
-                path: file_path.to_string_lossy().to_string(),
-                matches,
-            });
         }
     }
 

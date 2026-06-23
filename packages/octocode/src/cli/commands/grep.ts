@@ -465,21 +465,18 @@ export const grepCommand: CLICommand = {
         return;
       }
 
-      // Foot-gun guard: in structural mode arg[0] IS the path and there are no
-      // text keywords. `grep <keywords> <path> --pattern …` would otherwise use
-      // the keywords as the path and fail with a cryptic "no such file".
+      // Structural mode has no text keywords — only a single PATH positional.
+      // Accept the common `grep KEYWORD /path --pattern P` mistake gracefully:
+      // treat the LAST positional as the path and drop the rest with a warning.
+      let structuralTarget = args.args[0] || '.';
       if (!repoOption && args.args.length > 1) {
-        const err =
-          'Structural search (--pattern/--rule) takes a single local PATH as its only positional — it has no text keywords. ' +
-          `You passed ${args.args.length} (${args.args.join(' ')}). Try: grep ${args.args[args.args.length - 1]} --pattern "${patternOpt ?? ruleOpt}"`;
-        if (jsonOutput)
-          console.log(JSON.stringify({ success: false, error: err }));
-        else printCliError(err);
-        process.exitCode = EXIT.USAGE;
-        return;
+        structuralTarget = args.args[args.args.length - 1];
+        if (!jsonOutput) {
+          process.stderr.write(
+            `  ${dim(`Note: --pattern ignores text positionals. Using path: ${structuralTarget}`)}\n`
+          );
+        }
       }
-
-      const structuralTarget = args.args[0] || '.';
       const ref = repoOption ? undefined : resolveRef(structuralTarget);
       if (ref && isGithubRef(ref)) {
         const err =

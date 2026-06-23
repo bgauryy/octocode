@@ -268,12 +268,12 @@ pub fn graph_fact_capabilities_json() -> String {
     serde_json::to_string(&capabilities).unwrap_or_else(|_| "[]".to_owned())
 }
 
-fn visit_node(
+fn visit_node<'a>(
     node: Node<'_>,
     content: &str,
     line_index: &LineIndex<'_>,
     acc: &mut GraphAccumulator,
-    active_decl: Option<String>,
+    active_decl: Option<&'a str>,
 ) {
     let decl = declaration_kind(node.kind()).and_then(|kind| {
         declaration_name(node, content).map(|name| {
@@ -281,8 +281,8 @@ fn visit_node(
             let line = range.start.line + 1;
             let id = format!("symbol:{}#{}", acc.file_path, name);
             let exported =
-                is_exported_declaration(&acc.ext, node, content, &name, active_decl.as_deref());
-            let parent = active_decl.clone();
+                is_exported_declaration(&acc.ext, node, content, &name, active_decl);
+            let parent = active_decl.map(str::to_owned);
             GraphDeclaration {
                 id,
                 name,
@@ -296,7 +296,9 @@ fn visit_node(
         })
     });
 
-    let next_decl = if let Some(declaration) = decl {
+    // Keep the new declaration id alive for the entire child traversal so we
+    // can pass it as &str without any per-child heap allocation.
+    let next_decl_id: Option<String> = if let Some(declaration) = decl {
         let id = declaration.id.clone();
         let name = declaration.name.clone();
         let line = declaration.line;
@@ -324,8 +326,10 @@ fn visit_node(
         acc.declarations.push(declaration);
         Some(id)
     } else {
-        active_decl
+        None
     };
+    // Inherit the parent scope when no new declaration was established.
+    let next_decl: Option<&str> = next_decl_id.as_deref().or(active_decl);
 
     if is_import_node(node.kind()) {
         if let Some(specifier) = import_specifier(node, content) {
@@ -343,7 +347,7 @@ fn visit_node(
 
     if is_call_node(node.kind()) {
         if let (Some(caller), Some(callee)) =
-            (next_decl.as_deref(), call_callee_name(node, content))
+            (next_decl, call_callee_name(node, content))
         {
             let range = line_index.range(node);
             let line = range.start.line + 1;
@@ -356,7 +360,7 @@ fn visit_node(
             acc.calls.push(GraphCall {
                 id: id.clone(),
                 caller: caller_name,
-                callee: callee.clone(),
+                callee: callee.to_owned(),
                 line,
                 range,
                 kind: "calls",
@@ -374,7 +378,7 @@ fn visit_node(
 
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
-        visit_node(child, content, line_index, acc, next_decl.clone());
+        visit_node(child, content, line_index, acc, next_decl);
     }
 }
 

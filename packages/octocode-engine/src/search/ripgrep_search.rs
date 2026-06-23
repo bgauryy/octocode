@@ -458,8 +458,8 @@ fn sort_recs(opts: &RipgrepSearchOptions, recs: &mut [FileRec]) {
 }
 
 fn collapse_unique_matches(matches: Vec<RipgrepMatch>, include_counts: bool) -> Vec<RipgrepMatch> {
-    let mut seen: HashMap<String, usize> = HashMap::new();
-    let mut unique: Vec<RipgrepMatch> = Vec::new();
+    let mut seen: HashMap<String, usize> = HashMap::with_capacity(matches.len());
+    let mut unique: Vec<RipgrepMatch> = Vec::with_capacity(matches.len());
 
     for mut matched in matches {
         if let Some(index) = seen.get(matched.value.as_str()).copied() {

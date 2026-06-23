@@ -200,7 +200,7 @@ pub fn extract(
         Some(base_offset.saturating_add(cut as u32))
     };
 
-    let mut found: Vec<Found> = Vec::new();
+    let mut found: Vec<Found> = Vec::with_capacity(256);
     scan_ascii(buf, min_len, &mut found);
     if found.len() < MAX_RUNS {
         scan_utf16(buf, min_len, false, &mut found); // UTF-16LE

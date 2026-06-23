@@ -63,6 +63,29 @@ MCP exposes the same schema through the thin `oqlSearch` tool. The CLI and MCP
 tool must import the shared OQL schema; do not duplicate the shape in an
 interface package.
 
+## Today: Use Canonical OQL For Reliable Agent Calls
+
+For agent automation, prefer canonical JSON through `--query`. The live contract
+is:
+
+```bash
+node packages/octocode/out/octocode.js search --scheme --no-color
+node packages/octocode/out/octocode.js search --query '<OQL JSON>' --json --compact
+```
+
+The CLI shorthand layer is being expanded as part of search unification. Until
+the executable parser, `search --help`, `search --scheme`, and
+`octocode-core` command context agree, treat migration examples using flags such
+as `--target`, `--op`, `--raw`, broad `--mode`, `--limit`, `--page-size`, and
+absorbed quick-command flags as target-state examples. When in doubt, express
+the request as canonical OQL JSON.
+
+Status rule: canonical JSON fields in this document describe the live OQL
+language unless a section explicitly says "target architecture" or "planned".
+The transformer inventory is intentionally a target architecture list: it names
+the first-class transformers the implementation needs, even where today's code
+still performs the mapping inside an adapter.
+
 ## Minimal Query
 
 ```json
@@ -130,7 +153,55 @@ Use the right lane:
 | Ask broad local research questions | `target:"research"` plus `params.goal` | deleting from candidates alone |
 | Ask what keeps a subject alive, what it retains, or what proof is missing | `target:"graph"` plus `params.subject` / `params.verdict` | reading whole files first |
 
-## Transformers
+## Full Scheme Map
+
+This is the agent-facing OQL scheme in one place. The executable version is
+always `octocode search --scheme`; this table explains how to use each field.
+
+| Field | Shape | How to use it |
+|---|---|---|
+| `schema` | `"oql"` | Optional for callers. Normalization inserts it. Use it in examples and saved queries. |
+| `id` | string | Optional stable query id, useful in batches and logs. |
+| `target` | active target string | Required. Choose the result family first: `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`, `research`, `graph`, or `materialize`. |
+| `from` | source object | Required for corpus-backed targets. Choose `local`, `github`, `materialized`, or `npm`. Keep it concrete enough that OQL can prove scope. |
+| `scope` | path/language/glob/depth bounds | Optional but strongly recommended. It bounds cost and determines whether negative predicates and absence claims can be proven. |
+| `where` | predicate tree | Use only for `code` and `files`. It describes matching, not reading. |
+| `materialize` | `never`, `auto`, `required`, or object policy | Controls whether a GitHub corpus may be cloned/cached for local proof. Use `auto` or `required` when GitHub cannot evaluate the predicate exactly. |
+| `fetch` | content/tree instructions | Use for `content` and `structure`. It reads exact/compact/symbol content or tree data. |
+| `params` | target-specific object | Use for operations that belong to a target: LSP operation type, repository filters, package mode, PR number, artifact mode, research intent, graph proof mode, etc. |
+| `select` | string array | Project row, envelope, and `next.*` fields. Use it to keep agent output small. |
+| `view` | `discovery`, `paginated`, `detailed` | Controls density. Start with `discovery` for orientation, `paginated` for normal use, `detailed` for proof/citation work. |
+| `controls.search` | search-specific options | Match counts, only-matching, unique counts, match windows, per-file match paging, sort, and ranking. |
+| `controls.budget` | budget object | Caps files, candidates, bytes, materialized bytes, plan nodes, boolean expansion, and timeout. |
+| `limit` | number | Row cap for targets that support it. Prefer explicit limits in agent queries. |
+| `page` | number | Result page. Follow `next.page` when present. |
+| `itemsPerPage` | number | Page size for rows or target-specific packet domains. |
+| `explain` | boolean | Include normalization, route decisions, backend calls, materialization, budgets, and diagnostics. Use before final proof claims. |
+
+Batch shape:
+
+```ts
+interface OqlBatch {
+  schema?: "oql";
+  id?: string;
+  queries: OqlQuery[]; // 1-5
+  combine?: "independent" | "merge";
+}
+```
+
+Language logic:
+
+| OQL concept | Meaning | Agent rule |
+|---|---|---|
+| `target` | What kind of answer should come back. | Pick this before writing any other field. |
+| `from` | Which universe can be searched or read. | Use local/materialized for proof; use GitHub/npm for discovery or provider-native facts. |
+| `scope` | Which subset of the universe matters. | Bound every expensive or absence-sensitive query. |
+| `where` | What must match. | Use for search and file-set logic only. |
+| `fetch` | What to read. | Use after search, or when the user already named a file/tree. |
+| `params` | Target operation knobs. | Use for backend family operations, not as a replacement for `where` or `fetch`. |
+| `evidence` | Whether the result is proof, partial, candidate, or unsupported. | Never upgrade candidate evidence in prose. Follow `next.*` first. |
+
+## Transformers And Target Architecture
 
 OQL is one canonical language over many provider APIs. A transformer is the
 boundary that translates between those two worlds:
@@ -147,6 +218,12 @@ Transformers keep the public OQL shape stable while GitHub, npm, local search,
 LSP, binary inspection, and future providers keep their own vocabulary. Agents
 should write OQL intent; transformers decide how that intent maps to the vendor
 or local primitive.
+
+Current implementation note: today the strongest explicit transformer is GitHub
+code search plus shared language selector helpers. Several other lanes already
+perform transformation inside adapters. The plan is to promote all adapter
+mappings into first-class registry entries so `--explain`, docs, tests, and
+agent guidance can be generated from the same contract.
 
 Examples:
 
@@ -184,6 +261,109 @@ example, `--type ts` can mean an exact `.ts` file extension for GitHub code
 search, a broader TypeScript language family for local search, or no direct
 constraint for npm. The transformer owns that decision and must expose it in
 `--explain`, diagnostics, or provenance when the mapping is approximate.
+
+The language-selector rules below describe live OQL intent. The contract,
+supporting components, and required inventory describe the target architecture
+for making every adapter mapping first-class and explainable.
+
+### Target Architecture: Transformer Contract
+
+Each transformer must be a first-class component with the same contract. Do not
+hide provider-specific behavior inside the CLI parser, renderer, or ad hoc
+adapter branches.
+
+| Contract part | Required behavior |
+|---|---|
+| Capability declaration | State which OQL targets, sources, predicates, scope fields, fetch modes, params, and controls the backend can evaluate. |
+| Input lowering | Map canonical OQL fields to backend fields, including provider naming differences such as `scope.language` -> `extension`, `language`, `langType`, or include globs. |
+| Exactness model | Mark each lowered field as exact, approximate, residual, routed, or unsupported. |
+| Loss diagnostics | Emit `lossyTransform`, `vendorNoEquivalent`, `unsupportedVendorPredicate`, `requiresMaterialization`, or a more specific diagnostic before any meaning is dropped. |
+| Pagination mapping | Normalize backend pagination into OQL `pagination` and `next.page`; preserve secondary domains such as per-file match pages, char windows, PR file pages, artifact scan offsets, and research packet pages. |
+| Minification/content mapping | Map OQL `contentView` (`exact`, `compact`, `symbols`) to backend minify modes and report truncation/sanitization. |
+| Output projection | Map backend data into stable OQL rows: `code`, `file`, `tree`, `content`, or `record` with the right `recordType`. |
+| Continuation mapping | Attach executable `next.*` queries for exact reads, semantic proof, char ranges, match pages, materialization, graph proof, artifact scans, and structure/files follow-ups. |
+| Error mapping | Convert backend errors and empty/provider-index ambiguity into typed OQL diagnostics with repair hints when possible. |
+| Explain trace | Show `oql.path -> backend.path`, exactness, dropped fields, fallback routes, materialization, and result-shape expectations in `--explain`. |
+
+### Language Selector Logic
+
+`scope.language` is canonical OQL intent, not a backend field. It may describe a
+language family (`typescript`) or an exact extension (`ts`). Transformers decide
+how to project it:
+
+| Selector | GitHub code search | GitHub repository search | Local ripgrep/code search | Local file discovery | Structural AST | LSP |
+|---|---|---|---|---|---|---|
+| `ts` | `extension:"ts"` | repository `language:"TypeScript"` only when target is `repositories` | include `**/*.ts` or exact file-type filter | basename/include glob `*.ts` | include glob `*.ts` plus structural `lang` when supplied | file extension helps choose the TS server; semantic op still needs a file/uri |
+| `tsx` | `extension:"tsx"` | repository `language:"TypeScript"` only for repo discovery | include `**/*.tsx` | basename/include glob `*.tsx` | include glob `*.tsx` plus structural `lang` | TS/TSX language server |
+| `typescript` | `language:"TypeScript"` can be lossy for file-complete proof because provider language coverage may not equal all known TS extensions | `language:"TypeScript"` | `langType:"typescript"` or the TS extension family | `*.ts`, `*.tsx`, `*.mts`, `*.cts` | structural include globs for known TS extensions | TS server; still needs symbol/file anchors |
+| unknown selector | pass only if backend accepts it exactly, otherwise diagnose | pass only if provider accepts it | prefer explicit include globs or diagnose | prefer explicit globs or diagnose | diagnose unless parser language is known | diagnose or route to content/search first |
+
+Rules:
+
+- Exact extension selectors (`ts`, `.tsx`, `py`) should stay exact when a
+  backend supports extension filtering.
+- Language-family selectors (`typescript`, `javascript`, `python`) can expand
+  to known extensions locally.
+- If a provider language filter cannot cover every known extension, emit
+  `lossyTransform` or require materialization for proof.
+- Multiple `scope.language` values must not be silently dropped. Either lower
+  all values exactly, run multiple backend calls, or emit a blocking diagnostic.
+- Unknown language selectors are never proof of absence.
+
+### Target Architecture: Supporting First-Class Components
+
+The transformer architecture is more than one backend adapter per API. These
+compiler pieces must also be treated as first-class transformer infrastructure:
+
+| Component | Owns | Why agents need it |
+|---|---|---|
+| Canonicalizer + target-param validator | Sugar lowering, strict canonical OQL shape, ambiguity errors, common `params` validation | Agents can use small sugar when safe, but `--explain` must show the exact canonical query that ran. |
+| Language selector transformer | `scope.language` projection into extension filters, provider language filters, local `langType`, include globs, structural globs, and LSP file/server hints | Agents write one language intent while each backend gets precise naming and loss diagnostics. |
+| Capability planner + lossiness router | `PUSHDOWN`, `RESIDUAL`, `ROUTE`, `UNSUPPORTED`, backend choice, exactness, materialization requirements, provider approximation | Agents can tell whether a result is proof, candidate, routed through materialization, or impossible. |
+| Predicate compiler | `where` text/regex/structural/field/boolean predicates into backend-native query knobs or local set algebra | Agents can express conditions once without guessing ripgrep, AST, GitHub, or file-search flags. |
+| Result row mapper | Backend payloads into stable `code`, `file`, `tree`, `content`, and `record` rows | Agents can consume one result shape even when providers return incompatible payloads. |
+| Pagination mapper | Backend pages, char windows, per-file match pages, PR/file/comment pages, artifact scan offsets, and research packet pages into OQL pagination and continuations | Agents know which result domain still has data and which continuation to run. |
+| Evidence/envelope builder | `evidence.kind`, `answerReady`, `complete`, row `proofGrade`, diagnostics, provenance | Agents can decide whether to answer, continue, or report candidate-only findings. |
+| Continuation builder | `next.fetch`, `next.semantic`, `next.graph`, `next.page`, `next.matchPage`, `next.charRange`, `next.artifactStrings`, `next.structure`, `next.files` | Agents should follow validated next steps instead of inventing paths, line anchors, pages, or proof queries. |
+
+### Target Architecture: Required Transformer Inventory
+
+The current code has a real GitHub code transformer and shared language selector
+helpers. The target architecture needs a registry entry for every source/target
+pair below.
+
+| Transformer | Status | Must map |
+|---|---|---|
+| `github.code -> ghSearchCode` | Current partial implementation | `from.repo/owner/ref`, `scope.path`, `scope.language`, text/regex provider predicates, `params.extension`, `params.filename`, `params.match`, `limit/page`, provider-index diagnostics, path-level code rows, `next.fetch`, lossy language/path diagnostics. |
+| `github.files -> ghSearchCode` | Current adapter path, should become first-class | File-containing-term queries, `match:"file"`, deduped file rows, approximate provider semantics, materialization repair for exact file sets, pagination. |
+| `github.content -> ghGetFileContent` | Current adapter path, should become first-class | `fetch.content.contentView` -> `minify`, range/context, match string/regex/case, char windows, branch/ref, content rows, `next.charRange`, truncation/sanitization diagnostics. |
+| `github.structure -> ghViewRepoStructure` | Current adapter path, should become first-class | `scope.path`, `fetch.tree.maxDepth`, sizes, repo/ref, tree rows, pagination, provider-empty diagnostics. |
+| `github.repositories -> ghSearchRepos` | Needed | `params.keywords`, `topicsToSearch`, `language`, owner, stars/size/updated/license/visibility/archived/sort/page, repository record rows, provider pagination, language selector mapping. |
+| `github.pullRequests -> ghHistoryResearch` | Needed | PR list/detail, `prNumber`, state, author, labels, branch filters, keyword search, file/comment/commit pages, patch char windows, match scopes, PR record rows, secondary pagination and `next.*`. |
+| `github.commits -> ghHistoryResearch` | Needed | path, branch/ref, since/until, includeDiff, commit/file pagination, commit rows, diff continuations, not-found/rate-limit diagnostics. |
+| `github.diff -> ghHistoryResearch/ghGetFileContent` | Needed | PR patch lane (`prNumber`, `files`) and direct two-ref file lane (`baseRef`, `headRef`, `path`), diff rows, file-page/patch-page continuations, invalid-lane repair. |
+| `github.materialize -> ghCloneRepo/cache` | Needed | bounded repo/subtree clone, `scope.path/include/exclude`, force refresh, allow-full-repo guard, materialized checkpoint rows, `next.structure` and `next.files`. |
+| `local.code.textRegex -> localSearchCode/ripgrep` | Needed | text/regex predicates, case/whole-word/multiline/dotall/fixed/PCRE2 flags, include/exclude/hidden/noIgnore, match windows, only-matching, counts, ranking/sort, per-file match paging, `matchTruncated`, code rows. |
+| `local.code.structural -> localSearchCode structural` | Needed | structural `pattern` or YAML `rule`, parser language, include globs, metavars/ranges, structural proof grade, parser/partial diagnostics, materialized/local-only capability. |
+| `local.files -> localFindFiles/localSearchCode` | Needed | field predicates over path/basename/extension/size/modified/entryType, content-backed files, negative file sets, include/exclude/depth/hidden/noIgnore, local universe proof, file rows, pagination. |
+| `local.content -> localGetFileContent` | Needed | exact/compact/symbol content views, ranges, context, match anchors, char windows, full content, content truncation, sanitized output, `next.charRange`. |
+| `local.structure -> localViewStructure` | Needed | tree depth, sizes, hidden, path scope, tree rows, pagination, structure continuations. |
+| `local.semantics -> lspGetSemantics` | Needed | operation `type`, uri/path, symbolName, lineHint, orderHint, workspaceRoot, depth, includeDeclaration, groupByFile, workspaceSymbol, supertypes/subtypes, diagnostics, LSP unavailable/capability diagnostics, semantic record rows, `next.fetch`. |
+| `local.research -> OQL research analyzer` | Needed | goal/intent/facets/mode/maxFiles, full-scope summary, packet-domain pagination, graph capabilities, native graph facts, packet continuations, candidate evidence. |
+| `local.graph -> OQL graph analyzer + LSP proof` | Needed | subject/relation/verdict/direction/proof/proofLimit/include flags, nodes/edges/facts/packets, missingProof, page-bounded LSP proof, proofStatus, `next.graph`, `next.fetch`, `next.semantic`. |
+| `npm.packages -> npmSearch` | Needed | packageName vs keywords, mode lean/full, page, package rows, source repository hints, npm pagination/errors, follow-up repository/materialize continuations. |
+| `binary.artifacts -> localBinaryInspect` | Needed | inspect/list/extract/decompress/strings/unpack, archive entry pages, string scan offsets, char windows, minLength/matchString/verbose, artifact rows, `next.artifactStrings`, extraction/materialized local continuations. |
+
+Registry rules:
+
+- Every active target/source pair either has a transformer or a deliberate
+  `unsupportedTarget` / `unsupportedPredicate` diagnostic with a repair.
+- `search --scheme` and docs should be generated from transformer metadata where
+  possible.
+- New provider APIs are added by implementing a transformer, not by changing the
+  public OQL language.
+- Adapters may call backing tools, but they should not invent new OQL meaning
+  that the transformer registry cannot explain.
 
 ## Targets
 
@@ -318,7 +498,6 @@ Fields:
 | `value` | Required string |
 | `case` | `smart`, `sensitive`, `insensitive` |
 | `wholeWord` | boolean |
-| `id` | optional stable predicate id for diagnostics |
 
 ### Regex
 
@@ -340,7 +519,6 @@ Fields:
 | `wholeWord` | boolean |
 | `multiline` | boolean |
 | `dotAll` | boolean |
-| `id` | optional stable predicate id |
 
 Defaults: local regex uses the Rust dialect unless a query requests another
 dialect that the backend can run.
@@ -374,7 +552,6 @@ Fields:
 | `lang` | Required language id, such as `typescript`, `javascript`, `python`, `rust` |
 | `pattern` | Code-shaped AST pattern |
 | `rule` | Relational AST rule |
-| `id` | optional stable predicate id |
 
 Use exactly one of `pattern` or `rule`.
 
@@ -422,7 +599,6 @@ Fields:
 | `field` | `path`, `basename`, `extension`, `size`, `modified`, `entryType` |
 | `op` | `=`, `!=`, `in`, `exists`, `glob`, `regex`, `>`, `>=`, `<`, `<=`, `within` |
 | `value` | Required except when `op:"exists"` |
-| `id` | optional stable predicate id |
 
 ### Boolean
 
@@ -548,6 +724,9 @@ redaction diagnostics are present.
 
 `params` is for target-specific options. OQL validates common fields early, then
 the backing tool remains the exhaustive validator.
+The tables below mirror `octocode search --scheme`; fields accepted only by an
+internal pass-through are not part of the agent contract until the scheme lists
+them.
 
 ### `semantics`
 
@@ -582,7 +761,6 @@ Fields:
 | `groupByFile` | boolean |
 | `workspaceRoot` | optional workspace root |
 | `format` | `structured` or `compact` |
-| `page`, `itemsPerPage` | pagination |
 
 **LSP 3.17 additions:**
 
@@ -614,13 +792,10 @@ Fields:
 | `language` | string |
 | `owner` | string |
 | `stars` | string or number |
-| `size` | string |
-| `updated` | string |
 | `license` | string |
-| `visibility` | `public` or `private` |
 | `archived` | boolean |
 | `sort` | `stars`, `forks`, `help-wanted-issues`, `updated`, `best-match` |
-| `concise` | boolean |
+| `limit` | positive integer |
 | `page` | positive integer |
 
 ### `packages`
@@ -651,11 +826,10 @@ Fields:
 | `author` | string |
 | `label` | string or string array |
 | `keywordsToSearch` | string array |
-| `head`, `base` | branch/ref filters |
 | `reviewMode` | backing tool review mode |
 | `filePage`, `commentPage`, `commitPage` | positive integers |
-| `charOffset`, `charLength` | patch/content paging |
-| `minify` | `none` or `standard` |
+| `matchString` | content filter over fetched PR text |
+| `matchScope` | `body`, `title`, `comments`, `reviews`, `all` |
 | `limit`, `page` | pagination |
 
 ### `commits`
@@ -670,6 +844,7 @@ Fields:
 | `branch` | optional branch |
 | `since`, `until` | date strings accepted by the backing tool |
 | `includeDiff` | boolean |
+| `filePage`, `itemsPerPage` | changed-file pagination for commit diffs |
 | `limit`, `page` | pagination |
 
 ### `artifacts`
@@ -681,13 +856,9 @@ Fields:
 | Field | Values |
 |---|---|
 | `mode` | `inspect`, `list`, `extract`, `decompress`, `strings`, `unpack` |
-| `archiveFile` | archive entry/path selector |
-| `entryPageNumber`, `entriesPerPage` | archive entry pagination |
+| `entryPageNumber` | archive entry page |
 | `minLength` | string-scan minimum length, 1-128 |
 | `scanOffset` | string scan continuation offset |
-| `charOffset`, `charLength` | output slicing |
-| `matchString` | string match filter |
-| `verbose` | boolean |
 
 ### `diff`
 
@@ -1022,8 +1193,6 @@ Batch fields:
 |---|---|
 | `queries` | 1-5 `OqlQuery` objects |
 | `combine` | `independent` or `merge` |
-| `limit`, `page`, `itemsPerPage` | optional batch result bounds |
-| `explain` | include plans |
 
 ## Normalization And Explain
 
@@ -1130,6 +1299,22 @@ Evidence:
 `answerReady:true` means the envelope can answer the query as asked.
 `complete:true` means the envelope is not missing required pages or proof work.
 
+Evidence decision table:
+
+| Signal | Agent conclusion |
+|---|---|
+| `answerReady:true` and `complete:true` | You may answer the query as asked. |
+| `complete:false` | Follow `next.page`, `next.fetch`, `next.semantic`, `next.search`, `next.graph`, or another returned continuation. |
+| `evidence.kind:"proof"` | Backend and OQL routing evaluated the requested semantics exactly enough for the stated answer. |
+| `evidence.kind:"partial"` | Useful evidence, but pages, truncation, or residual checks remain. Report the gap or continue. |
+| `evidence.kind:"candidate"` | Report candidates only; do not claim absence or safe deletion. |
+| `evidence.kind:"unsupported"` | Do not answer as if the query ran. Read diagnostics and repair. |
+| `zeroMatches` on provider search | Not absence unless `--explain` proves exact bounded evaluation. |
+| `providerSemanticsApproximate` | Useful discovery result, not proof. Materialize or use local/LSP proof for final claims. |
+| `proofStatus:"conflicting-evidence"` | The symbol is retained; inspect `retainedBy`. |
+| `proofStatus:"confirmed-by-lsp"` | No LSP references found in the bounded workspace; still check entrypoints, framework conventions, dynamic imports, and package/script exposure before deletion. |
+| `proofStatus:"needs-framework-graph"` | LSP alone cannot prove reachability; inspect framework and entrypoint evidence. |
+
 ## Diagnostics
 
 Diagnostics are part of the answer. Agents must read them.
@@ -1146,6 +1331,10 @@ Common codes include:
 | `requiresMaterialization` | Exact proof needs materialization. |
 | `materializationNotAllowed` | Query needs materialization but mode forbids it. |
 | `providerSemanticsApproximate` | Provider filter is useful but not exact proof. |
+| `vendorNoEquivalent` | A selected backend has no equivalent for the requested OQL intent. |
+| `lossyTransform` | A backend mapping would drop or narrow part of the OQL intent. |
+| `unsupportedVendorPredicate` | The backend cannot evaluate this predicate; use another target/source or materialize. |
+| `responseShapeMismatch` | The backing tool returned a shape the OQL mapper did not understand. |
 | `partialResult` | Result is incomplete or candidate-grade. |
 | `contentTruncated` | Content was sliced. |
 | `matchTruncated` | Match snippet was sliced. |
@@ -1183,8 +1372,12 @@ Common continuation names:
 | `next.semantic` | Ask LSP about the symbol/file. |
 | `next.search` | Run a text/regex follow-up. |
 | `next.page` | Continue the primary result domain, including research packet pages. |
+| `next.matchPage` | Continue per-file match pages when a file has more matches than returned. |
 | `next.charRange` | Continue a content range. |
-| `nextScanOffset` inside artifact data | Continue a strings scan. |
+| `next.graph` | Upgrade a research or graph candidate page with bounded graph/LSP proof. |
+| `next.structure` | Inspect the tree of a materialized or extracted local path. |
+| `next.files` | Enumerate files in a materialized or extracted local path. |
+| `next.artifactStrings` | Continue a binary/artifact strings scan. |
 
 Agents should follow continuations because they carry path, range, source, and
 reasoning already validated by OQL.
@@ -1202,13 +1395,57 @@ Query shape is the `research` and `graph` entries under Params By Target. The
 full algorithm (structure -> discovery -> AST -> LSP -> graph -> packet),
 evidence tiers, verdicts, graph-capability fields, language coverage, and the
 question-to-field map are the canonical research contract:
-https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OQL_RESEARCH_GRAPH_FLOW.md
+https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md
 
 OQL beats a single knip-style command when the agent must ask "why?" and continue
 into exact proof; a dedicated tool is better for a one-shot, framework-aware
 entrypoint/dependency audit.
 
+Recommended two-phase reachability flow:
+
+1. Start with a summary-only research page:
+
+```json
+{
+  "schema": "oql",
+  "target": "research",
+  "from": { "kind": "local", "path": "." },
+  "params": {
+    "intent": "reachability",
+    "facets": ["symbols", "files", "relations"],
+    "mode": "analyze"
+  },
+  "page": 1,
+  "itemsPerPage": 1
+}
+```
+
+2. Page candidate packets with the returned `next.page`.
+3. Run the row-level `next.graph` exactly as returned; it is page-aligned.
+4. Use `params.proof:"lsp"` or the returned graph continuation to attach bounded
+   LSP proof to the current packet page.
+5. Follow packet-level `next.fetch`, `next.semantic`, and `next.search` for exact
+   evidence.
+6. Treat `answerReady:false` as normal for candidate research.
+7. Only make deletion-grade claims after `proofStatus`, diagnostics, missing
+   proof, entrypoints, framework conventions, dynamic imports, and package/script
+   exposure all support the conclusion.
+
 ## Examples
+
+### Copy-Paste CLI Form
+
+```bash
+node packages/octocode/out/octocode.js search --query '{
+  "schema": "oql",
+  "target": "code",
+  "from": { "kind": "local", "path": "./packages/octocode/src" },
+  "where": { "kind": "text", "value": "runCLI" },
+  "select": ["path", "line", "snippet", "next.fetch"],
+  "view": "paginated",
+  "limit": 20
+}' --json --compact
+```
 
 ### Local Text Search
 
