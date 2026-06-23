@@ -284,6 +284,57 @@ const LSP_TYPE_EXAMPLES: Array<[string, Record<string, unknown>]> = [
   ],
 ];
 
+function getEnumValues(type: string): string[] {
+  const match = /^enum\((.*)\)$/.exec(type);
+  if (!match) return [];
+
+  return match[1]
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function wrapPipeValues(
+  values: readonly string[],
+  firstPrefix: string,
+  nextPrefix: string,
+  maxLength = 68
+): string[] {
+  const lines: string[] = [];
+  let current = firstPrefix;
+
+  for (const value of values) {
+    const separator =
+      current === firstPrefix || current === nextPrefix ? '' : '|';
+    const candidate = `${current}${separator}${value}`;
+    if (candidate.length > maxLength && current !== firstPrefix) {
+      lines.push(current);
+      current = `${nextPrefix}${value}`;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current !== firstPrefix && current !== nextPrefix) {
+    lines.push(current);
+  }
+
+  return lines;
+}
+
+function getLspTypePreviewLines(): string[] {
+  const typeField = getDirectToolDisplayFields(LSP_TOOL_NAME).find(
+    field => field.name === 'type'
+  );
+  const values = typeField ? getEnumValues(typeField.type) : [];
+
+  if (values.length === 0) {
+    return [];
+  }
+
+  return wrapPipeValues(values, 'type: ', '      ');
+}
+
 export async function showAvailableTools(): Promise<void> {
   const metadata = await getOptionalToolMetadata();
 
@@ -334,12 +385,9 @@ export async function showAvailableTools(): Promise<void> {
       );
       if (toolName === LSP_TOOL_NAME) {
         const indent = ''.padEnd(30);
-        console.log(
-          `    ${dim(indent)} ${dim('type: definition|references|callers|callees|callHierarchy')}`
-        );
-        console.log(
-          `    ${dim(indent)} ${dim('      hover|documentSymbols|typeDefinition|implementation')}`
-        );
+        for (const line of getLspTypePreviewLines()) {
+          console.log(`    ${dim(indent)} ${dim(line)}`);
+        }
       }
     }
     console.log();

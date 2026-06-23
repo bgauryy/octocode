@@ -728,16 +728,11 @@ async function executeContent(
       : c?.contentView === 'symbols'
         ? 'symbols'
         : 'standard';
+  const range = normalizeContentRange(c?.range);
   const toolQuery: Record<string, unknown> = {
     path: searchPath,
     minify,
-    ...(c?.range?.startLine !== undefined
-      ? { startLine: c.range.startLine }
-      : {}),
-    ...(c?.range?.endLine !== undefined ? { endLine: c.range.endLine } : {}),
-    ...(c?.range?.contextLines !== undefined
-      ? { contextLines: c.range.contextLines }
-      : {}),
+    ...range,
     ...(c?.match?.text !== undefined ? { matchString: c.match.text } : {}),
     ...(c?.match?.regex ? { matchStringIsRegex: true } : {}),
     ...(c?.match?.caseSensitive ? { matchStringCaseSensitive: true } : {}),
@@ -761,6 +756,16 @@ async function executeContent(
 }
 
 /* ------------------------------ helpers --------------------------------- */
+
+function normalizeContentRange(
+  range: NonNullable<NonNullable<OqlQuery['fetch']>['content']>['range']
+): { startLine?: number; endLine?: number } {
+  if (range?.startLine === undefined) return {};
+  const contextLines = range.contextLines ?? 0;
+  const startLine = Math.max(1, range.startLine - contextLines);
+  const endLine = (range.endLine ?? range.startLine) + contextLines;
+  return { startLine, endLine };
+}
 
 function isContentPredicate(p: Predicate): boolean {
   if (p.kind === 'text' || p.kind === 'regex' || p.kind === 'structural') {

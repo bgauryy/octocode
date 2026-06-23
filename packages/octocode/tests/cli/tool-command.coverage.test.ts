@@ -125,6 +125,8 @@ describe('tool-command coverage', () => {
     expect(output).toContain('LSP');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('ghSearchCode');
+    expect(output).toContain('workspaceSymbol');
+    expect(output).toContain('diagnostic');
     expect(output).toContain('tools <name>');
     expect(process.exitCode).toBeUndefined();
   });
@@ -923,6 +925,36 @@ describe('tool-command coverage', () => {
     expect(out).toContain('lspGetSemantics');
     expect(out).toContain('Input Schema');
     expect(out).toContain('definition');
+  });
+
+  it('buildDirectToolExampleQuery: emits concrete OQL and top-level tool examples', async () => {
+    const { buildDirectToolExampleQuery, getDirectToolDisplayFields } =
+      await import('@octocodeai/octocode-tools-core/schema');
+
+    expect(buildDirectToolExampleQuery('oqlSearch')).toEqual({
+      target: 'code',
+      from: { source: 'local' },
+      scope: { path: '.' },
+      text: 'executeDirectTool',
+      view: 'discovery',
+      limit: 5,
+    });
+    expect(buildDirectToolExampleQuery('ghHistoryResearch')).toMatchObject({
+      type: 'prs',
+      owner: 'facebook',
+      repo: 'react',
+      keywordsToSearch: ['useState'],
+    });
+    expect(buildDirectToolExampleQuery('ghHistoryResearch')).not.toHaveProperty(
+      'content.patches.ranges.file'
+    );
+
+    const oqlTarget = getDirectToolDisplayFields('oqlSearch').find(
+      field => field.name === 'target'
+    );
+    expect(oqlTarget?.type).toContain('materialize');
+    expect(oqlTarget?.type).not.toContain('fixes');
+    expect(oqlTarget?.type).not.toContain('dataflow');
   });
 
   it('shows the tool list when no positional tool name is given', async () => {

@@ -50,7 +50,7 @@ Choose the surface by the job, not by habit.
 | Surface | Use when | Required agent behavior |
 |---------|----------|-------------------------|
 | Quick commands | The workflow is common and expressible as CLI flags (`grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `history`, `binary`, `unzip`, `clone`, `cache fetch`) | Prefer `--json` when another step depends on the result; preserve returned paths, refs, and pagination. |
-| OQL `search` | One typed query should route across code/content/files/structure, or an agent needs a normalized research plan via `--explain` | Use `search --scheme`; use `--explain` when routing/completeness is uncertain; follow `next.*` when present. |
+| OQL `search` | One typed query should route across active OQL targets (code/content/files/structure, semantics, repo/package/history, artifacts, diff, research, graph, materialize), or an agent needs a normalized research plan via `--explain` | Use `search --scheme`; use `--explain` when routing/completeness is uncertain; follow `next.*` when present. |
 | Raw `tools` | A quick command or OQL cannot express the needed field, pagination domain, content selector, or exact target behavior | Always run `tools <name> --scheme` first; pass schema-exact JSON only. |
 | Direct local shell | Only for repo maintenance around Octocode itself, not for agent-facing research flows | Prefer Octocode CLI/MCP tools for research so behavior stays dogfooded. |
 
@@ -64,15 +64,15 @@ know where the current language is still partial.
 | Local/GitHub text, regex, structural code search | Yes | Raw `localSearchCode` / `ghSearchCode` when a field is not modeled. |
 | Exact local/GitHub content reads | Yes | Raw `localGetFileContent` / `ghGetFileContent` for unusual pagination or match options. |
 | Local/GitHub file discovery and tree structure | Yes | Quick `find` / `ls` or raw local/GitHub tools for renderer or metadata gaps. |
-| Remote-as-local proof | Partly | `cache fetch`, `clone`, or `ghCloneRepo`; OQL materialization is not yet a standalone checkpoint. |
-| LSP semantics | Partly | Quick `lsp` for supported semantic types; raw `lspGetSemantics` for `documentSymbols`; `ls --symbols` for quick outlines. |
-| Packages and repositories | Partly | `pkg`, `repo`, raw `npmSearch`, raw `ghSearchRepos` when typed rows/continuations matter. |
-| PRs, commits, and history | Partly | `pr`, `history`, raw `ghHistoryResearch` for selected content, comments, commits, patches, and paging. |
-| Artifacts, archives, binaries | Partly | `binary`, `unzip`, raw `localBinaryInspect`; manually continue from returned `localPath`. |
-| Diffs | Partly | CLI `diff` or raw PR patch/history tools. OQL `diff` currently represents PR patch lanes better than direct file/ref diff lanes. |
+| Remote-as-local proof | Yes | Use `target:"materialize"` for bounded GitHub checkpoints; fall back to `cache fetch`, `clone`, or `ghCloneRepo` when clone is disabled or a CLI cache workflow is more ergonomic. |
+| LSP semantics | Yes | OQL `target:"semantics"` covers document symbols, navigation, workspace symbols, type hierarchy, and diagnostics; quick `lsp`, `ls --symbols`, or raw `lspGetSemantics` are still useful for one-off terminal workflows. |
+| Packages and repositories | Yes | `pkg`, `repo`, raw `npmSearch`, or raw `ghSearchRepos` are quicker when a typed OQL envelope or continuation is not needed. |
+| PRs, commits, and history | Mostly | Use `target:"pullRequests"`, `target:"commits"`, and `target:"diff"`; fall back to `pr`, `history`, or raw `ghHistoryResearch` for highly specific review/comment/patch pagination. |
+| Artifacts, archives, binaries | Mostly | Use `target:"artifacts"` for inspect/list/extract/decompress/strings/unpack; use `binary`/`unzip` or raw `localBinaryInspect` when a manual unpack-to-local flow is clearer. |
+| Diffs | Yes | Use OQL `target:"diff"` for PR patch lanes and direct `{baseRef, headRef, path}` file/ref diffs; quick `diff` remains convenient for terminal comparisons. |
 | Dead code, reachability, unused files, package drift | Partly | Start with OQL `target:"research"` for a repo-level candidate flow; confirm destructive cleanup with LSP references, AST import search, exact reads, and/or knip. |
 | Relationship graph, retained-by chains, missing proof | Partly | Use OQL `target:"graph"` after bounding a local/materialized corpus; follow packet `next.semantic` / `next.fetch` before deletion claims. |
-| Structural metavariable captures | Partly | Use quick/raw structural search when captures are required; OQL rows may not expose `metavars` yet. |
+| Structural metavariable captures | Yes | OQL structural code rows expose `metavars`/`metavarRanges` when the backing structural search returns captures; quick/raw structural search remains useful for tuning patterns. |
 
 ## Diagnostic And Failure Handling
 
@@ -109,7 +109,8 @@ AST inventory
 
 LSP proof
   -> documentSymbols, references, definition, typeDefinition,
-     implementation, callers, callees, callHierarchy
+     implementation, callers, callees, callHierarchy,
+     workspaceSymbol, supertypes, subtypes, diagnostic
 
 Graph reasoning
   -> entrypoint reachability
@@ -326,12 +327,17 @@ route to the right backing tool.
 
 ```text
 search(target:"packages", from:{kind:"npm"}, params:{packageName})
--> search(target:"repositories", from:{kind:"github"}, params:{keywords})
+-> search(target:"repositories", from:{kind:"github"}, params:{keywords:[term]})
 -> search(target:"code", from:{kind:"github" or "local"}, where:{kind:"text"|"regex"|"structural"})
 -> search(target:"content", fetch:{content:{...}})
 -> search(target:"research", from:{kind:"local"|"materialized"}, params:{goal, mode})
 -> follow next.* continuations or rerun with --explain when routing is unclear
 ```
+
+Repository OQL params follow the raw `ghSearchRepos` shape: `keywords` and
+`topicsToSearch` are arrays even for one term. Field predicates use symbolic
+operators such as `op:"="`, `op:"glob"`, and `op:"regex"`; aliases like
+`op:"eq"` are rejected by the schema.
 
 Use raw tools instead when the agent needs a tool-specific field, exact pagination
 control, or a schema feature not yet modeled by OQL.
@@ -438,8 +444,10 @@ octocode grep "apiKey|endpoint|register" /absolute/unpacked/localPath --perl-reg
 octocode binary /absolute/unpacked/localPath/native.node --json
 ```
 
-OQL artifact rows may not yet emit all executable follow-up continuations; when
-that happens, manually continue from the returned `localPath`.
+OQL artifact extract/unpack/materialize rows should emit local follow-up
+continuations when they return a usable `localPath`. If a binary mode only
+returns an entry list, string page, or metadata payload, continue manually from
+the returned path/entry fields.
 
 ### 11. Diff And Patch Review
 
@@ -456,8 +464,9 @@ diff(left, right) for direct file comparison
 Prefer selected patch files or ranges over full PR patches. Use the current file
 content to separate "what changed" from "what exists now".
 
-For PR diffs, prefer selected files. For direct file/ref diffs, prefer the CLI
-`diff` surface until OQL's direct-file diff lane is first-class.
+For PR diffs, prefer selected files. For direct file/ref diffs, OQL supports the
+`{baseRef, headRef, path}` lane; the CLI `diff` surface remains convenient when
+the comparison is purely terminal-facing.
 
 ### 12. Smart Reachability, Unused Symbols, And Package Drift
 
@@ -631,13 +640,17 @@ returns zero matches against annotated declarations.
 ```bash
 octocode grep "MySymbol" ./src --json --compact
 octocode lsp ./src/file.ts --type definition --symbol MySymbol --line 42 --json
+octocode lsp ./src/file.ts --type documentSymbols --json
+octocode search --query '{"target":"semantics","from":{"kind":"local","path":"./src/file.ts"},"params":{"type":"documentSymbols"}}' --json
 octocode tools lspGetSemantics --scheme
 octocode tools lspGetSemantics --queries '{"uri":"/absolute/path/src/file.ts","type":"documentSymbols"}' --json
 ```
 
-Use raw `lspGetSemantics` for `documentSymbols`; quick `lsp` does not expose that
-operation. Use `ls --symbols` for quick symbol outlines when a semantic LSP
-outline is not required.
+Use quick `lsp` for common local navigation and `documentSymbols`; use OQL
+`target:"semantics"` when the result should stay inside a typed OQL envelope;
+use raw `lspGetSemantics` when a schema-specific semantic type or pagination
+field is easier to express directly. Use `ls --symbols` for quick symbol
+outlines when a semantic LSP outline is not required.
 
 ### PR Metadata To Selected Patch
 

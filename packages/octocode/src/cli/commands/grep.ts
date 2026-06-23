@@ -362,7 +362,7 @@ function renderGithubResults(
       );
     } else {
       lines.push(
-        `  ${c('yellow', '→')} GitHub code search may not index this repo. Alternatives:`
+        `  ${c('yellow', '→')} GitHub code search may not index this repo — zero results here isn't proof of absence. Alternatives:`
       );
     }
     lines.push(

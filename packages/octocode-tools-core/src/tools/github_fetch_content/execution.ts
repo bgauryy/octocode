@@ -131,6 +131,28 @@ async function handleDirectoryFetch(
     Boolean(query.forceRefresh)
   );
 
+  const location: Record<string, unknown> = {
+    kind: 'directory',
+    localPath: result.localPath,
+    repoRoot: result.repoRoot,
+    source: 'treeFetch',
+    cached: result.cached,
+    complete: result.complete,
+    owner: query.owner,
+    repo: query.repo,
+  };
+
+  const next: Record<string, unknown> = {
+    localSearch: {
+      tool: 'localSearchCode',
+      query: { path: result.localPath, mode: 'discovery' },
+    },
+    viewStructure: {
+      tool: 'localViewStructure',
+      query: { path: result.localPath },
+    },
+  };
+
   const resultData: Record<string, unknown> = {
     localPath: result.localPath,
     repoRoot: result.repoRoot,
@@ -148,10 +170,10 @@ async function handleDirectoryFetch(
     ...(query.branch !== result.branch
       ? { resolvedBranch: result.branch }
       : {}),
+    location,
+    next,
   };
 
-  // Always a content result (hasContent=true); per-call next-step hints are
-  // dropped centrally by createSuccessResult, so none are built here.
   return createSuccessResult(
     query,
     resultData,

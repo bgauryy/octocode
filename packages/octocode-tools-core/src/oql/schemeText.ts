@@ -9,9 +9,28 @@ import { ACTIVE_TARGETS, RESERVED_TARGETS } from './types.js';
 export const OQL_SCHEMA_DOC = {
   schema: 'oql',
   description:
-    'Use octocode search for bounded research over local paths and GitHub scopes: search code matches, file lists, directory trees, or exact/minified content; set from, scope, and where.kind; keep output small with view/select/controls; materialize only for bounded local proof; use --explain and follow next.* continuations when routing or paging is uncertain.',
+    'Use octocode search for bounded research over local paths and GitHub scopes: search code matches, file lists, directory trees, or exact/minified content; set from, scope, and where.kind; keep output small with view/select/controls; materialize only for bounded local proof; use --explain and follow next.* continuations when routing or paging is uncertain. Run `octocode search --scheme` to print this schema before writing JSON queries.',
   activeTargets: ACTIVE_TARGETS,
   reservedTargets: RESERVED_TARGETS,
+  evidenceSemantics: {
+    'answerReady:true':
+      'The envelope answers the query as asked. No required follow-up.',
+    'answerReady:false':
+      'More proof work remains. Follow next.* continuations for additional pages, LSP proof, or content reads. This is NOT a failure signal — it means the result is partial or candidate-grade.',
+    'complete:false':
+      'Required pages or proof steps are still outstanding. Page with next.page or follow next.semantic before making deletion or absence claims.',
+    'kind:proof': 'Backend evaluated the request exactly.',
+    'kind:partial': 'Truncation, pagination, or residual checks remain.',
+    'kind:candidate':
+      'Useful evidence — not final proof. research/graph targets always return candidate; upgrade with next.semantic/next.search/next.fetch.',
+    'kind:unsupported': 'OQL could not safely execute the requested semantics.',
+    'proofStatus:confirmed-by-lsp':
+      'LSP found zero references to this symbol — safe to inspect further for deletion.',
+    'proofStatus:conflicting-evidence':
+      'LSP found references — the symbol IS retained by other code. Check retainedBy edges before acting.',
+    'proofStatus:needs-framework-graph':
+      'Symbol may be an entrypoint (framework, export, dynamic import). LSP alone cannot prove reachability.',
+  },
   query: {
     schema: '"oql" (inserted by normalization)',
     target: ACTIVE_TARGETS.join(' | '),
@@ -39,9 +58,9 @@ export const OQL_SCHEMA_DOC = {
     semantics:
       '{ type:"definition"|"references"|"callers"|"callees"|"callHierarchy"|"hover"|"documentSymbols"|"typeDefinition"|"implementation"|"workspaceSymbol"|"supertypes"|"subtypes"|"diagnostic", uri?, symbolName?, lineHint?, orderHint?, depth?, includeDeclaration?, groupByFile?, workspaceRoot?, format? } — backing tool lspGetSemantics',
     repositories:
-      '{ keywords?, topicsToSearch?, language?, owner?, stars?, license?, sort?, archived?, limit?, page? } — backing tool ghSearchRepos',
+      '{ keywords?: string[], topicsToSearch?: string[], language?, owner?, stars?, license?, sort?, archived?, limit?, page? } — backing tool ghSearchRepos; keywords/topicsToSearch are arrays even for one term',
     packages:
-      '{ packageName | keywords, mode?:"lean"|"full", page? } — backing tool npmSearch',
+      '{ packageName?: string | keywords?: string[], mode?:"lean"|"full", page? } — backing tool npmSearch',
     pullRequests:
       '{ state?:"open"|"closed"|"merged", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page?, matchString?, matchScope?:"body"|"title"|"comments"|"reviews"|"all" } — backing tool ghHistoryResearch; matchString is an OQL content filter over fetched PR text (default scope body), not a search-index query — no match → zeroMatches',
     commits:
@@ -61,15 +80,24 @@ export const OQL_SCHEMA_DOC = {
     regex:
       '{ kind:"regex", value, dialect?:"rust"|"pcre2"|"provider", case?, wholeWord?, multiline?, dotAll? }',
     structural:
-      '{ kind:"structural", lang, pattern? | rule? } (exactly one of pattern/rule)',
+      '{ kind:"structural", lang, pattern? | rule? } (exactly one of pattern/rule) — IMPORTANT: pattern must match a complete AST node; a function pattern usually needs a body ({ $$$BODY }), return type, and any required syntax. Partial patterns produce partialParse/zeroMatches — use a relational rule instead for partial or relational matches.',
     field:
-      '{ kind:"field", field:"path"|"basename"|"extension"|"size"|"modified"|"entryType", op, value? }',
+      '{ kind:"field", field:"path"|"basename"|"extension"|"size"|"modified"|"entryType", op:"="|"!="|"in"|"exists"|"glob"|"regex"|">"|">="|"<"|"<="|"within", value? } (use symbolic ops like "="; aliases such as "eq" are invalid)',
     boolean:
       '{ kind:"all"|"any", of: Predicate[] } | { kind:"not", predicate }',
   },
   batch: {
     queries: 'OqlQuery[] (1-5)',
     combine: 'independent | merge',
+  },
+  explainRoutes: {
+    PUSHDOWN:
+      'Backend evaluates this predicate exactly — good. No residual work.',
+    RESIDUAL:
+      'Backend narrows candidates but OQL must finish evaluation locally.',
+    ROUTE: 'OQL must use a different lane, often materialization.',
+    UNSUPPORTED:
+      'OQL cannot execute this predicate safely on the chosen source.',
   },
   defaults: DEFAULTS,
 } as const;

@@ -25,6 +25,10 @@ const LSP_TYPES = [
   'hover',
   'typeDefinition',
   'implementation',
+  'workspaceSymbol',
+  'supertypes',
+  'subtypes',
+  'diagnostic',
 ] as const;
 
 type LspType = (typeof LSP_TYPES)[number];
@@ -88,6 +92,8 @@ type LspPayload = {
   readonly text?: string;
   readonly calls?: readonly unknown[];
   readonly symbols?: readonly unknown[];
+  readonly items?: readonly unknown[];
+  readonly diagnostics?: readonly unknown[];
   readonly empty?: { readonly category?: string; readonly reason?: string };
 };
 
@@ -183,6 +189,28 @@ function formatSymbolRow(row: unknown): string {
   return `${s.name ?? '?'}${kind}${at}`;
 }
 
+function formatDiagnosticRow(row: unknown): string {
+  if (typeof row === 'string') return row;
+  const d = row as {
+    severity?: string | number;
+    message?: string;
+    source?: string;
+    code?: string | number;
+    range?: { start?: { line?: number } };
+    displayRange?: { startLine?: number };
+    line?: number;
+  };
+  const line =
+    d.line ??
+    d.displayRange?.startLine ??
+    (d.range?.start?.line == null ? undefined : d.range.start.line + 1);
+  const severity = d.severity == null ? 'diagnostic' : String(d.severity);
+  const source = d.source ? ` ${d.source}` : '';
+  const code = d.code == null ? '' : ` ${d.code}`;
+  const at = line == null ? '' : ` L${line}`;
+  return `${severity}${source}${code}${at}: ${d.message ?? JSON.stringify(row)}`;
+}
+
 function renderLspResult(result: LspToolResult): string {
   const lines: string[] = [];
   for (const item of result.structuredContent?.results ?? []) {
@@ -218,6 +246,18 @@ function renderLspResult(result: LspToolResult): string {
     if (payload.calls) {
       for (const call of payload.calls.slice(0, 20))
         lines.push(`    ${formatCall(call)}`);
+      continue;
+    }
+
+    if (payload.items) {
+      for (const item of payload.items.slice(0, 40))
+        lines.push(`    ${formatSymbolRow(item)}`);
+      continue;
+    }
+
+    if (payload.diagnostics) {
+      for (const diagnostic of payload.diagnostics.slice(0, 40))
+        lines.push(`    ${formatDiagnosticRow(diagnostic)}`);
       continue;
     }
 
@@ -323,10 +363,14 @@ export const lspCommand: CLICommand = {
     }
 
     const isDocumentSymbols = rawType === 'documentSymbols';
+    const isDiagnostic = rawType === 'diagnostic';
+    const isWorkspaceSymbol = rawType === 'workspaceSymbol';
+    const needsSymbol = !isDocumentSymbols && !isDiagnostic;
+    const needsLine = needsSymbol && !isWorkspaceSymbol;
 
     // Report the specific missing input (an invalid --line value is already
     // rejected centrally before we get here).
-    if (!isDocumentSymbols && !symbolName && !lineHint) {
+    if (needsLine && !symbolName && !lineHint) {
       printUsageError(
         '--symbol is required. For a file/dir outline, use: ls <file|dir> --symbols',
         jsonOutput
@@ -334,7 +378,7 @@ export const lspCommand: CLICommand = {
       process.exitCode = EXIT.USAGE;
       return;
     }
-    if (!isDocumentSymbols && !symbolName) {
+    if (needsSymbol && !symbolName) {
       printUsageError(
         '--symbol <name> is required for this --type.',
         jsonOutput
@@ -379,7 +423,7 @@ export const lspCommand: CLICommand = {
     const format = getString(args.options, 'format');
 
     try {
-      if (!isDocumentSymbols && !lineHint && symbolName) {
+      if (needsLine && !lineHint && symbolName) {
         lineHint = await inferLineHint(uri, symbolName);
         if (!jsonOutput) {
           process.stderr.write(
@@ -419,7 +463,11 @@ export const lspCommand: CLICommand = {
             mainResearchGoal: `Run ${rawType} LSP research`,
             researchGoal: isDocumentSymbols
               ? `List document symbols in ${uri}`
-              : `Resolve ${rawType} for ${symbolName} near line ${lineHint}`,
+              : isDiagnostic
+                ? `List diagnostics in ${uri}`
+                : isWorkspaceSymbol
+                  ? `Find workspace symbols matching ${symbolName}`
+                  : `Resolve ${rawType} for ${symbolName} near line ${lineHint}`,
             reasoning: 'CLI lsp command',
           },
         ],

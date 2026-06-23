@@ -81,7 +81,6 @@ export async function executeCloneRepo(
               tool: 'localSearchCode',
               query: {
                 path: result.localPath,
-                keywords: 'TODO',
                 mode: 'discovery',
               },
             },

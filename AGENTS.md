@@ -14,12 +14,12 @@ Logic flows bottom-up. The bottom layers own all behavior; the top layers are **
                       └──────────────────┴── depend on ──┐
                                                           ▼
  BRAIN        @octocodeai/octocode-tools-core  ── all tool execution logic
-              (github/, lsp/, tools/, utils/, security/, hints/, providers/)
+              (github/, oql/, providers/, security/, tools/, utils/, shared/)
               + shared infra (credentials, session, config, platform)
                       ├── metadata from ──▶  @octocodeai/octocode-core  (external dep:
                       │                       Zod schemas, tool descriptions, system prompt,
                       │                       mode enums — the metadata source of truth)
-                      └── native calls ──▶  @octocodeai/octocode-engine  (Rust/napi)
+                      └── native calls ──▶  @octocodeai/octocode-engine  (Rust/napi + TS wrappers)
  PRIMITIVES                                  minify · signatures · structural/AST search ·
                                              ripgrep parse · LSP · secret scan/sanitize · text
 ```
@@ -30,8 +30,8 @@ Logic flows bottom-up. The bottom layers own all behavior; the top layers are **
 
 | Package (dir) | npm name | Role | Detail |
 |---|---|---|---|
-| [`packages/octocode-tools-core`](packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | **Brain** — every `execute*`/`search*` tool runner, GitHub/Octokit client, LSP pool, security wrappers, hints, providers, **and** shared credentials/session/config/platform. Consumed by both interfaces. | `src/{tools,github,lsp,security,hints,providers,utils,scheme,shared}/` |
-| [`packages/octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | **Native primitives** (Rust/napi, the only Rust package): minify, signature extraction, structural/AST search, ripgrep parsing, secret detection + sanitization, LSP, text utils. | [ARCHITECTURE.md](packages/octocode-engine/ARCHITECTURE.md) |
+| [`packages/octocode-tools-core`](packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | **Brain** — every `execute*`/`search*` tool runner, GitHub/Octokit client, security bridge, providers, **and** shared credentials/session/config/platform. Consumed by both interfaces. | `src/{commands,errors,github,oql,providers,scheme,security,shared,tools,types,utils}/` |
+| [`packages/octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | **Native primitives + LSP/security orchestration** (Rust/napi core + TS wrappers — the only Rust package): minify, signature extraction, structural/AST search, ripgrep parsing, secret detection + sanitization, LSP client pool/resolver, text utils. | [ARCHITECTURE.md](packages/octocode-engine/ARCHITECTURE.md) |
 | [`packages/octocode-mcp`](packages/octocode-mcp) | `octocode-mcp` | **MCP server** (stdio) for AI assistants. Thin: lifecycle + tool registration + output sanitization. Owns no logic. | [ARCHITECTURE.md](packages/octocode-mcp/ARCHITECTURE.md) |
 | [`packages/octocode`](packages/octocode) | `octocode` | **CLI** — runs any tool from the terminal **and** manages install/auth/MCP-marketplace. Thin: parse + render. | `src/{cli,configs,features,ui,utils}/` |
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth, multi-editor MCP install, token sync. | — |
@@ -176,9 +176,10 @@ The CLI offers **three ways in**, increasingly raw:
   node packages/octocode/out/octocode.js cat  facebook/react/README.md      # GitHub file (auto-routed)
   node packages/octocode/out/octocode.js grep resolveRef ./packages/octocode # text/AST search
   ```
-  Full set: `ls · cat · grep · find · lsp · repo · pr · history · pkg · binary · unzip · clone`.
+  Full set: `ls · cat · grep · find · lsp · repo · pr · history · pkg · binary · unzip · clone · cache · search`.
+  `grep`, `find`, `cat`, and `ls` accept `--repo <owner/repo[@ref]>` to materialize a remote repo locally before running the local tool — returns the absolute `location` path for follow-up calls.
 
-- **Raw tools** — schema-exact, all 13 tools. **Always read the schema first; never guess fields** (e.g. `localSearchCode.keywords` is a *string*, not an array):
+- **Raw tools** — schema-exact access to the full tool catalog. **Always read the schema first; never guess fields** (e.g. `localSearchCode.keywords` is a *string*, not an array):
   ```bash
   node packages/octocode/out/octocode.js tools                              # list tools
   node packages/octocode/out/octocode.js tools localSearchCode --scheme     # read input schema

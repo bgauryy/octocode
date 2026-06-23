@@ -10,6 +10,8 @@ Octocode exposes **one** public LSP tool:
 
 LSP tools are local-only. They require `ENABLE_LOCAL=true` and a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`.
 
+For external repos: clone first with `ghCloneRepo` (or fetch a subtree with `ghGetFileContent(type:"directory")`), then use the returned `localPath` as the `uri` prefix for `lspGetSemantics`. The path is always absolute and immediately valid.
+
 ## Workflow
 
 1. Search textually with `localSearchCode` and capture the exact `lineHint`.

@@ -96,7 +96,7 @@ tool calls. These transformations are part of the eval:
 | `target:"files"` on GitHub | GitHub path search, not content snippets, when the predicate is path-like |
 | `target:"content"` with `fetch.content.match` | `ghGetFileContent` or `localGetFileContent` match-anchored read with context |
 | `contentView:"exact"|"compact"|"symbols"` | Raw tool minification `none|standard|symbols` as appropriate for the backing tool |
-| `target:"pullRequests"|"commits"|"diff"` | `ghHistoryResearch` with the correct PR, commit, or patch mode |
+| `target:"pullRequests"|"commits"|"diff"` | `ghHistoryResearch` with the correct PR, commit, or patch mode; `diff` also supports direct two-ref file diffs via content reads |
 | `target:"repositories"` | `ghSearchRepos` with language/topic/star/page filters preserved |
 | `target:"packages"` | `npmSearch`, then source repo fields remain available for handoff |
 | `target:"artifacts"` | `localBinaryInspect` modes: inspect/list/extract/decompress/strings/unpack |
@@ -155,6 +155,7 @@ Run every row through `node packages/octocode/out/octocode.js tools <tool> --que
 | TOOL-16 | `localGetFileContent` | Can local content read exact, compact, symbols, range, and match views? | `{"path":"packages/octocode-tools-core/src/oql/run.ts","matchString":"runOqlSearch","contextLines":4,"minify":"none"}` | Match range anchors are usable by LSP follow-up |
 | TOOL-17 | `localBinaryInspect` | Can binary/archive modes run and continue? | `{"path":".octocode/eval-fixtures/sample.tgz","mode":"list","entriesPerPage":10,"entryPageNumber":1}` | Archive entries, page info, and extract/unpack next steps are clear |
 | TOOL-18 | `lspGetSemantics` | Can LSP outline and semantic navigation use real anchors? | `{"uri":"packages/octocode-tools-core/src/oql/run.ts","type":"documentSymbols","itemsPerPage":25}` | Symbols include names/kinds/ranges; unsupported servers report capability absence, not no symbols |
+| TOOL-19 | `oqlSearch` | Does the MCP-style OQL tool preserve the same typed envelope as `octocode search`? | `{"target":"code","from":{"kind":"local","path":"packages/octocode-tools-core/src/oql"},"where":{"kind":"structural","lang":"ts","pattern":"diagnostic($$$ARGS)"},"limit":1}` | Returns OQL rows with `proofGrade`, captures/ranges, diagnostics, pagination, and executable `next.*` continuations |
 
 ## OQL Rows
 
@@ -182,6 +183,8 @@ Run with `node packages/octocode/out/octocode.js search --query '<json>' --json 
 | OQL-18 | Graph | Can graph output expose relationships, not just snippets? | `{"target":"graph","from":{"kind":"local","path":"packages/octocode-tools-core/src/oql"},"params":{"mode":"analyze","intent":"dependencies","facets":["symbols","files","relations"],"maxFiles":20,"includePackets":true,"includeEdges":true},"itemsPerPage":3}` | Edges/facts cite packet/file evidence and page correctly |
 | OQL-19 | Artifacts | Can artifact targets map to archive modes? | `{"target":"artifacts","from":{"kind":"local","path":".octocode/eval-fixtures/sample.tgz"},"params":{"mode":"list","entryPageNumber":1}}` | Archive rows match raw `localBinaryInspect` list mode |
 | OQL-20 | Reserved | Do unsupported targets fail cleanly? | `{"target":"dataflow","from":{"kind":"local","path":"."}}` | Returns an explicit unsupported-target diagnostic, not silent fallback |
+| OQL-21 | Tool parity | Do `octocode search --query` and `tools oqlSearch --queries` agree for the same OQL object? | Run the TOOL-19 query once through `search --query` and once through `tools oqlSearch --queries`, both with `--json --compact` | First result path/line, `proofGrade`, captures/ranges, diagnostics, pagination, and `next.*` continuations are semantically equivalent |
+| OQL-22 | Direct diff | Can OQL compare one file across two refs without PR context? | `{"target":"diff","from":{"kind":"github","repo":"bgauryy/octocode-mcp"},"params":{"baseRef":"main","headRef":"main","path":"README.md"}}` | Returns a direct diff row with base/head/path and either a patch or an explicit identical-files diagnostic |
 
 ## Advanced Flow Rows
 
@@ -252,6 +255,7 @@ to continue the same research.
 | `localViewStructure` | `structure` | Local tree rows and details |
 | `localBinaryInspect` | `artifacts` | Inspect/list/extract/decompress/strings/unpack modes and continuations |
 | `lspGetSemantics` | `semantics` | All semantic query types with line anchors and capability diagnostics |
+| `oqlSearch` | all active OQL targets | Same OQL result semantics as `octocode search --query`; transport wrapper differences are allowed, but row data, proof grade, diagnostics, pagination, and continuations must match |
 
 ### Gold-Trace A/B Tasks
 
@@ -275,6 +279,7 @@ predicate, scope, paging field, match anchor, or proof limitation.
 | AB-10 | TOOL-15, OQL structural code path | Prove local structural matches for `diagnostic($$$ARGS)` in OQL source. | `localSearchCode mode:"structural"` | `target:"code"` structural predicate | AST-backed rows, captures/ranges when available, `proofGrade:"structural"`, no string/comment false positives |
 | AB-11 | TOOL-18, OQL-16 | Get document symbols for the OQL runner. | `lspGetSemantics` | `target:"semantics"` | Symbol names/kinds/ranges, `proofGrade:"semantic"`, capability diagnostics if LSP is unavailable |
 | AB-12 | CLI-14/CLI-15, TOOL-17, OQL-19 | List archive entries, then pivot to local research after extraction. | `binary`/`unzip` or `localBinaryInspect` | `target:"artifacts"` | Archive entry rows, pagination/scan continuation, extracted local path usable by local follow-up |
+| AB-13 | TOOL-19, OQL-21 | Compare the raw OQL tool with the local CLI `search` command for the same query. | `tools oqlSearch --queries` | `search --query` | Same first structural row, `metavars`, `proofGrade`, diagnostics, pagination, and executable continuations; no CLI-only transformation changes full JSON OQL semantics |
 
 ## Result Sheet Columns
 

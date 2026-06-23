@@ -164,7 +164,7 @@ Octocode ships **13 research tools**; the same implementations run identically o
 
 ## MCP
 
-The MCP server exposes all 13 tools directly to your AI assistant over stdio. Install once; the assistant calls tools automatically.
+The MCP server exposes the Octocode tool catalog directly to your AI assistant over stdio. Install once; the assistant calls tools automatically.
 
 ### Install
 
@@ -241,6 +241,10 @@ Local paths route to local tools; `owner/repo[/path]` targets route to GitHub to
 | `octocode binary <file>` | Inspect archives, compressed files, and native binaries |
 | `octocode unzip <archive>` | Unpack an archive to `<octocode-home>/tmp/unzip/<name>-<timestamp>/`, then use local `ls`, `grep`, `cat`, and `lsp` |
 | `octocode clone <owner/repo[/path][@branch]>` | Clone a repo or subtree to `<octocode-home>/tmp/clone/` for local/LSP analysis (`ENABLE_CLONE=true`) |
+| `octocode cache fetch <owner/repo[/path]> [--depth file\|tree\|clone]` | Materialize remote content locally and return the absolute `localPath`; reuses the cache or force-refreshes with `--force-refresh` |
+| `octocode cache status` | Show size and entry count of clone/tree/binary/unzip cache buckets |
+| `octocode cache clear [--clone\|--tree\|--binary\|--all]` | Remove cached materialization data |
+| `octocode search --query <oql-json>` | Route a typed OQL query across local, GitHub, npm, PRs, commits, artifacts, diff, research, and graph targets |
 | `octocode tools` | List tools, read schemas, or run any MCP tool directly from the terminal |
 | `octocode context` | Print agent-facing protocol, system prompt, tool descriptions, and schemas |
 | `octocode install` | Configure Octocode in MCP clients |

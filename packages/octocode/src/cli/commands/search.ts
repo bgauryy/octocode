@@ -291,9 +291,15 @@ function renderEnvelope(env: OqlResultEnvelope, compact: boolean): string {
   }
 
   const ev = env.evidence;
+  // answerReady=false means more proof work remains (follow next.* continuations),
+  // not that the query failed. Make that distinction visible inline.
+  const readyHint =
+    !ev.answerReady && ev.kind !== 'unsupported'
+      ? '  · follow next.* continuations for more complete proof'
+      : '';
   lines.push(
     dim(
-      `  evidence: ${ev.kind}  answerReady=${ev.answerReady}  complete=${ev.complete}`
+      `  evidence: ${ev.kind}  answerReady=${ev.answerReady}  complete=${ev.complete}${readyHint}`
     )
   );
   return lines.join('\n');

@@ -1,8 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  readFile: vi.fn(),
+  stat: vi.fn(),
   validateToolPath: vi.fn(),
+  structuralSearch: vi.fn(),
   structuralSearchFiles: vi.fn(),
+}));
+
+vi.mock('node:fs/promises', () => ({
+  readFile: mocks.readFile,
+  stat: mocks.stat,
 }));
 
 vi.mock('../../../src/utils/file/toolHelpers.js', async importOriginal => {
@@ -17,6 +25,7 @@ vi.mock('../../../src/utils/file/toolHelpers.js', async importOriginal => {
 
 vi.mock('../../../src/utils/contextUtils.js', () => ({
   contextUtils: {
+    structuralSearch: mocks.structuralSearch,
     structuralSearchFiles: mocks.structuralSearchFiles,
   },
 }));
@@ -41,13 +50,16 @@ function makeQuery(overrides: Record<string, unknown> = {}) {
 describe('searchContentStructural', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.validateToolPath.mockReturnValue({
-      isValid: true,
-      sanitizedPath: '/repo',
-    });
-    mocks.structuralSearchFiles.mockReturnValue({
-      files: [],
-      totalMatches: 0,
+      mocks.validateToolPath.mockReturnValue({
+        isValid: true,
+        sanitizedPath: '/repo',
+      });
+      mocks.stat.mockRejectedValue(new Error('not found in unit test'));
+      mocks.readFile.mockResolvedValue('');
+      mocks.structuralSearch.mockReturnValue([]);
+      mocks.structuralSearchFiles.mockReturnValue({
+        files: [],
+        totalMatches: 0,
       parsedFiles: 0,
       skippedByPreFilter: 0,
       skippedUnreadable: 0,
@@ -105,10 +117,49 @@ describe('searchContentStructural', () => {
     });
     // Successful structural searches carry evidence in structured fields; no
     // next-step hint boilerplate is emitted on success.
-    expect(result.hints).toBeUndefined();
-  });
+      expect(result.hints).toBeUndefined();
+    });
 
-  it('passes caller include and excludeDir options to native Rust', async () => {
+    it('uses the single-file native matcher for structural file paths', async () => {
+      mocks.validateToolPath.mockReturnValue({
+        isValid: true,
+        sanitizedPath: '/repo/a.ts',
+      });
+      mocks.stat.mockResolvedValue({
+        isFile: () => true,
+      });
+      mocks.readFile.mockResolvedValue('target(value);\n');
+      mocks.structuralSearch.mockReturnValue([
+        {
+          startLine: 1,
+          endLine: 1,
+          startCol: 1,
+          endCol: 14,
+          text: 'target(value)',
+          metavars: { X: ['value'] },
+        },
+      ]);
+
+      const result = await searchContentStructural(makeQuery({ path: '/repo/a.ts' }));
+
+      expect(mocks.structuralSearchFiles).not.toHaveBeenCalled();
+      expect(mocks.structuralSearch).toHaveBeenCalledWith(
+        'target(value);\n',
+        '/repo/a.ts',
+        'target($X)',
+        undefined
+      );
+      expect(result.searchEngine).toBe('structural');
+      expect(result.files[0]?.matches?.[0]).toMatchObject({
+        line: 1,
+        endLine: 1,
+        column: 1,
+        endColumn: 14,
+        metavars: { X: ['value'] },
+      });
+    });
+
+    it('passes caller include and excludeDir options to native Rust', async () => {
     await searchContentStructural(
       makeQuery({ include: ['*.tsx'], excludeDir: ['vendor'], maxFiles: 3 })
     );

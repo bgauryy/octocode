@@ -109,11 +109,11 @@ describe('OQL local execution (target:"structure" / "files")', () => {
 });
 
 describe('OQL local execution (target:"content")', () => {
-  it('reads a bounded line range from a source file', async () => {
-    const env = single(
-      await runOqlSearch({
-        target: 'content',
-        from: { kind: 'local', path: path.join(OQL_SRC, 'types.ts') },
+    it('reads a bounded line range from a source file', async () => {
+      const env = single(
+        await runOqlSearch({
+          target: 'content',
+          from: { kind: 'local', path: path.join(OQL_SRC, 'types.ts') },
         fetch: {
           content: {
             range: { startLine: 1, endLine: 5 },
@@ -123,11 +123,32 @@ describe('OQL local execution (target:"content")', () => {
       })
     );
     expect(env.results[0]?.kind).toBe('content');
-    expect(
-      (env.results[0] as { content: string }).content.length
-    ).toBeGreaterThan(0);
+      expect(
+        (env.results[0] as { content: string }).content.length
+      ).toBeGreaterThan(0);
+    });
+
+    it('normalizes startLine-only ranges with context into executable content reads', async () => {
+      const env = single(
+        await runOqlSearch({
+          target: 'content',
+          from: { kind: 'local', path: path.join(OQL_SRC, 'types.ts') },
+          fetch: {
+            content: {
+              range: { startLine: 12, contextLines: 2 },
+              contentView: 'exact',
+            },
+          },
+        })
+      );
+
+      expect(env.diagnostics.some(d => d.code === 'invalidQuery')).toBe(false);
+      expect(env.results[0]?.kind).toBe('content');
+      expect((env.results[0] as { content: string }).content).toContain(
+        'OqlActiveTarget'
+      );
+    });
   });
-});
 
 describe('OQL runner: validation + dry-run + GitHub routing', () => {
   it('invalid input returns an unsupported envelope (no throw)', async () => {

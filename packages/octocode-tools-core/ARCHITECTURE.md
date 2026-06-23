@@ -6,12 +6,18 @@ shaping, pagination, hints, security, credentials, config, and session state.
 Consumers (the `octocode` CLI and `octocode-mcp` server) are thin: they pick a
 tool, hand it input, and render the `CallToolResult` it returns.
 
-Native heavy lifting (minify, local search, structural AST, LSP, secret masking)
-is delegated to `@octocodeai/octocode-engine` (Rust/napi). Tool descriptions and
+Native heavy lifting (minify, local search, structural AST, secret
+detection/masking) and LSP orchestration (client pool, resolver, security
+validation) are delegated to `@octocodeai/octocode-engine` — a Rust/napi core
+plus a TS orchestration layer. tools-core reaches the Rust core through the
+lazy `contextUtils` proxy (`src/utils/contextUtils.ts`) and the TS wrappers
+through the `./lsp/*` / `./security/*` subpath exports; its own
+`src/security/bridge.ts` is only a thin type adapter (MCP `CallToolResult` ↔
+engine `ToolResult`). Tool descriptions and
 schema texts come from `@octocodeai/octocode-core` — this package never invents
 its own.
 
-## Tool catalog (13 tools)
+## Tool catalog
 
 `src/tools/toolConfig.ts` is the registry. Each `ToolConfig` declares its name,
 category flags (`isLocal`/`isClone`/`isBinary`), a display `schema` + bulk
@@ -26,11 +32,15 @@ is the single source of truth.
   `local_fetch_content`, `local_view_structure`, `local_binary_inspect`.
 - **LSP**: `lsp_get_semantic_content` (needs server runtime).
 - **Package**: `package_search` (npm).
+- **OQL**: `oql_search`, the raw tool entrypoint for the shared OQL runner used
+  by CLI `search`.
 
-Each tool lives in `src/tools/<tool_name>/` with the same shape:
-`scheme.ts` (Zod single + bulk schemas), `execution.ts` (the bulk-loop
-`executionFn`), `hints.ts` (next-step guidance), and `finalizer.ts` /
-response builders + `types.ts` as needed.
+Each tool lives in `src/tools/<tool_name>/` with a common core — `scheme.ts`
+(Zod single + bulk schemas) and `execution.ts` (the bulk-loop `executionFn`) —
+plus `finalizer.ts` / `types.ts` and helper modules as needed (the set varies
+per tool; e.g. `local_ripgrep` splits ranking/structural/executor into separate
+files). Next-step hints are generated centrally by
+`src/utils/pagination/hints.ts`, not per tool.
 
 ## Execution flow
 
@@ -66,12 +76,12 @@ structure, history) lives in `src/github/`.
 ## Cross-cutting modules
 
 - `src/scheme/` — shared Zod fields and the response envelope.
-- `src/utils/pagination/` + `src/utils/response/` — the single lossless
-  char-pagination flow and YAML/JSON result rendering shared by text +
-  `structuredContent`.
+- `src/utils/pagination/` (incl. `hints.ts` — next-step hints: pagination
+  cursors, token-budget warnings, structure hints) + `src/utils/response/` — the
+  single lossless char-pagination flow and YAML/JSON result rendering shared by
+  text + `structuredContent`.
 - `src/utils/{http,exec,file,package,parsers}/` — fetch+retry+cache+circuit
   breaker, safe `spawn`, file helpers, npm, ripgrep/diff parsers.
-- `src/hints/` — dynamic next-step hints attached to results.
 - `src/errors/` — `ToolError` hierarchy and domain/local error factories.
 - `src/shared/` — `config`, `credentials` (token storage/refresh/env/gh-cli),
   `session` (stats), `platform`, `paths`. These are exported as

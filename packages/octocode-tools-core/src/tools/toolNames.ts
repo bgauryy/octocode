@@ -1,7 +1,10 @@
 import { completeMetadata } from '@octocodeai/octocode-core';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 
 export const STATIC_TOOL_NAMES = completeMetadata.toolNames;
+
+// Derived from core — single source of truth, drift-proof.
+export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME =
+  STATIC_TOOL_NAMES.LSP_GET_SEMANTIC_CONTENT;
 
 const LOCAL_TOOL_NAMES_SET = new Set<string>([
   STATIC_TOOL_NAMES.LOCAL_RIPGREP,

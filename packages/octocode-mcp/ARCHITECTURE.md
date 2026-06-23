@@ -59,10 +59,11 @@ within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
   `describe()` hook. Default `openWorldHint: true`.
 
 Each `src/tools/<tool>/` file is a few lines: name + title + core schema + core
-`execute*` runner. The 13 tools: **GitHub** (search code, fetch content, view
-repo structure, search repos, search PRs, clone repo), **package** (npm search),
-**local** (ripgrep, view structure, find files, fetch content, binary inspect),
-**LSP** (semantic content).
+`execute*` runner. The tool families are: **GitHub** (search code, fetch
+content, view repo structure, search repos, search PRs, clone repo),
+**package** (npm search), **local** (ripgrep, view structure, find files, fetch
+content, binary inspect), **LSP** (semantic content), and **OQL** (`oqlSearch`
+through the shared OQL runner).
 
 ## Output Safety (`src/utils/secureServer.ts`)
 

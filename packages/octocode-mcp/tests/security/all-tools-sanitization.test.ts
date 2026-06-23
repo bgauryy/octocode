@@ -445,7 +445,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
   describe('Cross-cutting: every secret type through every tool', () => {
     for (const [secretName, secretValue] of Object.entries(SECRETS)) {
-      it(`${secretName}: redacted in content[] across all 13 tools`, async () => {
+      it(`${secretName}: redacted in content[] across all tools`, async () => {
         for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
           const { registerAndCall } = createProxyChain();
           const handler = vi.fn().mockResolvedValue({
@@ -462,7 +462,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
         }
       });
 
-      it(`${secretName}: redacted in structuredContent across all 13 tools`, async () => {
+      it(`${secretName}: redacted in structuredContent across all tools`, async () => {
         for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
           const { registerAndCall } = createProxyChain();
           const handler = vi.fn().mockResolvedValue({

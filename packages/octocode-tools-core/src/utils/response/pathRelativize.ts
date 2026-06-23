@@ -15,6 +15,10 @@ export function commonDirPrefix(paths: readonly string[]): string {
 
 const PATH_LIKE_KEYS = ['path', 'uri'] as const;
 
+// Preserve absolute paths inside these top-level keys so agents can pass them
+// directly to local tool calls (localSearchCode, localViewStructure, etc.).
+const SKIP_TRAVERSAL_KEYS = new Set(['next', 'location']);
+
 function collectPathHolders(
   node: unknown,
   holders: Array<{ obj: Record<string, unknown>; key: string }>,
@@ -36,7 +40,8 @@ function collectPathHolders(
       holders.push({ obj, key });
     }
   }
-  for (const value of Object.values(obj)) {
+  for (const [key, value] of Object.entries(obj)) {
+    if (SKIP_TRAVERSAL_KEYS.has(key)) continue;
     if (value && typeof value === 'object') {
       collectPathHolders(value, holders, depth + 1);
     }
@@ -90,6 +95,7 @@ function stripBaseFromStringElements(
     }
     const obj = node as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
+      if (SKIP_TRAVERSAL_KEYS.has(key)) continue;
       const v = obj[key];
       if (typeof v === 'string') {
         if (

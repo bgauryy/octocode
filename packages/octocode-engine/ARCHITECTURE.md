@@ -1,7 +1,13 @@
 # Octocode Engine Architecture
 
-`octocode-engine` is a napi-rs native package. JavaScript calls thin NAPI
-bindings; Rust modules own the actual logic and are tested with `cargo test`.
+`octocode-engine` is a napi-rs native package **plus a TypeScript orchestration
+layer**. Rust modules (reached through thin NAPI bindings in `src/bindings/`)
+own the pure primitives — minify, search, structural, signatures, binary, text,
+and the secret-detection/sanitizer core. The TS layer in `src/lsp/` and
+`src/security/` owns what Rust cannot hold across NAPI calls — the LSP client
+pool, symbol resolver, path/command validators, the security registry, and the
+secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
+`vitest`.
 
 ## Boundary
 
@@ -21,10 +27,18 @@ bindings; Rust modules own the actual logic and are tested with `cargo test`.
 - `src/structural/` owns Octocode AST search: language adapter, query
   validation, matcher compilation, file traversal, ripgrep-backed prefiltering,
   and result types.
-- `src/lsp/` owns native LSP support: client lifecycle, config, JSON-RPC,
-  resolver, URI/path validation, workspace detection, and shared command checks.
+- `src/lsp/` owns LSP support across two tiers: Rust (`*.rs`) — the NAPI
+  `NativeLspClient` (JSON-RPC, lifecycle, symbol-kind, grammar/config tables);
+  TypeScript (`*.ts`) — the client pool (`lspClientPool.ts`), manager
+  (`manager.ts`), symbol resolver, URI/path validation, and workspace-root
+  detection. tools-core consumes the TS tier through the `./lsp/*` subpath
+  exports.
 - `src/signatures/` owns semantic outlines and JS/TS symbol extraction.
-- `src/security/` owns secret detection and sanitization.
+- `src/security/` owns secret detection and sanitization across two tiers: Rust
+  (`detector.rs`, `sanitizer.rs`, `patterns.rs`) for the detection engine and
+  TypeScript wrappers (`withSecurityValidation`, `registry`, `pathValidator`,
+  `commandValidator`, `mask`, `regexes/`) for orchestration. Both ship under
+  the engine package via the `./security/*` subpath exports.
 
 ## Research Graph Direction
 
@@ -51,6 +65,9 @@ entrypoint policy and agent-facing packets stay in `octocode-tools-core` / OQL.
 - Put new code in the closest domain module; create a submodule only when a file
   gains a separate responsibility.
 - Keep domain modules pure Rust where possible. NAPI types belong at the edge.
+- Stateful orchestration that must persist across NAPI calls (LSP client pool,
+  security registry) belongs in the TS tier (`src/lsp/*.ts`, `src/security/*.ts`),
+  not Rust.
 - Preserve root re-exports in `lib.rs` when moving modules to avoid churn in
   internal call sites.
 - Avoid duplicate helpers across domains. Shared LSP command/path checks live in

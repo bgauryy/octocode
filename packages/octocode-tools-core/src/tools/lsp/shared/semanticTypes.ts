@@ -3,7 +3,7 @@ import type {
   LSPRange,
 } from '@octocodeai/octocode-engine/lsp/types';
 
-export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME = 'lspGetSemantics';
+export { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../toolNames.js';
 
 export const SEMANTIC_CONTENT_TYPES = [
   'definition',

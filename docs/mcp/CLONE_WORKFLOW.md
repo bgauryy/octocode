@@ -36,7 +36,9 @@ Clones and API-fetched trees use separate tmp buckets with the same 24-hour TTL 
 │                      │       │  ghGetFileContent      │       │  localFindFiles          │
 │                      │       │  (type: "directory")       │       │  lspGetSemantics   │
 │                      │       │  (lightweight, no git)     │       │                          │
-│                      │       │  Both return: localPath    │       │                          │
+│                      │       │  Both return localPath     │       │                          │
+│                      │       │  + next (localSearch,      │       │                          │
+│                      │       │    viewStructure) + location│       │                          │
 └─────────────────────┘       └────────────────────────────┘       └──────────────────────────┘
 ```
 
@@ -83,7 +85,26 @@ owner: vercel
 repo: next.js
 branch: main
 localPath: <octocode-home>/tmp/clone/vercel/next.js/main
+location:
+  kind: repo
+  localPath: <octocode-home>/tmp/clone/vercel/next.js/main
+  repoRoot: <octocode-home>/tmp/clone/vercel/next.js/main
+  source: clone
+  cached: false
+  complete: true
+next:
+  localSearch:
+    tool: localSearchCode
+    query:
+      path: <octocode-home>/tmp/clone/vercel/next.js/main
+      mode: discovery
+  viewStructure:
+    tool: localViewStructure
+    query:
+      path: <octocode-home>/tmp/clone/vercel/next.js/main
 ```
+
+Pass `next.localSearch.query` or `next.viewStructure.query` directly to the respective tool — the `path` is always absolute.
 
 ### Mode 2: Sparse (Folder) Fetch
 
@@ -103,9 +124,66 @@ repo: TypeScript
 branch: main
 localPath: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
 sparse_path: "src/compiler"
+location:
+  kind: tree
+  localPath: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
+  repoRoot: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
+  source: clone
+  cached: false
+  complete: false
+  requestedPath: "src/compiler"
+next:
+  localSearch:
+    tool: localSearchCode
+    query:
+      path: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
+      mode: discovery
+  viewStructure:
+    tool: localViewStructure
+    query:
+      path: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
 ```
 
 > **Note:** LSP may have limited cross-file resolution in sparse checkouts since not all source files are present. If you need full project context, clone without `sparse_path`.
+
+### Mode 3: Directory Fetch (ghGetFileContent type:"directory")
+
+Lightweight alternative — no git required. Downloads individual files via the GitHub Contents API into `tmp/tree`.
+
+```
+ghGetFileContent:
+  owner: "vercel"
+  repo: "next.js"
+  path: "packages/next/src/server"
+  type: "directory"
+```
+
+**Result:**
+```yaml
+localPath: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
+repoRoot: <octocode-home>/tmp/tree/vercel/next.js/main
+fileCount: 12
+complete: true
+location:
+  kind: directory
+  localPath: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
+  repoRoot: <octocode-home>/tmp/tree/vercel/next.js/main
+  source: treeFetch
+  cached: false
+  complete: true
+next:
+  localSearch:
+    tool: localSearchCode
+    query:
+      path: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
+      mode: discovery
+  viewStructure:
+    tool: localViewStructure
+    query:
+      path: <octocode-home>/tmp/tree/vercel/next.js/main/packages/next/src/server
+```
+
+> **Note:** `complete: false` means some files were skipped (binary, oversized, or file-limit). Use `ghCloneRepo` when completeness matters.
 
 ---
 

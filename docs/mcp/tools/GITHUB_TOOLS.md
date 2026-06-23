@@ -81,7 +81,7 @@ File extraction modes are mutually exclusive: use one of `fullContent`, `startLi
 Directory mode:
 
 - Requires `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
-- Returns `localPath` for local tools.
+- Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` pointing directly to `localSearchCode` and `localViewStructure` with ready-to-use `path` values — pass them as-is.
 - Rejects file-only extraction fields.
 
 Examples:
@@ -197,7 +197,7 @@ Key fields:
 | `branch` | Branch to clone. Omit to use default branch. |
 | `sparse_path` | Optional subdirectory sparse checkout. |
 
-Returns `localPath`.
+Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` with ready-to-use `localSearch` and `viewStructure` query params — pass `next.localSearch.query` or `next.viewStructure.query` directly to the respective tool.
 
 Examples:
 
@@ -211,6 +211,7 @@ Rules:
 - Use `sparse_path` for large monorepos.
 - Use `ghGetFileContent` when you only need one file.
 - Cached clones are reused.
+- `next.localSearch.query.path` and `next.viewStructure.query.path` equal `localPath` — use them as-is.
 
 ## `npmSearch`
 

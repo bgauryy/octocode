@@ -366,4 +366,5 @@ gap with a reproducible, corpus-pinned methodology.
 | `target/ast-grep-upstream/repos/` | Cached scenario repos (git shallow clones) |
 | `target/ast-grep-upstream/latest.json` | Raw JSON from last run |
 | `output/comparison.md` | Full human-readable comparison table |
-| `docs/STRUCTURAL-GREP-COMPARISON-RECIPES.md` | Recipes for one-off manual comparisons |
+| `recipes/ast-grep.md` | Check-by-check ast-grep comparison and validation recipes |
+| `recipes/dead-code.md` | Dead code and transitive check recipes (knip + Octocode) |

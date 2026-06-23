@@ -198,6 +198,8 @@ describe('command-help-specs', () => {
     expect(output).toContain(
       'required option: --type enum(documentSymbols|definition|references'
     );
+    expect(output).toContain('workspaceSymbol');
+    expect(output).toContain('diagnostic');
     expect(output).toContain('lspGetSemantics');
     expect(output).toContain('after grep');
     expect(output).toContain(

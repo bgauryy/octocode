@@ -418,10 +418,16 @@ export function getDirectToolDisplayFields(
 export function buildDirectToolExampleQuery(
   toolName: string
 ): Record<string, unknown> {
+  const knownExample = buildKnownDirectToolExampleQuery(toolName);
+  if (knownExample) {
+    return knownExample;
+  }
+
   const fields = getDirectToolDisplayFields(toolName);
-  const requiredFields = fields.filter(field => field.required);
+  const topLevelFields = fields.filter(field => !field.name.includes('.'));
+  const requiredFields = topLevelFields.filter(field => field.required);
   const sourceFields =
-    requiredFields.length > 0 ? requiredFields : fields.slice(0, 4);
+    requiredFields.length > 0 ? requiredFields : topLevelFields.slice(0, 4);
   const example: Record<string, unknown> = {};
 
   for (const field of sourceFields) {
@@ -442,6 +448,34 @@ export function buildDirectToolExampleQuery(
   }
 
   return example;
+}
+
+function buildKnownDirectToolExampleQuery(
+  toolName: string
+): Record<string, unknown> | null {
+  if (toolName === OQL_SEARCH_TOOL_NAME) {
+    return {
+      target: 'code',
+      from: { source: 'local' },
+      scope: { path: '.' },
+      text: 'executeDirectTool',
+      view: 'discovery',
+      limit: 5,
+    };
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS) {
+    return {
+      type: 'prs',
+      owner: 'facebook',
+      repo: 'react',
+      keywordsToSearch: ['useState'],
+      concise: true,
+      limit: 5,
+    };
+  }
+
+  return null;
 }
 
 export function prepareDirectToolInputFromJsonText(

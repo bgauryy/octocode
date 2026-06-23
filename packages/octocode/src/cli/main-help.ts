@@ -147,10 +147,6 @@ export async function showHelp(): Promise<void> {
     `  ${c('magenta', bold('🔍🐙 Octocode'))}  ${dim('Code research CLI — for humans and agents')}`,
     '',
 
-    // ── Agent instructions — system prompt + skill pointer, tag-delimited ──
-    ...agentInstructions,
-    '',
-
     // ── Quick commands FIRST — the friendly, human-first surface ────────────
     `  ${c('green', bold('QUICK COMMANDS'))}  ${dim('smart shortcuts — auto-route local path vs owner/repo. Add --json for raw output.')}`,
     quick(
@@ -171,7 +167,7 @@ export async function showHelp(): Promise<void> {
     quick(
       'search',
       '--query <oql-json> | --scheme',
-      'OQL: one typed research query across code/content/files/LSP/repos/packages/history/artifacts/diff/research'
+      'OQL: typed research across code/content/files/LSP/repos/packages/history — run --scheme first to see the full typed schema'
     ),
     quick(
       'find',
@@ -245,6 +241,11 @@ export async function showHelp(): Promise<void> {
     '',
 
     c('magenta', `  ─── 🔍🐙 ${bold('https://octocode.ai')} ───`),
+    '',
+
+    // ── Agent instructions — system prompt + skill pointer (end of file so
+    //    humans reach the quick commands before the agent protocol block) ────
+    ...agentInstructions,
     '',
   ];
 

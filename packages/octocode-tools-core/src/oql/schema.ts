@@ -267,6 +267,8 @@ export const OqlCanonicalInputSchema = z.union([
   OqlBatchSchema,
 ]);
 
+const ACTIVE_TARGET_ENUM = ACTIVE_TARGETS as unknown as [string, ...string[]];
+
 /**
  * Raw input is intentionally permissive: it carries documented sugar fields
  * AND passes unknown keys through (`.catchall`) so the normalizer — not Zod —
@@ -329,6 +331,13 @@ const OqlInputQueryShape = {
   filesWithoutMatch: z.boolean().optional(),
   verbose: z.boolean().optional(),
 } as const;
+
+export const OqlDisplayQuerySchema = z
+  .object({
+    ...OqlInputQueryShape,
+    target: z.enum(ACTIVE_TARGET_ENUM).optional(),
+  })
+  .catchall(z.unknown());
 
 export const OqlInputQuerySchema = z
   .object(OqlInputQueryShape)

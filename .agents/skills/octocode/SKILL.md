@@ -116,12 +116,14 @@ manual so the log stays signal, not a second copy.
 
 ## Tool Surface
 
-The same 13 tools run through MCP and CLI:
+The same tool runners run through MCP and CLI, with `oqlSearch` available as
+the raw OQL tool and `search` as the CLI OQL shortcut:
 
 - GitHub: `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghHistoryResearch`, `ghCloneRepo`
 - Package: `npmSearch`
 - Local: `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localBinaryInspect`
 - LSP: `lspGetSemantics`
+- OQL: `oqlSearch`
 
 All tools accept bulk `queries`. The CLI fills common research metadata for local/raw calls, but GitHub/package work may still need `mainResearchGoal`.
 

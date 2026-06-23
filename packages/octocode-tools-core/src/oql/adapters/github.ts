@@ -305,6 +305,7 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
       : c?.contentView === 'symbols'
         ? 'symbols'
         : 'standard';
+  const range = normalizeContentRange(c?.range);
   const toolQuery: Record<string, unknown> = {
     ...(owner ? { owner } : {}),
     ...(repo ? { repo } : {}),
@@ -314,13 +315,7 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
     ...(ghFrom(query).kind === 'github' && ghFrom(query).ref
       ? { branch: ghFrom(query).ref }
       : {}),
-    ...(c?.range?.startLine !== undefined
-      ? { startLine: c.range.startLine }
-      : {}),
-    ...(c?.range?.endLine !== undefined ? { endLine: c.range.endLine } : {}),
-    ...(c?.range?.contextLines !== undefined
-      ? { contextLines: c.range.contextLines }
-      : {}),
+    ...range,
     ...(c?.match?.text !== undefined ? { matchString: c.match.text } : {}),
     ...(c?.match?.regex ? { matchStringIsRegex: true } : {}),
     ...(c?.match?.caseSensitive ? { matchStringCaseSensitive: true } : {}),
@@ -440,6 +435,16 @@ async function githubStructure(query: OqlQuery): Promise<AdapterResult> {
     ],
     provenance: [{ backend: 'ghViewRepoStructure', source: ghFrom(query) }],
   };
+}
+
+function normalizeContentRange(
+  range: NonNullable<NonNullable<OqlQuery['fetch']>['content']>['range']
+): { startLine?: number; endLine?: number } {
+  if (range?.startLine === undefined) return {};
+  const contextLines = range.contextLines ?? 0;
+  const startLine = Math.max(1, range.startLine - contextLines);
+  const endLine = (range.endLine ?? range.startLine) + contextLines;
+  return { startLine, endLine };
 }
 
 function statusDiagnostics(
