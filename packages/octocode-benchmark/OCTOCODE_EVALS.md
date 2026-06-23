@@ -13,8 +13,8 @@ cross-repository flows?
 
 | Surface | What must be measured |
 |---|---|
-| CLI quick commands | `ls`, `cat`, `grep`, `find`, `repo`, `pr`, `history`, `pkg`, `binary`, `unzip`, `clone`, `tools`, `context`, help, JSON envelopes |
-| Raw tools | All 14 shared tool runners through `tools <name> --queries` |
+| CLI quick commands | `ls`, `cat`, `grep`, `find`, `diff`, `lsp`, `repo`, `pr`, `history`, `pkg`, `binary`, `unzip`, `clone`, `cache`, `search`, `tools`, `context`, `install`, `auth`, `login`, `logout`, `status`, help, JSON envelopes |
+| Raw tools | All 14 shared MCP/CLI tool runners through `tools <name> --queries`, including `oqlSearch` |
 | OQL | All active `octocode search` targets and the OQL-to-tool transformations that make them work |
 | GitHub research | Repo search, code search, file/path search, structure, content fetch, PR list/detail/comments/reviews/commits, commit history, clone/materialize |
 | Local research | Text/regex search, structural search, file finding, structure, content ranges, minification, LSP semantics |
@@ -71,6 +71,25 @@ yarn build
 node packages/octocode/out/octocode.js --help --no-color
 ```
 
+Reported runs must follow the benchmark package output contract:
+
+```bash
+BENCHMARK_NAME="octocode-unified-eval"
+BENCH_TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+BENCH_OUT="packages/octocode-benchmark/output/${BENCHMARK_NAME}-${BENCH_TIMESTAMP}"
+RAW="$BENCH_OUT/raw"
+mkdir -p "$RAW" "$BENCH_OUT/artifacts" "$BENCH_OUT/schemes"
+export BENCHMARK_NAME BENCH_TIMESTAMP BENCH_OUT RAW
+```
+
+Every completed run writes `README.md`, `manifest.json`, `summary.json`,
+`commands.ndjson`, `results.md`, `reflection.md`, `ratings.json`, `raw/`,
+`schemes/`, and optional `artifacts/` under `$BENCH_OUT`. The machine-readable
+summary must validate against
+[`benchmark/output-run.schema.json`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/output-run.schema.json),
+and the run must follow the
+[`agent benchmark runbook`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md).
+
 For archive rows, create or provide an archive fixture. A minimal fixture is
 enough; the value being tested is archive handling and the follow-up local flow.
 
@@ -83,6 +102,43 @@ tar -czf .octocode/eval-fixtures/sample.tgz -C .octocode/eval-fixtures archive-s
 
 Use `--json` for machine scoring and `--compact` for token-budget checks where
 the command supports it.
+
+## Inventory Gate
+
+Run this gate before row-level scoring. A missing command, raw tool, or OQL
+target blocks the run because later rows would be measuring a stale surface.
+
+```bash
+CLI=(node packages/octocode/out/octocode.js)
+SCHEME_DIR="$BENCH_OUT/schemes"
+mkdir -p "$SCHEME_DIR"
+
+"${CLI[@]}" --help --compact --no-color > "$SCHEME_DIR/help.txt"
+"${CLI[@]}" tools --compact --no-color > "$SCHEME_DIR/tools.txt"
+"${CLI[@]}" search --scheme --compact --no-color > "$SCHEME_DIR/search.json"
+
+for tool in \
+  ghSearchCode ghGetFileContent ghViewRepoStructure ghSearchRepos \
+  ghHistoryResearch ghCloneRepo npmSearch localSearchCode \
+  localViewStructure localFindFiles localGetFileContent \
+  localBinaryInspect lspGetSemantics oqlSearch
+do
+  "${CLI[@]}" tools "$tool" --scheme --compact --no-color > "$SCHEME_DIR/$tool.txt"
+done
+```
+
+Required inventories:
+
+| Inventory | Expected entries |
+|---|---|
+| Raw/MCP tools | `ghSearchCode`, `ghGetFileContent`, `ghViewRepoStructure`, `ghSearchRepos`, `ghHistoryResearch`, `ghCloneRepo`, `npmSearch`, `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localBinaryInspect`, `lspGetSemantics`, `oqlSearch` |
+| OQL targets | `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`, `research`, `graph`, `materialize` |
+| Quick commands | `ls`, `cat`, `grep`, `find`, `diff`, `lsp`, `repo`, `pr`, `history`, `pkg`, `binary`, `unzip`, `clone`, `cache`, `search`, `tools`, `context`, `install`, `auth`, `login`, `logout`, `status` |
+
+Management commands such as `install`, `auth`, `login`, and `logout` are checked
+through help, schema, or dry-run-safe output only; the eval must not mutate a
+developer's editor installation or credentials unless a runbook explicitly says
+the run is exercising authentication setup.
 
 ## OQL Transformations Under Test
 
@@ -130,6 +186,12 @@ returned rows look plausible.
 | CLI-14 | Can an archive be listed before unpacking? | `node packages/octocode/out/octocode.js binary .octocode/eval-fixtures/sample.tgz --list --json` | Entries include `archive-src/package.json` and pagination fields |
 | CLI-15 | Can an archive be unpacked and then researched locally? | `node packages/octocode/out/octocode.js unzip .octocode/eval-fixtures/sample.tgz --json` | Returns `localPath`; subsequent `ls`/`find`/`grep`/`cat` work on that path |
 | CLI-16 | Can clone-backed remote search switch to local tools? | `node packages/octocode/out/octocode.js grep --repo pmndrs/zustand "createStore" src --type ts --json` | Response includes saved local location and local search rows |
+| CLI-17 | Can LSP be called directly from the CLI? | `node packages/octocode/out/octocode.js lsp packages/octocode-tools-core/src/oql/run.ts --type documentSymbols --json --compact` | Symbols include names/kinds/ranges, or a capability diagnostic explains why not |
+| CLI-18 | Can OQL search be discovered and called from the CLI? | `node packages/octocode/out/octocode.js search --scheme --compact --no-color` and OQL-03/OQL-04 | Schema exposes active targets; shorthand and full JSON route to the same evidence contract |
+| CLI-19 | Can direct diff routes be scoped without unrelated content? | `node packages/octocode/out/octocode.js diff bgauryy/octocode-mcp@main/README.md bgauryy/octocode-mcp@main/README.md --json` | Returns left/right refs and either a scoped patch or an explicit identical-files diagnostic |
+| CLI-20 | Can cache status and materialization routes be inspected? | `node packages/octocode/out/octocode.js cache status --json` and `node packages/octocode/out/octocode.js cache fetch pmndrs/zustand src --depth tree --json` | Status reports cache buckets; fetch returns a local path or honest network/auth diagnostic |
+| CLI-21 | Can status report auth, MCP install, and cache state safely? | `node packages/octocode/out/octocode.js status --json --compact` | Token presence, auth identity, install status, and cache paths are reported without secret values |
+| CLI-22 | Are mutation-capable management commands discoverable without side effects? | `node packages/octocode/out/octocode.js install --help --no-color`, `node packages/octocode/out/octocode.js auth --help --no-color`, `node packages/octocode/out/octocode.js login --help --no-color`, `node packages/octocode/out/octocode.js logout --help --no-color` | Help text exists for each route; the eval does not change editor config or credentials |
 
 ## Raw Tool Rows
 
@@ -205,6 +267,16 @@ Run with `node packages/octocode/out/octocode.js search --query '<json>' --json 
 | FLOW-13 | Remote structural proof | OQL structural query on a bounded GitHub subtree with `materialize.mode:"required"` | Provider-only candidate output is not accepted as proof; materialized local AST proof is required |
 | FLOW-14 | Binary strings pivot | `binary <native> --strings --min-length 12 --json` -> grep one returned string in the unpacked/source tree when applicable | Strings rows page by scan offset and can be used as research pivots |
 | FLOW-15 | Archive after unzip | `unzip sample.tgz` -> `ls <localPath>` -> `find package.json <localPath>` -> `grep fixture <localPath>` -> `cat <localPath>/archive-src/package.json` | The unpack output becomes a normal local corpus for all local commands |
+| FLOW-16 | Local-only search to proof | Local `grep`/OQL `code` for `runOqlSearch` -> `cat --match-string`/OQL `content` -> `lsp documentSymbols` on the same file | Local rows produce exact content proof and semantic anchors without network |
+| FLOW-17 | Repo -> structure -> code -> fetch | `repo ZUSTAND` -> `structure src` -> `code createStore` -> `content match createStore` | Each step narrows scope; final fetch is exact evidence, not provider-only candidate output |
+| FLOW-18 | Clone or cache -> local proof | `clone pmndrs/zustand/src` or `cache fetch pmndrs/zustand src --depth tree` -> local `ls`/`grep`/`cat`/`lsp` on returned path | Materialization returns `localPath`/`repoRoot`; local tools prove behavior with stable paths |
+| FLOW-19 | Remote-as-local quick commands | `ls src --repo pmndrs/zustand` -> `find vanilla.ts --repo ...` -> `grep --repo ... createStore` -> `cat src/vanilla.ts --repo ...` -> `lsp src/vanilla.ts --repo ...` | `--repo` materializes once, returns `location`, and subsequent quick commands retain remote source identity |
+| FLOW-20 | Surface alignment | For the same local and GitHub questions, compare quick CLI, raw `tools <name>`, and OQL `search --query` outputs | Envelopes may differ, but repo/path/package/symbol/content anchors and proof grade agree |
+| FLOW-21 | Nested research to graph proof | OQL `target:"research"` with `mode:"analyze"` -> packet page with `mode:"prove"` -> emitted `next.graph` query | Research rows stay candidate-grade until graph/LSP proof rows are attached or an honest diagnostic says proof is unavailable |
+
+Do not add a second row for a flow already represented above. If a new command
+path exercises the same research chain, add it to the `Steps` cell or the parity
+tables instead of creating a near-duplicate flow.
 
 ## Pagination Checks
 
@@ -257,6 +329,28 @@ to continue the same research.
 | `lspGetSemantics` | `semantics` | All semantic query types with line anchors and capability diagnostics |
 | `oqlSearch` | all active OQL targets | Same OQL result semantics as `octocode search --query`; transport wrapper differences are allowed, but row data, proof grade, diagnostics, pagination, and continuations must match |
 
+## Surface Alignment
+
+Every raw tool must have an OQL route and at least one quick-command route, except
+`oqlSearch`, which is the raw-tool route for OQL itself.
+
+| Raw/MCP tool | OQL target(s) | Quick CLI command(s) | Proof contract |
+|---|---|---|---|
+| `ghSearchRepos` | `repositories` | `repo`, `search target:"repositories"` | Provider discovery; follow repo/code/tree/content for proof |
+| `npmSearch` | `packages` | `pkg`, `search target:"packages"` | Package candidate plus source repo handoff |
+| `ghSearchCode` | GitHub `code`, GitHub `files` | `grep owner/repo`, `find owner/repo`, `search target:"code"` | Provider row; follow `next.fetch` |
+| `ghGetFileContent` | GitHub `content`, GitHub `diff` file reads | `cat owner/repo/path`, `diff`, `search target:"content"` | Exact/minified content proof |
+| `ghViewRepoStructure` | GitHub `structure` | `ls owner/repo`, `search target:"structure"` | Tree page proof; page when partial |
+| `ghHistoryResearch` | `pullRequests`, `commits`, PR `diff` | `pr`, `history`, `search target:"pullRequests|commits|diff"` | Provider/history candidate until selected fetch/diff proof |
+| `ghCloneRepo` | `materialize` | `clone`, `cache fetch`, `--repo`, `search target:"materialize"` | Local checkpoint; prove with local tools |
+| `localSearchCode` | local/materialized `code`, content-backed `files` | `grep`, `find --search content`, `search target:"code|files"` | Discovery row; fetch/LSP for proof when needed |
+| `localGetFileContent` | local/materialized `content`, local `diff` file reads | `cat`, `diff`, `search target:"content"` | Exact/minified content proof |
+| `localViewStructure` | local/materialized `structure` | `ls`, `search target:"structure"` | Local tree proof |
+| `localFindFiles` | local/materialized `files` | `find`, `search target:"files"` | Local file-universe proof |
+| `localBinaryInspect` | `artifacts` | `binary`, `unzip`, `search target:"artifacts"` | Proof over local bytes/archive entries |
+| `lspGetSemantics` | `semantics`, `graph proof:"lsp"` | `lsp`, `ls --symbols`, `search target:"semantics|graph"` | Semantic proof when line/symbol anchor is correct |
+| `oqlSearch` | all active OQL targets | `search --query`, `search` shorthand | OQL row data, proof grade, diagnostics, pagination, and continuations must match |
+
 ### Gold-Trace A/B Tasks
 
 Run each task twice with the same model, same prompt, same budget, and same
@@ -298,3 +392,37 @@ Record run results outside this doc with these columns:
 | `proofGrade_ok` | Did every OQL row carry a valid `proofGrade`, and did it match the evidence used? |
 | `lossy_transform_ok` | Did every lossy/unsupported transformer mapping emit a blocking diagnostic instead of silently narrowing? |
 | `notes` | Short actionable note only |
+
+## Output Quality And Reflection
+
+Every reported run rates the research trail as well as the command result. A
+command that exits 0 but leaves the next step ambiguous is not a full pass.
+
+| Quality score | Meaning |
+|---:|---|
+| `5` | Exact anchors, concise payload, correct evidence grade, usable `next.*`, no stale schema hints |
+| `4` | Correct result with minor verbosity or formatting friction |
+| `3` | Works, but requires manual inference to find the next step |
+| `2` | Command exits 0 but evidence grade, continuation, or pagination is misleading or noisy |
+| `1` | Fails, uses stale schema, misses a field, or offers no actionable repair |
+
+`reflection.md` is required and must include:
+
+- What worked: fast exact anchors, copy-paste runnable continuations, best flow.
+- What did not work: failures, friction, misleading or noisy output.
+- Missing: benchmark command gaps, schema/help gaps, missing proof continuation.
+- Possible improvements: product/code, benchmark automation, and documentation.
+- Praises: strongest behavior and what should be preserved.
+- Ratings: raw/MCP tools, OQL search, quick CLI commands, remote-as-local, data
+  quality, schema quality, research quality, and output quality.
+- Next fix: one concrete issue to patch or one benchmark command to add.
+
+Recommended minimum scores before release:
+
+| Surface | Minimum |
+|---|---:|
+| Raw/MCP tool schema alignment | 9/10 |
+| OQL target coverage | 9/10 |
+| Quick CLI command parity | 8/10 |
+| Search-to-proof flow quality | 8/10 |
+| Nested research/reflection quality | 8/10 |

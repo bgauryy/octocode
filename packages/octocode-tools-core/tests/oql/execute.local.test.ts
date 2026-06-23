@@ -75,6 +75,32 @@ describe('OQL local execution (target:"code")', () => {
     expect(env.results.length).toBe(0);
     expect(env.diagnostics.some(d => d.code === 'zeroMatches')).toBe(true);
   });
+
+  it('maps extension selector tsx to an include glob, not langType', async () => {
+    await withFixture(
+      {
+        'component.tsx': 'export const Component = () => <div>needle</div>;\n',
+        'plain.ts': 'export const value = "needle";\n',
+      },
+      async fixture => {
+        const env = single(
+          await runOqlSearch({
+            target: 'code',
+            from: { kind: 'local', path: fixture },
+            scope: { language: 'tsx' },
+            where: { kind: 'text', value: 'needle' },
+          })
+        );
+
+        expect(env.diagnostics.some(d => d.code === 'invalidQuery')).toBe(
+          false
+        );
+        expect(env.results.map(r => path.basename(r.path))).toEqual([
+          'component.tsx',
+        ]);
+      }
+    );
+  });
 });
 
 describe('OQL local execution (target:"structure" / "files")', () => {
@@ -105,6 +131,58 @@ describe('OQL local execution (target:"structure" / "files")', () => {
       })
     );
     expect(env.results.some(r => r.path.endsWith('planner.ts'))).toBe(true);
+  });
+
+  it('expands language selectors to known local file extensions', async () => {
+    await withFixture(
+      {
+        'a.ts': 'export const a = 1;\n',
+        'b.tsx': 'export const B = () => null;\n',
+        'c.js': 'export const c = 1;\n',
+      },
+      async fixture => {
+        const env = single(
+          await runOqlSearch({
+            target: 'files',
+            from: { kind: 'local', path: fixture },
+            scope: { language: 'typescript' },
+          })
+        );
+
+        expect(env.results.map(r => path.basename(r.path)).sort()).toEqual([
+          'a.ts',
+          'b.tsx',
+        ]);
+      }
+    );
+  });
+
+  it('honors local files include and exclude scope filters', async () => {
+    await withFixture(
+      {
+        'a.tsx': 'export const A = () => null;\n',
+        'b.tsx': 'export const B = () => null;\n',
+        'skip.test.tsx': 'export const Skip = () => null;\n',
+        'plain.ts': 'export const plain = 1;\n',
+      },
+      async fixture => {
+        const env = single(
+          await runOqlSearch({
+            target: 'files',
+            from: { kind: 'local', path: fixture },
+            scope: {
+              include: ['**/*.tsx'],
+              exclude: ['**/*.test.tsx'],
+            },
+          })
+        );
+
+        expect(env.results.map(r => path.basename(r.path)).sort()).toEqual([
+          'a.tsx',
+          'b.tsx',
+        ]);
+      }
+    );
   });
 });
 
@@ -189,6 +267,26 @@ describe('OQL runner: validation + dry-run + GitHub routing', () => {
     expect(env.plan).toBeDefined();
     expect(env.plan?.normalized).toBeDefined();
     expect(env.results.length).toBe(0);
+  });
+
+  it('dry-run surfaces GitHub adapter validation diagnostics', async () => {
+    const env = single(
+      await runOqlSearch(
+        {
+          target: 'code',
+          from: { kind: 'github', repo: 'vercel/next.js' },
+          scope: { language: 'typescript' },
+          where: { kind: 'text', value: 'createComponentTree' },
+        },
+        { dryRun: true }
+      )
+    );
+
+    expect(env.results.length).toBe(0);
+    expect(env.plan?.diagnostics.some(d => d.code === 'lossyTransform')).toBe(
+      true
+    );
+    expect(env.diagnostics.some(d => d.code === 'lossyTransform')).toBe(true);
   });
 
   it('GitHub structural + materialize:never -> unsupported (no network)', async () => {

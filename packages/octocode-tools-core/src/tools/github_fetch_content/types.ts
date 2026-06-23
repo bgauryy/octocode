@@ -58,7 +58,14 @@ export interface DirectoryFetchResult {
   files: Array<{ path: string; size: number; type: string }>;
   fileCount: number;
   totalSize: number;
+  /** true = no files were skipped by size/type/limit/error */
   complete: boolean;
+  /** true = completeness was proven against the remote tree (fresh fetch + complete) */
+  verified: boolean;
+  /** HEAD commit SHA at the time of fetch; absent on cache hits from legacy entries */
+  commitSha?: string;
+  /** true when nonFile > 0 — subdirectory entries were present but not fetched; use ghCloneRepo for full coverage */
+  hasSubdirectories?: boolean;
   directoryEntryCount: number;
   eligibleFileCount: number;
   savedFileCount: number;

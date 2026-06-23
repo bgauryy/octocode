@@ -53,6 +53,10 @@ describe('cloneRepo sparse checkout', () => {
     mocks.octocodeDir = mkdtempSync(join(tmpdir(), 'octocode-clone-test-'));
     mocks.spawnWithTimeout.mockReset();
     mocks.spawnWithTimeout.mockImplementation(async (_command, args) => {
+      if (args.includes('clone')) {
+        const targetDir = args.at(-1);
+        if (targetDir) mkdirSync(targetDir, { recursive: true });
+      }
       if (args.includes('sparse-checkout')) {
         const targetDir = args[1];
         const sparsePath = args.at(-1);
@@ -92,5 +96,29 @@ describe('cloneRepo sparse checkout', () => {
     expect(sparseCall?.[1]).toEqual(
       expect.arrayContaining(['set', '--skip-checks', '--', 'README.md'])
     );
+  });
+
+  it('serializes parallel materializations and promotes one cache entry', async () => {
+    const [first, second] = await Promise.all([
+      cloneRepo({
+        owner: 'bgauryy',
+        repo: 'octocode',
+        branch: 'main',
+      }),
+      cloneRepo({
+        owner: 'bgauryy',
+        repo: 'octocode',
+        branch: 'main',
+      }),
+    ]);
+
+    const cloneCalls = mocks.spawnWithTimeout.mock.calls.filter(([, args]) =>
+      args.includes('clone')
+    );
+
+    expect(cloneCalls).toHaveLength(1);
+    expect([first.cached, second.cached].filter(Boolean)).toHaveLength(1);
+    expect(first.localPath).toBe(second.localPath);
+    expect(first.localPath).not.toContain('.tmp-');
   });
 });

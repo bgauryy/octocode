@@ -4,8 +4,8 @@ import {
 } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   executeOqlSearchTool,
+  getDescription,
   invokeCallbackSafely,
-  OQL_SEARCH_TOOL_DESCRIPTION,
   OQL_SEARCH_TOOL_NAME,
   OqlSearchInputSchema,
   withSecurityValidation,
@@ -23,7 +23,7 @@ export function registerOqlSearchTool(
   return server.registerTool(
     OQL_SEARCH_TOOL_NAME,
     {
-      description: OQL_SEARCH_TOOL_DESCRIPTION,
+      description: getDescription(OQL_SEARCH_TOOL_NAME),
       inputSchema: toMCPSchema(OqlSearchInputSchema),
       annotations: {
         title: 'OQL Search',

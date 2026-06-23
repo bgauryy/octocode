@@ -21,9 +21,9 @@ These rules are mandatory when an agent is constructing Octocode calls.
 
 1. Read the active schema before any raw tool call:
    `octocode tools <name> --scheme`, then `octocode tools <name> --queries '<json>'`.
-   Field names differ between quick commands and raw tools — e.g. quick `cat`
-   uses `--mode none|standard|symbols` while the raw tool field is `minify`
-   (`--minify` is rejected on the quick command).
+   Field names can differ between quick commands and raw tools — e.g. quick
+   `cat` uses `--mode none|standard|symbols` while the raw tool field is
+   `minify`; quick `cat --minify` is accepted as an alias for `--mode`.
 2. Use `--json` for automation and `--compact` for low-token exploration. Human
    rendering is useful for quick inspection, but raw envelopes carry pagination,
    diagnostics, hints, and continuations.
@@ -131,7 +131,7 @@ Language tiers:
 | Tier 3 | Structure + ripgrep/file search | Discovery only. Never treat as deletion proof. |
 
 Full contract:
-https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OQL_RESEARCH_GRAPH_FLOW.md
+https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md
 
 ## Product Guidance For Octocode
 
@@ -217,8 +217,8 @@ Use this when the user names a library, npm package, or framework feature.
 ```text
 npmSearch(packageName)
 -> take repository owner/repo from package metadata
--> ghViewRepoStructure(owner, repo, path="", depth=1)
--> ghSearchCode(owner, repo, keywordsToSearch=[distinctive symbol])
+-> ghViewRepoStructure(owner, repo, path="", maxDepth=1)
+-> ghSearchCode(owner, repo, keywords=[distinctive symbol])
 -> ghGetFileContent(owner, repo, path, matchString/startLine/endLine)
 -> ghCloneRepo only if local AST/LSP proof is needed
 ```
@@ -239,9 +239,9 @@ Use this when the agent needs prior art, examples, or comparable
 implementations across GitHub.
 
 ```text
-ghSearchRepos(keywordsToSearch, topicsToSearch?, language?, stars?)
+ghSearchRepos(keywords, topicsToSearch?, language?, stars?)
 -> shortlist active/relevant repositories
--> ghSearchCode(owner, repo, keywordsToSearch, extension/path filters)
+-> ghSearchCode(owner, repo, keywords, extension/path filters)
 -> ghGetFileContent for exact examples
 -> ghHistoryResearch when the reason or evolution matters
 ```
@@ -254,7 +254,7 @@ or owners are worth reading. This keeps broad GitHub search from becoming noisy.
 Use this when a remote repo is known and the agent needs exact evidence.
 
 ```text
-ghSearchCode(owner, repo, keywordsToSearch, extension?, path?)
+ghSearchCode(owner, repo, keywords, extension?, path?)
 -> read result status and pagination
 -> ghGetFileContent(owner, repo, path, matchString or line range)
 -> cite the fetched file slice, not the search snippet
@@ -310,8 +310,8 @@ Use this when the user asks why a behavior exists or when a regression may come
 from a prior PR.
 
 ```text
-ghSearchCode(owner, repo, keywordsToSearch)
--> ghHistoryResearch(owner, repo, query, matchScope=["title","body"])
+ghSearchCode(owner, repo, keywords)
+-> ghHistoryResearch(owner, repo, keywordsToSearch=[...], match=["title","body"])
 -> ghHistoryResearch(owner, repo, prNumber, content={metadata, changedFiles})
 -> selected patches/comments only when needed
 -> clone + local tools if current code needs semantic follow-up
@@ -735,7 +735,7 @@ Internal Octocode references:
 - [Tool Behavior Guide](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/TOOL_BEHAVIOR.md)
 - [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
 - [Binary Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/BINARY_TOOLS.md)
-- [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md)
+- [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md)
 
 External references:
 

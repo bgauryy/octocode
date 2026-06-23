@@ -10,6 +10,7 @@ import {
 } from '../../utils/file/toolHelpers.js';
 import { TOOL_NAMES } from '../toolMetadata/proxies.js';
 import type { SearchStats } from '../../utils/core/types.js';
+import { toStructuralSearchIncludeGlobs } from '../../shared/languageSelectors.js';
 import { buildSearchResult } from './ripgrepResultBuilder.js';
 import type { RipgrepQuery } from './scheme.js';
 
@@ -26,58 +27,13 @@ const ZERO_MATCH_GUIDANCE =
   '0 structural matches. A pattern matches a complete AST node — a class/function usually needs a body (add `$$$BODY`), and Python/TS definitions may carry a return type (`-> $RET:`) or decorators the pattern must include. For partial or relational matches use a YAML `rule` instead of `pattern`.';
 
 /**
- * Native structural search filters candidate files by `include` globs (or scans
- * every supported extension when none are given). `langType` is the ergonomic
- * the regex path uses, so map it to `*.ext` include globs here — otherwise
- * `mode:"structural", langType:"ts"` would also parse HTML/CSS/Scala/etc.
- */
-const LANG_TYPE_EXTENSIONS: Record<string, string[]> = {
-  ts: ['ts', 'tsx', 'mts', 'cts'],
-  typescript: ['ts', 'tsx', 'mts', 'cts'],
-  tsx: ['tsx'],
-  js: ['js', 'jsx', 'mjs', 'cjs'],
-  javascript: ['js', 'jsx', 'mjs', 'cjs'],
-  jsx: ['jsx'],
-  py: ['py', 'pyi'],
-  python: ['py', 'pyi'],
-  go: ['go'],
-  rs: ['rs'],
-  rust: ['rs'],
-  java: ['java'],
-  c: ['c', 'h'],
-  cpp: ['cpp', 'hpp', 'cc', 'cxx', 'hh', 'hxx'],
-  'c++': ['cpp', 'hpp', 'cc', 'cxx', 'hh', 'hxx'],
-  cs: ['cs'],
-  csharp: ['cs'],
-  sh: ['sh', 'bash', 'zsh'],
-  bash: ['sh', 'bash', 'zsh'],
-  shell: ['sh', 'bash', 'zsh'],
-  html: ['html', 'htm'],
-  css: ['css'],
-  scss: ['scss'],
-  less: ['less'],
-  scala: ['scala', 'sc', 'sbt'],
-  json: ['json', 'jsonc'],
-  yaml: ['yaml', 'yml'],
-  yml: ['yaml', 'yml'],
-  toml: ['toml'],
-};
-
-function includeGlobsForLangType(langType?: string): string[] | undefined {
-  if (!langType) return undefined;
-  const key = langType.trim().toLowerCase();
-  const exts = LANG_TYPE_EXTENSIONS[key] ?? [key.replace(/^[.*]+/, '')];
-  return exts.filter(Boolean).map(ext => `*.${ext}`);
-}
-
-/**
  * Resolve the `include` globs for a structural query: explicit include wins;
  * otherwise derive from `langType` (`langType:'ts'` -> `*.ts`+aliases) so
  * `mode:'structural', langType:'ts'` doesn't parse HTML/CSS/Scala/etc.
  */
 function deriveInclude(query: RipgrepQuery): string[] | undefined {
   if (query.include?.length) return query.include;
-  return includeGlobsForLangType(query.langType);
+  return toStructuralSearchIncludeGlobs(query.langType);
 }
 
 async function isRegularFile(path: string): Promise<boolean> {

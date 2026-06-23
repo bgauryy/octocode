@@ -93,6 +93,8 @@ function parseCacheMeta(raw: unknown): CloneCacheMeta | null {
   };
   if (typeof raw.sparsePath === 'string') meta.sparsePath = raw.sparsePath;
   if (typeof raw.sizeBytes === 'number') meta.sizeBytes = raw.sizeBytes;
+  if (typeof raw.commitSha === 'string' && raw.commitSha.length === 40)
+    meta.commitSha = raw.commitSha;
   return meta;
 }
 
@@ -165,7 +167,8 @@ export function createCacheMeta(
   branch: string,
   source: CacheSource,
   sparsePath?: string,
-  sizeBytes?: number
+  sizeBytes?: number,
+  commitSha?: string
 ): CloneCacheMeta {
   const now = new Date();
   return {
@@ -177,6 +180,7 @@ export function createCacheMeta(
     source,
     ...(sparsePath ? { sparsePath } : {}),
     ...(sizeBytes != null ? { sizeBytes } : {}),
+    ...(commitSha ? { commitSha } : {}),
   };
 }
 

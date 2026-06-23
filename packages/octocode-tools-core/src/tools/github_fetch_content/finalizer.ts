@@ -58,6 +58,10 @@ type DirectoryEntry = {
   fileCount: number;
   totalSize: number;
   complete?: boolean;
+  verified?: boolean;
+  commitSha?: string;
+  hasSubdirectories?: boolean;
+  skippedSummary?: Record<string, number>;
   directoryEntryCount?: number;
   eligibleFileCount?: number;
   savedFileCount?: number;
@@ -290,6 +294,17 @@ function readDirectoryEntry(
     type: readString(file.type) ?? 'file',
   }));
 
+  const skipped = readDirectorySkipped(data.skipped);
+  const hasSubdirectories =
+    data.hasSubdirectories === true || (skipped ? skipped.nonFile > 0 : false);
+  const skippedSummaryEntries = skipped
+    ? Object.entries(skipped).filter(([, v]) => v > 0)
+    : [];
+  const skippedSummary =
+    skippedSummaryEntries.length > 0
+      ? Object.fromEntries(skippedSummaryEntries)
+      : undefined;
+
   return {
     path: String(query.path ?? ''),
     localPath: readString(data.localPath) ?? '',
@@ -297,10 +312,16 @@ function readDirectoryEntry(
     fileCount: readNumber(data.fileCount) ?? files.length,
     totalSize: readNumber(data.totalSize) ?? 0,
     complete: data.complete === true,
+    verified: data.verified === true,
+    ...(typeof data.commitSha === 'string' && data.commitSha.length === 40
+      ? { commitSha: data.commitSha }
+      : {}),
+    ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
+    ...(skippedSummary ? { skippedSummary } : {}),
     directoryEntryCount: readNumber(data.directoryEntryCount),
     eligibleFileCount: readNumber(data.eligibleFileCount),
     savedFileCount: readNumber(data.savedFileCount),
-    skipped: readDirectorySkipped(data.skipped),
+    skipped: skipped,
     limits: readDirectoryLimits(data.limits),
     warnings: readStringArray(data.warnings),
     ...(files.length > 0 ? { files } : {}),

@@ -35,14 +35,20 @@ function printUsage(message: string, jsonOutput: boolean): void {
   process.exitCode = EXIT.USAGE;
 }
 
-function depthToKind(
-  depth: string,
-  requestedPath: string
-): RemoteMaterializationKind {
+/** Infer depth from the requested path when --depth is not given:
+ *  - no path → clone the full repo
+ *  - path with a file extension (last segment contains '.') → single file
+ *  - path without extension → treat as a directory subtree
+ */
+function inferDepth(requestedPath: string): 'file' | 'tree' | 'clone' {
+  if (!requestedPath) return 'clone';
+  const last = requestedPath.split('/').pop() ?? '';
+  return last.includes('.') ? 'file' : 'tree';
+}
+
+function depthToKind(depth: string): RemoteMaterializationKind {
   if (depth === 'file') return 'file';
   if (depth === 'tree') return 'tree';
-  if (depth === 'clone') return 'repo';
-  if (requestedPath) return 'tree';
   return 'repo';
 }
 
@@ -79,6 +85,23 @@ function renderMaterialization(result: RemoteMaterialization): void {
   }
   if (location.complete !== undefined) {
     console.log(`  ${dim('complete:')}  ${location.complete}`);
+  }
+  if (location.verified !== undefined) {
+    console.log(`  ${dim('verified:')}  ${location.verified}`);
+  }
+  if (location.commitSha) {
+    console.log(`  ${dim('commitSha:')} ${location.commitSha}`);
+  }
+  if (location.hasSubdirectories) {
+    console.log(`  ${dim('hasSubdirectories:')} true`);
+  }
+  if (
+    location.skippedSummary &&
+    Object.keys(location.skippedSummary).length > 0
+  ) {
+    console.log(
+      `  ${dim('skippedSummary:')} ${JSON.stringify(location.skippedSummary)}`
+    );
   }
   console.log();
 }
@@ -247,8 +270,7 @@ export const cacheCommand: CLICommand = {
 
     const repoRef = args.args[1] ?? '';
     const requestedPath = args.args[2] ?? '';
-    const depth =
-      getString(args.options, 'depth') || (requestedPath ? 'file' : 'clone');
+    const depth = getString(args.options, 'depth') || inferDepth(requestedPath);
     if (!repoRef) {
       printUsage('cache fetch requires owner/repo[@ref].', jsonOutput);
       return;
@@ -264,7 +286,7 @@ export const cacheCommand: CLICommand = {
         path: requestedPath || undefined,
         branch: getString(args.options, 'branch') || undefined,
         forceRefresh: getBool(args.options, 'force-refresh') || undefined,
-        kind: depthToKind(depth, requestedPath),
+        kind: depthToKind(depth),
       });
 
       if (jsonOutput) {

@@ -8,6 +8,8 @@
  * is applied by the interface layer on final output.
  */
 import path from 'node:path';
+import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-types';
+import { LOCAL_MAX_LIMIT } from '../../config.js';
 import { searchContentRipgrep } from '../../tools/local_ripgrep/searchContentRipgrep.js';
 import { findFiles } from '../../tools/local_find_files/findFiles.js';
 import { viewStructure } from '../../tools/local_view_structure/local_view_structure.js';
@@ -21,6 +23,10 @@ import {
   type MappedResult,
 } from './resultMap.js';
 import { diagnostic } from '../diagnostics.js';
+import {
+  toLocalFileLanguageGlobs,
+  toLocalSearchLanguageParams,
+} from '../transformers/language.js';
 import type {
   FieldPredicate,
   OqlDiagnostic,
@@ -35,6 +41,8 @@ export interface AdapterResult extends MappedResult {
   diagnostics: OqlDiagnostic[];
   provenance: OqlProvenance[];
 }
+
+const LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT = LOCAL_MAX_LIMIT;
 
 /** Resolve the local filesystem root for a query (local or materialized). */
 function localRoot(query: OqlQuery): string {
@@ -58,10 +66,98 @@ function scopeToCommon(scope: QueryScope | undefined): Record<string, unknown> {
   return out;
 }
 
-function languageInclude(scope: QueryScope | undefined): string | undefined {
+function firstScopeLanguage(scope: QueryScope | undefined): string | undefined {
   const lang = scope?.language;
   if (!lang) return undefined;
   return Array.isArray(lang) ? lang[0] : lang;
+}
+
+function mergeStringArrays(left: unknown, right: readonly string[]): string[] {
+  const existing = Array.isArray(left)
+    ? left.filter((value): value is string => typeof value === 'string')
+    : [];
+  return [...new Set([...existing, ...right])];
+}
+
+function applyLocalSearchLanguage(
+  toolQuery: Record<string, unknown>,
+  scope: QueryScope | undefined,
+  explicitLangType: string | undefined
+): void {
+  if (explicitLangType) {
+    toolQuery.langType = explicitLangType;
+    return;
+  }
+
+  const languageParams = toLocalSearchLanguageParams(firstScopeLanguage(scope));
+  if (languageParams.langType) toolQuery.langType = languageParams.langType;
+  if (languageParams.include?.length) {
+    toolQuery.include = mergeStringArrays(
+      toolQuery.include,
+      languageParams.include
+    );
+  }
+}
+
+function languageNameGlobs(scope: QueryScope | undefined): string[] {
+  return toLocalFileLanguageGlobs(firstScopeLanguage(scope));
+}
+
+function scopeIncludeAsName(glob: string): string | undefined {
+  const normalized = normalizeGlobPath(glob);
+  const recursiveExtension = normalized.match(/^\*\*\/(\*\.[^/]+)$/);
+  if (recursiveExtension) return recursiveExtension[1];
+  if (!normalized.includes('/')) return normalized;
+  return undefined;
+}
+
+function findFilesNeedsScopePostFilter(scope: QueryScope | undefined): boolean {
+  return Boolean(scope?.include?.length || scope?.exclude?.length);
+}
+
+function applyFindFilesScope(
+  toolQuery: Record<string, unknown>,
+  scope: QueryScope | undefined
+): void {
+  if (scope?.excludeDir) toolQuery.excludeDir = scope.excludeDir;
+  if (scope?.maxDepth !== undefined) toolQuery.maxDepth = scope.maxDepth;
+
+  const includeNames = (scope?.include ?? [])
+    .map(scopeIncludeAsName)
+    .filter((value): value is string => Boolean(value));
+  if (includeNames.length > 0 && !toolQuery.names) {
+    toolQuery.names = mergeStringArrays(toolQuery.names, includeNames);
+  }
+
+  const pathIncludes = (scope?.include ?? []).filter(
+    glob => !scopeIncludeAsName(glob)
+  );
+  if (pathIncludes.length === 1 && !toolQuery.pathPattern) {
+    toolQuery.pathPattern = pathIncludes[0];
+  }
+
+  const languageNames = languageNameGlobs(scope);
+  if (languageNames.length > 0 && !toolQuery.names && !toolQuery.pathPattern) {
+    toolQuery.names = languageNames;
+  }
+}
+
+function applyFindFilesPagination(
+  toolQuery: Record<string, unknown>,
+  query: OqlQuery
+): void {
+  if (findFilesNeedsScopePostFilter(query.scope)) {
+    applyUnpagedFindFilesWindow(toolQuery);
+    toolQuery.page = 1;
+    return;
+  }
+  if (query.itemsPerPage) toolQuery.itemsPerPage = query.itemsPerPage;
+  if (query.page) toolQuery.page = query.page;
+}
+
+function applyUnpagedFindFilesWindow(toolQuery: Record<string, unknown>): void {
+  toolQuery.limit = LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT;
+  toolQuery.itemsPerPage = LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT;
 }
 
 export async function executeLocal(query: OqlQuery): Promise<AdapterResult> {
@@ -138,17 +234,16 @@ async function executeCode(
   }
 
   const m = compiled.match!;
-  const langType = m.langType ?? languageInclude(query.scope);
   const toolQuery: Record<string, unknown> = {
     path: searchPath,
     ...scopeToCommon(query.scope),
-    ...(langType ? { langType } : {}),
     ...(query.view === 'discovery' ? { filesOnly: true } : {}),
     ...(query.view === 'detailed' ? { contextLines: 3 } : {}),
     ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
     ...(query.page ? { page: query.page } : {}),
     ...searchControls(query),
   };
+  applyLocalSearchLanguage(toolQuery, query.scope, m.langType);
 
   if (m.mode === 'structural') {
     toolQuery.mode = 'structural';
@@ -265,31 +360,22 @@ async function executeFiles(
     path: searchPath,
     details: true,
     showFileLastModified: true,
-    ...(query.scope?.excludeDir ? { excludeDir: query.scope.excludeDir } : {}),
-    ...(query.scope?.maxDepth !== undefined
-      ? { maxDepth: query.scope.maxDepth }
-      : {}),
-    ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
-    ...(query.page ? { page: query.page } : {}),
   };
+  applyFindFilesScope(toolQuery, query.scope);
+  applyFindFilesPagination(toolQuery, query);
 
   const fieldDiags: OqlDiagnostic[] = [];
   if (where) {
     applyFieldPredicate(where, toolQuery, fieldDiags);
   }
-  // language scope -> name glob
-  const lang = languageInclude(query.scope);
-  if (lang && !toolQuery.names && !toolQuery.pathPattern) {
-    toolQuery.names = [`*.${lang}`];
-  }
-
   const result = await findFiles(toolQuery as never);
-  const mapped = mapFilesResult(result, source);
+  const scopedResult = filterFindFilesResultByScope(result, query, searchPath);
+  const mapped = mapFilesResult(scopedResult, source);
   return {
     ...mapped,
     diagnostics: [
       ...fieldDiags,
-      ...resultDiagnostics(result, 'localFindFiles'),
+      ...resultDiagnostics(scopedResult, 'localFindFiles'),
     ],
     provenance: [provenance('localFindFiles', source, where)],
   };
@@ -424,16 +510,15 @@ function withoutMatchToolQuery(
 ): Record<string, unknown> {
   const compiled = compileWhere(leaf);
   const m = compiled.match!;
-  const langType = m.langType ?? languageInclude(query.scope);
   const toolQuery: Record<string, unknown> = {
     path: searchPath,
     filesWithoutMatch: true,
     ...scopeToCommon(query.scope),
-    ...(langType ? { langType } : {}),
     ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
     ...(query.page ? { page: query.page } : {}),
     ...searchControls(query),
   };
+  applyLocalSearchLanguage(toolQuery, query.scope, m.langType);
 
   toolQuery.keywords = m.keywords;
   if (m.fixedString) toolQuery.fixedString = true;
@@ -456,17 +541,21 @@ async function universeFiles(
   searchPath: string,
   prov: OqlProvenance[]
 ): Promise<Set<string>> {
-  const lang = languageInclude(query.scope);
-  const result = await findFiles({
+  const toolQuery: Record<string, unknown> = {
     path: searchPath,
     entryType: 'f',
-    ...(query.scope?.excludeDir ? { excludeDir: query.scope.excludeDir } : {}),
-    ...(lang ? { names: [`*.${lang}`] } : {}),
-  } as never);
+  };
+  applyFindFilesScope(toolQuery, query.scope);
+  if (findFilesNeedsScopePostFilter(query.scope)) {
+    applyUnpagedFindFilesWindow(toolQuery);
+    toolQuery.page = 1;
+  }
+  const result = await findFiles(toolQuery as never);
+  const scopedResult = filterFindFilesResultByScope(result, query, searchPath);
   prov.push({ backend: 'localFindFiles', source: query.from });
   // content-predicate negation applies to files, not directory entries
   return new Set(
-    (result.files ?? [])
+    (scopedResult.files ?? [])
       .filter(f => f.type === undefined || f.type === 'f' || f.type === 'file')
       .map(f => f.path)
   );
@@ -482,10 +571,16 @@ async function leafFiles(
 ): Promise<Set<string>> {
   if (leaf.kind === 'field') {
     const tq: Record<string, unknown> = { path: searchPath, details: true };
+    applyFindFilesScope(tq, query.scope);
     applyFieldPredicate(leaf, tq, diags);
+    if (findFilesNeedsScopePostFilter(query.scope)) {
+      applyUnpagedFindFilesWindow(tq);
+      tq.page = 1;
+    }
     const r = await findFiles(tq as never);
+    const scopedResult = filterFindFilesResultByScope(r, query, searchPath);
     prov.push({ backend: 'localFindFiles', source: query.from });
-    return new Set((r.files ?? []).map(f => f.path));
+    return new Set((scopedResult.files ?? []).map(f => f.path));
   }
   // content leaf (text/regex/structural) -> filesOnly search
   const compiled = compileWhere(leaf);
@@ -498,14 +593,13 @@ async function leafFiles(
     return new Set();
   }
   const m = compiled.match!;
-  const lang = m.langType ?? languageInclude(query.scope);
   const tq: Record<string, unknown> = {
     path: searchPath,
     filesOnly: true,
-    maxFiles: 100000,
+    maxFiles: LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT,
     ...scopeToCommon(query.scope),
-    ...(lang ? { langType: lang } : {}),
   };
+  applyLocalSearchLanguage(tq, query.scope, m.langType);
   if (m.mode === 'structural') {
     tq.mode = 'structural';
     if (m.pattern !== undefined) tq.pattern = m.pattern;
@@ -662,12 +756,11 @@ async function leafCodeRows(
     return [];
   }
   const m = compiled.match!;
-  const lang = m.langType ?? languageInclude(query.scope);
   const tq: Record<string, unknown> = {
     path: searchPath,
     ...scopeToCommon(query.scope),
-    ...(lang ? { langType: lang } : {}),
   };
+  applyLocalSearchLanguage(tq, query.scope, m.langType);
   if (m.mode === 'structural') {
     tq.mode = 'structural';
     if (m.pattern !== undefined) tq.pattern = m.pattern;
@@ -736,6 +829,12 @@ async function executeContent(
     ...(c?.match?.text !== undefined ? { matchString: c.match.text } : {}),
     ...(c?.match?.regex ? { matchStringIsRegex: true } : {}),
     ...(c?.match?.caseSensitive ? { matchStringCaseSensitive: true } : {}),
+    // Forward contextLines when startLine is absent (match-only fetch) so the
+    // tool can expand context around the matched lines natively.
+    ...(c?.range?.contextLines !== undefined &&
+    c?.range?.startLine === undefined
+      ? { contextLines: c.range.contextLines }
+      : {}),
     ...(c?.charOffset !== undefined ? { charOffset: c.charOffset } : {}),
     ...(c?.charLength !== undefined ? { charLength: c.charLength } : {}),
     ...(c?.fullContent ? { fullContent: true } : {}),
@@ -756,6 +855,116 @@ async function executeContent(
 }
 
 /* ------------------------------ helpers --------------------------------- */
+
+function filterFindFilesResultByScope(
+  result: LocalFindFilesToolResult,
+  query: OqlQuery,
+  searchPath: string
+): LocalFindFilesToolResult {
+  if (!findFilesNeedsScopePostFilter(query.scope)) return result;
+  if ((result as { status?: string }).status === 'error') return result;
+
+  const filtered = (result.files ?? []).filter(entry =>
+    pathMatchesScope(entry.path, searchPath, query.scope)
+  );
+  const page = Math.max(1, query.page ?? 1);
+  const itemsPerPage = Math.max(
+    1,
+    (query.itemsPerPage ?? query.limit ?? filtered.length) || 1
+  );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const start = (page - 1) * itemsPerPage;
+  const files = filtered.slice(start, start + itemsPerPage);
+  const { status: _status, ...rest } = result as LocalFindFilesToolResult & {
+    status?: string;
+  };
+
+  return {
+    ...rest,
+    ...(files.length === 0 ? { status: 'empty' as const } : {}),
+    files,
+    pagination: {
+      currentPage: page,
+      totalPages,
+      filesPerPage: itemsPerPage,
+      totalFiles: filtered.length,
+      hasMore: page < totalPages,
+      ...(page < totalPages ? { nextPage: page + 1 } : {}),
+    },
+  };
+}
+
+function pathMatchesScope(
+  filePath: string,
+  searchPath: string,
+  scope: QueryScope | undefined
+): boolean {
+  const relativePath = normalizeGlobPath(
+    relativeOrAbsolutePath(filePath, searchPath)
+  );
+  const includes = scope?.include ?? [];
+  if (
+    includes.length > 0 &&
+    !includes.some(glob => matchesGlob(relativePath, glob))
+  ) {
+    return false;
+  }
+  return !(scope?.exclude ?? []).some(glob => matchesGlob(relativePath, glob));
+}
+
+function relativeOrAbsolutePath(filePath: string, searchPath: string): string {
+  const rel = path.relative(searchPath, filePath);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return filePath;
+  return rel;
+}
+
+function normalizeGlobPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function matchesGlob(relativePath: string, glob: string): boolean {
+  const normalizedGlob = normalizeGlobPath(glob);
+  const target = normalizeGlobPath(relativePath);
+  const re = globToRegExp(normalizedGlob);
+  if (re.test(target)) return true;
+  if (!normalizedGlob.includes('/')) {
+    return re.test(path.posix.basename(target));
+  }
+  return false;
+}
+
+function globToRegExp(glob: string): RegExp {
+  let pattern = '^';
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i]!;
+    const next = glob[i + 1];
+    const afterNext = glob[i + 2];
+    if (ch === '*' && next === '*' && afterNext === '/') {
+      pattern += '(?:.*/)?';
+      i += 2;
+      continue;
+    }
+    if (ch === '*' && next === '*') {
+      pattern += '.*';
+      i += 1;
+      continue;
+    }
+    if (ch === '*') {
+      pattern += '[^/]*';
+      continue;
+    }
+    if (ch === '?') {
+      pattern += '[^/]';
+      continue;
+    }
+    pattern += escapeRegExp(ch);
+  }
+  return new RegExp(`${pattern}$`);
+}
+
+function escapeRegExp(ch: string): string {
+  return /[|\\{}()[\]^$+?.]/.test(ch) ? `\\${ch}` : ch;
+}
 
 function normalizeContentRange(
   range: NonNullable<NonNullable<OqlQuery['fetch']>['content']>['range']

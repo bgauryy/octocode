@@ -19,8 +19,8 @@ import {
   TOOL_NAMES,
   DESCRIPTIONS,
 } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
-import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/oql_search/constants.js';
 
 const removedLspToolNames = [
   `lsp${'Goto'}Definition`,

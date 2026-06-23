@@ -38,6 +38,11 @@ type FetchDirectoryData = {
   readonly repoRoot?: string;
   readonly resolvedBranch?: string;
   readonly cached?: boolean;
+  readonly complete?: boolean;
+  readonly verified?: boolean;
+  readonly commitSha?: string;
+  readonly hasSubdirectories?: boolean;
+  readonly skippedSummary?: Record<string, number>;
 };
 
 type FetchStructuredContent = {
@@ -64,6 +69,10 @@ export type RemoteLocation = {
   readonly source?: 'clone' | 'tree';
   readonly cached?: boolean;
   readonly complete?: boolean;
+  readonly verified?: boolean;
+  readonly commitSha?: string;
+  readonly hasSubdirectories?: boolean;
+  readonly skippedSummary?: Record<string, number>;
   readonly resolvedBranch?: string;
 };
 
@@ -76,6 +85,10 @@ export type RemoteMaterialization = {
   readonly repoRoot: string;
   readonly source: 'clone' | 'tree';
   readonly complete: boolean;
+  readonly verified: boolean;
+  readonly commitSha?: string;
+  readonly hasSubdirectories?: boolean;
+  readonly skippedSummary?: Record<string, number>;
   readonly cached: boolean;
   readonly location: RemoteLocation;
 };
@@ -192,6 +205,13 @@ function locationPayload(location: RemoteLocation): Record<string, unknown> {
     ...(location.source ? { source: location.source } : {}),
     ...(location.cached !== undefined ? { cached: location.cached } : {}),
     ...(location.complete !== undefined ? { complete: location.complete } : {}),
+    ...(location.verified !== undefined ? { verified: location.verified } : {}),
+    ...(location.commitSha ? { commitSha: location.commitSha } : {}),
+    ...(location.hasSubdirectories ? { hasSubdirectories: true } : {}),
+    ...(location.skippedSummary &&
+    Object.keys(location.skippedSummary).length > 0
+      ? { skippedSummary: location.skippedSummary }
+      : {}),
     ...(location.resolvedBranch
       ? { resolvedBranch: location.resolvedBranch }
       : {}),
@@ -230,7 +250,64 @@ export function formatMaterializationHints(
   if (location.complete !== undefined) {
     lines.push(`  complete: ${location.complete}`);
   }
+  if (location.verified !== undefined) {
+    lines.push(`  verified: ${location.verified}`);
+  }
+  if (location.commitSha) {
+    lines.push(`  commitSha: ${location.commitSha}`);
+  }
+  if (location.hasSubdirectories) {
+    lines.push(`  hasSubdirectories: true`);
+  }
+  if (
+    location.skippedSummary &&
+    Object.keys(location.skippedSummary).length > 0
+  ) {
+    lines.push(`  skippedSummary: ${JSON.stringify(location.skippedSummary)}`);
+  }
   return lines.join('\n');
+}
+
+/** Remote context stamped into every `next.*` query so agents following
+ *  pagination to page 2+ can see the provenance even though localSearchCode
+ *  won't re-emit the full `location` block. */
+function remoteAnnotation(m: RemoteMaterialization): Record<string, unknown> {
+  return {
+    _remote: {
+      owner: m.owner,
+      repo: m.repo,
+      source: m.source,
+      localPath: m.localPath,
+      ...(m.branch ? { branch: m.branch } : {}),
+      ...(m.commitSha ? { commitSha: m.commitSha } : {}),
+    },
+  };
+}
+
+/** Walk results[*].data.next.* and inject _remote into each `query` object. */
+function annotateNextPointers(
+  sc: Record<string, unknown>,
+  annotation: Record<string, unknown>
+): Record<string, unknown> {
+  const results = sc.results;
+  if (!Array.isArray(results)) return sc;
+  const patched = results.map(item => {
+    if (!isRecord(item)) return item;
+    const data = item.data;
+    if (!isRecord(data)) return item;
+    const next = data.next;
+    if (!isRecord(next)) return item;
+    const patchedNext = Object.fromEntries(
+      Object.entries(next).map(([k, v]) => {
+        if (!isRecord(v)) return [k, v];
+        const query = v.query;
+        if (!isRecord(query)) return [k, v];
+        return [k, { ...v, query: { ...query, ...annotation } }];
+      })
+    );
+    return { ...item, data: { ...data, next: patchedNext } };
+  });
+  return { ...sc, results: patched };
 }
 
 export function withMaterializationHints<T extends HintableToolResult>(
@@ -240,10 +317,14 @@ export function withMaterializationHints<T extends HintableToolResult>(
   const structuredRecord = isRecord(result.structuredContent)
     ? result.structuredContent
     : { data: result.structuredContent };
-  const structuredContent = {
+  const withLocation = {
     ...structuredRecord,
     location: locationPayload(materialized.location),
   };
+  const structuredContent = annotateNextPointers(
+    withLocation,
+    remoteAnnotation(materialized)
+  );
   const locationBlock = formatMaterializationHints(materialized);
   const content = result.content?.map(item =>
     item.type === 'text' && typeof item.text === 'string'
@@ -323,6 +404,7 @@ async function materializeCloneForCli(
     repoRoot,
     source: 'clone',
     complete: true,
+    verified: true,
     cached,
     location: {
       kind: locationKindFor(request.kind),
@@ -332,6 +414,7 @@ async function materializeCloneForCli(
       source: 'clone',
       cached,
       complete: true,
+      verified: true,
       ...(resolvedBranch ? { resolvedBranch } : {}),
     },
   };
@@ -378,6 +461,14 @@ async function materializeTreeForCli(
   const repoRoot = path.resolve(data.repoRoot ?? data.localPath);
   const resolvedBranch = data.resolvedBranch ?? repo.branch;
   const cached = Boolean(data.cached);
+  // complete/verified/commitSha are only on FetchDirectoryData (type:'directory');
+  // for single-file fetches the fields are absent and default to safe values.
+  const dirData = data as FetchDirectoryData;
+  const complete = dirData.complete ?? true;
+  const verified = dirData.verified ?? false;
+  const commitSha = dirData.commitSha;
+  const hasSubdirectories = dirData.hasSubdirectories ?? false;
+  const skippedSummary = dirData.skippedSummary;
 
   return {
     owner: repo.owner,
@@ -387,7 +478,11 @@ async function materializeTreeForCli(
     localPath,
     repoRoot,
     source: 'tree',
-    complete: true,
+    complete,
+    verified,
+    ...(commitSha ? { commitSha } : {}),
+    ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
+    ...(skippedSummary ? { skippedSummary } : {}),
     cached,
     location: {
       kind: locationKindFor(request.kind),
@@ -396,7 +491,11 @@ async function materializeTreeForCli(
       ...(requestedPath ? { requestedPath } : {}),
       source: 'tree',
       cached,
-      complete: true,
+      complete,
+      verified,
+      ...(commitSha ? { commitSha } : {}),
+      ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
+      ...(skippedSummary ? { skippedSummary } : {}),
       ...(resolvedBranch ? { resolvedBranch } : {}),
     },
   };

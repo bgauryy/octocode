@@ -280,7 +280,24 @@ function renderEnvelope(env: OqlResultEnvelope, compact: boolean): string {
     lines.push(dim('  … more results available (follow next.page)'));
   }
 
+  // If a structural zero-match guidance is present, render it prominently and
+  // skip the paired generic "zeroMatches: Query ran and matched nothing." line
+  // which adds no information alongside it.
+  const hasStructuralGuidance = env.diagnostics.some(d =>
+    d.message.startsWith('0 structural')
+  );
   for (const d of env.diagnostics) {
+    if (hasStructuralGuidance && d.code === 'zeroMatches') continue;
+    if (d.message.startsWith('0 structural')) {
+      // Surface the body-shape hint as a standalone actionable block.
+      lines.push(`  ${c('yellow', '⚡ structural pattern tip:')}`);
+      for (const part of d.message
+        .replace(/^0 structural matches\.\s*/, '')
+        .split(/\s{2,}|\n/)) {
+        if (part.trim()) lines.push(`    ${dim(part.trim())}`);
+      }
+      continue;
+    }
     const sev =
       d.severity === 'error'
         ? c('red', '✗')
@@ -302,6 +319,30 @@ function renderEnvelope(env: OqlResultEnvelope, compact: boolean): string {
       `  evidence: ${ev.kind}  answerReady=${ev.answerReady}  complete=${ev.complete}${readyHint}`
     )
   );
+
+  // Surface next.* continuations so humans can follow the research/graph
+  // workflow without switching to --json. Each key prints its name and a
+  // truncated --query flag value ready to copy-paste into the terminal.
+  if (env.next && Object.keys(env.next).length > 0) {
+    lines.push('');
+    for (const [key, cont] of Object.entries(env.next)) {
+      const label =
+        key === 'graph'
+          ? 'upgrade to LSP proof'
+          : key === 'page'
+            ? 'next page'
+            : key === 'charRange'
+              ? 'next char window'
+              : key;
+      lines.push(dim(`  next.${key}`) + `  ${dim(label)}`);
+      if (!compact && cont.query) {
+        const q = JSON.stringify(cont.query);
+        const truncated = q.length > 220 ? q.slice(0, 220) + '…' : q;
+        lines.push(dim(`    --query '${truncated}'`));
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -351,11 +392,21 @@ function renderRecord(row: {
         .filter(Boolean)
         .join('  ');
       break;
-    case 'commit':
-      detail = [get('title') ?? get('messageHeadline'), get('author')]
+    case 'commit': {
+      const authorRaw = d.author;
+      const authorName =
+        authorRaw === undefined || authorRaw === null
+          ? undefined
+          : typeof authorRaw === 'string'
+            ? authorRaw
+            : (authorRaw as Record<string, unknown>).name != null
+              ? String((authorRaw as Record<string, unknown>).name)
+              : undefined;
+      detail = [get('title') ?? get('messageHeadline'), authorName]
         .filter(Boolean)
         .join('  ');
       break;
+    }
     case 'artifact':
       detail = [get('mode'), get('format'), get('arch')]
         .filter(Boolean)

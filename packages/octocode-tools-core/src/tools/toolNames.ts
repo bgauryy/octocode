@@ -6,6 +6,10 @@ export const STATIC_TOOL_NAMES = completeMetadata.toolNames;
 export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME =
   STATIC_TOOL_NAMES.LSP_GET_SEMANTIC_CONTENT;
 
+// OQL is currently a tools-core search surface; keep its name in one place
+// until it graduates into octocode-core tool metadata.
+export const OQL_SEARCH_TOOL_NAME = 'oqlSearch';
+
 const LOCAL_TOOL_NAMES_SET = new Set<string>([
   STATIC_TOOL_NAMES.LOCAL_RIPGREP,
   STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,

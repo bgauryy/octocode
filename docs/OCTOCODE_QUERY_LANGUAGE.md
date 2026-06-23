@@ -791,6 +791,12 @@ Each packet can include:
 - `risk`;
 - `next`.
 
+The research result row itself can also carry `next.graph`. That row-level
+continuation is page-aligned and upgrades the current packet page to
+`target:"graph"` with bounded LSP proof. Packet-level `next` entries are for
+exact reads, semantic checks, or text/dynamic follow-up on the individual
+candidate.
+
 Important: research packets use native AST facts where available. The source
 universe is capability-driven, not JS/TS-hardcoded: JS/TS uses OXC graph facts,
 and other supported source languages use tree-sitter graph inventory. The row's

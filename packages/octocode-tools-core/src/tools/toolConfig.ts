@@ -54,13 +54,9 @@ import {
   LocalBinaryInspectBulkQuerySchema,
 } from './local_binary_inspect/scheme.js';
 import {
+  OqlDisplayQuerySchema as OqlSearchQuerySchema,
   OqlSearchInputSchema,
-  OqlSearchQuerySchema,
-} from './oql_search/scheme.js';
-import {
-  OQL_SEARCH_TOOL_DESCRIPTION,
-  OQL_SEARCH_TOOL_NAME,
-} from './oql_search/constants.js';
+} from '../oql/schema.js';
 import { executeInspectBinary } from './local_binary_inspect/execution.js';
 import { executeCloneRepo } from './github_clone_repo/execution.js';
 import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
@@ -76,6 +72,7 @@ import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { executeOqlSearchTool } from './oql_search/execution.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
+import { OQL_SEARCH_TOOL_NAME } from './toolNames.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
@@ -352,10 +349,9 @@ function createToolCatalog(
 
   const OQL_SEARCH: ToolConfig = {
     name: OQL_SEARCH_TOOL_NAME,
-    description: OQL_SEARCH_TOOL_DESCRIPTION,
+    description: getDescription(OQL_SEARCH_TOOL_NAME, gateway),
     isDefault: true,
     isLocal: false,
-    skipMetadataCheck: true,
     type: 'search',
     direct: {
       schema: OqlSearchQuerySchema,

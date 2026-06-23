@@ -476,6 +476,15 @@ fn typescript_cli_from_command(command: &str) -> Option<PathBuf> {
 
 fn find_node_module_file(workspace_root: &str, package_relative_path: &str) -> Option<PathBuf> {
     let start = Path::new(workspace_root);
+    if let Some(path) = find_node_module_file_from(start, package_relative_path) {
+        return Some(path);
+    }
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| find_node_module_file_from(&cwd, package_relative_path))
+}
+
+fn find_node_module_file_from(start: &Path, package_relative_path: &str) -> Option<PathBuf> {
     for ancestor in start.ancestors() {
         let candidate = ancestor.join("node_modules").join(package_relative_path);
         if candidate.exists() {
@@ -522,6 +531,9 @@ mod tests {
         is_rust_analyzer_command, resolve_known_server_command, resolve_server_invocation,
     };
     use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static CWD_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn recognizes_tsgo_command_by_stem() {
@@ -630,6 +642,45 @@ mod tests {
         assert_eq!(args[1], "--stdio");
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_bundled_typescript_server_from_current_dir_for_external_workspace() {
+        let _guard = CWD_LOCK.lock().expect("cwd lock poisoned");
+        let original_cwd = std::env::current_dir().expect("read current dir");
+        let workspace_root = temp_test_root("octocode-engine-external-workspace");
+        let package_root = temp_test_root("octocode-engine-package-root");
+        let cli = package_root
+            .join("node_modules")
+            .join("typescript-language-server")
+            .join("lib")
+            .join("cli.mjs");
+        std::fs::create_dir_all(&workspace_root).expect("create external workspace");
+        std::fs::create_dir_all(cli.parent().unwrap_or(&package_root))
+            .expect("create bundled typescript-language-server dir");
+        std::fs::write(&cli, "#!/usr/bin/env node\n").expect("write temporary cli");
+        std::env::set_current_dir(&package_root).expect("set temporary package cwd");
+
+        let Some(workspace_str) = workspace_root.to_str() else {
+            panic!("temporary workspace path is not utf-8");
+        };
+        let (command, args) = resolve_server_invocation(
+            "typescript-language-server",
+            vec!["--stdio".to_owned()],
+            workspace_str,
+        );
+
+        assert_eq!(Some(command), current_node_command());
+        assert_eq!(
+            PathBuf::from(&args[0]),
+            std::fs::canonicalize(&cli).expect("canonicalize temporary cli")
+        );
+        assert_eq!(args[1], "--stdio");
+
+        std::env::set_current_dir(original_cwd).expect("restore original cwd");
+        let _ = std::fs::remove_dir_all(workspace_root);
+        let _ = std::fs::remove_dir_all(package_root);
     }
 
     #[cfg(unix)]

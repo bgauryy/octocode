@@ -12,6 +12,22 @@ export const OQL_SCHEMA_DOC = {
     'Use octocode search for bounded research over local paths and GitHub scopes: search code matches, file lists, directory trees, or exact/minified content; set from, scope, and where.kind; keep output small with view/select/controls; materialize only for bounded local proof; use --explain and follow next.* continuations when routing or paging is uncertain. Run `octocode search --scheme` to print this schema before writing JSON queries.',
   activeTargets: ACTIVE_TARGETS,
   reservedTargets: RESERVED_TARGETS,
+  // ── Quick-start recipes — copy-paste these, swap the path/text ──────────
+  quickStart: {
+    'text search (local)': 'search "functionName" ./src',
+    'text search (GitHub)': 'search "functionName" facebook/react',
+    'structural AST (local — needs full node shape)':
+      'search --pattern "function $NAME($$$ARGS) { $$$BODY }" ./src --lang ts',
+    'structural AST (GitHub — clones bounded subtree)':
+      'search --pattern "function $NAME($$$ARGS) { $$$BODY }" facebook/react/packages --lang js --materialize auto',
+    'dead-code triage (research)':
+      'search --query \'{"schema":"oql","target":"research","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols","files"]},"itemsPerPage":1,"page":1}\'',
+    'LSP-proven dead symbols (graph)':
+      'search --query \'{"schema":"oql","target":"graph","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols"],"proof":"lsp","proofLimit":5,"includePackets":true},"page":1,"itemsPerPage":10}\'',
+    'OQL full-schema reference': 'search --scheme',
+    'routing explanation before running':
+      'search --explain --query \'{"target":"code","from":{"kind":"local","path":"./src"},"where":{"kind":"text","value":"term"}}\'',
+  },
   evidenceSemantics: {
     'answerReady:true':
       'The envelope answers the query as asked. No required follow-up.',
@@ -69,9 +85,9 @@ export const OQL_SCHEMA_DOC = {
       '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset? } — backing tool localBinaryInspect',
     diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
     research:
-      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — smart internal research flow over a complete local/materialized corpus; uses native AST graph facts where available; packet output pages with page/itemsPerPage; results stay candidate-grade (mode:"prove" never runs LSP here) — follow the row\'s one-call next.graph (pre-filled proof:"lsp", page-aligned, bounded by proofLimit) to upgrade to LSP-proven facts',
+      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — TWO-PHASE WORKFLOW: (1) page:1 + itemsPerPage:1 gets data.summary (full-scope counts: sourceFiles, unusedFiles, exportedSymbols, candidateUnusedExports…) WITHOUT a bulk payload — read the summary first. (2) page:2..N with larger itemsPerPage pages through data.packets[] (individual candidates). Packets carry retainedBy edges (what keeps the symbol alive) plus packet-level next.fetch/next.semantic/next.search continuations. The research result row carries a pre-filled next.graph continuation for the current packet page. Results are always evidence.kind:"candidate" — answerReady:false is expected and normal, not a failure. Follow the result row\'s next.graph (pre-filled proof:"lsp", bounded by proofLimit) to upgrade a page of candidates to LSP-proven proofStatus verdicts.',
     graph:
-      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles?, subject?, subjectKind?, relation?, verdict?, direction?:"incoming"|"outgoing"|"both", proof?:"none"|"lsp", proofLimit?, includePackets?, includeFacts?, includeEdges? } — relationship graph over research packets plus native AST graph facts; pages the filtered packet domain with page/itemsPerPage; relationship-shaped goals/filters default to bounded proof:"lsp" unless proof is explicit; proof:"lsp" or mode:"prove" runs bounded LSP reference proof for current-page symbol packets; analyze rows with missing proof emit next.graph to upgrade the current page',
+      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles?, subject?, subjectKind?, relation?, verdict?, direction?:"incoming"|"outgoing"|"both", proof?:"none"|"lsp", proofLimit?, includePackets?, includeFacts?, includeEdges? } — UPGRADE PATH FROM research: take the next.graph from a research result (it is pre-filled and page-aligned) and run it directly — no manual JSON construction needed. proof:"lsp" runs bounded LSP reference counts for current-page symbol packets and sets proofStatus per row: "confirmed-by-lsp" (refs=0 → safe to inspect for deletion), "conflicting-evidence" (refs>0 → symbol IS retained, check retainedBy before acting), "needs-framework-graph" (may be an entrypoint — LSP alone cannot prove reachability). Rows without LSP proof emit their own next.graph to upgrade the current page. answerReady:false is expected on both research and graph — always follow next.* to get more pages or upgrade evidence.',
     materialize:
       '(no params; no `where`) clone/cache a bounded corpus (from:{kind:"github",repo} + scope.path) and return a stable materialized checkpoint row (localPath/repoRoot/ref/cache/complete) with next.structure/next.files',
   },

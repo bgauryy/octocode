@@ -2,7 +2,10 @@ import { compileWhere } from '../../adapters/compile.js';
 import { diagnostic } from '../../diagnostics.js';
 import type { OqlDiagnostic, OqlQuery } from '../../types.js';
 import type { TransformResult } from '../types.js';
-import { toGithubCodeLanguageParams } from '../language.js';
+import {
+  classifyLanguageSelector,
+  toGithubCodeLanguageParams,
+} from '../language.js';
 import {
   firstScopeLanguage,
   firstScopePath,
@@ -118,6 +121,23 @@ function githubCodeLossyScopeDiagnostics(
       diagnostic(
         'lossyTransform',
         'GitHub code search cannot express multiple scope.language values without dropping values; materialize for local proof.',
+        { backend, queryPath: 'scope.language' }
+      )
+    );
+  }
+
+  const params = query.params ?? {};
+  const scopeLanguage = firstScopeLanguage(query.scope);
+  const selector = classifyLanguageSelector(scopeLanguage);
+  if (
+    typeof params.extension !== 'string' &&
+    selector?.kind === 'language' &&
+    (selector.extensions?.length ?? 0) > 1
+  ) {
+    diagnostics.push(
+      diagnostic(
+        'lossyTransform',
+        `GitHub code search language:${selector.canonicalLanguage} does not cover every known ${selector.normalized} extension (${selector.extensions?.join(', ')}); use an extension selector or materialize for complete proof.`,
         { backend, queryPath: 'scope.language' }
       )
     );

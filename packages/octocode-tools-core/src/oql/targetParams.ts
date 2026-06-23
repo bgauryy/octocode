@@ -66,7 +66,10 @@ const semanticsParams = z
 const repositoriesParams = z
   .object({
     keywords: z.array(z.string()).optional(),
-    topicsToSearch: z.array(z.string()).optional(),
+    topicsToSearch: z
+      .union([z.string(), z.array(z.string())])
+      .transform(v => (typeof v === 'string' ? [v] : v))
+      .optional(),
     language: z.string().optional(),
     owner: z.string().optional(),
     stars: z.union([z.string(), z.number()]).optional(),
@@ -98,7 +101,10 @@ const pullRequestsParams = z
     state: z.enum(['open', 'closed', 'merged']).optional(),
     author: z.string().optional(),
     label: z.union([z.string(), z.array(z.string())]).optional(),
-    keywordsToSearch: z.array(z.string()).optional(),
+    keywordsToSearch: z
+      .union([z.string(), z.array(z.string())])
+      .transform(v => (typeof v === 'string' ? [v] : v))
+      .optional(),
     head: z.string().optional(),
     base: z.string().optional(),
     reviewMode: z.string().optional(),

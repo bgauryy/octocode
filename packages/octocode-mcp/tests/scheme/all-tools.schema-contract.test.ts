@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
+import {
+  OQL_SEARCH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
+} from '../../../octocode-tools-core/src/tools/toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
-import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/oql_search/constants.js';
 const SHARED_FIELDS = [
   'id',
   'mainResearchGoal',

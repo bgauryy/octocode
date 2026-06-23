@@ -14,6 +14,7 @@ import { runDirect } from './runner.js';
 import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
 import { diagnostic } from '../diagnostics.js';
 import { classifyDiffLane } from '../diffLanes.js';
+import { toGithubRepositoryLanguage } from '../transformers/language.js';
 import { analyzeResearchFlow } from '../research/analyze.js';
 import {
   buildResearchPackets,
@@ -1061,6 +1062,12 @@ function params(query: OqlQuery): Record<string, unknown> {
   return query.params ?? {};
 }
 
+function firstScopeLanguage(query: OqlQuery): string | undefined {
+  const lang = query.scope?.language;
+  if (!lang) return undefined;
+  return Array.isArray(lang) ? lang[0] : lang;
+}
+
 function withOqlPaging(
   query: OqlQuery,
   limitKey?: 'limit' | 'perPage'
@@ -1220,9 +1227,16 @@ export async function executeRepositories(
   query: OqlQuery
 ): Promise<AdapterResult> {
   const { owner } = splitRepo(query.from);
+  const forwarded = withOqlPaging(query, 'limit');
+  const rawLanguage =
+    typeof forwarded.language === 'string'
+      ? forwarded.language
+      : firstScopeLanguage(query);
+  const language = toGithubRepositoryLanguage(rawLanguage);
+  if (language) forwarded.language = language;
   const result = await runDirect('ghSearchRepos', {
     ...(owner ? { owner } : {}),
-    ...withOqlPaging(query, 'limit'),
+    ...forwarded,
   });
   return finishRecords(
     result,

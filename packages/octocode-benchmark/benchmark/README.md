@@ -1,8 +1,9 @@
 # Octocode benchmark suite
 
-Three feature areas, each a self-contained folder with its own real-file
-samples and a check that exercises the feature through the shipped
-`octocode-engine` napi binary. This suite lives in the private
+Four feature areas, each a self-contained folder with its own real-file samples
+or offline CLI metadata checks. Engine checks exercise the shipped
+`octocode-engine` napi binary; the CLI check exercises built agent-facing help,
+tool schemes, and OQL schema output. This suite lives in the private
 `@octocodeai/octocode-benchmark` workspace package.
 
 > **Full format support:** [`SUPPORT.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/SUPPORT.md) is the canonical,
@@ -14,6 +15,7 @@ samples and a check that exercises the feature through the shipped
 | --- | --- | --- | --- |
 | [`ast/`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/ast/) | Structural (AST) search + signature extraction | `ast/samples/` — one real file per grammar (provenance in `ast/manifest.json`) | `ast/check-ast.mjs` — parse + match + signature for all 19 grammars |
 | [`ast-grep/`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/ast-grep/) | Optional external ast-grep CLI comparison | ast-grep upstream outline benchmark scenario repos | `ast-grep/compare-upstream-scenarios.mjs` — same-corpus ast-grep CLI vs Octocode CLI benchmark |
+| [`cli/`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/cli/) | Agent-facing CLI/tool/OQL metadata | Canonical `octocode-core` metadata plus built CLI help/scheme output | `cli/check-cli-metadata.mjs` — offline check for all raw tool descriptions/schemes, command help schemes, agent context, and OQL schema |
 | [`lsp/`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/lsp/) | LSP language-id, server resolution, native semantics | `lsp/samples/` — one real file per LSP language | `lsp/check-lsp.mjs` — language-id + server config + native semantics for 18 languages |
 | [`minify/`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/minify/) | Minifier (the original size/strategy report) | `minify/<lang>/raw|minified|symbol/` — one excerpt per discovered extension | `minify/check-minify.mjs` — minify runs for all 46 formats; `generate-real-code-report.mjs` produces the size report |
 
@@ -21,19 +23,35 @@ samples and a check that exercises the feature through the shipped
 
 ```bash
 yarn workspace @octocodeai/octocode-engine build:dev
-node benchmark/run-all.mjs        # all three checks
+node benchmark/run-all.mjs        # default benchmark/test checks
 # or individually:
+node benchmark/cli/check-cli-metadata.mjs
 node benchmark/ast/check-ast.mjs
 node benchmark/ast-grep/compare-upstream-scenarios.mjs --sync-repos --scenario gin-middleware-routing
 node benchmark/lsp/check-lsp.mjs
 node benchmark/minify/check-minify.mjs
 ```
 
-Equivalent yarn scripts: `yarn ast:check`, `yarn lsp:check`, `yarn minify:check`,
-`yarn ast:compare:upstream`, `yarn benchmark` (run-all). Engine package
-compatibility scripts delegate here. The ast-grep comparison is optional and is
-not part of `yarn benchmark` because it needs external CLIs and cloned upstream
-scenario repositories.
+Equivalent yarn scripts: `yarn cli:check`, `yarn ast:check`, `yarn lsp:check`,
+`yarn minify:check`, `yarn ast:compare:upstream`, `yarn benchmark`, and
+`yarn test` (run-all). Engine package compatibility scripts delegate here. The
+ast-grep comparison is optional and is not part of `yarn benchmark` because it
+needs external CLIs and cloned upstream scenario repositories.
+
+The default runner includes the offline CLI metadata gate for all command
+descriptions/schemes, raw tool descriptions/schemes, agent context instructions,
+and OQL schema. Live CLI/tool flow benchmarks remain a unified eval rather than
+default runner steps, so network, npm, clone, and auth-dependent checks do not
+make the benchmark flaky. See the
+[unified CLI/tool/OQL eval](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/OCTOCODE_EVALS.md)
+for GitHub, npm, clone-backed local proof, minify, OQL, parity, and workflow
+checks.
+Agents must write reported runs to
+`packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/` and
+follow the
+[agent benchmark runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md).
+The machine-readable `summary.json` file must follow
+[output-run.schema.json](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/output-run.schema.json).
 
 ## Real samples, not invented
 

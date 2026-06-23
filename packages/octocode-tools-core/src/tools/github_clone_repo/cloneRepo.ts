@@ -1,5 +1,6 @@
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'fs';
 import { join } from 'path';
+import { createHash } from 'crypto';
 import { getOctocodeDir } from '../../shared/index.js';
 import { resolveDefaultBranch } from '../../github/client.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
@@ -25,6 +26,14 @@ const CLONE_TIMEOUT_MS = 2 * 60 * 1000;
 
 const SPARSE_CHECKOUT_TIMEOUT_MS = 30 * 1000;
 
+const CLONE_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+
+const CLONE_LOCK_POLL_MS = 100;
+
+const CLONE_LOCKS_DIR = 'clone-locks';
+
+const CLONE_TEMP_DIR = 'clone-tmp';
+
 const GIT_ALLOWED_ENV_VARS = [
   ...TOOLING_ALLOWED_ENV_VARS,
   'GIT_TERMINAL_PROMPT',
@@ -47,55 +56,128 @@ export async function cloneRepo(
   const octocodeDir = getOctocodeDir();
   const cloneDir = getCloneDir(octocodeDir, owner, repo, branch, sparsePath);
 
-  const cacheResult = isCacheHit(cloneDir);
-  if (!forceRefresh && cacheResult.hit && cacheResult.meta.source === 'clone') {
-    return {
-      localPath: cloneDir,
-      cached: true,
-      owner,
-      repo,
-      branch,
-      ...(sparsePath ? { sparsePath } : {}),
-    };
+  return withCloneLock(octocodeDir, cloneDir, async () => {
+    const cacheResult = isCacheHit(cloneDir);
+    if (
+      !forceRefresh &&
+      cacheResult.hit &&
+      cacheResult.meta.source === 'clone'
+    ) {
+      return {
+        localPath: cloneDir,
+        cached: true,
+        owner,
+        repo,
+        branch,
+        ...(sparsePath ? { sparsePath } : {}),
+      };
+    }
+
+    evictExpiredClones(octocodeDir);
+    ensureCloneParentDir(cloneDir);
+
+    const resolvedToken = pickToken(authInfo, token);
+    const tempDir = temporaryCloneDir(octocodeDir, cloneDir);
+    removeCloneDir(tempDir);
+
+    try {
+      if (sparsePath) {
+        await executeSparseClone(
+          owner,
+          repo,
+          branch,
+          tempDir,
+          sparsePath,
+          resolvedToken
+        );
+        if (!existsSync(join(tempDir, sparsePath))) {
+          throw new Error(
+            `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
+              'Verify the path with ghViewRepoStructure, then retry with the correct sparsePath (or omit it for a full clone).'
+          );
+        }
+      } else {
+        await executeFullClone(owner, repo, branch, tempDir, resolvedToken);
+      }
+
+      const newMeta = createCacheMeta(owner, repo, branch, 'clone', sparsePath);
+      writeCacheMeta(tempDir, newMeta);
+      promoteCloneDir(tempDir, cloneDir);
+
+      return {
+        localPath: cloneDir,
+        cached: false,
+        owner,
+        repo,
+        branch,
+        ...(sparsePath ? { sparsePath } : {}),
+      };
+    } catch (error) {
+      removeCloneDir(tempDir);
+      throw error;
+    }
+  });
+}
+
+async function withCloneLock<T>(
+  octocodeDir: string,
+  cloneDir: string,
+  run: () => Promise<T>
+): Promise<T> {
+  ensureCloneParentDir(cloneDir);
+  const lockDir = cloneLockDir(octocodeDir, cloneDir);
+  mkdirSync(join(octocodeDir, 'tmp', CLONE_LOCKS_DIR), {
+    recursive: true,
+    mode: 0o700,
+  });
+  const started = Date.now();
+
+  while (true) {
+    try {
+      mkdirSync(lockDir, { mode: 0o700 });
+      break;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST') throw error;
+      if (Date.now() - started > CLONE_LOCK_TIMEOUT_MS) {
+        throw new Error(`Timed out waiting for clone cache lock '${lockDir}'.`);
+      }
+      await sleep(CLONE_LOCK_POLL_MS);
+    }
   }
 
-  evictExpiredClones(octocodeDir);
+  try {
+    return await run();
+  } finally {
+    rmSync(lockDir, { recursive: true, force: true });
+  }
+}
+
+function cacheKey(cloneDir: string): string {
+  return createHash('sha256').update(cloneDir).digest('hex').slice(0, 16);
+}
+
+function cloneLockDir(octocodeDir: string, cloneDir: string): string {
+  return join(octocodeDir, 'tmp', CLONE_LOCKS_DIR, cacheKey(cloneDir));
+}
+
+function temporaryCloneDir(octocodeDir: string, cloneDir: string): string {
+  const suffix = `${process.pid}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+  const tmpBase = join(octocodeDir, 'tmp', CLONE_TEMP_DIR);
+  mkdirSync(tmpBase, { recursive: true, mode: 0o700 });
+  return join(tmpBase, `${cacheKey(cloneDir)}-${suffix}`);
+}
+
+function promoteCloneDir(tempDir: string, cloneDir: string): void {
   removeCloneDir(cloneDir);
   ensureCloneParentDir(cloneDir);
+  renameSync(tempDir, cloneDir);
+}
 
-  const resolvedToken = pickToken(authInfo, token);
-
-  if (sparsePath) {
-    await executeSparseClone(
-      owner,
-      repo,
-      branch,
-      cloneDir,
-      sparsePath,
-      resolvedToken
-    );
-    if (!existsSync(join(cloneDir, sparsePath))) {
-      removeCloneDir(cloneDir); // don't cache a clone missing its sparse path
-      throw new Error(
-        `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
-          'Verify the path with ghViewRepoStructure, then retry with the correct sparsePath (or omit it for a full clone).'
-      );
-    }
-  } else {
-    await executeFullClone(owner, repo, branch, cloneDir, resolvedToken);
-  }
-
-  const newMeta = createCacheMeta(owner, repo, branch, 'clone', sparsePath);
-  writeCacheMeta(cloneDir, newMeta);
-
-  return {
-    localPath: cloneDir,
-    cached: false,
-    owner,
-    repo,
-    branch,
-    ...(sparsePath ? { sparsePath } : {}),
-  };
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function executeFullClone(

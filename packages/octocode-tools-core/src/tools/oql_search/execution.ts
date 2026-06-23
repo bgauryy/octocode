@@ -1,6 +1,6 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { OqlSearchInputSchema } from './scheme.js';
+import { OqlSearchInputSchema } from '../../oql/schema.js';
 import type { OqlRunResult, OqlSearchInput } from '../../oql/types.js';
 
 type OqlSearchToolInput = Record<string, unknown> & {

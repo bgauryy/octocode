@@ -15,7 +15,7 @@
  * module so engine-less runtimes (e.g. Codex.app Node) can read schemas.
  */
 import { z } from 'zod';
-import { STATIC_TOOL_NAMES } from './toolNames.js';
+import { OQL_SEARCH_TOOL_NAME, STATIC_TOOL_NAMES } from './toolNames.js';
 import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   CloneRepoQueryLocalSchema,
@@ -70,10 +70,9 @@ import {
   LocalBinaryInspectBulkQuerySchema,
 } from './local_binary_inspect/scheme.js';
 import {
+  OqlDisplayQuerySchema as OqlSearchQuerySchema,
   OqlSearchInputSchema,
-  OqlSearchQuerySchema,
-} from './oql_search/scheme.js';
-import { OQL_SEARCH_TOOL_NAME } from './oql_search/constants.js';
+} from '../oql/schema.js';
 
 export type DirectToolInput = Record<string, unknown> & {
   queries: unknown[];

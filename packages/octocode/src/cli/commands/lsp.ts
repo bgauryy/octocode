@@ -52,7 +52,7 @@ function printUsageError(message: string, jsonOutput: boolean): void {
   console.error(`\n  ${c('red', '✗')} ${message}`);
   console.error(
     `\n  ${dim('Examples:')}\n` +
-      `    grep "runCLI" packages/octocode/src --type ts\n` +
+      `    lsp packages/octocode/src/index.ts --type references --symbol runCLI --line 10\n` +
       `    lsp packages/octocode/src/index.ts --type definition --symbol runCLI --line 10\n` +
       `    lsp packages/octocode/src/cli/index.ts --type hover --symbol runCLI --line 73\n` +
       `    lsp packages/octocode/src/cli/index.ts --type documentSymbols\n`
@@ -354,8 +354,14 @@ export const lspCommand: CLICommand = {
     }
 
     if (!rawType || !isLspType(rawType)) {
+      // Guard: if the first positional looks like a type name the user may have
+      // written `lsp definition <file>` instead of `lsp <file> --type definition`.
+      const positionalIsType = isLspType(target);
+      const hint = positionalIsType
+        ? ` (did you mean: lsp <file> --type ${target}?)`
+        : '';
       printUsageError(
-        `Provide --type with one of: ${LSP_TYPES.join(', ')}`,
+        `Provide --type with one of: ${LSP_TYPES.join(', ')}${hint}`,
         jsonOutput
       );
       process.exitCode = EXIT.USAGE;
@@ -477,6 +483,28 @@ export const lspCommand: CLICommand = {
         ? withMaterializationHints(result, materializedRemote)
         : result;
       printLspToolResult(outputResult, jsonOutput);
+
+      // For references, warn when the result looks incomplete due to monorepo
+      // package-boundary scoping. The LSP server is started from the nearest
+      // tsconfig.json, so it only sees files in that package — cross-package
+      // callers are invisible. Emit a hint whenever references returns very few
+      // results without an explicit --workspace-root override.
+      if (!jsonOutput && rawType === 'references' && !workspaceRoot) {
+        const items = outputResult.structuredContent?.results ?? [];
+        const totalRefs = items.reduce((sum, item) => {
+          const total = (
+            item.data?.payload as { totalReferences?: number } | undefined
+          )?.totalReferences;
+          return sum + (typeof total === 'number' ? total : 0);
+        }, 0);
+        if (totalRefs <= 1) {
+          process.stderr.write(
+            `\n  ${dim('Scope note:')} references is scoped to the anchor file's package. ` +
+              `Pass ${dim('--workspace-root <monorepo-root>')} to search across packages.\n`
+          );
+        }
+      }
+
       markLspSemanticFailure(outputResult);
       markDirectToolFailure(outputResult);
     } catch (error) {

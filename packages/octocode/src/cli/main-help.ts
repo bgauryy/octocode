@@ -1,3 +1,12 @@
+// ── Help surface sync contract ────────────────────────────────────────────────
+// ALL locations must be updated together when changing help text:
+//   1. THIS FILE (main-help.ts)                    — top-level `--help`
+//   2. packages/octocode/src/cli/commands/search.ts — renderEnvelope, per-command hints
+//   3. packages/octocode-tools-core/src/oql/schemeText.ts — `--scheme` JSON output
+//   4. octocode-mcp-host/…/resources/tools/oqlSearch.ts — MCP tool description (now in sibling repo resources)
+//   5. octocode-mcp-host/…/resources/cli/search.ts  — CLICommandSpec (scheme[], whenToUse[])
+//   6. octocode-mcp-host/…/resources/systemPrompt.ts — MCP + CLI system prompt
+// ─────────────────────────────────────────────────────────────────────────────
 import { join } from 'node:path';
 import { c, bold, dim, underline } from '../utils/colors.js';
 import { getAuthStatus } from '../features/github-oauth.js';
@@ -208,6 +217,20 @@ export async function showHelp(): Promise<void> {
       'fetch <owner/repo> [path]',
       'save remote content locally + return structured location data'
     ),
+    '',
+
+    // ── Remote-as-local bridge ──────────────────────────────────────────────
+    `  ${c('green', bold('REMOTE AS LOCAL'))}  ${dim('use --repo to analyse GitHub content with local tools')}`,
+    `    ${dim('Add')} ${c('cyan', '--repo <owner/repo[@branch]>')} ${dim('to any local command to transparently materialize remote content.')}`,
+    `    ${dim('grep │ ls │ cat │ find │ lsp all accept --repo. The first call fetches; subsequent calls use the disk cache (24 h).')}`,
+    `    ${dim('Decision tree:')}`,
+    `      ${c('cyan', 'grep <kw> --repo owner/repo')}          ${dim('→ text search across a remote repo (tree-fetch, fast)')}`,
+    `      ${c('cyan', 'ls --repo owner/repo')}                 ${dim('→ remote directory tree')}`,
+    `      ${c('cyan', 'cat --repo owner/repo/path/to/file')}   ${dim('→ read a single remote file (does NOT need clone)')}`,
+    `      ${c('cyan', 'clone owner/repo')}                     ${dim('→ git clone (use for full repo AST/LSP/dead-code analysis)')}`,
+    `      ${c('cyan', 'cache fetch owner/repo [path]')}        ${dim('→ explicit tree-fetch + returns location.{localPath,complete,verified}')}`,
+    `    ${dim('After materialization the')} ${c('cyan', 'location')} ${dim('block in every result carries localPath, cached, complete, and verified.')}`,
+    `    ${dim('verified:false = served from disk cache (completeness unconfirmed). Use --force-refresh or clone to get verified:true.')}`,
     '',
 
     // ── Raw execution — every tool, including ones without a quick command ──

@@ -225,6 +225,25 @@ function attachContinuations(
     };
   }
 
+  // GitHub provider returned zero results — code search may not index this repo.
+  // Emit next.materialize so agents can clone locally and retry with full coverage.
+  if (
+    exec.diagnostics.some(d => d.code === 'providerUnindexed') &&
+    query.from?.kind === 'github' &&
+    query.target === 'code'
+  ) {
+    next['next.materialize'] = {
+      query: {
+        schema: 'oql',
+        target: 'materialize',
+        from: query.from,
+        materialize: { mode: 'auto' },
+      },
+      why: 'GitHub code search returned no results — clone the repo locally and retry the search with full local coverage.',
+      confidence: 'heuristic',
+    };
+  }
+
   // Per-row continuations via the registry.
   const ctx: ContinuationCtx = { query, fileFrom: localFileSource(query) };
   for (const row of exec.results) {

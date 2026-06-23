@@ -141,6 +141,15 @@ function routeGithub(
 
   switch (predicate.kind) {
     case 'text':
+      if (ctx.materialize?.mode === 'required') {
+        return {
+          route: 'ROUTE',
+          backend: LOCAL_SEARCH,
+          exact: true,
+          reason:
+            'literal text routed to materialization because materialize.mode is required',
+        };
+      }
       return {
         route: 'PUSHDOWN',
         backend: GH_SEARCH,

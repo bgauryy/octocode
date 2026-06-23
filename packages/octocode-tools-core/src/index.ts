@@ -82,7 +82,6 @@ export * from './tools/local_view_structure/execution.js';
 export * from './tools/local_view_structure/local_view_structure.js';
 export * from './tools/local_view_structure/scheme.js';
 export * from './tools/local_view_structure/structureFilters.js';
-export * from './tools/oql_search/constants.js';
 export * from './tools/oql_search/execution.js';
 export * from './tools/lsp/semantic_content/execution.js';
 export * from './tools/lsp/semantic_content/index.js';

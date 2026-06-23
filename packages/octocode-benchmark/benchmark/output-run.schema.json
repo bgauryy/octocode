@@ -1,0 +1,374 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/output-run.schema.json",
+  "title": "Octocode benchmark run summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "benchmark",
+    "run",
+    "environment",
+    "determinism",
+    "surfaces",
+    "flows",
+    "ratings",
+    "reflection",
+    "verdict"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "recipe"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "engine",
+            "cli-tools",
+            "remote-as-local",
+            "oql-flow",
+            "research-quality",
+            "comparison",
+            "manual"
+          ]
+        },
+        "recipe": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId", "timestampUtc", "outputDir", "gitCommit", "gitDirty"],
+      "properties": {
+        "runId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*-[0-9]{8}T[0-9]{6}Z$"
+        },
+        "timestampUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "outputDir": {
+          "type": "string",
+          "pattern": "^packages/octocode-benchmark/output/[a-z0-9][a-z0-9-]*-[0-9]{8}T[0-9]{6}Z$"
+        },
+        "gitCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "gitDirty": {
+          "type": "boolean"
+        },
+        "gitStatusShortFile": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "node", "packageManager", "cliCommand"],
+      "properties": {
+        "os": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "packageManager": {
+          "type": "string"
+        },
+        "cliCommand": {
+          "type": "string"
+        },
+        "authState": {
+          "type": "string",
+          "enum": ["anonymous", "authenticated", "unknown"]
+        }
+      }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cacheMode", "fixedInputs", "paginationFixed", "networkUsed"],
+      "properties": {
+        "cacheMode": {
+          "type": "string",
+          "enum": ["cold", "warm", "mixed", "not-applicable"]
+        },
+        "fixedInputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "paginationFixed": {
+          "type": "boolean"
+        },
+        "networkUsed": {
+          "type": "boolean"
+        },
+        "knownNondeterminism": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "surfaces": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/surfaceResult"
+      }
+    },
+    "flows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/flowResult"
+      }
+    },
+    "ratings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rawMcpTools",
+        "oqlSearch",
+        "quickCli",
+        "flowQuality",
+        "schemaQuality",
+        "dataQuality",
+        "researchQuality",
+        "outputQuality"
+      ],
+      "properties": {
+        "rawMcpTools": {
+          "$ref": "#/$defs/rating"
+        },
+        "oqlSearch": {
+          "$ref": "#/$defs/rating"
+        },
+        "quickCli": {
+          "$ref": "#/$defs/rating"
+        },
+        "flowQuality": {
+          "$ref": "#/$defs/rating"
+        },
+        "schemaQuality": {
+          "$ref": "#/$defs/rating"
+        },
+        "dataQuality": {
+          "$ref": "#/$defs/rating"
+        },
+        "researchQuality": {
+          "$ref": "#/$defs/rating"
+        },
+        "outputQuality": {
+          "$ref": "#/$defs/rating"
+        },
+        "remoteAsLocal": {
+          "$ref": "#/$defs/rating"
+        }
+      }
+    },
+    "reflection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["whatWorked", "whatDidNotWork", "missing", "possibleImprovements", "praises", "nextFix"],
+      "properties": {
+        "whatWorked": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "whatDidNotWork": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "possibleImprovements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "praises": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextFix": {
+          "type": "string"
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pass", "warn", "fail"]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "blockingIssues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "reason"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "surfaceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expected", "observed", "status"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pass", "warn", "fail"]
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "flowResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "commands", "status", "evidence", "outputQualityScore"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/commandResult"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pass", "warn", "fail"]
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["kind", "answerReady", "complete"],
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "answerReady": {
+              "type": "boolean"
+            },
+            "complete": {
+              "type": "boolean"
+            }
+          }
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bestContinuation": {
+          "type": "string"
+        },
+        "outputQualityScore": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "commandResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "command", "exitCode", "durationMs", "stdoutFile"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stdoutFile": {
+          "type": "string"
+        },
+        "stderrFile": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -217,13 +217,29 @@ AST_GREP_BIN=/path/to/ast-grep \
 
 ### Output files
 
-After a run:
+Every reported benchmark run writes to a timestamped directory:
+
+```text
+packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/
+```
+
+Required files:
 
 | File | What it contains |
 |---|---|
-| `target/ast-grep-upstream/latest.json` | Full JSON result — all lanes, all scenarios, versions, options |
-| `output/comparison.md` | Human-readable comparison table (updated manually after a run) |
-| `output/summary.md` | Short summary (updated manually) |
+| `README.md` | Human index: benchmark name, verdict, reproduction command |
+| `manifest.json` | Git state, environment, fixed inputs, cache/network mode |
+| `summary.json` | Machine-readable result that follows [`output-run.schema.json`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/output-run.schema.json) |
+| `commands.ndjson` | One command record per line: command, exit code, duration, raw output files |
+| `results.md` | Human-readable measurements, evidence anchors, and pass/fail details |
+| `reflection.md` | What worked, what did not, missing pieces, possible improvements, praises, ratings, next fix |
+| `ratings.json` | 1-10 scores with reasons for tools, OQL, CLI, data, schema, research, and output quality |
+| `raw/` | Raw stdout/stderr/tool JSON, one file per command |
+| `schemes/` | Captured help/schema text used by the run |
+| `artifacts/` | Optional derived tables, corpus manifests, or comparison files |
+
+Read the agent output contract before running manual or live CLI benchmarks:
+[`recipes/agent-benchmark-runbook.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md).
 
 ---
 
@@ -322,8 +338,19 @@ yarn workspace @octocodeai/octocode-benchmark benchmark
 | AST | `benchmark/ast/check-ast.mjs` | All 19 tree-sitter grammars parse real samples and match canonical patterns |
 | LSP | `benchmark/lsp/check-lsp.mjs` | Language-id resolution and server wiring for 18 languages |
 | Minify | `benchmark/minify/check-minify.mjs` | Minifier output for 141 samples across 70+ formats |
+| CLI metadata | `benchmark/cli/check-cli-metadata.mjs` | All raw tool descriptions/schemes, CLI command descriptions/schemes, agent context instructions, and OQL schema render from canonical metadata |
 
-These do not invoke ast-grep at all — they validate the shipped engine binary.
+These do not invoke ast-grep at all. Matrix, AST, LSP, and minify validate the
+shipped engine binary; CLI metadata validates the built agent-facing CLI surface
+without network or auth.
+
+Live CLI/tool/flow benchmarks beyond metadata are intentionally documented as a
+unified eval rather than part of `benchmark/run-all.mjs`, because they may
+require GitHub network access, npm registry access, clone permissions, and
+token-dependent rate limits. Use
+[`OCTOCODE_EVALS.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/OCTOCODE_EVALS.md)
+for the GitHub, npm, clone, local-tool, minify, OQL, and search-to-fetch flow
+matrix.
 
 To regenerate the support matrix doc:
 
@@ -363,8 +390,12 @@ gap with a reproducible, corpus-pinned methodology.
 | `benchmark/ast-grep/compare-upstream-scenarios.mjs` | Main benchmark runner |
 | `benchmark/ast-grep/upstream-outline-scenarios.json` | Pinned scenario corpus manifest |
 | `benchmark/ast/compare-ast-grep-cli.mjs` | Small case-by-case correctness comparison |
+| `benchmark/output-run.schema.json` | Required `summary.json` schema for all timestamped benchmark runs |
 | `target/ast-grep-upstream/repos/` | Cached scenario repos (git shallow clones) |
 | `target/ast-grep-upstream/latest.json` | Raw JSON from last run |
 | `output/comparison.md` | Full human-readable comparison table |
 | `recipes/ast-grep.md` | Check-by-check ast-grep comparison and validation recipes |
 | `recipes/dead-code.md` | Dead code and transitive check recipes (knip + Octocode) |
+| `OCTOCODE_EVALS.md` | Unified live CLI/raw-tool/OQL/workflow eval for local, GitHub, npm, clone-backed proof, artifacts, pagination, and parity |
+| `recipes/cli-tools-and-flows.md` | Compatibility pointer to the unified eval |
+| `recipes/agent-benchmark-runbook.md` | Agent instructions for deterministic runs, timestamped output, reflection, ratings, and required result schema |

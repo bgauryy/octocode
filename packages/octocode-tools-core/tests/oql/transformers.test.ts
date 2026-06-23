@@ -59,7 +59,7 @@ describe('OQL transformers: GitHub code search query', () => {
     expect(transformed.query).not.toHaveProperty('language');
   });
 
-  it('uses canonical GitHub language for language-name selectors', () => {
+  it('blocks language-name selectors that GitHub code search would narrow', () => {
     const transformed = toGithubCodeSearchToolQuery(
       githubCodeQuery({
         target: 'code',
@@ -69,16 +69,14 @@ describe('OQL transformers: GitHub code search query', () => {
       })
     );
 
-    expect(transformed.ok).toBe(true);
-    if (!transformed.ok) throw new Error('expected transform to succeed');
-    expect(transformed.query).toMatchObject({
-      owner: 'vuejs',
-      repo: 'core',
-      keywords: ['createApp'],
-      language: 'TypeScript',
-      path: 'packages/runtime-core/src',
+    expect(transformed.ok).toBe(false);
+    if (transformed.ok) throw new Error('expected transform to fail');
+    expect(transformed.diagnostics[0]).toMatchObject({
+      code: 'lossyTransform',
+      queryPath: 'scope.language',
+      blocksAnswer: true,
     });
-    expect(transformed.query).not.toHaveProperty('extension');
+    expect(transformed.diagnostics[0]?.message).toContain('tsx');
   });
 
   it('lets explicit params.extension override scope.language', () => {

@@ -15,6 +15,7 @@ import { classifyDiffLane, diffLaneBackend } from './diffLanes.js';
 import { checkOutputFeatures } from './features.js';
 import { diagnostic } from './diagnostics.js';
 import { DEFAULTS, appliedDefaults } from './defaults.js';
+import { toGithubCodeSearchToolQuery } from './transformers/github/code.js';
 import type {
   LeafPredicate,
   MaterializePolicy,
@@ -311,6 +312,8 @@ export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
     }
   }
 
+  out.diagnostics.push(...adapterValidationDiagnostics(query, out.nodes));
+
   // Output-feature capability check (content view / select projections). Emits
   // non-blocking diagnostics so a requested-but-unbackable feature is explicit,
   // never silently degraded.
@@ -366,6 +369,38 @@ export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
     );
 
   return { plan, executable };
+}
+
+/** Collapse not(not(p)) → p recursively so double-negation never blocks validation. */
+function collapseDoubleNegation(where: Predicate): Predicate {
+  if (where.kind === 'not' && where.predicate.kind === 'not') {
+    return collapseDoubleNegation(where.predicate.predicate);
+  }
+  return where;
+}
+
+function adapterValidationDiagnostics(
+  query: OqlQuery,
+  nodes: OqlPlanNode[]
+): OqlDiagnostic[] {
+  if (
+    query.from?.kind !== 'github' ||
+    (query.target !== 'code' && query.target !== 'files') ||
+    !query.where ||
+    query.materialize?.mode === 'required' ||
+    nodes.some(node => node.route === 'ROUTE')
+  ) {
+    return [];
+  }
+
+  const normalizedWhere = collapseDoubleNegation(query.where);
+  const transformed = toGithubCodeSearchToolQuery(
+    { ...query, where: normalizedWhere },
+    {
+      ...(query.target === 'files' ? { defaultMatch: 'file' as const } : {}),
+    }
+  );
+  return transformed.ok ? [] : transformed.diagnostics;
 }
 
 function backendForTargetless(query: OqlQuery): string {

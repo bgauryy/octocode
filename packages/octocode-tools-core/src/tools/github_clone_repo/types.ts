@@ -6,6 +6,8 @@ export interface CloneCacheMeta {
   owner: string;
   repo: string;
   branch: string;
+  /** HEAD commit SHA at the time this entry was written. Absent on legacy entries. */
+  commitSha?: string;
   sparsePath?: string;
   source: CacheSource;
   sizeBytes?: number;

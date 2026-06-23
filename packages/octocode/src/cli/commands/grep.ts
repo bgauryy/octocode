@@ -601,7 +601,11 @@ export const grepCommand: CLICommand = {
     const matchContentLength = rawMatchLength
       ? parseInt(rawMatchLength, 10)
       : undefined;
-    const maxFiles = rawMaxFiles ? parseInt(rawMaxFiles, 10) : undefined;
+    const maxFiles = rawMaxFiles
+      ? parseInt(rawMaxFiles, 10)
+      : rawLimit
+        ? limit
+        : undefined;
     const matchPage = rawMatchPage ? parseInt(rawMatchPage, 10) : undefined;
     const matchWindow = rawMatchWindow
       ? parseInt(rawMatchWindow, 10)

@@ -120,11 +120,11 @@ function directoryFetchComplete(skipped: DirectorySkipCounts): boolean {
 
 function directoryFetchWarnings(
   complete: boolean,
-  cached: boolean
+  verified: boolean
 ): string[] | undefined {
-  if (cached) {
+  if (!verified && complete) {
     return [
-      'Cached directory materialization cannot prove remote completeness; use forceRefresh or ghCloneRepo for repo-wide proof.',
+      'Cannot verify completeness against remote tree; use forceRefresh or ghCloneRepo if completeness matters.',
     ];
   }
   if (!complete) {
@@ -164,13 +164,17 @@ export async function fetchDirectoryContents(
         files: cached.files,
         fileCount: cached.fileCount,
         totalSize: cached.totalSize,
-        complete: false,
+        complete: true,
+        verified: false,
+        ...(cacheResult.meta.commitSha
+          ? { commitSha: cacheResult.meta.commitSha }
+          : {}),
         directoryEntryCount: cached.fileCount,
         eligibleFileCount: cached.fileCount,
         savedFileCount: cached.fileCount,
         skipped,
         limits: DIRECTORY_FETCH_LIMITS,
-        warnings: directoryFetchWarnings(false, true),
+        warnings: directoryFetchWarnings(true, false),
         cached: true,
         expiresAt: cacheResult.meta.expiresAt,
         owner,
@@ -182,6 +186,22 @@ export async function fetchDirectoryContents(
   }
 
   const octokit = await getOctokit(authInfo);
+
+  // Resolve the branch-tip SHA before fetching so we can record it in cache
+  // meta. Agents can compare this to the current SHA on cache hits to detect
+  // branch drift within the 24 h TTL window.
+  let commitSha: string | undefined;
+  try {
+    const branchData = await octokit.rest.repos.getBranch({
+      owner,
+      repo,
+      branch,
+    });
+    commitSha = branchData.data.commit.sha;
+  } catch {
+    // Non-fatal — proceed without SHA (legacy behaviour)
+  }
+
   const { data } = await octokit.rest.repos.getContent({
     owner,
     repo,
@@ -272,9 +292,19 @@ export async function fetchDirectoryContents(
     });
   }
 
-  const meta = createCacheMeta(owner, repo, branch, 'treeFetch');
+  const meta = createCacheMeta(
+    owner,
+    repo,
+    branch,
+    'treeFetch',
+    undefined,
+    undefined,
+    commitSha
+  );
   writeCacheMeta(treeRoot, meta);
   const complete = directoryFetchComplete(skipped);
+  const verified = complete;
+  const hasSubdirectories = skipped.nonFile > 0;
 
   return {
     localPath: dirPath,
@@ -283,12 +313,15 @@ export async function fetchDirectoryContents(
     fileCount: savedFiles.length,
     totalSize,
     complete,
+    verified,
+    ...(commitSha ? { commitSha } : {}),
+    ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
     directoryEntryCount: directoryEntries.length,
     eligibleFileCount: eligibleEntries.length,
     savedFileCount: savedFiles.length,
     skipped,
     limits: DIRECTORY_FETCH_LIMITS,
-    warnings: directoryFetchWarnings(complete, false),
+    warnings: directoryFetchWarnings(complete, verified),
     cached: false,
     expiresAt: meta.expiresAt,
     owner,
