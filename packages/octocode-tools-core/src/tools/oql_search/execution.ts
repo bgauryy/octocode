@@ -25,7 +25,9 @@ export async function executeOqlSearchTool(
   return formatOqlResult(result);
 }
 
-function stripTransportFields(input: OqlSearchToolInput): Record<string, unknown> {
+function stripTransportFields(
+  input: OqlSearchToolInput
+): Record<string, unknown> {
   const next = { ...input };
   delete next.authInfo;
   delete next.sessionId;

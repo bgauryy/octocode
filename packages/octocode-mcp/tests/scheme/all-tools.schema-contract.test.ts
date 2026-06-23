@@ -70,10 +70,7 @@ function getQueryShape(bulkSchema: z.ZodTypeAny): z.ZodRawShape | null {
 
 function unwrapOptionalSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
   let current = schema;
-  while (
-    current instanceof z.ZodOptional ||
-    current instanceof z.ZodDefault
-  ) {
+  while (current instanceof z.ZodOptional || current instanceof z.ZodDefault) {
     current = current.unwrap();
   }
   return current;

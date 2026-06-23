@@ -43,6 +43,10 @@ const semanticsParams = z
         'documentSymbols',
         'typeDefinition',
         'implementation',
+        'workspaceSymbol',
+        'supertypes',
+        'subtypes',
+        'diagnostic',
       ])
       .optional(),
     uri: z.string().optional(),

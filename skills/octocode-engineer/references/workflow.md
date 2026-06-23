@@ -36,14 +36,25 @@ Source docs: [`AGENT_RESEARCH_WORKFLOWS.md`](https://github.com/bgauryy/octocode
 ### Code and content search
 
 ```bash
-# Quick (auto-routes local vs GitHub)
-octocode grep "registerTool" ./packages --json --compact
-octocode grep "registerTool" owner/repo --json --compact
+# Shorthand (auto-routes local vs GitHub from the positional arg)
+octocode search "registerTool" ./packages --json --compact
+octocode search "registerTool" owner/repo --type tsx --json
 
 # OQL typed query
 octocode search --query '{"target":"code","from":{"kind":"local","path":"src"},"where":{"kind":"text","value":"registerTool"},"view":"discovery","limit":10}' --json
 octocode search --query '{"target":"content","from":{"kind":"local","path":"src/index.ts"},"fetch":{"content":{"match":{"text":"registerTool"}}}}' --json
 ```
+
+### LSP semantics via OQL (`target:"semantics"`)
+
+Use when you want LSP types (references, callers, definition, hover) through the OQL surface — especially when composing a batch query or when the `from` scope is already materialized.
+
+```bash
+octocode search --query '{"target":"semantics","from":{"kind":"local","path":"src/index.ts"},"params":{"type":"references","symbolName":"registerTool","lineHint":42,"groupByFile":true}}' --json
+octocode search --query '{"target":"semantics","from":{"kind":"local","path":"src/index.ts"},"params":{"type":"callers","symbolName":"processOrder","lineHint":88,"format":"compact"}}' --json
+```
+
+Params mirror `lspGetSemantics`: `type`, `symbolName`, `lineHint`, `depth`, `groupByFile`, `format`, `includeDeclaration`. Get a real `lineHint` from `grep`/`symbols` first — never guess.
 
 ### Smart reachability / dead-code / package drift
 
@@ -51,20 +62,29 @@ octocode search --query '{"target":"content","from":{"kind":"local","path":"src/
 # Planning pass — understand evidence chain before sweeping
 octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"plan"}}' --json
 
-# Analysis pass — candidate rows with verdict/why/missingProof
-octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
+# Analysis pass — candidate rows with verdict/why/missingProof/next.graph
+octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze","intent":"symbols"}}' --json
 ```
 
-Result rows carry `verdict`, `why`, `retainedBy`, `missingProof`, `risk`, and `next.*`. **Treat as candidates** — prove each before deleting.
+Result rows carry `verdict`, `why`, `retainedBy`, `missingProof`, `risk`, and `next.*`. **Treat as candidates — results stay candidate-grade even with `mode:"prove"`** (research never runs LSP internally). Follow the row's `next.graph` continuation (pre-filled with `proof:"lsp"`) to upgrade a page of rows to LSP-proven facts:
+
+```bash
+# Upgrade research candidates to LSP proof — use next.graph from the research row
+octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"intent":"symbols","mode":"prove","proof":"lsp","proofLimit":20},"page":1,"itemsPerPage":25}' --json
+```
 
 ### Relationship graph / retained-by chains
 
 ```bash
 # "What keeps candidate-dead exports alive?"
 octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"intent":"reachability","verdict":["candidate-dead","transitive-dead"],"direction":"incoming","includePackets":true},"itemsPerPage":25}' --json
+
+# With bounded LSP proof for current page (proof:"lsp" runs LSP reference proof per symbol packet)
+octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"intent":"reachability","direction":"incoming","proof":"lsp","proofLimit":15},"page":1,"itemsPerPage":20}' --json
 ```
 
 Use `target:"graph"` when the question is "What keeps X alive?" or "Is the keeper itself dead?".
+`proof:"lsp"` adds bounded LSP reference proof for the current page's symbol packets — costs more but gives LSP-grade evidence. Rows with missing proof emit `next.graph` to upgrade the current page.
 
 ### `--explain` and `--dry-run`
 
@@ -93,51 +113,7 @@ The path argument is **repo-relative** when `--repo` is set. Reuse the returned 
 
 ## Graph research algorithm
 
-For dead-code, reachability, retained-by, and safe-delete questions. Each step adds facts; no single step is enough.
-
-```
-1. Structure   → ls / find
-                 repo shape, package roots, manifests, source dirs, tests, generated/dist
-
-2. Discovery   → grep text/regex
-                 cheap anchors, import strings, file sets, dynamic usage clues
-
-3. AST         → grep --pattern/--rule  OR  target:"research" native graph facts
-                 declarations, imports, exports, calls, class/function shapes
-
-4. LSP proof   → lsp references / callers / callees / callHierarchy
-                 semantic identity, real reference counts, caller/callee proof
-
-5. Graph       → target:"graph"
-                 entrypoint reachability, retainedBy chains, transitive-dead pruning
-
-6. OQL packet  → packets + why + missingProof + next
-                 agent-inspectable answer with exact next file/line to inspect
-```
-
-**Evidence tiers:**
-
-| Tier | Foundation | Proves | Cannot prove alone |
-|------|-----------|--------|--------------------|
-| 1 | Structure + AST + LSP + graph | Strong symbol proof, bounded retained-by | Framework/runtime behavior |
-| 2 | Structure + AST + graph | Structural candidates, import/export shapes | Semantic identity, overloads |
-| 3 | Structure + ripgrep | Discovery, anchors | Safe deletion |
-
-**Safe-delete rule:** candidate ≠ safe. LSP proof + graph reachability + closed `missingProof` = deletion-grade.
-
-**Interpreting `totalReferences:0`:** LSP found no references in its open workspace. But: references only from other dead symbols = transitive-dead evidence; references from tests/generated/config may still retain. Classify before concluding.
-
-**Question routing:**
-
-| Question | Path |
-|----------|------|
-| "What looks dead?" | `target:"research"` `mode:"analyze"` |
-| "Why?" | Inspect packet `why` facts and `missingProof` |
-| "What keeps it alive?" | `target:"graph"` `direction:"incoming"` |
-| "Is that keeper itself dead?" | Re-query `target:"graph"` for the retained-by subject |
-| "What proof is missing?" | Inspect `missingProof`; follow `next.semantic` / `next.fetch` |
-| "What exact file/line next?" | Use packet `next.fetch` and `subject.uri/range` |
-| "Safe to delete?" | Require: no reachable external refs + no high-severity missing proof + exact source inspection |
+For dead-code, reachability, retained-by, and safe-delete questions, load [`workflow-graph.md`](./workflow-graph.md) — it has the six-step algorithm, evidence tiers, safe-delete rule, `totalReferences:0` interpretation, and question routing table.
 
 ---
 
@@ -148,12 +124,8 @@ For dead-code, reachability, retained-by, and safe-delete questions. Each step a
 | `status:"empty"` | Query ran, nothing matched | Check scope, spelling, branch, filters; try broader query or different surface |
 | `status:"error"` | Tool error (auth, rate limit, validation) | Read `errorCode`; fix call or narrow scope |
 | `partialResult`, `hasMore`, char pagination | Response incomplete | Follow the advertised continuation before concluding |
-| `auth` / token error | GitHub/npm data inaccessible | Check `status`; ask for token only if protected data is required |
-| `rate limited` | Provider result incomplete | Narrow scope or retry later |
-| `ENABLE_LOCAL` / local disabled | Filesystem/clone/LSP blocked | Use remote-only proof; offer to enable |
 | `serverUnavailable` / LSP unavailable | Semantic proof inconclusive | Use AST/exact content; retry after materializing project context |
 | Empty `lsp references` / `callers` | Open-file scope, not absence | Load likely consumer files first, then re-query |
-| Cache hit / stale cache | Evidence may reflect cached content | Use `--force-refresh` only when freshness matters |
 
 ---
 
@@ -164,23 +136,7 @@ For dead-code, reachability, retained-by, and safe-delete questions. Each step a
 - LSP → semantic proof when server is available; inconclusive if unavailable or paginated short.
 - History / PR patches → intent and rationale, not current behavior.
 - `target:"research"` / `target:"graph"` rows → candidates. Confirm with LSP + AST + exact reads.
-- OQL `metavars` absent from output → use exact snippet/line evidence; do not fabricate captures.
-- If OQL returns generic records or missing continuations for a research target → fall back to the quick command or raw tool and document the fallback in the evidence trail.
-
----
-
-## Workflow defaults
-
-| Phase | Default |
-|-------|---------|
-| First pass | `--concise`, path-only / `mode:"discovery"`, shallow depth |
-| Reading | `matchString` or line range or `--mode symbols` before full file |
-| Local search | literal / fixed-string before broad regex |
-| Structural search | `--pattern` for simple shapes; `--rule` YAML for relational (`inside`/`has`/`not`) |
-| LSP | search first → get real `lineHint` → pass `uri`, `symbolName`, `lineHint` |
-| Remote research | package/repo/code search first; clone only when local proof is needed |
-| Materialization | `cache fetch` or `clone`; capture `localPath` and continue locally |
-| Reporting | Cite fetched files, PRs, package metadata, or exact local `path:line` |
+- OQL `metavars` absent or returns generic records → fall back to quick command or raw tool; do not fabricate captures.
 
 ---
 

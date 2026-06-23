@@ -90,18 +90,6 @@ octocode lsp <file> --type <type> --symbol <name> --line <n>
 
 ---
 
-## Reading less — minify by goal
-
-`cat --mode` (CLI) / `minify` (MCP):
-
-| Goal | mode | Notes |
-|------|------|-------|
-| Orient on an unknown file | `symbols` | line-numbered skeleton; never paginated |
-| Read | `standard` (default) | strips comments / blank lines |
-| Quote / diff exact text, get a `line` | `none` | raw; pair with `--match-string` → returns the real line number |
-
-`grep --mode discovery` (paths only) before `paginated`/`detailed`. `--concise` for the leanest discovery list.
-
 ## `--repo` — remote as local
 
 `grep`, `find`, `cat`, and `ls` accept `--repo <owner/repo[@ref]>`. Materializes the repo or subpath under `.octocode`, runs the local tool against saved files, and returns `location` (absolute path). Reuse `location` with plain local tools — files stay materialized.
@@ -148,12 +136,6 @@ For partial OQL targets (PRs, commits, artifacts, direct diffs, package/repo con
 | `OCTOCODE_HOME` | data dir (default `~/.octocode`) |
 
 Local tools are confined to `$HOME` (+ `ALLOWED_PATHS`); paths outside are rejected.
-
----
-
-## What the native toolset does NOT do
-
-The CLI/MCP find **shapes** (AST), **relationships** (LSP, imports), and Smart OQL can now produce candidate reachability/package-drift rows. They still do **not** compute framework-complete entrypoint graphs, dependency cycle clusters, coupling/instability metrics, complexity/Halstead/Maintainability-Index numbers, or a full multi-detector scan. For those, approximate with fan-in/fan-out counts (see [SKILL.md](../SKILL.md) §4 Architecture, metrics & graph) or use an external measurement tool from [context_external_measurement_tools.md](./context_external_measurement_tools.md) — and **flag in the artifact** when a claim rests on approximation.
 
 ---
 

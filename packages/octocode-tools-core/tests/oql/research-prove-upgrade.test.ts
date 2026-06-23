@@ -54,4 +54,33 @@ describe('research mode:"prove" one-call LSP upgrade (P5)', () => {
     expect(q.itemsPerPage).toBe(4);
     expect(upgrade!.confidence).toBe('exact');
   });
+
+  it('emits an executable next.graph proof:"lsp" upgrade on candidate graph rows', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'graph',
+        from: { kind: 'local', path: OQL_SRC },
+        params: { goal: 'dead-looking symbols', intent: 'reachability' },
+        itemsPerPage: 3,
+      })
+    );
+
+    const row = env.results[0] as {
+      proofGrade?: string;
+      next?: Record<string, { query: OqlInputQuery; confidence: string }>;
+    };
+    expect(row.proofGrade).toBe('missing');
+    const upgrade = row.next?.['next.graph'];
+    expect(upgrade).toBeDefined();
+    const q = upgrade!.query as OqlInputQuery;
+    expect(q.target).toBe('graph');
+    expect(q.params).toMatchObject({
+      mode: 'prove',
+      proof: 'lsp',
+      intent: 'reachability',
+    });
+    expect((q.params as { proofLimit: number }).proofLimit).toBe(3);
+    expect(q.itemsPerPage).toBe(3);
+    expect(upgrade!.confidence).toBe('exact');
+  });
 });

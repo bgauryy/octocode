@@ -15,7 +15,9 @@ export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
           typeof item.text === 'string'
         ) {
           try {
-            const { content: text } = ContentSanitizer.sanitizeContent(item.text);
+            const { content: text } = ContentSanitizer.sanitizeContent(
+              item.text
+            );
             return { ...item, text };
           } catch {
             return item;

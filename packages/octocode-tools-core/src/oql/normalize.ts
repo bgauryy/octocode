@@ -245,13 +245,14 @@ export function normalizeQuery(input: OqlInputQuery): OqlQuery {
     target as OqlQuery['target']
   );
   const fetch = normalizeFetch(raw);
+  const params = normalizeParams(raw, target as OqlQuery['target']);
 
   const canonical: OqlQuery = {
     schema: 'oql',
     ...(raw.id ? { id: raw.id } : {}),
     target: target as OqlQuery['target'],
     ...(from ? { from } : {}),
-    ...(raw.params ? { params: raw.params as Record<string, unknown> } : {}),
+    ...(params ? { params } : {}),
     ...(scope ? { scope } : {}),
     ...(where ? { where } : {}),
     ...(materialize ? { materialize } : {}),
@@ -394,6 +395,59 @@ function inferTarget(raw: OqlInputQuery): OqlQuery['target'] | undefined {
   if (raw.fetch?.content || raw.minify) return 'content';
   if (raw.fetch?.tree) return 'structure';
   return undefined;
+}
+
+/* ------------------------------- params ---------------------------------- */
+
+const GRAPH_LSP_PROOF_TERMS = [
+  'relationship',
+  'relationships',
+  'reference',
+  'references',
+  'who uses',
+  'used by',
+  'usage',
+  'caller',
+  'callers',
+  'callee',
+  'callees',
+  'call hierarchy',
+  'blast radius',
+  'safe to delete',
+  'what breaks',
+  'delete',
+  'dead code',
+  'unused export',
+  'unused symbol',
+  'retained by',
+];
+
+function normalizeParams(
+  raw: OqlInputQuery,
+  target: OqlQuery['target']
+): Record<string, unknown> | undefined {
+  const params = raw.params
+    ? { ...(raw.params as Record<string, unknown>) }
+    : undefined;
+  if (target !== 'graph' || !params) return params;
+  if (!shouldDefaultGraphLspProof(params)) return params;
+  return {
+    ...params,
+    proof: 'lsp',
+    proofLimit:
+      typeof params.proofLimit === 'number' && params.proofLimit > 0
+        ? params.proofLimit
+        : 5,
+  };
+}
+
+function shouldDefaultGraphLspProof(params: Record<string, unknown>): boolean {
+  if (params.proof !== undefined || params.mode === 'plan') return false;
+  if (params.mode === 'prove') return false;
+  if (params.relation !== undefined || params.direction !== undefined)
+    return true;
+  const goal = typeof params.goal === 'string' ? params.goal.toLowerCase() : '';
+  return GRAPH_LSP_PROOF_TERMS.some(term => goal.includes(term));
 }
 
 /* ------------------------------ source ---------------------------------- */

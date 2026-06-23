@@ -86,7 +86,7 @@ Python uses `µ` (micro sign) as the metavariable char in raw patterns (`$` is i
 
 A literal-selector pattern like `fmt.Println($X)` matches nothing (a bare snippet is invalid at Go top level, so the structural parser can't parse it). Use a metavar callee `$F($X)`, or a rule with `pattern: { context: "func f(){ fmt.Println($X) }", selector: call_expression }`.
 
-**Grammars supported:** ts/tsx, js/jsx/mjs/cjs, py, go, rs, java, c/h, cpp/cc/cxx/hpp, cs, sh/bash/zsh. Other extensions are skipped silently.
+**Grammars supported:** 33 grammars covering ts/tsx, js/jsx, py, go, rs, java, c/h, cpp, cs, bash/sh, html, css/scss/less, scala, json, yaml, toml, ruby, php, kotlin, elixir, hcl, lua, sql, proto, ocaml, zig, r, julia, erlang, swift. Other extensions are skipped silently.
 
 ---
 
@@ -97,3 +97,23 @@ A literal-selector pattern like `fmt.Println($X)` matches nothing (a bare snippe
 3. `cat`/LSP for semantic context and blast radius.
 
 This keeps investigation fast and false positives near zero.
+
+---
+
+## Comparing with ast-grep CLI
+
+When cross-checking a structural result or working in an environment without Octocode, the equivalent ast-grep CLI call:
+
+| Octocode | ast-grep |
+|---|---|
+| `octocode grep src --pattern 'console.log($$$A)' --type ts` | `sg run -p 'console.log($$$A)' -l ts src/` |
+| `octocode grep src --rule 'rule: {kind: catch_clause}' --type ts` | `sg run --rule rule.yml src/` (YAML in a file) |
+| `octocode grep src --pattern 'eval($X)' --type js --json` | `sg run -p 'eval($X)' -l js src/ --json=stream` |
+
+Key differences:
+- Octocode ripgrep-pre-filters on a text anchor before parsing, making it faster on large corpora.
+- ast-grep parses every file regardless; use a text anchor pattern (`eval`, `console`) where possible.
+- ast-grep `--json=stream` emits one JSON object per line; Octocode `--json` emits the envelope.
+- Octocode adds path security, sanitizer, pagination, and YAML output for agent pipelines.
+- ast-grep has Dart, Haskell, Nix, Markdown, and Solidity grammars that Octocode doesn't.
+- Octocode has SCSS, Less, SQL, Protobuf, OCaml, Zig, R, Julia, Erlang, and TOML that ast-grep doesn't.

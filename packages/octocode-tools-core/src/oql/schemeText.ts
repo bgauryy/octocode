@@ -37,7 +37,7 @@ export const OQL_SCHEMA_DOC = {
   // Per-target `params` hints (full schema: `tools <name> --scheme`).
   params: {
     semantics:
-      '{ type:"definition"|"references"|"callers"|"callees"|"callHierarchy"|"hover"|"documentSymbols"|"typeDefinition"|"implementation", symbolName?, lineHint?, orderHint?, depth?, includeDeclaration?, groupByFile?, format? } — backing tool lspGetSemantics',
+      '{ type:"definition"|"references"|"callers"|"callees"|"callHierarchy"|"hover"|"documentSymbols"|"typeDefinition"|"implementation"|"workspaceSymbol"|"supertypes"|"subtypes"|"diagnostic", uri?, symbolName?, lineHint?, orderHint?, depth?, includeDeclaration?, groupByFile?, workspaceRoot?, format? } — backing tool lspGetSemantics',
     repositories:
       '{ keywords?, topicsToSearch?, language?, owner?, stars?, license?, sort?, archived?, limit?, page? } — backing tool ghSearchRepos',
     packages:
@@ -52,7 +52,7 @@ export const OQL_SCHEMA_DOC = {
     research:
       '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — smart internal research flow over a complete local/materialized corpus; uses native AST graph facts where available; packet output pages with page/itemsPerPage; results stay candidate-grade (mode:"prove" never runs LSP here) — follow the row\'s one-call next.graph (pre-filled proof:"lsp", page-aligned, bounded by proofLimit) to upgrade to LSP-proven facts',
     graph:
-      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles?, subject?, subjectKind?, relation?, verdict?, direction?:"incoming"|"outgoing"|"both", proof?:"none"|"lsp", proofLimit?, includePackets?, includeFacts?, includeEdges? } — relationship graph over research packets plus native AST graph facts; pages the filtered packet domain with page/itemsPerPage; proof:"lsp" or mode:"prove" runs bounded LSP reference proof for current-page symbol packets',
+      '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles?, subject?, subjectKind?, relation?, verdict?, direction?:"incoming"|"outgoing"|"both", proof?:"none"|"lsp", proofLimit?, includePackets?, includeFacts?, includeEdges? } — relationship graph over research packets plus native AST graph facts; pages the filtered packet domain with page/itemsPerPage; relationship-shaped goals/filters default to bounded proof:"lsp" unless proof is explicit; proof:"lsp" or mode:"prove" runs bounded LSP reference proof for current-page symbol packets; analyze rows with missing proof emit next.graph to upgrade the current page',
     materialize:
       '(no params; no `where`) clone/cache a bounded corpus (from:{kind:"github",repo} + scope.path) and return a stable materialized checkpoint row (localPath/repoRoot/ref/cache/complete) with next.structure/next.files',
   },

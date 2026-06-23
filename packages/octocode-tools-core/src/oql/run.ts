@@ -78,7 +78,13 @@ async function runSingle(
 
   // Not executable, or explicitly a dry run: return without executing.
   if (!planned.executable || options.dryRun) {
-    return unsupportedEnvelopeFromPlan(planned, plan, query.id, queryIndex);
+    return unsupportedEnvelopeFromPlan(
+      planned,
+      plan,
+      query.id,
+      queryIndex,
+      options.dryRun
+    );
   }
 
   const exec = await dispatch(query, planned);
@@ -151,6 +157,7 @@ function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
  *  - artifact    → next.structure / next.files rooted at the extracted path
  *  - materialized→ next.structure / next.files rooted at the checkpoint path
  *  - semantics   → next.fetch (read the code at a symbol location)
+ *  - graph       → next.graph (bounded LSP proof for candidate graph pages)
  */
 interface ContinuationCtx {
   query: OqlQuery;
@@ -344,6 +351,7 @@ const ROW_CONTINUATION_BUILDERS: Record<string, RowContinuationBuilder> = {
   'record:materialized': buildMaterializedContinuations,
   'record:semantics': buildSemanticsContinuations,
   'record:research': buildResearchContinuations,
+  'record:graph': buildGraphContinuations,
 };
 
 function buildCodeContinuations(
@@ -480,28 +488,63 @@ function buildMaterializedContinuations(
 }
 
 /**
- * P5 (Option A): `target:"research"` stays candidate-grade — it never runs LSP
- * internally — but it emits a *one-call* upgrade. `next.graph` is a pre-filled
- * `proof:"lsp"` graph query over the same root/intent, page-aligned and bounded
- * by `proofLimit`, so a single follow-up run turns the current page's candidate
- * packets into LSP-proven relationships without blurring the research/graph
- * honesty boundary.
+ * `target:"research"` stays candidate-grade — it never runs LSP internally — but
+ * it emits a one-call `next.graph` upgrade. `target:"graph"` emits the same
+ * upgrade when an analyze row still has missing proof. The upgrade is page-aligned
+ * and bounded by `proofLimit`, so agents can close proof without losing the
+ * research/graph honesty boundary.
  */
 function buildResearchContinuations(
   row: OqlResultRow,
   ctx: ContinuationCtx
 ): Record<string, OqlContinuation> | undefined {
+  return graphProofUpgrade(row, ctx, {
+    why: 'Upgrade this candidate research to LSP-proven relationships for the current page (bounded proof).',
+    force: true,
+  });
+}
+
+function buildGraphContinuations(
+  row: OqlResultRow,
+  ctx: ContinuationCtx
+): Record<string, OqlContinuation> | undefined {
+  const params = ctx.query.params ?? {};
+  if (
+    params.proof === 'none' ||
+    params.proof === 'lsp' ||
+    params.mode === 'prove'
+  ) {
+    return undefined;
+  }
+  const data = (row as OqlRecordResultRow).data;
+  if (!hasMissingProof(data)) return undefined;
+  return graphProofUpgrade(row, ctx, {
+    why: 'Upgrade this candidate graph page to LSP-proven relationships (bounded proof).',
+  });
+}
+
+function graphProofUpgrade(
+  row: OqlResultRow,
+  ctx: ContinuationCtx,
+  options: { why: string; force?: boolean }
+): Record<string, OqlContinuation> | undefined {
   const from = ctx.query.from;
   // Graph proof needs a complete local file universe (local/materialized).
   if (from?.kind !== 'local' && from?.kind !== 'materialized') return undefined;
   const data = (row as OqlRecordResultRow).data;
+  if (!options.force && !hasMissingProof(data)) return undefined;
   const intent =
     typeof data?.intent === 'string' && data.intent.length > 0
       ? data.intent
-      : 'reachability';
+      : typeof ctx.query.params?.intent === 'string' &&
+          ctx.query.params.intent.length > 0
+        ? ctx.query.params.intent
+        : 'reachability';
   // proofLimit is bounded (graphParams caps at 25); align it to the page size so
   // the upgrade proves roughly the same number of subjects shown this page.
   const proofLimit = Math.min(25, Math.max(1, ctx.query.itemsPerPage ?? 10));
+  const params = ctx.query.params ?? {};
+  const facets = continuationResearchFacets(data, params);
   return {
     'next.graph': {
       query: {
@@ -509,21 +552,46 @@ function buildResearchContinuations(
         target: 'graph',
         from,
         params: {
+          ...params,
           mode: 'prove',
           proof: 'lsp',
           intent,
           proofLimit,
-          ...(Array.isArray(data?.facets) ? { facets: data.facets } : {}),
+          ...(facets ? { facets } : {}),
         },
         ...(ctx.query.page ? { page: ctx.query.page } : {}),
         ...(ctx.query.itemsPerPage
           ? { itemsPerPage: ctx.query.itemsPerPage }
           : {}),
       },
-      why: 'Upgrade this candidate research to LSP-proven relationships for the current page (bounded proof).',
+      why: options.why,
       confidence: 'exact',
     },
   };
+}
+
+const PUBLIC_RESEARCH_FACETS = new Set([
+  'symbols',
+  'files',
+  'dependencies',
+  'relations',
+]);
+
+function continuationResearchFacets(
+  data: Record<string, unknown>,
+  params: Record<string, unknown>
+): string[] | undefined {
+  const raw = Array.isArray(params.facets)
+    ? params.facets
+    : Array.isArray(data.facets)
+      ? data.facets
+      : undefined;
+  if (!raw) return undefined;
+  const facets = raw.filter(
+    (facet): facet is string =>
+      typeof facet === 'string' && PUBLIC_RESEARCH_FACETS.has(facet)
+  );
+  return facets.length > 0 ? facets : undefined;
 }
 
 function buildSemanticsContinuations(
@@ -583,9 +651,29 @@ function unsupportedEnvelopeFromPlan(
   planned: PlanQueryResult,
   plan: OqlResultEnvelope['plan'],
   queryId?: string,
-  queryIndex?: number
+  queryIndex?: number,
+  dryRun?: boolean
 ): OqlResultEnvelope {
   if (!planned.executable) {
+    // In dry-run mode, distinguish repairable blocks (e.g. missing scope.path
+    // for materialization) from structural capability gaps (UNSUPPORTED route
+    // nodes). Repairable queries have a valid plan with executable routing
+    // decisions — they just need a constraint fix. Show 'partial' so the plan
+    // and diagnostics are the primary output, not 'unsupported'.
+    const hasUnsupportedRoute = planned.plan.nodes.some(
+      n => n.route === 'UNSUPPORTED'
+    );
+    if (dryRun && !hasUnsupportedRoute) {
+      return {
+        ...(queryId ? { queryId } : {}),
+        ...(queryIndex !== undefined ? { queryIndex } : {}),
+        results: [],
+        diagnostics: planned.plan.diagnostics,
+        provenance: [],
+        evidence: { answerReady: false, complete: false, kind: 'partial' },
+        ...(plan ? { plan } : {}),
+      };
+    }
     return unsupportedEnvelope(
       planned.plan.diagnostics,
       plan,
@@ -611,10 +699,7 @@ function unsupportedEnvelopeFromPlan(
  * `oql/x.ts`). Keeps `search` aligned with grep/ls/find and far less verbose.
  * Provider (GitHub) paths are already repo-relative and left untouched.
  */
-function relativizeResultPaths(
-  query: OqlQuery,
-  results: OqlResultRow[]
-): void {
+function relativizeResultPaths(query: OqlQuery, results: OqlResultRow[]): void {
   const root =
     query.from?.kind === 'local'
       ? query.from.path

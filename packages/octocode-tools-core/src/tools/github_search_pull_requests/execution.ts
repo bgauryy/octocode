@@ -104,12 +104,9 @@ export async function searchMultipleGitHubPullRequests(
               author: q.author,
               page: Number(q.page) || 1,
               perPage: Number(q.perPage) || 30,
-              filePage:
-                typeof q.filePage === 'number' ? q.filePage : undefined,
+              filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
               itemsPerPage:
-                typeof q.itemsPerPage === 'number'
-                  ? q.itemsPerPage
-                  : undefined,
+                typeof q.itemsPerPage === 'number' ? q.itemsPerPage : undefined,
               includeDiff: Boolean(q.includeDiff),
               charOffset:
                 typeof q.charOffset === 'number' ? q.charOffset : undefined,

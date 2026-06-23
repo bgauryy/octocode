@@ -920,7 +920,10 @@ async function getWorkspaceSymbols(
   // workspace/symbol is not file-anchored — any file in the workspace will do to
   // acquire a pooled client. Use the URI if provided, else resolve from the root.
   const anchorFile = query.uri ?? workspaceRoot;
-  const serverAvailable = await isLanguageServerAvailable(anchorFile, workspaceRoot);
+  const serverAvailable = await isLanguageServerAvailable(
+    anchorFile,
+    workspaceRoot
+  );
   if (!serverAvailable) {
     return {
       type: 'workspaceSymbol',
@@ -976,7 +979,12 @@ async function getWorkspaceSymbols(
     summary: { query: symbolQuery, totalSymbols: symbols.length },
     payload:
       symbols.length > 0
-        ? { kind: 'workspaceSymbol', query: symbolQuery, symbols: pageItems, totalSymbols: symbols.length }
+        ? {
+            kind: 'workspaceSymbol',
+            query: symbolQuery,
+            symbols: pageItems,
+            totalSymbols: symbols.length,
+          }
         : {
             kind: 'empty',
             category: 'noWorkspaceSymbols',
@@ -997,21 +1005,31 @@ function compactWorkspaceSymbols(raw: unknown[]): CompactWorkspaceSymbol[] {
     const kind = sym['kind'];
     // WorkspaceSymbol has `location.uri + location.range`; SymbolInformation same shape.
     const loc = sym['location'] as Record<string, unknown> | undefined;
-    const range = loc?.['range'] as { start?: { line?: number; character?: number }; end?: { line?: number } } | undefined;
+    const range = loc?.['range'] as
+      | {
+          start?: { line?: number; character?: number };
+          end?: { line?: number };
+        }
+      | undefined;
     const uri = typeof loc?.['uri'] === 'string' ? loc['uri'] : '';
     const line = (range?.start?.line ?? 0) + 1;
     const endLine = (range?.end?.line ?? range?.start?.line ?? 0) + 1;
-    const containerName = typeof sym['containerName'] === 'string' ? sym['containerName'] : undefined;
-    return [{
-      name,
-      kind: symbolKindName(kind),
-      line,
-      character: range?.start?.character ?? 0,
-      endLine,
-      childCount: 0,
-      ...(containerName ? { containerName } : {}),
-      uri,
-    }];
+    const containerName =
+      typeof sym['containerName'] === 'string'
+        ? sym['containerName']
+        : undefined;
+    return [
+      {
+        name,
+        kind: symbolKindName(kind),
+        line,
+        character: range?.start?.character ?? 0,
+        endLine,
+        childCount: 0,
+        ...(containerName ? { containerName } : {}),
+        uri,
+      },
+    ];
   });
 }
 
@@ -1027,7 +1045,12 @@ async function typeHierarchyEnvelope(
   );
   const root = items[0];
   if (!root) {
-    return emptyEnvelope(query.type, anchor, 'No type-hierarchy item found at position', true);
+    return emptyEnvelope(
+      query.type,
+      anchor,
+      'No type-hierarchy item found at position',
+      true
+    );
   }
 
   const direction = query.type === 'supertypes' ? 'supertypes' : 'subtypes';
@@ -1070,7 +1093,8 @@ async function getFileDiagnostics(
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
   const uri = query.uri ?? '';
   const workspaceRoot =
-    query.workspaceRoot ?? (uri ? await resolveWorkspaceRootForFile(uri) : process.cwd());
+    query.workspaceRoot ??
+    (uri ? await resolveWorkspaceRootForFile(uri) : process.cwd());
 
   const serverAvailable = await isLanguageServerAvailable(uri, workspaceRoot);
   if (!serverAvailable) {
@@ -1180,18 +1204,24 @@ function extractDiagnostics(raw: unknown): DiagnosticItem[] {
 function parseDiagnostic(item: unknown): DiagnosticItem[] {
   if (!item || typeof item !== 'object') return [];
   const d = item as Record<string, unknown>;
-  const range = d['range'] as { start?: { line?: number; character?: number }; end?: { line?: number } } | undefined;
+  const range = d['range'] as
+    | { start?: { line?: number; character?: number }; end?: { line?: number } }
+    | undefined;
   const message = typeof d['message'] === 'string' ? d['message'] : '';
   if (!message) return [];
-  return [{
-    severity: typeof d['severity'] === 'number' ? d['severity'] : undefined,
-    message,
-    line: (range?.start?.line ?? 0) + 1,
-    endLine: (range?.end?.line ?? range?.start?.line ?? 0) + 1,
-    character: range?.start?.character ?? 0,
-    ...(d['code'] !== undefined ? { code: d['code'] as string | number } : {}),
-    ...(typeof d['source'] === 'string' ? { source: d['source'] } : {}),
-  }];
+  return [
+    {
+      severity: typeof d['severity'] === 'number' ? d['severity'] : undefined,
+      message,
+      line: (range?.start?.line ?? 0) + 1,
+      endLine: (range?.end?.line ?? range?.start?.line ?? 0) + 1,
+      character: range?.start?.character ?? 0,
+      ...(d['code'] !== undefined
+        ? { code: d['code'] as string | number }
+        : {}),
+      ...(typeof d['source'] === 'string' ? { source: d['source'] } : {}),
+    },
+  ];
 }
 
 function paginateItems<T>(

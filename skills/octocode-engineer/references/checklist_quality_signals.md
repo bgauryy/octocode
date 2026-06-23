@@ -79,4 +79,4 @@ These were computed by the old embedded scanner. The native CLI/MCP do not produ
 | medium | local complexity/duplication, type escape at a boundary, missing cleanup |
 | low | style, isolated smell, advisory |
 
-Pair severity with a confidence level (`confirmed`/`likely`/`uncertain`, [SKILL.md](../SKILL.md) §Confidence Rules). A measurement-class claim without a tool maxes out at `likely`.
+Pair severity with a confidence level: `confirmed` (evidence from ≥2 independent tools/reads), `likely` (single source or approximation), `uncertain` (hypothesis not yet verified). A measurement-class claim without a tool maxes out at `likely`.

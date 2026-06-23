@@ -624,7 +624,11 @@ async function readSourceFiles(
     sourcePaths.map(async file => {
       const text = await readFile(file, 'utf8').catch(() => '');
       const extension = path.extname(file).toLowerCase();
-      const graphFacts = extractNativeGraphFacts(text, file, relative(root, file));
+      const graphFacts = extractNativeGraphFacts(
+        text,
+        file,
+        relative(root, file)
+      );
       const imports = uniqueStrings(
         graphFacts
           ? graphFacts.imports.map(item => item.specifier)
@@ -736,7 +740,9 @@ function sourceExtensions(): ReadonlySet<string> {
 function graphFactCapabilities(): readonly GraphFactCapability[] {
   if (cachedGraphCapabilities) return cachedGraphCapabilities;
   try {
-    const parsed = JSON.parse(contextUtils.getGraphFactCapabilities()) as unknown;
+    const parsed = JSON.parse(
+      contextUtils.getGraphFactCapabilities()
+    ) as unknown;
     cachedGraphCapabilities = Array.isArray(parsed)
       ? parsed.filter(isGraphFactCapability)
       : [];
@@ -982,7 +988,9 @@ async function collectExportSymbols(
   return rows.flat();
 }
 
-function exportSymbolsFromGraphFacts(file: SourceFile): readonly ExportSymbol[] {
+function exportSymbolsFromGraphFacts(
+  file: SourceFile
+): readonly ExportSymbol[] {
   const facts = file.graphFacts;
   if (!facts) return [];
   return facts.declarations
@@ -1114,8 +1122,7 @@ function resolveExistingPath(
   const extensions = sourceExtensions();
   const candidates = [base];
   for (const ext of extensions) candidates.push(`${base}${ext}`);
-  for (const ext of extensions)
-    candidates.push(path.join(base, `index${ext}`));
+  for (const ext of extensions) candidates.push(path.join(base, `index${ext}`));
   return candidates.find(candidate => known.has(candidate));
 }
 

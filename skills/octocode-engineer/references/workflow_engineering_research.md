@@ -1,6 +1,6 @@
 # Workflow — Engineering Research Recipes
 
-Step-focused recipes built on the native octocode toolset. Prefer the CLI quick commands; use MCP/raw tools only when the CLI is unavailable or a schema-exact field is needed. For the Clean-Architecture principles, the six dimensions, gates, and the artifact, see [SKILL.md](../SKILL.md). For flags and the CLI/MCP fallback map, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md). For AST patterns, see [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md).
+Step-focused recipes built on the native octocode toolset. Prefer the CLI quick commands; use MCP/raw tools only when the CLI is unavailable or a schema-exact field is needed. For flags and the CLI/MCP fallback map, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md). For presenting findings, see [template_artifact_report.md](./template_artifact_report.md). For AST patterns, see [context_ast_pattern_cookbook.md](./context_ast_pattern_cookbook.md). For the graph research six-step algorithm and safe-delete decision logic, see [workflow-graph.md](./workflow-graph.md).
 
 Notation: each step names the **job**; default to CLI quick commands and use MCP/raw tools only when needed. Shorthand: `grep`=`octocode grep`/`localSearchCode`, `lsp …`=`octocode lsp`/`lspGetSemantics`, `ast`=`octocode grep --pattern/--rule`/`localSearchCode(mode:"structural")`, `symbols`=`octocode ls --symbols` or `octocode cat --mode symbols`/`documentSymbols`, `cat`=`octocode cat`/`localGetFileContent`, `ls`/`find`=structure/file tools.
 
@@ -27,12 +27,7 @@ Notation: each step names the **job**; default to CLI quick commands and use MCP
 
 ## Core workflows
 
-> **LSP relational reliability — read before Workflows 3, 4, 11, 12.** `references`/`callers`/`implementation` are bounded by the files the language server has open, so an **empty or low result ≠ unused/safe**. Three habits make these workflows trustworthy:
-> 1. **Load the consumers first.** Before trusting a zero or a count, open the likely callers — batch a `documentSymbols`/`definition` query on them in the *same* call (MCP), or `symbols`/`cat` them first (CLI), then re-query. (Seen live: a `callers` query came back empty until the consumer file was loaded in the same batch — then the real callers resolved.)
-> 2. **Prefer `callers` for cross-package blast radius;** `references` is same-package. Python/C++ have no call hierarchy → use `references`.
-> 3. **Reuse the anchor, don't re-search.** A `grep`/`ast` match yields a line: carry it as `matchString` into the `cat` read *and* as `lineHint` into `lsp`. `lineHint` must come from a real match (the resolver searches ±5 lines and reports `foundAtLine`; if it drifts far, re-anchor). Batch up to 5 independent lookups per call; serialize only when one feeds the next.
->
-> When a relational result can't be verified this way, **lower confidence — don't assert "dead" or "safe".**
+> **LSP relational reliability — read before Workflows 3, 4, 11, 12.** `references`/`callers`/`implementation` are bounded by open files, so an **empty or low result ≠ unused/safe**. Three habits: (1) **Load the consumers first** — batch a `documentSymbols`/`definition` query on likely callers before trusting a zero. (2) **Prefer `callers` for cross-package blast radius**; `references` is same-package only; Python/C++ → use `references`. (3) **Reuse the anchor** — carry the `grep`/`ast` match line as both `matchString` in `cat` and `lineHint` in `lsp`; batch up to 5 independent lookups per call. When a relational result can't be verified, **lower confidence — don't assert "dead" or "safe".**
 
 ### 1 — New codebase orientation
 
@@ -151,6 +146,4 @@ Notation: each step names the **job**; default to CLI quick commands and use MCP
 
 ## History recipes (the "why")
 
-- **Why did this change?** `history <owner/repo/path>` → a headline with `(#NNN)` → `pr <owner/repo#NNN> --json`; add `--patches --file <path>` or `--deep` only when needed.
-- **Which PR introduced X?** `pr <owner/repo> --state merged --sort created --order asc` → oldest merged first.
-- Use history to recover the rationale behind a contract or boundary before you change it.
+For history and PR archaeology patterns, see [research_external.md](./research_external.md) §History and PR archaeology. Key rule: use history to recover the rationale behind a contract before you change it.

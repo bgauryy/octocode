@@ -92,11 +92,13 @@ export interface EvidenceFact {
 }
 
 export type EvidenceRelation =
+  | 'contains'
   | 'defines'
   | 'exports'
   | 'imports'
   | 'references'
   | 'calls'
+  | 'constructs'
   | 'extends'
   | 'implements'
   | 'typeUses'

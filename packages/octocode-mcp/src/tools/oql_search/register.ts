@@ -51,8 +51,10 @@ export function registerOqlSearchTool(
   );
 }
 
-function callbackQueries(input: OqlSearchInput | Record<string, unknown>): unknown[] {
+function callbackQueries(
+  input: OqlSearchInput | Record<string, unknown>
+): unknown[] {
   return Array.isArray((input as { queries?: unknown }).queries)
-    ? ((input as { queries: unknown[] }).queries)
+    ? (input as { queries: unknown[] }).queries
     : [input];
 }

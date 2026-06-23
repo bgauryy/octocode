@@ -1,6 +1,6 @@
 # Context — External Measurement Tools
 
-These cover what the native octocode toolset can't fully prove: **measurement** (metrics, type-coverage %), **graph rules** (cycles, layers, instability), framework-aware dead code, linting, type checking, and security scanning. The native tools handle shapes (AST), relationships (LSP), and Smart OQL candidate reachability/package-drift rows; reach here when a claim needs a number, a framework-complete graph, or a whole-graph rule (see [SKILL.md](../SKILL.md) §4 and [checklist_quality_signals.md](./checklist_quality_signals.md)).
+Covers what the native toolset can't prove: **measurement** (metrics, type-coverage %), **graph rules** (cycles, layers, instability), framework-aware dead code, linting, type checking, and security scanning. Reach here when a claim needs a number or framework-complete graph. See [checklist_quality_signals.md](./checklist_quality_signals.md) for the measurement signal catalog.
 
 **Ask the user before running.** Use `npx` (JS/TS) or `pip`/`pipx` (Python) — avoid global installs.
 
@@ -86,26 +86,11 @@ Use these for Python codebases. `octocode grep <path> --pattern/--rule ... --typ
 
 ### ruff — Fast Python linter + formatter
 
-Replaces flake8, isort, pyflakes, and most pylint rules. Very fast (~100x faster than pylint).
-
-```bash
-ruff check <target>
-ruff check --fix <target>
-ruff check --output-format json <target>
-ruff format <target>
-ruff format --check <target>
-```
+Replaces flake8, isort, pyflakes, most pylint rules. `ruff check <target>` · `ruff check --fix <target>` · `ruff check --output-format json <target>` · `ruff format <target>`.
 
 ### mypy — Static type checker
 
-Gradual typing for Python. Use when the project has type annotations.
-
-```bash
-mypy <target>
-mypy <target> --strict
-mypy <target> --show-error-codes --no-error-summary
-mypy <target> --json-report .
-```
+Gradual typing for Python. Use when the project has type annotations. `mypy <target>` · `mypy <target> --strict` · `mypy <target> --json-report .`.
 
 ### pyright — Fast type checker
 
@@ -139,25 +124,14 @@ pytest --cov=<package> --cov-report=term-missing
 
 ## Quick Reference
 
-### JavaScript / TypeScript
-
-| Finding | Tool | Command |
-|---------|------|---------|
-| `dependency-cycle` | dep-cruiser | `npx depcruise --no-config -T err <path>` |
-| `dead-export` | knip | `npx knip --exports` |
-| `unsafe-any` | type-coverage | `npx type-coverage --strict --detail` |
-| `layer-violation` | dep-cruiser | `npx depcruise --no-config -T err <path>` |
-| Lint issues | eslint | `npx eslint <path>` |
-| Type errors | tsc | `npx tsc --noEmit` |
-| CSS issues | stylelint | `npx stylelint "**/*.css"` |
-
-### Python
-
-| Finding | Tool | Command |
-|---------|------|---------|
-| Lint / style | ruff | `ruff check <path>` |
-| Type errors | mypy | `mypy <path>` |
-| Type errors (fast) | pyright | `pyright <path>` |
-| Security issues | bandit | `bandit -r <path>` |
-| Test coverage | pytest | `pytest --cov=<pkg> --cov-report=term-missing` |
-| Dead code (imports) | ruff | `ruff check --select F401 <path>` |
+| Finding | Language | Tool | Command |
+|---------|----------|------|---------|
+| `dependency-cycle` / `layer-violation` | JS/TS | dep-cruiser | `npx depcruise --no-config -T err <path>` |
+| `dead-export` | JS/TS | knip | `npx knip --exports` |
+| `unsafe-any` | JS/TS | type-coverage | `npx type-coverage --strict --detail` |
+| Lint issues | JS/TS | eslint | `npx eslint <path>` |
+| Type errors | JS/TS | tsc | `npx tsc --noEmit` |
+| Lint / style | Python | ruff | `ruff check <path>` |
+| Type errors | Python | mypy | `mypy <path>` |
+| Security issues | Python | bandit | `bandit -r <path>` |
+| Test coverage | Python | pytest | `pytest --cov=<pkg> --cov-report=term-missing` |

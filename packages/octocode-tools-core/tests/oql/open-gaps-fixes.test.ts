@@ -249,6 +249,32 @@ describe('#3 typed target params: type mistakes -> invalidQuery', () => {
       } as never)
     ).toThrow(/params\.type/);
   });
+
+  it('accepts every semantics type exposed by lspGetSemantics', () => {
+    for (const type of [
+      'definition',
+      'references',
+      'callers',
+      'callees',
+      'callHierarchy',
+      'hover',
+      'documentSymbols',
+      'typeDefinition',
+      'implementation',
+      'workspaceSymbol',
+      'supertypes',
+      'subtypes',
+      'diagnostic',
+    ]) {
+      expect(() =>
+        normalizeQuery({
+          target: 'semantics',
+          from: { kind: 'local', path: './x.ts' },
+          params: { type },
+        } as never)
+      ).not.toThrow();
+    }
+  });
 });
 
 /* ---------------- gap 10: code rows emit next.semantic ------------------ */

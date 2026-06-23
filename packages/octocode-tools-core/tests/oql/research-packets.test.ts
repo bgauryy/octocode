@@ -322,6 +322,16 @@ describe('target:"graph" emits relationship packets', () => {
     expect(Array.isArray(row.data.facts)).toBe(true);
     expect(Array.isArray(row.data.missingProof)).toBe(true);
     expect(Array.isArray(row.data.packets)).toBe(true);
+    expect(
+      (
+        row as {
+          next?: Record<string, { query: Record<string, unknown> }>;
+        }
+      ).next?.['next.graph']?.query
+    ).toMatchObject({
+      target: 'graph',
+      params: { proof: 'lsp', mode: 'prove', intent: 'reachability' },
+    });
     expect(row.data.packetPage).toMatchObject({
       currentPage: 1,
       itemsPerPage: 3,
@@ -331,6 +341,66 @@ describe('target:"graph" emits relationship packets', () => {
       itemsPerPage: 3,
     });
     expect(env.evidence.kind).not.toBe('proof');
+  });
+
+  it('includes native AST graph edges that touch the visible packet nodes', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'graph',
+        from: { kind: 'local', path: OQL_SRC },
+        params: {
+          intent: 'symbols',
+          subject: 'CompiledMatch',
+          includeEdges: true,
+          includePackets: false,
+          maxFiles: 12,
+        },
+        itemsPerPage: 1,
+      })
+    );
+
+    const data = (env.results[0] as { data: Record<string, unknown> }).data;
+    const edges = data.edges as Array<Record<string, unknown>>;
+    expect(
+      edges.some(edge => edge.source === 'ast' && edge.relation === 'contains')
+    ).toBe(true);
+    expect((data.summary as Record<string, number>).edges).toBeGreaterThan(0);
+  });
+
+  it('proof:"lsp" upgrades current-page symbols and exposes LSP reference edges', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'graph',
+        from: { kind: 'local', path: OQL_SRC },
+        params: {
+          intent: 'symbols',
+          subject: 'CompiledMatch',
+          proof: 'lsp',
+          proofLimit: 1,
+          includeEdges: true,
+          maxFiles: 12,
+        },
+        itemsPerPage: 1,
+      })
+    );
+
+    const row = env.results[0] as {
+      proofGrade?: string;
+      data: Record<string, unknown>;
+    };
+    if (env.diagnostics.some(d => d.code === 'lspUnavailable')) {
+      expect(row.proofGrade).toBe('missing');
+      return;
+    }
+
+    expect(row.proofGrade).toBe('graph');
+    expect((row.data.summary as Record<string, number>).missingProof).toBe(0);
+    const edges = row.data.edges as Array<Record<string, unknown>>;
+    expect(
+      edges.some(
+        edge => edge.source === 'lsp' && edge.relation === 'references'
+      )
+    ).toBe(true);
   });
 
   it('filters by verdict and incoming relation direction', async () => {

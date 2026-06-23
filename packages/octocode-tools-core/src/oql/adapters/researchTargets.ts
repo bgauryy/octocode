@@ -19,9 +19,11 @@ import {
   buildResearchPackets,
   type EvidenceEdge,
   type EvidenceFact,
+  type EvidenceRelation,
   type EvidenceSubject,
   type MissingProof,
   type ResearchEvidencePacket,
+  type ResearchGraphSummary,
 } from '../research/packets.js';
 import type { AdapterResult } from './local.js';
 import type {
@@ -401,8 +403,12 @@ function missingProofKey(proof: MissingProof): string {
 function buildGraphView(
   query: OqlQuery,
   packets: ResearchEvidencePacket[],
-  graphSummary: ReturnType<typeof buildResearchPackets>['graphSummary'],
-  filters: GraphFilters
+  graphSummary: ResearchGraphSummary,
+  filters: GraphFilters,
+  nativeGraphFacts: Awaited<
+    ReturnType<typeof analyzeResearchFlow>
+  >['graphFacts'],
+  root: string
 ): {
   data: OqlGraphData;
   pagination: Pagination;
@@ -450,6 +456,17 @@ function buildGraphView(
     for (const proof of packet.missingProof) {
       missingProof.set(missingProofKey(proof), proof);
     }
+  }
+
+  if (filters.includeEdges) {
+    addNativeGraphEdges(
+      root,
+      nativeGraphFacts,
+      new Set(nodes.keys()),
+      nodes,
+      edges,
+      filters
+    );
   }
 
   return {
@@ -503,6 +520,130 @@ function nativeGraphSummary(
     exports: facts.reduce((total, file) => total + file.exports.length, 0),
     calls: facts.reduce((total, file) => total + file.calls.length, 0),
     edges: facts.reduce((total, file) => total + file.edges.length, 0),
+  };
+}
+
+function summarizePacketGraph(
+  packets: readonly ResearchEvidencePacket[]
+): ResearchGraphSummary {
+  const byVerdict: ResearchGraphSummary['byVerdict'] = {
+    reachable: 0,
+    'candidate-dead': 0,
+    'transitive-dead': 0,
+    'candidate-unused-file': 0,
+    'candidate-unused-dependency': 0,
+    unknown: 0,
+  };
+  let facts = 0;
+  let edges = 0;
+  for (const packet of packets) {
+    byVerdict[packet.verdict] += 1;
+    facts += packet.why.length;
+    edges += packet.retainedBy.length + (packet.retains?.length ?? 0);
+  }
+  return {
+    subjects: packets.length,
+    facts,
+    edges,
+    byVerdict,
+  };
+}
+
+const NATIVE_EDGE_RELATIONS = new Set<EvidenceRelation>([
+  'contains',
+  'defines',
+  'exports',
+  'imports',
+  'references',
+  'calls',
+  'constructs',
+  'extends',
+  'implements',
+  'typeUses',
+]);
+
+function addNativeGraphEdges(
+  root: string,
+  graphFacts: Awaited<ReturnType<typeof analyzeResearchFlow>>['graphFacts'],
+  visibleNodeIds: ReadonlySet<string>,
+  nodes: Map<string, EvidenceSubject>,
+  edges: Map<string, EvidenceEdge>,
+  filters: GraphFilters
+): void {
+  if (visibleNodeIds.size === 0) return;
+  for (const fileFacts of graphFacts) {
+    for (const edge of fileFacts.edges) {
+      const relation = nativeEdgeRelation(edge.relation);
+      if (!relationAllowed(relation, filters)) continue;
+      const from = nativeEndpointSubject(edge.from, root, edge.line);
+      const to = nativeEndpointSubject(edge.to, root, edge.line);
+      if (!visibleNodeIds.has(from.id) && !visibleNodeIds.has(to.id)) continue;
+      addEdge(
+        nodes,
+        edges,
+        {
+          id: `ast:${from.id}->${to.id}:${relation}:${edge.line}`,
+          from,
+          to,
+          relation,
+          source: 'ast',
+          confidence: 'exact',
+          via: {
+            uri: fileFacts.file,
+            range: { start: { line: edge.line } },
+          },
+        },
+        filters
+      );
+    }
+  }
+}
+
+function nativeEdgeRelation(relation: string): EvidenceRelation {
+  const normalized = relation.trim();
+  if (NATIVE_EDGE_RELATIONS.has(normalized as EvidenceRelation)) {
+    return normalized as EvidenceRelation;
+  }
+  return 'references';
+}
+
+function nativeEndpointSubject(
+  endpoint: string,
+  root: string,
+  line: number
+): EvidenceSubject {
+  const symbol = parseNativeSymbolEndpoint(endpoint, root);
+  if (symbol) {
+    return {
+      id: `sym:${symbol.uri}#${symbol.name}`,
+      kind: 'symbol',
+      name: symbol.name,
+      uri: symbol.uri,
+      range: { start: { line } },
+    };
+  }
+  return {
+    id: `ast:${endpoint}`,
+    kind: 'symbol',
+    name: endpoint,
+    uri: endpoint,
+    range: { start: { line } },
+  };
+}
+
+function parseNativeSymbolEndpoint(
+  endpoint: string,
+  root: string
+): { uri: string; name: string } | undefined {
+  if (!endpoint.startsWith('symbol:')) return undefined;
+  const raw = endpoint.slice('symbol:'.length);
+  const hash = raw.lastIndexOf('#');
+  if (hash < 1 || hash === raw.length - 1) return undefined;
+  const file = raw.slice(0, hash);
+  const name = raw.slice(hash + 1);
+  return {
+    uri: nodePath.isAbsolute(file) ? nodePath.relative(root, file) : file,
+    name,
   };
 }
 
@@ -567,6 +708,7 @@ async function escalateGraphPacketsWithLsp(
     packet.missingProof = packet.missingProof.filter(
       item => item.kind !== 'lsp-unavailable'
     );
+    attachLspReferenceEdges(packet, proof);
     if (proof.paginationOpen) {
       packet.missingProof.push({
         kind: 'pagination-open',
@@ -602,6 +744,40 @@ async function escalateGraphPacketsWithLsp(
     }
   }
   return diagnostics;
+}
+
+function attachLspReferenceEdges(
+  packet: ResearchEvidencePacket,
+  proof: LspPacketProof
+): void {
+  if (
+    proof.status !== 'ok' ||
+    !proof.totalReferences ||
+    proof.files.length === 0
+  ) {
+    return;
+  }
+  const existing = new Set(packet.retainedBy.map(edge => edge.id));
+  for (const [i, file] of proof.files.entries()) {
+    const from: EvidenceSubject = {
+      id: `file:${file}`,
+      kind: 'file',
+      uri: file,
+    };
+    const edge: EvidenceEdge = {
+      id: `${packet.subject.id}:lsp-ref:${i}`,
+      from,
+      to: packet.subject,
+      relation: 'references',
+      source: 'lsp',
+      confidence: 'exact',
+      flags: file === packet.subject.uri ? ['same-file'] : ['external'],
+    };
+    if (!existing.has(edge.id)) {
+      packet.retainedBy.push(edge);
+      existing.add(edge.id);
+    }
+  }
 }
 
 type LspPacketProof = {
@@ -640,6 +816,16 @@ async function proveSymbolPacketWithLsp(
       groupByFile: true,
       itemsPerPage: 50,
     });
+    const directError = directToolError(result);
+    if (directError) {
+      return {
+        status:
+          directError.code === 'localToolsDisabled' ? 'unavailable' : 'error',
+        files: [],
+        paginationOpen: false,
+        message: directError.message,
+      };
+    }
     const { data, status } = firstQueryData<Record<string, unknown>>(result);
     if (status === 'error') {
       return {
@@ -690,19 +876,44 @@ async function proveSymbolPacketWithLsp(
       status: 'error',
       files: [],
       paginationOpen: false,
-      message:
-        err instanceof Error ? err.message : 'Could not run LSP proof.',
+      message: err instanceof Error ? err.message : 'Could not run LSP proof.',
     };
   }
+}
+
+function directToolError(
+  result: CallToolResult
+): { code?: string; message: string } | undefined {
+  const sc = result.structuredContent;
+  if (!sc || typeof sc !== 'object') return undefined;
+  const record = sc as Record<string, unknown>;
+  if (record.status !== 'error') return undefined;
+  const error =
+    record.error && typeof record.error === 'object'
+      ? (record.error as Record<string, unknown>)
+      : undefined;
+  return {
+    ...(typeof error?.code === 'string' ? { code: error.code } : {}),
+    message:
+      (typeof error?.message === 'string' && error.message) ||
+      (typeof record.code === 'string' && record.code) ||
+      'Direct tool call failed.',
+  };
 }
 
 function countReferenceLikeItems(
   data: Record<string, unknown> | undefined
 ): number | undefined {
   if (!data) return undefined;
-  for (const key of ['references', 'locations', 'results']) {
+  for (const key of ['references', 'locations', 'results', 'byFile']) {
     const value = data[key];
-    if (Array.isArray(value)) return value.length;
+    if (!Array.isArray(value)) continue;
+    if (key !== 'byFile') return value.length;
+    return value.reduce((total, item) => {
+      if (!item || typeof item !== 'object') return total + 1;
+      const count = (item as Record<string, unknown>).count;
+      return total + (typeof count === 'number' ? count : 1);
+    }, 0);
   }
   return undefined;
 }
@@ -741,6 +952,7 @@ function collectReferenceFiles(
   for (const key of [
     'references',
     'locations',
+    'byFile',
     'results',
     'files',
     'groups',
@@ -752,9 +964,7 @@ function collectReferenceFiles(
 
 function looksLikePath(value: string): boolean {
   return (
-    value.includes('/') ||
-    value.includes('\\') ||
-    /\.[cm]?[jt]sx?$/.test(value)
+    value.includes('/') || value.includes('\\') || /\.[cm]?[jt]sx?$/.test(value)
   );
 }
 
@@ -1430,11 +1640,14 @@ export async function executeSemantics(
   let uri: string | undefined;
   const provenance: AdapterResult['provenance'] = [];
   const diagnostics: OqlDiagnostic[] = [];
+  const semanticParams = params(query) as {
+    uri?: string;
+  } & Record<string, unknown>;
 
   if (query.from?.kind === 'local') {
-    uri = query.from.path;
+    uri = semanticParams.uri ?? query.from.path;
   } else if (query.from?.kind === 'materialized') {
-    uri = query.from.localPath;
+    uri = semanticParams.uri ?? query.from.localPath;
   } else if (query.from?.kind === 'github') {
     // remote semantics: materialize the file, then run LSP locally.
     const { owner, repo } = splitRepo(query.from);
@@ -1447,9 +1660,7 @@ export async function executeSemantics(
       return { results: [], diagnostics, provenance };
     }
     const sparsePath =
-      typeof (params(query) as { uri?: string }).uri === 'string'
-        ? (params(query) as { uri: string }).uri
-        : undefined;
+      typeof semanticParams.uri === 'string' ? semanticParams.uri : undefined;
     const clone = await runDirect('ghCloneRepo', {
       owner,
       repo,
@@ -1488,20 +1699,21 @@ export async function executeSemantics(
     return { results: [], diagnostics, provenance };
   }
 
-  // params carry the LSP operation (type, symbolName, lineHint, …); the
-  // resolved absolute `uri` always wins over any params.uri used for cloning.
-  const { uri: _ignoredUri, ...lspParams } = params(query) as {
-    uri?: string;
-  } & Record<string, unknown>;
+  // params carry the LSP operation (type, symbolName, lineHint, …); for local
+  // and materialized queries params.uri may override a directory/root `from`
+  // anchor. For remote queries, params.uri has already been lowered to the
+  // cloned sparse path above.
+  const { uri: _ignoredUri, ...lspParams } = semanticParams;
   const result = await runDirect('lspGetSemantics', { ...lspParams, uri });
   const { data, status } = firstQueryData(result);
   const recordData = data as Record<string, unknown> | undefined;
   const pagination = semanticPagination(recordData, query);
+  const source = semanticSource(query, uri);
   return {
     results:
       status === 'error'
         ? []
-        : records(expandData(recordData), 'semantics', query.from),
+        : records(expandData(recordData), 'semantics', source),
     ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...diagnostics,
@@ -1512,10 +1724,20 @@ export async function executeSemantics(
       ...provenance,
       {
         backend: 'lspGetSemantics',
-        source: query.from ?? { kind: 'local', path: uri },
+        source,
       },
     ],
   };
+}
+
+function semanticSource(query: OqlQuery, uri: string): QuerySource {
+  if (query.from?.kind === 'local') {
+    return { ...query.from, path: uri };
+  }
+  if (query.from?.kind === 'materialized') {
+    return { ...query.from, localPath: uri };
+  }
+  return query.from ?? { kind: 'local', path: uri };
 }
 
 export async function executeResearch(query: OqlQuery): Promise<AdapterResult> {
@@ -1763,23 +1985,14 @@ export async function executeGraph(query: OqlQuery): Promise<AdapterResult> {
         graphProofLimit(query, p)
       )
     : [];
+  const graphSummary = summarizePacketGraph(packets);
   const view = buildGraphView(
     query,
     packets,
-    bundle?.graphSummary ?? {
-      subjects: 0,
-      facts: 0,
-      edges: 0,
-      byVerdict: {
-        reachable: 0,
-        'candidate-dead': 0,
-        'transitive-dead': 0,
-        'candidate-unused-file': 0,
-        'candidate-unused-dependency': 0,
-        unknown: 0,
-      },
-    },
-    filters
+    graphSummary,
+    filters,
+    analysis.graphFacts,
+    root
   );
 
   const caveats = [

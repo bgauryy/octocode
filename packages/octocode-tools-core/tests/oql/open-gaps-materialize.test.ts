@@ -454,8 +454,48 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
     expect(env.pagination?.hasMore).toBe(true);
     expect(
       (env.next?.['next.page']?.query as { params?: { page?: number } }).params
-        ?.page
+      ?.page
     ).toBe(2);
+  });
+
+  it('uses params.uri as the local LSP anchor when from is a workspace root', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        type: 'documentSymbols',
+        uri: '/workspace/src/index.ts',
+        symbols: [{ name: 'runCLI', uri: '/workspace/src/index.ts', line: 42 }],
+      })
+    );
+
+    const env = single(
+      await runOqlSearch({
+        target: 'semantics',
+        from: { kind: 'local', path: '/workspace' },
+        params: {
+          type: 'documentSymbols',
+          uri: '/workspace/src/index.ts',
+          format: 'compact',
+        },
+      })
+    );
+
+    expect(runDirect).toHaveBeenCalledWith(
+      'lspGetSemantics',
+      expect.objectContaining({
+        type: 'documentSymbols',
+        uri: '/workspace/src/index.ts',
+        format: 'compact',
+      })
+    );
+    const row = env.results[0] as OqlRecordResultRow;
+    expect(row.source).toEqual({
+      kind: 'local',
+      path: '/workspace/src/index.ts',
+    });
+    expect(env.provenance[0]?.source).toEqual({
+      kind: 'local',
+      path: '/workspace/src/index.ts',
+    });
   });
 });
 

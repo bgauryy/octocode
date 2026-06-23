@@ -296,10 +296,7 @@ const OqlInputQueryShape = {
   scope: QueryScopeSchema,
   where: PredicateSchema.optional(),
   materialize: z
-    .union([
-      MaterializePolicySchema,
-      z.enum(['never', 'auto', 'required']),
-    ])
+    .union([MaterializePolicySchema, z.enum(['never', 'auto', 'required'])])
     .optional(),
   fetch: FetchInstructionsSchema.optional(),
   select: z.array(z.string()).optional(),
@@ -333,9 +330,9 @@ const OqlInputQueryShape = {
   verbose: z.boolean().optional(),
 } as const;
 
-export const OqlInputQuerySchema = z.object(OqlInputQueryShape).catchall(
-  z.unknown()
-);
+export const OqlInputQuerySchema = z
+  .object(OqlInputQueryShape)
+  .catchall(z.unknown());
 
 export const OqlInputBatchSchema = z
   .object({

@@ -181,6 +181,33 @@ describe('OQL gate 2: sugar normalizes to documented canonical shape', () => {
     } as never);
     expect(normalized.fetch?.content?.contentView).toBe('symbols');
   });
+
+  it('relationship graph goals default to bounded LSP proof', () => {
+    const normalized = normalizeQuery({
+      target: 'graph',
+      from: { kind: 'local', path: './src' },
+      params: { goal: 'who uses this symbol?', intent: 'reachability' },
+    } as never);
+    expect(normalized.params).toMatchObject({
+      goal: 'who uses this symbol?',
+      intent: 'reachability',
+      proof: 'lsp',
+      proofLimit: 5,
+    });
+  });
+
+  it('explicit graph proof choices are preserved', () => {
+    const normalized = normalizeQuery({
+      target: 'graph',
+      from: { kind: 'local', path: './src' },
+      params: { goal: 'who uses this symbol?', proof: 'none' },
+    } as never);
+    expect(normalized.params).toMatchObject({
+      goal: 'who uses this symbol?',
+      proof: 'none',
+    });
+    expect(normalized.params?.proofLimit).toBeUndefined();
+  });
 });
 
 describe('OQL gate 3 & 14 & 16 & 18: boolean/invert/legacy sugar', () => {

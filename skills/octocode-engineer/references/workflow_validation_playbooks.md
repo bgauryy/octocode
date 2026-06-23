@@ -2,7 +2,7 @@
 
 How to validate a finding before presenting it. Every signal is a hypothesis — never present it as fact without validation. The native octocode toolset proves **shapes** (AST) and **relationships** (LSP); claims that need a **metric** (coupling, complexity, cycles-as-clusters) can't be measured natively — validate by approximation and mark them `likely`/`uncertain` (see [checklist_quality_signals.md](./checklist_quality_signals.md)).
 
-For the confidence scale and conflict-resolution rules, see [SKILL.md](../SKILL.md) §Confidence Rules and §Evidence conflict resolution. For tool commands, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md).
+Confidence scale: `confirmed` = ≥2 independent evidence sources agree; `likely` = one source or approximation; `uncertain` = hypothesis only. For tool commands, see [context_cli_mcp_commands.md](./context_cli_mcp_commands.md).
 
 Shorthand as in [workflow_engineering_research.md](./workflow_engineering_research.md): `lsp <type>` = `octocode lsp` / `lspGetSemantics`; `ast` = `octocode grep --pattern/--rule` / `localSearchCode(mode:"structural")`.
 
@@ -47,7 +47,7 @@ State these as reasoned approximations, not measurements.
 | Cognitive load | `symbols` span + branch/nesting keywords on read | large + deeply nested → decomposition candidate |
 | Change risk | high fan-in ∩ large span ∩ recent churn (`find --modified-within`) | heuristic hotspot, not a score |
 
-If a decision hinges on a real number, ask before running the external tool that produces it (soft gate, [SKILL.md](../SKILL.md)).
+If a decision hinges on a real number, ask the user before running the external tool that produces it.
 
 ---
 

@@ -92,8 +92,8 @@ This benchmark does not test text grep, LSP navigation, rewriting, or the full
 ast-grep rule language. Those are separate capabilities.
 
 ```text
-Octocode raw native  ████████████████████    5.0 ms median  │  3.0x faster  │  6/6 matched
-ast-grep CLI         ███████░░░░░░░░░░░░░   15.1 ms median  │  baseline     │  6/6 matched
+Octocode raw native  ████████████████████   17.1 ms median  │  2.0x faster  │  6/6 matched
+ast-grep CLI         ██████████░░░░░░░░░░   34.6 ms median  │  baseline     │  6/6 matched
 ```
 
 `Octocode raw native` means the direct Rust/NAPI `structuralSearchFiles`
