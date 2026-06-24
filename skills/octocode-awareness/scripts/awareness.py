@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 
 DEFAULT_DB_NAME = "awareness.sqlite3"
@@ -53,6 +54,7 @@ REFLECTION_IMPORTANCE = {"failed": 8, "partial": 6, "worked": 5}
 # records the approval, announces it, and audits it.
 DEFAULT_HARNESS_BRANCHES = ("main", "master")
 MEMORY_EXPORT_NAME = "memories.jsonl"
+MAX_GIT_CHANGE_ENTRIES = 200
 
 # 1.2 Decay / salience re-ranking — local-SQLite peer-group pattern (exponential
 # decay keyed off last USE, so re-use keeps a memory salient). Computed in Python
@@ -133,6 +135,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             rationale TEXT NOT NULL,
             test_plan TEXT NOT NULL,
             status TEXT NOT NULL CHECK(status IN ('PENDING', 'ACTIVE', 'SUCCESS', 'FAILED')) DEFAULT 'ACTIVE',
+            workspace_path TEXT,
+            files_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         );
@@ -151,6 +155,8 @@ def init_db(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
         CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
+        CREATE INDEX IF NOT EXISTS idx_file_locks_acquired_at ON file_locks(acquired_at);
+        CREATE INDEX IF NOT EXISTS idx_file_locks_expires_at ON file_locks(expires_at);
         CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
         CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
 
@@ -217,6 +223,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
     )
     ensure_memory_columns(conn)
+    ensure_intent_columns(conn)
     ensure_refinement_columns(conn)
     try:
         conn.execute(
@@ -228,6 +235,17 @@ def init_db(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass
     conn.commit()
+
+
+def ensure_intent_columns(conn: sqlite3.Connection) -> None:
+    """Add workspace/file snapshot columns to agent_intents created by older versions."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(agent_intents)").fetchall()}
+    if "workspace_path" not in cols:
+        conn.execute("ALTER TABLE agent_intents ADD COLUMN workspace_path TEXT")
+    if "files_json" not in cols:
+        conn.execute("ALTER TABLE agent_intents ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status)")
 
 
 def ensure_memory_columns(conn: sqlite3.Connection) -> None:
@@ -324,31 +342,106 @@ def _run(cmd: list[str]) -> str | None:
         return None
 
 
+def github_repo_from_remote(remote_url: str | None) -> str | None:
+    if not remote_url:
+        return None
+    patterns = (
+        r"^git@github\.com:([^/]+/[^/]+?)(?:\.git)?$",
+        r"^ssh://git@github\.com/([^/]+/[^/]+?)(?:\.git)?$",
+        r"^https://github\.com/([^/]+/[^/]+?)(?:\.git)?$",
+        r"^git://github\.com/([^/]+/[^/]+?)(?:\.git)?$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, remote_url.strip())
+        if match:
+            return match.group(1)
+    return None
+
+
+def github_file_url(github_repo: str | None, branch: str | None, path: str) -> str | None:
+    if not github_repo or not branch or branch == "HEAD" or not path:
+        return None
+    return f"https://github.com/{github_repo}/blob/{quote(branch, safe='')}/{quote(path, safe='/')}"
+
+
+def git_change_entries(
+    porcelain_z: str,
+    branch: str | None,
+    github_repo: str | None,
+    limit: int = MAX_GIT_CHANGE_ENTRIES,
+) -> tuple[int, list[dict[str, Any]]]:
+    tokens = [part for part in porcelain_z.split("\0") if part]
+    entries: list[dict[str, Any]] = []
+    total = 0
+    i = 0
+    branch_name = branch if branch and branch != "HEAD" else None
+    while i < len(tokens):
+        item = tokens[i]
+        if len(item) < 3:
+            i += 1
+            continue
+        index_status = item[0]
+        worktree_status = item[1]
+        path = item[3:] if len(item) > 3 and item[2] == " " else item[2:].lstrip()
+        previous_path = None
+        if index_status in ("R", "C") or worktree_status in ("R", "C"):
+            i += 1
+            if i < len(tokens):
+                previous_path = tokens[i]
+        total += 1
+        if len(entries) < limit:
+            tracked_on_branch = not (
+                index_status in ("?", "A", "R", "C") or worktree_status in ("?", "A", "R", "C")
+            )
+            entry = {
+                "path": path,
+                "status": (index_status + worktree_status).strip() or "??",
+                "index_status": index_status,
+                "worktree_status": worktree_status,
+                "branch": branch_name,
+                "github_url": github_file_url(github_repo, branch_name, path) if tracked_on_branch else None,
+            }
+            if previous_path:
+                entry["previous_path"] = previous_path
+            entries.append(entry)
+        i += 1
+    return total, entries
+
+
 def detect_git(cwd: str | None = None) -> dict[str, Any]:
     """Per-repo/project context from git: repo name, branch, commit, dirty tree."""
     root = _run(["git", "-C", cwd or ".", "rev-parse", "--show-toplevel"])
     if not root:
         return {"is_repo": False}
-    porcelain = _run(["git", "-C", root, "status", "--porcelain"]) or ""
+    porcelain = _run(["git", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all"]) or ""
+    branch = _run(["git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD"])
+    remote = _run(["git", "-C", root, "remote", "get-url", "origin"])
+    github_repo = github_repo_from_remote(remote)
+    changed_count, changes = git_change_entries(porcelain, branch, github_repo)
     return {
         "is_repo": True,
         "root": root,
         "repo": os.path.basename(root),
-        "branch": _run(["git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD"]),
+        "branch": branch,
         "commit": _run(["git", "-C", root, "rev-parse", "--short", "HEAD"]),
-        "dirty": bool(porcelain.strip()),
-        "changed_files": len([ln for ln in porcelain.splitlines() if ln.strip()]),
+        "remote": remote,
+        "github_repo": github_repo,
+        "dirty": changed_count > 0,
+        "changed_files": changed_count,
+        "changes": changes,
+        "changes_truncated": changed_count > len(changes),
     }
 
 
-def detect_env() -> dict[str, Any]:
+def detect_env(cwd: str | Path | None = None) -> dict[str, Any]:
     """Running environment + project context, so a handoff records where it ran."""
+    root = Path(cwd).expanduser().resolve(strict=False) if cwd else Path.cwd()
     return {
-        "cwd": str(Path.cwd()),
+        "cwd": str(root),
         "platform": platform.platform(),
         "python": platform.python_version(),
         "node": (_run(["node", "--version"]) or "").lstrip("v") or None,
-        "git": detect_git(),
+        "git": detect_git(str(root)),
         "captured_at": utc_now(),
     }
 
@@ -771,10 +864,9 @@ def search_memory(
 
 
 def cleanup_expired_locks(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?",
-        (utc_now(),),
-    )
+    expired = stale_lock_rows(conn, 0, expired_only=True)
+    if expired:
+        apply_pruned_locks(conn, expired, utc_now())
 
 
 def active_conflicts(
@@ -828,6 +920,7 @@ def acquire_intent_once(
     expires_at = (
         datetime.now(timezone.utc) + timedelta(minutes=args.ttl_minutes)
     ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    workspace_path = str(resolve_workspace(getattr(args, "workspace", None)))
 
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -841,9 +934,9 @@ def acquire_intent_once(
             """
             INSERT INTO agent_intents (
                 intent_id, agent_id, plan_doc_ref, rationale, test_plan,
-                status, created_at, updated_at
+                status, workspace_path, files_json, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
             """,
             (
                 intent_id,
@@ -851,6 +944,8 @@ def acquire_intent_once(
                 args.plan_doc_ref,
                 args.rationale,
                 args.test_plan,
+                workspace_path,
+                json.dumps(target_files),
                 acquired_at,
                 acquired_at,
             ),
@@ -896,6 +991,7 @@ def acquire_intent_once(
         "intent_id": intent_id,
         "agent_id": args.agent_id,
         "lock_type": args.lock_type,
+        "workspace_path": workspace_path,
         "target_files": target_files,
         "acquired_at": acquired_at,
         "expires_at": expires_at,
@@ -926,6 +1022,186 @@ def pre_flight_intent(args: argparse.Namespace) -> int:
                     CONFLICT_EXIT,
                 )
             time.sleep(max(args.retry_interval, 1))
+
+
+def wait_for_lock(args: argparse.Namespace) -> int:
+    db_path = resolve_db_path(args.db)
+    conn = connect(db_path)
+    target_files = [normalize_file_path(path) for path in args.target_file]
+    started = time.monotonic()
+    deadline = started + max(args.wait_seconds, 0)
+    retry_interval = max(args.retry_interval, 1)
+
+    while True:
+        with conn:
+            cleanup_expired_locks(conn)
+            conflicts = active_conflicts(conn, target_files, args.agent_id, args.lock_type)
+
+        waited_seconds = round(time.monotonic() - started, 3)
+        if not conflicts:
+            return emit(
+                {
+                    "db_path": str(db_path),
+                    "agent_id": args.agent_id,
+                    "status": "released",
+                    "target_files": target_files,
+                    "waited_seconds": waited_seconds,
+                }
+            )
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return emit(
+                {
+                    "db_path": str(db_path),
+                    "agent_id": args.agent_id,
+                    "status": "timeout",
+                    "error": "Timed out waiting for target file locks to clear",
+                    "target_files": target_files,
+                    "waited_seconds": waited_seconds,
+                    "conflicts": conflicts,
+                },
+                CONFLICT_EXIT,
+            )
+
+        # Sleep outside any SQLite transaction so waiters never hold resources that
+        # could prevent the lock owner or another waiter from making progress.
+        time.sleep(min(retry_interval, remaining))
+
+
+def stale_lock_rows(
+    conn: sqlite3.Connection,
+    older_than_minutes: int,
+    expired_only: bool = False,
+    agent_id: str | None = None,
+    target_files: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    now = utc_now()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    clauses = ["(l.expires_at IS NOT NULL AND l.expires_at <= ?)"]
+    params: list[Any] = [now]
+    if not expired_only:
+        clauses.append("l.acquired_at <= ?")
+        params.append(cutoff)
+    where = [f"({' OR '.join(clauses)})"]
+    if agent_id:
+        where.append("l.agent_id = ?")
+        params.append(agent_id)
+    if target_files:
+        placeholders = ",".join("?" for _ in target_files)
+        where.append(f"l.file_path IN ({placeholders})")
+        params.extend(target_files)
+    rows = conn.execute(
+        f"""
+        SELECT l.lock_id, l.file_path, l.intent_id, l.agent_id, l.lock_type,
+               l.acquired_at, l.expires_at, i.status, i.rationale, i.test_plan
+        FROM file_locks l
+        JOIN agent_intents i ON i.intent_id = l.intent_id
+        WHERE {' AND '.join(where)}
+        ORDER BY l.acquired_at ASC
+        """,
+        params,
+    ).fetchall()
+    stale: list[dict[str, Any]] = []
+    for row in rows:
+        reason = "expired" if row["expires_at"] and row["expires_at"] <= now else "stale_age"
+        stale.append(
+            {
+                "lock_id": row["lock_id"],
+                "file_path": row["file_path"],
+                "intent_id": row["intent_id"],
+                "agent_id": row["agent_id"],
+                "lock_type": row["lock_type"],
+                "acquired_at": row["acquired_at"],
+                "expires_at": row["expires_at"],
+                "intent_status": row["status"],
+                "rationale": row["rationale"],
+                "test_plan": row["test_plan"],
+                "prune_reason": reason,
+            }
+        )
+    return stale
+
+
+def apply_pruned_locks(conn: sqlite3.Connection, stale: list[dict[str, Any]], now: str) -> list[str]:
+    lock_ids = [row["lock_id"] for row in stale]
+    affected_intents = sorted({row["intent_id"] for row in stale})
+    if not lock_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in lock_ids)
+    conn.execute(f"DELETE FROM file_locks WHERE lock_id IN ({placeholders})", lock_ids)
+    for intent_id in affected_intents:
+        remaining = conn.execute(
+            "SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1",
+            (intent_id,),
+        ).fetchone()
+        if not remaining:
+            conn.execute(
+                """
+                UPDATE agent_intents
+                SET status = CASE WHEN status = 'ACTIVE' THEN 'PENDING' ELSE status END,
+                    updated_at = ?
+                WHERE intent_id = ?
+                """,
+                (now, intent_id),
+            )
+        pruned = [row for row in stale if row["intent_id"] == intent_id]
+        conn.execute(
+            """
+            INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+            VALUES (?, ?, ?, 'STALE_PRUNED', ?, ?)
+            """,
+            (
+                "evt_" + uuid.uuid4().hex,
+                intent_id,
+                pruned[0]["agent_id"],
+                f"Pruned {len(pruned)} stale/expired lock(s); verification remains pending if needed",
+                now,
+            ),
+        )
+    return affected_intents
+
+
+def prune_stale_locks(args: argparse.Namespace) -> int:
+    db_path = resolve_db_path(args.db)
+    conn = connect(db_path)
+    target_files = [normalize_file_path(path) for path in (args.target_file or [])]
+    stale = stale_lock_rows(
+        conn,
+        args.older_than_minutes,
+        expired_only=args.expired_only,
+        agent_id=args.agent_id,
+        target_files=target_files or None,
+    )
+    if args.dry_run:
+        return emit(
+            {
+                "db_path": str(db_path),
+                "dry_run": True,
+                "older_than_minutes": args.older_than_minutes,
+                "expired_only": args.expired_only,
+                "would_prune": len(stale),
+                "locks": stale,
+            }
+        )
+
+    now = utc_now()
+    with conn:
+        affected_intents = apply_pruned_locks(conn, stale, now)
+    return emit(
+        {
+            "db_path": str(db_path),
+            "dry_run": False,
+            "older_than_minutes": args.older_than_minutes,
+            "expired_only": args.expired_only,
+            "pruned_count": len(stale),
+            "intent_ids": affected_intents,
+            "locks": stale,
+        }
+    )
 
 
 def release_file_lock(args: argparse.Namespace) -> int:
@@ -983,16 +1259,26 @@ def release_file_lock(args: argparse.Namespace) -> int:
 
     # 1.1 Validate-before-conclude: optionally record verification at release, then
     # warn (non-blocking) if concluding SUCCESS on an intent that declared a
-    # test_plan but never recorded a `verified` event.
+    # test_plan but never recorded a `verified` event. Persist those attempts as
+    # PENDING so Stop can enforce them without auditing old historical SUCCESS rows.
     if getattr(args, "verified", False):
         for intent_id in intent_ids:
             record_verification(conn, intent_id, args.agent_id, args.verified_note or "verified")
     warnings: list[dict[str, Any]] = []
+    downgrade_to_pending: list[str] = []
     if args.status == "SUCCESS":
         for intent_id in intent_ids:
             gap = unverified_gap(conn, intent_id)
             if gap:
                 warnings.append(gap)
+                downgrade_to_pending.append(intent_id)
+    if downgrade_to_pending:
+        placeholders = ",".join("?" for _ in downgrade_to_pending)
+        with conn:
+            conn.execute(
+                f"UPDATE agent_intents SET status = 'PENDING', updated_at = ? WHERE intent_id IN ({placeholders})",
+                [utc_now(), *downgrade_to_pending],
+            )
 
     payload = {
         "db_path": str(db_path),
@@ -1002,6 +1288,7 @@ def release_file_lock(args: argparse.Namespace) -> int:
     }
     if warnings:
         payload["warnings"] = warnings
+        payload["persisted_status"] = "PENDING"
     return emit(payload)
 
 
@@ -1048,42 +1335,129 @@ def unverified_gap(conn: sqlite3.Connection, intent_id: str) -> dict[str, Any] |
     }
 
 
-def audit_unverified(args: argparse.Namespace) -> int:
-    """List still-held intents that declared a test_plan but recorded no VERIFIED event.
+def unverified_intents(
+    conn: sqlite3.Connection,
+    agent_id: str | None = None,
+    limit: int | None = None,
+    workspace: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return intents that still owe verification.
 
-    Drives the Stop hook (warn before concluding) and the viewer. Scoped to intents
-    that still hold at least one live lock, so finished/abandoned work doesn't nag.
+    ACTIVE only counts while a live lock exists. PENDING counts even after locks
+    are released, which is what lets the post-edit hook release files without
+    erasing the verify-before-conclude obligation.
     """
-    db_path = resolve_db_path(args.db)
-    conn = connect(db_path)
     cleanup_expired_locks(conn)
+    params: list[Any] = [utc_now()]
+    where = ["i.test_plan IS NOT NULL", "i.test_plan <> ''"]
+    if agent_id:
+        where.append("i.agent_id = ?")
+        params.append(agent_id)
+    limit_clause = ""
+    if limit is not None and not workspace:
+        limit_clause = " LIMIT ?"
+        params.append(limit)
     rows = conn.execute(
-        """
-        SELECT DISTINCT i.intent_id, i.agent_id, i.rationale, i.test_plan
+        f"""
+        SELECT i.intent_id, i.agent_id, i.rationale, i.test_plan, i.status,
+               i.workspace_path, i.files_json, i.updated_at,
+               COUNT(l.lock_id) AS live_lock_count,
+               GROUP_CONCAT(l.file_path, '\n') AS live_files
         FROM agent_intents i
-        JOIN file_locks l ON l.intent_id = i.intent_id
-        WHERE i.test_plan IS NOT NULL AND i.test_plan <> ''
-          AND (l.expires_at IS NULL OR l.expires_at > ?)
+        LEFT JOIN file_locks l
+          ON l.intent_id = i.intent_id
+         AND (l.expires_at IS NULL OR l.expires_at > ?)
+        WHERE {" AND ".join(where)}
           AND NOT EXISTS (
             SELECT 1 FROM intent_events e
             WHERE e.intent_id = i.intent_id AND e.event_type = 'VERIFIED'
           )
+        GROUP BY i.intent_id, i.agent_id, i.rationale, i.test_plan, i.status,
+                 i.workspace_path, i.files_json, i.updated_at
+        HAVING i.status = 'PENDING' OR live_lock_count > 0
+        ORDER BY CASE i.status
+                   WHEN 'PENDING' THEN 0
+                   WHEN 'ACTIVE' THEN 1
+                   ELSE 3
+                 END,
+                 i.updated_at DESC
+        {limit_clause}
         """,
-        (utc_now(),),
+        params,
     ).fetchall()
-    if args.agent_id:
-        rows = [r for r in rows if r["agent_id"] == args.agent_id]
-    pending = [
-        {
-            "intent_id": r["intent_id"],
-            "agent_id": r["agent_id"],
-            "rationale": r["rationale"],
-            "test_plan": r["test_plan"],
-        }
-        for r in rows
-    ]
+    pending: list[dict[str, Any]] = []
+    for row in rows:
+        files = [f for f in (row["live_files"] or "").split("\n") if f]
+        if not files:
+            try:
+                files = [f for f in json.loads(row["files_json"] or "[]") if f]
+            except json.JSONDecodeError:
+                files = []
+        if workspace and not intent_matches_workspace(row["workspace_path"], files, workspace):
+            continue
+        pending.append(
+            {
+                "intent_id": row["intent_id"],
+                "agent_id": row["agent_id"],
+                "rationale": row["rationale"],
+                "test_plan": row["test_plan"],
+                "status": row["status"],
+                "workspace_path": row["workspace_path"],
+                "updated_at": row["updated_at"],
+                "live_lock_count": row["live_lock_count"],
+                "files": files,
+            }
+        )
+        if limit is not None and len(pending) >= limit:
+            break
+    return pending
+
+
+def path_belongs_to_workspace(file_path: str | None, workspace: str | Path | None) -> bool:
+    if not file_path or not workspace:
+        return False
+    workspace_path = Path(workspace).expanduser().resolve(strict=False)
+    path = Path(file_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    normalized = path.resolve(strict=False)
+    try:
+        return normalized == workspace_path or normalized.is_relative_to(workspace_path)
+    except ValueError:
+        return False
+
+
+def intent_matches_workspace(
+    workspace_path: str | None,
+    files: list[str],
+    workspace: str | Path | None,
+) -> bool:
+    if not workspace:
+        return True
+    wanted = resolve_workspace(str(workspace))
+    if workspace_path:
+        return resolve_workspace(workspace_path) == wanted
+    return any(path_belongs_to_workspace(file_path, wanted) for file_path in files)
+
+
+def audit_unverified(args: argparse.Namespace) -> int:
+    """List intents that declared a test_plan but recorded no VERIFIED event.
+
+    Drives the Stop hook (warn before concluding) and the viewer. Released PENDING
+    intents still count so automatic post-edit lock release cannot erase the
+    verification obligation.
+    """
+    db_path = resolve_db_path(args.db)
+    conn = connect(db_path)
+    workspace = getattr(args, "workspace", None)
+    pending = unverified_intents(conn, args.agent_id, workspace=workspace)
     return emit(
-        {"db_path": str(db_path), "count": len(pending), "unverified": pending},
+        {
+            "db_path": str(db_path),
+            "workspace_path": str(resolve_workspace(workspace)) if workspace else None,
+            "count": len(pending),
+            "unverified": pending,
+        },
         1 if pending else 0,
     )
 
@@ -1092,23 +1466,72 @@ def verify_intent(args: argparse.Namespace) -> int:
     """Record that an intent's work was actually checked (test_plan run, artifact seen)."""
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
-    intent = conn.execute(
-        "SELECT intent_id, agent_id, test_plan FROM agent_intents WHERE intent_id = ?",
-        (args.intent_id,),
-    ).fetchone()
-    if not intent:
-        return emit(
-            {"error": f"unknown intent_id: {args.intent_id}", "intent_id": args.intent_id}, 1
+    intent_ids = list(dict.fromkeys(args.intent_id or []))
+    if args.all_pending:
+        workspace = getattr(args, "workspace", None)
+        intent_ids.extend(
+            row["intent_id"]
+            for row in unverified_intents(conn, args.agent_id, workspace=workspace)
+            if row["intent_id"] not in intent_ids
         )
-    record_verification(conn, args.intent_id, args.agent_id, args.message or "verified")
-    return emit(
-        {
-            "db_path": str(db_path),
-            "intent_id": args.intent_id,
-            "verified": True,
-            "test_plan": col(intent, "test_plan"),
-        }
-    )
+    if not intent_ids:
+        if args.all_pending:
+            return emit(
+                {
+                    "db_path": str(db_path),
+                    "verified": True,
+                    "verified_count": 0,
+                    "intent_ids": [],
+                    "intents": [],
+                }
+            )
+        return emit(
+            {
+                "error": "verify requires --intent-id or --all-pending",
+                "verified_count": 0,
+            },
+            1,
+        )
+
+    verified: list[dict[str, Any]] = []
+    for intent_id in intent_ids:
+        intent = conn.execute(
+            "SELECT intent_id, agent_id, test_plan, status FROM agent_intents WHERE intent_id = ?",
+            (intent_id,),
+        ).fetchone()
+        if not intent:
+            return emit({"error": f"unknown intent_id: {intent_id}", "intent_id": intent_id}, 1)
+        record_verification(conn, intent_id, args.agent_id, args.message or "verified")
+        live_lock = conn.execute(
+            "SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1",
+            (intent_id,),
+        ).fetchone()
+        if not live_lock and col(intent, "status") in ("ACTIVE", "PENDING", "SUCCESS"):
+            with conn:
+                conn.execute(
+                    "UPDATE agent_intents SET status = 'SUCCESS', updated_at = ? WHERE intent_id = ?",
+                    (utc_now(), intent_id),
+                )
+        verified.append(
+            {
+                "intent_id": intent_id,
+                "test_plan": col(intent, "test_plan"),
+                "previous_status": col(intent, "status"),
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "db_path": str(db_path),
+        "workspace_path": str(resolve_workspace(args.workspace)) if getattr(args, "workspace", None) else None,
+        "verified": True,
+        "verified_count": len(verified),
+        "intent_ids": [item["intent_id"] for item in verified],
+        "intents": verified,
+    }
+    if len(verified) == 1:
+        payload["intent_id"] = verified[0]["intent_id"]
+        payload["test_plan"] = verified[0]["test_plan"]
+    return emit(payload)
 
 
 def mine_weakness(args: argparse.Namespace) -> int:
@@ -1637,6 +2060,7 @@ def notify_get(args: argparse.Namespace) -> int:
         clauses.append("thread_id = ?")
         params.append(args.thread_id)
     else:
+        clauses.append("status != 'resolved'")
         # Inbox: addressed to me or broadcast, and not authored by me.
         clauses.append("(to_agent = ? OR to_agent IS NULL)")
         params.append(agent)
@@ -2018,6 +2442,7 @@ def memory_import(args: argparse.Namespace) -> int:
 def status(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
+    workspace = resolve_workspace(getattr(args, "workspace", None)) if getattr(args, "workspace", None) else None
     with conn:
         cleanup_expired_locks(conn)
     memory_count = conn.execute("SELECT COUNT(*) AS count FROM agent_memories").fetchone()["count"]
@@ -2027,26 +2452,60 @@ def status(args: argparse.Namespace) -> int:
             "SELECT state, COUNT(*) AS count FROM agent_memories GROUP BY state"
         ).fetchall()
     }
-    active_intent_count = conn.execute(
-        "SELECT COUNT(*) AS count FROM agent_intents WHERE status = 'ACTIVE'"
-    ).fetchone()["count"]
+    if workspace:
+        active_rows = conn.execute(
+            """
+            SELECT i.intent_id, i.workspace_path, i.files_json,
+                   GROUP_CONCAT(l.file_path, '\n') AS live_files
+            FROM agent_intents i
+            LEFT JOIN file_locks l
+              ON l.intent_id = i.intent_id
+             AND (l.expires_at IS NULL OR l.expires_at > ?)
+            WHERE i.status = 'ACTIVE'
+            GROUP BY i.intent_id, i.workspace_path, i.files_json
+            """,
+            (utc_now(),),
+        ).fetchall()
+        active_intent_count = 0
+        for row in active_rows:
+            files = [f for f in (row["live_files"] or "").split("\n") if f]
+            if not files:
+                try:
+                    files = [f for f in json.loads(row["files_json"] or "[]") if f]
+                except json.JSONDecodeError:
+                    files = []
+            if intent_matches_workspace(row["workspace_path"], files, workspace):
+                active_intent_count += 1
+    else:
+        active_intent_count = conn.execute(
+            "SELECT COUNT(*) AS count FROM agent_intents WHERE status = 'ACTIVE'"
+        ).fetchone()["count"]
+    lock_where = ""
+    lock_params: list[Any] = []
+    if workspace:
+        lock_where = "WHERE file_path = ? OR file_path LIKE ?"
+        lock_params.extend([str(workspace), str(workspace) + os.sep + "%"])
     locks = conn.execute(
-        """
+        f"""
         SELECT file_path, intent_id, agent_id, lock_type, acquired_at, expires_at
         FROM file_locks
+        {lock_where}
         ORDER BY acquired_at DESC
         LIMIT ?
         """,
-        (args.limit,),
+        (*lock_params, args.limit),
     ).fetchall()
+    unverified = unverified_intents(conn, limit=args.limit, workspace=str(workspace) if workspace else None)
     return emit(
         {
             "db_path": str(db_path),
+            "workspace_path": str(workspace) if workspace else None,
             "fts_enabled": has_fts(conn),
             "memory_count": memory_count,
             "memory_states": memory_states,
             "active_intent_count": active_intent_count,
             "locks": [dict(row) for row in locks],
+            "unverified_intents": unverified,
         }
     )
 
@@ -2057,18 +2516,11 @@ def env_command(args: argparse.Namespace) -> int:
     Surfaces the running environment, the detected git repo/branch/dirty state, the
     open work-handoff for this repo, and any unverified intents in the global store.
     """
-    env = detect_env()
+    workspace = resolve_workspace(getattr(args, "workspace", None)) if getattr(args, "workspace", None) else None
+    env = detect_env(workspace)
     git = env.get("git") or {}
     mem_conn = connect(resolve_db_path(args.db))
-    unverified = mem_conn.execute(
-        """
-        SELECT DISTINCT i.intent_id, i.test_plan
-        FROM agent_intents i JOIN file_locks l ON l.intent_id = i.intent_id
-        WHERE i.test_plan IS NOT NULL AND i.test_plan <> ''
-          AND NOT EXISTS (SELECT 1 FROM intent_events e
-                          WHERE e.intent_id = i.intent_id AND e.event_type = 'VERIFIED')
-        """
-    ).fetchall()
+    unverified = unverified_intents(mem_conn, limit=args.limit, workspace=str(workspace) if workspace else None)
     handoff: list[dict[str, Any]] = []
     if git.get("repo"):
         ref_db, _ = resolve_refine_db(args)
@@ -2090,7 +2542,7 @@ def env_command(args: argparse.Namespace) -> int:
             "ref": git.get("branch"),
             "dirty": git.get("dirty"),
             "open_handoff": handoff,
-            "unverified_intents": [dict(r) for r in unverified],
+            "unverified_intents": unverified,
         }
     )
 
@@ -2217,7 +2669,8 @@ def session_capture(args: argparse.Namespace) -> int:
     on a non-empty tree; here we just no-op cleanly when there's nothing to record."""
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
-    env = detect_env()
+    workspace = resolve_workspace(getattr(args, "workspace", None))
+    env = detect_env(workspace)
     git = env.get("git") or {}
     locked = [r["file_path"] for r in conn.execute(
         "SELECT DISTINCT l.file_path FROM file_locks l JOIN agent_intents i ON i.intent_id=l.intent_id "
@@ -2362,7 +2815,7 @@ def self_test(args: argparse.Namespace) -> int:
                 "--test-plan",
                 "self-test",
             ],
-            base + ["release-file-lock", "--agent-id", "agent-a", "--status", "SUCCESS"],
+            base + ["release-file-lock", "--agent-id", "agent-a", "--status", "FAILED"],
             base + ["status"],
             base + ["forget", "--tag", "sqlite", "--dry-run"],
             base + ["forget", "--tag", "sqlite"],
@@ -2494,6 +2947,117 @@ def self_test(args: argparse.Namespace) -> int:
                 raise RuntimeError(f"self-test step failed: {extra} -> {done.returncode}")
             return json.loads(done.stdout)
 
+        # Git change metadata: preserve the changed_files count while adding
+        # branch-aware per-file URLs when the origin is a GitHub remote.
+        repo = github_repo_from_remote("git@github.com:bgauryy/octocode.git")
+        total_changes, change_entries = git_change_entries(
+            " M README.md\0R  docs/new name.md\0docs/old name.md\0?? scratch.txt\0",
+            "feature/awareness",
+            repo,
+        )
+        if repo != "bgauryy/octocode" or total_changes != 3:
+            return emit({"ok": False, "error": "git metadata parser count/repo mismatch",
+                         "repo": repo, "total_changes": total_changes, "changes": change_entries}, 1)
+        if change_entries[0]["branch"] != "feature/awareness" or "feature%2Fawareness" not in (change_entries[0]["github_url"] or ""):
+            return emit({"ok": False, "error": "git metadata parser missing branch/github URL",
+                         "changes": change_entries}, 1)
+        if change_entries[1].get("previous_path") != "docs/old name.md":
+            return emit({"ok": False, "error": "git metadata parser missed rename source",
+                         "changes": change_entries}, 1)
+        if change_entries[1]["github_url"] is not None:
+            return emit({"ok": False, "error": "renamed target should not get a github_url",
+                         "changes": change_entries}, 1)
+        if change_entries[2]["github_url"] is not None:
+            return emit({"ok": False, "error": "untracked file should not get a github_url",
+                         "changes": change_entries}, 1)
+        results.append({"command": ["+git change metadata checks"], "returncode": 0})
+
+        # Bounded lock waiting: conflict exits 2 immediately at zero budget, then
+        # clears after the owner releases. The waiter never acquires a lock.
+        wait_target = "self-test-wait.txt"
+        wait_iid = run_json([
+            "pre-flight-intent", "--agent-id", "agent-a", "--rationale", "wait owner",
+            "--target-file", wait_target, "--test-plan", "self-test",
+        ])["intent"]["intent_id"]
+        blocked_wait = subprocess.run(
+            base + [
+                "wait-for-lock", "--agent-id", "agent-b", "--target-file", wait_target,
+                "--wait-seconds", "0",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if blocked_wait.returncode != CONFLICT_EXIT:
+            return emit({"ok": False, "error": "wait-for-lock should time out on live conflict",
+                         "stdout": blocked_wait.stdout}, 1)
+        wait_payload = json.loads(blocked_wait.stdout)
+        if wait_payload.get("status") != "timeout" or not wait_payload.get("conflicts"):
+            return emit({"ok": False, "error": "wait-for-lock timeout payload missing conflicts",
+                         "stdout": wait_payload}, 1)
+        run_json(["release-file-lock", "--agent-id", "agent-a", "--intent-id", wait_iid, "--status", "FAILED"])
+        cleared_wait = run_json([
+            "wait-for-lock", "--agent-id", "agent-b", "--target-file", wait_target,
+            "--wait-seconds", "0",
+        ])
+        if cleared_wait.get("status") != "released":
+            return emit({"ok": False, "error": "wait-for-lock did not clear after release",
+                         "stdout": cleared_wait}, 1)
+        results.append({"command": ["+wait-for-lock bounded checks"], "returncode": 0})
+
+        # Stale lock pruning: age a lock in-place, dry-run it, prune it, then
+        # confirm the file is free while the intent remains pending for audit.
+        stale_target = "self-test-stale.txt"
+        stale_iid = run_json([
+            "pre-flight-intent", "--agent-id", "agent-stale", "--rationale", "stale owner",
+            "--target-file", stale_target, "--test-plan", "self-test",
+        ])["intent"]["intent_id"]
+        old_ts = (datetime.now(timezone.utc) - timedelta(minutes=30)).replace(
+            microsecond=0
+        ).isoformat().replace("+00:00", "Z")
+        with connect(Path(db_path)) as conn:
+            conn.execute(
+                "UPDATE file_locks SET acquired_at = ?, expires_at = ? WHERE intent_id = ?",
+                (old_ts, old_ts, stale_iid),
+            )
+        stale_dry = run_json(["prune-stale-locks", "--older-than-minutes", "20", "--dry-run"])
+        if stale_dry.get("would_prune", 0) < 1:
+            return emit({"ok": False, "error": "prune-stale-locks dry-run found no stale lock",
+                         "stdout": stale_dry}, 1)
+        stale_pruned = run_json(["prune-stale-locks", "--older-than-minutes", "20"])
+        if stale_pruned.get("pruned_count", 0) < 1 or stale_iid not in stale_pruned.get("intent_ids", []):
+            return emit({"ok": False, "error": "prune-stale-locks did not prune expected lock",
+                         "stdout": stale_pruned}, 1)
+        stale_wait = run_json(["wait-for-lock", "--agent-id", "agent-b", "--target-file", stale_target,
+                               "--wait-seconds", "0"])
+        if stale_wait.get("status") != "released":
+            return emit({"ok": False, "error": "stale-pruned file should be released",
+                         "stdout": stale_wait}, 1)
+        results.append({"command": ["+prune-stale-locks checks"], "returncode": 0})
+
+        # Legacy intent rows created before workspace_path/files_json existed should
+        # still appear in workspace-scoped status when their live locks are in that workspace.
+        legacy_target = normalize_file_path(str(Path(tmp_dir) / "self-test-legacy.txt"))
+        legacy = run_json([
+            "pre-flight-intent", "--agent-id", "agent-legacy", "--rationale", "legacy owner",
+            "--target-file", legacy_target, "--test-plan", "self-test",
+        ])
+        legacy_iid = legacy["intent"]["intent_id"]
+        with connect(Path(db_path)) as conn:
+            conn.execute(
+                "UPDATE agent_intents SET workspace_path = NULL, files_json = '[]' WHERE intent_id = ?",
+                (legacy_iid,),
+            )
+        scoped = run_json(["status", "--workspace", tmp_dir])
+        if scoped.get("active_intent_count", 0) < 1:
+            return emit({"ok": False, "error": "legacy workspace lock missing from active count",
+                         "stdout": scoped}, 1)
+        if legacy_iid not in {item["intent_id"] for item in scoped.get("unverified_intents", [])}:
+            return emit({"ok": False, "error": "legacy workspace intent missing from unverified list",
+                         "stdout": scoped}, 1)
+        run_json(["release-file-lock", "--agent-id", "agent-legacy", "--intent-id", legacy_iid, "--status", "FAILED"])
+        results.append({"command": ["+legacy workspace intent checks"], "returncode": 0})
+
         # Memory correlates to ONE file: store with --file, confirm it round-trips.
         filed = run_json([
             "tell-memory", "--agent-id", "agent-a", "--task-context", "file-scoped",
@@ -2550,6 +3114,65 @@ def self_test(args: argparse.Namespace) -> int:
         cleared = run_json(["release-file-lock", "--agent-id", "agent-a", "--intent-id", iid2, "--status", "SUCCESS"])
         if cleared.get("warnings"):
             return emit({"ok": False, "error": "verify should clear the unverified warning", "stdout": cleared}, 1)
+        iid3 = run_json(["pre-flight-intent", "--agent-id", "agent-a", "--rationale", "post-edit",
+                         "--target-file", "self-test-vbc3.txt", "--test-plan", "run tests"])["intent"]["intent_id"]
+        run_json(["release-file-lock", "--agent-id", "agent-a", "--intent-id", iid3, "--status", "PENDING"])
+        audited = subprocess.run(
+            base + ["audit-unverified", "--agent-id", "agent-a"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if audited.returncode != 1:
+            return emit({"ok": False, "error": "audit-unverified should fail when PENDING needs verification",
+                         "stdout": audited.stdout}, 1)
+        audit_payload = json.loads(audited.stdout)
+        pending_ids = {row["intent_id"] for row in audit_payload.get("unverified", [])}
+        if not {iid, iid3}.issubset(pending_ids):
+            return emit({"ok": False, "error": "audit-unverified missed released unverified intents",
+                         "stdout": audit_payload}, 1)
+        bulk_verified = run_json(["verify", "--agent-id", "agent-a", "--all-pending", "--message", "ok"])
+        if not {iid, iid3}.issubset(set(bulk_verified.get("intent_ids", []))):
+            return emit({"ok": False, "error": "verify --all-pending missed pending intents",
+                         "stdout": bulk_verified}, 1)
+        audited_clear = subprocess.run(
+            base + ["audit-unverified", "--agent-id", "agent-a"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if audited_clear.returncode != 0:
+            return emit({"ok": False, "error": "verify --all-pending did not clear audit",
+                         "stdout": audited_clear.stdout}, 1)
+
+        ws1 = str(Path(tmp_dir) / "workspace-one")
+        ws2 = str(Path(tmp_dir) / "workspace-two")
+        Path(ws1).mkdir()
+        Path(ws2).mkdir()
+        scoped1 = run_json(["pre-flight-intent", "--agent-id", "agent-scope", "--workspace", ws1,
+                            "--rationale", "scope1", "--target-file", str(Path(ws1) / "a.txt"),
+                            "--test-plan", "run scoped test"])["intent"]["intent_id"]
+        scoped2 = run_json(["pre-flight-intent", "--agent-id", "agent-scope", "--workspace", ws2,
+                            "--rationale", "scope2", "--target-file", str(Path(ws2) / "b.txt"),
+                            "--test-plan", "run scoped test"])["intent"]["intent_id"]
+        run_json(["release-file-lock", "--agent-id", "agent-scope", "--intent-id", scoped1, "--status", "PENDING"])
+        run_json(["release-file-lock", "--agent-id", "agent-scope", "--intent-id", scoped2, "--status", "PENDING"])
+        scoped_verified = run_json(["verify", "--agent-id", "agent-scope", "--workspace", ws1,
+                                    "--all-pending", "--message", "workspace-one checked"])
+        if scoped_verified.get("intent_ids") != [scoped1]:
+            return emit({"ok": False, "error": "workspace-scoped verify --all-pending leaked",
+                         "stdout": scoped_verified}, 1)
+        scoped_audit = subprocess.run(
+            base + ["audit-unverified", "--agent-id", "agent-scope", "--workspace", ws2],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        scoped_payload = json.loads(scoped_audit.stdout)
+        if scoped_audit.returncode != 1 or [row["intent_id"] for row in scoped_payload.get("unverified", [])] != [scoped2]:
+            return emit({"ok": False, "error": "workspace-scoped audit missed remaining intent",
+                         "stdout": scoped_payload}, 1)
+        run_json(["verify", "--agent-id", "agent-scope", "--intent-id", scoped2, "--message", "workspace-two checked"])
         results.append({"command": ["+decay/verify/mine-weakness checks"], "returncode": 0})
 
         # 3.2 bi-temporal point-in-time recall.
@@ -2629,6 +3252,10 @@ def self_test(args: argparse.Namespace) -> int:
         resolved = run_json(["notify-resolve", "--thread-id", root_id])
         if resolved.get("resolved", 0) != 2:
             return emit({"ok": False, "error": "notify-resolve should close both thread messages", "stdout": resolved}, 1)
+        resolved_inbox = run_json(["notify-get", "--agent-id", "agent-b", "--repo", "demo-repo", "--all"])
+        if resolved_inbox.get("count", 0) != 0:
+            return emit({"ok": False, "error": "resolved messages should not appear in default inbox",
+                         "stdout": resolved_inbox}, 1)
         pre = run_json(["notify-prune", "--resolved", "--dry-run"])
         if pre.get("would_delete", 0) != 2:
             return emit({"ok": False, "error": "notify-prune dry-run should match 2 resolved", "stdout": pre}, 1)
@@ -2707,6 +3334,13 @@ def positive_int(value: str) -> int:
     return parsed
 
 
+def non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return parsed
+
+
 def importance(value: str) -> int:
     parsed = int(value)
     if parsed < 1 or parsed > 10:
@@ -2723,6 +3357,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.set_defaults(func=init_command)
 
     status_parser = subcommands.add_parser("status", help="Show memory and active lock status.")
+    status_parser.add_argument("--workspace", help="Filter displayed locks under this workspace path.")
     status_parser.add_argument("--limit", type=positive_int, default=20)
     status_parser.set_defaults(func=status)
 
@@ -2809,15 +3444,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Register intent and acquire file locks.",
     )
     intent_parser.add_argument("--agent-id", required=True)
+    intent_parser.add_argument("--workspace", help="Workspace root for verification scoping; default current directory.")
     intent_parser.add_argument("--plan-doc-ref")
     intent_parser.add_argument("--rationale", required=True)
     intent_parser.add_argument("--target-file", action="append", required=True)
     intent_parser.add_argument("--test-plan", required=True)
     intent_parser.add_argument("--lock-type", choices=["SHARED", "EXCLUSIVE"], default="EXCLUSIVE")
-    intent_parser.add_argument("--wait-seconds", type=int, default=0)
-    intent_parser.add_argument("--retry-interval", type=int, default=5)
+    intent_parser.add_argument("--wait-seconds", type=non_negative_int, default=0)
+    intent_parser.add_argument("--retry-interval", type=positive_int, default=5)
     intent_parser.add_argument("--ttl-minutes", type=positive_int, default=240)
     intent_parser.set_defaults(func=pre_flight_intent)
+
+    wait_parser = subcommands.add_parser(
+        "wait-for-lock",
+        aliases=["wait_for_lock"],
+        help="Wait with a bounded budget until target file locks clear, without acquiring a lock.",
+    )
+    wait_parser.add_argument("--agent-id", required=True)
+    wait_parser.add_argument("--target-file", action="append", required=True)
+    wait_parser.add_argument("--lock-type", choices=["SHARED", "EXCLUSIVE"], default="EXCLUSIVE")
+    wait_parser.add_argument("--wait-seconds", type=non_negative_int, default=60)
+    wait_parser.add_argument("--retry-interval", type=positive_int, default=5)
+    wait_parser.set_defaults(func=wait_for_lock)
+
+    prune_locks_parser = subcommands.add_parser(
+        "prune-stale-locks",
+        aliases=["prune_stale_locks"],
+        help="Delete expired or age-stale file locks and leave affected intents pending.",
+    )
+    prune_locks_parser.add_argument(
+        "--older-than-minutes",
+        type=positive_int,
+        default=20,
+        help="Treat locks acquired at least this many minutes ago as stale (default 20).",
+    )
+    prune_locks_parser.add_argument(
+        "--expired-only",
+        action="store_true",
+        help="Only prune locks whose expires_at is already past; ignore age staleness.",
+    )
+    prune_locks_parser.add_argument("--agent-id", help="Only prune locks held by this agent id.")
+    prune_locks_parser.add_argument("--target-file", action="append", help="Only prune these file paths.")
+    prune_locks_parser.add_argument("--dry-run", action="store_true", help="Report matched locks without deleting.")
+    prune_locks_parser.set_defaults(func=prune_stale_locks)
 
     release_parser = subcommands.add_parser(
         "release-file-lock",
@@ -2827,7 +3496,7 @@ def build_parser() -> argparse.ArgumentParser:
     release_parser.add_argument("--agent-id", required=True)
     release_parser.add_argument("--intent-id")
     release_parser.add_argument("--target-file", action="append")
-    release_parser.add_argument("--status", choices=["SUCCESS", "FAILED"], default="SUCCESS")
+    release_parser.add_argument("--status", choices=["PENDING", "SUCCESS", "FAILED"], default="SUCCESS")
     release_parser.add_argument(
         "--verified",
         action="store_true",
@@ -2843,16 +3512,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Record that an intent's work was actually checked (artifact seen / test_plan run).",
     )
     verify_parser.add_argument("--agent-id", required=True)
-    verify_parser.add_argument("--intent-id", required=True)
+    verify_parser.add_argument("--workspace", help="Only verify pending intents in this workspace when using --all-pending.")
+    verify_parser.add_argument("--intent-id", action="append", default=[], help="Intent id to verify; repeatable.")
+    verify_parser.add_argument(
+        "--all-pending",
+        action="store_true",
+        help="Verify every unverified pending/live intent for this agent.",
+    )
     verify_parser.add_argument("--message", help="What was verified (test output, artifact checked).")
     verify_parser.set_defaults(func=verify_intent)
 
     audit_parser = subcommands.add_parser(
         "audit-unverified",
         aliases=["audit_unverified"],
-        help="List held intents with a test_plan but no verification (exit 1 if any). Drives the Stop hook.",
+        help="List intents with a test_plan but no verification (exit 1 if any). Drives the Stop hook.",
     )
     audit_parser.add_argument("--agent-id", help="Restrict to one agent's intents.")
+    audit_parser.add_argument("--workspace", help="Restrict pending verification to one workspace path.")
     audit_parser.set_defaults(func=audit_unverified)
 
     weakness_parser = subcommands.add_parser(

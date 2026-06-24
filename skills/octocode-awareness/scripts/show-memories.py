@@ -2,9 +2,9 @@
 """show-memories — visualize the awareness store as smart, sortable HTML.
 
 Reads the ONE shared store (~/.octocode/memory/awareness.sqlite3, or
-OCTOCODE_MEMORY_HOME) — which now holds memories, refinements, AND notifications
-in a single file — and renders three sortable panels (memories, refinements,
-notifications) with per-row delete buttons. Each row is correlated to ONE file
+OCTOCODE_MEMORY_HOME), which holds memories, refinements, notifications,
+intents, and locks in a single file. Renders five sortable panels with per-row
+delete buttons where deletion is supported. Each row is correlated to ONE file
 (or "general" when none). Stdlib only; no external deps.
 
 Modes:

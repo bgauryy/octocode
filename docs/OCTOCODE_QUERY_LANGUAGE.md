@@ -12,8 +12,55 @@ The important rule: OQL returns candidates, proof, and executable next steps. Do
 not turn a candidate into a deletion decision until the evidence says the answer
 is ready.
 
+## How OQL Works (one pass)
+
+You never call a provider directly. You write **intent** in general terms —
+where to look, what kind of answer you want, which filters apply, and what to
+read — and OQL runs it through a fixed pipeline:
+
+```text
+your query (JSON, or CLI shorthand)
+  │
+  ▼  1. NORMALIZE   sugar → strict canonical OQL; infer target when unambiguous;
+  │                  reject unknown/ambiguous fields (see Normalization)
+  ▼  2. PLAN/ROUTE  decide per-predicate: PUSHDOWN · RESIDUAL · ROUTE · UNSUPPORTED
+  │                  (this is what --explain shows you)
+  ▼  3. TRANSFORM   the transformer for (target, source) lowers canonical fields
+  │                  onto ONE backing tool — ghSearchCode, localSearchCode,
+  │                  lspGetSemantics, npmSearch, localBinaryInspect, … — and marks
+  │                  each field exact / approximate / lossy
+  ▼  4. EXECUTE     the backing tool runs (the same tool the raw `tools` CLI calls)
+  ▼  5. MAP BACK    provider output → stable OQL rows + pagination + diagnostics +
+  │                  evidence (proof/partial/candidate/unsupported) + runnable next.*
+  ▼
+result envelope  ── read evidence, then follow next.* (don't invent follow-ups)
+```
+
+The **transformer** is the only place provider vocabulary lives. It is the
+compliance boundary that keeps the public OQL shape stable while GitHub, npm,
+local ripgrep/AST, LSP, and binary inspection keep their own internal APIs — so
+the language never changes when a backend does. Adding a provider means writing a
+transformer, not changing OQL. (Full contract: the
+[Transformer Architecture appendix](#appendix-transformer-architecture-contributor-only--internal).)
+
+## How To Read This Doc (incremental)
+
+Pick your depth — each tier stands on its own:
+
+| You want to… | Read | Time |
+|---|---|---|
+| Run a query right now | [Cheatsheet](#cheatsheet) → [Quick Start](#quick-start-60-seconds) → [Decision Tree](#target-selection-decision-tree) → [Common Recipes](#common-recipes) | ~5 min |
+| Write queries confidently | + [Query Anatomy](#query-anatomy) · [Targets](#targets) · [Predicates](#predicates) · [Fetch](#fetch-and-content-views) · [Params By Target](#params-by-target) | ~15 min |
+| Trust/automate the results | + [Result Envelope, Evidence, Diagnostics](#result-envelope-evidence-and-diagnostics) · [Continuations](#continuations) · [Research, Graph, Safe Deletion](#research-graph-and-safe-deletion) | ~15 min |
+| Implement or debug a backend | + [Transformer Architecture appendix](#appendix-transformer-architecture-contributor-only--internal) | contributor |
+
+The executable contract always wins over prose: `octocode search --scheme`. If
+this doc and `--scheme` ever disagree, `--scheme` is correct — open an issue.
+
 ## Table of Contents
 
+- [How OQL Works (one pass)](#how-oql-works-one-pass)
+- [How To Read This Doc (incremental)](#how-to-read-this-doc-incremental)
 - [Cheatsheet](#cheatsheet)
 - [Quick Start (60 seconds)](#quick-start-60-seconds)
 - [Target-Selection Decision Tree](#target-selection-decision-tree)
@@ -307,20 +354,38 @@ Field roles:
 | `materialize` | Remote-to-local policy | Allow or require bounded GitHub materialization for local proof. |
 | `select` | Projection | Return only the fields an agent needs (row, envelope, and `next.*` fields). |
 | `view` | Density | Path-only discovery, normal paginated rows, or detailed rows. |
-| `controls` | Cost/output controls | Match windows, max matches, budgets, sort, ranking. |
-| `limit` | Result cap | Top-level cap applied by OQL windowing after target execution, before rendering. |
+| `controls` | Output/cost controls | Match windows, max matches, budgets, sort, ranking. |
+| `limit` | Total cap | Cap the total returned results where the target supports it. |
 | `page` | Result page | Top-level page number for windowing/continuations. Follow `next.page`. |
-| `itemsPerPage` | Page size | Canonical OQL page size for continuations. When both top-level and target-specific page sizes are present, OQL windowing wins for the returned envelope. |
+| `itemsPerPage` | Page size | Page the target's primary result domain. For code search this may be matched files; per-file matches use `controls.search.matchPage`. |
 | `explain` | Routing visibility | Include normalized query, defaults, plan, backend calls, diagnostics. Use before final proof claims. |
+
+Plain-language mapping:
+
+| General idea | OQL field |
+|---|---|
+| Where to look | `from` |
+| What kind of answer to return | `target` |
+| Bounds inside that source | `scope` |
+| Match/filter conditions | `where` |
+| What to read once a file/tree is known | `fetch` |
+| Options specific to one answer type | `params` |
+| Response shape, projected fields, and cost limits | `view`, `select`, `controls` |
+| Paging the target's primary result domain | `page`, `itemsPerPage` |
 
 OQL is a language, not a parser. Rules of thumb for each field: `target` is what
 kind of answer should come back; `from` is which universe can be searched or
 read (local/materialized for proof, GitHub/npm for discovery or provider-native
 facts); `scope` is which subset matters; `where` is what must match (search and
-file-set logic only); `fetch` is what to read; `params` are target operation
-knobs, not a replacement for `where` or `fetch`; and `evidence` tells you whether
-the result is proof, partial, candidate, or unsupported — never upgrade candidate
-evidence in prose.
+file-set logic only); `fetch` is what to read; `params` are target-specific
+options, not a replacement for `where` or `fetch`; and `evidence` tells you
+whether the result is proof, partial, candidate, or unsupported — never upgrade
+candidate evidence in prose.
+
+Paging note: `itemsPerPage` means "page size for this target's primary result
+domain." For code search, the backing tool may page matched files while each file
+can contribute several match rows; noisy per-file matches use
+`controls.search.matchPage` / `--match-page`.
 
 ## Targets
 
@@ -368,6 +433,11 @@ Source rules:
 - `local.path` is a file or directory on disk. A local row's `path` is relative
   to `from.path`, but the pre-filled `next.fetch` carries the resolved ABSOLUTE
   path — follow it directly rather than re-joining paths yourself.
+- A `local`/`materialized` path that does not exist on disk returns a blocking
+  `invalidQuery` diagnostic (`answerReady:false`), NOT an empty proof. A typo'd
+  path can therefore never be mistaken for "confirmed absent" — fix the path and
+  re-run. (LSP semantics over a directory or missing file likewise return an
+  actionable `not_a_file` / `file_not_found` error, never a raw `EISDIR`.)
 - `github.repo` is usually `"owner/name"`; `ref` is optional.
 - `github.owner` can be used for provider discovery targets.
 - `materialized.localPath` is a local checkout returned by `target:"materialize"`
@@ -382,12 +452,13 @@ Source rules:
 interface QueryScope {
   path?: string | string[];
   language?: string | string[];
-  include?: string[];
-  exclude?: string[];
-  excludeDir?: string[];
-  hidden?: boolean;
-  noIgnore?: boolean;
-  maxDepth?: number;
+  include?: string[];     // globs, max 100
+  exclude?: string[];     // globs, max 100
+  excludeDir?: string[];  // dir globs, max 100
+  hidden?: boolean;       // include dotfiles
+  noIgnore?: boolean;     // ignore .gitignore
+  minDepth?: number;      // 0-64
+  maxDepth?: number;      // 0-64
 }
 ```
 
@@ -544,9 +615,23 @@ interface StructuralRule {
 
 | Field | Values |
 |---|---|
-| `field` | `path`, `basename`, `extension`, `size`, `modified`, `entryType` |
-| `op` | `=`, `!=`, `in`, `exists`, `glob`, `regex`, `>`, `>=`, `<`, `<=`, `within` |
+| `field` | `path`, `basename`, `extension`, `size`, `modified`, `accessed`, `entryType`, `empty`, `permissions`, `executable`, `readable`, `writable` |
+| `op` | `=`, `!=`, `in`, `exists`, `glob`, `regex`, `>`, `>=`, `<`, `<=`, `within`, `before` |
 | `value` | Required except when `op:"exists"` |
+
+Field/op pairings (what each field is for):
+
+| Field | Type | Typical ops | Example value |
+|---|---|---|---|
+| `path` | string | `=` `glob` `regex` `in` | `"src/index.ts"`, `"src/**/*.ts"` |
+| `basename` | string | `=` `glob` `regex` `in` | `"index.ts"` |
+| `extension` | string | `=` `!=` `in` | `"ts"`, `["ts","tsx"]` |
+| `size` | bytes | `>` `>=` `<` `<=` `=` | `1048576` |
+| `modified` / `accessed` | time | `within` `before` `>` `<` | `"7d"`, `"2024-01-01"` |
+| `entryType` | enum | `=` | `"f"` (file) or `"d"` (dir) |
+| `empty` | flag | `exists` / `=` | `true` |
+| `permissions` | octal string | `=` | `"755"` |
+| `executable` / `readable` / `writable` | flag | `exists` / `=` | `true` |
 
 Use symbolic ops like `=`; aliases such as `eq` are invalid. There is no
 `contains` op — use `op:"glob"` with `value:"*term*"`, or `op:"regex"`.
@@ -590,8 +675,14 @@ interface FetchInstructions {
     fullContent?: boolean;
   };
   tree?: {
-    maxDepth?: number;
+    maxDepth?: number;        // 0-64
+    pattern?: string;         // filter entries by name/glob
     includeSizes?: boolean;
+    extensions?: string[];    // keep only these file extensions
+    filesOnly?: boolean;
+    directoriesOnly?: boolean;
+    sortBy?: "name" | "size" | "time" | "extension";
+    reverse?: boolean;
   };
 }
 ```
@@ -781,9 +872,13 @@ Backs onto `localBinaryInspect`.
 | `matchString` | filters text-producing modes (`extract`/`decompress`/`strings`) over the current fetched payload |
 | `verbose` | expanded `list` output |
 
-For large `strings` dumps, follow `next.search` on `data.localPath` for lossless
-ripgrep paging; `next.artifactStrings` (`scanOffset`) advances to the next binary
-scan window. `extract`/`unpack`/`decompress` produce a tree at `data.localPath`
+For `strings`, the full scan is always written to `data.localPath`; the inline
+`content` is only a small preview (capped well below the global content window)
+when you don't ask for an explicit `charOffset`/`charLength` or a `matchString`.
+That keeps the default response lean — grep the file for the real work: follow
+`next.search` on `data.localPath` for lossless ripgrep paging, and
+`next.artifactStrings` (`scanOffset`) to advance to the next binary scan window.
+`extract`/`unpack`/`decompress` produce a tree at `data.localPath`
 (`next.structure`/`next.files`).
 
 ### `diff`
@@ -1142,6 +1237,21 @@ deterministic; rewrites accepted sugar into canonical fields; rejects unknown
 fields with `unknownField`; rejects ambiguous sugar with `ambiguousSugar`;
 rejects reserved targets with `unsupportedTarget`; validates common target
 `params`; and returns the strict normalized query in `--explain`.
+
+`target` inference (deterministic only — otherwise `target` is required):
+
+| If the query has… | inferred `target` |
+|---|---|
+| `where`, or any predicate sugar (`text`, `regex`, `pattern`, `rule`, `and`/`or`/`xor`/`noneOf`/`oneOf`) | `code` |
+| `fetch.content` (and no predicate) | `content` |
+| `fetch.tree` (and no predicate) | `structure` |
+| `filesWithoutMatch:true` | `files` |
+| none of the above | no inference — supply `target` explicitly |
+
+A bare path is NOT enough for the JSON layer to infer a target. (The CLI's
+positional shorthand is what turns `octocode search ./dir` into a `structure`
+read and `octocode search ./file.ts` into a `content` read; that lowering happens
+in the CLI before OQL, not in `inferTarget`.)
 
 Use `--explain` when a query mixes boolean predicates; a GitHub query may require
 materialization; a structural query may not be exact; an answer depends on

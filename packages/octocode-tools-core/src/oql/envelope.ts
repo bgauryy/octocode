@@ -73,10 +73,16 @@ function proofKind(args: BuildEnvelopeArgs): EvidenceKind {
   if (args.diagnostics.some(d => UNSUPPORTED_CODES.has(d.code))) {
     return 'unsupported';
   }
-  if (args.approximate) return 'candidate';
+  if (args.approximate || diagnosticsApproximate(args.diagnostics)) {
+    return 'candidate';
+  }
   if (blocksAnswer(args.diagnostics)) return 'partial';
   if (hasOpenPages(args)) return 'partial';
   return 'proof';
+}
+
+function diagnosticsApproximate(diagnostics: OqlDiagnostic[]): boolean {
+  return diagnostics.some(d => d.code === 'providerSemanticsApproximate');
 }
 
 function hasOpenPages(args: BuildEnvelopeArgs): boolean {

@@ -6,12 +6,28 @@ import {
   relaxedPageNumberField,
 } from '../../scheme/fields.js';
 
-// Override fields that need tighter bounds at the MCP layer
+// Override fields that need tighter bounds at the MCP layer. Each carries a
+// description so the override doesn't blank out the core field's docs in
+// `--scheme`.
 const queryOverrides = {
-  entryPageNumber: relaxedPageNumberField.default(1),
-  matchStringContextLines: clampedInt(0, 50).default(3),
-  charLength: clampedInt(1, 50_000).optional(),
-  page: relaxedPageNumberField.default(1),
+  entryPageNumber: relaxedPageNumberField
+    .default(1)
+    .describe(
+      'list mode: 1-based page over archive entries when an archive has many files.'
+    ),
+  matchStringContextLines: clampedInt(0, 50)
+    .default(3)
+    .describe(
+      'Lines of context to keep around each matchString hit (strings/decompress/extract).'
+    ),
+  charLength: clampedInt(1, 50_000)
+    .optional()
+    .describe(
+      'Max chars of inline content for this window (paired with charOffset). Omit for the default window; follow pagination.next to page losslessly.'
+    ),
+  page: relaxedPageNumberField
+    .default(1)
+    .describe('1-based page for paginated entry/content listings.'),
   detailed: z
     .boolean()
     .optional()

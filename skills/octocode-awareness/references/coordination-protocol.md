@@ -39,8 +39,9 @@ Important flags:
 - `--target-file`: repeat for each file likely to change.
 - `--test-plan`: exact verification plan.
 - `--plan-doc-ref`: optional plan or design doc.
+- `--workspace`: logical workspace for later `status`, `audit-unverified`, and `verify --all-pending` scoping (default cwd).
 - `--lock-type`: `EXCLUSIVE` by default; use `SHARED` only for non-writing reads that still need visibility.
-- `--wait-seconds`: optional wait budget; the script re-polls every `--retry-interval` seconds.
+- `--wait-seconds`: optional wait budget; the script re-polls every `--retry-interval` seconds. Use a small explicit budget only when you have already decided that waiting is the right response.
 - `--ttl-minutes`: lock expiry safety valve, default `240`.
 
 If the command returns `ok: false`, do not modify the files. Either wait/retry, choose different files, or report the conflict.
@@ -49,15 +50,37 @@ If the command returns `ok: false`, do not modify the files. Either wait/retry, 
 
 **Path matching**: `--target-file` values are normalized to an absolute, symlink-resolved path before comparison (`..`, trailing slashes, and `~` are handled). Relative paths resolve against the current working directory, so two agents in *different* cwds could pass the same relative path and not collide — **pass absolute paths (or always run from the repo root)** so claims on the same file always conflict as intended.
 
+## `wait-for-lock`
+
+Use this when the user or wrapper explicitly chooses "wait until the current holder releases" but you do **not** want to create a new intent yet:
+
+```bash
+python3 scripts/awareness.py wait-for-lock --agent-id codex \
+  --target-file /abs/path/src/auth/router.ts --wait-seconds 120 --retry-interval 5
+```
+
+It checks the same conflict rules as `pre-flight-intent` for the requested `--lock-type` (default `EXCLUSIVE`) but never acquires a lock. It sleeps outside SQLite transactions and always has a bounded deadline: `0` means clear/released, `2` means timed out and returns `conflicts[]` with the current holder data. After it returns clear, immediately run `pre-flight-intent` before editing; another agent could claim the file between the wait and your edit.
+
+## `prune-stale-locks`
+
+Use this when a lock holder disappeared and the user or automation policy says it is stale. Preview first:
+
+```bash
+python3 scripts/awareness.py prune-stale-locks --older-than-minutes 20 --dry-run
+python3 scripts/awareness.py prune-stale-locks --older-than-minutes 20
+```
+
+`--expired-only` limits cleanup to locks whose `expires_at` is already in the past; otherwise `--older-than-minutes` also catches very old live locks. Optional filters: `--agent-id`, `--target-file`. Pruning deletes only lock rows, records a `STALE_PRUNED` event, and changes fully released `ACTIVE` intents to `PENDING`; it never marks work as `SUCCESS`.
+
 ## `release-file-lock`
 
-Run at the end of the work. Pass `--status SUCCESS` after verification passes and `--status FAILED` when abandoning or after failed verification. Use `--target-file` to release specific files, or `--intent-id` to release the whole intent. Add `--verified` once the declared `--test-plan` actually ran (see `self-harness.md`). For `status`, timestamps, and the collision protocol, see `files-awareness.md`.
+Run at the end of the work. Pass `--status SUCCESS` after verification passes, `--status FAILED` when abandoning or after failed verification, and `--status PENDING` only when the lock should be released but verification is still owed (the post-edit hook path). If `SUCCESS` is requested without recorded verification, the command warns and persists the intent as `PENDING`. Use `--target-file` to release specific files, or `--intent-id` to release the whole intent. Add `--verified` once the declared `--test-plan` actually ran (see `self-harness.md`); after hook-managed edits, `verify --workspace <root> --all-pending` records one test result against every pending intent for the agent in that workspace. For `status`, timestamps, and the collision protocol, see `files-awareness.md`.
 
 ## `refine-set` / `refine-get`
 
 A **refinement** is a structured record of work state for one workspace — distinct from a **memory** (a general, reusable lesson). Refinements answer "what is the state of *this* work and what should the next agent do here." They are **workspace-scoped** but stored in the **one shared store** (`~/.octocode/memory/awareness.sqlite3`), keyed by `repo`/`ref` columns — no per-repo `.octocode/` database is created. `--workspace` selects the root used for `repo`/`ref` auto-detection (default cwd); `--db` overrides the store directly (tests). For a *committable* cross-machine handoff, use `memory-export` (writes `<workspace>/.octocode/memories.jsonl` on purpose) rather than copying a live store.
 
-Record shape: `refinement_id` (generated `ref_…`), `agent_id`, `workspace_path`, `repo`, `ref` (branch or commit), `files[]` (related paths, may be empty), `reasoning` (why saved for the next agent), `remember` (the good or bad lesson), `quality` (`good`/`bad`), `state`, `created_at`/`updated_at`. State lifecycle: `open` (identified) → `ongoing` (in progress) → `done` (finished); transition with `refine-set --refinement-id <id> --state <state>`.
+Record shape: `refinement_id` (generated `ref_…`), `agent_id`, `workspace_path`, `repo`, `ref` (branch or commit), `files[]` (related paths, may be empty), `reasoning` (why saved for the next agent), `remember` (the good or bad lesson), `quality` (`good`/`bad`), `state`, `created_at`/`updated_at`. The captured `env` also includes `git.changes[]` with per-file status, current branch, and a GitHub URL when one can be resolved. State lifecycle: `open` (identified) → `ongoing` (in progress) → `done` (finished); transition with `refine-set --refinement-id <id> --state <state>`.
 
 Read at the start of work and write during/after. `refine-get` defaults to the **handoff view** (`open` + `ongoing`) so finished work doesn't clutter pickup; pass `--state done` to audit. A new refinement requires `--reasoning` and `--remember`; updates need `--refinement-id` and change only the flags you pass. Keep `reasoning`/`remember` specific (name the file, command, gotcha); set `quality bad` for a dead end; mark `done` when finished. Treat refinements as evidence to verify against current code, not orders.
 
@@ -83,7 +106,8 @@ One shared DB (`~/.octocode/memory/awareness.sqlite3`) holds **all** tables. Mem
 agent_memories(memory_id, agent_id, task_context, observation, importance_score, state, superseded_by, tags_json, tags_text, file_tree_fingerprint, file, created_at, updated_at)
   -- state IN ('ACTIVE','SUPERSEDED'); `file` is the ONE correlated file (normalized, nullable); older databases are migrated in place by ALTER TABLE on connect
 memory_fts(memory_id, task_context, observation, tags) -- optional FTS5 table
-agent_intents(intent_id, agent_id, plan_doc_ref, rationale, test_plan, status, created_at, updated_at)
+agent_intents(intent_id, agent_id, plan_doc_ref, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
+  -- files_json snapshots claimed files so released/stale-pruned pending intents keep ownership context
 file_locks(lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
 intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
 ```

@@ -129,6 +129,7 @@ export const schemas = {
   pre_flight_intent: z
     .object({
       agent_id: agentId,
+      workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace root for verification scoping."),
       plan_doc_ref: z.string().trim().min(1).max(1024).optional(),
       rationale: nonEmptyText("Detailed reason why this change is necessary.", 2000),
       target_files: targetFiles,
@@ -141,12 +142,34 @@ export const schemas = {
     .strict()
     .describe("Register edit intent and acquire target file locks."),
 
+  wait_for_lock: z
+    .object({
+      agent_id: agentId.describe("Waiting agent id; used so an agent does not wait on its own locks."),
+      target_files: targetFiles,
+      lock_type: z.enum(["SHARED", "EXCLUSIVE"]).default("EXCLUSIVE"),
+      wait_seconds: z.number().int().min(0).max(3600).default(60),
+      retry_interval: z.number().int().min(1).max(300).default(5),
+    })
+    .strict()
+    .describe("Poll until target file locks clear without acquiring a lock. Exit 2 on timeout with conflicts."),
+
+  prune_stale_locks: z
+    .object({
+      older_than_minutes: z.number().int().min(1).max(10080).default(20),
+      expired_only: z.boolean().default(false),
+      agent_id: agentId.optional().describe("Optional holder filter."),
+      target_files: z.array(z.string().trim().min(1).max(1024)).max(200).default([]),
+      dry_run: z.boolean().default(false),
+    })
+    .strict()
+    .describe("Delete expired or age-stale locks. Affected ACTIVE intents become PENDING, never SUCCESS."),
+
   release_file_lock: z
     .object({
       agent_id: agentId,
       intent_id: z.string().trim().min(1).max(128).optional(),
       target_files: z.array(z.string().trim().min(1).max(1024)).max(200).optional(),
-      status: z.enum(["SUCCESS", "FAILED"]).default("SUCCESS"),
+      status: z.enum(["PENDING", "SUCCESS", "FAILED"]).default("SUCCESS"),
       verified: z
         .boolean()
         .default(false)
@@ -154,12 +177,18 @@ export const schemas = {
       verified_note: z.string().trim().min(1).max(2000).optional().describe("What was verified."),
     })
     .strict()
-    .describe("Release locks; on SUCCESS without a recorded verification, the result carries an unverifiedConclusion warning."),
+    .describe("Release locks. PENDING releases the file but keeps verification owed; unverified SUCCESS is downgraded to PENDING and warns."),
 
   verify: z
     .object({
       agent_id: agentId,
-      intent_id: z.string().trim().min(1).max(128).describe("Intent whose work was checked."),
+      workspace: z.string().trim().min(1).max(1024).optional().describe("Restrict --all-pending to this workspace."),
+      intent_id: z
+        .array(z.string().trim().min(1).max(128))
+        .max(200)
+        .default([])
+        .describe("Intent ids whose work was checked; empty when all_pending is true."),
+      all_pending: z.boolean().default(false).describe("Verify every unverified pending/live intent for this agent."),
       message: z.string().trim().min(1).max(2000).optional().describe("What was verified (test output, artifact)."),
     })
     .strict()
@@ -429,11 +458,25 @@ export const examples = {
   },
   pre_flight_intent: {
     agent_id: "codex-local",
+    workspace: "/repo",
     plan_doc_ref: "docs/designs/active_plan.md",
     rationale: "Refactor auth router validation without breaking tenant policy order.",
     target_files: ["src/auth/router.ts", "src/auth/router.test.ts"],
     test_plan: "yarn test src/auth/router.test.ts",
     lock_type: "EXCLUSIVE",
+  },
+  wait_for_lock: {
+    agent_id: "codex-local",
+    target_files: ["src/auth/router.ts"],
+    lock_type: "EXCLUSIVE",
+    wait_seconds: 120,
+    retry_interval: 5,
+  },
+  prune_stale_locks: {
+    older_than_minutes: 20,
+    expired_only: false,
+    target_files: ["src/auth/router.ts"],
+    dry_run: true,
   },
   release_file_lock: {
     agent_id: "codex-local",
@@ -444,7 +487,9 @@ export const examples = {
   },
   verify: {
     agent_id: "codex-local",
-    intent_id: "intent_abc123",
+    workspace: "/repo",
+    intent_id: ["intent_abc123"],
+    all_pending: false,
     message: "yarn test src/auth/router.test.ts: 273 passed",
   },
   forget_memory: {

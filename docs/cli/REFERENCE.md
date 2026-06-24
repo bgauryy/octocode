@@ -527,7 +527,7 @@ Agent-safe failure behavior:
 |------|------|
 | Missing `--add`, missing `--platform`, invalid platform, invalid mode, or invalid GitHub folder | `2` |
 | GitHub folder does not contain `SKILL.md` or cannot be fetched | `3` |
-| One or more destination installs fail | `5` |
+| One or more destination installs fail | `1` |
 
 JSON output includes the skill name, source URL, cache path, selected platforms, concrete targets, mode, and installed/skipped/failed counts. Full DX guide: [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md).
 

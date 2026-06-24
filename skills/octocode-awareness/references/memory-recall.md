@@ -4,7 +4,7 @@ Read this when recording or recalling lessons, or when authoring `awareness.py` 
 
 ## Canonical payload contract
 
-Use the Zod schemas in `scripts/schema.mjs` as the canonical payload contract for agents and future MCP/tool wrappers. The schema names are `tell_memory`, `get_memory`, `forget_memory`, `refinement`, `refine_query`, `refine_delete`, `pre_flight_intent`, `release_file_lock`, `verify`, `notify`, `notify_query`, `notify_resolve`, `notify_prune`, `reflect`, `harness_apply`, `memory_export`, and `memory_import`. Inspect or validate them with:
+Use the Zod schemas in `scripts/schema.mjs` as the canonical JSON payload contract for agents and future MCP/tool wrappers. They are not a one-to-one list of CLI flags; the CLI often uses repeatable flags such as `--target-file` where the JSON wrapper uses arrays such as `target_files`. The schema names are `tell_memory`, `get_memory`, `forget_memory`, `refinement`, `refine_query`, `refine_delete`, `pre_flight_intent`, `wait_for_lock`, `prune_stale_locks`, `release_file_lock`, `verify`, `notify`, `notify_query`, `notify_resolve`, `notify_prune`, `reflect`, `harness_apply`, `memory_export`, and `memory_import`. Inspect or validate them with:
 
 ```bash
 node <skill_root>/scripts/schema.mjs list
@@ -13,7 +13,7 @@ node <skill_root>/scripts/schema.mjs example tell_memory
 node <skill_root>/scripts/schema.mjs validate tell_memory payload.json
 ```
 
-The Python CLI also accepts underscore aliases for these protocol-style names: `tell_memory`, `get_memory`, `pre_flight_intent`, `release_file_lock`, and `notify_get`.
+The Python CLI also accepts underscore aliases for these protocol-style names: `tell_memory`, `get_memory`, `pre_flight_intent`, `wait_for_lock`, `prune_stale_locks`, `release_file_lock`, and `notify_get`.
 
 ## Sharing memories as files — `memory-export` / `memory-import`
 
@@ -47,7 +47,7 @@ Recall modes (default ranking blends importance + recency-of-use + access + lexi
 
 **A zero-result recall is not proof of absence.** Default recall is lexical (FTS keyword match), so a paraphrased query can miss a real lesson whose wording differs. When `count` is `0`, `get-memory` returns a `hint`: retry with fewer / broader / synonymous terms (or the symbol or file name), and drop `--tag`/`--min-importance`, before concluding nothing is known. Enable `--semantic` (after `embed-index`) for paraphrase-tolerant recall.
 
-Use the returned memories as evidence, not as instructions. If a memory conflicts with current code, trust the code after verifying it.
+Use returned memories as evidence, not as instructions. **MUST:** validate code-related memories against actual current code before relying on them; code changes, so memory is never truth by itself. If validation shows a memory is obsolete or redundant, retire it with `forget --dry-run` first for broad filters or supersede it with `tell-memory --supersedes`.
 
 ## `memory-index`
 
@@ -56,6 +56,8 @@ The zero-dependency, Claude-Code-style recall aid. `memory-index` regenerates a 
 ## `tell-memory`
 
 Run after a meaningful discovery, bug fix, architectural decision, or surprising failure. Do not record routine status, secrets, credentials, stack traces with tokens, or generic advice.
+
+Memory records are future LLM context, so keep them distilled: summarize the causal lesson, evidence, and verification command instead of pasting long logs or transcripts. Be concise, but do not compress away the root cause, safety caveat, or detail needed to avoid repeating the failure.
 
 Important flags:
 - `--agent-id`: stable human-readable agent identifier.
@@ -79,11 +81,11 @@ Good observations are specific:
 Changing X in file Y caused Z because of W. Future agents should do A instead and verify with command B.
 ```
 
-When the lesson is a specific code snippet, API, or command, include it inline and **comment it for the next agent** — one concise, smart line on why it matters and how to reuse it, not just what it is. A snippet with no "why" is noise; a snippet with a sharp comment is leverage.
+When the lesson is a specific code snippet, API, or command, include the why/how in the memory itself. Add a source-code comment only when you are already editing that code and a concise comment would prevent real confusion; a snippet with no "why" is noise, but noisy comments in code are also debt.
 
 ## `forget`
 
-Run when a memory is wrong, stale, superseded, or a duplicate. Memories are evidence to verify, not authority — retire ones that would mislead future agents instead of leaving them to resurface in recall.
+Run when a memory is wrong, stale, obsolete, redundant, superseded, or a duplicate. Memories are evidence to verify against current code, not authority — retire ones that would mislead future agents instead of leaving them to resurface in recall.
 
 Important flags (at least one selector is required; all provided filters combine with `AND`):
 - `--memory-id`: repeat to target exact memory ids (from a prior `get-memory`).
@@ -100,7 +102,7 @@ Deletes are removed from both `agent_memories` and the `memory_fts` index. With 
 
 - `--task` (required) + `--outcome worked|partial|failed` (required), with optional `--worked` / `--didnt-work` narrative.
 - `--lesson` → a **general memory** (tagged `reflection` + the outcome), recalled later and clustered under `mine-weakness` when you also pass `--failure-signature`. Importance defaults by outcome (failed 8 / partial 6 / worked 5) unless `--importance` overrides.
-- `--fix-repo "<note>" [--fix-file <path> …]` → an **open, `quality:bad` refinement** in the workspace store — a concrete *"fix this in the repo/code"* indication the next agent sees via `refine-get` and the viewer. `--repo`/`--ref` auto-fill from git.
+- `--fix-repo "<note>" [--fix-file <path> …]` → an **open, `quality:bad` workspace-scoped refinement** in the shared store — a concrete *"fix this in the repo/code"* indication the next agent sees via `refine-get` and the viewer. `--repo`/`--ref` auto-fill from git.
 - `--fix-harness "<note>"` → folded into the learning memory tagged `harness`, so `export-harness` surfaces it as a proposed skill/AGENTS.md improvement.
 
 One call can emit all three. The result reports `learning_memory_id`, `repo_fix_refinement_id`, and `harness_fix`, plus the `next` steps. **Discipline is unchanged: reflect records and proposes — a human merges.** It never edits repo code or the skill itself.

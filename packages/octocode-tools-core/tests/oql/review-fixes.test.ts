@@ -46,18 +46,21 @@ describe('review fix #1: executable next.* continuations', () => {
     expect(env.next?.['next.matchPage']).toBeDefined();
   });
 
-  it('itemsPerPage caps broad result rows and emits next.page', async () => {
+  it('local code pagination never emits stale row pages for file-paged search', async () => {
     const env = single(
       await runOqlSearch({
         target: 'code',
         from: { kind: 'local', path: OQL_SRC },
-        where: { kind: 'text', value: 'function' },
-        itemsPerPage: 2,
+        where: { kind: 'text', value: 'normalizeQuery' },
+        itemsPerPage: 3,
       })
     );
-    expect(env.results.length).toBeLessThanOrEqual(2);
-    expect(env.pagination?.hasMore).toBe(true);
-    expect(env.next?.['next.page']).toBeDefined();
+    expect(env.results.length).toBe(4);
+    expect(env.pagination?.totalItemsKind).toBe('files');
+    expect(env.pagination?.totalItems).toBe(2);
+    expect(env.pagination?.reportedTotalItems).toBe(4);
+    expect(env.pagination?.hasMore).toBe(false);
+    expect(env.next?.['next.page']).toBeUndefined();
   });
 });
 

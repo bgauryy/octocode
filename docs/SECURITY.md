@@ -4,7 +4,7 @@ Octocode is built for agent workflows where the context window can fill with sec
 
 > **Every byte that reaches the model is scanned and redacted first.** Secrets are stripped on the way *in* (tool inputs) and on the way *out* (tool results) — they never reach the LLM or error messages.
 
-All security primitives live in the Rust engine (`@octocodeai/octocode-engine`), so the same enforcement runs identically under the MCP server and the CLI.
+Security enforcement is centralized in `@octocodeai/octocode-engine`: native Rust scanning/minification plus the engine's TypeScript validation wrappers, registries, and path/command guards. The same package is used by the MCP server and the CLI.
 
 ---
 
@@ -17,7 +17,7 @@ client args
   → validate + sanitize INPUTS        (withSecurityValidation → ContentSanitizer.validateInputParameters)
   → run tool (GitHub API / local FS / LSP)
   → sanitize FETCHED CONTENT on read  (ContentSanitizer.sanitizeContent per file / response)
-  → mask OUTPUT at the boundary       (callToolResult → maskSensitiveData on every result item)
+  → mask OUTPUT at the boundary       (sanitizeCallToolResult / ContentBuilder → ContentSanitizer)
   → compact YAML/JSON result + hints[]
 ```
 
@@ -35,7 +35,7 @@ When content contains secrets, they are masked **and** the result carries a warn
 
 ## 2. Secret detection
 
-The scanner (`RegexSet`-based, compiled in Rust) covers **270+ provider-specific credential patterns** plus generic high-risk formats:
+The scanner (`RegexSet`-based, compiled in Rust, with a TypeScript fallback from the same canonical pattern list) covers **300+ provider-specific credential patterns** plus generic high-risk formats:
 
 - **Cloud:** AWS (access key ID, secret access key, session token, ARNs, account IDs), Azure (AD client secret, storage/Cosmos/Service Bus connection strings, subscription IDs, OpenAI), GCP / Google API keys, Alibaba Cloud.
 - **AI providers:** OpenAI, Anthropic, Azure OpenAI, Amazon Bedrock, AI21, AssemblyAI, and more.
@@ -50,12 +50,12 @@ Detected values are replaced with a masked placeholder; the original is never re
 
 Local filesystem access is bounded by a multi-layer validator before any read:
 
-1. Normalize the path (resolve `.`/`..`, decode).
-2. Prefix-check against `WORKSPACE_ROOT` and the `ALLOWED_PATHS` allowlist (using `path + separator`, so a sibling like `/repo-evil` cannot bypass `/repo`).
+1. Resolve relative input from `WORKSPACE_ROOT` / configured workspace root / `cwd`, then normalize it (resolve `.`/`..`, expand `~`).
+2. Prefix-check against the engine's allowed roots: the user's home directory by default, `ALLOWED_PATHS` entries, and roots registered by Octocode itself (using `path + separator`, so a sibling like `/repo-evil` cannot bypass `/repo`).
 3. Apply the ignore filter (sensitive files/dirs — keys, `.env`, credential stores — are blocked by default).
 4. Resolve symlinks with `realpath`, then **re-validate** the real target (symlink escapes are caught).
 
-`HOME` is included by default; strict mode can exclude it. With `ALLOWED_PATHS` empty, access is unrestricted *after* validation (normalization + symlink + ignore filter still apply).
+`ALLOWED_PATHS` adds roots; an empty list is **not** unrestricted. The default validator includes `HOME`, while stricter embedded/test validators can opt out with `includeHomeDir:false`. MCP local tools are still disabled unless enabled by config; the CLI local surface is enabled by default but uses the same validator.
 
 ### Blocked sensitive files and directories
 
@@ -71,10 +71,11 @@ The canonical lists are `IGNORED_FILE_PATTERNS` and `IGNORED_PATH_PATTERNS` in t
 
 ---
 
-## 4. Command execution (local search)
+## 4. Command execution
 
-- Only **`rg`, `find`, `ls`** are allowed — no `grep`, `cat`, `sh`, or arbitrary commands.
-- Commands run via `child_process.spawn()` with an argument array — **never** `exec` with a shell string, so there is no shell-injection surface.
+- Normal local text search runs ripgrep in-process inside `octocode-engine`; structural search and file enumeration also run through engine/file APIs rather than user-provided shell strings.
+- Where Octocode invokes external helpers, command names and arguments are allowlisted. The base command allowlist is **`rg`, `grep`, `find`, `ls`, and restricted `git`** (`clone` / `sparse-checkout` only); binary/archive modes register a fixed set of format and archive helpers such as `file`, `tar`, `unzip`, `7z`, and decompression readers.
+- External commands run via `child_process.spawn()` with an argument array — **never** `exec` with a shell string — and dangerous shell metacharacters are rejected before execution.
 - `include` / `exclude` / `excludeDir` are glob patterns, not paths, and cannot escape the validated search root.
 
 ---

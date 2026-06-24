@@ -767,6 +767,22 @@ function describeSchemaType(schema: JsonSchemaObject): string {
     return `array<${items ? describeSchemaType(items) : 'value'}>`;
   }
 
+  // Unions (z.union → anyOf, z.discriminatedUnion → oneOf) carry no top-level
+  // `type`, which would otherwise fall through to the opaque "value". Render the
+  // member types instead, e.g. `string | array<string>`.
+  const union = Array.isArray(schema.anyOf)
+    ? schema.anyOf
+    : Array.isArray(schema.oneOf)
+      ? schema.oneOf
+      : undefined;
+  if (union) {
+    const members = union
+      .filter(isJsonSchemaObject)
+      .map(describeSchemaType)
+      .filter(t => t !== 'value');
+    if (members.length > 0) return [...new Set(members)].join(' | ');
+  }
+
   if (Array.isArray(schema.type)) {
     return schema.type.join(' | ');
   }

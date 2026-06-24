@@ -33,6 +33,29 @@ function toPagination(
   return toOqlPagination(p);
 }
 
+function toCodePagination(
+  p: ToolPaginationPayload | undefined
+): Pagination | undefined {
+  if (!p) return undefined;
+
+  // localSearchCode pages matched files, while OQL code rows are individual
+  // matches. Keep that unit explicit so the runner does not invent row-page
+  // continuations that localSearchCode cannot execute.
+  return toOqlPagination({
+    currentPage: p.currentPage,
+    totalPages: p.totalPages,
+    nextPage: p.nextPage,
+    hasMore: p.hasMore,
+    itemsPerPage: p.filesPerPage ?? p.itemsPerPage ?? p.perPage,
+    totalItems: p.totalFiles ?? p.totalItems,
+    reportedTotalMatches: p.totalMatches ?? p.reportedTotalMatches,
+    reachableTotalMatches: p.reachableTotalMatches,
+    totalMatchesKind: p.totalFiles !== undefined ? 'files' : p.totalMatchesKind,
+    totalMatchesCapped: p.totalMatchesCapped,
+    uniqueFileCount: p.uniqueFileCount ?? p.totalFiles,
+  });
+}
+
 export function mapCodeResult(
   result: LocalSearchCodeToolResult,
   source: QuerySource
@@ -87,7 +110,7 @@ export function mapCodeResult(
   }
   return {
     results: rows,
-    pagination: toPagination(
+    pagination: toCodePagination(
       result.pagination as Parameters<typeof toPagination>[0]
     ),
   };

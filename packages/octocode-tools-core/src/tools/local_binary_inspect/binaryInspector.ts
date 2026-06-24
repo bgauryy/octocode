@@ -21,6 +21,12 @@ import { inspectBinaryFile, extractStrings } from './binaryOps.js';
 
 const TOOL_NAME = TOOL_NAMES.LOCAL_BINARY_INSPECT;
 
+// strings mode always writes the full blob to `localPath` for grepping, so the
+// inline window is just a preview — cap it well below the global 20k default to
+// avoid a heavy context hit. Lossless: charOffset/charLength still page the
+// window and scanOffset/nextScanOffset advance across the file.
+const STRINGS_INLINE_PREVIEW_LIMIT = 4_000;
+
 function timestampForPath(date = new Date()): string {
   return date.toISOString().replace(/[:.]/g, '-');
 }
@@ -388,7 +394,17 @@ async function handleStrings(path: string, query: BinaryInspectQuery) {
     }
     content = filtered;
   }
-  const defaultLimit = getOutputCharLimit();
+  // When the full strings are on disk and the caller hasn't asked for an
+  // explicit window or a matchString filter, preview a small slice inline and
+  // point at localPath for grep; otherwise honor the global window.
+  const usePreview =
+    Boolean(localPath) &&
+    query.charOffset === undefined &&
+    query.charLength === undefined &&
+    !query.matchString;
+  const defaultLimit = usePreview
+    ? Math.min(STRINGS_INLINE_PREVIEW_LIMIT, getOutputCharLimit())
+    : getOutputCharLimit();
   const paginated = paginateContent(
     content,
     query.charOffset,

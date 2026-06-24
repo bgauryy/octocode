@@ -10,24 +10,28 @@ Read this to understand, tune, or disable the bundled hooks, or to make file-cla
 |-------|---------|--------|--------|
 | `PreToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit` | `scripts/hooks/pre-edit.sh` | Claims the target file via `pre-flight-intent`. **Blocks the edit (exit 2)** if another agent holds it. |
 | `PreToolUse` | same | `scripts/hooks/harness-guard.sh` | **Harness self-fix gate.** For edits to files inside the skill's own directory, **blocks (exit 2)** unless a human opened the gate (`OCTOCODE_ALLOW_HARNESS_APPLY=1`) and the skill repo is on a dedicated branch (not `main`/`master`; override `OCTOCODE_HARNESS_BRANCH_OK=1`). No-op for any file outside the skill. See `harness-apply` in `self-harness.md`. |
-| `PostToolUse` | same | `scripts/hooks/post-edit.sh` | Releases this agent's lock on the file just written. |
-| `Stop` / `SubagentStop` | — | `scripts/hooks/stop-verify.sh` | Runs `audit-unverified`; **blocks the conclusion once (exit 2)** if a held intent declared a test-plan but recorded no verification. Loop-guarded (`stop_hook_active`); opt out with `OCTOCODE_NO_VERIFY_GATE=1`. |
+| `PostToolUse` | same | `scripts/hooks/post-edit.sh` | Releases this agent's lock on the file just written as `PENDING` verification. |
+| `Stop` / `SubagentStop` | — | `scripts/hooks/stop-verify.sh` | Runs `audit-unverified`; **blocks the conclusion once (exit 2)** if an active or pending intent declared a test-plan but recorded no verification. Loop-guarded (`stop_hook_active`); opt out with `OCTOCODE_NO_VERIFY_GATE=1`. |
 | `SessionEnd` | — | `scripts/hooks/session-end.sh` | Runs `session-capture` to auto-write a work-handoff refinement from this session's locks + dirty git tree. Non-blocking, fail-open; no-ops on a clean tree; opt out with `OCTOCODE_NO_SESSION_CAPTURE=1`. |
 | `UserPromptSubmit` | — | `scripts/hooks/notify-deliver.sh` | Runs `notify-get --format hook` for this agent against the prompt's `cwd`, injecting unread repo messages (addressed to me or broadcast) into context via `additionalContext`, then advances the read cursor. Non-blocking, fail-open; emits nothing when the inbox is clear; opt out with `OCTOCODE_NO_NOTIFY=1`. |
 
 Behavior details:
 - **agent id** = `OCTOCODE_AGENT_ID` if set, else the hook's `session_id`, so concurrent Claude sessions are distinct agents and never block themselves (same-agent re-edits pass). Export `OCTOCODE_AGENT_ID` to give the hooks and your manual `pre-flight-intent`/`release-file-lock` calls one shared identity, so the two mechanisms never treat you as two agents.
-- **TTL** = 15 min — the safety net if `PostToolUse` never fires (e.g. the tool errored).
+- **TTL** = 15 min — the safety net if `PostToolUse` never fires (e.g. the tool errored). When `PostToolUse` does fire, it releases the lock but keeps the intent `PENDING` until `verify` records the test result.
 - **Fail-open** — `pre-edit.sh` blocks (exit 2) *only* on a genuine lock conflict; any other error (DB issue, bad input) exits 0 with a warning so a hook bug never wedges real work.
-- Non-file tool calls (no `file_path`) are a no-op.
+- **Path extraction** — the lock hooks and `harness-guard.sh` accept both Claude-style `tool_input.file_path` and Codex-style `apply_patch` command payloads (`*** Update/Add/Delete File:` and `*** Move to:` lines). Non-file tool calls are a no-op.
+- **Bounded waits** — hooks never sleep indefinitely. A wrapper that chooses to wait should call `wait-for-lock` or `pre-flight-intent --wait-seconds`; both return `2` with `conflicts[]` on timeout and sleep outside SQLite transactions.
+- **Scoped verification** — `pre-flight-intent` records `workspace_path` + `files_json`; `Stop` passes the prompt `cwd` to `audit-unverified` when available, and `verify --workspace <root> --all-pending` avoids verifying unrelated pending work by the same agent in another repo.
 
-All hooks use the **one shared store** (`~/.octocode/memory/awareness.sqlite3`, relocatable via `OCTOCODE_MEMORY_HOME`). The file-lock hooks (`pre-edit.sh`/`post-edit.sh`/`stop-verify.sh`) read/write locks + intents there, so claims are visible across every process on the machine. The workspace-scoped hooks (`session-end.sh` → refinement, `notify-deliver.sh` → notifications) write to the same file, scoped by `repo`/`ref` and `workspace_path` columns, so concurrent agents that resolve to the same working tree share one channel.
+All hooks use the **one shared store** (`~/.octocode/memory/awareness.sqlite3`, relocatable via `OCTOCODE_MEMORY_HOME`). The file-lock hooks (`pre-edit.sh`/`post-edit.sh`/`stop-verify.sh`) read/write locks + intents there, so claims are visible across every process on the machine and pending verification survives lock release. The workspace-scoped hooks (`session-end.sh` → refinement, `notify-deliver.sh` → notifications) write to the same file, scoped by `repo`/`ref` and `workspace_path` columns, so concurrent agents that resolve to the same working tree share one channel.
 
 The installer (`scripts/install-hooks.mjs`, "make enforcement session-wide" below) manages **only** the two file-lock hooks. The `Stop`/`SessionEnd`/`UserPromptSubmit` hooks are skill-scoped only — they run while the skill is loaded and need no settings.json install.
 
 ## Hook events available (reference)
 
 `PreToolUse` and `PermissionRequest` block on exit 2; `PostToolUse` runs after the tool and cannot block. Other useful events: `SessionStart`, `UserPromptSubmit`, `Stop`/`SubagentStop`, `PreCompact`. All events are valid in skill frontmatter; the structure mirrors `settings.json` hooks.
+
+Claude Code wiring usually matches `Write|Edit|MultiEdit|NotebookEdit` and provides `tool_input.file_path`. Codex wiring should include `apply_patch` (the matcher aliases `Edit`/`Write` may also match file edits) and its hook payload exposes the patch text under `tool_input.command`, which the bundled scripts now parse. In both hosts, keep `PreToolUse` strict and fast, keep `PostToolUse` as best-effort release/context only, and use `Stop` for "continue, verification still owed" gates rather than trying to undo completed edits.
 
 ## Make enforcement session-wide
 

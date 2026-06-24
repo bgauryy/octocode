@@ -521,11 +521,22 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
       await runOqlSearch({
         target: 'code',
         from: { kind: 'github', repo: 'langchain-ai/langchainjs' },
-        scope: { language: 'ts' },
+        scope: { language: 'TypeScript' },
         where: { kind: 'text', value: '_streamChatModelEvents' },
         limit: 3,
       })
     );
+
+    expect(runDirect).toHaveBeenCalledWith(
+      'ghSearchCode',
+      expect.objectContaining({
+        owner: 'langchain-ai',
+        repo: 'langchainjs',
+        keywords: ['_streamChatModelEvents'],
+        language: 'TypeScript',
+      })
+    );
+    expect(runDirect.mock.calls[0]?.[1]).not.toHaveProperty('extension');
 
     const row = env.results[0] as OqlCodeResultRow;
     expect(row.path).toBe(
@@ -556,6 +567,10 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
         },
       },
     });
+    expect(env.diagnostics.some(d => d.code === 'providerSemanticsApproximate'))
+      .toBe(true);
+    expect(env.evidence.kind).toBe('candidate');
+    expect(env.evidence.answerReady).toBe(false);
   });
 
   it('LSP unavailable and nested semantic pagination are partial, not proof', async () => {
@@ -618,6 +633,52 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
     expect(env.provenance[0]?.source).toEqual({
       kind: 'local',
       path: '/workspace/src/index.ts',
+    });
+  });
+
+  it('routes workspaceSymbol from a directory through workspaceRoot, not a directory uri', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        type: 'workspaceSymbol',
+        uri: '/workspace/src/normalize.ts',
+        payload: {
+          kind: 'workspaceSymbol',
+          symbols: [
+            {
+              name: 'normalizeQuery',
+              uri: '/workspace/src/normalize.ts',
+              line: 12,
+            },
+          ],
+        },
+        lsp: { serverAvailable: true },
+      })
+    );
+
+    const env = single(
+      await runOqlSearch({
+        target: 'semantics',
+        from: { kind: 'local', path: '.' },
+        params: {
+          type: 'workspaceSymbol',
+          symbolName: 'normalizeQuery',
+          workspaceRoot: '/workspace',
+        },
+      })
+    );
+
+    const [, args] = runDirect.mock.calls[0]!;
+    expect(args).toMatchObject({
+      type: 'workspaceSymbol',
+      symbolName: 'normalizeQuery',
+      workspaceRoot: '/workspace',
+    });
+    expect(args).not.toHaveProperty('uri');
+    expect(env.diagnostics.map(d => d.code)).not.toContain('lspUnavailable');
+    expect(env.results[0]).toMatchObject({
+      kind: 'record',
+      recordType: 'semantics',
+      data: { name: 'normalizeQuery' },
     });
   });
 
@@ -726,6 +787,52 @@ describe('#6 per-domain continuation: binary strings nextScanOffset', () => {
     expect(
       (cont?.query as { params?: { scanOffset?: number } }).params?.scanOffset
     ).toBe(4096);
+  });
+
+  it('marks paginated strings previews partial and exposes the char continuation', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        mode: 'strings',
+        path: '/tmp/bin',
+        content: 'libcurl\nGET',
+        localPath: '/tmp/bin.strings.txt',
+        isPartial: true,
+        pagination: {
+          hasMore: true,
+          charOffset: 0,
+          charLength: 4000,
+          nextCharOffset: 4000,
+          totalChars: 9000,
+        },
+      })
+    );
+
+    const env = single(
+      await runOqlSearch({
+        target: 'artifacts',
+        from: { kind: 'local', path: '/tmp/bin' },
+        params: { mode: 'strings' },
+      })
+    );
+
+    const row = env.results[0] as OqlRecordResultRow;
+    expect(env.evidence).toMatchObject({
+      answerReady: false,
+      complete: false,
+      kind: 'partial',
+    });
+    expect(env.diagnostics.map(d => d.code)).toContain('partialResult');
+    expect(
+      (
+        env.diagnostics.find(d => d.code === 'partialResult')
+          ?.continuation as OqlContinuation | undefined
+      )?.query.params
+    ).toMatchObject({ charOffset: 4000, charLength: 4000 });
+    expect(row.next?.['next.artifactContent']?.query.params).toMatchObject({
+      charOffset: 4000,
+      charLength: 4000,
+    });
+    expect(row.next?.['next.search']).toBeDefined();
   });
 });
 

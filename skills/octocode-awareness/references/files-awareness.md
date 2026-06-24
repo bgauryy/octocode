@@ -4,7 +4,7 @@ Read this when multiple agents may touch the same local repo. It covers how to s
 
 ## `status` & files-awareness
 
-Run `status` to read the shared state at a glance — memory counts by lifecycle state, active intents, and the most recent file locks, each with `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-8601 UTC, newest first). This is how you tell what other agents in the same local repo are working on right now and since when; `--limit` caps the locks listed. Expired locks are cleaned on each call, so what you see is live.
+Run `status` to read the shared state at a glance — memory counts by lifecycle state, active intents, unverified intents, and the most recent file locks, each with `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-8601 UTC, newest first). This is how you tell what other agents in the same local repo are working on right now and which finished edits still owe verification; `--workspace` filters displayed locks/intents under one workspace path and `--limit` caps listed locks/pending intents. Expired locks are cleaned on each call and their intents become `PENDING`, so what you see is live without erasing verification debt.
 
 `status` shows memories, intents, and locks, but **not** refinements — for the work-handoff view, run `refine-get` separately. Everything is in the one shared store now, so a handoff can't "land in the wrong file"; but it is keyed by `repo`/`ref`, so a mismatched `--repo`/`--ref` (or a different cwd that auto-detects a different repo/branch) means the next agent's `refine-get` won't find it. Double-check `repo`/`ref` when a handoff "disappears."
 
@@ -28,15 +28,22 @@ A **collision** is when another agent is actively working the same area you are 
 
 When you detect one, do **not** silently steal the lock, force the edit, or quietly abandon the task. Instead:
 1. **Notify the user** (when a user is reachable) with the concrete facts from the conflict payload / `status`: who holds it (`agent_id`), since when (`acquired_at`), why (`rationale`/`test_plan`), and which files overlap.
-2. **Let the user decide**: wait and retry, take a different slice that doesn't overlap, coordinate/hand off, or explicitly override.
+2. **Let the user decide**: wait and retry, take a different slice that doesn't overlap, coordinate/hand off, or explicitly approve stale-lock cleanup.
 3. If no user is reachable (headless/automated run), fall back to the safe default — wait/retry within a bounded budget or pick non-overlapping work — and record the collision so it is visible later.
 
 The hooks enforce the mechanical half (they block the write on exit `2`); this protocol is the human-in-the-loop half the agent must add on top.
 
+Use `wait-for-lock` when "wait" is the chosen path. It polls the live lock table, removes expired locks on each check, and exits `2` with the current `conflicts[]` when the budget expires. It does **not** acquire a claim, and it sleeps outside SQLite transactions, so a waiter cannot deadlock the holder. When it exits `0`, immediately claim with `pre-flight-intent` before editing.
+
+If you need human/peer coordination during a longer wait, send a `notify --kind request` or `blocker` to the holder or broadcast channel. The `UserPromptSubmit` delivery hook surfaces that message on the other agent's next turn; the `PostToolUse` hook/TTL is still the mechanical unblock signal.
+
+Use `prune-stale-locks --older-than-minutes 20 --dry-run` when a lock may be abandoned. If the dry-run facts look right, run `scripts/prune-stale-locks.sh 20` or the direct command without `--dry-run`. This releases files while preserving the intent as `PENDING`; it is cleanup, not success.
+
 ## Per-repo/project + running-env context
 
-- **`env`** — your first orient command in a new session. Reports the running environment (OS/platform, Python/Node versions, cwd), the detected **git repo / branch / dirty** state, the **open work-handoff for this repo** (`open`/`ongoing` refinements), and any **unverified intents**. Use it to answer "where am I, what's pending here, and what env am I in."
-- Refinements **capture the running env at write time** (`env_json` → surfaced as `env`), and auto-fill `repo`/`ref` from git when you don't pass them — so the next agent sees whether the environment differs (different OS, Node version, branch) before trusting a handoff. Pass absolute paths or run from the repo root so file correlation holds.
+- **`env`** — your first orient command in a new session. Reports the running environment (OS/platform, Python/Node versions, cwd), the detected **git repo / branch / dirty** state, changed-file metadata, the **open work-handoff for this repo** (`open`/`ongoing` refinements), and any **unverified intents**. Use it to answer "where am I, what's pending here, and what env am I in."
+- `env.git.changed_files` is the exact dirty-file count. `env.git.changes[]` is a bounded list (first 200) of `{path,status,index_status,worktree_status,branch,github_url}` plus `previous_path` for renames/copies; `github_url` is `null` when origin is not GitHub, the branch is detached/unknown, or the path is new/untracked/renamed/copied and may not exist on the current GitHub branch yet.
+- Refinements **capture the running env at write time** (`env_json` → surfaced as `env`), and auto-fill `repo`/`ref` from git when you don't pass them — so the next agent sees whether the environment differs (different OS, Node version, branch, file-change list) before trusting a handoff. Pass absolute paths or run from the repo root so file correlation holds.
 
 ## Observability
 

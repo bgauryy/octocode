@@ -74,7 +74,7 @@ Use `--force` when replacing an existing destination. Without `--force`, existin
 |------|-----------|
 | Missing `--add`, missing `--platform`, invalid platform, invalid mode, or invalid GitHub folder | `2` |
 | GitHub folder cannot be fetched or does not contain `SKILL.md` | `3` |
-| One or more destination installs fail | `5` |
+| One or more destination installs fail | `1` |
 
 JSON output includes:
 
@@ -85,7 +85,12 @@ JSON output includes:
   "source": "https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-engineer",
   "cachePath": "<octocode-home>/skill-sources/github-bgauryy-octocode-mcp-main-skills-octocode-engineer/octocode-engineer",
   "platforms": ["common"],
-  "targets": ["agents"],
+  "targets": [
+    {
+      "target": "agents",
+      "path": "<home>/.agents/skills/octocode-engineer"
+    }
+  ],
   "mode": "copy",
   "installed": 1,
   "skipped": 0,

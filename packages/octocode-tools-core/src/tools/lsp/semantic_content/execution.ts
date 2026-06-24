@@ -104,11 +104,49 @@ function workspaceSymbolAnchorExtensions(): string[] {
   ];
 }
 
-function resolveWorkspaceSymbolAnchor(
+function workspaceSymbolAnchorIncludeGlobs(): string[] {
+  return workspaceSymbolAnchorExtensions().map(ext => `**/*.${ext}`);
+}
+
+const WORKSPACE_SYMBOL_EXCLUDE_DIRS = [
+  '.git',
+  'node_modules',
+  'dist',
+  'out',
+  'coverage',
+  'target',
+] as const;
+
+async function findWorkspaceSymbolAnchorByName(
   query: WorkspaceSymbolSemanticQuery,
   workspaceRoot: string
-): string {
+): Promise<string | undefined> {
+  const symbolName = query.symbolName?.trim();
+  if (!symbolName) return undefined;
+  try {
+    const result = await contextUtils.searchRipgrep({
+      path: workspaceRoot,
+      pattern: symbolName,
+      fixedString: true,
+      caseSensitive: true,
+      filesOnly: true,
+      include: workspaceSymbolAnchorIncludeGlobs(),
+      excludeDir: [...WORKSPACE_SYMBOL_EXCLUDE_DIRS],
+      maxSnippetChars: 1,
+    });
+    return result.files[0]?.path;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveWorkspaceSymbolAnchor(
+  query: WorkspaceSymbolSemanticQuery,
+  workspaceRoot: string
+): Promise<string> {
   if (query.uri) return toLocalPath(query.uri, workspaceRoot);
+  const symbolHit = await findWorkspaceSymbolAnchorByName(query, workspaceRoot);
+  if (symbolHit) return symbolHit;
   try {
     const result = contextUtils.queryFileSystem({
       path: workspaceRoot,
@@ -992,7 +1030,7 @@ async function getWorkspaceSymbols(
   // workspace/symbol is project-wide, but language-server selection is
   // extension-based. Use an explicit uri when provided; otherwise pick a
   // representative source file under the workspace root.
-  const anchorFile = resolveWorkspaceSymbolAnchor(query, workspaceRoot);
+  const anchorFile = await resolveWorkspaceSymbolAnchor(query, workspaceRoot);
   const serverAvailable = await isLanguageServerAvailable(
     anchorFile,
     workspaceRoot

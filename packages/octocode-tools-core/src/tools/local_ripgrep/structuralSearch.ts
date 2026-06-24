@@ -27,6 +27,18 @@ const ZERO_MATCH_GUIDANCE =
   '0 structural matches. A pattern matches a complete AST node — a class/function usually needs a body (add `$$$BODY`), and Python/TS definitions may carry a return type (`-> $RET:`) or decorators the pattern must include. For partial or relational matches use a YAML `rule` instead of `pattern`.';
 
 /**
+ * The #1 structural miss is a function pattern that omits the return type. When
+ * the pattern has a parameter list directly followed by a body brace and no
+ * return-type annotation, suggest the typed variant (insert `: $R`) as a
+ * concrete, copy-pasteable next step appended to ZERO_MATCH_GUIDANCE.
+ */
+function relaxedFunctionPatternSuggestion(pattern: string | undefined): string {
+  if (!pattern || !/\)\s*\{/.test(pattern)) return '';
+  const relaxed = pattern.replace(/\)\s*\{/, '): $R {');
+  return relaxed === pattern ? '' : ` Try: \`${relaxed}\`.`;
+}
+
+/**
  * Resolve the `include` globs for a structural query: explicit include wins;
  * otherwise derive from `langType` (`langType:'ts'` -> `*.ts`+aliases) so
  * `mode:'structural', langType:'ts'` doesn't parse HTML/CSS/Scala/etc.
@@ -156,7 +168,9 @@ export async function searchContentStructural(
     query.pattern &&
     !query.rule
   ) {
-    warnings.push(ZERO_MATCH_GUIDANCE);
+    warnings.push(
+      ZERO_MATCH_GUIDANCE + relaxedFunctionPatternSuggestion(query.pattern)
+    );
   }
   return await buildSearchResult(files, query, 'structural', warnings, stats);
 }

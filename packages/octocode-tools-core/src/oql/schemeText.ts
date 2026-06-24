@@ -9,7 +9,7 @@ import { ACTIVE_TARGETS, RESERVED_TARGETS } from './types.js';
 export const OQL_SCHEMA_DOC = {
   schema: 'oql',
   description:
-    'octocode search — typed read-only research over Local, GitHub, npm, semantics, artifacts, PR/history, diff, and research/graph. Build OQL as source(from) + target + where/params; trim with view/select/controls; use --explain for routing; follow next.* for pages, exact reads, materialization, or proof.',
+    'octocode search — typed read-only queries over code, files, symbols, repos, packages, history, artifacts, diffs, and graph evidence. Think source + answer type + filters + read/output options; use --explain for routing; follow next.* for pages, exact reads, materialization, or proof.',
   activeTargets: ACTIVE_TARGETS,
   reservedTargets: RESERVED_TARGETS,
   sourceGuide: {
@@ -21,10 +21,26 @@ export const OQL_SCHEMA_DOC = {
     materialized:
       'from:{kind:"materialized",localPath:"/abs/path"} after target:"materialize", clone, or cache fetch. Use when a remote repo/subtree must behave like local code.',
   },
-  // ── Task → target router: pick the target first, then supply where/params ──
+  plainLanguage: {
+    source:
+      '`from` = where to look: local path, GitHub repo, npm, or a materialized checkout.',
+    answerType:
+      '`target` = what kind of answer you want: code matches, file content, tree, files, symbols, repos, packages, PRs, commits, artifacts, diffs, research packets, graph proof, or materialization.',
+    filters:
+      '`where` = match/filter conditions for code and file discovery only: text, regex, AST shape, file fields, and boolean combinations.',
+    readOptions:
+      '`fetch` = what to read once you know the file/tree: exact content, compact content, symbol outline, ranges, match slices, or tree depth.',
+    targetOptions:
+      '`params` = options that belong to one answer type, such as LSP operation, PR number, package name, artifact mode, research intent, or graph proof.',
+    output:
+      '`view`, `select`, and `controls` = response shape, projected fields, search tuning, and cost limits.',
+    paging:
+      "`page` + `itemsPerPage` page the target's primary result domain. For code search that may be matched files; per-file match paging uses `controls.search.matchPage` / `--match-page`.",
+  },
+  // ── Task → target router: pick the target first, then add filters/options ──
   targetDecisionTree: {
     'find a string/pattern in code':
-      'target:code (shorthand default for text/regex/--pattern/--rule; needs a where)',
+      'target:code (shorthand default for text/regex/--pattern/--rule; needs a where filter)',
     'read or slice a known file':
       'target:content (file positional + --content-view, --start-line/--end-line, or --match-string)',
     'see the file/dir layout': 'target:structure (--tree)',
@@ -120,22 +136,22 @@ export const OQL_SCHEMA_DOC = {
     scope:
       '{ path?, language?, include?, exclude?, excludeDir?, hidden?, noIgnore?, maxDepth? }',
     where:
-      'discriminated predicate: text | regex | structural | field | all | any | not (code/files/search-index filtering only). For reading a matched file slice, use fetch.content.match. For PR/commit/artifact-specific text filters, use that target params hint.',
+      'filters for code/files only: text | regex | structural | field | all | any | not. To read a matched file slice, use fetch.content.match. For PR/commit/artifact text narrowing, use that target params hint.',
     materialize:
       '{ mode:"never"|"auto"|"required", strategy?, allowFullRepo?, forceRefresh? }',
     fetch:
-      '{ content?: { contentView:"exact"|"compact"|"symbols", match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{maxDepth?} } — use nested fetch.content.contentView for content form; to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)',
+      '{ content?: { contentView:"exact"|"compact"|"symbols", match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{maxDepth?} } — read options for known files/trees; to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)',
     params:
-      'target-specific options (validated by OQL for common fields and by the backing tool exhaustively) — see params hints below',
+      'target options (validated by OQL for common fields and by the backing tool exhaustively) — see params hints below',
     select: 'string[] projection of result/continuation fields',
     view: 'discovery | paginated | detailed',
     controls:
-      '{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?, sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxBytes?, timeoutMs? } }',
+      '{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?, sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxBytes?, timeoutMs? } } — output/cost controls',
     limit:
-      'number — top-level result cap; applied by OQL windowing after target execution and before rendering. Prefer itemsPerPage for paged research/graph/file-history continuations.',
+      'number — total result cap where supported. Prefer itemsPerPage for paged research/graph/file-history continuations.',
     page: 'number — top-level page number for OQL windowing/continuations',
     itemsPerPage:
-      'number — canonical page size for OQL continuations. Per-target params expose aliases for backing-tool sub-paging only (limit/page on repositories|packages|pullRequests; filePage/commentPage/commitPage on pullRequests; filePage on commits; entryPageNumber on artifacts). Prefer top-level itemsPerPage/page; when both are present, top-level OQL windowing wins for the returned envelope.',
+      'number — page size for the target primary result domain. For code search this may be matched files, not individual matches; per-file match paging uses controls.search.matchPage. Per-target params expose backing-tool sub-pages only (filePage/commentPage/commitPage, entryPageNumber, scanOffset, etc.).',
     explain: 'boolean',
   },
   // Per-target `params` hints (full schema: `tools <name> --scheme`).
@@ -151,7 +167,7 @@ export const OQL_SCHEMA_DOC = {
     commits:
       '{ path?, branch?, since?, until?, includeDiff?, limit?, page?, filePage?, itemsPerPage?, matchString? } — backing tool ghHistoryResearch type:"commits"; matchString filters commit messages; repo/directory diffs page changed files per commit with filePage/itemsPerPage',
     artifacts:
-      '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset?, matchString? } — localBinaryInspect. matchString filters text-producing modes (extract/decompress/strings) over the current fetched payload. For large strings dumps, follow next.search on data.localPath for lossless ripgrep paging; next.artifactStrings (scanOffset) = next binary scan window. extract/unpack/decompress → tree at data.localPath (next.structure/next.files).',
+      '{ mode:"inspect"|"list"|"extract"|"decompress"|"strings"|"unpack", minLength?, entryPageNumber?, scanOffset?, charOffset?, charLength?, matchString? } — localBinaryInspect. matchString filters text-producing modes (extract/decompress/strings) over the current fetched payload. For large strings dumps, follow next.search on data.localPath for lossless ripgrep paging; next.artifactContent (charOffset) = next inline text window; next.artifactStrings (scanOffset) = next binary scan window. extract/unpack/decompress → tree at data.localPath (next.structure/next.files).',
     diff: '{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair',
     research:
       '{ goal?, intent?:"general"|"reachability"|"dependencies"|"symbols", facets?:("symbols"|"files"|"dependencies"|"relations")[], mode?:"plan"|"analyze"|"prove", maxFiles? } — TWO-PHASE: page:1+itemsPerPage:1 → data.summary (full-scope counts) and may include a bounded first packet page; page:2+ → data.packets[] continuation pages (candidates w/ retainedBy edges + per-packet next.*). Always evidence:"candidate"/answerReady:false (normal). Follow the row\'s pre-filled next.graph (proof:"lsp", proofLimit-bounded) to upgrade a page to LSP-proven proofStatus.',

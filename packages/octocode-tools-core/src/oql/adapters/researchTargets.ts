@@ -8,6 +8,7 @@
  * (clone → local LSP). This keeps the planner/dispatch uniform; per-target
  * specifics live behind one `params` bag validated by the backing tool.
  */
+import { statSync } from 'node:fs';
 import nodePath from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runDirect } from './runner.js';
@@ -30,6 +31,7 @@ import type { AdapterResult } from './local.js';
 import type {
   OqlGraphData,
   OqlDiagnostic,
+  OqlContinuation,
   Pagination,
   OqlQuery,
   OqlRecordResultRow,
@@ -69,9 +71,9 @@ function ghFileContentResult(result: CallToolResult): {
     | Record<string, unknown>
     | undefined;
   const fileRow =
-    ((data?.files as Array<Record<string, unknown>> | undefined)?.[0] ??
-      (data?.results as Array<Record<string, unknown>> | undefined)?.[0] ??
-      data) ??
+    (data?.files as Array<Record<string, unknown>> | undefined)?.[0] ??
+    (data?.results as Array<Record<string, unknown>> | undefined)?.[0] ??
+    data ??
     {};
   const content = fileRow.content;
   return {
@@ -1034,6 +1036,10 @@ function stringFrom(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 /** Citeable identity per record type, extracted from the backend payload. */
 function stableId(
   recordType: OqlRecordResultRow['recordType'],
@@ -1099,6 +1105,15 @@ function statusDiagnostics(
     ];
   }
   return [];
+}
+
+function isExistingDirectory(path: string): boolean {
+  try {
+    const resolved = nodePath.isAbsolute(path) ? path : nodePath.resolve(path);
+    return statSync(resolved).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function splitRepo(source: QuerySource | undefined): {
@@ -1878,8 +1893,62 @@ export async function executeArtifacts(
   }
   return {
     results: records([data], 'artifact', query.from),
-    diagnostics,
+    diagnostics: [...diagnostics, ...artifactPartialDiagnostics(data, query)],
     provenance: [{ backend: 'localBinaryInspect', source: query.from }],
+  };
+}
+
+type ArtifactTextPagination = {
+  hasMore?: boolean;
+  nextCharOffset?: number;
+  charLength?: number;
+};
+
+function artifactPartialDiagnostics(
+  data: Record<string, unknown>,
+  query: OqlQuery
+): OqlDiagnostic[] {
+  const pagination =
+    data.pagination && typeof data.pagination === 'object'
+      ? (data.pagination as ArtifactTextPagination)
+      : undefined;
+  if (data.isPartial !== true && pagination?.hasMore !== true) return [];
+  return [
+    diagnostic(
+      'partialResult',
+      'Artifact text is paginated; follow the artifact continuation before treating the inline content as complete.',
+      {
+        backend: 'localBinaryInspect',
+        blocksAnswer: true,
+        continuation: artifactContentContinuation(query, pagination),
+      }
+    ),
+  ];
+}
+
+function artifactContentContinuation(
+  query: OqlQuery,
+  pagination: ArtifactTextPagination | undefined
+): OqlContinuation | undefined {
+  if (
+    pagination?.hasMore !== true ||
+    typeof pagination.nextCharOffset !== 'number'
+  ) {
+    return undefined;
+  }
+  return {
+    query: {
+      ...query,
+      params: {
+        ...(query.params ?? {}),
+        charOffset: pagination.nextCharOffset,
+        ...(typeof pagination.charLength === 'number'
+          ? { charLength: pagination.charLength }
+          : {}),
+      },
+    },
+    why: 'Read the next inline artifact text window.',
+    confidence: 'exact',
   };
 }
 
@@ -1887,23 +1956,46 @@ export async function executeSemantics(
   query: OqlQuery
 ): Promise<AdapterResult> {
   let uri: string | undefined;
+  let workspaceRoot: string | undefined;
   const provenance: AdapterResult['provenance'] = [];
   const diagnostics: OqlDiagnostic[] = [];
   const semanticParams = params(query) as {
     uri?: string;
+    type?: string;
+    workspaceRoot?: string;
   } & Record<string, unknown>;
+  const isWorkspaceSymbol = semanticParams.type === 'workspaceSymbol';
+  const explicitUri =
+    typeof semanticParams.uri === 'string' ? semanticParams.uri : undefined;
+  const explicitWorkspaceRoot =
+    typeof semanticParams.workspaceRoot === 'string'
+      ? semanticParams.workspaceRoot
+      : undefined;
 
   if (query.from?.kind === 'local') {
-    uri = semanticParams.uri ?? query.from.path;
+    if (isWorkspaceSymbol) {
+      const fromPath = query.from.path;
+      const fromIsDirectory = isExistingDirectory(fromPath);
+      workspaceRoot =
+        explicitWorkspaceRoot ??
+        (fromIsDirectory ? nodePath.resolve(fromPath) : undefined);
+      uri = explicitUri ?? (fromIsDirectory ? undefined : fromPath);
+    } else {
+      uri = explicitUri ?? query.from.path;
+    }
   } else if (query.from?.kind === 'materialized') {
     const scopePath = firstScopePath(query);
-    uri =
-      semanticParams.uri ??
-      (scopePath
-        ? nodePath.isAbsolute(scopePath)
-          ? scopePath
-          : nodePath.join(query.from.localPath, scopePath)
-        : query.from.localPath);
+    const scopedUri = scopePath
+      ? nodePath.isAbsolute(scopePath)
+        ? scopePath
+        : nodePath.join(query.from.localPath, scopePath)
+      : undefined;
+    if (isWorkspaceSymbol) {
+      workspaceRoot = explicitWorkspaceRoot ?? query.from.localPath;
+      uri = explicitUri ?? scopedUri;
+    } else {
+      uri = explicitUri ?? scopedUri ?? query.from.localPath;
+    }
   } else if (query.from?.kind === 'github') {
     // remote semantics: materialize the file, then run LSP locally.
     const { owner, repo } = splitRepo(query.from);
@@ -1945,7 +2037,18 @@ export async function executeSemantics(
       source: query.from,
       materializedPath: cloneLocalPath,
     });
-    if (requestedUri) {
+    if (isWorkspaceSymbol) {
+      workspaceRoot = explicitWorkspaceRoot ?? cloneLocalPath;
+      if (requestedUri) {
+        uri = nodePath.isAbsolute(requestedUri)
+          ? requestedUri
+          : nodePath.join(cloneLocalPath, requestedUri);
+      } else if (scopePath) {
+        uri = nodePath.isAbsolute(scopePath)
+          ? scopePath
+          : nodePath.join(cloneLocalPath, scopePath);
+      }
+    } else if (requestedUri) {
       uri = nodePath.isAbsolute(requestedUri)
         ? requestedUri
         : nodePath.join(cloneLocalPath, requestedUri);
@@ -1958,7 +2061,7 @@ export async function executeSemantics(
     }
   }
 
-  if (!uri) {
+  if (!uri && !workspaceRoot) {
     diagnostics.push(
       diagnostic('invalidQuery', 'target:"semantics" needs a `from` anchor.', {
         backend: 'lspGetSemantics',
@@ -1971,14 +2074,27 @@ export async function executeSemantics(
   // and materialized queries params.uri may override a directory/root `from`
   // anchor. For remote queries, params.uri has already been lowered to the
   // cloned sparse path above.
-  const { uri: _ignoredUri, symbolKind, ...lspParams } = semanticParams;
-  const result = await runDirect('lspGetSemantics', { ...lspParams, uri });
+  const {
+    uri: _ignoredUri,
+    symbolKind,
+    workspaceRoot: _ignoredWorkspaceRoot,
+    ...lspParams
+  } = semanticParams;
+  const result = await runDirect('lspGetSemantics', {
+    ...lspParams,
+    ...(workspaceRoot ? { workspaceRoot } : {}),
+    ...(uri ? { uri } : {}),
+  });
   const { data, status } = firstQueryData(result);
   const recordData = data as Record<string, unknown> | undefined;
   const pagination = semanticPagination(recordData, query);
-  const source = semanticSource(query, uri);
+  const sourceUri =
+    typeof recordData?.uri === 'string'
+      ? recordData.uri
+      : (uri ?? workspaceRoot!);
+  const source = semanticSource(query, sourceUri);
   const semanticItems = filterSemanticItemsByKind(
-    expandData(recordData),
+    expandSemanticData(recordData),
     symbolKind
   );
   return {
@@ -1998,6 +2114,26 @@ export async function executeSemantics(
       },
     ],
   };
+}
+
+function expandSemanticData(
+  data: Record<string, unknown> | undefined
+): unknown[] {
+  if (!data) return [];
+  const payload = isRecord(data.payload) ? data.payload : undefined;
+  const symbols = payload?.symbols;
+  if (Array.isArray(symbols)) {
+    const uri = stringFrom(data.uri);
+    return symbols.map(symbol =>
+      isRecord(symbol)
+        ? {
+            ...(uri && typeof symbol.uri !== 'string' ? { uri } : {}),
+            ...symbol,
+          }
+        : symbol
+    );
+  }
+  return expandData(data);
 }
 
 function filterSemanticItemsByKind(

@@ -52,6 +52,27 @@ describe('artifact continuations are mode-aware', () => {
     });
   });
 
+  it('strings preview pagination → next.artifactContent char window', () => {
+    const next = buildArtifactContinuations(
+      artifactRow({
+        mode: 'strings',
+        localPath: '/tmp/x-strings/dump.txt',
+        pagination: {
+          hasMore: true,
+          charLength: 4000,
+          nextCharOffset: 4000,
+        },
+      }),
+      ctx({ mode: 'strings' })
+    )!;
+    expect(next['next.artifactContent']).toBeTruthy();
+    expect(next['next.artifactContent']!.query.params).toMatchObject({
+      charOffset: 4000,
+      charLength: 4000,
+    });
+    expect(next['next.search']).toBeTruthy();
+  });
+
   it('unpack/extract → next.structure + next.files (a real extracted tree)', () => {
     const next = buildArtifactContinuations(
       artifactRow({ mode: 'unpack', localPath: '/tmp/unzip/pkg' }),

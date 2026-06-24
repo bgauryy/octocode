@@ -321,10 +321,18 @@ const OqlInputQueryShape = {
   ...OqlInputMetaShape,
   // target is optional on raw input — the normalizer infers it from sugar
   // (e.g. pattern/text -> "code", fetch.content -> "content").
-  target: z.enum(ALL_TARGETS).optional(),
-  from: QuerySourceSchema.optional(),
-  scope: QueryScopeSchema,
-  where: PredicateSchema.optional(),
+  target: z
+    .enum(ALL_TARGETS)
+    .optional()
+    .describe(
+      'REQUIRED unless inferable from sugar (text/regex/pattern/rule/boolean → code, fetch.content → content, fetch.tree → structure). One of the active targets — run `search --scheme` for the full list and recipes.'
+    ),
+  from: QuerySourceSchema.optional().describe(
+    'Source. Defaults to local cwd when omitted; use {kind:"github",owner,repo} for remote or {kind:"materialized",localPath} after a fetch/clone.'
+  ),
+  where: PredicateSchema.optional().describe(
+    'Canonical predicate tree (kind: text | regex | structural | all | any | not). Mutually exclusive with the flat shorthand fields (text/regex/pattern/and/or/...): use ONE shape, not both.'
+  ),
   materialize: z
     .union([MaterializePolicySchema, z.enum(['never', 'auto', 'required'])])
     .optional(),
@@ -337,14 +345,25 @@ const OqlInputQueryShape = {
   itemsPerPage: z.number().int().min(1).optional(),
   params: z.record(z.string(), z.unknown()).optional(),
   explain: z.boolean().optional(),
-  // Sugar fields consumed by normalize.ts.
+  // Sugar fields consumed by normalize.ts. Shorthand for `from`/`where` —
+  // mutually exclusive with the canonical `where` predicate tree.
   repo: z.string().optional(),
   owner: z.string().optional(),
   ref: z.string().optional(),
   path: stringOrArray.optional(),
-  text: z.string().optional(),
+  text: z
+    .string()
+    .optional()
+    .describe(
+      'Shorthand text search (→ where.text, target code). Do not combine with a canonical `where`.'
+    ),
   regex: z.string().optional(),
-  pattern: z.string().optional(),
+  pattern: z
+    .string()
+    .optional()
+    .describe(
+      'Shorthand AST/structural pattern (→ structural where, target code). A function pattern must match a COMPLETE node — include return type (e.g. `function $N($$$A): $R { $$$B }`) or use a `rule` for partial/relational matches.'
+    ),
   rule: StructuralRuleInputSchema.optional(),
   lang: z.string().optional(),
   and: z.array(z.unknown()).optional(),
@@ -361,7 +380,12 @@ const OqlInputQueryShape = {
 export const OqlDisplayQuerySchema = z
   .object({
     ...OqlInputQueryShape,
-    target: z.enum(ACTIVE_TARGET_ENUM).optional(),
+    target: z
+      .enum(ACTIVE_TARGET_ENUM)
+      .optional()
+      .describe(
+        'REQUIRED unless inferable from sugar (text/regex/pattern/rule/boolean → code, fetch.content → content, fetch.tree → structure). One of the active targets — run `search --scheme` for the full list and recipes.'
+      ),
   })
   .catchall(z.unknown());
 

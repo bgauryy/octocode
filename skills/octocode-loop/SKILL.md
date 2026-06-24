@@ -34,6 +34,10 @@ Keep ≥2 plausible explanations alive while any is unsettled. Never let a singl
 
 Set multiple exits — don't trust one. Stop when ANY fires: the framed question is answered with grounded evidence and the alternate is killed; the cheapest next step can no longer change the conclusion; the iteration or token budget is hit; or no-progress is detected (the last N steps changed no state). Otherwise keep going — agents tend to stop early after one good hit. Before stopping, run one reflection pass: weakest claim, strongest counter-evidence, whether one more cheap call would flip it. If a loop stalls (repeats, same `empty`/`error`), change the surface or query shape rather than retrying verbatim — see `references/loop-protocol.md`.
 
+## Output contract
+
+End with a compact result, not a transcript: **Answer**, **Evidence** (anchors like file:line/repo/package/commit), **Loop trace** (only decisive iterations), **Verification** (the deterministic check actually run, or say none), and **Open gaps** (what remains unproven). If the trace cannot fit comfortably, summarize the ledger and keep exact anchors.
+
 ## Gates
 
 - Read the relevant mode reference before running that loop; read `references/tools.md` before the first raw-tool/schema call.

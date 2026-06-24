@@ -137,6 +137,13 @@ async function runSingle(
 function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
   // Content has its own char-window pagination and per-row next.charRange.
   if (query.target === 'content') return;
+  // Local code search paginates matched files and caps per-file matches; the
+  // mapped OQL rows are match rows. Slicing those rows would create `next.page`
+  // queries that advance the file page, not the hidden match row, so leave the
+  // backend pagination intact and rely on next.matchPage for noisy files.
+  if (query.target === 'code' && exec.pagination?.totalItemsKind === 'files') {
+    return;
+  }
 
   const cap =
     typeof query.limit === 'number'
@@ -579,6 +586,32 @@ export function buildArtifactContinuations(
         params: { ...(ctx.query.params ?? {}), scanOffset: nextScan },
       },
       why: 'Scan the next window of printable strings.',
+      confidence: 'exact',
+    };
+  }
+  const pagination =
+    data?.pagination && typeof data.pagination === 'object'
+      ? (data.pagination as Record<string, unknown>)
+      : undefined;
+  const nextCharOffset =
+    typeof pagination?.nextCharOffset === 'number'
+      ? pagination.nextCharOffset
+      : undefined;
+  if (pagination?.hasMore === true && nextCharOffset !== undefined) {
+    const charLength =
+      typeof pagination.charLength === 'number'
+        ? pagination.charLength
+        : undefined;
+    out['next.artifactContent'] = {
+      query: {
+        ...ctx.query,
+        params: {
+          ...(ctx.query.params ?? {}),
+          charOffset: nextCharOffset,
+          ...(charLength !== undefined ? { charLength } : {}),
+        },
+      },
+      why: 'Read the next inline artifact text window.',
       confidence: 'exact',
     };
   }

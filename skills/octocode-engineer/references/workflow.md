@@ -3,7 +3,7 @@
 Core loop: `orient → search → fetch exact evidence → prove → act`  
 Carry anchors forward at every step: package, `owner/repo`, branch, path, line, PR number, `localPath`, symbol, `lineHint`.
 
-Source docs: [`AGENT_RESEARCH_WORKFLOWS.md`](https://github.com/bgauryy/octocode/blob/main/docs/AGENT_RESEARCH_WORKFLOWS.md) · [`OQL_RESEARCH_GRAPH_FLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OQL_RESEARCH_GRAPH_FLOW.md).
+Source docs: [`AGENT_RESEARCH_WORKFLOWS.md`](https://github.com/bgauryy/octocode/blob/main/docs/context/AGENT_RESEARCH_WORKFLOWS.md) · [`OQL_RESEARCH_GRAPH_FLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md).
 
 ---
 
@@ -142,6 +142,6 @@ For dead-code, reachability, retained-by, and safe-delete questions, load [`work
 
 ## Docs
 
-- [Agent Research Workflows](https://github.com/bgauryy/octocode/blob/main/docs/AGENT_RESEARCH_WORKFLOWS.md)
-- [OQL Research Graph Flow](https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OQL_RESEARCH_GRAPH_FLOW.md)
-- [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md)
+- [Agent Research Workflows](https://github.com/bgauryy/octocode/blob/main/docs/context/AGENT_RESEARCH_WORKFLOWS.md)
+- [OQL Research Graph Flow](https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md)
+- [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md)

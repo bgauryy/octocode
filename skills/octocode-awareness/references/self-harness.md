@@ -34,17 +34,20 @@ The flagship failure class is declaring success without checking the artifact.
 - At `pre-flight-intent` you already declare a `--test-plan`. After doing the work,
   **run it and record that it ran**:
   - `verify --agent-id <a> --intent-id <id> --message "yarn test: 273 passed"`, or
+  - `verify --agent-id <a> --workspace "$PWD" --all-pending --message "yarn test: 273 passed"` after hook-managed edits, or
   - `release-file-lock ... --status SUCCESS --verified --verified-note "ran it"`.
 - A `VERIFIED` event is written to `intent_events`. If you release `--status SUCCESS`
   on an intent that declared a test-plan but recorded no verification, the response
-  carries an `unverifiedConclusion` warning.
+  carries an `unverifiedConclusion` warning and stores the intent as `PENDING`.
+  The post-edit hook also releases file locks as `PENDING`, so coordination is
+  unblocked while verification remains auditable.
 - The **Stop / SubagentStop hook** (`hooks/stop-verify.sh`) runs `audit-unverified`
-  for your session and blocks the conclusion **once** with a reminder if any held
-  intent has a test-plan but no `VERIFIED` event. It is loop-guarded
+  for your session and blocks the conclusion **once** with a reminder if any active
+  or pending intent has a test-plan but no `VERIFIED` event. It is loop-guarded
   (`stop_hook_active`) and opt-out via `OCTOCODE_NO_VERIFY_GATE=1`.
 
-`audit-unverified [--agent-id <a>]` lists held intents missing verification and exits
-`1` when any exist (so it composes in scripts/hooks).
+`audit-unverified [--agent-id <a>]` lists intents missing verification and exits `1`
+when any exist (so it composes in scripts/hooks).
 
 ## 2. Mine recurring failures
 

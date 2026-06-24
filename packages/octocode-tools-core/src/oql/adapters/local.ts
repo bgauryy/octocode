@@ -325,6 +325,10 @@ async function executeCode(
     m.pattern !== undefined &&
     mapped.results.length === 0
   ) {
+    // The concrete `): $R {` return-type suggestion is already emitted once by
+    // the backing tool (structuralSearch.ts → partialResult), which flows
+    // through on this path; don't repeat it here. The unique value this
+    // adapter adds is the rule-based lookup shape in `repair` below.
     diagnostics.push(
       diagnostic(
         'zeroMatches',

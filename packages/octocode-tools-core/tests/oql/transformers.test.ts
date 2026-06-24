@@ -75,24 +75,26 @@ describe('OQL transformers: GitHub code search query', () => {
     });
   });
 
-  it('blocks language-name selectors that GitHub code search would narrow', () => {
+  it('passes language-name selectors to the GitHub language qualifier', () => {
     const transformed = toGithubCodeSearchToolQuery(
       githubCodeQuery({
         target: 'code',
         from: { kind: 'github', owner: 'vuejs', repo: 'core' },
-        scope: { language: 'typescript', path: 'packages/runtime-core/src' },
+        scope: { language: 'TypeScript', path: 'packages/runtime-core/src' },
         where: { kind: 'text', value: 'createApp' },
       })
     );
 
-    expect(transformed.ok).toBe(false);
-    if (transformed.ok) throw new Error('expected transform to fail');
-    expect(transformed.diagnostics[0]).toMatchObject({
-      code: 'lossyTransform',
-      queryPath: 'scope.language',
-      blocksAnswer: true,
+    expect(transformed.ok).toBe(true);
+    if (!transformed.ok) throw new Error('expected transform to succeed');
+    expect(transformed.query).toMatchObject({
+      owner: 'vuejs',
+      repo: 'core',
+      keywords: ['createApp'],
+      language: 'TypeScript',
+      path: 'packages/runtime-core/src',
     });
-    expect(transformed.diagnostics[0]?.message).toContain('tsx');
+    expect(transformed.query).not.toHaveProperty('extension');
   });
 
   it('lets explicit params.extension override scope.language', () => {

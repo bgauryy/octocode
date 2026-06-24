@@ -2,10 +2,7 @@ import { compileWhere } from '../../adapters/compile.js';
 import { diagnostic } from '../../diagnostics.js';
 import type { OqlDiagnostic, OqlQuery, Predicate } from '../../types.js';
 import type { TransformResult } from '../types.js';
-import {
-  classifyLanguageSelector,
-  toGithubCodeLanguageParams,
-} from '../language.js';
+import { toGithubCodeLanguageParams } from '../language.js';
 import {
   firstScopeLanguage,
   firstScopePath,
@@ -72,6 +69,12 @@ export function toGithubCodeSearchToolQuery(
       return { ok: false, diagnostics: lossyDiagnostics };
     }
     const { owner, repo } = splitGithubSource(query.from);
+    const params = query.params ?? {};
+    const languageParams =
+      typeof params.extension === 'string' ||
+      typeof pathField.extension === 'string'
+        ? {}
+        : toGithubCodeLanguageParams(firstScopeLanguage(query.scope));
     const limit = requestedRowLimit(query);
     const scopePath = firstScopePath(query.scope);
     return {
@@ -80,8 +83,12 @@ export function toGithubCodeSearchToolQuery(
       query: {
         ...(owner ? { owner } : {}),
         ...(repo ? { repo } : {}),
+        ...languageParams,
         ...pathField,
         ...(scopePath ? { path: scopePath } : {}),
+        ...(typeof params.extension === 'string'
+          ? { extension: params.extension }
+          : {}),
         ...(limit ? { limit } : {}),
         ...(query.page ? { page: query.page } : {}),
       },
@@ -187,23 +194,6 @@ function githubCodeLossyScopeDiagnostics(
       diagnostic(
         'lossyTransform',
         'GitHub code search cannot express multiple scope.language values without dropping values; materialize for local proof.',
-        { backend, queryPath: 'scope.language' }
-      )
-    );
-  }
-
-  const params = query.params ?? {};
-  const scopeLanguage = firstScopeLanguage(query.scope);
-  const selector = classifyLanguageSelector(scopeLanguage);
-  if (
-    typeof params.extension !== 'string' &&
-    selector?.kind === 'language' &&
-    (selector.extensions?.length ?? 0) > 1
-  ) {
-    diagnostics.push(
-      diagnostic(
-        'lossyTransform',
-        `GitHub code search language:${selector.canonicalLanguage} does not cover every known ${selector.normalized} extension (${selector.extensions?.join(', ')}); use an extension selector or materialize for complete proof.`,
         { backend, queryPath: 'scope.language' }
       )
     );

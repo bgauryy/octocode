@@ -115,7 +115,7 @@ Selected PRs:
 
 ## Findings
 
-1. OQL `search` target `code` has a GitHub parity gap. For all four repos, `search "<symbol>" <owner/repo> --lang ts` returned no results with `providerUnindexed`, while the raw `ghSearchCode` tool found matching files immediately and `search "<symbol>" <path> --repo <owner/repo>` proved the same matches after materialization.
+1. The 2026-06-22 run exposed an OQL GitHub code-lowering gap: friendly `search "<symbol>" <owner/repo> --lang ts` returned `providerUnindexed` while raw `ghSearchCode` found matching files immediately and materialized local search proved the same matches. Current 2026-06-24 CLI checks narrow that gap: friendly `--lang ts`, raw `ghSearchCode`, and canonical JSON with `scope.language:"ts"` return the expected hits; the remaining bug was canonical JSON with general names such as `scope.language:"TypeScript"` blocking as `lossyTransform` instead of passing the GitHub `language` qualifier through to `ghSearchCode`.
 
 2. Raw GitHub APIs are healthy through the CLI tool runner. `ghSearchRepos`, `ghSearchCode`, `ghViewRepoStructure`, `ghGetFileContent`, and `ghHistoryResearch` all returned expected results through `tools <name> --queries`.
 
@@ -127,4 +127,4 @@ Selected PRs:
 
 6. The only timed issue was not reproducible. The harness timed out once on `Zustand OQL PR list` after 60 seconds with no output; the same command run directly returned PR `#3527` in 1.826 seconds.
 
-Recommended next fix: inspect the OQL GitHub code adapter path for how `where.kind:"text"` and `scope.language` / `--lang` are translated into `ghSearchCode` params. The adapter should produce the same result set as raw `ghSearchCode` for provider-supported text queries before claiming `providerUnindexed`.
+Current fix target: keep OQL GitHub code adapter parity with raw `ghSearchCode` for provider-supported text queries, including general language names (`TypeScript`) and extension selectors (`ts`). Results from GitHub code search should remain candidate-grade provider evidence until exact content or materialized local proof is followed.
