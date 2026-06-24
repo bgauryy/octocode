@@ -50,9 +50,18 @@ async function resolveContentWithBranchFallback(
   authInfo?: AuthInfo
 ): Promise<ContentResolution | GitHubRepositoryStructureError> {
   let workingBranch: string;
+  // Capture the resolved default branch so callers get a `defaultBranch` hint.
+  // Only known when we resolve it (no explicit branch given); when the caller
+  // pinned a branch the repo default is unknown without an extra API call, so
+  // the field stays absent rather than being fabricated.
+  let repoDefaultBranch: string | undefined;
   try {
-    workingBranch =
-      branch ?? (await resolveDefaultBranch(owner, repo, authInfo));
+    if (branch) {
+      workingBranch = branch;
+    } else {
+      repoDefaultBranch = await resolveDefaultBranch(owner, repo, authInfo);
+      workingBranch = repoDefaultBranch;
+    }
   } catch (repoError) {
     const apiError = handleGitHubAPIError(repoError);
     return {
@@ -68,7 +77,11 @@ async function resolveContentWithBranchFallback(
       path: cleanPath || '',
       ref: workingBranch,
     });
-    return { data: result.data, workingBranch };
+    return {
+      data: result.data,
+      workingBranch,
+      ...(repoDefaultBranch !== undefined ? { repoDefaultBranch } : {}),
+    };
   } catch (error: unknown) {
     if (!(error instanceof RequestError && error.status === 404)) {
       const apiError = handleGitHubAPIError(error);

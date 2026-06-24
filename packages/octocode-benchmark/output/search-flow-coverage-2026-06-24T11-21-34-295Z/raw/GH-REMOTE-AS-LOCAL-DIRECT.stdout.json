@@ -1,0 +1,265 @@
+{
+  "results": [
+    {
+      "kind": "code",
+      "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts",
+      "line": 60,
+      "column": 6,
+      "snippet": ") => Mutate<StoreApi<T>, Mos>\n\nconst createStoreImpl: CreateStoreImpl = (createState) => {\n  type TState = ReturnType<typeof createState>\n  type Listener = (state: TState, prevState: TState) => void",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "materialized",
+              "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+              "source": {
+                "kind": "github",
+                "repo": "pmndrs/zustand"
+              }
+            },
+            "scope": {
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 60,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts",
+      "line": 99,
+      "column": 13,
+      "snippet": "}\n\nexport const createStore = ((createState) =>",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "materialized",
+              "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+              "source": {
+                "kind": "github",
+                "repo": "pmndrs/zustand"
+              }
+            },
+            "scope": {
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 99,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts",
+      "line": 100,
+      "column": 16,
+      "snippet": "  createState ? createStoreImpl(createState) : createStoreImpl) as CreateStore",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "materialized",
+              "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+              "source": {
+                "kind": "github",
+                "repo": "pmndrs/zustand"
+              }
+            },
+            "scope": {
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 100,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/react.ts",
+      "line": 2,
+      "column": 9,
+      "snippet": "import React from 'react'\nimport { createStore } from './vanilla.ts'\nimport type {\n  ExtractState,",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "materialized",
+              "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+              "source": {
+                "kind": "github",
+                "repo": "pmndrs/zustand"
+              }
+            },
+            "scope": {
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/react.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 2,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/react.ts",
+      "line": 54,
+      "column": 14,
+      "snippet": "const createImpl = <T>(createState: StateCreator<T, [], []>) => {\n  const api = createStore(createState)\n\n  const useBoundStore: any = (selector?: any) => useStore(api, selector)",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "materialized",
+              "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+              "source": {
+                "kind": "github",
+                "repo": "pmndrs/zustand"
+              }
+            },
+            "scope": {
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/react.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 54,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "pagination": {
+    "hasMore": true,
+    "currentPage": 1,
+    "totalPages": 1,
+    "itemsPerPage": 20,
+    "totalItems": 3
+  },
+  "next": {
+    "next.page": {
+      "query": {
+        "schema": "oql",
+        "target": "code",
+        "from": {
+          "kind": "github",
+          "repo": "pmndrs/zustand"
+        },
+        "scope": {
+          "path": "src",
+          "language": "ts"
+        },
+        "where": {
+          "kind": "text",
+          "value": "createStore"
+        },
+        "materialize": {
+          "mode": "required"
+        },
+        "view": "paginated",
+        "limit": 5,
+        "page": 2
+      },
+      "why": "More result pages remain.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "staleCache",
+      "severity": "info",
+      "message": "Result came from a cached clone; set materialize.forceRefresh to refresh.",
+      "blocksAnswer": false,
+      "backend": "ghCloneRepo"
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "ghCloneRepo",
+      "source": {
+        "kind": "github",
+        "repo": "pmndrs/zustand"
+      },
+      "materializedPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+      "cache": "hit"
+    },
+    {
+      "backend": "localSearchCode",
+      "source": {
+        "kind": "materialized",
+        "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+        "source": {
+          "kind": "github",
+          "repo": "pmndrs/zustand"
+        }
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

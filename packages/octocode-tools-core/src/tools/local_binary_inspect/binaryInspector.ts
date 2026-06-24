@@ -365,7 +365,7 @@ async function handleStrings(path: string, query: BinaryInspectQuery) {
   //    file. The window is rewound to a safe break, so no string is split and
   //    nothing past a fixed cap is discarded. Exhaust charOffset first, then
   //    follow nextScanOffset to keep scanning.
-  const content = (result.strings ?? []).join('\n');
+  let content = (result.strings ?? []).join('\n');
   const localPath = content
     ? await writeDerivedTextFile(
         path,
@@ -374,6 +374,20 @@ async function handleStrings(path: string, query: BinaryInspectQuery) {
         content
       )
     : undefined;
+  if (query.matchString) {
+    const filtered = filterByMatchString(
+      content,
+      query.matchString,
+      query.matchStringContextLines ?? 3
+    );
+    if (!filtered) {
+      return createErrorResult(
+        `No lines match "${query.matchString}" in extracted strings`,
+        query
+      );
+    }
+    content = filtered;
+  }
   const defaultLimit = getOutputCharLimit();
   const paginated = paginateContent(
     content,

@@ -31,9 +31,10 @@ const BLOCKING_CODES = new Set<DiagnosticCode>([
   'parserFailed',
   'lspUnavailable',
   'budgetExhausted',
-  // truncation means the agent has NOT seen the full result set — it cannot be
-  // proof/complete until the remaining matches/content are paged in.
-  'matchTruncated',
+  // contentTruncated still blocks: a partial content read has no page key that
+  // hasOpenPages recognizes. matchTruncated does NOT block — it always emits a
+  // next.matchPage continuation, so hasOpenPages drives partial-ness from the
+  // pagination signal (like next.page) rather than a "blocked" diagnostic.
   'contentTruncated',
 ]);
 

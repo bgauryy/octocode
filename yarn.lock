@@ -1502,10 +1502,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 16.5.2
-  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=0ddd2f&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=3bcd5f&locator=octocode-monorepo%40workspace%3A."
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/0e4a3ee5259489a0d92e9ba38017b3cfdb9e7c9c6735c554d5a5526780fab7737f91c3a5fd31a2ead933b02e34723775f3d7c41bb84f692ce7394a44981caece
+  checksum: 10c0/d2f5d004228c4f4c0ed1c38ff838b394fd610207b2ca319a9db3e13e25d3da4ffe46a76c9eea1da9d1c548c97833be42aa1d12fb6639e84008955490825dbba8
   languageName: node
   linkType: hard
 

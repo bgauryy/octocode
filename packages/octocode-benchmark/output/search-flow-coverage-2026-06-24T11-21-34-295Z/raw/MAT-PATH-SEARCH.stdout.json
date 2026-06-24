@@ -1,0 +1,33 @@
+{
+  "results": [
+    {
+      "kind": "file",
+      "path": "src/vanilla.ts",
+      "entryType": "file",
+      "modified": "2026-06-24T11:12:25.500Z",
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "localFindFiles",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663"
+      }
+    },
+    {
+      "backend": "localFindFiles",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

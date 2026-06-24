@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "commit",
+      "id": "4fe8554f0145",
+      "metadata": {
+        "type": "repo",
+        "owner": "bgauryy",
+        "repo": "octocode"
+      },
+      "data": {
+        "sha": "4fe8554f0145c6089d5cce8151d447d246e2763b",
+        "date": "2026-06-21T23:40:49Z",
+        "message": "Support oql (#426)\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs\n\n* update docs",
+        "messageHeadline": "Support oql (#426)",
+        "url": "https://github.com/bgauryy/octocode/commit/4fe8554f0145c6089d5cce8151d447d246e2763b",
+        "author": {
+          "name": "bgauryy",
+          "email": "bgauryy@gmail.com",
+          "login": "bgauryy"
+        },
+        "committer": {
+          "name": "GitHub",
+          "email": "noreply@github.com",
+          "login": "web-flow"
+        }
+      },
+      "proofGrade": "candidate"
+    }
+  ],
+  "pagination": {
+    "hasMore": true,
+    "currentPage": 1,
+    "nextPage": 2,
+    "itemsPerPage": 1
+  },
+  "next": {
+    "next.page": {
+      "query": {
+        "schema": "oql",
+        "target": "commits",
+        "from": {
+          "kind": "github",
+          "repo": "bgauryy/octocode"
+        },
+        "materialize": {
+          "mode": "never"
+        },
+        "view": "paginated",
+        "limit": 1,
+        "params": {
+          "limit": 1
+        },
+        "page": 2
+      },
+      "why": "More result pages remain.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "ghHistoryResearch",
+      "source": {
+        "kind": "github",
+        "repo": "bgauryy/octocode"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

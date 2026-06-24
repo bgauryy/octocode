@@ -29,7 +29,7 @@ function printUsage(message: string, jsonOutput: boolean): void {
         `    cache status\n` +
         `\n  ${dim('Flow:')}\n` +
         `    cache fetch checks existing tmp materialization first; use --force-refresh to bypass it.\n` +
-        `    Use the returned localPath with local ls/find/grep/cat/lsp.\n`
+        `    Use the returned localPath with search, search --tree, and search --op for LSP semantics.\n`
     );
   }
   process.exitCode = EXIT.USAGE;

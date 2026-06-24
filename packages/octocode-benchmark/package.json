@@ -16,6 +16,8 @@
     "ast:compare:cli": "node benchmark/ast/compare-ast-grep-cli.mjs",
     "ast:compare:upstream": "node benchmark/ast-grep/compare-upstream-scenarios.mjs",
     "ast:compare:layers": "node benchmark/ast-grep/compare-upstream-scenarios.mjs",
+    "repo:clone": "node benchmark/repo/clone.mjs",
+    "repo:bench": "node benchmark/repo/run.mjs",
     "benchmark": "node benchmark/run-all.mjs",
     "build": "echo 'No build step for benchmark package'",
     "test": "node benchmark/run-all.mjs",

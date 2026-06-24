@@ -902,7 +902,7 @@ describe('ATTACK-13: Content Sanitization Edge Cases', () => {
   });
 });
 
-describe('ATTACK-14: Find Command Abuse', () => {
+describe('ATTACK-14: POSIX find command abuse', () => {
   it('should block -printf (info leak)', () => {
     expect(
       validateCommand('find', ['/workspace', '-printf', '%p %u %g\\n']).isValid

@@ -121,8 +121,8 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('GitHub');
-    expect(output).toContain('Local');
-    expect(output).toContain('LSP');
+    expect(output).toContain('Local Code');
+    expect(output).not.toContain('\n  LSP\n');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('ghSearchCode');
     expect(output).toContain('workspaceSymbol');
@@ -171,7 +171,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('TOOL CALLS');
     expect(output).toContain('Server instructions.');
     expect(output).toContain('Exit codes:');
-    expect(output).toContain('evidence.answerReady');
+    expect(output).toContain('structuredContent.results[]');
     expect(output).toContain('Output contract');
   });
 
@@ -730,7 +730,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('sort');
   });
 
-  it('buildExampleValue: ghCloneRepo example includes owner=bgauryy', async () => {
+  it('buildExampleValue: ghCloneRepo example includes a concrete repo', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -740,8 +740,8 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('bgauryy');
-    expect(output).toContain('"repo":"octocode"');
+    expect(output).toContain('"owner":"facebook"');
+    expect(output).toContain('"repo":"react"');
   });
 
   it('reports first failing query in a multi-query array', async () => {
@@ -932,10 +932,10 @@ describe('tool-command coverage', () => {
       await import('@octocodeai/octocode-tools-core/schema');
 
     expect(buildDirectToolExampleQuery('oqlSearch')).toEqual({
+      schema: 'oql',
       target: 'code',
-      from: { source: 'local' },
-      scope: { path: '.' },
-      text: 'executeDirectTool',
+      from: { kind: 'local', path: '.' },
+      where: { kind: 'text', value: 'executeDirectTool' },
       view: 'discovery',
       limit: 5,
     });

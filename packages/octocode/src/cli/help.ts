@@ -42,13 +42,18 @@ export function showCommandHelp(command: CLICommandSpec): void {
 
   if (command.options && command.options.length > 0) {
     lines.push(`  ${bold('OPTIONS')}`);
+    // One line per option: `  --flag <value>   description (default: x)`.
+    // Halves the section vs the old two-line form — material for commands like
+    // `search` with 100+ flags.
     for (const opt of command.options) {
-      const longFlag = `--${opt.name}`;
-      const valueHint = opt.hasValue ? ` <value>` : '';
+      const flagPart = `--${opt.name}${opt.hasValue ? ' <value>' : ''}`;
       const defaultHint =
         opt.default !== undefined ? dim(` (default: ${opt.default})`) : '';
-      lines.push(`    ${c('cyan', longFlag + valueHint)}${defaultHint}`);
-      lines.push(`        ${opt.description}`);
+      const pad =
+        flagPart.length < 24 ? ' '.repeat(24 - flagPart.length) : '  ';
+      lines.push(
+        `    ${c('cyan', flagPart)}${pad}${opt.description}${defaultHint}`
+      );
     }
     lines.push('');
   }

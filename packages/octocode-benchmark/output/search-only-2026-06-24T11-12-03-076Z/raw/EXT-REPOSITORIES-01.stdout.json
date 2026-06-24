@@ -1,0 +1,156 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "repository",
+      "id": "microsoft/playwright-mcp",
+      "data": {
+        "owner": "microsoft",
+        "repo": "playwright-mcp",
+        "stars": 34282,
+        "forks": 2846,
+        "description": "Playwright MCP server",
+        "pushedAt": "2026-06-22",
+        "createdAt": "2025-03-21T17:48:36Z",
+        "topics": [
+          "mcp",
+          "playwright"
+        ],
+        "url": "https://github.com/microsoft/playwright-mcp",
+        "updatedAt": "2026-06-24T11:01:50Z"
+      },
+      "proofGrade": "candidate"
+    },
+    {
+      "kind": "record",
+      "recordType": "repository",
+      "id": "modelcontextprotocol/inspector",
+      "data": {
+        "owner": "modelcontextprotocol",
+        "repo": "inspector",
+        "stars": 10179,
+        "forks": 1388,
+        "openIssuesCount": 287,
+        "description": "Visual testing tool for MCP servers",
+        "pushedAt": "2026-06-24",
+        "createdAt": "2024-10-03T21:47:42Z",
+        "url": "https://github.com/modelcontextprotocol/inspector",
+        "updatedAt": "2026-06-24T10:47:05Z"
+      },
+      "proofGrade": "candidate"
+    },
+    {
+      "kind": "record",
+      "recordType": "repository",
+      "id": "makenotion/notion-mcp-server",
+      "data": {
+        "owner": "makenotion",
+        "repo": "notion-mcp-server",
+        "stars": 4454,
+        "forks": 586,
+        "openIssuesCount": 176,
+        "description": "Official Notion MCP Server",
+        "pushedAt": "2026-06-22",
+        "createdAt": "2025-03-10T18:09:08Z",
+        "url": "https://github.com/makenotion/notion-mcp-server",
+        "updatedAt": "2026-06-23T19:45:38Z"
+      },
+      "proofGrade": "candidate"
+    },
+    {
+      "kind": "record",
+      "recordType": "repository",
+      "id": "antvis/mcp-server-chart",
+      "data": {
+        "owner": "antvis",
+        "repo": "mcp-server-chart",
+        "stars": 4182,
+        "forks": 395,
+        "openIssuesCount": 10,
+        "description": "🤖 A visualization mcp & skills contains 25+ visual charts using @antvis. Using for chart generation and data analysis.",
+        "pushedAt": "2026-05-06",
+        "createdAt": "2025-04-25T09:10:06Z",
+        "topics": [
+          "antv",
+          "llm",
+          "mcp",
+          "mcp-server",
+          "skills",
+          "visualization"
+        ],
+        "url": "https://github.com/antvis/mcp-server-chart",
+        "updatedAt": "2026-06-23T17:28:30Z"
+      },
+      "proofGrade": "candidate"
+    },
+    {
+      "kind": "record",
+      "recordType": "repository",
+      "id": "cloudflare/mcp-server-cloudflare",
+      "data": {
+        "owner": "cloudflare",
+        "repo": "mcp-server-cloudflare",
+        "stars": 3889,
+        "forks": 427,
+        "openIssuesCount": 70,
+        "pushedAt": "2026-06-08",
+        "createdAt": "2024-11-27T22:07:30Z",
+        "url": "https://github.com/cloudflare/mcp-server-cloudflare",
+        "updatedAt": "2026-06-23T07:16:46Z"
+      },
+      "proofGrade": "candidate"
+    }
+  ],
+  "pagination": {
+    "hasMore": true,
+    "currentPage": 1,
+    "totalPages": 80,
+    "nextPage": 2,
+    "itemsPerPage": 5,
+    "totalItems": 399
+  },
+  "next": {
+    "next.page": {
+      "query": {
+        "schema": "oql",
+        "target": "repositories",
+        "from": {
+          "kind": "github"
+        },
+        "scope": {
+          "language": "TypeScript"
+        },
+        "materialize": {
+          "mode": "never"
+        },
+        "view": "paginated",
+        "limit": 5,
+        "params": {
+          "keywords": [
+            "mcp server"
+          ],
+          "language": "TypeScript",
+          "stars": ">100",
+          "limit": 5
+        },
+        "page": 2
+      },
+      "why": "More result pages remain.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "ghSearchRepos",
+      "source": {
+        "kind": "github"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

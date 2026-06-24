@@ -166,19 +166,19 @@ To look up referencing symbols using Octocode LSP directly:
 ```bash
 # 1. Anchor: get document symbols + line numbers
 #    (file is a positional arg, not --path)
-octocode lsp \
+octocode search \
   packages/octocode/src/configs/mcp-registry.ts \
-  --type documentSymbols
+  --op documentSymbols
 
 # 2. Prove: references for the symbol — always pass --line to avoid inference failures
-octocode lsp \
+octocode search \
   packages/octocode/src/configs/mcp-registry.ts \
-  --type references --symbol MCPCategory --line 25
+  --op references --symbol MCPCategory --line 25
 ```
 
 > **LSP gotcha:** without `--line`, the CLI infers the line with a text search
 > and may anchor to the wrong occurrence (e.g. a comment or re-export).
-> Always pass the explicit line number from `documentSymbols` or `grep`.
+> Always pass the explicit line number from `documentSymbols` or `search`.
 
 **Decision rule:** if knip flags the referencing symbols too, delete all of them together. If any referencing symbol is reachable, the target is live.
 
@@ -276,10 +276,10 @@ octocode search \
 
 # Check 4: LSP reference proof for a specific symbol
 #   Step 1 — find line number
-octocode lsp <file.ts> --type documentSymbols
+octocode search <file.ts> --op documentSymbols
 #   Step 2 — prove references (--line required to avoid inference failures)
-octocode lsp <file.ts> \
-  --type references --symbol <SymbolName> --line <n>
+octocode search <file.ts> \
+  --op references --symbol <SymbolName> --line <n>
 
 # Check 5: dependency audit
 PATH=/Users/guybary/.nvm/versions/node/v22.22.0/bin:$PATH \

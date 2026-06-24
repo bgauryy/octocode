@@ -41,8 +41,24 @@ export function mapCodeResult(
   for (const file of result.files ?? []) {
     const matches = file.matches ?? [];
     if (matches.length === 0) {
-      // filesOnly / discovery mode: one row per file at line 1
-      rows.push({ kind: 'code', source, path: file.path, line: 1 });
+      // filesOnly / discovery / count modes: one row per file at line 1.
+      // Count modes carry file-level totals even though they do not carry match rows.
+      const counts = file as {
+        totalMatchedLines?: number;
+        totalOccurrences?: number;
+      };
+      rows.push({
+        kind: 'code',
+        source,
+        path: file.path,
+        line: 1,
+        ...(counts.totalMatchedLines !== undefined
+          ? { totalMatchedLines: counts.totalMatchedLines }
+          : {}),
+        ...(counts.totalOccurrences !== undefined
+          ? { totalOccurrences: counts.totalOccurrences }
+          : {}),
+      });
       continue;
     }
     for (const m of matches) {

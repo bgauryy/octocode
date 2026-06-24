@@ -7,6 +7,7 @@
  * plan; `--dry-run` returns the plan without executing.
  */
 import path from 'node:path';
+import { statSync } from 'node:fs';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { normalizeInput } from './normalize.js';
 import { planQuery, type PlanQueryResult } from './planner.js';
@@ -63,7 +64,25 @@ export async function runOqlSearch(
   if (isCanonicalBatch(canonical)) {
     return runBatch(canonical, input, options);
   }
-  return runSingle(canonical, input, options);
+  const env = await runSingle(canonical, input, options);
+  stripUniformSource(env.results);
+  return env;
+}
+
+/**
+ * Per-row `source` is identical for every row of a single-source query (one
+ * `from`), so repeating it on each row is pure token noise — the source already
+ * lives once in `provenance`. Strip it when uniform. A merged cross-source batch
+ * has rows from different sources (NOT uniform) → kept, so mergeChildren's
+ * rowKey dedup stays exact. Always runs AFTER merge.
+ */
+function stripUniformSource(results: OqlResultRow[]): void {
+  if (results.length === 0) return;
+  const key = (r: OqlResultRow) =>
+    JSON.stringify((r as { source?: unknown }).source ?? null);
+  const first = key(results[0]!);
+  if (!results.every(r => key(r) === first)) return;
+  for (const r of results) delete (r as { source?: unknown }).source;
 }
 
 async function runSingle(
@@ -159,7 +178,7 @@ function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
  *  - semantics   → next.fetch (read the code at a symbol location)
  *  - graph       → next.graph (bounded LSP proof for candidate graph pages)
  */
-interface ContinuationCtx {
+export interface ContinuationCtx {
   query: OqlQuery;
   /** code rows: rebuild an absolute `from` from a relativized row path. */
   fileFrom?: (rowPath: string) => OqlQuery['from'];
@@ -189,6 +208,47 @@ function contentMatchFromQuery(
     };
   }
   return undefined;
+}
+
+function firstScopePath(query: OqlQuery): string | undefined {
+  const scopePath = query.scope?.path;
+  return Array.isArray(scopePath) ? scopePath[0] : scopePath;
+}
+
+function githubRepoLabel(query: OqlQuery): string {
+  if (query.from?.kind !== 'github') return 'owner/repo';
+  if (query.from.repo?.includes('/')) return query.from.repo;
+  if (query.from.owner && query.from.repo) {
+    return `${query.from.owner}/${query.from.repo}`;
+  }
+  return query.from.repo ?? 'owner/repo';
+}
+
+function githubLocalProofHint(query: OqlQuery): string {
+  const repo = githubRepoLabel(query);
+  const scopePath = firstScopePath(query);
+  const repoWithRef =
+    query.from?.kind === 'github' && query.from.ref
+      ? `${repo}@${query.from.ref}`
+      : repo;
+  const scopedRef = scopePath ? `${repo}/${scopePath}` : repo;
+  const branchFlag =
+    query.from?.kind === 'github' && query.from.ref
+      ? ` --branch ${query.from.ref}`
+      : '';
+
+  if (scopePath) {
+    return `Use \`search ${firstSearchTerm(query)} ${scopePath} --repo ${repoWithRef} --materialize required\` for one-step local proof, or \`clone ${scopedRef}${branchFlag}\` / \`cache fetch ${repo} ${scopePath}${branchFlag} --depth tree\` before retrying local search.`;
+  }
+
+  return `Choose a bounded path first with \`search ${repo} --tree\`, then use \`search ${firstSearchTerm(query)} <path> --repo ${repoWithRef} --materialize required\`, \`clone ${repo}/<path>${branchFlag}\`, or \`cache fetch ${repo} <path>${branchFlag} --depth tree\`. For deliberate whole-repo work, use \`clone ${repo}${branchFlag}\` or \`cache fetch ${repo}${branchFlag} --depth clone\`.`;
+}
+
+function firstSearchTerm(query: OqlQuery): string {
+  const where = query.where;
+  if (where?.kind === 'text' || where?.kind === 'regex') return where.value;
+  if (where?.kind === 'structural') return 'pattern';
+  return '<term>';
 }
 
 function attachContinuations(
@@ -237,9 +297,10 @@ function attachContinuations(
         schema: 'oql',
         target: 'materialize',
         from: query.from,
-        materialize: { mode: 'auto' },
+        ...(query.scope ? { scope: query.scope } : {}),
+        materialize: { mode: 'required' },
       },
-      why: 'GitHub code search returned no results — clone the repo locally and retry the search with full local coverage.',
+      why: `GitHub code search returned no results; this is not proof of absence. ${githubLocalProofHint(query)}`,
       confidence: 'heuristic',
     };
   }
@@ -473,17 +534,42 @@ function derivedLocalPath(row: OqlResultRow): string | undefined {
   return typeof data?.localPath === 'string' ? data.localPath : undefined;
 }
 
-function buildArtifactContinuations(
+export function buildArtifactContinuations(
   row: OqlResultRow,
   ctx: ContinuationCtx
 ): Record<string, OqlContinuation> | undefined {
   const out: Record<string, OqlContinuation> = {};
+  const data = (row as OqlRecordResultRow).data;
+  const mode = typeof data?.mode === 'string' ? data.mode : undefined;
   const lp = derivedLocalPath(row);
-  if (lp) Object.assign(out, localRootContinuations(lp, 'extracted'));
+
+  if (lp) {
+    if (mode === 'strings') {
+      // `strings` writes this scan window's printable runs to a flat text file
+      // at localPath; the inline `content` is only a preview. Listing or file
+      // discovery over a flat dump is useless — the right move is to search the
+      // dump with local code search (ripgrep): a regex/pattern over a text file
+      // paginates losslessly (matchPage / maxMatchesPerFile) and never quits on
+      // NUL the way searching the raw binary would.
+      out['next.search'] = {
+        query: {
+          schema: 'oql',
+          target: 'code',
+          from: { kind: 'local', path: lp },
+          where: { kind: 'regex', value: 'https?://\\S+' },
+          controls: { search: { maxMatchesPerFile: 100, matchPage: 1 } },
+        },
+        why: 'Grep this strings dump with local code search (ripgrep) — swap the regex/pattern for what you need (URLs, hosts, symbols); page noisy hits losslessly with matchPage. For a huge binary this beats reading the capped inline preview.',
+        confidence: 'heuristic',
+      };
+    } else {
+      // extract / unpack / decompress materialize a real tree/file on disk.
+      Object.assign(out, localRootContinuations(lp, 'extracted'));
+    }
+  }
 
   // Binary `strings` scan cursor: nextScanOffset → next scan window (a typed
   // per-domain continuation instead of a raw params round-trip).
-  const data = (row as OqlRecordResultRow).data;
   const nextScan =
     typeof data?.nextScanOffset === 'number' ? data.nextScanOffset : undefined;
   if (nextScan !== undefined) {
@@ -617,7 +703,10 @@ function buildSemanticsContinuations(
   row: OqlResultRow
 ): Record<string, OqlContinuation> | undefined {
   const data = (row as OqlRecordResultRow).data;
-  const uri = typeof data?.uri === 'string' ? data.uri : undefined;
+  const rawUri = typeof data?.uri === 'string' ? data.uri : undefined;
+  const sourceAnchor = semanticSourceAnchor(row as OqlRecordResultRow);
+  const uri =
+    rawUri && path.isAbsolute(rawUri) ? rawUri : (sourceAnchor ?? rawUri);
   if (!uri) return undefined;
   const line =
     typeof data.line === 'number'
@@ -644,6 +733,13 @@ function buildSemanticsContinuations(
   };
 }
 
+function semanticSourceAnchor(row: OqlRecordResultRow): string | undefined {
+  const source = row.source;
+  if (source?.kind === 'local') return source.path;
+  if (source?.kind === 'materialized') return source.localPath;
+  return undefined;
+}
+
 /**
  * For local/materialized sources, return a builder that turns a relativized
  * row path back into an absolute-file `from` (relativization stripped exactly
@@ -652,14 +748,11 @@ function buildSemanticsContinuations(
 function localFileSource(
   query: OqlQuery
 ): ((rowPath: string) => OqlQuery['from']) | undefined {
-  const root =
-    query.from?.kind === 'local'
-      ? query.from.path
-      : query.from?.kind === 'materialized'
-        ? query.from.localPath
-        : undefined;
+  const root = queryLocalRoot(query);
   if (!root) return undefined;
-  const base = path.dirname(path.resolve(root));
+  // Same base as relativizeResultPaths, minus the trailing separator, so a
+  // relativized row path re-joins to the exact absolute file (round-trip).
+  const base = relativizeBase(root).slice(0, -path.sep.length);
   return (rowPath: string) => ({
     kind: 'local',
     path: path.isAbsolute(rowPath) ? rowPath : path.join(base, rowPath),
@@ -713,21 +806,43 @@ function unsupportedEnvelopeFromPlan(
 }
 
 /**
- * Relativize absolute local result paths to the query root's parent, matching
- * the relativization the raw tools/CLI apply (e.g. `/…/src/oql/x.ts` ->
- * `oql/x.ts`). Keeps `search` aligned with grep/ls/find and far less verbose.
- * Provider (GitHub) paths are already repo-relative and left untouched.
+ * The prefix stripped from absolute local result paths so rows are concise and
+ * match what the raw tools return. When the query root is a DIRECTORY, paths are
+ * relative to it (`/…/src/oql` + `/…/src/oql/x.ts` -> `x.ts`, `adapters/y.ts`) —
+ * exactly what `localSearchCode`/`ls`/`find` emit. When the root is a single
+ * FILE (content reads), strip its directory so the row shows the basename. A
+ * GitHub/unresolved root has no on-disk shape, so fall back to the parent.
+ *
+ * The SAME base feeds `localFileSource` (the inverse), so a relativized row path
+ * always round-trips back to the correct absolute file for next.* continuations.
+ */
+function relativizeBase(root: string): string {
+  const abs = path.resolve(root);
+  try {
+    if (statSync(abs).isDirectory()) return `${abs}${path.sep}`;
+  } catch {
+    /* not on disk yet — treat as parent-relative */
+  }
+  return `${path.dirname(abs)}${path.sep}`;
+}
+
+function queryLocalRoot(query: OqlQuery): string | undefined {
+  return query.from?.kind === 'local'
+    ? query.from.path
+    : query.from?.kind === 'materialized'
+      ? query.from.localPath
+      : undefined;
+}
+
+/**
+ * Relativize absolute local result paths to the query root (see relativizeBase),
+ * keeping `search` aligned with the former grep/ls shortcuts and far less verbose. Provider
+ * (GitHub) paths are already repo-relative and left untouched.
  */
 function relativizeResultPaths(query: OqlQuery, results: OqlResultRow[]): void {
-  const root =
-    query.from?.kind === 'local'
-      ? query.from.path
-      : query.from?.kind === 'materialized'
-        ? query.from.localPath
-        : undefined;
+  const root = queryLocalRoot(query);
   if (!root) return;
-  const abs = path.resolve(root);
-  const prefix = `${path.dirname(abs)}/`;
+  const prefix = relativizeBase(root);
   for (const row of results) {
     const p = (row as { path?: string }).path;
     if (typeof p === 'string' && p.startsWith(prefix)) {
@@ -938,6 +1053,15 @@ async function runBatch(
     } else if (merged.envelope) {
       result.merged = merged.envelope;
     }
+    // mergeChildren reads source for rowKey dedup, then references the SAME row
+    // objects in merged.results. Strip only the merged envelope (multi-source →
+    // not uniform → source kept). Stripping children would mutate those shared
+    // rows and wrongly drop source from a cross-source merge.
+    if (result.merged) stripUniformSource(result.merged.results);
+  } else {
+    // Independent children: each is single-source; drop its redundant per-row
+    // source (no shared refs, no merge dedup to preserve).
+    for (const c of children) stripUniformSource(c.envelope.results);
   }
 
   return result;
@@ -972,6 +1096,7 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
   const diagnostics = [];
   const provenance = [];
   let approximate = false;
+  let anyOpenPages = false;
   for (const c of children) {
     for (const r of c.envelope.results) {
       const key = rowKey(r);
@@ -982,11 +1107,27 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
     diagnostics.push(...c.envelope.diagnostics);
     provenance.push(...c.envelope.provenance);
     if (c.envelope.evidence.kind === 'candidate') approximate = true;
+    if (childHasOpenPages(c.envelope)) anyOpenPages = true;
+  }
+
+  // A merged batch carries no single continuation cursor, so child pagination
+  // would otherwise be lost and the merged result could falsely read as
+  // complete. Surface the open pages on the envelope (so hasOpenPages trips →
+  // partial/not-complete) and point the agent at per-query paging.
+  if (anyOpenPages) {
+    diagnostics.push(
+      diagnostic(
+        'partialResult',
+        'combine:"merge" has child queries with more pages remaining; a merged batch carries no single continuation cursor — page each query with combine:"independent" to reach completeness.',
+        { severity: 'info', blocksAnswer: false }
+      )
+    );
   }
 
   return {
     envelope: buildEnvelope({
       results,
+      ...(anyOpenPages ? { pagination: { hasMore: true } } : {}),
       diagnostics,
       provenance,
       executable: children.every(
@@ -995,6 +1136,15 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
       approximate,
     }),
   };
+}
+
+/** Mirror of envelope.hasOpenPages for a child envelope. */
+function childHasOpenPages(env: OqlResultEnvelope): boolean {
+  if (env.pagination?.hasMore) return true;
+  if (env.next && Object.keys(env.next).some(k => k.startsWith('next.page'))) {
+    return true;
+  }
+  return false;
 }
 
 function rowKey(r: OqlResultEnvelope['results'][number]): string {

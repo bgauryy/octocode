@@ -2,10 +2,10 @@
  * Serialize an OQL JSON `StructuralRule` into the engine's YAML rule string.
  *
  * The structural engine's `rule` field is a YAML string with a top-level
- * `rule:` key (matching the `grep --rule` surface), NOT a JSON object. Agents
- * author the JSON object form (per the contract); this lowers it to the engine
- * format. Covers the currently supported rule fields: pattern, kind, inside,
- * has, not, all, any, stopBy.
+ * `rule:` key (matching the `search --rule` surface). OQL accepts that YAML
+ * string directly, or this JSON object form for typed callers. Covers the
+ * currently supported rule fields: pattern, kind, inside, has, not, all, any,
+ * stopBy.
  */
 import type { StructuralRule } from '../types.js';
 

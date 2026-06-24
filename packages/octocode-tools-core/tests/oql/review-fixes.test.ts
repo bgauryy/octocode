@@ -156,12 +156,12 @@ describe('review fix #7: where rejected on content/structure', () => {
   }
 });
 
-describe('review fix #12: langType satisfies structural lang', () => {
-  it('--type as langType works for a structural pattern', () => {
+describe('review fix #12: structural sugar requires canonical lang', () => {
+  it('lang works for a structural pattern', () => {
     const n = normalizeQuery({
       path: './src',
       pattern: 'eval($X)',
-      langType: 'ts',
+      lang: 'ts',
     } as never);
     expect(n.where).toMatchObject({
       kind: 'structural',
@@ -190,11 +190,14 @@ describe('review fix #16: batch-level unknown fields rejected', () => {
 
 describe('review fix #9: github files -> requiresMaterialization', () => {
   it('files over github (no materialize) reports requiresMaterialization', async () => {
+    // A non-path field op (size comparison) genuinely cannot be enumerated by
+    // the provider — path-like field equality (basename/extension/path "=") now
+    // pushes down to provider path search instead, like target:"files".
     const env = single(
       await runOqlSearch({
         target: 'files',
         from: { kind: 'github', repo: 'facebook/react' },
-        where: { kind: 'field', field: 'extension', op: '=', value: 'ts' },
+        where: { kind: 'field', field: 'size', op: '>', value: 100 },
         materialize: { mode: 'never' },
       })
     );

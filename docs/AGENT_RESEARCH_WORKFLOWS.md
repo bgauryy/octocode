@@ -1,8 +1,8 @@
 # Agent Research Workflows
 
 > Product guidance for agent-facing Octocode workflows: combine package search,
-> GitHub code/repo search, fetch, clone, local ripgrep, AST structural search,
-> and LSP semantics into one evidence-first research loop.
+> GitHub code/repo search, fetch, clone, local text/structural search,
+> and semantic code intelligence into one evidence-first research loop.
 
 ## Core Rule
 
@@ -21,9 +21,10 @@ These rules are mandatory when an agent is constructing Octocode calls.
 
 1. Read the active schema before any raw tool call:
    `octocode tools <name> --scheme`, then `octocode tools <name> --queries '<json>'`.
-   Field names can differ between quick commands and raw tools — e.g. quick
-   `cat` uses `--mode none|standard|symbols` while the raw tool field is
-   `minify`; quick `cat --minify` is accepted as an alias for `--mode`.
+   Field names can differ between quick commands and raw tools — e.g.
+   `search <file> --content-view exact|compact|symbols` maps to the raw content
+   field `minify`; use the quick-command flag names unless you are calling
+   `tools <name> --queries` directly.
 2. Use `--json` for automation and `--compact` for low-token exploration. Human
    rendering is useful for quick inspection, but raw envelopes carry pagination,
    diagnostics, hints, and continuations.
@@ -49,7 +50,7 @@ Choose the surface by the job, not by habit.
 
 | Surface | Use when | Required agent behavior |
 |---------|----------|-------------------------|
-| Quick commands | The workflow is common and expressible as CLI flags (`grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `history`, `binary`, `unzip`, `clone`, `cache fetch`) | Prefer `--json` when another step depends on the result; preserve returned paths, refs, and pagination. |
+| Quick commands | The workflow is common and expressible as live CLI flags (`search`, `unzip`, `clone`, `cache fetch`) | Prefer `--json` when another step depends on the result; preserve returned paths, refs, and pagination. Use `search` for text/AST, files, trees, content reads, LSP semantics, packages, repos, PRs, commits, artifacts, diffs, and typed OQL. |
 | OQL `search` | One typed query should route across active OQL targets (code/content/files/structure, semantics, repo/package/history, artifacts, diff, research, graph, materialize), or an agent needs a normalized research plan via `--explain` | Use `search --scheme`; use `--explain` when routing/completeness is uncertain; follow `next.*` when present. |
 | Raw `tools` | A quick command or OQL cannot express the needed field, pagination domain, content selector, or exact target behavior | Always run `tools <name> --scheme` first; pass schema-exact JSON only. |
 | Direct local shell | Only for repo maintenance around Octocode itself, not for agent-facing research flows | Prefer Octocode CLI/MCP tools for research so behavior stays dogfooded. |
@@ -63,13 +64,13 @@ know where the current language is still partial.
 |------|-------------|------------------------------|
 | Local/GitHub text, regex, structural code search | Yes | Raw `localSearchCode` / `ghSearchCode` when a field is not modeled. |
 | Exact local/GitHub content reads | Yes | Raw `localGetFileContent` / `ghGetFileContent` for unusual pagination or match options. |
-| Local/GitHub file discovery and tree structure | Yes | Quick `find` / `ls` or raw local/GitHub tools for renderer or metadata gaps. |
+| Local/GitHub file discovery and tree structure | Yes | Quick `search --search path` / `search --tree` or raw local/GitHub tools for renderer or metadata gaps. |
 | Remote-as-local proof | Yes | Use `target:"materialize"` for bounded GitHub checkpoints; fall back to `cache fetch`, `clone`, or `ghCloneRepo` when clone is disabled or a CLI cache workflow is more ergonomic. |
-| LSP semantics | Yes | OQL `target:"semantics"` covers document symbols, navigation, workspace symbols, type hierarchy, and diagnostics; quick `lsp`, `ls --symbols`, or raw `lspGetSemantics` are still useful for one-off terminal workflows. |
-| Packages and repositories | Yes | `pkg`, `repo`, raw `npmSearch`, or raw `ghSearchRepos` are quicker when a typed OQL envelope or continuation is not needed. |
-| PRs, commits, and history | Mostly | Use `target:"pullRequests"`, `target:"commits"`, and `target:"diff"`; fall back to `pr`, `history`, or raw `ghHistoryResearch` for highly specific review/comment/patch pagination. |
-| Artifacts, archives, binaries | Mostly | Use `target:"artifacts"` for inspect/list/extract/decompress/strings/unpack; use `binary`/`unzip` or raw `localBinaryInspect` when a manual unpack-to-local flow is clearer. |
-| Diffs | Yes | Use OQL `target:"diff"` for PR patch lanes and direct `{baseRef, headRef, path}` file/ref diffs; quick `diff` remains convenient for terminal comparisons. |
+| Semantic code intelligence | Yes | OQL `target:"semantics"` covers document symbols, navigation, workspace symbols, type hierarchy, and diagnostics; `search --op ...` / `search --symbols` or raw `lspGetSemantics` are useful for one-off terminal workflows. |
+| Packages and repositories | Yes | `search --target packages`, `search --target repositories`, raw `npmSearch`, or raw `ghSearchRepos` are quicker when a typed OQL envelope or continuation is not needed. |
+| PRs, commits, and history | Yes | Use `target:"pullRequests"`, `target:"commits"`, and `target:"diff"`; fall back to raw `ghHistoryResearch` only when a backing-tool field is not modeled in OQL/search. |
+| Artifacts, archives, binaries | Mostly | Use `target:"artifacts"` for inspect/list/extract/decompress/strings/unpack; use `unzip` or raw `localBinaryInspect` when a manual unpack-to-local flow is clearer. |
+| Diffs | Yes | Use OQL `target:"diff"` for PR patch lanes and direct `{baseRef, headRef, path}` file/ref diffs. |
 | Dead code, reachability, unused files, package drift | Partly | Start with OQL `target:"research"` for a repo-level candidate flow; confirm destructive cleanup with LSP references, AST import search, exact reads, and/or knip. |
 | Relationship graph, retained-by chains, missing proof | Partly | Use OQL `target:"graph"` after bounding a local/materialized corpus; follow packet `next.semantic` / `next.fetch` before deletion claims. |
 | Structural metavariable captures | Yes | OQL structural code rows expose `metavars`/`metavarRanges` when the backing structural search returns captures; quick/raw structural search remains useful for tuning patterns. |
@@ -91,7 +92,7 @@ Agents should report diagnostics as evidence about completeness, not as noise.
 | Empty provider result | Could be true absence or bad scope | Verify ref/path/spelling/filters and try structure/read/materialization before concluding. |
 | Cache hit/stale cache | Local evidence may reflect cached remote content | Use `--force-refresh` only when freshness matters. |
 
-## AST/LSP Research Graph Flow
+## Structural And Semantic Research Graph Flow
 
 Use this flow for dead-code, reachability, retained-by, and safe-delete
 questions. Text search can start the investigation, but proof must come from AST,
@@ -139,8 +140,8 @@ Octocode should teach agents this decision ladder:
 
 | Need | Start with | Prove with | Avoid |
 |------|------------|------------|-------|
-| Known package | `npmSearch` / CLI `pkg` | source repo + exact file reads | guessing GitHub repo names |
-| Unknown repo | `ghSearchRepos` / CLI `repo` | `ghViewRepoStructure`, README, examples | cloning before scope is known |
+| Known package | `npmSearch` / `search --target packages` | source repo + exact file reads | guessing GitHub repo names |
+| Unknown repo | `ghSearchRepos` / `search --target repositories` | `ghViewRepoStructure`, README, examples | cloning before scope is known |
 | Known remote symbol/string | `ghSearchCode` | `ghGetFileContent` line range or `matchString` | treating snippets as proof |
 | One remote file | `ghGetFileContent(type:"file")` | exact minify mode, line range, or match slice | full clone |
 | One remote directory | `ghGetFileContent(type:"directory")` | returned `localPath` + local tools | many one-file API reads |
@@ -153,11 +154,11 @@ Octocode should teach agents this decision ladder:
 | Dead-code/package-drift sweep | `search target:"research"` | AST inventory + LSP proof + graph reachability packets | deleting from text/ripgrep or heuristic counts alone |
 | Relationship/keeper chain | `search target:"graph"` | nodes, edges, facts, packets, missing proof, and exact next inspection | reading whole files before using graph filters |
 | Remote content cache | CLI `cache fetch` | returned `localPath` + local tools | repeated remote file reads |
-| Repository tree shape | `ghViewRepoStructure` / CLI `ls` | targeted file reads | path guessing |
-| Local metadata/path search | `localFindFiles` / CLI `find` | exact file slices | content search for filenames only |
-| Local directory shape | `localViewStructure` / CLI `ls` | find/search/read follow-ups | recursive whole-file reads |
-| Archive or binary artifact | `localBinaryInspect` / CLI `binary` or `unzip` | archive listing, unpacked `localPath`, nested binary inspection, local searches | treating opaque assets as plain text |
-| Diff or selected patch | CLI `diff` or `ghHistoryResearch` selected patches | exact patch/file slice | full PR dumps |
+| Repository tree shape | `ghViewRepoStructure` / `search --tree` | targeted file reads | path guessing |
+| Local metadata/path search | `localFindFiles` / `search --search path` or `target:"files"` | exact file slices | content search for filenames only |
+| Local directory shape | `localViewStructure` / `search --tree` | search/read follow-ups | recursive whole-file reads |
+| Archive or binary artifact | `localBinaryInspect` / `search --target artifacts` or `unzip` | archive listing, unpacked `localPath`, nested binary inspection, local searches | treating opaque assets as plain text |
+| Diff or selected patch | `search --target diff` or `ghHistoryResearch` selected patches | exact patch/file slice | full PR dumps |
 
 ## CLI Command Map
 
@@ -168,27 +169,26 @@ needed field.
 | CLI command | Backing workflow | Use when |
 |-------------|------------------|----------|
 | `search` | OQL router across local, GitHub, npm, PRs, commits, artifacts, diff, and smart research flows | One typed query should choose the backing tool, emit a plan, and return continuations or typed research rows |
-| `pkg` | `npmSearch` | Starting from an npm package or package keyword |
-| `repo` | `ghSearchRepos` | Discovering candidate repositories |
-| `ls` | `localViewStructure` or `ghViewRepoStructure` | Orienting by tree shape or symbol outline |
-| `grep` | `localSearchCode` or `ghSearchCode` | Searching text, regex, paths, or local AST patterns |
-| `cat` | `localGetFileContent` or `ghGetFileContent` | Fetching exact file evidence |
-| `find` | `localFindFiles` or remote file discovery | Locating files by name, path, metadata, or content |
-| `lsp` | `lspGetSemantics` | Definitions, references, call hierarchy, hover, type info |
-| `pr` | `ghHistoryResearch` | PR search or direct PR inspection |
-| `history` | `ghHistoryResearch(type:"commits")` | Commit history for a repo, directory, or file |
 | `clone` | `ghCloneRepo` | Full repo or sparse subtree materialization |
 | `cache fetch` | clone/file/tree materialization lane | Saving remote content locally for local tools |
-| `binary` | `localBinaryInspect` | Inspecting binaries, listing/extracting archives, decompressing streams, or reading strings |
-| `unzip` | `localBinaryInspect(mode:"unpack")` | Unpacking archives, then continuing with `ls`/`find`/`grep`/`cat`/`lsp` and `binary` for nested artifacts |
-| `diff` | direct file diff or PR patch workflow | Comparing files or inspecting selected changes |
+| `unzip` | `localBinaryInspect(mode:"unpack")` | Unpacking archives, then continuing with `search`, `search --op`, and `search --target artifacts` for nested artifacts |
+
+Removed CLI shortcuts: `cat`, `ls`, `find`, `grep`, `lsp`, `pkg`, `repo`,
+`history`, `binary`, `diff`, and `pr`. Use `search <file> --content-view exact` /
+`target:"content"` for content reads, `search --tree` for structure,
+`search --search path` / `target:"files"` for file discovery, `search` /
+`target:"code"` for text/regex/AST, `search --op ...` /
+`target:"semantics"` for symbol navigation, `search --target packages` for npm
+package lookup, `search --target repositories` for repo discovery,
+`search --target commits` for commit history, `search --target artifacts` for
+binary/archive modes, and `search --target diff` for file/ref diffs.
 
 Before using `tools <name> --queries`, read `tools <name> --scheme`. Before using
 `search --query`, read `search --scheme` or run with `--explain` when unsure.
 
 ### Remote-As-Local Shortcut (`--repo`)
 
-`grep`, `find`, `cat`, and `ls` accept `--repo <owner/repo[@ref]>`. This
+`search` accepts `--repo <owner/repo[@ref]>`. This
 materializes the repo (or subpath) under `.octocode` in one step, runs the local
 tool against the saved files, and returns the absolute local path in `location`.
 It is the fastest way to get local-only power (ripgrep controls, structural AST,
@@ -196,14 +196,15 @@ file metadata, symbol outlines) on a remote repo without a separate `clone` or
 `cache fetch` step.
 
 ```bash
-octocode grep "registerTool" --repo facebook/react packages/react --json --compact
-octocode grep --repo facebook/react packages/react --pattern 'useMemo($$$ARGS)' --json
-octocode find "*.test.ts" --repo owner/repo --json
-octocode cat src/index.ts --repo owner/repo@main --mode none --json
+octocode search "registerTool" packages/react --repo facebook/react --json --compact
+octocode search packages/react --repo facebook/react --pattern 'useMemo($$$ARGS)' --json
+octocode search "*.test.ts" . --repo owner/repo --search path --json
+octocode search src/index.ts --repo owner/repo@main --content-view exact --json
+octocode search src/index.ts --repo owner/repo --op references --symbol run --line 42 --json
 ```
 
 With `--repo`, `arg[0]`/the path argument is repository-relative. Reuse the
-returned absolute `location` path with plain local `ls`/`grep`/`cat`/`lsp` for
+returned absolute `location` path with plain local `search` for
 follow-up calls — the files stay materialized. Remote structural search
 (`--pattern`/`--rule` against GitHub) **requires** `--repo`; GitHub's code-search
 API cannot evaluate AST predicates.
@@ -226,10 +227,10 @@ npmSearch(packageName)
 CLI equivalent:
 
 ```bash
-octocode pkg <package>
-octocode ls <owner/repo>
-octocode grep <symbol> <owner/repo>
-octocode cat <owner/repo/path> --match-string <symbol> --mode none --json
+octocode search <package> --target packages
+octocode search <owner/repo> --tree
+octocode search "<symbol>" <owner/repo>
+octocode search <owner/repo/path> --match-string <symbol> --content-view exact --json
 octocode clone <owner/repo[/subpath]>
 ```
 
@@ -277,8 +278,8 @@ ghViewRepoStructure(owner, repo, path, depth)
 -> choose materialization:
    - ghGetFileContent(type:"directory") for one small directory
    - ghCloneRepo for full project, sparse subtree, AST, or LSP
-   - CLI `--repo owner/repo[@ref]` on grep/find/cat/ls for one-command
-     materialize-and-search (returns the saved absolute path in `location`)
+   - CLI `search --repo owner/repo[@ref]` for one-command
+     materialize-and-search/read/tree/semantics (returns the saved absolute path in `location`)
 -> localViewStructure(localPath)
 -> localSearchCode(localPath)
 -> localSearchCode(mode:"structural") when shape matters
@@ -382,9 +383,9 @@ Executable CLI pattern:
 
 ```bash
 octocode cache fetch owner/repo path/to/dir --depth tree --json
-octocode ls /absolute/localPath --json
-octocode grep "symbolName" /absolute/localPath --json --compact
-octocode cat /absolute/localPath/file.ts --match-string "symbolName" --mode none --json
+octocode search /absolute/localPath --tree --json
+octocode search "symbolName" /absolute/localPath --json --compact
+octocode search /absolute/localPath/file.ts --match-string "symbolName" --content-view exact --json
 ```
 
 If freshness matters, rerun `cache fetch` with `--force-refresh` and record that
@@ -407,8 +408,9 @@ localBinaryInspect(mode:"inspect") for native metadata
 ```
 
 List before extract. Use `strings` to find anchors. Use `unzip` when the next
-step is normal local research across many unpacked files; use `binary --extract`
-when only one archive member matters.
+step is normal local research across many unpacked files; use
+`search <artifact> --target artifacts --extract <entry>` when only one archive
+member matters.
 
 `--json` callers: `strings` output lands in `data.content` (char-paginated via
 `charOffset`, with `totalFound`/`scanOffset`), not a `strings[]` array. Read
@@ -422,12 +424,12 @@ or native binaries.
 ```text
 unzip artifact.zip
 -> capture localPath
--> ls localPath
--> find localPath for likely source, manifests, nested archives, and binaries
--> grep localPath for identifiers, secrets, URLs, errors, imports, or config keys
--> cat exact matching files or slices
--> binary nested-artifact for inspect/list/strings/decompress/extract
--> lsp localPath/file when unpacked source has project context
+-> search localPath --tree
+-> search localPath --search path for likely source, manifests, nested archives, and binaries
+-> search localPath for identifiers, secrets, URLs, errors, imports, or config keys
+-> search exact matching files or slices with --content-view exact / --match-string
+-> search nested-artifact --target artifacts for inspect/list/strings/decompress/extract
+-> search localPath/file --op documentSymbols/references when unpacked source has project context
 ```
 
 This turns opaque release artifacts into normal local research surfaces. Search
@@ -438,10 +440,10 @@ Executable CLI pattern:
 
 ```bash
 octocode unzip artifact.zip --json
-octocode ls /absolute/unpacked/localPath --json
-octocode find /absolute/unpacked/localPath "*.js" --json
-octocode grep "apiKey|endpoint|register" /absolute/unpacked/localPath --perl-regex --json
-octocode binary /absolute/unpacked/localPath/native.node --json
+octocode search /absolute/unpacked/localPath --tree --json
+octocode search "*.js" /absolute/unpacked/localPath --search path --json
+octocode search --regex "apiKey|endpoint|register" /absolute/unpacked/localPath --pcre2 --json
+octocode search /absolute/unpacked/localPath/native.node --target artifacts --inspect --json
 ```
 
 OQL artifact extract/unpack/materialize rows should emit local follow-up
@@ -465,8 +467,7 @@ Prefer selected patch files or ranges over full PR patches. Use the current file
 content to separate "what changed" from "what exists now".
 
 For PR diffs, prefer selected files. For direct file/ref diffs, OQL supports the
-`{baseRef, headRef, path}` lane; the CLI `diff` surface remains convenient when
-the comparison is purely terminal-facing.
+`{baseRef, headRef, path}` lane through `search --target diff`.
 
 ### 12. Smart Reachability, Unused Symbols, And Package Drift
 
@@ -520,8 +521,8 @@ references — confirm reachability from a real entry point before deleting.
 CLI equivalent:
 
 ```bash
-octocode ls ./src/module.ts --symbols --json
-octocode lsp ./src/module.ts --type references --symbol mySymbol --line 42 --json
+octocode search ./src/module.ts --symbols --json
+octocode search ./src/module.ts --op references --symbol mySymbol --line 42 --json
 ```
 
 Observed comparison in this repo after enabling `target:"research"`:
@@ -602,8 +603,8 @@ octocode tools localGetFileContent --queries '{"path":"packages/example/src/inde
 ### Search Then Exact Read
 
 ```bash
-octocode grep "createServer" ./packages --json --compact
-octocode cat ./packages/foo/src/server.ts --match-string "createServer" --mode none --json
+octocode search "createServer" ./packages --json --compact
+octocode search ./packages/foo/src/server.ts --match-string "createServer" --content-view exact --json
 ```
 
 ### Enumerate Matches In A Minified Or One-Line File
@@ -616,10 +617,10 @@ octocode tools localSearchCode --queries '{"path":"dist/bundle.js","keywords":"h
 ### Structural Search With Exact Proof
 
 ```bash
-octocode grep ./src --pattern 'eval($X)' --type ts --json
-octocode grep ./src --pattern 'registerTool($$$ARGS)' --type ts --json   # captures call args
-octocode grep ./src --rule $'rule:\n  kind: function_item' --type rust --json  # all defs
-octocode cat ./src/example.ts --start-line 40 --end-line 70 --mode none --json
+octocode search ./src --pattern 'eval($X)' --lang ts --json
+octocode search ./src --pattern 'registerTool($$$ARGS)' --lang ts --json   # captures call args
+octocode search ./src --rule $'rule:\n  kind: function_item' --lang rust --json  # all defs
+octocode search ./src/example.ts --start-line 40 --end-line 70 --content-view exact --json
 ```
 
 A `$$$ARGS` (or `$X`) capture returns the matched text per row under
@@ -638,25 +639,25 @@ returns zero matches against annotated declarations.
 ### LSP After A Search Anchor
 
 ```bash
-octocode grep "MySymbol" ./src --json --compact
-octocode lsp ./src/file.ts --type definition --symbol MySymbol --line 42 --json
-octocode lsp ./src/file.ts --type documentSymbols --json
+octocode search "MySymbol" ./src --json --compact
+octocode search ./src/file.ts --op definition --symbol MySymbol --line 42 --json
+octocode search ./src/file.ts --op documentSymbols --json
 octocode search --query '{"target":"semantics","from":{"kind":"local","path":"./src/file.ts"},"params":{"type":"documentSymbols"}}' --json
 octocode tools lspGetSemantics --scheme
 octocode tools lspGetSemantics --queries '{"uri":"/absolute/path/src/file.ts","type":"documentSymbols"}' --json
 ```
 
-Use quick `lsp` for common local navigation and `documentSymbols`; use OQL
+Use quick `search --op ...` for common local navigation and `documentSymbols`; use OQL
 `target:"semantics"` when the result should stay inside a typed OQL envelope;
 use raw `lspGetSemantics` when a schema-specific semantic type or pagination
-field is easier to express directly. Use `ls --symbols` for quick symbol
-outlines when a semantic LSP outline is not required.
+field is easier to express directly. Use `search --symbols` for quick symbol
+outlines when the `documentSymbols` alias is clearer than a raw semantic query.
 
 ### PR Metadata To Selected Patch
 
 ```bash
-octocode pr owner/repo --query "routing bug" --state merged --json
-octocode pr owner/repo#1234 --json
+octocode search owner/repo --target pullRequests --query "routing bug" --state merged --json
+octocode search owner/repo#1234 --target pullRequests --json
 octocode tools ghHistoryResearch --scheme
 octocode tools ghHistoryResearch --queries '{"owner":"owner","repo":"repo","prNumber":1234,"content":{"changedFiles":true}}' --json
 octocode tools ghHistoryResearch --queries '{"owner":"owner","repo":"repo","prNumber":1234,"content":{"patches":{"mode":"selected","files":["src/router.ts"]}}}' --json
@@ -665,10 +666,10 @@ octocode tools ghHistoryResearch --queries '{"owner":"owner","repo":"repo","prNu
 ### Package To Repo Fallback
 
 ```bash
-octocode pkg <package> --json
-octocode repo <package> --language TypeScript --json
-octocode ls owner/repo --json
-octocode grep "<distinctive symbol>" owner/repo --json --compact
+octocode search <package> --target packages --json
+octocode search <package> --target repositories --lang TypeScript --json
+octocode search owner/repo --tree --json
+octocode search "<distinctive symbol>" owner/repo --json --compact
 ```
 
 If npm metadata is missing or stale, prove the source by reading `package.json`
@@ -705,8 +706,8 @@ from the candidate repository.
 | LSP | search first, then pass `uri`, `symbolName`, and `lineHint` |
 | Remote research | package/repo/code search first; clone only for local proof |
 | Materialization | `cache fetch` or `ghCloneRepo`; capture `localPath` and continue locally |
-| Artifacts | inspect/list/strings first; `unzip`/unpack before local search; run `binary` again on nested artifacts |
-| Diffs | direct `diff` for file comparison; selected PR patches for review history |
+| Artifacts | inspect/list/strings first; `unzip`/unpack before local search; run `search --target artifacts` again on nested artifacts |
+| Diffs | `search --target diff` for file comparison; selected PR patches for review history |
 | Reporting | cite fetched files, PRs, package metadata, or exact local paths/lines |
 
 ## Completeness Checklist

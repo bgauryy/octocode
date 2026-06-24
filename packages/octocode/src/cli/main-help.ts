@@ -3,7 +3,7 @@
 //   1. THIS FILE (main-help.ts)                    — top-level `--help`
 //   2. packages/octocode/src/cli/commands/search.ts — renderEnvelope, per-command hints
 //   3. packages/octocode-tools-core/src/oql/schemeText.ts — `--scheme` JSON output
-//   4. octocode-mcp-host/…/resources/tools/oqlSearch.ts — MCP tool description (now in sibling repo resources)
+//   4. octocode-mcp-host/…/resources/tools/oqlSearch.ts — MCP tool description (sibling repo resources)
 //   5. octocode-mcp-host/…/resources/cli/search.ts  — CLICommandSpec (scheme[], whenToUse[])
 //   6. octocode-mcp-host/…/resources/systemPrompt.ts — MCP + CLI system prompt
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,9 +15,8 @@ import {
   DIRECT_TOOL_DEFINITIONS,
   getDirectToolCategory,
   getDirectToolDisplayFields,
-  loadToolContent,
   sortDirectToolNames,
-} from '@octocodeai/octocode-tools-core/direct';
+} from '@octocodeai/octocode-tools-core/schema';
 import { paths } from '@octocodeai/octocode-tools-core/paths';
 
 const LSP_TOOL = 'lspGetSemantics';
@@ -27,41 +26,21 @@ const ENGINEER_SKILL_URL =
   'https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer';
 const UNZIP_DESTINATION_PATTERN = join(paths.unzip, '<name>-<timestamp>');
 
-/**
- * The verbatim system prompt (Octocode MCP instructions) shown inside
- * <AGENT_INSTRUCTIONS>. Loaded from the shared tool metadata so the help
- * surface stays byte-identical to what the MCP server and `context` emit.
- * Falls back to null on any failure — the block degrades gracefully.
- */
-async function loadAgentInstructions(): Promise<string | null> {
-  try {
-    const metadata = await loadToolContent();
-    const systemPrompt = metadata.systemPrompt.trim();
-    return systemPrompt ? systemPrompt : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Render the <AGENT_INSTRUCTIONS> block: system prompt + skill pointer. */
-function buildAgentInstructionsBlock(instructions: string | null): string[] {
+/** Render a concise agent playbook; use `context --full` for the full MCP prompt. */
+function buildAgentInstructionsBlock(): string[] {
   const lines: string[] = [`  ${dim('<AGENT_INSTRUCTIONS>')}`];
 
-  if (instructions) {
-    // The system prompt itself — the canonical research strategy.
-    for (const line of instructions.split('\n')) {
-      lines.push(`  ${dim(line)}`);
-    }
-  } else {
-    // Fallback if metadata can't be loaded — keep the essentials inline.
-    lines.push(
-      `  ${dim('One toolset for LOCAL files and EXTERNAL GitHub/npm research.')}`,
-      `  ${dim('Flow: locate → search → read the smallest slice → prove. Cheapest tool first; orient before you read.')}`,
-      `  ${dim('3.')} ${c('red', bold('Do NOT hallucinate'))} ${dim('paths, lines, or fields — verify with tools; snippets are discovery, not proof.')}`
-    );
-  }
-
   lines.push(
+    `  ${dim('Use')} ${c('cyan', 'search')} ${dim('for read-only research. Pick the source first, then the target/lane.')}`,
+    `    ${c('cyan', 'Local')}  ${dim('path input → code, files, content, tree, artifacts, diff, and')} ${c('cyan', 'search --op')} ${dim('for LSP semantics.')}`,
+    `    ${c('cyan', 'GitHub')} ${dim('owner/repo[/path] → code, tree, content, repos, PRs, commits. Use')} ${c('cyan', '--repo owner/repo --materialize required')} ${dim('when the GitHub index misses or AST/LSP proof is needed.')}`,
+    `    ${c('cyan', 'npm')}    ${dim('package names →')} ${c('cyan', '--target packages')} ${dim('to resolve metadata/source repo, then continue with GitHub or local proof.')}`,
+    `    ${c('cyan', 'OQL')}    ${dim('run')} ${c('cyan', 'search --scheme')} ${dim('before JSON; use')} ${c('cyan', 'search --explain --query ...')} ${dim('when routing is unclear.')}`,
+    `  ${dim('Best practice: orient cheap → narrow → read exact → prove. Use discovery/tree/symbols first; fetch exact slices with --content-view exact only when quoting, diffing, or deciding.')}`,
+    `  ${dim('Follow')} ${c('cyan', 'next.*')} ${dim('continuations for pages, exact reads, materialization, or LSP proof. Snippets are discovery, not proof.')}`,
+    `  ${dim('Minimal OQL:')} ${c('yellow', '{"target":"code","from":{"kind":"local","path":"./src"},"where":{"kind":"text","value":"term"}}')}`,
+    `  ${dim('Semantics flow:')} ${c('cyan', 'search file --op documentSymbols')} ${dim('→ use returned line with')} ${c('cyan', '--op references|callers|hover --symbol X --line N')}${dim('.')}`,
+    `  ${dim('Trust evidence/status: empty is a real run with no rows, not proof of absence until scope, spelling, branch, and source were checked.')}`,
     '',
     `  ${dim('Tools:')} ${c('yellow', 'tools <name> --scheme')} ${dim('to read a schema (never guess fields), then')} ${c('yellow', "tools <name> --queries '<json>'")} ${dim('to run it. QUICK COMMANDS below cover the common path.')}`,
     `  ${dim('Skill reference — read the')} ${c('cyan', 'octocode-engineer')} ${dim('flows to understand the research loop and leverage every tool fully:')}`,
@@ -75,7 +54,9 @@ function buildAgentInstructionsBlock(instructions: string | null): string[] {
 
 /** Brief [required*, optional?] summary for the --help tool list (top-level fields only). */
 function formatBriefFields(toolName: string): string {
-  if (toolName === LSP_TOOL) return '[uri*, type, symbolName?, lineHint?]';
+  // `type` is the only always-required field; `uri` is required for every type
+  // except workspaceSymbol, so it stays optional here (see tool-command.ts).
+  if (toolName === LSP_TOOL) return '[type, uri?, symbolName?, lineHint?]';
   const fields = getDirectToolDisplayFields(toolName).filter(
     f => !f.name.includes('.')
   );
@@ -108,10 +89,10 @@ function buildToolBlock(): string[] {
       if (name === LSP_TOOL) {
         const indent = ''.padEnd(34);
         lines.push(
-          `      ${dim(indent)} ${dim('type: definition | references | callers | callees | callHierarchy | hover | documentSymbols | typeDefinition | implementation')}`
+          `      ${dim(indent)} ${dim('type: definition | references | callers | callees | callHierarchy | hover | documentSymbols | typeDefinition | implementation | workspaceSymbol | supertypes | subtypes | diagnostic')}`
         );
         lines.push(
-          `      ${dim(indent)} ${dim('! run localSearchCode first → get uri + lineHint')}`
+          `      ${dim(indent)} ${dim('! run search first → get uri + lineHint; workspaceSymbol can start from workspaceRoot + symbolName')}`
         );
       }
     }
@@ -128,9 +109,7 @@ function quick(name: string, argHint: string, description: string): string {
 export async function showHelp(): Promise<void> {
   const toolCount = DIRECT_TOOL_DEFINITIONS.length;
   const toolLines = buildToolBlock();
-  const agentInstructions = buildAgentInstructionsBlock(
-    await loadAgentInstructions()
-  );
+  const agentInstructions = buildAgentInstructionsBlock();
 
   let isAuthenticated = false;
   try {
@@ -157,55 +136,16 @@ export async function showHelp(): Promise<void> {
     '',
 
     // ── Quick commands FIRST — the friendly, human-first surface ────────────
-    `  ${c('green', bold('QUICK COMMANDS'))}  ${dim('smart shortcuts — auto-route local path vs owner/repo. Add --json for raw output.')}`,
-    quick(
-      'ls',
-      '<path|owner/repo>',
-      'directory tree; a file (or --symbols) shows a symbol outline'
-    ),
-    quick(
-      'cat',
-      '<path|owner/repo/path>',
-      'read + minify a file (--mode none|standard|symbols)'
-    ),
-    quick(
-      'grep',
-      '<keywords> <path|owner/repo>',
-      'text/regex search → file + line; --pattern/--rule for AST shape (local)'
-    ),
+    `  ${c('green', bold('QUICK COMMANDS'))}  ${dim('search-first read-only surface plus materialization workflows. Add --json for raw output.')}`,
     quick(
       'search',
-      '--query <oql-json> | --scheme',
-      'OQL: typed research across code/content/files/LSP/repos/packages/history — run --scheme first to see the full typed schema'
-    ),
-    quick(
-      'find',
-      '<query> [path|owner/repo]',
-      'find files by name/path/content'
-    ),
-    quick('diff', '<left> <right>', 'compare two files (local or GitHub refs)'),
-    quick(
-      'lsp',
-      '<file> --type <type> --symbol <s>',
-      'identity: defs, refs, callers, hover; --line optional'
-    ),
-    quick('repo', '<keywords...>', 'discover GitHub repositories'),
-    quick('pr', '<owner/repo[#N]|PR-URL>', 'list PRs or deep-read one PR'),
-    quick(
-      'history',
-      '<owner/repo[/path]>',
-      'commit history (who/when) → #PR deep-read'
-    ),
-    quick('pkg', '<package>', 'npm package + source repo'),
-    quick(
-      'binary',
-      '<file>',
-      'list, decompress, or strings (archives & binaries)'
+      '"<text>" <path|owner/repo> | owner/repo#N | PR-URL | --query <oql-json> | --scheme',
+      'read-only OQL across local, GitHub, npm, semantics, artifacts, PR/history, diff — run --scheme first'
     ),
     quick(
       'unzip',
       '<archive>',
-      `unpack archive → ${UNZIP_DESTINATION_PATTERN}, then grep/ls/cat it`
+      `unpack archive → ${UNZIP_DESTINATION_PATTERN}, then search it`
     ),
     quick(
       'clone',
@@ -219,22 +159,31 @@ export async function showHelp(): Promise<void> {
     ),
     '',
 
+    // ── Search lanes — the agent's source map ──────────────────────────────
+    `  ${c('green', bold('SEARCH LANES'))}  ${dim('choose source + lane before adding filters')}`,
+    `    ${c('cyan', 'Local')}    ${c('yellow', 'search "term" ./src')} ${dim('·')} ${c('yellow', 'search ./src --tree')} ${dim('·')} ${c('yellow', 'search file.ts --op documentSymbols')}`,
+    `    ${c('cyan', 'GitHub')}   ${c('yellow', 'search "term" owner/repo')} ${dim('·')} ${c('yellow', 'search owner/repo --tree')} ${dim('·')} ${c('yellow', 'search owner/repo#123 --target pullRequests')}`,
+    `    ${c('cyan', 'npm')}      ${c('yellow', 'search zod --target packages')} ${dim('→ package metadata and source repo')}`,
+    `    ${c('cyan', 'OQL JSON')} ${c('yellow', 'search --scheme')} ${dim('→ copy target/from/where/params shape;')} ${c('yellow', 'search --explain --query ...')} ${dim('checks routing')}`,
+    '',
+
     // ── Remote-as-local bridge ──────────────────────────────────────────────
     `  ${c('green', bold('REMOTE AS LOCAL'))}  ${dim('use --repo to analyse GitHub content with local tools')}`,
-    `    ${dim('Add')} ${c('cyan', '--repo <owner/repo[@branch]>')} ${dim('to any local command to transparently materialize remote content.')}`,
-    `    ${dim('grep │ ls │ cat │ find │ lsp all accept --repo. The first call fetches; subsequent calls use the disk cache (24 h).')}`,
+    `    ${dim('Add')} ${c('cyan', '--repo <owner/repo[@branch]>')} ${dim('to search when you want GitHub content materialized before local proof.')}`,
+    `    ${dim('search is the canonical read-only remote-as-local path. The first materialized call fetches; subsequent calls use the disk cache (24 h).')}`,
     `    ${dim('Decision tree:')}`,
-    `      ${c('cyan', 'grep <kw> --repo owner/repo')}          ${dim('→ text search across a remote repo (tree-fetch, fast)')}`,
-    `      ${c('cyan', 'ls --repo owner/repo')}                 ${dim('→ remote directory tree')}`,
-    `      ${c('cyan', 'cat --repo owner/repo/path/to/file')}   ${dim('→ read a single remote file (does NOT need clone)')}`,
-    `      ${c('cyan', 'clone owner/repo')}                     ${dim('→ git clone (use for full repo AST/LSP/dead-code analysis)')}`,
+    `      ${c('cyan', 'search "<kw>" --repo owner/repo')}      ${dim('→ text search across a remote repo')}`,
+    `      ${c('cyan', 'search src --repo owner/repo --search path --materialize auto')} ${dim('→ exact remote filename/path discovery')}`,
+    `      ${c('cyan', 'search owner/repo --tree')}             ${dim('→ remote directory tree')}`,
+    `      ${c('cyan', 'search path/to/file --repo owner/repo')} ${dim('→ read a single remote file')}`,
+    `      ${c('cyan', 'clone owner/repo')}                     ${dim('→ git clone (use for structural + semantic analysis)')}`,
     `      ${c('cyan', 'cache fetch owner/repo [path]')}        ${dim('→ explicit tree-fetch + returns location.{localPath,complete,verified}')}`,
     `    ${dim('After materialization the')} ${c('cyan', 'location')} ${dim('block in every result carries localPath, cached, complete, and verified.')}`,
     `    ${dim('verified:false = served from disk cache (completeness unconfirmed). Use --force-refresh or clone to get verified:true.')}`,
     '',
 
     // ── Raw execution — every tool, including ones without a quick command ──
-    `  ${bold(`TOOLS (${toolCount})`)}  ${dim('raw execution — schema-exact, all tools incl. clone, binary inspect, AST')}`,
+    `  ${bold(`TOOLS (${toolCount})`)}  ${dim('raw execution — schema-exact, incl. clone, artifact inspect, structural + semantic code intelligence')}`,
     `    ${c('yellow', 'tools'.padEnd(28))} ${dim('list all tools')}`,
     `    ${c('yellow', 'tools <name> --scheme'.padEnd(28))} ${dim('read schema (never guess fields)')}`,
     `    ${c('yellow', "tools <name> --queries '<json>'".padEnd(28))} ${dim('run a tool (1 object or array of ≤5)')}`,
@@ -244,15 +193,17 @@ export async function showHelp(): Promise<void> {
 
     // ── Playbook (distilled from the system prompt) ─────────────────────────
     `  ${c('green', bold('PLAYBOOK'))}  ${dim('cheapest tool first · smallest slice · narrow before paging')}`,
-    `    ${c('cyan', 'orient cheap')}    ${dim('concise:true (string list) · localSearchCode mode:discovery (paths) · ls then drill')}`,
+    `    ${c('cyan', 'orient cheap')}    ${dim('search --tree · search --search path · concise:true / discovery views')}`,
     `    ${c('cyan', 'minify by goal')}  ${dim('symbols=skeleton (orient unknown) · standard=read (default) · none=exact quote/diff')}`,
-    `    ${c('cyan', 'prove')}           ${dim('snippets are discovery, not proof — re-read exact text · search→lineHint→lsp · pkg→owner/repo')}`,
+    `    ${c('cyan', 'prove')}           ${dim('snippets are discovery, not proof — re-read exact text · structural/text search→lineHint→search --op (semantics) · search --target packages→source repo')}`,
     '',
 
     // ── Management (users) ─────────────────────────────────────────────────
     `  ${bold('MANAGEMENT')}`,
     `    ${c('cyan', 'install')} ${dim('--ide <cursor|claude-desktop|windsurf|...>')}  ${dim('configure IDE')}`,
-    `    ${c('cyan', 'login')}   ${dim('[--hostname <host>]')}                         ${dim('GitHub authentication')}`,
+    `    ${c('cyan', 'skill')}   ${dim('--add <github-folder> --platform <...>')}       ${dim('install Agent Skill folder')}`,
+    `    ${c('cyan', 'auth')}    ${dim('[login|logout|refresh|status] [--json]')}       ${dim('auth menu + script-safe status')}`,
+    `    ${c('cyan', 'login')}   ${dim('[--hostname <host>]')}                         ${dim('interactive auth picker')}`,
     `    ${c('cyan', 'logout')}  ${dim('[--hostname <host>]')}                         ${dim('clear stored credentials')}`,
     `    ${c('cyan', 'status')}  ${dim('[--sync]')}                                    ${dim('token/auth + cache status')}`,
     '',

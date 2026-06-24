@@ -12,6 +12,13 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 
+const LOCAL_SEARCH_MODES = [
+  'paginated',
+  'discovery',
+  'detailed',
+  'structural',
+] as const;
+
 // sort ('relevance'|'matchCount'|'path'|'modified'|'accessed'|'created'),
 // rankingProfile, and debugRanking are defined canonically in
 // @octocodeai/octocode-core (src/resources/tools/localSearchCode.ts) and flow in
@@ -22,6 +29,25 @@ import {
 const REMOVED_CORE_FIELDS = ['semanticRanking'] as const;
 
 const queryOverrides = {
+  mode: z
+    .enum(LOCAL_SEARCH_MODES)
+    .optional()
+    .default('paginated')
+    .describe(
+      '"paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters.'
+    ),
+  pattern: z
+    .string()
+    .optional()
+    .describe(
+      'Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Use this to find syntax shape, then use lspGetSemantics for semantic proof.'
+    ),
+  rule: z
+    .string()
+    .optional()
+    .describe(
+      'Structural only: YAML ast-grep rule for not/inside/has/all/any. Use for partial or relational AST queries before escalating matched anchors to lspGetSemantics.'
+    ),
   contextLines: contextLinesField,
   matchContentLength: clampedInt(1, MAX_MATCH_CONTENT_LENGTH)
     .optional()

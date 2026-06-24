@@ -17,7 +17,6 @@ import {
   getDirectorySizeBytes,
   formatBytes,
 } from '@octocodeai/octocode-tools-core/fs-utils';
-import { EXIT } from '../../../src/cli/exit-codes.js';
 
 const { mockPaths } = vi.hoisted(() => ({
   mockPaths: {
@@ -217,7 +216,7 @@ describe('statusCommand', () => {
     expect(payload.cache.unzip.path).toBe('/fake/tmp/unzip');
   });
 
-  it('--json sets EXIT.AUTH when not authenticated', async () => {
+  it('--json reports unauthenticated state without failing read-only status', async () => {
     vi.mocked(formatAuthStatusAsJson).mockReturnValue({
       authenticated: false,
       hostname: 'github.com',
@@ -225,7 +224,7 @@ describe('statusCommand', () => {
     const cmd = await loadCommand();
     await cmd.handler({ command: 'status', args: [], options: { json: true } });
     expect(out('"auth"')).toBe(true);
-    expect(process.exitCode).toBe(EXIT.AUTH);
+    expect(process.exitCode).toBeUndefined();
   });
 
   it('--sync (json) includes sync data', async () => {

@@ -268,12 +268,12 @@ pub fn graph_fact_capabilities_json() -> String {
     serde_json::to_string(&capabilities).unwrap_or_else(|_| "[]".to_owned())
 }
 
-fn visit_node<'a>(
+fn visit_node(
     node: Node<'_>,
     content: &str,
     line_index: &LineIndex<'_>,
     acc: &mut GraphAccumulator,
-    active_decl: Option<&'a str>,
+    active_decl: Option<&str>,
 ) {
     let decl = declaration_kind(node.kind()).and_then(|kind| {
         declaration_name(node, content).map(|name| {

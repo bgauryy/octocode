@@ -1,0 +1,30 @@
+{
+  "results": [
+    {
+      "kind": "content",
+      "path": "src/vanilla.ts",
+      "content": "export interface StoreMutators<S, A> {}\nexport type StoreMutatorIdentifier = keyof StoreMutators<unknown, unknown>\n\ntype CreateStore = {\n  <T, Mos extends [StoreMutatorIdentifier, unknown][] = []>(\n    initializer: StateCreator<T, [], Mos>,\n  ): Mutate<StoreApi<T>, Mos>\n\n  <T>(): <Mos extends [StoreMutatorIdentifier, unknown][] = []>(\n    initializer: StateCreator<T, [], Mos>,\n  ) => Mutate<StoreApi<T>, Mos>\n}\n\ntype CreateStoreImpl = <\n  T,\n  Mos extends [StoreMutatorIdentifier, unknown][] = [],\n>(\n  initializer: StateCreator<T, [], Mos>,\n) => Mutate<StoreApi<T>, Mos>\n\nconst createStoreImpl: CreateStoreImpl = (createState) => {\n  type TState = ReturnType<typeof createState>\n  type Listener = (state: TState, prevState: TState) => void\n  let state: TState\n  const listeners: Set<Listener> = new Set()\n\n... [28 lines omitted] ...\n\n  const api = { setState, getState, getInitialState, subscribe }\n  const initialState = (state = createState(setState, getState, api))\n  return api as any\n}\n\nexport const createStore = ((createState) =>\n  createState ? createStoreImpl(createState) : createStoreImpl) as CreateStore",
+      "contentView": "compact",
+      "range": {
+        "startLine": 38,
+        "endLine": 101
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "ghGetFileContent",
+      "source": {
+        "kind": "github",
+        "repo": "pmndrs/zustand"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

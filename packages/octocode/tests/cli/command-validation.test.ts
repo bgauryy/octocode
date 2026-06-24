@@ -13,7 +13,7 @@ import {
   findInvalidNumericOptions,
   printUnknownOptionError,
 } from '../../src/cli/command-validation.js';
-import { lsCommand } from '../../src/cli/commands/ls.js';
+import { searchCommand } from '../../src/cli/commands/search.js';
 import type { ParsedArgs } from '../../src/cli/types.js';
 
 function args(
@@ -25,23 +25,41 @@ function args(
 
 describe('command option validation', () => {
   it('accepts a command-declared flag', () => {
-    expect(findUnknownOptions(lsCommand, args({ depth: '2' }))).toEqual([]);
+    expect(findUnknownOptions(searchCommand, args({ depth: '2' }))).toEqual([]);
   });
 
   it('accepts global flags on any command', () => {
     expect(
-      findUnknownOptions(lsCommand, args({ json: true, 'no-color': true }))
+      findUnknownOptions(searchCommand, args({ json: true, 'no-color': true }))
     ).toEqual([]);
   });
 
   it('flags an unknown option', () => {
-    expect(findUnknownOptions(lsCommand, args({ dpeth: '2' }))).toEqual([
+    expect(findUnknownOptions(searchCommand, args({ dpeth: '2' }))).toEqual([
       'dpeth',
     ]);
   });
 
+  it('rejects removed search aliases from command metadata too', () => {
+    expect(
+      findUnknownOptions(
+        searchCommand,
+        args({ mode: 'none', 'page-size': '5', type: 'ts' }, 'search')
+      )
+    ).toEqual(['mode', 'page-size', 'type']);
+  });
+
+  it('accepts canonical search spelling for content and pagination', () => {
+    expect(
+      findUnknownOptions(
+        searchCommand,
+        args({ 'content-view': 'exact', 'items-per-page': '5' }, 'search')
+      )
+    ).toEqual([]);
+  });
+
   it('always allows the global flag set', () => {
-    const allowed = getAllowedOptionNames(lsCommand);
+    const allowed = getAllowedOptionNames(searchCommand);
     for (const g of ['json', 'compact', 'no-color', 'help', 'version']) {
       expect(allowed.has(g)).toBe(true);
     }
@@ -55,10 +73,16 @@ describe('findInvalidNumericOptions', () => {
     ]);
   });
 
-  it('validates the grep --context alias as numeric', () => {
+  it('validates the search --context alias as numeric', () => {
     expect(findInvalidNumericOptions(args({ context: 'abc' }))).toEqual([
       '--context=abc',
     ]);
+  });
+
+  it('validates search --items-per-page alias as numeric', () => {
+    expect(
+      findInvalidNumericOptions(args({ 'items-per-page': 'abc' }, 'search'))
+    ).toEqual(['--items-per-page=abc']);
   });
 
   it('flags a negative numeric value', () => {
@@ -79,7 +103,7 @@ describe('findInvalidNumericOptions', () => {
     );
   });
 
-  it('validates grep --match-length as numeric', () => {
+  it('validates search --match-length as numeric', () => {
     expect(findInvalidNumericOptions(args({ 'match-length': 'abc' }))).toEqual([
       '--match-length=abc',
     ]);
@@ -116,19 +140,19 @@ describe('printUnknownOptionError', () => {
   }
 
   it('names the offending flag and lists valid flags', () => {
-    printUnknownOptionError(lsCommand, ['bogus']);
+    printUnknownOptionError(searchCommand, ['bogus']);
     const out = output();
-    expect(out).toContain(`Unknown flag --bogus for '${lsCommand.name}'`);
-    expect(out).toContain(`Valid flags for ${lsCommand.name}`);
+    expect(out).toContain(`Unknown flag --bogus for '${searchCommand.name}'`);
+    expect(out).toContain(`Valid flags for ${searchCommand.name}`);
   });
 
   it('suggests a near-miss flag for a typo', () => {
-    printUnknownOptionError(lsCommand, ['dpeth']);
+    printUnknownOptionError(searchCommand, ['depht']);
     expect(output()).toContain('did you mean --depth?');
   });
 
   it('does not suggest anything for an unrelated flag', () => {
-    printUnknownOptionError(lsCommand, ['xxxxxxxxxx']);
+    printUnknownOptionError(searchCommand, ['xxxxxxxxxx']);
     expect(output()).not.toContain('did you mean');
   });
 });

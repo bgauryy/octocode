@@ -61,17 +61,11 @@ describe('command-help-specs', () => {
       'login',
       'logout',
       'status',
-      'cat',
-      'ls',
-      'find',
-      'grep',
-      'pr',
-      'repo',
-      'pkg',
-      'lsp',
+      'search',
+      'skill',
       'clone',
       'unzip',
-      'history',
+      'cache',
       'context',
     ];
     for (const name of names) {
@@ -79,27 +73,35 @@ describe('command-help-specs', () => {
     }
   });
 
-  it('no longer exposes the removed ast / symbols commands', async () => {
+  it('no longer exposes removed read-only shortcut command help', async () => {
     const { findStaticCommandHelp } =
       await import('../../src/cli/command-help-specs.js');
-    expect(findStaticCommandHelp('ast')).toBeUndefined();
-    expect(findStaticCommandHelp('symbols')).toBeUndefined();
+    for (const name of [
+      'ast',
+      'symbols',
+      'cat',
+      'ls',
+      'find',
+      'diff',
+      'history',
+      'repo',
+      'pkg',
+      'binary',
+      'grep',
+      'lsp',
+    ]) {
+      expect(findStaticCommandHelp(name)).toBeUndefined();
+    }
   });
 
   it('keeps static command help option lists documented and unique', async () => {
     const { COMMAND_SPECS } = await import('../../src/cli/commands/specs.js');
 
     const researchCommands = new Set([
-      'cat',
-      'ls',
-      'find',
-      'grep',
-      'pr',
-      'repo',
-      'pkg',
-      'lsp',
+      'search',
       'clone',
-      'history',
+      'cache',
+      'unzip',
       // management commands now carry agent guidance too
       'install',
       'auth',
@@ -130,17 +132,16 @@ describe('command-help-specs', () => {
     const { findStaticCommandHelp } =
       await import('../../src/cli/command-help-specs.js');
 
-    expect(findStaticCommandHelp('cat')!.usage).toContain('--full-content');
-    expect(findStaticCommandHelp('grep')!.usage).toContain('--branch <ref>');
-    expect(findStaticCommandHelp('lsp')!.usage).toContain(
-      '--workspace-root <path>'
+    expect(findStaticCommandHelp('search')!.usage).toContain('--lang');
+    expect(findStaticCommandHelp('search')!.usage).toContain('--op');
+    expect(findStaticCommandHelp('search')!.usage).toContain(
+      '--target packages'
     );
-    expect(findStaticCommandHelp('lsp')!.usage).toContain(
-      '--format structured|compact'
-    );
-    expect(findStaticCommandHelp('ls')!.usage).toContain('--symbols');
     expect(findStaticCommandHelp('install')!.usage).toContain(
       '--backup-path <path>'
+    );
+    expect(findStaticCommandHelp('skill')!.usage).toContain(
+      '--add <github-folder>'
     );
     expect(findStaticCommandHelp('auth')!.usage).toContain('--hostname <host>');
     expect(findStaticCommandHelp('context')!.usage).toContain('--context');
@@ -186,7 +187,7 @@ describe('command-help-specs', () => {
     const { findStaticCommandHelp } =
       await import('../../src/cli/command-help-specs.js');
     const { showCommandHelp } = await import('../../src/cli/help.js');
-    const cmd = findStaticCommandHelp('lsp')!;
+    const cmd = findStaticCommandHelp('search')!;
     showCommandHelp(cmd);
 
     const output = stdoutSpy.mock.calls
@@ -195,16 +196,12 @@ describe('command-help-specs', () => {
     expect(output).toContain('WHEN TO USE');
     expect(output).toContain('EXAMPLES');
     expect(output).toContain('SCHEME');
-    expect(output).toContain(
-      'required option: --type enum(documentSymbols|definition|references'
-    );
-    expect(output).toContain('workspaceSymbol');
-    expect(output).toContain('diagnostic');
-    expect(output).toContain('lspGetSemantics');
-    expect(output).toContain('after grep');
-    expect(output).toContain(
-      'lsp packages/octocode/src/cli/index.ts --type references'
-    );
+    expect(output).toContain('Sources: Local path, GitHub owner/repo');
+    expect(output).toContain('Targets: code, content, structure');
+    // semantics (formerly the lsp command) is now reachable via search --op
+    expect(output).toContain('--op');
+    expect(output).toContain('documentSymbols');
+    expect(output).toContain('search --scheme');
 
     stdoutSpy.mockRestore();
   });

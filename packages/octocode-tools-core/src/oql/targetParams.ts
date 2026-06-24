@@ -51,6 +51,7 @@ const semanticsParams = z
       .optional(),
     uri: z.string().optional(),
     symbolName: z.string().optional(),
+    symbolKind: z.string().optional(),
     lineHint: intMin1.optional(),
     orderHint: z.number().int().optional(),
     includeDeclaration: z.boolean().optional(),
@@ -73,9 +74,13 @@ const repositoriesParams = z
     language: z.string().optional(),
     owner: z.string().optional(),
     stars: z.union([z.string(), z.number()]).optional(),
+    forks: z.string().optional(),
+    goodFirstIssues: z.string().optional(),
     size: z.string().optional(),
+    created: z.string().optional(),
     updated: z.string().optional(),
     license: z.string().optional(),
+    match: z.array(z.enum(['name', 'description', 'readme'])).optional(),
     visibility: z.enum(['public', 'private']).optional(),
     archived: z.boolean().optional(),
     sort: z
@@ -98,6 +103,7 @@ const packagesParams = z
 const pullRequestsParams = z
   .object({
     prNumber: intMin1.optional(),
+    concise: z.boolean().optional(),
     state: z.enum(['open', 'closed', 'merged']).optional(),
     author: z.string().optional(),
     label: z.union([z.string(), z.array(z.string())]).optional(),
@@ -107,6 +113,16 @@ const pullRequestsParams = z
       .optional(),
     head: z.string().optional(),
     base: z.string().optional(),
+    created: z.string().optional(),
+    updated: z.string().optional(),
+    closed: z.string().optional(),
+    'merged-at': z.string().optional(),
+    draft: z.boolean().optional(),
+    archived: z.boolean().optional(),
+    sort: z
+      .enum(['created', 'updated', 'best-match', 'comments', 'reactions'])
+      .optional(),
+    order: z.enum(['asc', 'desc']).optional(),
     reviewMode: z.string().optional(),
     filePage: intMin1.optional(),
     commentPage: intMin1.optional(),
@@ -123,6 +139,7 @@ const pullRequestsParams = z
     matchScope: z
       .enum(['body', 'title', 'comments', 'reviews', 'all'])
       .optional(),
+    content: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
 
@@ -132,6 +149,7 @@ const commitsParams = z
     branch: z.string().optional(),
     since: z.string().optional(),
     until: z.string().optional(),
+    author: z.string().optional(),
     includeDiff: z.boolean().optional(),
     limit: intMin1.optional(),
     page: intMin1.optional(),
@@ -145,13 +163,17 @@ const artifactsParams = z
       .optional(),
     archiveFile: z.string().optional(),
     entryPageNumber: intMin1.optional(),
+    maxEntries: intMin1.optional(),
     entriesPerPage: intMin1.optional(),
     minLength: z.number().int().min(1).max(128).optional(),
     scanOffset: nonNegInt.optional(),
     charOffset: nonNegInt.optional(),
     charLength: intMin1.optional(),
     matchString: z.string().optional(),
+    detailed: z.boolean().optional(),
+    format: z.string().optional(),
     verbose: z.boolean().optional(),
+    includeOffsets: z.boolean().optional(),
   })
   .passthrough();
 

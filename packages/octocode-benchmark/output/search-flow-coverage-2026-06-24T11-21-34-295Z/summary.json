@@ -1,0 +1,41 @@
+{
+  "benchmark": "octocode-search-flow-coverage",
+  "createdAt": "2026-06-24T11:23:13.435Z",
+  "cwd": "/Users/guybary/Documents/octocode-mcp",
+  "outDir": "/Users/guybary/Documents/octocode-mcp/packages/octocode-benchmark/output/search-flow-coverage-2026-06-24T11-21-34-295Z",
+  "searchOnly": true,
+  "totalRows": 24,
+  "pass": 23,
+  "partial": 1,
+  "fail": 0,
+  "score": 47,
+  "maxScore": 48,
+  "lanes": {
+    "local": {
+      "rows": 7,
+      "pass": 6,
+      "partial": 1,
+      "fail": 0
+    },
+    "github-provider": {
+      "rows": 8,
+      "pass": 8,
+      "partial": 0,
+      "fail": 0
+    },
+    "github-materialized-local": {
+      "rows": 9,
+      "pass": 9,
+      "partial": 0,
+      "fail": 0
+    }
+  },
+  "materializedPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+  "correctedRows": [
+    "MAT-STRUCTURE",
+    "MAT-FETCH-NONE",
+    "MAT-FETCH-STANDARD",
+    "MAT-FETCH-SYMBOLS",
+    "MAT-AST-STRUCTURAL"
+  ]
+}

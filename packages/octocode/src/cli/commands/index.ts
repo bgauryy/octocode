@@ -14,19 +14,10 @@ const lightweightCommands: readonly CLICommand[] = [
 ];
 
 const commandLoaders: Record<string, CommandLoader> = {
-  // Smart "quick" commands — Unix-style shortcuts that route local-or-GitHub.
-  cat: async () => (await import('./cat.js')).catCommand,
-  ls: async () => (await import('./ls.js')).lsCommand,
-  find: async () => (await import('./find.js')).findFilesCommand,
-  diff: async () => (await import('./diff.js')).diffCommand,
-  grep: async () => (await import('./grep.js')).grepCommand,
+  // Search is the single read-only research surface. Workflow commands below
+  // are kept when they provide distinct materialization/cache actions.
   search: async () => (await import('./search.js')).searchCommand,
-  pr: async () => (await import('./pr.js')).prCommand,
-  history: async () => (await import('./history.js')).historyCommand,
-  repo: async () => (await import('./repo.js')).repoCommand,
-  pkg: async () => (await import('./pkg.js')).pkgCommand,
-  lsp: async () => (await import('./lsp.js')).lspCommand,
-  binary: async () => (await import('./binary.js')).binaryCommand,
+  skill: async () => (await import('./skill.js')).skillCommand,
   unzip: async () => (await import('./unzip.js')).unzipCommand,
   cache: async () => (await import('./cache.js')).cacheCommand,
   clone: async () => (await import('./clone.js')).cloneCommand,

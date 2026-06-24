@@ -230,6 +230,12 @@ describe('toolCommand', () => {
 
     expect(publicMocks.localSearchCode).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Example'));
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n');
+    expect(output).toContain('Command Patterns');
+    expect(output).toContain('"keywords":"runCLI"');
+    expect(output).toContain('"pattern":"eval($X)"');
   });
 
   it('rejects legacy --input usage and points to the canonical contract', async () => {
@@ -408,6 +414,13 @@ describe('toolCommand', () => {
     expect(context).toContain('1. ghSearchCode');
     expect(context).toContain('2. ghCloneRepo');
     expect(context).toContain('3. localSearchCode');
+    expect(context).toContain(
+      'Quick commands (search/unzip/clone/cache fetch)'
+    );
+    expect(context).not.toContain('Quick commands (search/ls/cat/repo');
+    expect(context).not.toMatch(
+      /Quick commands \([^)]*\b(?:ls|cat|repo|history|binary|diff|pkg|lsp|find|grep)\b/
+    );
     // full mode includes complete tool descriptions
     expect(context).toContain('Search code in GitHub repositories.');
     expect(context).toContain('Clone a repository locally.');

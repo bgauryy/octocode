@@ -16,7 +16,6 @@ export type {
   RepoSearchResult,
   PullRequestItem,
   PullRequestSearchResult,
-  DirectoryEntry,
   RepoStructureResult,
 } from './providerResults.js';
 

@@ -1,0 +1,543 @@
+{
+  "results": [
+    {
+      "kind": "code",
+      "path": "src/index.ts",
+      "snippet": "export*from\"./vanilla.ts\";export*from\"./react.ts\";",
+      "matchIndices": [
+        {
+          "start": 17,
+          "end": 27,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/index.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/react.ts",
+      "snippet": "import React from 'react' import{createStore}from './vanilla.ts' import type{",
+      "matchIndices": [
+        {
+          "start": 57,
+          "end": 67,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/react.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/react.ts",
+      "snippet": "StoreMutatorIdentifier,}from './vanilla.ts'",
+      "matchIndices": [
+        {
+          "start": 36,
+          "end": 46,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/react.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/redux.ts",
+      "snippet": "import type{StateCreator,StoreMutatorIdentifier}from '../vanilla.ts' import type{NamedSet}from './devtools.ts' type Write<T,U> = Omit<T,keyof U> & U type Action ={type: string}",
+      "matchIndices": [
+        {
+          "start": 62,
+          "end": 72,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/redux.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/combine.ts",
+      "snippet": "import type{StateCreator,StoreMutatorIdentifier}from '../vanilla.ts' type Write<T,U> = Omit<T,keyof U> & U export function combine< T extends object,U extends object,",
+      "matchIndices": [
+        {
+          "start": 62,
+          "end": 72,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/combine.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/immer.ts",
+      "snippet": "import{produce}from 'immer' import type{Draft}from 'immer' import type{StateCreator,StoreMutatorIdentifier}from '../vanilla.ts' type Immer = < T,Mps extends [StoreMutatorIdentifier,unknown][] = [],",
+      "matchIndices": [
+        {
+          "start": 129,
+          "end": 139,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/immer.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/persist.ts",
+      "snippet": "StateCreator,StoreApi,StoreMutatorIdentifier,}from '../vanilla.ts' export interface StateStorage<R = unknown>{getItem:(name: string)=> string | null | Promise<string | null>",
+      "matchIndices": [
+        {
+          "start": 65,
+          "end": 75,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/persist.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/traditional.ts",
+      "snippet": "import useSyncExternalStoreExports from 'use-sync-external-store/shim/with-selector' import{createStore}from './vanilla.ts' import type{",
+      "matchIndices": [
+        {
+          "start": 116,
+          "end": 126,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/traditional.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/traditional.ts",
+      "snippet": "StoreMutatorIdentifier,}from './vanilla.ts'",
+      "matchIndices": [
+        {
+          "start": 36,
+          "end": 46,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/traditional.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/ssrSafe.ts",
+      "snippet": "import type{StateCreator,StoreMutatorIdentifier}from '../vanilla.ts' export function ssrSafe< T extends object,",
+      "matchIndices": [
+        {
+          "start": 62,
+          "end": 72,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/ssrSafe.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/subscribeWithSelector.ts",
+      "snippet": "import type{StateCreator,StoreMutatorIdentifier}from '../vanilla.ts' type SubscribeWithSelector = < T,Mps extends [StoreMutatorIdentifier,unknown][] = [],Mcs extends [StoreMutatorIdentifier,unknown][] = [],>(",
+      "matchIndices": [
+        {
+          "start": 62,
+          "end": 72,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/subscribeWithSelector.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "src/middleware/devtools.ts",
+      "snippet": "StateCreator,StoreApi,StoreMutatorIdentifier,}from '../vanilla.ts' type Config = Parameters<(Window extends{__REDUX_DEVTOOLS_EXTENSION__?: infer T}",
+      "matchIndices": [
+        {
+          "start": 65,
+          "end": 75,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "pmndrs/zustand"
+            },
+            "scope": {
+              "path": "src/middleware/devtools.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "vanilla.ts"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "providerSemanticsApproximate",
+      "severity": "info",
+      "message": "GitHub code search returns path-level hits without line numbers; follow next.fetch for exact location/lines.",
+      "blocksAnswer": false,
+      "backend": "ghSearchCode"
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "ghSearchCode",
+      "source": {
+        "kind": "github",
+        "repo": "pmndrs/zustand"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

@@ -119,6 +119,34 @@ function routeGithub(
         },
       };
     }
+    // Path-like field equality (basename/extension/path "=") maps to provider
+    // path qualifiers — the same route the files target and the code field
+    // branch use — instead of forcing materialization.
+    // When materialization is allowed, prefer it (exact, complete universe),
+    // mirroring the positive-content branch above.
+    if (
+      predicate.kind === 'field' &&
+      predicate.op === '=' &&
+      (predicate.field === 'path' ||
+        predicate.field === 'basename' ||
+        predicate.field === 'extension')
+    ) {
+      if (canMaterialize) {
+        return {
+          route: 'ROUTE',
+          backend: LOCAL_FIND,
+          exact: true,
+          reason:
+            'path/name field equality routed to materialization for an exact file set',
+        };
+      }
+      return {
+        route: 'PUSHDOWN',
+        backend: GH_SEARCH,
+        exact: true,
+        reason: 'path/name field equality listed via provider path search',
+      };
+    }
     if (canMaterialize) {
       return {
         route: 'ROUTE',
@@ -140,7 +168,7 @@ function routeGithub(
   }
 
   switch (predicate.kind) {
-    case 'text':
+    case 'text': {
       if (ctx.materialize?.mode === 'required') {
         return {
           route: 'ROUTE',
@@ -150,12 +178,44 @@ function routeGithub(
             'literal text routed to materialization because materialize.mode is required',
         };
       }
+      // GitHub code search is a case-insensitive substring match: it cannot
+      // honor case:sensitive or wholeWord (the compiled flags are dropped by
+      // transformers/github/code.ts because ghSearchCode has no equivalent).
+      // So such a predicate is approximate, never proof — route to bounded
+      // materialization when allowed, otherwise push down but mark the decision
+      // non-exact so the plan does not claim proof.
+      const providerCannotHonor =
+        predicate.case === 'sensitive' || predicate.wholeWord === true;
+      if (providerCannotHonor) {
+        if (canMaterialize) {
+          return {
+            route: 'ROUTE',
+            backend: LOCAL_SEARCH,
+            exact: true,
+            reason:
+              'case-sensitive / whole-word text routed to materialization for exact proof',
+          };
+        }
+        return {
+          route: 'PUSHDOWN',
+          backend: GH_SEARCH,
+          exact: false,
+          reason:
+            'GitHub code search cannot honor case:sensitive / wholeWord (case-insensitive substring); approximate',
+          diagnostic: {
+            code: 'providerSemanticsApproximate',
+            message:
+              'GitHub code search is a case-insensitive substring match and cannot honor case:sensitive or wholeWord; materialize for exact proof.',
+          },
+        };
+      }
       return {
         route: 'PUSHDOWN',
         backend: GH_SEARCH,
         exact: true,
         reason: 'literal text pushed to GitHub code search',
       };
+    }
     case 'regex': {
       if (predicate.dialect === 'pcre2') {
         return localOnlyOverProvider(ctx, 'PCRE2 regex', canMaterialize);

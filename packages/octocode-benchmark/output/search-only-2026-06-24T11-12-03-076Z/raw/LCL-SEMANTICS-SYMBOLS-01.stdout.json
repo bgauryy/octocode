@@ -1,0 +1,467 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "semantics",
+      "id": "search.ts",
+      "data": {
+        "type": "documentSymbols",
+        "uri": "search.ts",
+        "lsp": {
+          "serverAvailable": true,
+          "source": "native"
+        },
+        "summary": {
+          "totalSymbols": 50,
+          "returnedSymbols": 40,
+          "topLevelSymbols": 46,
+          "kinds": {
+            "interface": 4,
+            "constant": 1,
+            "function": 41,
+            "property": 4
+          }
+        },
+        "payload": {
+          "kind": "documentSymbols",
+          "symbols": [
+            {
+              "name": "CliShorthandCorpus",
+              "kind": "interface",
+              "line": 24,
+              "character": 0,
+              "endLine": 27,
+              "childCount": 0
+            },
+            {
+              "name": "CliSearchShorthand",
+              "kind": "interface",
+              "line": 29,
+              "character": 0,
+              "endLine": 31,
+              "childCount": 0
+            },
+            {
+              "name": "searchCommand",
+              "kind": "constant",
+              "line": 39,
+              "character": 13,
+              "endLine": 269,
+              "childCount": 0
+            },
+            {
+              "name": "Resolved",
+              "kind": "interface",
+              "line": 271,
+              "character": 0,
+              "endLine": 271,
+              "childCount": 0
+            },
+            {
+              "name": "tryHandleSymbolOutline",
+              "kind": "function",
+              "line": 273,
+              "character": 0,
+              "endLine": 333,
+              "childCount": 0
+            },
+            {
+              "name": "resolveInput",
+              "kind": "function",
+              "line": 336,
+              "character": 0,
+              "endLine": 352,
+              "childCount": 0
+            },
+            {
+              "name": "readJsonText",
+              "kind": "function",
+              "line": 354,
+              "character": 0,
+              "endLine": 381,
+              "childCount": 0
+            },
+            {
+              "name": "looksLikeJsonText",
+              "kind": "function",
+              "line": 383,
+              "character": 0,
+              "endLine": 386,
+              "childCount": 0
+            },
+            {
+              "name": "looksLikeJsonFile",
+              "kind": "function",
+              "line": 388,
+              "character": 0,
+              "endLine": 390,
+              "childCount": 0
+            },
+            {
+              "name": "isPullRequestShorthand",
+              "kind": "function",
+              "line": 392,
+              "character": 0,
+              "endLine": 398,
+              "childCount": 0
+            },
+            {
+              "name": "isPullRequestTextQuery",
+              "kind": "function",
+              "line": 400,
+              "character": 0,
+              "endLine": 402,
+              "childCount": 0
+            },
+            {
+              "name": "pullRequestTextQuery",
+              "kind": "function",
+              "line": 404,
+              "character": 0,
+              "endLine": 407,
+              "childCount": 0
+            },
+            {
+              "name": "isPullRequestPatchPath",
+              "kind": "function",
+              "line": 409,
+              "character": 0,
+              "endLine": 411,
+              "childCount": 0
+            },
+            {
+              "name": "pullRequestPatchPath",
+              "kind": "function",
+              "line": 413,
+              "character": 0,
+              "endLine": 416,
+              "childCount": 0
+            },
+            {
+              "name": "GithubDiffShortcut",
+              "kind": "interface",
+              "line": 418,
+              "character": 0,
+              "endLine": 423,
+              "childCount": 4
+            },
+            {
+              "name": "corpus",
+              "kind": "property",
+              "line": 419,
+              "character": 2,
+              "endLine": 419,
+              "childCount": 0,
+              "containerName": "GithubDiffShortcut"
+            },
+            {
+              "name": "baseRef",
+              "kind": "property",
+              "line": 420,
+              "character": 2,
+              "endLine": 420,
+              "childCount": 0,
+              "containerName": "GithubDiffShortcut"
+            },
+            {
+              "name": "headRef",
+              "kind": "property",
+              "line": 421,
+              "character": 2,
+              "endLine": 421,
+              "childCount": 0,
+              "containerName": "GithubDiffShortcut"
+            },
+            {
+              "name": "path",
+              "kind": "property",
+              "line": 422,
+              "character": 2,
+              "endLine": 422,
+              "childCount": 0,
+              "containerName": "GithubDiffShortcut"
+            },
+            {
+              "name": "resolveGithubDiffShortcut",
+              "kind": "function",
+              "line": 425,
+              "character": 0,
+              "endLine": 470,
+              "childCount": 0
+            },
+            {
+              "name": "buildSugar",
+              "kind": "function",
+              "line": 482,
+              "character": 0,
+              "endLine": 821,
+              "childCount": 0
+            },
+            {
+              "name": "validateShorthandOptions",
+              "kind": "function",
+              "line": 823,
+              "character": 0,
+              "endLine": 901,
+              "childCount": 0
+            },
+            {
+              "name": "parseNumericOptions",
+              "kind": "function",
+              "line": 903,
+              "character": 0,
+              "endLine": 951,
+              "childCount": 0
+            },
+            {
+              "name": "isParseError",
+              "kind": "function",
+              "line": 953,
+              "character": 0,
+              "endLine": 959,
+              "childCount": 0
+            },
+            {
+              "name": "isSinglePositionalTarget",
+              "kind": "function",
+              "line": 961,
+              "character": 0,
+              "endLine": 992,
+              "childCount": 0
+            },
+            {
+              "name": "hasTargetIntent",
+              "kind": "function",
+              "line": 994,
+              "character": 0,
+              "endLine": 1016,
+              "childCount": 0
+            },
+            {
+              "name": "inferTarget",
+              "kind": "function",
+              "line": 1018,
+              "character": 0,
+              "endLine": 1066,
+              "childCount": 0
+            },
+            {
+              "name": "hasContentIntent",
+              "kind": "function",
+              "line": 1068,
+              "character": 0,
+              "endLine": 1080,
+              "childCount": 0
+            },
+            {
+              "name": "hasPullRequestIntent",
+              "kind": "function",
+              "line": 1082,
+              "character": 0,
+              "endLine": 1093,
+              "childCount": 0
+            },
+            {
+              "name": "isCorpusLike",
+              "kind": "function",
+              "line": 1095,
+              "character": 0,
+              "endLine": 1104,
+              "childCount": 0
+            },
+            {
+              "name": "isLocalFileTarget",
+              "kind": "function",
+              "line": 1106,
+              "character": 0,
+              "endLine": 1115,
+              "childCount": 0
+            },
+            {
+              "name": "looksLikeFilePath",
+              "kind": "function",
+              "line": 1118,
+              "character": 0,
+              "endLine": 1121,
+              "childCount": 0
+            },
+            {
+              "name": "singlePositionalCorpusTarget",
+              "kind": "function",
+              "line": 1133,
+              "character": 0,
+              "endLine": 1151,
+              "childCount": 0
+            },
+            {
+              "name": "listOption",
+              "kind": "function",
+              "line": 1153,
+              "character": 0,
+              "endLine": 1158,
+              "childCount": 0
+            },
+            {
+              "name": "parseBooleanString",
+              "kind": "function",
+              "line": 1160,
+              "character": 0,
+              "endLine": 1166,
+              "childCount": 0
+            },
+            {
+              "name": "normalizeEntryType",
+              "kind": "function",
+              "line": 1168,
+              "character": 0,
+              "endLine": 1175,
+              "childCount": 0
+            },
+            {
+              "name": "resolveModeOption",
+              "kind": "function",
+              "line": 1177,
+              "character": 0,
+              "endLine": 1187,
+              "childCount": 0
+            },
+            {
+              "name": "resolveSemanticsOp",
+              "kind": "function",
+              "line": 1189,
+              "character": 0,
+              "endLine": 1196,
+              "childCount": 0
+            },
+            {
+              "name": "resolveArtifactMode",
+              "kind": "function",
+              "line": 1198,
+              "character": 0,
+              "endLine": 1209,
+              "childCount": 0
+            },
+            {
+              "name": "resolveCorpus",
+              "kind": "function",
+              "line": 1212,
+              "character": 0,
+              "endLine": 1285,
+              "childCount": 0
+            }
+          ]
+        },
+        "pagination": {
+          "currentPage": 1,
+          "totalPages": 2,
+          "totalResults": 50,
+          "hasMore": true,
+          "itemsPerPage": 40,
+          "nextPage": 2
+        }
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact"
+              }
+            }
+          },
+          "why": "Read the code at this symbol location.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "semantic"
+    }
+  ],
+  "pagination": {
+    "hasMore": true,
+    "currentPage": 1,
+    "totalPages": 2,
+    "itemsPerPage": 40,
+    "next": {
+      "query": {
+        "schema": "oql",
+        "target": "semantics",
+        "from": {
+          "kind": "local",
+          "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+        },
+        "view": "paginated",
+        "params": {
+          "type": "documentSymbols",
+          "page": 2
+        }
+      },
+      "why": "Continue the LSP semantic result page.",
+      "confidence": "exact"
+    }
+  },
+  "next": {
+    "next.page": {
+      "query": {
+        "schema": "oql",
+        "target": "semantics",
+        "from": {
+          "kind": "local",
+          "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+        },
+        "view": "paginated",
+        "params": {
+          "type": "documentSymbols",
+          "page": 2
+        }
+      },
+      "why": "Continue the LSP semantic result page.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "partialResult",
+      "severity": "warning",
+      "message": "Semantic result is paginated; follow the continuation before treating it as complete proof.",
+      "blocksAnswer": true,
+      "backend": "lspGetSemantics",
+      "continuation": {
+        "query": {
+          "schema": "oql",
+          "target": "semantics",
+          "from": {
+            "kind": "local",
+            "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+          },
+          "view": "paginated",
+          "params": {
+            "type": "documentSymbols",
+            "page": 2
+          }
+        },
+        "why": "Continue the LSP semantic result page.",
+        "confidence": "exact"
+      }
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "lspGetSemantics",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

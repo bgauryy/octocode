@@ -32,15 +32,15 @@ Verb → CLI command (the quick commands auto-route: a **local path** hits the w
 
 | Need | CLI command | MCP tool |
 |------|-------------|----------|
-| Search code / find `SKILL.md` | `npx octocode grep "<kw>" owner/repo` · local: `… <path>` | `ghSearchCode` / `localSearchCode` |
-| Discover repos by topic | `npx octocode repo <keywords>` | `ghSearchRepos` |
-| Find files by name/path | `npx octocode find "<query>" [owner/repo\|path]` | `localFindFiles` |
-| List a folder / repo tree | `npx octocode ls owner/repo/path` · local: `… <path>` | `ghViewRepoStructure` / `localViewStructure` |
-| Read an exact file | `npx octocode cat owner/repo/path/SKILL.md` · local: `… <path>` | `ghGetFileContent` / `localGetFileContent` |
+| Search code / find `SKILL.md` | `npx octocode search "<kw>" owner/repo` · local: `… <path>` | `ghSearchCode` / `localSearchCode` through OQL |
+| Discover repos by topic | `npx octocode search <keywords> --target repositories` | `ghSearchRepos` |
+| Find files by name/path | `npx octocode search "<query>" [owner/repo\|path] --search path` | `localFindFiles` through OQL `target:"files"` |
+| List a folder / repo tree | `npx octocode search owner/repo/path --tree` · local: `… <path> --tree` | `ghViewRepoStructure` / `localViewStructure` |
+| Read an exact file | `npx octocode search owner/repo/path/SKILL.md --content-view exact` · local: `… <path> --content-view exact` | `ghGetFileContent` / `localGetFileContent` |
 | Download a skill folder | `npx octocode clone owner/repo/path[@branch]` | `ghCloneRepo` |
 | Schema-exact / bulk | `npx octocode tools <name> --scheme` then `--queries '<json>'` | call the tool directly |
 
-For every PUBLIC skill query, also run the runtime web search tool in parallel (catches skills in articles, awesome-lists, registries) — treat web mentions as LEADS and confirm the real `SKILL.md` via Octocode (`npx octocode cat` or `ghGetFileContent`) before recommending.
+For every PUBLIC skill query, also run the runtime web search tool in parallel (catches skills in articles, awesome-lists, registries) — treat web mentions as LEADS and confirm the real `SKILL.md` via Octocode (`npx octocode search <path> --content-view exact` or `ghGetFileContent`) before recommending.
 
 Fallbacks: if neither the MCP server nor `npx octocode` is available (no network / not installed), map each verb (search/read/list/download) to the equivalent runtime tool; if a marketplace surface is unreachable, switch to GitHub topic search and `llms.txt` snapshots and lower confidence; if the user requested local-only, do not query remote sources.
 

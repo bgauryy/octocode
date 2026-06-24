@@ -1,0 +1,36 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "artifact",
+      "id": "sample.tgz",
+      "data": {
+        "mode": "list",
+        "path": "sample.tgz",
+        "backend": "tar",
+        "totalEntries": 3,
+        "entries": [
+          "drwxr-xr-x  0 guybary staff       0 Jun 22 18:14 archive-src/",
+          "-rw-r--r--  0 guybary staff      33 Jun 24 14:09 archive-src/package.json",
+          "-rw-r--r--  0 guybary staff      48 Jun 24 14:09 archive-src/index.ts"
+        ]
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "localBinaryInspect",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/Documents/octocode-mcp/.octocode/eval-fixtures/sample.tgz"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

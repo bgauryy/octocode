@@ -7,17 +7,21 @@ The Octocode CLI (`octocode`) runs quick research commands, executes all Octocod
 ```bash
 npx octocode --help            # all commands
 npx octocode tools             # list tools
-npx octocode tools <name>      # schema for one tool
+npx octocode tools <name> --scheme  # schema for one tool
 npx octocode status --json     # auth/token/cache/MCP status
 npx octocode install --ide cursor  # install MCP for an IDE
+npx octocode skill --add bgauryy/octocode-mcp/skills/octocode-engineer --platform common
 ```
+
+`skill --add` is the agent-safe skill installer. It requires every destination as a flag and never prompts, so automation can use `--platform common|cursor|claude|codex|all`, `--mode copy|symlink`, `--force`, and `--json` deterministically.
 
 ## Docs
 
 | Doc | Purpose |
 |-----|---------|
 | [REFERENCE.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md) | All commands, flags, options, exit codes |
-| [BENCHMARK.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/BENCHMARK.md) | Agent benchmark comparing CLI and MCP tool paths |
+| [SKILLS_GUIDE.md](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md) | Install GitHub Agent Skill folders into supported agent clients |
+| [GITHUB_API_BENCHMARK.md](https://github.com/bgauryy/octocode/blob/main/docs/cli/GITHUB_API_BENCHMARK.md) | GitHub API benchmark notes |
 
 ## Supported IDE Clients
 

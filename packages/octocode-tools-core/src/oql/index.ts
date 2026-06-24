@@ -43,6 +43,16 @@ export {
   type ShorthandCorpus,
   type ShorthandResult,
 } from './shorthand.js';
+export {
+  listTransformerEntries,
+  findTransformerById,
+  findTransformerEntry,
+  backendCallsForTransformer,
+} from './transformers/registry.js';
+export type {
+  TransformerRegistryEntry,
+  TransformerStatus,
+} from './transformers/contract.js';
 export { oqlSchemaText, OQL_SCHEMA_DOC } from './schemeText.js';
 export {
   analyzeResearchFlow,

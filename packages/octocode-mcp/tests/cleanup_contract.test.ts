@@ -51,6 +51,10 @@ const CORE_FILES_THAT_MUST_BE_GONE = [
   'src/utils/exec/commandAvailability.ts',
   'src/tools/local_ripgrep/grepFallbackExecutor.ts',
   'src/tools/local_ripgrep/ripgrepParser.ts',
+  // Dead pagination engines removed: only two live pagination flows remain
+  // (utils/pagination/core.ts + utils/response/bulk.ts).
+  'src/utils/response/structuredPagination.ts',
+  'src/utils/pagination/outputSizeLimit.ts',
 ];
 
 const SOURCE_FILES_THAT_MUST_NOT_REFERENCE: Array<{
@@ -153,31 +157,5 @@ describe('Cleanup contract — no fallbacks, no redundancy', () => {
     expect(source).toMatch(/searchRipgrep/);
     expect(source).not.toMatch(/RipgrepCommandBuilder/);
     expect(source).not.toMatch(/resolveRipgrepBinary/);
-  });
-
-  it('structured pagination never injects outputPagination into error/empty data', async () => {
-    const { readFile } = await import('fs/promises');
-    const source = await readFile(
-      `${CORE_ROOT}/src/utils/response/structuredPagination.ts`,
-      'utf-8'
-    );
-
-    const applyMatch = source.match(
-      /export\s+function\s+applyQueryOutputPagination\b[\s\S]*?\n\}/
-    );
-    expect(applyMatch, 'applyQueryOutputPagination not found').toBeTruthy();
-    expect(
-      applyMatch![0],
-      'applyQueryOutputPagination must guard on success (status === undefined)'
-    ).toMatch(/status\s*!==\s*undefined/);
-
-    const flatMatch = source.match(
-      /function\s+paginateFlatQueryResult\b[\s\S]*?\n\}/
-    );
-    expect(flatMatch, 'paginateFlatQueryResult not found').toBeTruthy();
-    expect(
-      flatMatch![0],
-      'paginateFlatQueryResult must guard on success (status === undefined)'
-    ).toMatch(/status\s*!==\s*undefined/);
   });
 });

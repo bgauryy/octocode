@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import {
   SymbolResolver,
   SymbolResolutionError,
@@ -43,6 +43,40 @@ export async function resolveFileAnchor(
   }
 
   const absolutePath = pathValidation.sanitizedPath;
+  // Stat first so a missing path or a directory produces an actionable message
+  // instead of a raw, confusing "EISDIR: illegal operation on a directory" or
+  // "ENOENT" surfaced verbatim. LSP semantics operate on a single file.
+  try {
+    const stats = await stat(absolutePath);
+    if (stats.isDirectory()) {
+      return {
+        ok: false,
+        error: {
+          status: 'error',
+          error: `Path is a directory, not a file: ${absolutePath}. lspGetSemantics needs a single file uri.`,
+          errorType: 'not_a_file',
+          errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
+          hints: [
+            'Pass the path to a specific source file (e.g. via search --op on a file, or workspaceSymbol with symbolName for whole-project lookup).',
+          ],
+        },
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      error: {
+        status: 'error',
+        error: `File not found: ${absolutePath}. Check the path and spelling.`,
+        errorType: 'file_not_found',
+        errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
+        hints: [
+          `Could not find file: ${uri ?? '<missing>'}. Run search/localFindFiles to get the exact path first.`,
+        ],
+      },
+    };
+  }
+
   try {
     return {
       ok: true,

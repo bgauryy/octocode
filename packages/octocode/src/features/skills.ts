@@ -10,6 +10,8 @@ import {
   type SkillInstallResult,
   type SkillInstallStrategy,
   type SkillInstallTarget,
+  USER_SKILL_PLATFORM_TARGETS,
+  type UserSkillPlatform,
 } from '../utils/skills.js';
 
 export interface SkillTargetDestination {
@@ -55,9 +57,54 @@ export function parseSkillTargetList(rawTargets: string): {
   return { targets };
 }
 
+const USER_SKILL_PLATFORM_IDS: Record<string, UserSkillPlatform | 'all'> = {
+  common: 'common',
+  agent: 'common',
+  agents: 'common',
+  cursor: 'cursor',
+  claude: 'claude',
+  'claude-code': 'claude',
+  'claude-desktop': 'claude',
+  codex: 'codex',
+  all: 'all',
+};
+
+export function parseUserSkillPlatformList(rawPlatforms: string): {
+  platforms: UserSkillPlatform[];
+  targets: SkillInstallTarget[];
+  error?: string;
+} {
+  const parsed = rawPlatforms
+    .split(',')
+    .map(platform => USER_SKILL_PLATFORM_IDS[platform.trim().toLowerCase()])
+    .filter(
+      (platform): platform is UserSkillPlatform | 'all' =>
+        platform !== undefined
+    );
+  const platforms = parsed.includes('all')
+    ? (Object.keys(USER_SKILL_PLATFORM_TARGETS) as UserSkillPlatform[])
+    : [...new Set(parsed.filter((p): p is UserSkillPlatform => p !== 'all'))];
+
+  const targets = [
+    ...new Set(
+      platforms.flatMap(platform => USER_SKILL_PLATFORM_TARGETS[platform])
+    ),
+  ];
+
+  if (platforms.length === 0) {
+    return {
+      platforms,
+      targets,
+      error: 'No valid platforms provided',
+    };
+  }
+
+  return { platforms, targets };
+}
+
 export function getSkillTargetDestinations(
   targets: readonly SkillInstallTarget[],
-  defaultDestDir: string
+  defaultDestDir?: string
 ): SkillTargetDestination[] {
   return targets.map(target => ({
     target,

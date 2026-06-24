@@ -10,11 +10,11 @@ Source docs: [`AGENT_RESEARCH_WORKFLOWS.md`](https://github.com/bgauryy/octocode
 ## Hard rules
 
 1. **Read schema before raw calls.** `octocode tools <name> --scheme` first — quick-command flags and raw-tool fields are different APIs.
-2. **Snippets are leads, not proof.** Re-anchor with `cat --match-string --mode none`, line ranges, AST, LSP, or history before citing.
+2. **Snippets are leads, not proof.** Re-anchor with `search --match-string --content-view exact`, line ranges, AST, LSP, or commit history before citing.
 3. **Follow returned pagination.** Never invent `next.*`, offsets, pages, local paths, or branches. Follow `charOffset`, `matchPage`, `filePage`, `next.*`.
 4. **Empty ≠ absent.** Before concluding nothing was found: check spelling, branch/ref, path scope, extension filter, pagination, and provider limits.
 5. **Batch independent queries; serialize dependent steps.** Multiple independent queries can go in one raw-tool call; dependent steps must wait for returned anchors.
-6. **LSP requires a real `lineHint`.** Get it from `grep`/`ast`/`symbols` first — never guess.
+6. **LSP requires a real `lineHint`.** Get it from `search`/`ast`/`symbols` first — never guess.
 7. **Candidate ≠ proof.** OQL `target:"research"` and `target:"graph"` return candidate evidence. Prove deletion with LSP + AST + exact reads before acting.
 
 ---
@@ -23,7 +23,7 @@ Source docs: [`AGENT_RESEARCH_WORKFLOWS.md`](https://github.com/bgauryy/octocode
 
 | Surface | Use when | Key rule |
 |---------|----------|----------|
-| Quick commands (`grep`, `cat`, `lsp`, …) | Common pattern expressible as CLI flags | Prefer `--json` when another step depends on the result; preserve `location`, refs, pagination |
+| Quick commands (`search`, `pr`, `unzip`, `clone`, `cache fetch`) | Common pattern expressible as CLI flags | Prefer `--json` when another step depends on the result; preserve `location`, refs, pagination |
 | OQL `search` | One typed query should route across code/content/files/structure | Use `--explain` when routing is uncertain; follow `next.*` continuations |
 | Raw `tools` | Quick command can't express the needed field, pagination domain, or content selector | Always run `--scheme` first; pass schema-exact JSON only |
 | OQL `target:"research"` | Broad dead-code / package-drift candidate sweep | Returns candidate rows — prove before deleting |
@@ -38,7 +38,7 @@ Source docs: [`AGENT_RESEARCH_WORKFLOWS.md`](https://github.com/bgauryy/octocode
 ```bash
 # Shorthand (auto-routes local vs GitHub from the positional arg)
 octocode search "registerTool" ./packages --json --compact
-octocode search "registerTool" owner/repo --type tsx --json
+octocode search "registerTool" owner/repo --lang tsx --json
 
 # OQL typed query
 octocode search --query '{"target":"code","from":{"kind":"local","path":"src"},"where":{"kind":"text","value":"registerTool"},"view":"discovery","limit":10}' --json
@@ -54,7 +54,7 @@ octocode search --query '{"target":"semantics","from":{"kind":"local","path":"sr
 octocode search --query '{"target":"semantics","from":{"kind":"local","path":"src/index.ts"},"params":{"type":"callers","symbolName":"processOrder","lineHint":88,"format":"compact"}}' --json
 ```
 
-Params mirror `lspGetSemantics`: `type`, `symbolName`, `lineHint`, `depth`, `groupByFile`, `format`, `includeDeclaration`. Get a real `lineHint` from `grep`/`symbols` first — never guess.
+Params mirror `lspGetSemantics`: `type`, `symbolName`, `lineHint`, `depth`, `groupByFile`, `format`, `includeDeclaration`. Get a real `lineHint` from `search`/`symbols` first — never guess.
 
 ### Smart reachability / dead-code / package drift
 
@@ -98,16 +98,16 @@ Use before a sweep when routing, materialization strategy, or predicate pushdown
 
 ## `--repo` remote-as-local shortcut
 
-`grep`, `find`, `cat`, and `ls` accept `--repo <owner/repo[@ref]>`. Materializes the repo or subpath under `.octocode`, runs the local tool against saved files, and returns `location` (absolute path).
+`search` accepts `--repo <owner/repo[@ref]>`. Materializes the repo or subpath under `.octocode`, runs the local lane against saved files, and returns `location` (absolute path).
 
 ```bash
-octocode grep "registerTool" --repo facebook/react packages/react --json --compact
-octocode grep --repo owner/repo src --pattern 'useMemo($$$ARGS)' --json   # AST on remote repo
-octocode find "*.test.ts" --repo owner/repo --json
-octocode cat src/index.ts --repo owner/repo@main --mode none --json
+octocode search "registerTool" packages/react --repo facebook/react --json --compact
+octocode search src --repo owner/repo --pattern 'useMemo($$$ARGS)' --json   # AST on remote repo
+octocode search "*.test.ts" . --repo owner/repo --search path --json
+octocode search src/index.ts --repo owner/repo@main --content-view exact --json
 ```
 
-The path argument is **repo-relative** when `--repo` is set. Reuse the returned `location` path with plain local `ls`/`grep`/`cat`/`lsp` — files stay materialized. AST/structural search on a remote repo **requires** `--repo` or a prior clone; GitHub code-search cannot evaluate AST predicates.
+The path argument is **repo-relative** when `--repo` is set. Reuse the returned `location` path with plain local `search --tree`, `search`, `search <file> --content-view ...`, and `search --op` — files stay materialized. AST/structural search on a remote repo **requires** `--repo` or a prior clone; GitHub code-search cannot evaluate AST predicates.
 
 ---
 
@@ -125,7 +125,7 @@ For dead-code, reachability, retained-by, and safe-delete questions, load [`work
 | `status:"error"` | Tool error (auth, rate limit, validation) | Read `errorCode`; fix call or narrow scope |
 | `partialResult`, `hasMore`, char pagination | Response incomplete | Follow the advertised continuation before concluding |
 | `serverUnavailable` / LSP unavailable | Semantic proof inconclusive | Use AST/exact content; retry after materializing project context |
-| Empty `lsp references` / `callers` | Open-file scope, not absence | Load likely consumer files first, then re-query |
+| Empty semantic `references` / `callers` | Open-file scope, not absence | Load likely consumer files first, then re-query |
 
 ---
 

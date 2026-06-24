@@ -1,0 +1,201 @@
+{
+  "results": [
+    {
+      "kind": "tree",
+      "path": ".agents",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "_skills",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "assets",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "docs",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "packages",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "scripts",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "skills",
+      "entryType": "directory",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": ".gitignore",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": ".npmignore",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": ".prettierignore",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": ".prettierrc.json",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": ".syncpackrc.mjs",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": ".yarnrc.yml",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "AGENTS.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "CLAUDE.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "LICENSE",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "MANIFEST.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "PLAN.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "PRIVACY.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "README.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "REVIEW.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "TERMS.md",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "eslint.config.js",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "glama.json",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "homebrew-octocode",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    },
+    {
+      "kind": "tree",
+      "path": "package.json",
+      "entryType": "file",
+      "depth": 1,
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "ghViewRepoStructure",
+      "source": {
+        "kind": "github",
+        "repo": "bgauryy/octocode"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

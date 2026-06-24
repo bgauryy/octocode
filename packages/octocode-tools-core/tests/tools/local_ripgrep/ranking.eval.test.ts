@@ -25,7 +25,6 @@ const SRC = join(process.cwd(), 'src');
 const FIXTURES: Array<{ query: string; defFile: string }> = [
   { query: 'scoreFile', defFile: 'rankingProfile.ts' },
   { query: 'classifyPathRole', defFile: 'rankingProfile.ts' },
-  { query: 'rankEvidence', defFile: 'evidenceRanker.ts' },
   { query: 'applySemanticBoost', defFile: 'lspBoost.ts' },
   { query: 'buildSearchResult', defFile: 'ripgrepResultBuilder.ts' },
   { query: 'validateToolPath', defFile: 'toolHelpers.ts' },

@@ -46,6 +46,18 @@ vi.mock('../../../src/ui/constants.js', () => ({
 
 vi.mock('../../../src/features/gh-auth.js', () => ({
   GH_CLI_URL: 'https://cli.github.com/',
+  checkGitHubAuth: vi.fn().mockReturnValue({
+    installed: true,
+    authenticated: false,
+  }),
+  runGitHubAuthLogin: vi.fn().mockReturnValue({
+    success: true,
+    exitCode: 0,
+  }),
+  runGitHubAuthLogout: vi.fn().mockReturnValue({
+    success: true,
+    exitCode: 0,
+  }),
 }));
 
 vi.mock('../../../src/features/github-oauth.js', () => ({
@@ -58,6 +70,11 @@ vi.mock('../../../src/features/github-oauth.js', () => ({
   getToken: vi.fn(),
   getTokenType: vi.fn(),
   refreshAuthToken: vi.fn(),
+}));
+
+vi.mock('../../../src/utils/token-storage.js', () => ({
+  getCredentials: vi.fn().mockResolvedValue(null),
+  hasEnvToken: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../../src/utils/prompts.js', () => ({
@@ -107,9 +124,11 @@ describe('cli/commands/auth', () => {
 
   async function loadAuthModule() {
     const oauth = await import('../../../src/features/github-oauth.js');
+    const gh = await import('../../../src/features/gh-auth.js');
+    const storage = await import('../../../src/utils/token-storage.js');
     const prompts = await import('../../../src/utils/prompts.js');
     const auth = await import('../../../src/cli/commands/auth.js');
-    return { ...oauth, ...prompts, ...auth };
+    return { ...oauth, ...gh, ...storage, ...prompts, ...auth };
   }
 
   function jsonLines(): Array<Record<string, unknown>> {
@@ -132,13 +151,24 @@ describe('cli/commands/auth', () => {
   }
 
   describe('loginCommand', () => {
-    it('shows already-authenticated message and skips login', async () => {
-      const { loginCommand, getAuthStatus, login } = await loadAuthModule();
+    it('shows provider picker when already authenticated interactively', async () => {
+      const { loginCommand, getAuthStatus, login, select, getCredentials } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: true,
         username: 'existing',
         hostname: 'github.com',
+        tokenSource: 'octocode',
       });
+      vi.mocked(getCredentials).mockResolvedValue({
+        hostname: 'github.com',
+        username: 'existing',
+        token: { token: 'x', tokenType: 'oauth' },
+        gitProtocol: 'https',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      });
+      vi.mocked(select).mockResolvedValue('back');
 
       await loginCommand.handler!({
         command: 'login',
@@ -146,18 +176,19 @@ describe('cli/commands/auth', () => {
         options: {},
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Already authenticated')
-      );
+      expect(select).toHaveBeenCalled();
       expect(login).not.toHaveBeenCalled();
     });
 
     it('completes successful login', async () => {
-      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      const { login, loginCommand, getAuthStatus, select } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
+      vi.mocked(select).mockResolvedValue('login');
       vi.mocked(login).mockResolvedValue({
         success: true,
         username: 'newuser',
@@ -177,11 +208,14 @@ describe('cli/commands/auth', () => {
     });
 
     it('uses --git-protocol', async () => {
-      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      const { login, loginCommand, getAuthStatus, select } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
+      vi.mocked(select).mockResolvedValue('login');
       vi.mocked(login).mockResolvedValue({
         success: true,
         username: 'newuser',
@@ -199,10 +233,12 @@ describe('cli/commands/auth', () => {
     });
 
     it('rejects invalid git protocol values', async () => {
-      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      const { login, loginCommand, getAuthStatus, select } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
 
       await loginCommand.handler!({
@@ -212,6 +248,7 @@ describe('cli/commands/auth', () => {
       });
 
       expect(login).not.toHaveBeenCalled();
+      expect(select).not.toHaveBeenCalled();
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Invalid git protocol')
       );
@@ -219,11 +256,14 @@ describe('cli/commands/auth', () => {
     });
 
     it('shows verification UI when OAuth provides verification info', async () => {
-      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      const { login, loginCommand, getAuthStatus, select } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
+      vi.mocked(select).mockResolvedValue('login');
       vi.mocked(login).mockImplementation(async (options = {}) => {
         const onVerification = (options as Record<string, unknown>)
           .onVerification as ((v: Record<string, unknown>) => void) | undefined;
@@ -252,11 +292,14 @@ describe('cli/commands/auth', () => {
     });
 
     it('sets exitCode on failed login', async () => {
-      const { login, loginCommand, getAuthStatus } = await loadAuthModule();
+      const { login, loginCommand, getAuthStatus, select } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
+      vi.mocked(select).mockResolvedValue('login');
       vi.mocked(login).mockResolvedValue({
         success: false,
         error: 'access_denied',
@@ -280,6 +323,7 @@ describe('cli/commands/auth', () => {
         authenticated: true,
         username: 'existing',
         hostname: 'github.com',
+        tokenSource: 'octocode',
       });
 
       await loginCommand.handler!({
@@ -302,6 +346,7 @@ describe('cli/commands/auth', () => {
         authenticated: true,
         username: 'old',
         hostname: 'github.com',
+        tokenSource: 'octocode',
       });
       vi.mocked(logout).mockResolvedValue({ success: true });
       vi.mocked(login).mockResolvedValue({ success: true, username: 'old' });
@@ -326,6 +371,7 @@ describe('cli/commands/auth', () => {
         authenticated: true,
         username: 'old',
         hostname: 'github.com',
+        tokenSource: 'octocode',
       });
       vi.mocked(logout).mockResolvedValue({ success: true });
       vi.mocked(login).mockResolvedValue({ success: true, username: 'old' });
@@ -349,6 +395,7 @@ describe('cli/commands/auth', () => {
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
       Object.defineProperty(process.stdout, 'isTTY', {
         value: false,
@@ -373,6 +420,7 @@ describe('cli/commands/auth', () => {
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
       Object.defineProperty(process.stdout, 'isTTY', {
         value: false,
@@ -397,6 +445,7 @@ describe('cli/commands/auth', () => {
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
       vi.mocked(login).mockImplementation(async (options = {}) => {
         const onVerification = (options as Record<string, unknown>)
@@ -432,6 +481,7 @@ describe('cli/commands/auth', () => {
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
       vi.mocked(login).mockResolvedValue({
         success: false,
@@ -455,6 +505,7 @@ describe('cli/commands/auth', () => {
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
 
       await loginCommand.handler!({
@@ -649,12 +700,15 @@ describe('cli/commands/auth', () => {
   });
 
   describe('authCommand', () => {
-    it('delegates to login for subcommand login', async () => {
-      const { login, authCommand, getAuthStatus } = await loadAuthModule();
+    it('opens the provider picker for subcommand login', async () => {
+      const { login, authCommand, getAuthStatus, select } =
+        await loadAuthModule();
       vi.mocked(getAuthStatus).mockReturnValue({
         authenticated: false,
         hostname: 'github.com',
+        tokenSource: 'none',
       });
+      vi.mocked(select).mockResolvedValue('login');
       vi.mocked(login).mockResolvedValue({ success: true, username: 'x' });
 
       await authCommand.handler!({
@@ -667,6 +721,74 @@ describe('cli/commands/auth', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Authentication complete')
       );
+    });
+
+    it('allows Octocode login even when gh CLI is the active source', async () => {
+      const { loginCommand, getAuthStatus, select, login, checkGitHubAuth } =
+        await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: true,
+        username: 'gh-user',
+        hostname: 'github.com',
+        tokenSource: 'gh-cli',
+      });
+      vi.mocked(checkGitHubAuth).mockReturnValue({
+        installed: true,
+        authenticated: true,
+        username: 'gh-user',
+      });
+      vi.mocked(select).mockResolvedValue('login');
+      vi.mocked(login).mockResolvedValue({
+        success: true,
+        username: 'octo-user',
+      });
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: {},
+      });
+
+      expect(login).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Authentication complete')
+      );
+    });
+
+    it('runs gh auth login when gh CLI is selected', async () => {
+      const {
+        authCommand,
+        getAuthStatus,
+        select,
+        runGitHubAuthLogin,
+        checkGitHubAuth,
+      } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.enterprise.test',
+        tokenSource: 'none',
+      });
+      vi.mocked(checkGitHubAuth).mockReturnValue({
+        installed: true,
+        authenticated: false,
+      });
+      vi.mocked(select).mockResolvedValue('gh-login');
+
+      await authCommand.handler!({
+        command: 'auth',
+        args: ['login'],
+        options: {
+          hostname: 'github.enterprise.test',
+          'git-protocol': 'ssh',
+        },
+      });
+
+      expect(runGitHubAuthLogin).toHaveBeenCalledWith({
+        web: true,
+        hostname: 'github.enterprise.test',
+        gitProtocol: 'ssh',
+      });
+      expect(process.exitCode).toBeUndefined();
     });
 
     it('delegates to logout for subcommand logout', async () => {

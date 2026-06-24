@@ -12,8 +12,11 @@ import { runOqlSearch } from '../../src/oql/run.js';
 import {
   isBatchEnvelope,
   type OqlCodeResultRow,
+  type OqlContentResultRow,
+  type OqlContinuation,
   type OqlRecordResultRow,
   type OqlResultEnvelope,
+  type OqlTreeResultRow,
 } from '../../src/oql/types.js';
 
 function single(
@@ -37,6 +40,43 @@ function toolResult(
 }
 
 beforeEach(() => runDirect.mockReset());
+
+describe('GitHub structure execution filters OQL tree rows', () => {
+  it('applies extension filters while preserving directories', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        structure: {
+          '.': {
+            folders: ['src', 'tests'],
+            files: ['README.md', 'package.json', 'index.ts'],
+          },
+          src: {
+            files: ['cli.ts', 'README.md'],
+          },
+        },
+      })
+    );
+
+    const env = single(
+      await runOqlSearch({
+        target: 'structure',
+        repo: 'microsoft/playwright-mcp',
+        fetch: { tree: { maxDepth: 2, extensions: ['ts'] } },
+      })
+    );
+
+    expect(runDirect).toHaveBeenCalledWith(
+      'ghViewRepoStructure',
+      expect.objectContaining({ owner: 'microsoft', repo: 'playwright-mcp' })
+    );
+    expect(env.results.map(row => (row as OqlTreeResultRow).path)).toEqual([
+      'src',
+      'tests',
+      'index.ts',
+      'src/cli.ts',
+    ]);
+  });
+});
 
 /* ----------------- gap 7: materialize checkpoint row -------------------- */
 
@@ -207,6 +247,56 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
     expect(env.diagnostics.map(d => d.code)).not.toContain('providerUnindexed');
   });
 
+  it('GitHub content preserves per-file char pagination for next.charRange', async () => {
+    runDirect.mockResolvedValue({
+      content: [],
+      structuredContent: {
+        results: [
+          {
+            id: 'microsoft/playwright-mcp',
+            files: [
+              {
+                path: 'README.md',
+                content: 'abc',
+                pagination: {
+                  currentPage: 1,
+                  totalPages: 3,
+                  hasMore: true,
+                  charOffset: 0,
+                  charLength: 3,
+                  totalChars: 9,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const env = single(
+      await runOqlSearch({
+        target: 'content',
+        repo: 'microsoft/playwright-mcp',
+        path: 'README.md',
+        fetch: {
+          content: { contentView: 'exact', charOffset: 0, charLength: 3 },
+        },
+      })
+    );
+    const row = env.results[0] as OqlContentResultRow & {
+      next?: Record<string, OqlContinuation>;
+    };
+
+    expect(row.range?.charOffset).toBe(0);
+    expect(row.range?.charLength).toBe(3);
+    expect(env.pagination?.hasMore).toBe(true);
+    expect(env.pagination?.totalItemsKind).toBe('chars');
+    expect(env.next?.['next.page']).toBeUndefined();
+    expect(row.next?.['next.charRange']?.query.fetch?.content?.charOffset).toBe(
+      3
+    );
+  });
+
   it('empty GitHub provider results block proof/answerReady', async () => {
     runDirect.mockResolvedValue(toolResult({ results: [] }, 'empty'));
     const env = single(
@@ -221,6 +311,41 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
     );
     expect(providerDiag?.blocksAnswer).toBe(true);
     expect(env.evidence.answerReady).toBe(false);
+  });
+
+  it('empty GitHub code search keeps scoped local-proof continuations actionable', async () => {
+    runDirect.mockResolvedValue(toolResult({ results: [] }, 'empty'));
+
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'github', repo: 'facebook/react' },
+        scope: { path: 'packages/react/src', language: 'js' },
+        where: { kind: 'text', value: 'useState' },
+        view: 'discovery',
+      })
+    );
+    const providerDiag = env.diagnostics.find(
+      d => d.code === 'providerUnindexed'
+    );
+    const materialize = env.next?.['next.materialize'];
+
+    expect(providerDiag?.message).toContain('clone owner/repo');
+    expect(providerDiag?.message).toContain('cache fetch owner/repo');
+    expect(providerDiag?.message).toContain('--materialize required');
+    expect(materialize?.query).toMatchObject({
+      target: 'materialize',
+      from: { kind: 'github', repo: 'facebook/react' },
+      scope: { path: 'packages/react/src', language: 'js' },
+      materialize: { mode: 'required' },
+    });
+    expect(materialize?.why).toContain(
+      'search useState packages/react/src --repo facebook/react --materialize required'
+    );
+    expect(materialize?.why).toContain('clone facebook/react/packages/react/src');
+    expect(materialize?.why).toContain(
+      'cache fetch facebook/react packages/react/src --depth tree'
+    );
   });
 
   it('GitHub structure maps array payloads to clean repo paths and top-level pagination', async () => {
@@ -454,7 +579,7 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
     expect(env.pagination?.hasMore).toBe(true);
     expect(
       (env.next?.['next.page']?.query as { params?: { page?: number } }).params
-      ?.page
+        ?.page
     ).toBe(2);
   });
 
@@ -488,14 +613,96 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
       })
     );
     const row = env.results[0] as OqlRecordResultRow;
-    expect(row.source).toEqual({
-      kind: 'local',
-      path: '/workspace/src/index.ts',
-    });
+    // per-row source is stripped when uniform (token noise) — it lives in provenance
+    expect(row.source).toBeUndefined();
     expect(env.provenance[0]?.source).toEqual({
       kind: 'local',
       path: '/workspace/src/index.ts',
     });
+  });
+
+  it('uses scope.path as the remote LSP sparse path and file anchor', async () => {
+    runDirect.mockImplementation((tool: string) => {
+      if (tool === 'ghCloneRepo') {
+        return Promise.resolve(
+          toolResult({ localPath: 'main__sp_123' }, 'success', {
+            base: '/cache/microsoft/TypeScript',
+          })
+        );
+      }
+      return Promise.resolve(
+        toolResult({
+          type: 'documentSymbols',
+          uri: '/cache/microsoft/TypeScript/main__sp_123/src/compiler/program.ts',
+          symbols: [
+            {
+              name: 'createProgram',
+              uri: '/cache/microsoft/TypeScript/main__sp_123/src/compiler/program.ts',
+              line: 1,
+            },
+          ],
+        })
+      );
+    });
+
+    const env = single(
+      await runOqlSearch({
+        target: 'semantics',
+        from: { kind: 'github', repo: 'microsoft/TypeScript' },
+        scope: { path: 'src/compiler/program.ts' },
+        params: { type: 'documentSymbols' },
+      })
+    );
+
+    expect(runDirect).toHaveBeenCalledWith(
+      'ghCloneRepo',
+      expect.objectContaining({
+        owner: 'microsoft',
+        repo: 'TypeScript',
+        sparsePath: 'src/compiler/program.ts',
+      })
+    );
+    expect(runDirect).toHaveBeenCalledWith(
+      'lspGetSemantics',
+      expect.objectContaining({
+        type: 'documentSymbols',
+        uri: '/cache/microsoft/TypeScript/main__sp_123/src/compiler/program.ts',
+      })
+    );
+    const row = env.results[0] as OqlRecordResultRow;
+    expect(row.next?.['next.fetch']?.query).toMatchObject({
+      target: 'content',
+      from: {
+        kind: 'local',
+        path: '/cache/microsoft/TypeScript/main__sp_123/src/compiler/program.ts',
+      },
+    });
+    expect(env.diagnostics.some(d => d.code === 'invalidQuery')).toBe(false);
+  });
+
+  it('uses scope.path as the materialized LSP file anchor', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({
+        type: 'documentSymbols',
+        uri: '/cache/repo/src/index.ts',
+        symbols: [{ name: 'main', uri: '/cache/repo/src/index.ts', line: 1 }],
+      })
+    );
+
+    await runOqlSearch({
+      target: 'semantics',
+      from: { kind: 'materialized', localPath: '/cache/repo' },
+      scope: { path: 'src/index.ts' },
+      params: { type: 'documentSymbols' },
+    });
+
+    expect(runDirect).toHaveBeenCalledWith(
+      'lspGetSemantics',
+      expect.objectContaining({
+        type: 'documentSymbols',
+        uri: '/cache/repo/src/index.ts',
+      })
+    );
   });
 });
 
@@ -553,5 +760,32 @@ describe('gap 8: direct file diff lane (baseRef/headRef/path)', () => {
       'ghGetFileContent',
       expect.objectContaining({ branch: 'main' })
     );
+  });
+
+  it('returns an error instead of an empty identical diff when refs cannot be read', async () => {
+    runDirect.mockResolvedValue(
+      toolResult({ error: 'Repository, resource, or path not found' }, 'empty')
+    );
+    const env = single(
+      await runOqlSearch({
+        target: 'diff',
+        repo: 'facebook/react',
+        params: {
+          baseRef: 'missing-base',
+          headRef: 'missing-head',
+          path: 'README.md',
+        },
+      })
+    );
+
+    expect(env.results).toHaveLength(0);
+    expect(env.diagnostics[0]).toMatchObject({
+      code: 'invalidQuery',
+      severity: 'error',
+      backend: 'ghGetFileContent',
+      blocksAnswer: true,
+    });
+    expect(env.diagnostics[0]?.message).toContain('not found');
+    expect(env.evidence.answerReady).toBe(false);
   });
 });

@@ -1,82 +1,60 @@
 ---
 name: octocode
-description: Drive the `octocode` CLI to research code from a terminal without wiring MCP — across LOCAL files and EXTERNAL GitHub/npm with one toolset. Use when the user asks to "run octocode from shell", "use octocode without MCP", "search GitHub code from the terminal", or wants a one-off local/remote code, file, repo, PR, or package lookup in the shell.
+description: Use when code research should leverage Octocode through the best available transport: Octocode MCP tools if this host exposes them, otherwise the `octocode` CLI or `npx octocode`. Covers local/GitHub/npm search, exact file reads, AST/LSP navigation, PR/history, package lookup, archives, and raw tool calls.
 ---
 
-# Octocode CLI — Agent Playbook
+# Octocode
 
-Binary: `octocode`. Run `octocode --help` to see everything; it prints an `<AGENT_INSTRUCTIONS>` block plus the full command list. Two surfaces:
+Use Octocode for evidence-driven code research across local files, GitHub, npm, PR/history, archives, and LSP/AST semantics.
 
-1. **Quick commands** — friendly shortcuts that auto-route a local path vs an `owner/repo`. Use these first.
-2. **Raw tools** — `octocode tools <name> --queries '<json>'` runs an Octocode MCP tool directly. Read the schema FIRST.
+## 1. Pick the transport
 
-## Discipline (read this first)
+- **MCP first when available.** Scan the active tool list, and any host-provided tool discovery, for an Octocode MCP server or namespaced tools such as `mcp__octocode...__localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `localViewStructure`, `lspGetSemantics`, `npmSearch`, or `localBinaryInspect`. Use those directly when present; read the tool/schema text before inputs, batch independent queries, and carry returned paths/lines/pages forward.
+- **CLI fallback.** If MCP tools are not exposed, use `octocode`; if missing, use `npx octocode` for the same commands. Run `octocode --help` or `npx octocode --help` when flags are uncertain.
+- If neither MCP nor CLI works, ask the user to install/run `npx octocode` or enable the Octocode MCP server. Do not silently replace Octocode research with plain `rg`/`grep`.
 
-- **Do NOT hallucinate** paths, line numbers, or fields — verify with the tools. Search snippets are *discovery, not proof*; re-read the exact text before quoting.
-- **Flow:** locate → search → read the smallest slice → prove. Pick the cheapest tool that answers the current question.
-- **One wide query beats five narrow ones.** If results are reasonable, read them — don't re-query to "narrow down".
-- **Parallelize independent calls** — issue them in one message so the shell runs them concurrently.
-- **Output:** clean YAML by default (read it directly). Add `--json` for the raw envelope, `--compact` for the leanest text.
+Use `OC` below as shorthand for either `octocode` or `npx octocode`.
 
-## Task → quick command
+## 2. Work smart
 
-| What you need | Command |
-|---|---|
-| Directory / repo layout | `octocode ls <path\|owner/repo> [--depth 2]` |
-| Read (and minify) a file | `octocode cat <path\|owner/repo/path> [--mode none\|standard\|symbols] [--match-string '<anchor>']` |
-| Text / regex code search | `octocode grep '<keywords>' <path\|owner/repo> [--type ts]` |
-| Find files by name/path/content | `octocode find '<query>' [path\|owner/repo] [--search path\|content\|both]` |
-| Code-shape search (AST, local) | `octocode grep <path> --pattern '<shape>'` (`--rule '<yaml>'` for relational) |
-| Symbol outline of a file/dir | `octocode ls <dir> --symbols` · `octocode cat <file> --mode symbols` |
-| Symbol identity (defs/refs/callers) | `octocode lsp <file> --type references --symbol <name> --line <n>` |
-| Discover GitHub repositories | `octocode repo '<keywords>' [--language ts --stars '>100']` |
-| Pull requests (list or deep-read) | `octocode pr <owner/repo[#N]\|PR-URL> [--deep]` |
-| npm package + source repo | `octocode pkg <package>` |
-| Inspect an archive / binary | `octocode binary <file>` |
-| Unpack an archive for multi-file work | `octocode unzip <archive>` |
-| Clone a repo/subtree for deep work | `octocode clone <owner/repo[/path][@branch]>` |
+- Flow: orient cheap, search, read the smallest exact slice, then prove. Snippets are leads, not proof.
+- Prefer quick commands; use raw `tools` only when quick commands cannot express the selector.
+- Use `--json` when a later step depends on returned paths, line numbers, refs, pagination, or `location.*`. Use `--compact`/`--concise` for triage.
+- Follow `next.*`, page, offset, and `location.localPath` hints. Never invent paths, line numbers, offsets, branches, or raw-tool fields.
+- For remote work spanning several files, AST, or LSP, materialize first with `search --repo`, `cache fetch`, or `clone`, then continue against the returned local path.
 
-Quick commands route by their argument: a path that exists locally (or starts with `./`, `/`, `../`) is local; `owner/repo[/path]`, `owner/repo@branch`, or a `github.com` URL is GitHub. Per-command details: `octocode <command> --help`.
+## 3. Quick command map
 
-## Raw tools (when a quick command doesn't fit)
+| Need | CLI | MCP tool family |
+|---|---|---|
+| Map a tree | `OC search <path\|owner/repo> --tree --depth 2` | `localViewStructure` / `ghViewRepoStructure` |
+| Find files | `OC search auth . --search path --ext ts` | `localFindFiles` |
+| Search text/code | `OC search executeDirectTool . --lang ts` | `localSearchCode` / `ghSearchCode` |
+| Read exact content | `OC search file.ts --content-view exact --match-string 'anchor'` | `localGetFileContent` / `ghGetFileContent` |
+| Orient by symbols | `OC search file.ts --symbols` or `--op documentSymbols` | `lspGetSemantics` / content symbols |
+| Trace a symbol | `OC search file.ts --op references --symbol runCLI --line 42` | `lspGetSemantics` |
+| AST/code shape | `OC search . --pattern 'eval($X)' --lang js` or `--rule '<yaml>'` | `localSearchCode` structural mode |
+| GitHub PRs/history | `OC search owner/repo#123 --target pullRequests --deep`; `--target commits` | `ghHistoryResearch` |
+| Repos/packages | `OC search 'query' --target repositories`; `OC search zod --target packages` | `ghSearchRepos` / `npmSearch` |
+| Archives/binaries | `OC search file.zip --target artifacts --list`; `OC unzip file.zip` | `localBinaryInspect` |
+| Remote as local | `OC search term subdir --repo owner/repo --json`; `OC cache fetch owner/repo path`; `OC clone owner/repo` | `ghCloneRepo` plus local tools |
 
-```bash
-octocode tools                       # list every tool with its required fields
-octocode tools <name> --scheme       # READ THE SCHEMA FIRST — fields, types, bounds, defaults
-octocode tools <n1> <n2> --scheme    # read several schemas at once
-octocode tools <name> --queries '<json>'          # run it (one object, or an array of ≤5)
-octocode tools <name> --queries '<json>' --json   # raw envelope
-```
+Quick commands auto-route existing paths as local and `owner/repo[/path][@ref]` or GitHub URLs as remote. Per-command truth lives in `OC <command> --help`.
 
-`id`, `mainResearchGoal`, `researchGoal`, `reasoning` are auto-filled; don't pass them. Batch up to 5 independent sub-queries in one call:
+## 4. Raw CLI tools
 
 ```bash
-octocode tools ghSearchCode --queries '[
-  {"keywordsToSearch":["useState"],"owner":"facebook","repo":"react"},
-  {"keywordsToSearch":["useEffect"],"owner":"facebook","repo":"react"}
-]' --json | jq
+OC tools
+OC tools <name> --scheme
+OC tools <name> --queries '<json>' --json
 ```
 
-## Recipes
+Read `--scheme` before every raw call. `id`, `mainResearchGoal`, `researchGoal`, and `reasoning` are auto-filled by the CLI; do not pass them. `--queries` accepts one object, an array of up to 5, or `{"queries":[...]}`.
 
-**Symbol lookup (definition + callers):**
-```bash
-octocode grep 'runCLI' bgauryy/octocode-mcp --type ts --limit 10
-octocode cat bgauryy/octocode-mcp/packages/octocode/src/cli/index.ts --match-string 'export function runCLI' --mode none
-```
+## 5. When deeper workflow matters
 
-**Workspace mapping (layout + each package.json):** one `ls --depth 2`, then parallel `cat` calls for each `package.json` in a single message.
+Read `references/recipes.md` for tiny command sequences. For large investigations, PR/local review, dead-code, architecture, or AST/LSP-heavy work, use the `octocode-engineer` skill and its references.
 
-**Deep multi-file work in one repo (>~3 files):** `octocode clone owner/repo`, then run `grep`, `grep --pattern` (AST), `ls --symbols`, `lsp`, and `cat` on the local clone instead of many GitHub round-trips.
+## Failure and auth
 
-## On failure
-
-A bad flag prints the valid flags for that command and exits `2`. Exit codes: `0`=ok, `2`=bad-input, `3`=not-found, `4`=auth, `5`=tool-error, `7`=rate-limited.
-
-## Auth
-
-Auth is for humans: `octocode login` (or `gh auth login`). Agents/CI pass a token via env — `GITHUB_TOKEN`, `OCTOCODE_TOKEN`, or `GH_TOKEN`. Check with `octocode status`.
-
-## Deeper context
-
-`octocode context` (add `--full`) prints the agent protocol, MCP system prompt, and tool descriptions — use it only to optimize deeper or autonomous research. Full docs: https://github.com/bgauryy/octocode/tree/main/docs
+Bad input exits `2` and prints valid flags; `3` means not found; `4` auth; `5` tool error; `7` rate limited. Humans can run `OC login`; agents should check `OC auth status --json` or `OC status --json` and use `GITHUB_TOKEN`, `OCTOCODE_TOKEN`, or `GH_TOKEN` when available. Deep protocol: `OC context [--full]`. Docs: https://github.com/bgauryy/octocode/tree/main/docs

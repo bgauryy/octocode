@@ -86,17 +86,11 @@ export interface DirectToolDefinition {
   inputSchema: z.ZodType;
 }
 
-export type DirectToolCategory =
-  | 'GitHub'
-  | 'Local'
-  | 'LSP'
-  | 'Package'
-  | 'Other';
+export type DirectToolCategory = 'GitHub' | 'Local Code' | 'Package' | 'Other';
 
 export const DIRECT_TOOL_CATEGORIES: readonly DirectToolCategory[] = [
   'GitHub',
-  'Local',
-  'LSP',
+  'Local Code',
   'Package',
   'Other',
 ];
@@ -127,6 +121,12 @@ export interface DirectToolDisplayField {
    * agents see the full constraint without fetching the raw JSON schema. */
   constraints?: string;
   description?: string;
+}
+
+export interface DirectToolCommandPattern {
+  label: string;
+  query: Record<string, unknown>;
+  command: string;
 }
 
 export interface DirectToolOutputField {
@@ -289,12 +289,8 @@ export function getDirectToolCategory(toolName: string): DirectToolCategory {
     return 'GitHub';
   }
 
-  if (toolName.startsWith('local')) {
-    return 'Local';
-  }
-
-  if (toolName.startsWith('lsp')) {
-    return 'LSP';
+  if (toolName.startsWith('local') || toolName.startsWith('lsp')) {
+    return 'Local Code';
   }
 
   if (toolName === STATIC_TOOL_NAMES.PACKAGE_SEARCH) {
@@ -414,19 +410,54 @@ export function getDirectToolDisplayFields(
   return collectDisplayFields(properties, requiredFields);
 }
 
+export function formatDirectToolCommandPattern(
+  toolName: string,
+  query: Record<string, unknown>
+): string {
+  return `tools ${toolName} --queries '${JSON.stringify(query)}'`;
+}
+
+export function buildDirectToolCommandPatterns(
+  toolName: string
+): DirectToolCommandPattern[] {
+  const knownPatterns = buildKnownDirectToolCommandPatternQueries(toolName);
+  if (knownPatterns.length > 0) {
+    return knownPatterns.map(pattern => ({
+      ...pattern,
+      command: formatDirectToolCommandPattern(toolName, pattern.query),
+    }));
+  }
+
+  const query = buildSchemaDerivedExampleQuery(toolName);
+  if (Object.keys(query).length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      label: 'schema-derived',
+      query,
+      command: formatDirectToolCommandPattern(toolName, query),
+    },
+  ];
+}
+
 export function buildDirectToolExampleQuery(
   toolName: string
 ): Record<string, unknown> {
-  const knownExample = buildKnownDirectToolExampleQuery(toolName);
-  if (knownExample) {
-    return knownExample;
+  return buildDirectToolCommandPatterns(toolName)[0]?.query ?? {};
+}
+
+function buildSchemaDerivedExampleQuery(
+  toolName: string
+): Record<string, unknown> {
+  if (!findDirectToolDefinition(toolName)) {
+    return {};
   }
 
   const fields = getDirectToolDisplayFields(toolName);
   const topLevelFields = fields.filter(field => !field.name.includes('.'));
-  const requiredFields = topLevelFields.filter(field => field.required);
-  const sourceFields =
-    requiredFields.length > 0 ? requiredFields : topLevelFields.slice(0, 4);
+  const sourceFields = selectCommandPatternFields(topLevelFields);
   const example: Record<string, unknown> = {};
 
   for (const field of sourceFields) {
@@ -449,32 +480,83 @@ export function buildDirectToolExampleQuery(
   return example;
 }
 
-function buildKnownDirectToolExampleQuery(
+function buildKnownDirectToolCommandPatternQueries(
   toolName: string
-): Record<string, unknown> | null {
+): Array<{ label: string; query: Record<string, unknown> }> {
   if (toolName === OQL_SEARCH_TOOL_NAME) {
-    return {
-      target: 'code',
-      from: { source: 'local' },
-      scope: { path: '.' },
-      text: 'executeDirectTool',
-      view: 'discovery',
-      limit: 5,
-    };
+    return [
+      {
+        label: 'local code query',
+        query: {
+          schema: 'oql',
+          target: 'code',
+          from: { kind: 'local', path: '.' },
+          where: { kind: 'text', value: 'executeDirectTool' },
+          view: 'discovery',
+          limit: 5,
+        },
+      },
+    ];
   }
 
   if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS) {
-    return {
-      type: 'prs',
-      owner: 'facebook',
-      repo: 'react',
-      keywordsToSearch: ['useState'],
-      concise: true,
-      limit: 5,
-    };
+    return [
+      {
+        label: 'PR search',
+        query: {
+          type: 'prs',
+          owner: 'facebook',
+          repo: 'react',
+          keywordsToSearch: ['useState'],
+          concise: true,
+          limit: 5,
+        },
+      },
+    ];
   }
 
-  return null;
+  if (toolName === STATIC_TOOL_NAMES.LOCAL_RIPGREP) {
+    return [
+      {
+        label: 'text search',
+        query: {
+          path: '.',
+          keywords: 'runCLI',
+        },
+      },
+      {
+        label: 'structural code search',
+        query: {
+          path: 'src',
+          mode: 'structural',
+          pattern: 'eval($X)',
+        },
+      },
+    ];
+  }
+
+  if (toolName === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME) {
+    return [
+      {
+        label: 'semantic definition',
+        query: {
+          uri: '/path/to/file.ts',
+          type: 'definition',
+          symbolName: 'myFunction',
+          lineHint: 42,
+        },
+      },
+      {
+        label: 'symbol outline',
+        query: {
+          uri: '/path/to/file.ts',
+          type: 'documentSymbols',
+        },
+      },
+    ];
+  }
+
+  return [];
 }
 
 export function prepareDirectToolInputFromJsonText(
@@ -696,6 +778,116 @@ function describeSchemaType(schema: JsonSchemaObject): string {
   return 'value';
 }
 
+const COMMAND_PATTERN_MAX_OPTIONAL_FIELDS = 4;
+
+const COMMAND_PATTERN_FIELD_PRIORITY: ReadonlyMap<string, number> = new Map([
+  ['keywords', 10],
+  ['keywordsToSearch', 11],
+  ['query', 12],
+  ['text', 13],
+  ['packageName', 14],
+  ['name', 15],
+  ['uri', 20],
+  ['type', 21],
+  ['owner', 30],
+  ['repo', 31],
+  ['extension', 32],
+  ['filename', 33],
+  ['language', 34],
+  ['path', 40],
+  ['target', 50],
+  ['from', 51],
+  ['scope', 52],
+  ['pattern', 60],
+  ['rule', 61],
+  ['op', 80],
+  ['operation', 81],
+  ['minify', 90],
+]);
+
+const LOW_SIGNAL_COMMAND_PATTERN_FIELDS: ReadonlySet<string> = new Set([
+  'page',
+  'itemsPerPage',
+  'limit',
+  'matchPage',
+  'maxFiles',
+  'maxMatchesPerFile',
+  'matchContentLength',
+  'responseCharLength',
+  'responseCharOffset',
+]);
+
+function selectCommandPatternFields(
+  fields: readonly DirectToolDisplayField[]
+): DirectToolDisplayField[] {
+  const requiredFields = fields.filter(field => field.required);
+  const selected = new Map<string, DirectToolDisplayField>();
+
+  for (const field of requiredFields) {
+    selected.set(field.name, field);
+  }
+
+  const optionalCandidates = fields
+    .filter(field => !field.required && isUsefulCommandPatternField(field))
+    .sort(compareCommandPatternFields);
+  const optionalLimit = Math.max(
+    COMMAND_PATTERN_MAX_OPTIONAL_FIELDS,
+    requiredFields.length
+  );
+
+  for (const field of optionalCandidates) {
+    if (selected.size >= optionalLimit) {
+      break;
+    }
+    selected.set(field.name, field);
+  }
+
+  if (selected.size > 0) {
+    return [...selected.values()];
+  }
+
+  return fields
+    .filter(field => !LOW_SIGNAL_COMMAND_PATTERN_FIELDS.has(field.name))
+    .filter(field => field.type !== 'boolean')
+    .slice(0, COMMAND_PATTERN_MAX_OPTIONAL_FIELDS);
+}
+
+function isUsefulCommandPatternField(field: DirectToolDisplayField): boolean {
+  if (LOW_SIGNAL_COMMAND_PATTERN_FIELDS.has(field.name)) {
+    return false;
+  }
+
+  if (field.type === 'boolean') {
+    return false;
+  }
+
+  if (hasDisplayFieldDefault(field)) {
+    return COMMAND_PATTERN_FIELD_PRIORITY.has(field.name);
+  }
+
+  return true;
+}
+
+function compareCommandPatternFields(
+  left: DirectToolDisplayField,
+  right: DirectToolDisplayField
+): number {
+  const leftPriority =
+    COMMAND_PATTERN_FIELD_PRIORITY.get(left.name) ?? Number.MAX_SAFE_INTEGER;
+  const rightPriority =
+    COMMAND_PATTERN_FIELD_PRIORITY.get(right.name) ?? Number.MAX_SAFE_INTEGER;
+
+  if (leftPriority !== rightPriority) {
+    return leftPriority - rightPriority;
+  }
+
+  return left.name.localeCompare(right.name);
+}
+
+function hasDisplayFieldDefault(field: DirectToolDisplayField): boolean {
+  return field.constraints?.includes('default ') === true;
+}
+
 function collectDisplayFields(
   properties: Record<string, unknown>,
   requiredFields: ReadonlySet<string>,
@@ -763,29 +955,49 @@ function collectDisplayFields(
 
 function buildExampleValue(name: string, type: string): unknown {
   if (type.startsWith('array<')) {
-    return [name];
+    const innerType = type.slice('array<'.length, -1);
+    return [buildScalarExampleValue(name, innerType)];
+  }
+
+  return buildScalarExampleValue(name, type);
+}
+
+function buildScalarExampleValue(name: string, type: string): unknown {
+  if (type.startsWith('enum(')) {
+    const match = /^enum\(([^,)]+)/.exec(type);
+    return match?.[1] ?? name;
   }
 
   if (type === 'integer' || type === 'number') {
-    return 1;
+    return name === 'lineHint' ? 42 : 5;
   }
 
   if (type === 'boolean') {
     return true;
   }
 
-  if (type.startsWith('enum(')) {
-    const match = /^enum\(([^,)]+)/.exec(type);
-    return match?.[1] ?? name;
-  }
-
   switch (name) {
+    case 'keywords':
+    case 'keywordsToSearch':
+    case 'query':
+    case 'text':
+      return 'runCLI';
     case 'path':
       return '.';
+    case 'uri':
+      return '/path/to/file.ts';
     case 'owner':
-      return 'bgauryy';
+      return 'facebook';
     case 'repo':
-      return 'octocode';
+      return 'react';
+    case 'extension':
+      return 'ts';
+    case 'filename':
+      return 'package.json';
+    case 'language':
+      return 'TypeScript';
+    case 'symbolName':
+      return 'myFunction';
     case 'name':
     case 'packageName':
       return 'react';

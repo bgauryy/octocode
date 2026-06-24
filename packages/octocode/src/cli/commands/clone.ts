@@ -86,10 +86,10 @@ export const cloneCommand: CLICommand = {
         if (localPath) {
           console.log(
             `  ${c('green', '→')} Local clone: ${c('cyan', localPath)}\n` +
-              `    ${c('cyan', `ls ${localPath}`)}                 ${dim('# map the tree')}\n` +
-              `    ${c('cyan', `grep <term> ${localPath}`)}        ${dim('# search locally')}\n` +
-              `    ${c('cyan', `cat ${localPath}/<file>`)}         ${dim('# read a file')}\n` +
-              `    ${c('cyan', `ls ${localPath}/<file> --symbols`)}  ${dim('# semantic outline')}\n`
+              `    ${c('cyan', `search ${localPath} --tree`)}       ${dim('# map the tree')}\n` +
+              `    ${c('cyan', `search <term> ${localPath}`)}        ${dim('# search locally')}\n` +
+              `    ${c('cyan', `search ${localPath}/<file>`)}       ${dim('# read a file')}\n` +
+              `    ${c('cyan', `search ${localPath}/<file> --symbols`)} ${dim('# semantic outline')}\n`
           );
         }
       }
@@ -99,7 +99,7 @@ export const cloneCommand: CLICommand = {
         /is not a directory/i.test(getDirectToolText(result))
       ) {
         console.error(
-          `\n  ${c('cyan', '→')} ${dim(`“${ref.subpath}” is a file, but clone checks out directories. For a single file use: cat ${refLabel(ref)}  (or: cache fetch ${ref.owner}/${ref.repo} ${ref.subpath})`)}\n`
+          `\n  ${c('cyan', '→')} ${dim(`“${ref.subpath}” is a file, but clone checks out directories. For a single file use: search ${refLabel(ref)}  (or: cache fetch ${ref.owner}/${ref.repo} ${ref.subpath})`)}\n`
         );
       }
       markDirectToolFailure(result);

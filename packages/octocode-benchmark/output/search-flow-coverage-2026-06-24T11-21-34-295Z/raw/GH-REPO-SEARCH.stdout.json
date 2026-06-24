@@ -1,0 +1,53 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "repository",
+      "id": "pmndrs/zustand",
+      "data": {
+        "owner": "pmndrs",
+        "repo": "zustand",
+        "stars": 58380,
+        "forks": 2077,
+        "openIssuesCount": 5,
+        "language": "TypeScript",
+        "description": "🐻 Bear necessities for state management in React",
+        "pushedAt": "2026-06-22",
+        "createdAt": "2019-04-09T09:10:06Z",
+        "topics": [
+          "hacktoberfest",
+          "hooks",
+          "react",
+          "react-context",
+          "reactjs",
+          "redux",
+          "state-management"
+        ],
+        "url": "https://github.com/pmndrs/zustand",
+        "updatedAt": "2026-06-24T11:17:04Z"
+      },
+      "proofGrade": "candidate"
+    }
+  ],
+  "pagination": {
+    "hasMore": false,
+    "currentPage": 1,
+    "totalPages": 1,
+    "itemsPerPage": 5,
+    "totalItems": 1
+  },
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "ghSearchRepos",
+      "source": {
+        "kind": "github"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

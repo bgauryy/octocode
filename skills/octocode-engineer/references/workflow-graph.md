@@ -7,16 +7,16 @@ Read when the question is about dead-code, reachability, retained-by chains, or 
 ## Step-by-step algorithm
 
 ```
-1. Structure   → ls / find
+1. Structure   → search --tree / search --search path
                  repo shape, package roots, manifests, source dirs, tests, generated/dist
 
-2. Discovery   → grep text/regex
+2. Discovery   → search text/regex
                  cheap anchors, import strings, file sets, dynamic usage clues
 
-3. AST         → grep --pattern/--rule  OR  target:"research" native graph facts
+3. AST         → search --pattern/--rule --lang <lang>  OR  target:"research" native graph facts
                  declarations, imports, exports, calls, class/function shapes
 
-4. LSP proof   → lsp references / callers / callees / callHierarchy
+4. LSP proof   → search --op references / callers / callees / callHierarchy
                  semantic identity, real reference counts, caller/callee proof
 
 5. Graph       → target:"graph"

@@ -1,0 +1,525 @@
+{
+  "results": [
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 279,
+      "column": 21,
+      "snippet": "…epoOption = getString(options, 'repo') || undefine…",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 279,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 280,
+      "column": 25,
+      "snippet": "…hOverride = getString(options, 'branch') || undefine…",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 280,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 358,
+      "column": 16,
+      "snippet": "…nst query = getString(options, 'query');",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 358,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 360,
+      "column": 15,
+      "snippet": "…onst file = getString(options, 'file');",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 360,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 393,
+      "column": 17,
+      "snippet": "…st target = getString(args.options, 'target');",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 393,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 397,
+      "column": 48,
+      "snippet": "…(targetArg, getString(args.options, 'pr')));",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 397,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 405,
+      "column": 16,
+      "snippet": "…nst value = getString(args.options, 'query');",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 405,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 414,
+      "column": 16,
+      "snippet": "…nst value = getString(args.options, 'file');",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 414,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 459,
+      "column": 6,
+      "snippet": "      getString(options, 'base-ref') ||",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 459,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "search.ts",
+      "line": 460,
+      "column": 6,
+      "snippet": "      getString(options, 'base') ||",
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "range": {
+                  "startLine": 460,
+                  "contextLines": 2
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        },
+        "next.semantic": {
+          "query": {
+            "schema": "oql",
+            "target": "semantics",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+            },
+            "params": {
+              "type": "documentSymbols"
+            }
+          },
+          "why": "List the semantic symbols in this file.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "pagination": {
+    "hasMore": false,
+    "currentPage": 1,
+    "totalPages": 1,
+    "itemsPerPage": 20,
+    "totalItems": 1
+  },
+  "next": {
+    "next.matchPage": {
+      "query": {
+        "schema": "oql",
+        "target": "code",
+        "from": {
+          "kind": "local",
+          "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+        },
+        "where": {
+          "kind": "regex",
+          "value": "getString\\([^)]*\\)"
+        },
+        "view": "paginated",
+        "controls": {
+          "search": {
+            "onlyMatching": true,
+            "unique": true,
+            "matchWindow": 12,
+            "maxMatchesPerFile": 10,
+            "matchPage": 2
+          }
+        }
+      },
+      "why": "Per-file matches were capped; page within files.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "matchTruncated",
+      "severity": "info",
+      "message": "1 file(s) have more matches (showed 10 of 178) — page with controls.search.matchPage, or raise controls.search.maxMatchesPerFile.",
+      "blocksAnswer": false,
+      "backend": "localSearchCode",
+      "repair": {
+        "message": "Follow next.matchPage to page within files, or set controls.search.maxMatchesPerFile higher."
+      }
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "localSearchCode",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

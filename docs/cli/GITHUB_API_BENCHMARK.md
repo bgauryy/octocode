@@ -22,12 +22,12 @@ APIs and CLI paths covered:
 
 | Area | Friendly command | OQL `search` target | Raw tool |
 |---|---|---|---|
-| Repository discovery | `repo` | `repositories` | `ghSearchRepos` |
-| Code search | `grep` / `search` | `code` | `ghSearchCode` |
-| Repository structure | `ls` / `search` | `structure` | `ghViewRepoStructure` |
-| Content fetch | `cat` / `search` | `content` | `ghGetFileContent` |
-| PR search | `pr` / `search` | `pullRequests` | `ghHistoryResearch` |
-| PR deep dive | `pr <repo>#<n>` | `pullRequests` with `prNumber` | `ghHistoryResearch` with `prNumber` |
+| Repository discovery | `search --target repositories` | `repositories` | `ghSearchRepos` |
+| Code search | `search` | `code` | `ghSearchCode` |
+| Repository structure | `search --tree` | `structure` | `ghViewRepoStructure` |
+| Content fetch | `search <file>` | `content` | `ghGetFileContent` |
+| PR search | `search --target pullRequests` | `pullRequests` | `ghHistoryResearch` |
+| PR deep dive | `search <repo>#<n> --target pullRequests` | `pullRequests` with `prNumber` | `ghHistoryResearch` with `prNumber` |
 
 ## Environment
 
@@ -51,7 +51,7 @@ GitHub auth was available through the `gh-cli` token for user `bgauryy`.
 Repository discovery:
 
 ```bash
-node packages/octocode/out/octocode.js repo <term> --limit 3 --json
+node packages/octocode/out/octocode.js search <term> --target repositories --limit 3 --json
 node packages/octocode/out/octocode.js search --query '{"target":"repositories","params":{"keywords":["<term>"],"limit":3},"view":"discovery"}' --json --compact
 node packages/octocode/out/octocode.js tools ghSearchRepos --queries '{"keywords":["<term>"],"limit":3,"concise":true}' --json --compact
 ```
@@ -59,9 +59,9 @@ node packages/octocode/out/octocode.js tools ghSearchRepos --queries '{"keywords
 Code search:
 
 ```bash
-node packages/octocode/out/octocode.js search "<symbol>" <owner/repo> --type ts --json --compact
+node packages/octocode/out/octocode.js search "<symbol>" <owner/repo> --lang ts --json --compact
 node packages/octocode/out/octocode.js tools ghSearchCode --queries '{"owner":"<owner>","repo":"<repo>","keywords":["<symbol>"],"extension":"ts","limit":5,"concise":true}' --json --compact
-node packages/octocode/out/octocode.js grep <symbol> <path> --repo <owner/repo> --type ts --mode discovery --limit 5 --json
+node packages/octocode/out/octocode.js search <symbol> <path> --repo <owner/repo> --lang ts --view discovery --limit 5 --json
 ```
 
 Structure and content:
@@ -76,10 +76,10 @@ node packages/octocode/out/octocode.js tools ghGetFileContent --queries '{"owner
 Pull requests:
 
 ```bash
-node packages/octocode/out/octocode.js pr <owner/repo> --query docs --state merged --limit 1 --json
+node packages/octocode/out/octocode.js search <owner/repo> --target pullRequests --query docs --state merged --limit 1 --json
 node packages/octocode/out/octocode.js search --query '{"target":"pullRequests","from":{"kind":"github","repo":"<owner/repo>"},"params":{"state":"merged","keywordsToSearch":["docs"],"limit":1},"view":"discovery"}' --json --compact
 node packages/octocode/out/octocode.js tools ghHistoryResearch --queries '{"type":"prs","owner":"<owner>","repo":"<repo>","state":"merged","keywordsToSearch":["docs"],"limit":1,"concise":false}' --json --compact
-node packages/octocode/out/octocode.js pr <owner/repo>#<number> --patches --comments --commits --char-length 3000 --page-size 5 --json
+node packages/octocode/out/octocode.js search <owner/repo>#<number> --target pullRequests --patches --comments --commits --char-length 3000 --items-per-page 5 --json
 node packages/octocode/out/octocode.js tools ghHistoryResearch --queries '{"type":"prs","owner":"<owner>","repo":"<repo>","prNumber":<number>,"content":{"metadata":true,"changedFiles":true,"patches":{"mode":"all"},"comments":{"discussion":true,"reviewInline":true,"includeBots":false},"reviews":true,"commits":{"list":true}},"charLength":3000,"itemsPerPage":5,"minify":"standard"}' --json --compact
 ```
 
@@ -92,12 +92,12 @@ Summary:
 | Commands run | 68 |
 | Target repos | 4 |
 | Hard failures | 0 reproducible |
-| Transient harness timeout | 1, `Zustand oql pr list`; direct rerun succeeded in 1.826s |
+| Transient harness timeout | 1, `Zustand OQL PR list`; direct rerun succeeded in 1.826s |
 | Consistent diagnostics | 4, all `search` target `code` returning `providerUnindexed` |
 
 Per-repo results:
 
-| Project | Repo discovery | OQL code search | Raw code search | Materialized grep | Structure | Content | PR list and deep read |
+| Project | Repo discovery | OQL code search | Raw code search | Materialized search | Structure | Content | PR list and deep read |
 |---|---|---|---|---|---|---|---|
 | LangChain | OK, top hit `langchain-ai/langchainjs` | Empty, `providerUnindexed` | OK, 67 reported matches; first file `libs/langchain-core/src/language_models/chat_models.ts` | OK, found `chat_models.ts` | OK, paginated | OK, symbols fetched for `chat_models.ts` | OK, PR `#11067` deep-read |
 | Zustand | OK, top hit `pmndrs/zustand` | Empty, `providerUnindexed` | OK, 4 files; first file `src/vanilla.ts` | OK, 3 files | OK | OK, symbols fetched for `src/vanilla.ts` | OK, PR `#3527` deep-read |
@@ -115,16 +115,16 @@ Selected PRs:
 
 ## Findings
 
-1. OQL `search` target `code` has a GitHub parity gap. For all four repos, `search "<symbol>" <owner/repo> --type ts` returned no results with `providerUnindexed`, while the raw `ghSearchCode` tool found matching files immediately and `grep --repo` proved the same matches after materialization.
+1. OQL `search` target `code` has a GitHub parity gap. For all four repos, `search "<symbol>" <owner/repo> --lang ts` returned no results with `providerUnindexed`, while the raw `ghSearchCode` tool found matching files immediately and `search "<symbol>" <path> --repo <owner/repo>` proved the same matches after materialization.
 
 2. Raw GitHub APIs are healthy through the CLI tool runner. `ghSearchRepos`, `ghSearchCode`, `ghViewRepoStructure`, `ghGetFileContent`, and `ghHistoryResearch` all returned expected results through `tools <name> --queries`.
 
 3. OQL non-code GitHub targets are healthy in this matrix. `repositories`, `structure`, `content`, and `pullRequests` matched the raw tools closely. Paginated discovery targets correctly reported partial evidence, while content fetches reported proof-grade evidence.
 
-4. Friendly GitHub commands line up with raw tools for structure, content, and PRs. `ls`, `cat`, `pr`, and PR deep-read produced the same practical answers as their raw tool equivalents.
+4. Friendly GitHub flows line up with raw tools for structure, content, and PRs. `search --tree`, `search <file>`, and `search --target pullRequests` produced the same practical answers as their raw tool equivalents.
 
-5. Repository discovery depends strongly on query wording. `repo vue --language TypeScript` and `repo nextjs --language TypeScript` exercised the API successfully but did not surface the benchmark target repos in the top three. The follow-up checks used explicit owner/repo targets.
+5. Repository discovery depends strongly on query wording. `search vue --target repositories --lang TypeScript` and `search nextjs --target repositories --lang TypeScript` exercised the API successfully but did not surface the benchmark target repos in the top three. The follow-up checks used explicit owner/repo targets.
 
-6. The only timed issue was not reproducible. The harness timed out once on `Zustand oql pr list` after 60 seconds with no output; the same command run directly returned PR `#3527` in 1.826 seconds.
+6. The only timed issue was not reproducible. The harness timed out once on `Zustand OQL PR list` after 60 seconds with no output; the same command run directly returned PR `#3527` in 1.826 seconds.
 
-Recommended next fix: inspect the OQL GitHub code adapter path for how `where.kind:"text"` and `scope.language` / `--type` are translated into `ghSearchCode` params. The adapter should produce the same result set as raw `ghSearchCode` for provider-supported text queries before claiming `providerUnindexed`.
+Recommended next fix: inspect the OQL GitHub code adapter path for how `where.kind:"text"` and `scope.language` / `--lang` are translated into `ghSearchCode` params. The adapter should produce the same result set as raw `ghSearchCode` for provider-supported text queries before claiming `providerUnindexed`.

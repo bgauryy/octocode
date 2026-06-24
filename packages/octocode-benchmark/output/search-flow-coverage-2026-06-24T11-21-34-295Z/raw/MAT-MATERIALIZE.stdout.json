@@ -1,0 +1,71 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "materialized",
+      "id": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+      "data": {
+        "localPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+        "repoRoot": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+        "sourceRef": {
+          "kind": "github",
+          "repo": "pmndrs/zustand"
+        },
+        "cache": "hit",
+        "complete": false
+      },
+      "next": {
+        "next.structure": {
+          "query": {
+            "schema": "oql",
+            "target": "structure",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663"
+            }
+          },
+          "why": "List the materialized tree.",
+          "confidence": "exact"
+        },
+        "next.files": {
+          "query": {
+            "schema": "oql",
+            "target": "files",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663"
+            }
+          },
+          "why": "Enumerate files in the materialized.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "candidate"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "staleCache",
+      "severity": "info",
+      "message": "Checkpoint served from a cached clone; set materialize.forceRefresh to refresh.",
+      "blocksAnswer": false,
+      "backend": "ghCloneRepo"
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "ghCloneRepo",
+      "source": {
+        "kind": "github",
+        "repo": "pmndrs/zustand"
+      },
+      "materializedPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+      "cache": "hit"
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

@@ -33,7 +33,7 @@ import {
   type Predicate,
   type QueryScope,
   type QuerySource,
-  type StructuralRule,
+  type StructuralRuleInput,
   isBatchInput,
 } from './types.js';
 
@@ -66,8 +66,6 @@ const KNOWN_QUERY_KEYS = new Set<string>([
   'pattern',
   'rule',
   'lang',
-  'langType',
-  'minify',
   'and',
   'or',
   'xor',
@@ -178,8 +176,8 @@ export function normalizeQuery(input: OqlInputQuery): OqlQuery {
     ...(parsed.data as Record<string, unknown>),
   } as OqlInputQuery;
 
-  // 1. resolve target. legacy `filesWithoutMatch` forces "files"; otherwise use
-  // the explicit target or infer it from sugar.
+  // 1. resolve target. `filesWithoutMatch` sugar forces "files"; otherwise use
+  // the explicit target or infer it from the rest of the query.
   const target = raw.filesWithoutMatch
     ? 'files'
     : (raw.target ?? inferTarget(raw));
@@ -225,15 +223,14 @@ export function normalizeQuery(input: OqlInputQuery): OqlQuery {
     }
   }
 
-  // legacy `filesOnly` -> discovery view + path-only projection (unless a
-  // stricter `select` is already present).
-  const legacy: { view?: OqlQuery['view']; select?: string[] } = {};
-  if (raw.filesOnly === true) {
-    legacy.view = 'discovery';
-    legacy.select = Array.isArray(raw.select)
-      ? raw.select
-      : ['path', 'next.fetch'];
-  }
+  const select =
+    raw.filesOnly === true
+      ? Array.isArray(raw.select)
+        ? raw.select
+        : ['path', 'next.fetch']
+      : raw.select;
+  const view: OqlQuery['view'] =
+    raw.filesOnly === true ? 'discovery' : (raw.view ?? 'paginated');
 
   const from = normalizeSource(raw, target as OqlQuery['target']);
   const scope = normalizeScope(raw, from);
@@ -257,10 +254,8 @@ export function normalizeQuery(input: OqlInputQuery): OqlQuery {
     ...(where ? { where } : {}),
     ...(materialize ? { materialize } : {}),
     ...(fetch ? { fetch } : {}),
-    ...((legacy.select ?? raw.select)
-      ? { select: legacy.select ?? raw.select }
-      : {}),
-    view: legacy.view ?? raw.view ?? 'paginated',
+    ...(select ? { select } : {}),
+    view,
     ...(raw.controls ? { controls: raw.controls } : {}),
     ...(raw.limit !== undefined ? { limit: raw.limit } : {}),
     ...(raw.page !== undefined ? { page: raw.page } : {}),
@@ -392,7 +387,7 @@ function inferTarget(raw: OqlInputQuery): OqlQuery['target'] | undefined {
     Array.isArray(raw.noneOf) ||
     Array.isArray(raw.oneOf);
   if (hasMatch) return 'code';
-  if (raw.fetch?.content || raw.minify) return 'content';
+  if (raw.fetch?.content) return 'content';
   if (raw.fetch?.tree) return 'structure';
   return undefined;
 }
@@ -492,8 +487,8 @@ function normalizeSource(
     return { kind: 'local', path: topPath };
   }
   if (Array.isArray(topPath) && typeof topPath[0] === 'string') {
-    // multiple local roots is not a single canonical `from`; first becomes the
-    // root, the rest are scope.path traversal roots handled in scope.
+    // OQL accepts one canonical corpus root. If legacy callers pass multiple
+    // roots, normalization keeps the first and ignores the rest.
     return { kind: 'local', path: topPath[0] };
   }
 
@@ -555,11 +550,6 @@ function normalizeScope(
     scope.path = topPath;
   }
 
-  // language sugar: langType -> scope.language (structural `lang` is separate)
-  if (typeof raw.langType === 'string' && scope.language === undefined) {
-    scope.language = raw.langType;
-  }
-
   return Object.keys(scope).length > 0 ? scope : undefined;
 }
 
@@ -583,8 +573,8 @@ function normalizeWhere(
 
   let predicate = raw.where ?? sugarPredicate;
 
-  // legacy filesWithoutMatch -> target:"files" + not(predicate). The target
-  // flip is handled by the caller convention; here we only wrap the predicate.
+  // `filesWithoutMatch` sugar becomes target:"files" + not(predicate). The
+  // target flip is handled above; here we only wrap the predicate.
   if (raw.filesWithoutMatch && predicate) {
     predicate = { kind: 'not', predicate };
   }
@@ -701,27 +691,20 @@ function buildSugarPredicate(raw: OqlInputQuery): Predicate | undefined {
         )
       );
     }
-    // Structural `lang` may come from `lang` or, by context, `langType`/`--type`.
-    const lang =
-      typeof raw.lang === 'string'
-        ? raw.lang
-        : typeof raw.langType === 'string'
-          ? raw.langType
-          : undefined;
-    if (typeof lang !== 'string') {
+    if (typeof raw.lang !== 'string') {
       fail(
-        diagnostic(
-          'invalidQuery',
-          'Structural sugar requires `lang` (or `langType`/--type).',
-          { queryPath: 'lang' }
-        )
+        diagnostic('invalidQuery', 'Structural sugar requires `lang`.', {
+          queryPath: 'lang',
+        })
       );
     }
     return {
       kind: 'structural',
-      lang,
+      lang: raw.lang,
       ...(typeof raw.pattern === 'string' ? { pattern: raw.pattern } : {}),
-      ...(raw.rule !== undefined ? { rule: raw.rule as StructuralRule } : {}),
+      ...(raw.rule !== undefined
+        ? { rule: raw.rule as StructuralRuleInput }
+        : {}),
     };
   }
 
@@ -878,6 +861,18 @@ function normalizeMaterialize(
     };
   }
 
+  // Remote semantics has no provider-only lane: the adapter sparsely
+  // materializes the requested file/repo, then runs LSP locally. Normalize that
+  // internal route explicitly so `--explain` never says provider-only while
+  // listing ghCloneRepo + lspGetSemantics backend calls.
+  if (target === 'semantics' && from?.kind === 'github') {
+    return {
+      ...(policy ?? {}),
+      mode: 'required',
+      strategy: 'file',
+    };
+  }
+
   if (from?.kind !== 'github') {
     // local/materialized/npm/no-corpus sources don't need a materialize policy
     return policy;
@@ -897,21 +892,7 @@ function normalizeMaterialize(
 /* ------------------------------- fetch ---------------------------------- */
 
 function normalizeFetch(raw: OqlInputQuery): OqlQuery['fetch'] | undefined {
-  const fetch = raw.fetch ? { ...raw.fetch } : undefined;
-
-  // minify sugar -> fetch.content.contentView
-  if (raw.minify) {
-    const view =
-      raw.minify === 'none'
-        ? 'exact'
-        : raw.minify === 'symbols'
-          ? 'symbols'
-          : 'compact';
-    const next = fetch ?? {};
-    next.content = { ...(next.content ?? {}), contentView: view };
-    return next;
-  }
-  return fetch;
+  return raw.fetch ? { ...raw.fetch } : undefined;
 }
 
 /* ------------------------------ helpers --------------------------------- */

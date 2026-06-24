@@ -1,6 +1,6 @@
 import { compileWhere } from '../../adapters/compile.js';
 import { diagnostic } from '../../diagnostics.js';
-import type { OqlDiagnostic, OqlQuery } from '../../types.js';
+import type { OqlDiagnostic, OqlQuery, Predicate } from '../../types.js';
 import type { TransformResult } from '../types.js';
 import {
   classifyLanguageSelector,
@@ -21,6 +21,30 @@ export type GithubCodeSearchTransformOptions = {
   unsupportedBackend?: string;
 };
 
+/**
+ * Path-like field predicates (`basename`/`extension`/`path` with op `=`) map
+ * directly onto GitHub code-search path qualifiers — the same provider route
+ * OQL target:"files" uses. Returns the ghSearchCode param
+ * fragment, or `null` if the predicate is not a provider-expressible path-field
+ * equality (those still require materialization, per the planner files lane).
+ */
+export function githubPathFieldParams(
+  where: Predicate
+): GithubCodeSearchToolQuery | null {
+  if (where.kind !== 'field' || where.op !== '=') return null;
+  if (typeof where.value !== 'string' || where.value.length === 0) return null;
+  switch (where.field) {
+    case 'basename':
+      return { filename: where.value, match: 'path' };
+    case 'extension':
+      return { extension: where.value.replace(/^\./, ''), match: 'path' };
+    case 'path':
+      return { keywords: [where.value], match: 'path' };
+    default:
+      return null;
+  }
+}
+
 export function toGithubCodeSearchToolQuery(
   query: OqlQuery,
   options: GithubCodeSearchTransformOptions = {}
@@ -36,6 +60,31 @@ export function toGithubCodeSearchToolQuery(
           { backend: options.unsupportedBackend ?? 'ghSearchCode' }
         ),
       ],
+    };
+  }
+
+  // Path-like field equality (basename/extension/path) compiles to provider
+  // path qualifiers rather than ripgrep keywords, so it bypasses compileWhere.
+  const pathField = githubPathFieldParams(query.where);
+  if (pathField) {
+    const lossyDiagnostics = githubCodeLossyScopeDiagnostics(query, options);
+    if (lossyDiagnostics.length > 0) {
+      return { ok: false, diagnostics: lossyDiagnostics };
+    }
+    const { owner, repo } = splitGithubSource(query.from);
+    const limit = requestedRowLimit(query);
+    const scopePath = firstScopePath(query.scope);
+    return {
+      ok: true,
+      diagnostics: [],
+      query: {
+        ...(owner ? { owner } : {}),
+        ...(repo ? { repo } : {}),
+        ...pathField,
+        ...(scopePath ? { path: scopePath } : {}),
+        ...(limit ? { limit } : {}),
+        ...(query.page ? { page: query.page } : {}),
+      },
     };
   }
 
@@ -72,6 +121,23 @@ export function toGithubCodeSearchToolQuery(
     };
   }
 
+  // GitHub code search needs a non-empty term. An empty/whitespace keyword
+  // (e.g. text "") would otherwise yield `keywords:['']` and silently match
+  // nothing while reporting ok — surface it as an unrepresentable predicate.
+  const keyword = compiled.match?.keywords ?? '';
+  if (keyword.trim().length === 0) {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic(
+          'vendorNoEquivalent',
+          'GitHub code search needs a non-empty search term.',
+          { backend: options.unsupportedBackend ?? 'ghSearchCode' }
+        ),
+      ],
+    };
+  }
+
   const { owner, repo } = splitGithubSource(query.from);
   const params = query.params ?? {};
   const languageParams =
@@ -88,7 +154,7 @@ export function toGithubCodeSearchToolQuery(
     query: {
       ...(owner ? { owner } : {}),
       ...(repo ? { repo } : {}),
-      keywords: [compiled.match?.keywords ?? ''],
+      keywords: [keyword],
       ...languageParams,
       ...(firstScopePath(query.scope)
         ? { path: firstScopePath(query.scope) }

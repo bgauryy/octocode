@@ -5,16 +5,20 @@
  * no backend mocking. Execution paths that need a clone/inspect backend are
  * covered in open-gaps-materialize.test.ts.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { _resetConfigCache } from '../../src/shared/config/resolverCache.js';
 import { runOqlSearch } from '../../src/oql/run.js';
 import { normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
 import { checkOutputFeatures } from '../../src/oql/features.js';
 import { mapCodeResult } from '../../src/oql/adapters/resultMap.js';
-import { computeLineDiff, executeDiff } from '../../src/oql/adapters/researchTargets.js';
+import {
+  computeLineDiff,
+  executeDiff,
+} from '../../src/oql/adapters/researchTargets.js';
 import {
   isBatchEnvelope,
   type OqlCodeResultRow,
@@ -24,6 +28,14 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OQL_SRC = path.resolve(here, '../../src/oql');
+
+// The raw-tool path (executeDirectTool) gates local tools behind ENABLE_LOCAL;
+// the direct-file diff lane reads files via that path, so enable it (and reset
+// the cached config) — otherwise the read errors and a correct diff is impossible.
+beforeAll(() => {
+  process.env.ENABLE_LOCAL = 'true';
+  _resetConfigCache();
+});
 
 function single(
   r: Awaited<ReturnType<typeof runOqlSearch>>
@@ -59,6 +71,26 @@ describe('gap 12a: mapCodeResult forwards engine captures into row.metavars', ()
     const row = mapped.results[0] as OqlCodeResultRow;
     expect('metavars' in row).toBe(false);
   });
+
+  it('preserves count-mode file totals when no match rows are returned', () => {
+    const result = {
+      files: [
+        { path: 'a.ts', totalMatchedLines: 3 },
+        { path: 'b.ts', totalOccurrences: 8 },
+      ],
+    };
+    const mapped = mapCodeResult(result as never, { kind: 'local', path: '.' });
+    expect(mapped.results[0]).toMatchObject({
+      kind: 'code',
+      path: 'a.ts',
+      totalMatchedLines: 3,
+    });
+    expect(mapped.results[1]).toMatchObject({
+      kind: 'code',
+      path: 'b.ts',
+      totalOccurrences: 8,
+    });
+  });
 });
 
 /* --------------- gap 11 + 12b: feature-capability diagnostics ----------- */
@@ -68,7 +100,7 @@ describe('gap 11: symbols content view on PR/commit/diff -> signatureUnsupported
     const q = normalizeQuery({
       target: 'pullRequests',
       repo: 'facebook/react',
-      minify: 'symbols',
+      fetch: { content: { contentView: 'symbols' } },
       params: { prNumber: 1 },
     } as never) as OqlQuery;
     const codes = checkOutputFeatures(q).map(d => d.code);
@@ -79,7 +111,7 @@ describe('gap 11: symbols content view on PR/commit/diff -> signatureUnsupported
     const q = normalizeQuery({
       target: 'content',
       from: { kind: 'local', path: './x.ts' },
-      minify: 'symbols',
+      fetch: { content: { contentView: 'symbols' } },
     } as never) as OqlQuery;
     expect(checkOutputFeatures(q).map(d => d.code)).not.toContain(
       'signatureUnsupported'
@@ -90,7 +122,7 @@ describe('gap 11: symbols content view on PR/commit/diff -> signatureUnsupported
     const { plan: p } = plan({
       target: 'commits',
       repo: 'facebook/react',
-      minify: 'symbols',
+      fetch: { content: { contentView: 'symbols' } },
       params: { path: 'src' },
     });
     const d = p.diagnostics.find(x => x.code === 'signatureUnsupported');
@@ -170,6 +202,37 @@ describe('gap 8: diff with neither prNumber nor base/head refs -> repair', () =>
     const d = res.diagnostics[0];
     expect(d?.code).toBe('invalidQuery');
     expect(d?.repair?.message).toMatch(/prNumber|baseRef/);
+  });
+
+  it('executes local direct-file diff with localGetFileContent reads', async () => {
+    const basePath = path.resolve(here, 'open-gaps-fixes.test.ts');
+    const headPath = path.resolve(here, 'v2-targets.test.ts');
+    const res = await executeDiff({
+      schema: 'oql',
+      target: 'diff',
+      from: { kind: 'local', path: basePath },
+      params: { baseRef: 'base', headRef: 'head', path: headPath },
+    } as OqlQuery);
+    expect(res.diagnostics.map(d => d.code)).not.toContain('invalidQuery');
+    expect(res.provenance[0]).toMatchObject({ backend: 'localGetFileContent' });
+    expect(res.results[0]).toMatchObject({
+      kind: 'record',
+      recordType: 'diff',
+      data: {
+        basePath,
+        headPath,
+        baseRef: 'base',
+        headRef: 'head',
+      },
+    });
+    // Two different files MUST produce a real (non-empty) diff — a regression
+    // guard for the content-extraction bug that previously diffed empty-vs-empty
+    // and silently reported "identical".
+    const data = res.results[0]?.data as {
+      additions: number;
+      deletions: number;
+    };
+    expect(data.additions + data.deletions).toBeGreaterThan(0);
   });
 });
 

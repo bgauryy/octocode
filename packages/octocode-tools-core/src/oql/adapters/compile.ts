@@ -62,8 +62,10 @@ function compileLeaf(p: Predicate): CompileResult {
     case 'structural': {
       const out: CompiledMatch = { mode: 'structural', langType: p.lang };
       if (typeof p.pattern === 'string') out.pattern = p.pattern;
-      // The engine's `rule` field is a YAML string, not a JSON object — lower it.
-      if (p.rule !== undefined) out.rule = structuralRuleToYaml(p.rule);
+      // The engine's `rule` field is a YAML string. OQL accepts either the
+      // grep-compatible YAML string directly or the JSON object form.
+      if (typeof p.rule === 'string') out.rule = p.rule;
+      else if (p.rule !== undefined) out.rule = structuralRuleToYaml(p.rule);
       return { match: out };
     }
     case 'field':

@@ -1,0 +1,80 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "semantics",
+      "id": "search.ts",
+      "data": {
+        "type": "references",
+        "uri": "search.ts",
+        "resolvedSymbol": {
+          "name": "searchCommand",
+          "uri": "search.ts",
+          "foundAtLine": 39
+        },
+        "lsp": {
+          "serverAvailable": true,
+          "provider": "referencesProvider",
+          "source": "lsp"
+        },
+        "payload": {
+          "kind": "references",
+          "locations": [
+            {
+              "uri": "search.ts",
+              "content": "export const searchCommand: CLICommand = {",
+              "displayRange": {
+                "startLine": 39,
+                "endLine": 39
+              }
+            }
+          ],
+          "totalReferences": 1,
+          "totalFiles": 1
+        },
+        "pagination": {
+          "currentPage": 1,
+          "totalPages": 1,
+          "totalResults": 1,
+          "hasMore": false,
+          "itemsPerPage": 40
+        }
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "local",
+              "path": "search.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact"
+              }
+            }
+          },
+          "why": "Read the code at this symbol location.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "semantic"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "lspGetSemantics",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/Documents/octocode-mcp/packages/octocode/src/cli/commands/search.ts"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

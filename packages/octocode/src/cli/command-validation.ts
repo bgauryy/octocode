@@ -42,6 +42,7 @@ export function findUnknownOptions(
 const NUMERIC_FLAGS = new Set([
   'page',
   'page-size',
+  'items-per-page',
   'limit',
   'depth',
   'line',
@@ -49,7 +50,6 @@ const NUMERIC_FLAGS = new Set([
   'context-lines',
   'context',
   'max-matches',
-  'max-matches-per-file',
   'max-files',
   'match-length',
   'match-page',

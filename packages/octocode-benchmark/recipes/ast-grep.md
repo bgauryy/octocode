@@ -1,6 +1,6 @@
 # ast-grep Comparison Recipe
 
-Validates Octocode structural grep against the
+Validates Octocode structural search against the
 [ast-grep](https://github.com/ast-grep/ast-grep) CLI.
 Octocode does **not** link ast-grep crates — this recipe shells out to an
 installed `ast-grep` binary. Each section is a discrete check you can run and
@@ -97,7 +97,7 @@ The four lanes:
 | `ast-grep CLI` | `ast-grep run --json=stream --kind <kind> <corpus>` — external Rust process, zero Octocode code |
 | `octocode raw native` | `engine.structuralSearchFiles({...})` — Rust/NAPI, no validation, no result shaping |
 | `octocode localSearchCode tool` | `executeDirectTool('localSearchCode', {...})` — full agent-safe path with schema validation, path security, sanitizer, pagination |
-| `octocode grep CLI` | `node octocode.js grep ... --json` — full public CLI including Node startup and JSON serialization |
+| `octocode search CLI` | `node octocode.js search ... --pattern/--rule --json` — full public CLI including Node startup and JSON serialization |
 
 **Pass condition:** all six scenarios show `MATCH` in the status column (0 DIFF,
 0 errors). A `DIFF +X%` row means Octocode found more or fewer matches than

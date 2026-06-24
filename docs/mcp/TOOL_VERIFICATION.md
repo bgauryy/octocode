@@ -173,7 +173,7 @@ Primary code: [src/tools/local_find_files/](https://github.com/bgauryy/octocode/
 | Surface | Checks |
 | --- | --- |
 | Params | Verify `path`, name/pattern filters, file type, size filters, modified/accessed/created filters, permissions if exposed, `limit`, `filesPerPage`, `filePageNumber`, `charOffset`, `charLength`. |
-| Implementation | Uses the safe find command builder, respects allowed paths, handles large trees without unbounded output, and returns stable metadata. |
+| Implementation | Uses the safe file-discovery path, respects allowed paths, handles large trees without unbounded output, and returns stable metadata. |
 | Pagination | File pagination and char pagination both work. Cap notices must not replace next-page cursors. |
 | Empty | Empty hints quote active filters such as `name`, `modifiedWithin`, or `sizeGreater`. No-filter empty stays silent. |
 | Research quality | Results should support targeted follow-ups by path, type, size, permissions, and timestamps. |

@@ -1,85 +1,106 @@
 # OctoCode Skills
 
-Specialized AI agent skills extending OctoCode. 19 skills live under `skills/`.
+Specialized AI agent skills extending OctoCode. **9 skills** live under `skills/`. The table below says **when to reach for each** — match your situation to the trigger column, not the skill name.
 
 ---
 
-## Skill Lookup
+## When to use each skill
 
-| Skill | Directory | Use For |
-|-------|-----------|---------|
-| **Install** | `octocode-install/` | Set up OctoCode, auth, IDE MCP, and skills. |
-| **CLI** | `octocode/` | Run Octocode tools from the shell. |
-| **Researcher** | `octocode-engineer/` | Fast code search, symbol lookup, and file discovery. |
-| **Research** | `octocode-research/` | Multi-phase investigations with checkpoints. |
-| **Brainstorming** | `octocode-brainstorming/` | Validate ideas with prior art and market evidence. |
-| **RFC Generator** | `octocode-rfc-generator/` | Compare approaches, write RFCs, and build evidence-backed implementation plans. |
-| **Engineer** | `octocode-engineer/` | Understand, implement, refactor, and audit code. |
-| **PR Reviewer** | `octocode-engineer/` | Review PRs or local diffs for defects and risk. |
-| **Roast** | `octocode-roast/` | Brutal but actionable code-quality critique. |
-| **Prompt Optimizer** | `octocode-prompt-optimizer/` | Harden prompts, skills, and agent instructions. |
-| **Design** | `octocode-design/` | Generate design-system and UI architecture guidance. |
-| **Doc Writer** | `octocode-documentation-writer/` | Produce comprehensive project documentation. |
-| **News** | `octocode-news/` | Research recent AI, DevTools, web, and security updates. |
-| **Skills** | `octocode-skills/` | Search, evaluate, create, and update agent skills. |
-| **Chrome DevTools** | `octocode-chrome-devtools/` | Open Chrome via CDP, generate inspection scripts, trace errors to source. |
-| **Agentic Flow Best Practices** | `agentic-flow-best-practices/` | Design agentic workflow patterns, agent collaboration, MCP/tool boundaries, context, memory scopes, caching, prompts, model settings, gates, and verification. |
-| **Stats** | `octocode-stats/` | Render Octocode usage dashboards from local stats files. |
+| Skill | Directory | Use it WHEN… |
+|-------|-----------|--------------|
+| **CLI** | `octocode/` | …you want to research code from the **terminal without MCP** — a one-off local or GitHub/npm code, file, repo, PR, or package lookup in the shell. |
+| **Engineer** | `octocode-engineer/` | …you need to **understand, implement, review, refactor, or audit code** — bug investigation, PR/local-diff review, architecture or blast-radius analysis. The default for "work on this code." |
+| **Loop** | `octocode-loop/` | …the **goal and research path are already clear** and the work is iterative — run grounded Act→Observe→Learn→Repeat loops over Octocode until evidence converges (research loops, local code-check loops, multi-source loops). |
+| **Brainstorming** | `octocode-brainstorming/` | …the **idea is still fuzzy** — "is this worth building", "has anyone built X", "validate my idea", "prior-art for Y". Diverges then validates against evidence; outputs a decision brief, not code. |
+| **RFC Generator** | `octocode-rfc-generator/` | …you need a **design doc before coding** — RFC, architecture proposal, migration/implementation plan with alternatives, trade-offs, blast radius, and a recommendation. |
+| **Roast** | `octocode-roast/` | …you want **brutal but actionable code critique** — "roast my code", "find antipatterns", severity-ranked sins with `file:line` and fixes. |
+| **Skills** | `octocode-skills/` | …you're working on **Agent Skills themselves** — find, evaluate, install, rate/lint, create, or update `SKILL.md` folders. |
+| **Awareness** | `octocode-awareness/` | …you need **memory, file locks, or verify-before-conclude** across runs or concurrent agents — before/after big changes, edits, handoffs, or in a shared/dirty repo. |
+| **Stats** | `octocode-stats/` | …you want to **visualize Octocode usage** — tokens/chars saved, cache hits, errors, rate limits from `stats.json`. |
+
+### Picking between the research/code skills
+
+They overlap on the surface; the entry condition is what separates them:
+
+- **Idea fuzzy → validate it?** → Brainstorming. **Goal clear → go build/decide?** → next ones.
+- **Need to act on code now** (read/change/review) → **Engineer**.
+- **Goal is set, just iterate to ground-truth** (converge a question, sweep findings, multi-source dig) → **Loop**.
+- **Need a written, reviewable decision before coding** → **RFC Generator**.
+- **Just want the harsh quality pass** → **Roast**.
 
 ---
 
-## Skill Details
+## Flows — chaining skills
 
-### Install
-Guided setup for OctoCode CLI/MCP, authentication, IDE config, and skill installation.
+Skills compose. The canonical handoffs:
 
-### CLI
-Terminal workflow for Octocode tools, including code search, file reads, repo search, PR search, and package lookup.
+```
+Brainstorming ──▶ Loop            validate idea → goal locked → run grounded loops to converge evidence
+Brainstorming ──▶ RFC Generator   validate idea → turn the decision brief into a formal RFC + rollout plan
+Engineer      ──▶ RFC Generator   investigate code + map blast radius → write the change up as a reviewable RFC
+```
 
-### Researcher
-Default targeted research skill for local/GitHub code exploration, LSP navigation, callers, references, and package research.
+- **Brainstorming → Loop** — once Brainstorming settles *whether* to build, the goal is clear; hand to **Loop** to iterate Act→Observe→Learn→Repeat until the answer/evidence converges.
+- **Brainstorming → RFC Generator** — promote a validated decision brief into a formal RFC with alternatives, trade-offs, and a plan.
+- **Engineer → RFC Generator** — Engineer's investigation (architecture, blast radius, prior art) becomes the evidence base for the RFC's recommendation.
 
-### Research
-Stateful deep research flow for broad, multi-step questions that need phases, checkpoints, and evidence synthesis.
+---
 
-### Brainstorming
-Evidence-first idea validation across GitHub, package ecosystems, and web sources; outputs a decision brief.
+## Skill details
 
-### Plan
-Turns researched context into concrete implementation steps, risks, tests, and execution order.
+### CLI — `octocode/`
+Drive the `octocode` CLI to research code from a terminal without wiring MCP — across local files and external GitHub/npm with one toolset. Code search, file reads, repo/PR/package lookup.
 
-### RFC Generator
-Creates technical decision docs with alternatives, trade-offs, recommendation, and rollout plan.
+### Engineer — `octocode-engineer/`
+Architecture-aware engineering. CLI-first, schema-first; routes each task to a focused playbook in its `references/` (the references *are* the behavior map). **Every permutation it handles:**
 
-### Engineer
-Architecture-aware engineering skill for exploration, coding, analysis, audits, refactors, and quality checks.
+*Research & navigation*
+- Orient / understand a local codebase → `research-local`
+- Trace symbols, callers, references, types (LSP); exact file reads + pagination → `research-local`
+- Structural / AST code search — patterns, rules, gotchas → `context-ast-pattern-cookbook`
+- External GitHub/npm research + cross-repo comparison (clone when >3 files or AST/LSP needed) → `research-external`
+- Commit & PR history research → `research-external`
+- Binary / archive / `.node` / `.wasm` inspection → `research-binary`
+- OQL graph, reachability, `--repo` shortcut, `--explain` diagnostics → `workflow` (+ `workflow-graph`)
 
-### PR Reviewer
-Holistic review of remote PRs or local changes, focused on bugs, security, architecture, flow impact, and tests.
+*Review*
+- Remote PR review → `workflow-pr-local-review` (+ `checklist-review-domains`, `template-review-report`)
+- Local diff / staged-changes review → `workflow-pr-local-review`
+- Large PR/diff (>15 files) parallel review lanes → `workflow-review-parallel-strategy`
+- Validate or dismiss a specific finding before reporting it → `workflow-validation-playbooks`
 
-### Roast
-Entertaining severity-ranked critique with concrete fixes for code smells, antipatterns, and maintainability issues.
+*Analysis & change*
+- Architecture review / assessment → `workflow-engineering-research`
+- Refactor planning → `workflow-engineering-research`
+- Bug investigation (keep ≥2 hypotheses until evidence eliminates one) → `workflow-engineering-research`
+- Blast-radius / impact analysis → `workflow-engineering-research` (+ `workflow-graph`)
+- Dead-code / reachability / safe-delete / retained-by sweep → `workflow-graph`
+- Code-quality / smell sweep → `checklist-quality-signals` → `workflow-validation-playbooks`
+- Security finding sweep → `checklist-quality-signals` → `workflow-validation-playbooks`
+- Quality metric numbers (knip / tsc / dep-cruiser / ruff / bandit) → `measurement-tools`
 
-### Prompt Optimizer
-Improves long prompts and agent instructions with gates, failure-mode controls, and enforceable protocols.
+*Exact syntax & output*
+- CLI command names, flags, raw tools, MCP fallback → `context-cli-mcp-commands`
+- Investigation / architecture findings report → `template-artifact-report`
+- PR / local review report (≤5–7 key issues) → `template-review-report`
 
-### Design
-Builds practical UI/design-system guidance for visual language, components, accessibility, performance, and responsiveness.
+### Loop — `octocode-loop/`
+Grounded **Act → Observe → Learn → Repeat** research harness. Every iteration ends in a real tool result with a `status`; deterministic-check verification, context compaction, multi-gate stopping, and failure-mode guards. Three modes: general research, local code-check/findings, full multi-source.
 
-### Doc Writer
-Documentation pipeline for onboarding, architecture, APIs, workflows, and validated developer docs.
+### Brainstorming — `octocode-brainstorming/`
+Evidence-first idea validation. Diverges (reframe/invert/analogize/SCAMPER) before converging via parallel GitHub/npm/web/local research and an Advocate-vs-Critic debate. Outputs a decision-ready brief — never designs or code; hands off to RFC Generator for "how to build."
 
-### News
-Scans recent AI, developer tooling, web platform, security, and notable-repo updates into a concise report.
+### RFC Generator — `octocode-rfc-generator/`
+Turns researched evidence into a technical decision doc: alternatives, trade-offs, blast radius, recommendation, and a practical implementation/rollout plan.
 
-### Search Skill
-Searches GitHub for `SKILL.md` files, scores relevance, previews results, and downloads selected skill folders.
+### Roast — `octocode-roast/`
+Entertaining, severity-ranked code-quality critique with concrete fixes and `file:line` citations for smells, antipatterns, and maintainability issues — plus redemption paths.
 
-### Chrome DevTools
-Opens Chrome with CDP WebSocket debugging, generates a custom inspection script per task, runs it live, and traces errors back to source code using Octocode local tools. Covers network, console, performance, DOM, CSS, screenshots, iframes, service workers, and any CDP domain. Includes script self-review, CDP error retry, and multi-target routing.
+### Skills — `octocode-skills/`
+Search, evaluate, create, and update Agent Skills. Inspects real `SKILL.md` files, rates/lints them, installs into agents, and synthesizes new local skills — gating every write/install.
 
-### Agentic Flow Best Practices
-Designs practical agentic flows by choosing the simplest reliable pattern, shaping context packets, defining MCP/tool and skill boundaries, planning session/agent/shared memory scopes, tuning model configuration, and adding gates and verification where risk demands it.
+### Awareness — `octocode-awareness/`
+Self-awareness (shared memory + work-handoff state), self-harness (verify before concluding; record the test-plan), and files-awareness (pre-flight file locks before any create/edit/delete). For shared workspaces, dirty trees, handoffs, and recurring failures.
 
-### Stats
-Renders an Octocode MCP usage dashboard from `${OCTOCODE_HOME}/stats.json` or `~/.octocode/stats.json`, including saved tokens/chars, cache hits, errors, and rate limits.
+### Stats — `octocode-stats/`
+Renders an Octocode MCP usage dashboard from `${OCTOCODE_HOME}/stats.json` or `~/.octocode/stats.json` — saved tokens/chars, cache hits, errors, and rate limits.

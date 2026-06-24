@@ -1,5 +1,4 @@
 export * from './security/bridge.js';
-export * from './commands/BaseCommandBuilder.js';
 export * from './config.js';
 export * from './errors/domainErrors.js';
 export * from './errors/errorFactories.js';
@@ -139,7 +138,6 @@ export * from './utils/pagination/boundary.js';
 export * from './utils/pagination/charLimit.js';
 export * from './utils/pagination/core.js';
 export * from './utils/pagination/hints.js';
-export * from './utils/pagination/outputSizeLimit.js';
 export * from './utils/pagination/types.js';
 export * from './utils/parsers/diff.js';
 export * from './utils/parsers/ripgrep.js';
@@ -150,7 +148,6 @@ export * from './utils/response/charSavings.js';
 export * from './utils/response/error.js';
 export * from './utils/response/groupedFinalizer.js';
 export * from './utils/response/pathRelativize.js';
-export * from './utils/response/structuredPagination.js';
 
 export type { GitHubPullRequestItem, Repository } from './github/githubAPI.js';
 export {

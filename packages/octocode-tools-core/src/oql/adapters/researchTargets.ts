@@ -48,6 +48,56 @@ function firstQueryData<T = Record<string, unknown>>(
   return { data: first?.data as T | undefined, status: first?.status };
 }
 
+/**
+ * Pull file content/status/error out of a ghGetFileContent (or localGetFileContent)
+ * result. The row sits directly under structuredContent.results[0] with the file
+ * in files[0] (no nested `.data`); some shapes nest under `.data` or `.results`.
+ * Used by the direct two-ref diff lanes — reading `.data.content` is always
+ * undefined for this tool and previously masqueraded as "files identical".
+ */
+function ghFileContentResult(result: CallToolResult): {
+  content?: string;
+  status?: string;
+  error?: unknown;
+} {
+  const sc = result.structuredContent as
+    | { results?: Array<Record<string, unknown>> }
+    | undefined;
+  const row = sc?.results?.[0];
+  if (!row) return {};
+  const data = ('data' in row ? row.data : row) as
+    | Record<string, unknown>
+    | undefined;
+  const fileRow =
+    ((data?.files as Array<Record<string, unknown>> | undefined)?.[0] ??
+      (data?.results as Array<Record<string, unknown>> | undefined)?.[0] ??
+      data) ??
+    {};
+  const content = fileRow.content;
+  return {
+    content: typeof content === 'string' ? content : undefined,
+    status: row.status as string | undefined,
+    error: fileRow.error ?? data?.error ?? row.error,
+  };
+}
+
+function errorText(value: unknown, fallback: string): string {
+  if (typeof value === 'string' && value.trim()) return value;
+  if (value instanceof Error && value.message) return value.message;
+  if (value && typeof value === 'object') {
+    const record = value as { error?: unknown; message?: unknown };
+    if (typeof record.error === 'string' && record.error.trim()) {
+      return record.error;
+    }
+    if (typeof record.message === 'string' && record.message.trim()) {
+      return record.message;
+    }
+    const serialized = JSON.stringify(value);
+    if (serialized) return serialized;
+  }
+  return fallback;
+}
+
 function materializedClonePath(
   result: CallToolResult,
   localPath: string | undefined
@@ -55,6 +105,11 @@ function materializedClonePath(
   if (!localPath || nodePath.isAbsolute(localPath)) return localPath;
   const sc = result.structuredContent as { base?: string } | undefined;
   return sc?.base ? nodePath.join(sc.base, localPath) : localPath;
+}
+
+function firstScopePath(query: OqlQuery): string | undefined {
+  const path = query.scope?.path;
+  return Array.isArray(path) ? path[0] : path;
 }
 
 /** Known array-valued payload fields, in priority order. */
@@ -1026,10 +1081,10 @@ function statusDiagnostics(
   result: CallToolResult,
   backend: string
 ): OqlDiagnostic[] {
-  const { status, data } = firstQueryData<{ error?: string }>(result);
+  const { status, data } = firstQueryData<{ error?: unknown }>(result);
   if (status === 'error') {
     return [
-      diagnostic('invalidQuery', data?.error ?? `${backend} failed`, {
+      diagnostic('invalidQuery', errorText(data?.error, `${backend} failed`), {
         backend,
       }),
     ];
@@ -1260,13 +1315,17 @@ export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
   const { owner, repo } = splitRepo(query.from);
   const commits = query.target === 'commits';
 
-  // P4: pullRequests `matchString` is an OQL-layer *content* filter applied to
-  // the fetched PR bodies/comments/reviews — never a backing search-index claim.
-  // Strip it (and matchScope) from the params forwarded to ghHistoryResearch so
-  // the tool is not asked to interpret it as a query field.
+  // P4: `matchString` is an OQL-layer *content* filter applied to fetched
+  // bodies — never a backing search-index claim. Strip it (and matchScope) from
+  // the params forwarded to ghHistoryResearch for BOTH lanes so the tool is not
+  // asked to interpret it as a query field, then apply it client-side with
+  // honest partial/zero-match diagnostics. (Commits previously forwarded
+  // matchString raw and never filtered — a silent drop if the backend ignored
+  // it; PRs and commits now share the same content-filter discipline.)
   const pr = !commits ? pullRequestMatch(query) : undefined;
+  const commitNeedle = commits ? commitMatchNeedle(query) : undefined;
   const forwarded = withOqlPaging(query, commits ? 'perPage' : 'limit');
-  if (pr) {
+  if (pr || commitNeedle) {
     delete forwarded.matchString;
     delete forwarded.matchScope;
   }
@@ -1283,7 +1342,71 @@ export async function executeHistory(query: OqlQuery): Promise<AdapterResult> {
     'ghHistoryResearch',
     query.from ?? { kind: 'github' }
   );
-  return pr ? filterPullRequestsByMatch(mapped, pr) : mapped;
+  if (pr) return filterPullRequestsByMatch(mapped, pr);
+  if (commitNeedle) return filterCommitsByMatch(mapped, commitNeedle);
+  return mapped;
+}
+
+/** Read the validated commit content-match needle, if present. */
+function commitMatchNeedle(query: OqlQuery): string | undefined {
+  const p = params(query);
+  return typeof p.matchString === 'string' && p.matchString.length > 0
+    ? p.matchString
+    : undefined;
+}
+
+/**
+ * Keep only commit records whose message contains `needle` (case-insensitive
+ * substring), spotlight where it matched, and surface honest diagnostics — a
+ * `partialResult` when some were dropped, `zeroMatches` when none matched.
+ * Mirrors {@link filterPullRequestsByMatch}; commit text is the commit message.
+ */
+export function filterCommitsByMatch(
+  result: AdapterResult,
+  needle: string
+): AdapterResult {
+  const needleLower = needle.toLowerCase();
+  const total = result.results.length;
+  const kept = result.results.filter(row => {
+    if (row.kind !== 'record') return false;
+    const data = (row as OqlRecordResultRow).data;
+    const messageVal = (data as Record<string, unknown>).message;
+    const haystack = typeof messageVal === 'string' ? messageVal : '';
+    const idx = haystack.toLowerCase().indexOf(needleLower);
+    if (idx < 0) return false;
+    const start = Math.max(0, idx - 80);
+    const end = Math.min(haystack.length, idx + needle.length + 80);
+    (data as Record<string, unknown>).match = {
+      matchString: needle,
+      scope: 'message',
+      spotlight:
+        (start > 0 ? '…' : '') +
+        haystack.slice(start, end) +
+        (end < haystack.length ? '…' : ''),
+    };
+    return true;
+  });
+
+  const diagnostics = result.diagnostics.filter(d => d.code !== 'zeroMatches');
+  if (kept.length === 0) {
+    diagnostics.push(
+      diagnostic(
+        'zeroMatches',
+        `No commit message matched "${needle}" (content filter over ${total} fetched commit(s); not a search-index query). Broaden the fetch (branch/perPage/page).`,
+        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+      )
+    );
+  } else if (kept.length < total) {
+    diagnostics.push(
+      diagnostic(
+        'partialResult',
+        `Content filter kept ${kept.length} of ${total} fetched commit(s) matching "${needle}" in message. This filters fetched content only — page the fetch to widen the candidate set.`,
+        { backend: 'ghHistoryResearch', severity: 'info', blocksAnswer: false }
+      )
+    );
+  }
+
+  return { ...result, results: kept, diagnostics };
 }
 
 export interface PullRequestMatch {
@@ -1416,6 +1539,13 @@ export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
   }
 
   if (lane.kind === 'directFile') {
+    if (query.from?.kind === 'local' || query.from?.kind === 'materialized') {
+      return executeLocalDirectFileDiff(query, {
+        baseRef: lane.baseRef,
+        headRef: lane.headRef,
+        path: lane.path,
+      });
+    }
     return executeDirectFileDiff(query, owner, repo, {
       baseRef: lane.baseRef,
       headRef: lane.headRef,
@@ -1442,7 +1572,105 @@ export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
   };
 }
 
-/** Direct two-ref file diff via two content reads + a pure local line diff. */
+/** Direct two local files via two content reads + a pure local line diff. */
+async function executeLocalDirectFileDiff(
+  query: OqlQuery,
+  refs: { baseRef: string; headRef: string; path: string }
+): Promise<AdapterResult> {
+  const source = query.from;
+  const basePath =
+    source?.kind === 'local'
+      ? source.path
+      : source?.kind === 'materialized'
+        ? source.localPath
+        : undefined;
+  if (!basePath) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic('invalidQuery', 'Local direct file diff needs from.path.', {
+          backend: 'localGetFileContent',
+        }),
+      ],
+      provenance: [],
+    };
+  }
+
+  const read = (path: string) =>
+    runDirect('localGetFileContent', {
+      path,
+      fullContent: true,
+      minify: 'none',
+    });
+
+  const [baseRes, headRes] = await Promise.all([
+    read(basePath),
+    read(refs.path),
+  ]);
+  const base = firstQueryData<{ content?: unknown; error?: unknown }>(baseRes);
+  const head = firstQueryData<{ content?: unknown; error?: unknown }>(headRes);
+  const baseContent =
+    typeof base.data?.content === 'string' ? base.data.content : undefined;
+  const headContent =
+    typeof head.data?.content === 'string' ? head.data.content : undefined;
+
+  // Guard against a missing read (status error OR absent content) so an
+  // unresolved file can't silently diff empty-vs-empty and report "identical".
+  if (
+    base.status === 'error' ||
+    head.status === 'error' ||
+    baseContent === undefined ||
+    headContent === undefined
+  ) {
+    const err = errorText(
+      base.data?.error ?? head.data?.error,
+      'Could not read local file.'
+    );
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic('invalidQuery', err, { backend: 'localGetFileContent' }),
+      ],
+      provenance: [{ backend: 'localGetFileContent', source: query.from }],
+    };
+  }
+
+  const diff = computeLineDiff(baseContent, headContent);
+  const row: OqlRecordResultRow = {
+    kind: 'record',
+    recordType: 'diff',
+    id: `${basePath}..${refs.path}`,
+    ...(query.from ? { source: query.from } : {}),
+    data: {
+      path: refs.path,
+      basePath,
+      headPath: refs.path,
+      baseRef: refs.baseRef,
+      headRef: refs.headRef,
+      additions: diff.additions,
+      deletions: diff.deletions,
+      patch: diff.patch,
+      unchanged: diff.unchanged,
+    },
+  };
+
+  return {
+    results: [row],
+    diagnostics:
+      diff.additions === 0 && diff.deletions === 0
+        ? [
+            diagnostic('zeroMatches', 'Files are identical.', {
+              backend: 'localGetFileContent',
+              severity: 'info',
+              blocksAnswer: false,
+            }),
+          ]
+        : [],
+    provenance: [{ backend: 'localGetFileContent', source: query.from }],
+  };
+}
+
+/** Direct two-ref GitHub file diff via two content reads + a pure local line diff. */
 async function executeDirectFileDiff(
   query: OqlQuery,
   owner: string | undefined,
@@ -1467,7 +1695,7 @@ async function executeDirectFileDiff(
     runDirect('ghGetFileContent', {
       owner,
       repo,
-      filePath: refs.path,
+      path: refs.path,
       branch: ref,
       fullContent: true,
       minify: 'none',
@@ -1478,12 +1706,22 @@ async function executeDirectFileDiff(
     read(refs.headRef),
   ]);
 
-  const base = firstQueryData<{ content?: string; error?: string }>(baseRes);
-  const head = firstQueryData<{ content?: string; error?: string }>(headRes);
+  // ghGetFileContent returns the row directly under structuredContent.results[0]
+  // (keys: id/owner/repo/files) with the file content in files[0].content — there
+  // is no nested `.data`, so firstQueryData(...).data is empty. Reading it as
+  // `.content` was always undefined, which previously masqueraded as "identical".
+  const base = ghFileContentResult(baseRes);
+  const head = ghFileContentResult(headRes);
+  const unresolvedRef = [
+    { label: 'base', ref: refs.baseRef, ...base },
+    { label: 'head', ref: refs.headRef, ...head },
+  ].find(item => item.status === 'error' || typeof item.content !== 'string');
 
-  if (base.status === 'error' || head.status === 'error') {
-    const err =
-      base.data?.error ?? head.data?.error ?? 'Could not read file at one ref.';
+  if (unresolvedRef) {
+    const err = errorText(
+      unresolvedRef.error,
+      `Could not read ${unresolvedRef.label} ref "${unresolvedRef.ref}" for ${refs.path}.`
+    );
     return {
       results: [],
       diagnostics: [
@@ -1493,10 +1731,7 @@ async function executeDirectFileDiff(
     };
   }
 
-  const diff = computeLineDiff(
-    base.data?.content ?? '',
-    head.data?.content ?? ''
-  );
+  const diff = computeLineDiff(base.content ?? '', head.content ?? '');
   const row: OqlRecordResultRow = {
     kind: 'record',
     recordType: 'diff',
@@ -1661,7 +1896,14 @@ export async function executeSemantics(
   if (query.from?.kind === 'local') {
     uri = semanticParams.uri ?? query.from.path;
   } else if (query.from?.kind === 'materialized') {
-    uri = semanticParams.uri ?? query.from.localPath;
+    const scopePath = firstScopePath(query);
+    uri =
+      semanticParams.uri ??
+      (scopePath
+        ? nodePath.isAbsolute(scopePath)
+          ? scopePath
+          : nodePath.join(query.from.localPath, scopePath)
+        : query.from.localPath);
   } else if (query.from?.kind === 'github') {
     // remote semantics: materialize the file, then run LSP locally.
     const { owner, repo } = splitRepo(query.from);
@@ -1673,8 +1915,13 @@ export async function executeSemantics(
       );
       return { results: [], diagnostics, provenance };
     }
-    const sparsePath =
+    const requestedUri =
       typeof semanticParams.uri === 'string' ? semanticParams.uri : undefined;
+    const scopePath = firstScopePath(query);
+    const sparsePath =
+      requestedUri && !nodePath.isAbsolute(requestedUri)
+        ? requestedUri
+        : scopePath;
     const clone = await runDirect('ghCloneRepo', {
       owner,
       repo,
@@ -1698,10 +1945,17 @@ export async function executeSemantics(
       source: query.from,
       materializedPath: cloneLocalPath,
     });
-    uri =
-      sparsePath && !sparsePath.startsWith('/')
-        ? nodePath.join(cloneLocalPath, sparsePath)
-        : cloneLocalPath;
+    if (requestedUri) {
+      uri = nodePath.isAbsolute(requestedUri)
+        ? requestedUri
+        : nodePath.join(cloneLocalPath, requestedUri);
+    } else if (scopePath) {
+      uri = nodePath.isAbsolute(scopePath)
+        ? scopePath
+        : nodePath.join(cloneLocalPath, scopePath);
+    } else {
+      uri = cloneLocalPath;
+    }
   }
 
   if (!uri) {
@@ -1717,17 +1971,19 @@ export async function executeSemantics(
   // and materialized queries params.uri may override a directory/root `from`
   // anchor. For remote queries, params.uri has already been lowered to the
   // cloned sparse path above.
-  const { uri: _ignoredUri, ...lspParams } = semanticParams;
+  const { uri: _ignoredUri, symbolKind, ...lspParams } = semanticParams;
   const result = await runDirect('lspGetSemantics', { ...lspParams, uri });
   const { data, status } = firstQueryData(result);
   const recordData = data as Record<string, unknown> | undefined;
   const pagination = semanticPagination(recordData, query);
   const source = semanticSource(query, uri);
+  const semanticItems = filterSemanticItemsByKind(
+    expandData(recordData),
+    symbolKind
+  );
   return {
     results:
-      status === 'error'
-        ? []
-        : records(expandData(recordData), 'semantics', source),
+      status === 'error' ? [] : records(semanticItems, 'semantics', source),
     ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...diagnostics,
@@ -1744,12 +2000,28 @@ export async function executeSemantics(
   };
 }
 
+function filterSemanticItemsByKind(
+  items: unknown[],
+  symbolKind: unknown
+): unknown[] {
+  if (typeof symbolKind !== 'string' || !symbolKind.trim()) return items;
+  const wanted = symbolKind.trim().toLowerCase();
+  return items.filter(item => {
+    if (!item || typeof item !== 'object') return false;
+    const kind = (item as Record<string, unknown>).kind;
+    return String(kind ?? '').toLowerCase() === wanted;
+  });
+}
+
 function semanticSource(query: OqlQuery, uri: string): QuerySource {
   if (query.from?.kind === 'local') {
     return { ...query.from, path: uri };
   }
   if (query.from?.kind === 'materialized') {
     return { ...query.from, localPath: uri };
+  }
+  if (query.from?.kind === 'github') {
+    return { kind: 'materialized', localPath: uri, source: query.from };
   }
   return query.from ?? { kind: 'local', path: uri };
 }

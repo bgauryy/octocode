@@ -27,7 +27,7 @@ https://github.com/<owner>/<repo>/blob/<branch>/<path>/SKILL.md
 1. Confirm intent with the user: install verbatim, or adapt into a new local skill?
 2. Resolve destination(s) using `references/install-reference.md` — provider(s), scope (user vs project vs custom path), project root if project-scoped, and install mode.
 3. Fetch the source folder with `npx octocode`:
-   - Inspect first: `npx octocode ls owner/repo/path` to confirm the folder contents, then `npx octocode cat owner/repo/path/SKILL.md` to verify it's a real skill.
+   - Inspect first: `npx octocode search owner/repo/path --tree` to confirm the folder contents, then `npx octocode search owner/repo/path/SKILL.md --content-view exact` to verify it's a real skill.
    - Default fetch: `npx octocode clone owner/repo/path[@branch]` to download the skill folder/subtree.
    - Use `npx octocode clone owner/repo[@branch]` (whole repo) when the skill has many sibling assets or the user wants the whole repo for context.
    - Octocode `clone` writes under its own tmp dir; if the user wants a different scratch path, copy from there. Do not write directly into final destinations yet.
@@ -39,7 +39,7 @@ https://github.com/<owner>/<repo>/blob/<branch>/<path>/SKILL.md
    - Cite the source skill in the new skill's footer or initial commit message.
 7. Conflict check per destination using `references/install-reference.md` rules; apply the user's per-destination choice (`Overwrite`, `Skip`, `Rename`, `Diff`, `Cancel`).
 8. Write into each destination. Prefer atomic copy. Never symlink a fetched download — symlinks are for stable local sources only.
-9. Verify each destination: `ls "<destination>/<skill-name>/SKILL.md"` succeeds.
+9. Verify each destination: `test -f "<destination>/<skill-name>/SKILL.md"` succeeds.
 10. Report per-destination success or failure, and how the active runtime picks up the new skill (restart, reload, or auto-scan).
 
 ## Cautions

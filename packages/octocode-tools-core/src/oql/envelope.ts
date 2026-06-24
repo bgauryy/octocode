@@ -81,7 +81,15 @@ function proofKind(args: BuildEnvelopeArgs): EvidenceKind {
 
 function hasOpenPages(args: BuildEnvelopeArgs): boolean {
   if (args.pagination?.hasMore) return true;
-  if (args.next && Object.keys(args.next).some(k => k.startsWith('next.page')))
+  // next.page (more result pages) and next.matchPage (more matches within a
+  // capped file) both mean the agent has not seen everything → not complete,
+  // not proof. They are lossless pagination cursors, not failures.
+  if (
+    args.next &&
+    Object.keys(args.next).some(
+      k => k.startsWith('next.page') || k === 'next.matchPage'
+    )
+  )
     return true;
   return false;
 }

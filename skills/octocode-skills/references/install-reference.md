@@ -107,7 +107,7 @@ Run only the items that fit the situation; do not force every step.
 - Approval: explicit user confirmation to proceed.
 - Fetch (remote sources only): download the source folder with the directory-mode tool of the active runtime; verify `SKILL.md` is present locally before copying.
 - Write: copy (or symlink) into each destination. Prefer atomic copy when supported.
-- Verify: `ls "<destination>/<skill-name>/SKILL.md"` for every destination; report per-destination success or failure.
+- Verify: `test -f "<destination>/<skill-name>/SKILL.md"` for every destination; report per-destination success or failure.
 - Post-install hint (optional): tell the user how the active agent picks up new skills (restart, reload, or auto-scan).
 
 ## Symlink Notes

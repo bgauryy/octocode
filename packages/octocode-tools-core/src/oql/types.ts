@@ -77,6 +77,7 @@ export interface QueryScope {
   excludeDir?: string[];
   hidden?: boolean;
   noIgnore?: boolean;
+  minDepth?: number;
   maxDepth?: number;
 }
 
@@ -110,12 +111,14 @@ export interface StructuralRule {
   stopBy?: 'end';
 }
 
+export type StructuralRuleInput = StructuralRule | string;
+
 export interface StructuralPredicate {
   id?: PredicateId;
   kind: 'structural';
   lang: string;
   pattern?: string;
-  rule?: StructuralRule;
+  rule?: StructuralRuleInput;
 }
 
 export type FieldName =
@@ -124,6 +127,12 @@ export type FieldName =
   | 'extension'
   | 'size'
   | 'modified'
+  | 'accessed'
+  | 'empty'
+  | 'permissions'
+  | 'executable'
+  | 'readable'
+  | 'writable'
   | 'entryType';
 
 export type FieldOp =
@@ -137,7 +146,8 @@ export type FieldOp =
   | '>='
   | '<'
   | '<='
-  | 'within';
+  | 'within'
+  | 'before';
 
 export interface FieldPredicate {
   id?: PredicateId;
@@ -193,7 +203,13 @@ export interface FetchInstructions {
   };
   tree?: {
     maxDepth?: number;
+    pattern?: string;
     includeSizes?: boolean;
+    extensions?: string[];
+    filesOnly?: boolean;
+    directoriesOnly?: boolean;
+    sortBy?: 'name' | 'size' | 'time' | 'extension';
+    reverse?: boolean;
   };
 }
 
@@ -204,6 +220,8 @@ export interface QueryControls {
     onlyMatching?: boolean;
     unique?: boolean;
     countUnique?: boolean;
+    contextLines?: number;
+    invertMatch?: boolean;
     matchWindow?: number;
     matchContentLength?: number;
     maxMatchesPerFile?: number;
@@ -296,8 +314,6 @@ export interface OqlInputQuery {
   pattern?: string;
   rule?: StructuralRule;
   lang?: string;
-  langType?: string;
-  minify?: 'none' | 'standard' | 'symbols';
   [key: string]: unknown;
 }
 
@@ -384,12 +400,21 @@ export interface OqlBackendCall {
   exact: boolean;
 }
 
+export interface OqlTransformerTrace {
+  id: string;
+  status: string;
+  sourceKinds: readonly string[];
+  target: string;
+  backends: readonly Pick<OqlBackendCall, 'backend' | 'operation' | 'exact'>[];
+}
+
 export interface OqlExplainPlan {
   input: unknown;
   normalized: OqlCanonicalInput;
   defaults: Record<string, unknown>;
   nodes: OqlPlanNode[];
   backendCalls: OqlBackendCall[];
+  transformers?: readonly OqlTransformerTrace[];
   materialization?: MaterializePolicy & { required: boolean; reason: string };
   budgets: QueryControls['budget'];
   truncated?: boolean;
@@ -417,7 +442,7 @@ interface OqlProofGradedRow {
 
 export interface OqlCodeResultRow extends OqlProofGradedRow {
   kind: 'code';
-  source: QuerySource;
+  source?: QuerySource;
   path: string;
   /**
    * 1-based match line. Optional because some providers (GitHub code search)
@@ -427,6 +452,9 @@ export interface OqlCodeResultRow extends OqlProofGradedRow {
   endLine?: number;
   column?: number;
   snippet?: string;
+  /** File-level count payloads from local search count modes. */
+  totalMatchedLines?: number;
+  totalOccurrences?: number;
   /** Provider snippet offsets when available, e.g. GitHub code search indices. */
   matchIndices?: Array<{ start: number; end: number; lineOffset?: number }>;
   /** Row-level provider/context metadata that is useful but not identity. */
@@ -458,7 +486,7 @@ export interface OqlCodeResultRow extends OqlProofGradedRow {
 
 export interface OqlFileResultRow extends OqlProofGradedRow {
   kind: 'file';
-  source: QuerySource;
+  source?: QuerySource;
   path: string;
   entryType: 'file' | 'directory';
   size?: number;
@@ -468,7 +496,7 @@ export interface OqlFileResultRow extends OqlProofGradedRow {
 
 export interface OqlTreeResultRow extends OqlProofGradedRow {
   kind: 'tree';
-  source: QuerySource;
+  source?: QuerySource;
   path: string;
   entryType: 'file' | 'directory';
   depth: number;
@@ -479,7 +507,7 @@ export interface OqlTreeResultRow extends OqlProofGradedRow {
 
 export interface OqlContentResultRow extends OqlProofGradedRow {
   kind: 'content';
-  source: QuerySource;
+  source?: QuerySource;
   path: string;
   content: string;
   range?: {

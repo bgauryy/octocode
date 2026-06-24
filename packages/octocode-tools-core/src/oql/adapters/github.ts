@@ -14,6 +14,7 @@ import { runDirect } from './runner.js';
 import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
 import { diagnostic } from '../diagnostics.js';
 import { toGithubCodeSearchToolQuery } from '../transformers/github/code.js';
+import { firstScopePath } from '../transformers/github/common.js';
 import type { AdapterResult } from './local.js';
 import type {
   OqlCodeResultRow,
@@ -22,10 +23,25 @@ import type {
   OqlFileResultRow,
   OqlQuery,
   OqlTreeResultRow,
-  QueryScope,
   QuerySource,
 } from '../types.js';
 
+type GitHubContentPagination = {
+  currentPage?: number;
+  totalPages?: number;
+  hasMore?: boolean;
+  charOffset?: number;
+  charLength?: number;
+  totalChars?: number;
+};
+
+type GitHubContentRow = GitHubFileContentData & {
+  pagination?: GitHubContentPagination;
+};
+
+// NOTE: this adapter's splitRepo intentionally drops a bare (slash-less) repo on
+// the else-branch, unlike transformers/github/common.splitGithubSource which
+// keeps it — do not "dedupe" them without reconciling that difference first.
 function splitRepo(source: QuerySource | undefined): {
   owner?: string;
   repo?: string;
@@ -36,11 +52,6 @@ function splitRepo(source: QuerySource | undefined): {
     return { owner, repo };
   }
   return { owner: source.owner };
-}
-
-function firstScopePath(scope: QueryScope | undefined): string | undefined {
-  if (!scope?.path) return undefined;
-  return Array.isArray(scope.path) ? scope.path[0] : scope.path;
 }
 
 /** Pull the single query's `data` payload from a bulk CallToolResult. */
@@ -70,7 +81,7 @@ function emptyProviderDiag(rowCount: number, backend: string): OqlDiagnostic[] {
   return [
     diagnostic(
       'providerUnindexed',
-      `${backend} returned no results — GitHub may not index this repo/branch (or the name redirected). Verify with structure/materialize before concluding absence.`,
+      `${backend} returned no results — GitHub may not index this repo/branch (or the name redirected). Do not treat this as absence: verify with \`search owner/repo[/path] --tree\`, then use bounded local proof via \`search <term> <path> --repo owner/repo --materialize required\`, \`clone owner/repo[/path]\`, or \`cache fetch owner/repo [path] --depth file|tree|clone\`.`,
       { backend, severity: 'warning', blocksAnswer: true }
     ),
   ];
@@ -128,6 +139,64 @@ function structureDepth(pathValue: string): number {
   return cleanRepoPath(pathValue).split('/').filter(Boolean).length;
 }
 
+function normalizeExtension(value: string): string {
+  return value.trim().toLowerCase().replace(/^\*\./, '').replace(/^\./, '');
+}
+
+function fileExtension(pathValue: string): string {
+  const base = pathValue.split('/').pop() ?? pathValue;
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function treePatternMatches(pathValue: string, pattern: string): boolean {
+  const normalized = pattern.trim();
+  if (!normalized) return true;
+  const base = pathValue.split('/').pop() ?? pathValue;
+  if (!normalized.includes('*') && !normalized.includes('?')) {
+    return base.includes(normalized) || pathValue.includes(normalized);
+  }
+  const expression = normalized
+    .split('**')
+    .map(part =>
+      part
+        .split('*')
+        .map(segment => segment.split('?').map(escapeRegex).join('[^/]'))
+        .join('[^/]*')
+    )
+    .join('.*');
+  const matcher = new RegExp(`^${expression}$`);
+  return matcher.test(base) || matcher.test(pathValue);
+}
+
+function filterGithubTreeRows(
+  rows: readonly OqlTreeResultRow[],
+  query: OqlQuery
+): OqlTreeResultRow[] {
+  const tree = query.fetch?.tree;
+  if (!tree) return [...rows];
+  const extensions = (tree.extensions ?? [])
+    .map(normalizeExtension)
+    .filter(Boolean);
+
+  return rows.filter(row => {
+    if (tree.filesOnly && row.entryType !== 'file') return false;
+    if (tree.directoriesOnly && row.entryType !== 'directory') return false;
+    if (tree.pattern && !treePatternMatches(row.path, tree.pattern)) {
+      return false;
+    }
+    return (
+      row.entryType === 'directory' ||
+      extensions.length === 0 ||
+      extensions.includes(fileExtension(row.path))
+    );
+  });
+}
+
 function githubCodeFilePath(file: GithubCodeSearchFile | string): string {
   if (typeof file !== 'string') return file.path;
   const separator = file.indexOf(':');
@@ -167,11 +236,14 @@ export async function executeGithub(query: OqlQuery): Promise<AdapterResult> {
 }
 
 /**
- * GitHub `files` lane: list files *containing* a positive text/regex predicate
- * via path-level code search (approximate). Predicates the provider cannot
- * enumerate by (field/structural/PCRE2/negation/boolean) are routed to
- * materialization by the planner and should not reach here; if one does, report
- * `requiresMaterialization` rather than silently returning nothing.
+ * GitHub `files` lane: list files via path-level code search. Positive
+ * text/regex predicates list files *containing* a term (approximate); path-like
+ * field equality (`basename`/`extension`/`path` "=") lists files by provider
+ * path qualifier (the same route as OQL target:"files" path discovery). Predicates the
+ * provider cannot enumerate by (other field ops, structural/PCRE2, negation,
+ * boolean) are routed to materialization by the planner and should not reach
+ * here; if one does, report `requiresMaterialization` rather than silently
+ * returning nothing.
  */
 async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
   const transformed = toGithubCodeSearchToolQuery(query, {
@@ -325,29 +397,26 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
   };
   const result = await runDirect('ghGetFileContent', toolQuery);
   const data = extractData<{
-    results?: readonly GitHubFileContentData[];
-    files?: readonly GitHubFileContentData[];
-    pagination?: {
-      hasMore?: boolean;
-      charOffset?: number;
-      charLength?: number;
-    };
+    results?: readonly GitHubContentRow[];
+    files?: readonly GitHubContentRow[];
+    pagination?: GitHubContentPagination;
   }>(result);
   // Report the requested view (the tool does not reliably echo the minify mode).
   const requestedView: OqlContentResultRow['contentView'] =
     minify === 'none' ? 'exact' : minify === 'symbols' ? 'symbols' : 'compact';
   const pag = data?.pagination;
-  const hasCharWindow = typeof pag?.charOffset === 'number';
   const fileRows = data?.results ?? data?.files ?? [];
   const rows: OqlContentResultRow[] = fileRows.map(d => {
+    const rowPagination = d.pagination ?? pag;
+    const hasCharWindow = typeof rowPagination?.charOffset === 'number';
     const range = {
       ...(d.startLine !== undefined ? { startLine: d.startLine } : {}),
       ...(d.endLine !== undefined ? { endLine: d.endLine } : {}),
       ...(hasCharWindow
         ? {
-            charOffset: pag!.charOffset,
-            ...(typeof pag!.charLength === 'number'
-              ? { charLength: pag!.charLength }
+            charOffset: rowPagination!.charOffset,
+            ...(typeof rowPagination!.charLength === 'number'
+              ? { charLength: rowPagination!.charLength }
               : {}),
           }
         : {}),
@@ -361,10 +430,30 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
       ...(Object.keys(range).length ? { range } : {}),
     };
   });
+  const pagination = pag ?? fileRows.find(d => d.pagination)?.pagination;
   return {
     results: rows,
-    ...(pag?.hasMore !== undefined
-      ? { pagination: { hasMore: Boolean(pag.hasMore) } }
+    ...(pagination?.hasMore !== undefined
+      ? {
+          pagination: {
+            hasMore: Boolean(pagination.hasMore),
+            ...(pagination.currentPage !== undefined
+              ? { currentPage: pagination.currentPage }
+              : {}),
+            ...(pagination.totalPages !== undefined
+              ? { totalPages: pagination.totalPages }
+              : {}),
+            ...(pagination.charLength !== undefined
+              ? { itemsPerPage: pagination.charLength }
+              : {}),
+            ...(pagination.totalChars !== undefined
+              ? {
+                  totalItems: pagination.totalChars,
+                  totalItemsKind: 'chars',
+                }
+              : {}),
+          },
+        }
       : {}),
     diagnostics: [
       ...statusDiagnostics(result, 'ghGetFileContent'),
@@ -425,13 +514,17 @@ async function githubStructure(query: OqlQuery): Promise<AdapterResult> {
       });
     }
   }
+  const filteredRows = filterGithubTreeRows(rows, query);
   const pagination = toOqlPagination(data?.pagination);
   return {
-    results: rows,
+    results:
+      query.limit !== undefined
+        ? filteredRows.slice(0, query.limit)
+        : filteredRows,
     ...(pagination ? { pagination } : {}),
     diagnostics: [
       ...statusDiagnostics(result, 'ghViewRepoStructure'),
-      ...emptyProviderDiag(rows.length, 'ghViewRepoStructure'),
+      ...emptyProviderDiag(filteredRows.length, 'ghViewRepoStructure'),
     ],
     provenance: [{ backend: 'ghViewRepoStructure', source: ghFrom(query) }],
   };

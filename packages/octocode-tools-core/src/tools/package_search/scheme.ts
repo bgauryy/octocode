@@ -12,10 +12,9 @@ import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
-  // Accepted because the CLI `pkg --mode lean|full` flag sends it (see
-  // packages/octocode/src/cli/commands/pkg.ts). The strict npm bulk schema
-  // would otherwise reject it as an unrecognized key. Execution currently
-  // no-ops it, but the field must stay part of the contract.
+  // Accepted because `search --target packages --mode lean|full` sends it.
+  // The strict npm bulk schema would otherwise reject it as an unrecognized key.
+  // Execution currently no-ops it, but the field must stay part of the contract.
   mode: z.enum(['lean', 'full']).optional(),
 } as const;
 

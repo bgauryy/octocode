@@ -24,6 +24,39 @@ const POOL_IDLE_TIMEOUT_MS = parseInt(
   10
 );
 
+// Languages whose servers emit $/progress notifications and need waitForReady.
+// TypeScript, Python, C/C++, and data-format servers (JSON/YAML/TOML/HTML/CSS)
+// answer queries immediately after the LSP handshake — skipping waitForReady
+// avoids burning the 2-second SETTLE_MS window for them.
+const PROGRESS_LANGUAGES: ReadonlySet<string> = new Set([
+  'go',
+  'rust',
+  'java',
+  'kotlin',
+  'swift',
+  'csharp',
+  'elixir',
+  'erlang',
+]);
+
+// Per-language upper bound for $/progress drain (ms).
+// These are ceilings — waitForReady returns as soon as the server goes idle.
+const SERVER_READY_TIMEOUT_MS: Partial<Record<string, number>> = {
+  go:      15_000,
+  rust:    60_000,
+  java:   120_000,
+  kotlin:  60_000,
+  swift:   30_000,
+  csharp:  30_000,
+  elixir:  30_000,
+  erlang:  30_000,
+};
+const DEFAULT_READY_TIMEOUT_MS = 30_000;
+
+function readyTimeoutForLanguage(languageId: string): number {
+  return SERVER_READY_TIMEOUT_MS[languageId] ?? DEFAULT_READY_TIMEOUT_MS;
+}
+
 const sharedPool = new LspClientPool<LSPClient>({
   idleTimeoutMs: POOL_IDLE_TIMEOUT_MS,
   factory: async key => {
@@ -35,6 +68,13 @@ const sharedPool = new LspClientPool<LSPClient>({
     const client = new LSPClient(serverConfig);
     try {
       await client.start();
+      // Wait for servers that do workspace-wide indexing before answering
+      // semantic queries. Servers that don't emit $/progress (TypeScript,
+      // Python, clangd) answer immediately after the handshake — we skip
+      // waitForReady for them to avoid the 2-second SETTLE_MS penalty.
+      if (PROGRESS_LANGUAGES.has(key.languageId)) {
+        await client.waitForReady(readyTimeoutForLanguage(key.languageId));
+      }
       return client;
     } catch {
       await client.stop().catch(() => undefined);

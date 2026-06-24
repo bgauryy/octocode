@@ -1,7 +1,5 @@
 import type { OqlDiagnostic } from '../types.js';
 
-export type OqlVendor = 'github' | 'local' | 'npm' | 'lsp' | 'binary';
-
 export type TransformOk<TQuery extends Record<string, unknown>> = {
   ok: true;
   query: TQuery;

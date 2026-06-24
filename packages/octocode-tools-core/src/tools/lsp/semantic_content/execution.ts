@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { executeBulkOperation } from '../../../utils/response/bulk.js';
 import {
@@ -61,6 +62,75 @@ function isNativeJsTsFile(uri: string): boolean {
     );
   }
   return nativeJsTsExtsCache.has(path.extname(uri).toLowerCase());
+}
+
+const WORKSPACE_SYMBOL_FALLBACK_EXTENSIONS = [
+  'py',
+  'rs',
+  'go',
+  'java',
+  'kt',
+  'cs',
+  'c',
+  'cc',
+  'cpp',
+  'h',
+  'hpp',
+  'rb',
+  'php',
+  'swift',
+  'scala',
+  'lua',
+  'dart',
+  'ex',
+  'exs',
+  'erl',
+  'hrl',
+  'clj',
+  'cljs',
+] as const;
+
+function toLocalPath(value: string, workspaceRoot: string): string {
+  const filePath = value.startsWith('file://') ? fileURLToPath(value) : value;
+  return path.isAbsolute(filePath)
+    ? filePath
+    : path.resolve(workspaceRoot, filePath);
+}
+
+function workspaceSymbolAnchorExtensions(): string[] {
+  return [
+    ...contextUtils.getSupportedJsTsExtensions(),
+    ...WORKSPACE_SYMBOL_FALLBACK_EXTENSIONS,
+  ];
+}
+
+function resolveWorkspaceSymbolAnchor(
+  query: WorkspaceSymbolSemanticQuery,
+  workspaceRoot: string
+): string {
+  if (query.uri) return toLocalPath(query.uri, workspaceRoot);
+  try {
+    const result = contextUtils.queryFileSystem({
+      path: workspaceRoot,
+      recursive: true,
+      includeRoot: false,
+      showHidden: false,
+      entryType: 'f',
+      extensions: workspaceSymbolAnchorExtensions(),
+      maxDepth: 5,
+      limit: 1,
+    });
+    const first = result.entries[0];
+    if (first) return first.path;
+  } catch {
+    // Fall back to the root; the language-server availability check returns a
+    // structured serverUnavailable envelope if no source-file anchor exists.
+  }
+  return workspaceRoot;
+}
+
+function lspErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -554,12 +624,23 @@ async function getDocumentSymbols(
     : null;
   const lspProvides = Boolean(client?.hasCapability('documentSymbolProvider'));
 
-  // Source priority: type-aware LSP when present, else the native oxc outline
-  // for JS/TS (server-free, no type inference). Stamp `source` so callers know
-  // the fidelity tier.
+  // Source priority:
+  //   1. Native OXC (JS/TS only) — always fast, no server round-trip.
+  //      Preferred even when a server is available; avoids indexing-wait on
+  //      documentSymbols for the most common file types.
+  //   2. LSP server — for non-JS/TS languages with a documentSymbolProvider.
+  //   3. Markdown heading outline — for .md files without a server.
+  // Stamp `source` so callers know the fidelity tier.
   let symbols: unknown[] = [];
   let source: 'lsp' | 'native' | 'markdown' | undefined;
-  if (lspProvides && client) {
+  const nativeFast = nativeDocumentSymbols(
+    anchor.value.uri,
+    anchor.value.content
+  );
+  if (nativeFast?.length) {
+    symbols = nativeFast;
+    source = 'native';
+  } else if (lspProvides && client) {
     const raw = await client.documentSymbols(
       anchor.value.uri,
       anchor.value.content
@@ -567,22 +648,13 @@ async function getDocumentSymbols(
     symbols = Array.isArray(raw) ? raw : [];
     source = 'lsp';
   } else {
-    const native = nativeDocumentSymbols(
-      anchor.value.uri,
-      anchor.value.content
+    const markdown = markdownHeadingOutlineToDocumentSymbols(
+      anchor.value.content,
+      anchor.value.uri
     );
-    if (native) {
-      symbols = native;
-      source = 'native';
-    } else {
-      const markdown = markdownHeadingOutlineToDocumentSymbols(
-        anchor.value.content,
-        anchor.value.uri
-      );
-      if (markdown) {
-        symbols = markdown;
-        source = 'markdown';
-      }
+    if (markdown) {
+      symbols = markdown;
+      source = 'markdown';
     }
   }
 
@@ -915,11 +987,12 @@ async function getWorkspaceSymbols(
   query: WorkspaceSymbolSemanticQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
   const symbolQuery = query.symbolName ?? '';
-  const workspaceRoot = query.workspaceRoot ?? process.cwd();
+  const workspaceRoot = path.resolve(query.workspaceRoot ?? process.cwd());
 
-  // workspace/symbol is not file-anchored — any file in the workspace will do to
-  // acquire a pooled client. Use the URI if provided, else resolve from the root.
-  const anchorFile = query.uri ?? workspaceRoot;
+  // workspace/symbol is project-wide, but language-server selection is
+  // extension-based. Use an explicit uri when provided; otherwise pick a
+  // representative source file under the workspace root.
+  const anchorFile = resolveWorkspaceSymbolAnchor(query, workspaceRoot);
   const serverAvailable = await isLanguageServerAvailable(
     anchorFile,
     workspaceRoot
@@ -964,7 +1037,24 @@ async function getWorkspaceSymbols(
     } satisfies LspSemanticEnvelope;
   }
 
-  const raw = await client.workspaceSymbol(symbolQuery);
+  let raw: unknown[];
+  try {
+    if (path.extname(anchorFile)) {
+      await client.openDocument(anchorFile);
+    }
+    raw = await client.workspaceSymbol(symbolQuery);
+  } catch (error) {
+    return {
+      type: 'workspaceSymbol',
+      uri: anchorFile,
+      lsp: { serverAvailable: true, provider: 'workspaceSymbolProvider' },
+      payload: {
+        kind: 'empty',
+        category: 'unsupportedOperation',
+        reason: `workspaceSymbolProvider failed: ${lspErrorMessage(error)}`,
+      },
+    } satisfies LspSemanticEnvelope;
+  }
   const symbols = compactWorkspaceSymbols(raw);
   const { pageItems, pagination } = paginateItems(
     symbols,

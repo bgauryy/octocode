@@ -408,6 +408,52 @@ category: LocalCat
       const result = await installMarketplaceSkill(mockSkill, '/dest');
       expect(typeof result.success).toBe('boolean');
     });
+
+    it('installs a skill folder at repository root', async () => {
+      vi.mocked(dirExists).mockReturnValue(false);
+      vi.mocked(writeFileContent).mockReturnValue(true);
+
+      vi.mocked(global.fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            sha: 'abc123',
+            url: 'https://api.github.com/repos/test/test/git/trees/main',
+            tree: [
+              {
+                path: 'SKILL.md',
+                mode: '100644',
+                type: 'blob',
+                sha: 'sha1',
+                size: 1000,
+                url: 'https://api.github.com/repos/test/test/git/blobs/sha1',
+              },
+            ],
+            truncated: false,
+          }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => mockSkillContent,
+        } as Response);
+
+      const result = await installMarketplaceSkill(
+        {
+          name: 'root-skill',
+          displayName: 'Root Skill',
+          description: 'A root skill',
+          path: '',
+          source: mockFolderSource,
+        },
+        '/dest'
+      );
+
+      expect(result.success).toBe(true);
+      expect(writeFileContent).toHaveBeenCalledWith(
+        '/dest/root-skill/SKILL.md',
+        mockSkillContent
+      );
+    });
   });
 
   describe('searchSkills', () => {

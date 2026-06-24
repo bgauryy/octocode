@@ -90,11 +90,24 @@ describe('GitHub files lane', () => {
     ).toBe(true);
   });
 
-  it('files by field (extension) + never -> NOT executable + requiresMaterialization', () => {
+  it('files by path-field equality (extension) + never -> executable provider path pushdown', () => {
     const { plan: p, executable } = plan({
       target: 'files',
       from: { kind: 'github', repo: 'facebook/react' },
       where: { kind: 'field', field: 'extension', op: '=', value: 'ts' },
+      materialize: 'never',
+    });
+    expect(executable).toBe(true);
+    const node = p.nodes.find(n => n.path === 'where');
+    expect(node?.route).toBe('PUSHDOWN');
+    expect(node?.backend).toBe('ghSearchCode');
+  });
+
+  it('files by non-path field (size) + never -> NOT executable + requiresMaterialization', () => {
+    const { plan: p, executable } = plan({
+      target: 'files',
+      from: { kind: 'github', repo: 'facebook/react' },
+      where: { kind: 'field', field: 'size', op: '>', value: 100 },
       materialize: 'never',
     });
     expect(executable).toBe(false);
@@ -125,5 +138,49 @@ describe('GitHub files lane', () => {
     expect(p.diagnostics.some(d => d.code === 'requiresMaterialization')).toBe(
       true
     );
+  });
+});
+
+describe('GitHub code lane: case-sensitive / whole-word text is not proof (C1)', () => {
+  it('plain literal text + never -> PUSHDOWN exact, no approximate diagnostic', () => {
+    const { plan: p, executable } = plan({
+      target: 'code',
+      from: { kind: 'github', repo: 'facebook/react' },
+      where: { kind: 'text', value: 'useEffect' },
+      materialize: 'never',
+    });
+    expect(executable).toBe(true);
+    const node = p.nodes.find(n => n.path === 'where');
+    expect(node?.route).toBe('PUSHDOWN');
+    expect(
+      p.diagnostics.some(d => d.code === 'providerSemanticsApproximate')
+    ).toBe(false);
+  });
+
+  it('case:sensitive text + never -> PUSHDOWN but approximate (provider cannot honor case)', () => {
+    const { plan: p, executable } = plan({
+      target: 'code',
+      from: { kind: 'github', repo: 'facebook/react' },
+      where: { kind: 'text', value: 'useEffect', case: 'sensitive' },
+      materialize: 'never',
+    });
+    expect(executable).toBe(true);
+    const node = p.nodes.find(n => n.path === 'where');
+    expect(node?.route).toBe('PUSHDOWN');
+    expect(
+      p.diagnostics.some(d => d.code === 'providerSemanticsApproximate')
+    ).toBe(true);
+  });
+
+  it('wholeWord text + auto + scope.path -> ROUTE to local for exact proof', () => {
+    const { plan: p, executable } = plan({
+      target: 'code',
+      from: { kind: 'github', repo: 'facebook/react' },
+      scope: { path: 'packages/react' },
+      where: { kind: 'text', value: 'useEffect', wholeWord: true },
+      materialize: { mode: 'auto', strategy: 'subtree' },
+    });
+    expect(executable).toBe(true);
+    expect(p.nodes.some(n => n.route === 'ROUTE')).toBe(true);
   });
 });

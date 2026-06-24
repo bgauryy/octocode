@@ -1,0 +1,114 @@
+{
+  "schema": "oql",
+  "description": "octocode search — typed research over local + GitHub: code/files/trees/content, LSP, repos/packages/history/diff, artifacts, research/graph. Set from + where.kind; trim output with view/select/controls; materialize only for bounded local proof; --explain shows routing; follow next.* to page or upgrade evidence.",
+  "activeTargets": [
+    "code",
+    "content",
+    "structure",
+    "files",
+    "semantics",
+    "repositories",
+    "packages",
+    "pullRequests",
+    "commits",
+    "artifacts",
+    "diff",
+    "research",
+    "graph",
+    "materialize"
+  ],
+  "reservedTargets": [
+    "fixes",
+    "dataflow"
+  ],
+  "quickStart": {
+    "text search (local)": "search \"functionName\" ./src",
+    "text search (GitHub)": "search \"functionName\" facebook/react",
+    "browse a tree (local dir or owner/repo)": "search ./src --tree   |   search facebook/react --tree",
+    "read a file (local or owner/repo/path)": "search ./src/index.ts   |   search facebook/react/packages/react/src/index.js",
+    "structural AST (local — needs full node shape)": "search --pattern \"function $NAME($$$ARGS) { $$$BODY }\" ./src --lang ts",
+    "structural AST (GitHub — clones bounded subtree)": "search --pattern \"function $NAME($$$ARGS) { $$$BODY }\" facebook/react/packages --lang js --materialize auto",
+    "dead-code triage (research)": "search --query '{\"schema\":\"oql\",\"target\":\"research\",\"from\":{\"kind\":\"local\",\"path\":\"./src\"},\"params\":{\"intent\":\"reachability\",\"facets\":[\"symbols\",\"files\"]},\"itemsPerPage\":1,\"page\":1}'",
+    "LSP-proven dead symbols (graph)": "search --query '{\"schema\":\"oql\",\"target\":\"graph\",\"from\":{\"kind\":\"local\",\"path\":\"./src\"},\"params\":{\"intent\":\"reachability\",\"facets\":[\"symbols\"],\"proof\":\"lsp\",\"proofLimit\":5,\"includePackets\":true},\"page\":1,\"itemsPerPage\":10}'",
+    "OQL full-schema reference": "search --scheme",
+    "routing explanation before running": "search --explain --query '{\"target\":\"code\",\"from\":{\"kind\":\"local\",\"path\":\"./src\"},\"where\":{\"kind\":\"text\",\"value\":\"term\"}}'"
+  },
+  "evidenceSemantics": {
+    "answerReady:true": "The envelope answers the query as asked. No required follow-up.",
+    "answerReady:false": "Normal, NOT a failure — the results above are valid; only answerReady:true means no follow-up is needed. Follow next.* for more pages, LSP proof, or content.",
+    "complete:false": "Pages/proof outstanding — page next.page or follow next.semantic before deletion/absence claims.",
+    "kind:proof": "Backend evaluated the request exactly.",
+    "kind:partial": "Truncation, pagination, or residual checks remain.",
+    "kind:candidate": "Useful evidence, not proof. research/graph are always candidate — upgrade via next.semantic/search/fetch.",
+    "kind:unsupported": "OQL could not safely execute the requested semantics.",
+    "proofStatus:confirmed-by-lsp": "LSP refs=0 — safe to inspect for deletion.",
+    "proofStatus:conflicting-evidence": "LSP refs>0 — symbol IS retained; check retainedBy before acting.",
+    "proofStatus:needs-framework-graph": "Maybe an entrypoint (framework/export/dynamic import) — LSP alone can't prove reachability.",
+    "proofStatus:candidate": "Pre-proof state (no LSP run yet) — run the row's next.graph (proof:\"lsp\") to resolve it to confirmed-by-lsp / conflicting-evidence / needs-framework-graph."
+  },
+  "query": {
+    "schema": "\"oql\" (inserted by normalization)",
+    "target": "code | content | structure | files | semantics | repositories | packages | pullRequests | commits | artifacts | diff | research | graph | materialize",
+    "from": "{ kind:\"local\", path } | { kind:\"github\", repo?, owner?, ref? } | { kind:\"materialized\", localPath, source? } | { kind:\"npm\" } — local row.path is relative to from.path; the pre-filled next.fetch carries the resolved ABSOLUTE path, so follow it directly rather than re-joining paths yourself",
+    "scope": "{ path?, language?, include?, exclude?, excludeDir?, hidden?, noIgnore?, maxDepth? }",
+    "where": "discriminated predicate: text | regex | structural | field | all | any | not (code/files only)",
+    "materialize": "{ mode:\"never\"|\"auto\"|\"required\", strategy?, allowFullRepo?, forceRefresh? }",
+    "fetch": "{ content?: { contentView:\"exact\"|\"compact\"|\"symbols\", match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{maxDepth?} } — to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)",
+    "params": "target-specific options (validated by OQL for common fields and by the backing tool exhaustively) — see params hints below",
+    "select": "string[] projection of result/continuation fields",
+    "view": "discovery | paginated | detailed",
+    "controls": "{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?, sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxBytes?, timeoutMs? } }",
+    "limit": "number",
+    "page": "number",
+    "itemsPerPage": "number",
+    "explain": "boolean"
+  },
+  "params": {
+    "semantics": "{ type:\"definition\"|\"references\"|\"callers\"|\"callees\"|\"callHierarchy\"|\"hover\"|\"documentSymbols\"|\"typeDefinition\"|\"implementation\"|\"workspaceSymbol\"|\"supertypes\"|\"subtypes\"|\"diagnostic\", uri?, symbolName?, symbolKind?, lineHint?, orderHint?, depth?, includeDeclaration?, groupByFile?, workspaceRoot?, format? } — backing tool lspGetSemantics; symbolKind filters returned symbol rows after documentSymbols/workspaceSymbol",
+    "repositories": "{ keywords?: string[], topicsToSearch?: string[], language?, owner?, stars?, license?, sort?, archived?, limit?, page? } — backing tool ghSearchRepos; keywords/topicsToSearch are arrays even for one term",
+    "packages": "{ packageName?: string | keywords?: string[], mode?:\"lean\"|\"full\", page? } — backing tool npmSearch",
+    "pullRequests": "{ state?:\"open\"|\"closed\"|\"merged\", author?, label?, keywordsToSearch?, prNumber?, reviewMode?, filePage?, commentPage?, commitPage?, limit?, page?, matchString?, matchScope?:\"body\"|\"title\"|\"comments\"|\"reviews\"|\"all\", content? } — backing tool ghHistoryResearch; matchString is an OQL content filter over fetched PR text (default scope body), not a search-index query — no match → zeroMatches",
+    "commits": "{ path?, branch?, since?, until?, includeDiff?, limit?, page?, filePage?, itemsPerPage? } — backing tool ghHistoryResearch type:\"commits\"; repo/directory diffs page changed files per commit with filePage/itemsPerPage",
+    "artifacts": "{ mode:\"inspect\"|\"list\"|\"extract\"|\"decompress\"|\"strings\"|\"unpack\", minLength?, entryPageNumber?, scanOffset? } — localBinaryInspect. strings: per-window runs → data.localPath (flat file); inline content is a preview. HUGE binary → follow next.search to search data.localPath (ripgrep regex, pages losslessly via matchPage; raw binary stops at NUL); next.artifactStrings (scanOffset) = next window; raise minLength 12–16. extract/unpack/decompress → tree at data.localPath (next.structure/next.files).",
+    "diff": "{ prNumber, files? } (PR patch via ghHistoryResearch) | { baseRef, headRef, path } (direct two-ref file diff via ghGetFileContent + local line diff); neither shape -> invalidQuery repair",
+    "research": "{ goal?, intent?:\"general\"|\"reachability\"|\"dependencies\"|\"symbols\", facets?:(\"symbols\"|\"files\"|\"dependencies\"|\"relations\")[], mode?:\"plan\"|\"analyze\"|\"prove\", maxFiles? } — TWO-PHASE: page:1+itemsPerPage:1 → data.summary (full-scope counts, no bulk); page:2+ → data.packets[] (candidates w/ retainedBy edges + per-packet next.*). Always evidence:\"candidate\"/answerReady:false (normal). Follow the row's pre-filled next.graph (proof:\"lsp\", proofLimit-bounded) to upgrade a page to LSP-proven proofStatus.",
+    "graph": "{ goal?, intent?:\"general\"|\"reachability\"|\"dependencies\"|\"symbols\", facets?:(…)[], mode?:\"plan\"|\"analyze\"|\"prove\", maxFiles?, subject?, subjectKind?, relation?, verdict?, direction?:\"incoming\"|\"outgoing\"|\"both\", proof?:\"none\"|\"lsp\", proofLimit?, includePackets?, includeFacts?, includeEdges? } — UPGRADE PATH: run a research row's pre-filled next.graph directly. proof:\"lsp\" sets per-row proofStatus: \"confirmed-by-lsp\" (refs=0 → safe), \"conflicting-evidence\" (refs>0 → retained, check retainedBy), \"needs-framework-graph\" (maybe an entrypoint). answerReady:false is normal — follow next.* for more pages/proof.",
+    "materialize": "(no params; no `where`) clone/cache a bounded corpus (from:{kind:\"github\",repo} + scope.path) and return a stable materialized checkpoint row (localPath/repoRoot/ref/cache/complete) with next.structure/next.files"
+  },
+  "predicates": {
+    "text": "{ kind:\"text\", value, case?, wholeWord? }",
+    "regex": "{ kind:\"regex\", value, dialect?:\"rust\"|\"pcre2\"|\"provider\", case?, wholeWord?, multiline?, dotAll? }",
+    "structural": "{ kind:\"structural\", lang, pattern? | rule? } (exactly one; rule is a JSON object or grep-compatible YAML rule string) — pattern must match the COMPLETE node, so include the parts the real node has: a fn WITH a return type only matches if the pattern has one too (`function $N($$$A): $R { $$$B }`); omitting it returns 0. Shapes: `function $N($$$A) { $$$B }` (no-return-type fn), `($$$A) => $$$B` (arrow, block+expression), `$F($$$A)` (call), `$O.$M($$$A)` (method). For \"find symbol X\" the ROBUST form is a rule, not a pattern: `{ kind:\"function_declaration\", has:{ pattern:\"X\" } }`. 0 matches + no parse error = pattern shape ≠ real node (add `: $R`, or switch to a rule). Note: $$$-only patterns skip files with no literal anchor → low counts; add a literal name or use a regex where.",
+    "field": "{ kind:\"field\", field:\"path\"|\"basename\"|\"extension\"|\"size\"|\"modified\"|\"entryType\", op:\"=\"|\"!=\"|\"in\"|\"exists\"|\"glob\"|\"regex\"|\">\"|\">=\"|\"<\"|\"<=\"|\"within\", value? } (use symbolic ops like \"=\"; aliases such as \"eq\" are invalid)",
+    "boolean": "{ kind:\"all\"|\"any\", of: Predicate[] } | { kind:\"not\", predicate }"
+  },
+  "batch": {
+    "queries": "OqlQuery[] (1-5)",
+    "combine": "independent | merge"
+  },
+  "explainRoutes": {
+    "PUSHDOWN": "Backend evaluates this predicate exactly — good. No residual work.",
+    "RESIDUAL": "Backend narrows candidates but OQL must finish evaluation locally.",
+    "ROUTE": "OQL must use a different lane, often materialization.",
+    "UNSUPPORTED": "OQL cannot execute this predicate safely on the chosen source."
+  },
+  "defaults": {
+    "schema": "oql",
+    "view": "paginated",
+    "page": 1,
+    "itemsPerPage": 25,
+    "githubMaterializeMode": "never",
+    "textCase": "smart",
+    "regexDialectLocal": "rust",
+    "regexCase": "smart",
+    "contentView": "compact",
+    "contentCharLength": 20000,
+    "matchContentLength": 500,
+    "maxPlanNodes": 128,
+    "maxBooleanExpansion": 64,
+    "normalCodeContext": 2,
+    "detailedCodeContext": 3,
+    "localSearchSort": "relevance",
+    "localRankingProfile": "auto"
+  }
+}

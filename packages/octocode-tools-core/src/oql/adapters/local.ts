@@ -8,6 +8,7 @@
  * is applied by the interface layer on final output.
  */
 import path from 'node:path';
+import fs from 'node:fs';
 import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-types';
 import { LOCAL_MAX_LIMIT } from '../../config.js';
 import { searchContentRipgrep } from '../../tools/local_ripgrep/searchContentRipgrep.js';
@@ -27,9 +28,14 @@ import {
   toLocalFileLanguageGlobs,
   toLocalSearchLanguageParams,
 } from '../transformers/language.js';
+import {
+  firstScopePath,
+  firstScopeLanguage,
+} from '../transformers/github/common.js';
 import type {
   FieldPredicate,
   OqlDiagnostic,
+  OqlFileResultRow,
   OqlProvenance,
   OqlQuery,
   Predicate,
@@ -44,16 +50,13 @@ export interface AdapterResult extends MappedResult {
 
 const LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT = LOCAL_MAX_LIMIT;
 
+type FileRowMap = Map<string, OqlFileResultRow>;
+
 /** Resolve the local filesystem root for a query (local or materialized). */
 function localRoot(query: OqlQuery): string {
   if (query.from?.kind === 'local') return query.from.path;
   if (query.from?.kind === 'materialized') return query.from.localPath;
   throw new Error('localExecute requires a local or materialized source.');
-}
-
-function firstScopePath(scope: QueryScope | undefined): string | undefined {
-  if (!scope?.path) return undefined;
-  return Array.isArray(scope.path) ? scope.path[0] : scope.path;
 }
 
 function scopeToCommon(scope: QueryScope | undefined): Record<string, unknown> {
@@ -64,12 +67,6 @@ function scopeToCommon(scope: QueryScope | undefined): Record<string, unknown> {
   if (scope?.hidden !== undefined) out.hidden = scope.hidden;
   if (scope?.noIgnore !== undefined) out.noIgnore = scope.noIgnore;
   return out;
-}
-
-function firstScopeLanguage(scope: QueryScope | undefined): string | undefined {
-  const lang = scope?.language;
-  if (!lang) return undefined;
-  return Array.isArray(lang) ? lang[0] : lang;
 }
 
 function mergeStringArrays(left: unknown, right: readonly string[]): string[] {
@@ -120,6 +117,7 @@ function applyFindFilesScope(
   scope: QueryScope | undefined
 ): void {
   if (scope?.excludeDir) toolQuery.excludeDir = scope.excludeDir;
+  if (scope?.minDepth !== undefined) toolQuery.minDepth = scope.minDepth;
   if (scope?.maxDepth !== undefined) toolQuery.maxDepth = scope.maxDepth;
 
   const includeNames = (scope?.include ?? [])
@@ -166,6 +164,32 @@ export async function executeLocal(query: OqlQuery): Promise<AdapterResult> {
   const root = localRoot(query);
   const scopePath = firstScopePath(query.scope);
   const searchPath = scopePath ? path.join(root, scopePath) : root;
+
+  // Path-existence guard: ripgrep/find/structure on a non-existent path return
+  // zero rows, which the adapter would otherwise map to a clean `zeroMatches`
+  // with evidence:proof / answerReady:true — falsely confirming absence when
+  // the path was simply a typo. Surface a blocking `invalidQuery` error instead
+  // so an agent corrects the path rather than concluding "not found".
+  if (!fs.existsSync(searchPath)) {
+    return {
+      results: [],
+      diagnostics: [
+        diagnostic(
+          'invalidQuery',
+          `Local path does not exist: ${searchPath}. Check the path/spelling (and branch or materialization for remote sources) before treating this as absence.`,
+          {
+            backend: 'localExecute',
+            queryPath: searchPath,
+            repair: {
+              message:
+                'Verify the path exists (orient with target:"structure" on a known-good parent), fix typos, or materialize the remote source first.',
+            },
+          }
+        ),
+      ],
+      provenance: [],
+    };
+  }
 
   switch (query.target) {
     case 'files':
@@ -265,10 +289,11 @@ async function executeCode(
   const mapped = mapCodeResult(result, source);
   const diagnostics = resultDiagnostics(result, 'localSearchCode');
 
-  // Per-file match truncation: localSearchCode caps matches per file (default
-  // ~10). If any file reports more matches than it returned, the result is NOT
-  // complete proof — surface matchTruncated (blocking) so evidence drops to
-  // partial, and point at the per-file matchPage continuation.
+  // Per-file match cap: localSearchCode returns up to maxMatchesPerFile (default
+  // ~10) matches per file. If a file has more, that's a pagination boundary, not
+  // a failure — emit a NON-blocking info note. The result stays evidence:partial
+  // (driven by the next.matchPage open-page signal, like next.page), so it never
+  // claims false proof of completeness, but it isn't framed as "truncated/blocked".
   const truncatedFiles = matchTruncatedFiles(result);
   if (truncatedFiles.length > 0) {
     const total = truncatedFiles.reduce((n, f) => n + (f.total ?? 0), 0);
@@ -276,12 +301,41 @@ async function executeCode(
     diagnostics.push(
       diagnostic(
         'matchTruncated',
-        `${truncatedFiles.length} file(s) had more matches than returned (showed ${shown} of ${total}); raise controls.search.maxMatchesPerFile or page with controls.search.matchPage.`,
+        `${truncatedFiles.length} file(s) have more matches (showed ${shown} of ${total}) — page with controls.search.matchPage, or raise controls.search.maxMatchesPerFile.`,
         {
           backend: 'localSearchCode',
+          severity: 'info',
+          blocksAnswer: false,
           repair: {
             message:
-              'Set controls.search.maxMatchesPerFile higher, or follow next.matchPage per file.',
+              'Follow next.matchPage to page within files, or set controls.search.maxMatchesPerFile higher.',
+          },
+        }
+      )
+    );
+  }
+
+  // Self-correcting structural empty: a `pattern` (not a rule) that matched 0
+  // nodes is the #1 agent failure — almost always "pattern too specific" (the
+  // real node has a return type / typed params the pattern omitted), not genuine
+  // absence. Hand back the robust fix (a rule for named lookup) so the next call
+  // succeeds. Non-blocking: 0 matches is still a valid result, this is guidance.
+  if (
+    m.mode === 'structural' &&
+    m.pattern !== undefined &&
+    mapped.results.length === 0
+  ) {
+    diagnostics.push(
+      diagnostic(
+        'zeroMatches',
+        'Structural pattern matched 0 nodes. A pattern must match the COMPLETE node — if the target has a return type or typed params the pattern omits, it returns 0 (not genuine absence).',
+        {
+          backend: 'localSearchCode',
+          severity: 'info',
+          blocksAnswer: false,
+          repair: {
+            message:
+              'To find a named symbol, prefer a rule over a pattern: where = { kind:"structural", lang, rule:{ kind:"<node e.g. function_declaration>", has:{ pattern:"<name>" } } }. Or complete the pattern (e.g. add a return type `: $R`).',
           },
         }
       )
@@ -401,16 +455,12 @@ async function executeFilesBoolean(
   const set = await evalFilesPredicate(
     query,
     where,
+    source,
     searchPath,
     provenance,
     diagnostics
   );
-  const rows = [...set].sort().map<{
-    kind: 'file';
-    source: QuerySource;
-    path: string;
-    entryType: 'file';
-  }>(p => ({ kind: 'file', source, path: p, entryType: 'file' }));
+  const rows = [...set.values()].sort((a, b) => a.path.localeCompare(b.path));
   if (rows.length === 0 && !diagnostics.some(d => d.severity === 'error')) {
     diagnostics.push(
       diagnostic('zeroMatches', 'Boolean file query matched no files.', {
@@ -426,40 +476,50 @@ async function executeFilesBoolean(
 async function evalFilesPredicate(
   query: OqlQuery,
   p: Predicate,
+  source: QuerySource,
   searchPath: string,
   prov: OqlProvenance[],
   diags: OqlDiagnostic[]
-): Promise<Set<string>> {
+): Promise<FileRowMap> {
   switch (p.kind) {
     case 'all': {
       const sets = await Promise.all(
-        p.of.map(c => evalFilesPredicate(query, c, searchPath, prov, diags))
+        p.of.map(c =>
+          evalFilesPredicate(query, c, source, searchPath, prov, diags)
+        )
       );
       return sets.reduce((acc, s) =>
-        acc === undefined ? s : intersect(acc, s)
+        acc === undefined ? s : intersectFileRows(acc, s)
       );
     }
     case 'any': {
       const sets = await Promise.all(
-        p.of.map(c => evalFilesPredicate(query, c, searchPath, prov, diags))
+        p.of.map(c =>
+          evalFilesPredicate(query, c, source, searchPath, prov, diags)
+        )
       );
-      const out = new Set<string>();
-      for (const s of sets) for (const v of s) out.add(v);
+      const out: FileRowMap = new Map();
+      for (const s of sets) {
+        for (const [path, row] of s) {
+          out.set(path, mergeFileRows(out.get(path), row));
+        }
+      }
       return out;
     }
     case 'not': {
-      const universe = await universeFiles(query, searchPath, prov);
+      const universe = await universeFileRows(query, source, searchPath, prov);
       const inner = await evalFilesPredicate(
         query,
         p.predicate,
+        source,
         searchPath,
         prov,
         diags
       );
-      return new Set([...universe].filter(f => !inner.has(f)));
+      return new Map([...universe].filter(([path]) => !inner.has(path)));
     }
     default:
-      return leafFiles(query, p, searchPath, prov, diags);
+      return leafFileRows(query, p, source, searchPath, prov, diags);
   }
 }
 
@@ -531,8 +591,38 @@ function withoutMatchToolQuery(
   return toolQuery;
 }
 
-function intersect(a: Set<string>, b: Set<string>): Set<string> {
-  return new Set([...a].filter(v => b.has(v)));
+function intersectFileRows(a: FileRowMap, b: FileRowMap): FileRowMap {
+  const out: FileRowMap = new Map();
+  for (const [path, row] of a) {
+    const other = b.get(path);
+    if (other) out.set(path, mergeFileRows(row, other));
+  }
+  return out;
+}
+
+function intersectStringSets(a: Set<string>, b: Set<string>): Set<string> {
+  return new Set([...a].filter(value => b.has(value)));
+}
+
+function mergeFileRows(
+  left: OqlFileResultRow | undefined,
+  right: OqlFileResultRow
+): OqlFileResultRow {
+  if (!left) return right;
+  return {
+    ...left,
+    ...right,
+    entryType:
+      left.entryType === 'directory' || right.entryType === 'directory'
+        ? 'directory'
+        : 'file',
+    ...(left.size !== undefined || right.size !== undefined
+      ? { size: left.size ?? right.size }
+      : {}),
+    ...(left.modified !== undefined || right.modified !== undefined
+      ? { modified: left.modified ?? right.modified }
+      : {}),
+  };
 }
 
 /** All files in scope — the candidate universe for negation. */
@@ -541,6 +631,19 @@ async function universeFiles(
   searchPath: string,
   prov: OqlProvenance[]
 ): Promise<Set<string>> {
+  return new Set(
+    (
+      await universeFileRows(query, query.from as QuerySource, searchPath, prov)
+    ).keys()
+  );
+}
+
+async function universeFileRows(
+  query: OqlQuery,
+  source: QuerySource,
+  searchPath: string,
+  prov: OqlProvenance[]
+): Promise<FileRowMap> {
   const toolQuery: Record<string, unknown> = {
     path: searchPath,
     entryType: 'f',
@@ -554,10 +657,16 @@ async function universeFiles(
   const scopedResult = filterFindFilesResultByScope(result, query, searchPath);
   prov.push({ backend: 'localFindFiles', source: query.from });
   // content-predicate negation applies to files, not directory entries
-  return new Set(
-    (scopedResult.files ?? [])
-      .filter(f => f.type === undefined || f.type === 'f' || f.type === 'file')
-      .map(f => f.path)
+  return rowsByPath(
+    mapFilesResult(
+      {
+        ...scopedResult,
+        files: (scopedResult.files ?? []).filter(
+          f => f.type === undefined || f.type === 'f' || f.type === 'file'
+        ),
+      },
+      source
+    ).results as OqlFileResultRow[]
   );
 }
 
@@ -569,6 +678,28 @@ async function leafFiles(
   prov: OqlProvenance[],
   diags: OqlDiagnostic[]
 ): Promise<Set<string>> {
+  return new Set(
+    (
+      await leafFileRows(
+        query,
+        leaf,
+        query.from as QuerySource,
+        searchPath,
+        prov,
+        diags
+      )
+    ).keys()
+  );
+}
+
+async function leafFileRows(
+  query: OqlQuery,
+  leaf: Predicate,
+  source: QuerySource,
+  searchPath: string,
+  prov: OqlProvenance[],
+  diags: OqlDiagnostic[]
+): Promise<FileRowMap> {
   if (leaf.kind === 'field') {
     const tq: Record<string, unknown> = { path: searchPath, details: true };
     applyFindFilesScope(tq, query.scope);
@@ -580,7 +711,9 @@ async function leafFiles(
     const r = await findFiles(tq as never);
     const scopedResult = filterFindFilesResultByScope(r, query, searchPath);
     prov.push({ backend: 'localFindFiles', source: query.from });
-    return new Set((scopedResult.files ?? []).map(f => f.path));
+    return rowsByPath(
+      mapFilesResult(scopedResult, source).results as OqlFileResultRow[]
+    );
   }
   // content leaf (text/regex/structural) -> filesOnly search
   const compiled = compileWhere(leaf);
@@ -590,7 +723,7 @@ async function leafFiles(
         backend: 'localSearchCode',
       })
     );
-    return new Set();
+    return new Map();
   }
   const m = compiled.match!;
   const tq: Record<string, unknown> = {
@@ -614,7 +747,22 @@ async function leafFiles(
   }
   const r = await searchContentRipgrep(tq as never);
   prov.push({ backend: 'localSearchCode', source: query.from });
-  return new Set((r.files ?? []).map(f => f.path));
+  return rowsByPath(
+    (r.files ?? []).map(file => ({
+      kind: 'file' as const,
+      source,
+      path: file.path,
+      entryType: 'file' as const,
+    }))
+  );
+}
+
+function rowsByPath(rows: OqlFileResultRow[]): FileRowMap {
+  const out: FileRowMap = new Map();
+  for (const row of rows) {
+    out.set(row.path, mergeFileRows(out.get(row.path), row));
+  }
+  return out;
 }
 
 /* ---------------------- boolean evaluation over code -------------------- */
@@ -687,7 +835,9 @@ async function evalCodePredicate(
       );
       const files = parts
         .map(part => part.files)
-        .reduce((acc, s) => (acc === undefined ? s : intersect(acc, s)));
+        .reduce((acc, s) =>
+          acc === undefined ? s : intersectStringSets(acc, s)
+        );
       const rows = parts.flatMap(part => part.rows);
       return { files, rows };
     }
@@ -794,9 +944,21 @@ async function executeStructure(
     ...(query.fetch?.tree?.maxDepth !== undefined
       ? { maxDepth: query.fetch.tree.maxDepth, recursive: true }
       : {}),
+    ...(query.fetch?.tree?.pattern
+      ? { pattern: query.fetch.tree.pattern }
+      : {}),
+    ...(query.fetch?.tree?.includeSizes ? { includeSizes: true } : {}),
+    ...(query.fetch?.tree?.extensions?.length
+      ? { extensions: query.fetch.tree.extensions }
+      : {}),
+    ...(query.fetch?.tree?.filesOnly ? { filesOnly: true } : {}),
+    ...(query.fetch?.tree?.directoriesOnly ? { directoriesOnly: true } : {}),
+    ...(query.fetch?.tree?.sortBy ? { sortBy: query.fetch.tree.sortBy } : {}),
+    ...(query.fetch?.tree?.reverse ? { reverse: true } : {}),
     ...(query.scope?.hidden !== undefined
       ? { hidden: query.scope.hidden }
       : {}),
+    ...(query.limit ? { limit: query.limit } : {}),
     ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
     ...(query.page ? { page: query.page } : {}),
   };
@@ -1015,9 +1177,15 @@ function applyFieldPredicate(
         diags.push(unsupportedField(f));
       }
       break;
-    case 'extension':
-      toolQuery.names = [`*.${String(value).replace(/^\./, '')}`];
+    case 'extension': {
+      const exts = (Array.isArray(value) ? value : [value]).map(
+        v => `*.${String(v).replace(/^\./, '')}`
+      );
+      if (f.op === '=' || f.op === 'in' || f.op === 'glob')
+        toolQuery.names = exts;
+      else diags.push(unsupportedField(f));
       break;
+    }
     case 'size':
       if (f.op === '>' || f.op === '>=') toolQuery.sizeGreater = String(value);
       else if (f.op === '<' || f.op === '<=')
@@ -1030,17 +1198,38 @@ function applyFieldPredicate(
       // are unsupported — mapping them to a duration field would be both a
       // type mismatch and a semantic inversion.
       if (f.op === 'within') toolQuery.modifiedWithin = String(value);
+      else if (f.op === 'before') toolQuery.modifiedBefore = String(value);
       else
         diags.push(
           diagnostic(
             'unsupportedPredicate',
-            'field "modified" supports only `within` (relative window like "7d"); findFiles has no absolute-date filter for >/</>=/<=.',
+            'field "modified" supports only `within` / `before` (relative windows like "7d"); findFiles has no absolute-date filter for >/</>=/<=.',
             { backend: 'localFindFiles' }
           )
         );
       break;
+    case 'accessed':
+      if (f.op === 'within') toolQuery.accessedWithin = String(value);
+      else diags.push(unsupportedField(f));
+      break;
+    case 'empty':
+      toolQuery.empty = Boolean(value);
+      break;
+    case 'permissions':
+      toolQuery.permissions = String(value);
+      break;
+    case 'executable':
+    case 'readable':
+    case 'writable':
+      toolQuery[f.field] = Boolean(value);
+      break;
     case 'entryType':
       toolQuery.entryType = String(value) === 'directory' ? 'd' : 'f';
+      break;
+    default:
+      // Unmapped field: never silently drop the predicate — signal it so the
+      // result is not mistaken for the unfiltered universe.
+      diags.push(unsupportedField(f));
       break;
   }
   if (negate) {
@@ -1063,24 +1252,29 @@ function unsupportedField(f: FieldPredicate): OqlDiagnostic {
 }
 
 function searchControls(query: OqlQuery): Record<string, unknown> {
-  const s = query.controls?.search;
-  if (!s) return {};
   const out: Record<string, unknown> = {};
-  if (s.onlyMatching) out.onlyMatching = true;
-  if (s.unique) out.unique = true;
-  if (s.countUnique) out.countUnique = true;
-  if (s.countMatchesPerFile) out.countMatchesPerFile = true;
-  if (s.countLinesPerFile) out.countLinesPerFile = true;
-  if (s.matchWindow !== undefined) out.matchWindow = s.matchWindow;
-  if (s.matchContentLength !== undefined)
-    out.matchContentLength = s.matchContentLength;
-  if (s.maxMatchesPerFile !== undefined)
-    out.maxMatchesPerFile = s.maxMatchesPerFile;
-  if (s.matchPage !== undefined) out.matchPage = s.matchPage;
-  if (s.sort) out.sort = s.sort;
-  if (s.sortReverse) out.sortReverse = true;
-  if (s.rankingProfile) out.rankingProfile = s.rankingProfile;
-  if (s.debugRanking) out.debugRanking = true;
+  const s = query.controls?.search;
+  if (s) {
+    if (s.onlyMatching) out.onlyMatching = true;
+    if (s.unique) out.unique = true;
+    if (s.countUnique) out.countUnique = true;
+    if (s.countMatchesPerFile) out.countMatchesPerFile = true;
+    if (s.countLinesPerFile) out.countLinesPerFile = true;
+    if (s.contextLines !== undefined) out.contextLines = s.contextLines;
+    if (s.invertMatch) out.invertMatch = true;
+    if (s.matchWindow !== undefined) out.matchWindow = s.matchWindow;
+    if (s.matchContentLength !== undefined)
+      out.matchContentLength = s.matchContentLength;
+    if (s.maxMatchesPerFile !== undefined)
+      out.maxMatchesPerFile = s.maxMatchesPerFile;
+    if (s.matchPage !== undefined) out.matchPage = s.matchPage;
+    if (s.sort) out.sort = s.sort;
+    if (s.sortReverse) out.sortReverse = true;
+    if (s.rankingProfile) out.rankingProfile = s.rankingProfile;
+    if (s.debugRanking) out.debugRanking = true;
+  }
+  // budget.maxFiles is the search --max-files file cap; apply it even when
+  // controls.search is absent (the old early-return dropped it silently).
   if (query.controls?.budget?.maxFiles !== undefined)
     out.maxFiles = query.controls.budget.maxFiles;
   return out;

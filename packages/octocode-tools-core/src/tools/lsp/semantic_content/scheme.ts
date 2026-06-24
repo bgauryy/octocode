@@ -13,14 +13,28 @@ import {
 } from '../../../scheme/coreSchemas.js';
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
 
-const requiredLineHintField = clampedInt(1, 1_000_000_000);
+const requiredLineHintField = clampedInt(1, 1_000_000_000).describe(
+  '1-based source line for symbol-anchored semantic operations. Get it from search/localSearchCode, structural AST captures, or documentSymbols; never guess.'
+);
 const orderHintField = clampedInt(0, 100_000).optional();
 
 const SEMANTIC_OUTPUT_FORMATS = ['structured', 'compact'] as const;
 
 const queryOverrides = {
-  type: z.enum(SEMANTIC_CONTENT_TYPES).default('definition'),
-  symbolName: z.string().min(1).optional(),
+  type: z
+    .enum(SEMANTIC_CONTENT_TYPES)
+    .default('definition')
+    .describe(
+      'Semantic operation for local code intelligence. Use after text or structural AST search when you need identity, references, call flow, type relations, hover, symbols, or diagnostics.'
+    ),
+  symbolName: z
+    .string()
+    .min(1)
+    .max(1024)
+    .optional()
+    .describe(
+      'Exact bare identifier at the lineHint anchor for symbol operations; workspaceSymbol uses this as the fuzzy project-wide symbol query.'
+    ),
   lineHint: requiredLineHintField.optional(),
   orderHint: orderHintField,
   depth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),

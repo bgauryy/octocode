@@ -1,0 +1,189 @@
+{
+  "summary": {
+    "benchmark": "octocode-search-flow-coverage",
+    "createdAt": "2026-06-24T11:23:13.435Z",
+    "cwd": "/Users/guybary/Documents/octocode-mcp",
+    "outDir": "/Users/guybary/Documents/octocode-mcp/packages/octocode-benchmark/output/search-flow-coverage-2026-06-24T11-21-34-295Z",
+    "searchOnly": true,
+    "totalRows": 24,
+    "pass": 23,
+    "partial": 1,
+    "fail": 0,
+    "score": 47,
+    "maxScore": 48,
+    "lanes": {
+      "local": {
+        "rows": 7,
+        "pass": 6,
+        "partial": 1,
+        "fail": 0
+      },
+      "github-provider": {
+        "rows": 8,
+        "pass": 8,
+        "partial": 0,
+        "fail": 0
+      },
+      "github-materialized-local": {
+        "rows": 9,
+        "pass": 9,
+        "partial": 0,
+        "fail": 0
+      }
+    },
+    "materializedPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
+    "correctedRows": [
+      "MAT-STRUCTURE",
+      "MAT-FETCH-NONE",
+      "MAT-FETCH-STANDARD",
+      "MAT-FETCH-SYMBOLS",
+      "MAT-AST-STRUCTURAL"
+    ]
+  },
+  "rows": [
+    {
+      "id": "LOCAL-STRUCTURE",
+      "lane": "local",
+      "question": "Local structure view before search.",
+      "networkUsed": false
+    },
+    {
+      "id": "LOCAL-PATH-SEARCH",
+      "lane": "local",
+      "question": "Local path/file discovery for search.ts.",
+      "networkUsed": false
+    },
+    {
+      "id": "LOCAL-CONTENT-SEARCH",
+      "lane": "local",
+      "question": "Local content search for runOqlSearch.",
+      "networkUsed": false
+    },
+    {
+      "id": "LOCAL-FETCH-NONE",
+      "lane": "local",
+      "question": "Local match-string fetch, exact mode.",
+      "networkUsed": false
+    },
+    {
+      "id": "LOCAL-FETCH-STANDARD",
+      "lane": "local",
+      "question": "Local match-string fetch, standard minify.",
+      "networkUsed": false
+    },
+    {
+      "id": "LOCAL-FETCH-SYMBOLS",
+      "lane": "local",
+      "question": "Local symbols/minified outline.",
+      "networkUsed": false
+    },
+    {
+      "id": "LOCAL-AST-STRUCTURAL",
+      "lane": "local",
+      "question": "Local AST structural code search.",
+      "networkUsed": false
+    },
+    {
+      "id": "GH-REPO-SEARCH",
+      "lane": "github-provider",
+      "question": "GitHub repository search.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-STRUCTURE",
+      "lane": "github-provider",
+      "question": "GitHub structure view.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-PATH-SEARCH-PROVIDER",
+      "lane": "github-provider",
+      "question": "GitHub provider path search using match:path.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-PATH-SEARCH-FILES-DIAGNOSTIC",
+      "lane": "github-provider",
+      "question": "GitHub files target path search reports materialization requirement.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-CONTENT-SEARCH",
+      "lane": "github-provider",
+      "question": "GitHub content/code search for createStore.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-FETCH-NONE",
+      "lane": "github-provider",
+      "question": "GitHub match-string fetch, exact mode.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-FETCH-STANDARD",
+      "lane": "github-provider",
+      "question": "GitHub match-string fetch, standard minify.",
+      "networkUsed": true
+    },
+    {
+      "id": "GH-FETCH-SYMBOLS",
+      "lane": "github-provider",
+      "question": "GitHub symbols/minified outline.",
+      "networkUsed": true
+    },
+    {
+      "id": "MAT-MATERIALIZE",
+      "lane": "github-materialized-local",
+      "question": "Materialize GitHub src subtree using search target materialize.",
+      "networkUsed": true
+    },
+    {
+      "id": "MAT-STRUCTURE",
+      "lane": "github-materialized-local",
+      "question": "Continue with local structure view on materialized path.",
+      "networkUsed": false
+    },
+    {
+      "id": "MAT-PATH-SEARCH",
+      "lane": "github-materialized-local",
+      "question": "Continue with local path search on materialized path.",
+      "networkUsed": false
+    },
+    {
+      "id": "MAT-CONTENT-SEARCH",
+      "lane": "github-materialized-local",
+      "question": "Continue with local content search on materialized path.",
+      "networkUsed": false
+    },
+    {
+      "id": "MAT-FETCH-NONE",
+      "lane": "github-materialized-local",
+      "question": "Fetch exact local materialized file by match string.",
+      "networkUsed": false
+    },
+    {
+      "id": "MAT-FETCH-STANDARD",
+      "lane": "github-materialized-local",
+      "question": "Fetch standard-minified materialized file by match string.",
+      "networkUsed": false
+    },
+    {
+      "id": "MAT-FETCH-SYMBOLS",
+      "lane": "github-materialized-local",
+      "question": "Fetch materialized file symbols.",
+      "networkUsed": false
+    },
+    {
+      "id": "MAT-AST-STRUCTURAL",
+      "lane": "github-materialized-local",
+      "question": "Run AST structural search on materialized GitHub code.",
+      "networkUsed": false
+    },
+    {
+      "id": "GH-REMOTE-AS-LOCAL-DIRECT",
+      "lane": "github-materialized-local",
+      "question": "One-step remote-as-local search with --repo and required materialization.",
+      "networkUsed": true
+    }
+  ]
+}

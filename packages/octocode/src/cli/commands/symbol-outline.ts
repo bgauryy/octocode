@@ -7,8 +7,8 @@ import { executeDirectTool } from '@octocodeai/octocode-tools-core/direct';
 import { getDirectToolText } from './direct-tool-output.js';
 
 // Semantic symbol outline (LSP documentSymbols). This is the structure-of-a-file
-// view that `ls` zooms into — used when `ls` targets a file or is given
-// --symbols for a directory. Local-only (ast/LSP can't run on GitHub).
+// view used by `search --symbols` for a file or directory. Local-only (ast/LSP
+// can't run on GitHub).
 
 const DEFAULT_SOURCE_EXTENSIONS = [
   'ts',
@@ -192,7 +192,7 @@ async function discoverSourceFiles(
         sortBy: 'path',
         mainResearchGoal: 'Discover source files for semantic outline',
         researchGoal: `Find source files in ${dirPath}`,
-        reasoning: 'CLI ls --symbols directory discovery',
+        reasoning: 'CLI search --symbols directory discovery',
       },
     ],
   });
@@ -225,7 +225,7 @@ async function fetchDocumentSymbols(
         itemsPerPage: pageSize,
         mainResearchGoal: 'Build semantic symbol outline',
         researchGoal: `List document symbols in ${filePath}`,
-        reasoning: 'CLI ls --symbols',
+        reasoning: 'CLI search --symbols',
       })),
     });
 
@@ -248,8 +248,8 @@ function parsePositiveInt(value: string, fallback: number): number {
 
 /**
  * Print a semantic symbol outline for `target` (a local file or directory).
- * Mirrors the former `symbols` command; invoked by `ls` in outline mode. Sets
- * `process.exitCode` on failure and returns.
+ * Shared outline mode for `search --symbols`. Sets `process.exitCode` on
+ * failure and returns.
  */
 export async function outlineSymbols(
   target: string,

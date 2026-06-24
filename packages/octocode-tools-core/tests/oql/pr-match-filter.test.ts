@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   filterPullRequestsByMatch,
+  filterCommitsByMatch,
   type PullRequestMatch,
 } from '../../src/oql/adapters/researchTargets.js';
 import type { AdapterResult } from '../../src/oql/adapters/local.js';
@@ -17,6 +18,13 @@ function prRow(
   data: Record<string, unknown>
 ): OqlRecordResultRow {
   return { kind: 'record', recordType: 'pullRequest', id, data };
+}
+
+function commitRow(
+  id: string,
+  data: Record<string, unknown>
+): OqlRecordResultRow {
+  return { kind: 'record', recordType: 'commit', id, data };
 }
 
 function base(rows: OqlRecordResultRow[]): AdapterResult {
@@ -85,5 +93,36 @@ describe('filterPullRequestsByMatch (P4)', () => {
       scope: 'body',
     });
     expect(out.results.map(r => r.id)).toEqual(['1']);
+  });
+});
+
+describe('filterCommitsByMatch (H1 — commits matchString is a content filter)', () => {
+  const fixture = () =>
+    base([
+      commitRow('a', { sha: 'a', message: 'fix: harden OAuth token refresh' }),
+      commitRow('b', { sha: 'b', message: 'docs: update README' }),
+      commitRow('c', { sha: 'c', message: 'chore: bump deps' }),
+    ]);
+
+  it('keeps only commits whose message contains the needle, spotlights, and emits partialResult', () => {
+    const out = filterCommitsByMatch(fixture(), 'oauth token');
+    expect(out.results.map(r => r.id)).toEqual(['a']);
+    const m = (out.results[0] as OqlRecordResultRow).data.match as {
+      matchString: string;
+      scope: string;
+      spotlight: string;
+    };
+    expect(m.scope).toBe('message');
+    expect(m.spotlight.toLowerCase()).toContain('oauth token');
+    expect(out.diagnostics.some(d => d.code === 'partialResult')).toBe(true);
+  });
+
+  it('emits zeroMatches (info, non-blocking) when no commit message matches', () => {
+    const out = filterCommitsByMatch(fixture(), 'graphql subscription');
+    expect(out.results).toHaveLength(0);
+    const zero = out.diagnostics.find(d => d.code === 'zeroMatches');
+    expect(zero).toBeDefined();
+    expect(zero!.blocksAnswer).toBe(false);
+    expect(zero!.severity).toBe('info');
   });
 });

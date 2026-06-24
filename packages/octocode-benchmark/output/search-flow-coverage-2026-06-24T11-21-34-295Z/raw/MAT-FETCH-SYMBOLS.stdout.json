@@ -1,0 +1,26 @@
+{
+  "results": [
+    {
+      "kind": "content",
+      "path": "vanilla.ts",
+      "content": "  1| type SetStateInternal<T> = {\n  2|   _(\n  3|     partial: T | Partial<T> | { _(state: T): T | Partial<T> }['_'],\n  4|     replace?: false,\n  5|   ): void\n  6|   _(state: T | { _(state: T): T }['_'], replace: true): void\n  7| }['_']\n  9| export interface StoreApi<T> {\n 10|   setState: SetStateInternal<T>\n 11|   getState: () => T\n 12|   getInitialState: () => T\n 13|   subscribe: (listener: (state: T, prevState: T) => void) => () => void\n 14| }\n 16| export type ExtractState<S> = S extends { getState: () => infer T } ? T : never\n 18| type Get<T, K, F> = K extends keyof T ? T[K] : F\n 20| export type Mutate<S, Ms> = number extends Ms['length' & keyof Ms]\n 21|   ? S\n 22|   : Ms extends []\n 23|     ? S\n 24|     : Ms extends [[infer Mi, infer Ma], ...infer Mrs]\n 25|       ? Mutate<StoreMutators<S, Ma>[Mi & StoreMutatorIdentifier], Mrs>\n 26|       : never\n 28| export type StateCreator<\n 29|   T,\n 30|   Mis extends [StoreMutatorIdentifier, unknown][] = [],\n 31|   Mos extends [StoreMutatorIdentifier, unknown][] = [],\n 32|   U = T,\n 33| > = ((\n 34|   setState: Get<Mutate<StoreApi<T>, Mis>, 'setState', never>,\n 35|   getState: Get<Mutate<StoreApi<T>, Mis>, 'getState', never>,\n 36|   store: Mutate<StoreApi<T>, Mis>,\n 37| ) => U) & { $$storeMutators?: Mos }\n 40| export interface StoreMutators<S, A> {}\n 41| export type StoreMutatorIdentifier = keyof StoreMutators<unknown, unknown>\n 43| type CreateStore = {\n 44|   <T, Mos extends [StoreMutatorIdentifier, unknown][] = []>(\n 45|     initializer: StateCreator<T, [], Mos>,\n 46|   ): Mutate<StoreApi<T>, Mos>\n 48|   <T>(): <Mos extends [StoreMutatorIdentifier, unknown][] = []>(\n 49|     initializer: StateCreator<T, [], Mos>,\n 50|   ) => Mutate<StoreApi<T>, Mos>\n 51| }\n 53| type CreateStoreImpl = <\n 54|   T,\n 55|   Mos extends [StoreMutatorIdentifier, unknown][] = [],\n 56| >(\n 57|   initializer: StateCreator<T, [], Mos>,\n 58| ) => Mutate<StoreApi<T>, Mos>\n 60| const createStoreImpl: CreateStoreImpl = (createState) => {\n 99| export const createStore = ((createState) =>\n100|   createState ? createStoreImpl(createState) : createStoreImpl) as CreateStore",
+      "contentView": "symbols",
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "localGetFileContent",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

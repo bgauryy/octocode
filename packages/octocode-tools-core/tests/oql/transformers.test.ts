@@ -59,6 +59,22 @@ describe('OQL transformers: GitHub code search query', () => {
     expect(transformed.query).not.toHaveProperty('language');
   });
 
+  it('rejects an empty search term instead of emitting keywords:[""] (H2)', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'code',
+        from: { kind: 'github', repo: 'facebook/react' },
+        where: { kind: 'text', value: '' },
+      })
+    );
+
+    expect(transformed.ok).toBe(false);
+    if (transformed.ok) throw new Error('expected transform to fail');
+    expect(transformed.diagnostics[0]).toMatchObject({
+      code: 'vendorNoEquivalent',
+    });
+  });
+
   it('blocks language-name selectors that GitHub code search would narrow', () => {
     const transformed = toGithubCodeSearchToolQuery(
       githubCodeQuery({

@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "kind": "content",
+      "path": "vanilla.ts",
+      "content": "// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type\nexport interface StoreMutators<S, A> {}\nexport type StoreMutatorIdentifier = keyof StoreMutators<unknown, unknown>\n\ntype CreateStore = {\n  <T, Mos extends [StoreMutatorIdentifier, unknown][] = []>(\n    initializer: StateCreator<T, [], Mos>,\n  ): Mutate<StoreApi<T>, Mos>\n\n\n... [1 lines omitted] ...\n\n    initializer: StateCreator<T, [], Mos>,\n  ) => Mutate<StoreApi<T>, Mos>\n}\n\ntype CreateStoreImpl = <\n  T,\n  Mos extends [StoreMutatorIdentifier, unknown][] = [],\n>(\n  initializer: StateCreator<T, [], Mos>,\n) => Mutate<StoreApi<T>, Mos>\n\nconst createStoreImpl: CreateStoreImpl = (createState) => {\n  type TState = ReturnType<typeof createState>\n  type Listener = (state: TState, prevState: TState) => void\n  let state: TState\n  const listeners: Set<Listener> = new Set()\n\n... [30 lines omitted] ...\n\n  const initialState = (state = createState(setState, getState, api))\n  return api as any\n}\n\nexport const createStore = ((createState) =>\n  createState ? createStoreImpl(createState) : createStoreImpl) as CreateStore\n",
+      "contentView": "exact",
+      "range": {
+        "startLine": 39,
+        "endLine": 101
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "partialResult",
+      "severity": "warning",
+      "message": "Found 5 occurrences of \"createStore\" on lines 43, 53, 60, 99, 100 — all shown as 3 slices, ±4 lines of context each; these lines are lineHint anchors for lspGetSemantics.",
+      "blocksAnswer": false,
+      "backend": "localGetFileContent"
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "localGetFileContent",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "proof"
+  }
+}

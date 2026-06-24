@@ -128,7 +128,14 @@ async function listGitHubOrgReposAPIInternal(
     });
     repoItems = orgResult.data as RepoSearchResultItem[];
     totalCount = undefined;
-  } catch {
+  } catch (orgErr: unknown) {
+    // Only a 404 means "this owner is not an org" — fall back to user listing.
+    // Auth (401/403) and rate-limit (429) errors (and network errors with no
+    // status) must propagate, not be masked as a user-listing miss.
+    const status = (orgErr as { status?: number } | null)?.status;
+    if (status !== 404) {
+      return handleGitHubAPIError(orgErr);
+    }
     try {
       const userResult = await octokit.rest.repos.listForUser({
         username: params.owner,

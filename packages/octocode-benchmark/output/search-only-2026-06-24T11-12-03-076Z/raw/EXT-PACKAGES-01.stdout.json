@@ -1,0 +1,61 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "package",
+      "id": "zustand@5.0.14",
+      "data": {
+        "name": "zustand",
+        "version": "5.0.14",
+        "description": "🐻 Bear necessities for state management in React",
+        "license": "MIT",
+        "downloads": 43272004,
+        "repository": "https://github.com/pmndrs/zustand",
+        "next": {
+          "viewRepoStructure": {
+            "tool": "ghViewRepoStructure",
+            "query": {
+              "owner": "pmndrs",
+              "repo": "zustand"
+            }
+          },
+          "searchCode": {
+            "tool": "ghSearchCode",
+            "query": {
+              "owner": "pmndrs",
+              "repo": "zustand"
+            }
+          },
+          "cloneRepo": {
+            "tool": "ghCloneRepo",
+            "query": {
+              "owner": "pmndrs",
+              "repo": "zustand"
+            }
+          }
+        }
+      },
+      "proofGrade": "candidate"
+    }
+  ],
+  "pagination": {
+    "hasMore": false,
+    "currentPage": 1,
+    "totalPages": 1,
+    "itemsPerPage": 1
+  },
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "npmSearch",
+      "source": {
+        "kind": "npm"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

@@ -39,3 +39,5 @@ devScripts
 .agents
 # Generated from root README.md during package build/prepack
 /packages/*/README.md
+
+__pycache__

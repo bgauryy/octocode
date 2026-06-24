@@ -31,7 +31,7 @@ describe('skill doc command examples', () => {
     expect(unknown).toEqual([]);
   });
 
-  it('does not advertise a standalone `ast` command (structural is grep --pattern/--rule)', () => {
+  it('does not advertise a standalone `ast` command (structural is search --pattern/--rule)', () => {
     if (!existsSync(SKILL_PATH)) return;
     const doc = readFileSync(SKILL_PATH, 'utf8');
     expect(REGISTERED_COMMAND_NAMES).not.toContain('ast');

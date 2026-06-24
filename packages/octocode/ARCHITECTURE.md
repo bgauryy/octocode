@@ -24,9 +24,11 @@ formats it for a terminal.
   local-vs-GitHub ref resolver), validation, help rendering, and exit codes
   (`exit-codes.ts`).
 - `src/cli/commands/` — one file per command. Two groups:
-  - **Quick commands** (`cat`, `ls`, `find`, `grep`, `pr`, `history`, `repo`,
-    `pkg`, `lsp`, `binary`, `unzip`, `clone`) — Unix-style shortcuts that resolve
-    a target ref and call the underlying tool. Lazy-loaded via `commands/index.ts`.
+  - **Quick commands** (`search`, `unzip`, `clone`, `cache`) — thin
+    shortcuts that resolve a target ref and call the underlying tool/OQL route.
+    Legacy research shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`,
+    `pkg`, `lsp`, `binary`, `diff`, `pr`) are intentionally removed; use
+    `search`.
   - **Management commands** (`install`, `auth`/`login`/`logout`, `status`) —
     eagerly loaded; manage setup, credentials, and environment state.
 - `src/cli/tool-command.ts` — the raw `tools <name>` / `context` surface. Bridges

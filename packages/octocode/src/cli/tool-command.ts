@@ -7,6 +7,7 @@ import { c, bold, dim } from '../utils/colors.js';
 // Codex.app Node). `executeDirectTool` + result formatting (which pull the
 // engine) are dynamically imported from `/direct` only inside the execute path.
 import {
+  buildDirectToolCommandPatterns,
   buildDirectToolExampleQuery,
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
@@ -85,6 +86,11 @@ async function getOptionalToolMetadata(): Promise<Awaited<
 }
 
 function formatToolExampleCommand(toolName: string): string {
+  const pattern = buildDirectToolCommandPatterns(toolName)[0];
+  if (pattern) {
+    return pattern.command;
+  }
+
   const exampleInput = JSON.stringify(buildDirectToolExampleQuery(toolName));
   return `tools ${toolName} --queries '${exampleInput}'`;
 }
@@ -172,7 +178,11 @@ export function truncateDescription(desc: string, maxLen: number): string {
 
 export function formatRequiredFields(toolName: string): string {
   if (toolName === LSP_TOOL_NAME) {
-    return '[uri*, type, symbolName?, lineHint?]';
+    // `type` is the only always-required field. `uri` is required for every
+    // type EXCEPT workspaceSymbol (which can start from workspaceRoot +
+    // symbolName), so it is marked optional here to avoid a false `uri*` —
+    // the per-field schema view carries the conditional requirement.
+    return '[type, uri?, symbolName?, lineHint?]';
   }
 
   const tool = findToolDefinition(toolName);
@@ -417,6 +427,7 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   const metadata = await getOptionalToolMetadata();
   const fields = getDirectToolDisplayFields(tool.name);
   const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
+  const commandPatterns = buildDirectToolCommandPatterns(tool.name);
   const fullDescription = getDirectToolDescription(tool.name, metadata);
   const shortDesc = extractShortDescription(fullDescription);
   const extendedDesc = formatFullDescription(fullDescription);
@@ -432,6 +443,17 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
     console.log(`  ${bold('Description')}`);
     for (const line of extendedDesc.split('\n')) {
       console.log(`  ${dim(line)}`);
+    }
+    console.log();
+  }
+
+  if (commandPatterns.length > 0 && tool.name !== LSP_TOOL_NAME) {
+    console.log(
+      `  ${bold(commandPatterns.length === 1 ? 'Command Pattern' : 'Command Patterns')}`
+    );
+    for (const pattern of commandPatterns) {
+      console.log(`    ${dim('#')} ${pattern.label}`);
+      console.log(`    ${c('yellow', pattern.command)}`);
     }
     console.log();
   }
@@ -509,10 +531,9 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
     }
   } else {
     console.log(`  ${bold('Example')}`);
-    console.log(`    ${c('yellow', formatToolExampleCommand(tool.name))}`);
-    console.log(
-      `    ${c('yellow', formatToolExampleCommand(tool.name) + ' --json')}`
-    );
+    const exampleCommand = formatToolExampleCommand(tool.name);
+    console.log(`    ${c('yellow', exampleCommand)}`);
+    console.log(`    ${c('yellow', exampleCommand + ' --json')}`);
     console.log();
   }
 
@@ -537,6 +558,7 @@ export async function showMultipleToolSchemas(
     );
     const fields = getDirectToolDisplayFields(tool.name);
     const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
+    const commandPatterns = buildDirectToolCommandPatterns(tool.name);
 
     console.log();
     console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
@@ -549,9 +571,9 @@ export async function showMultipleToolSchemas(
       );
     }
     console.log(`  ${dim('Auto-filled')}: ${autoFilledFields.join(', ')}`);
-    console.log(
-      `  ${bold('Example')}  ${c('yellow', formatToolExampleCommand(tool.name))}`
-    );
+    const exampleCommand =
+      commandPatterns[0]?.command ?? formatToolExampleCommand(tool.name);
+    console.log(`  ${bold('Example')}  ${c('yellow', exampleCommand)}`);
   }
 
   console.log();
@@ -581,9 +603,9 @@ export async function getToolsContextString(
       '',
       '  *** RESEARCH LOOP ***',
       '  1. Orient: localViewStructure / ghViewRepoStructure / npmSearch.',
-      '  2. Search: localSearchCode / ghSearchCode.',
+      '  2. Search: localSearchCode / ghSearchCode. Use localSearchCode mode:"structural" for AST/code-shape anchors.',
       '  3. Read: localGetFileContent / ghGetFileContent — smallest slice, choose minify standard|symbols|none.',
-      '  4. Prove: lspGetSemantics or ghHistoryResearch; stop when evidence.answerReady is true.',
+      '  4. Prove: lspGetSemantics or ghHistoryResearch; LSP consumes the file/line anchors from text or structural search.',
       '',
       '  *** ORIENT CHEAP — BEFORE READING ***',
       '  concise:true         flat string lists — ghSearchRepos→"owner/repo", ghSearchCode→"owner/repo:path", ghHistoryResearch list→"#number title"',
@@ -609,7 +631,7 @@ export async function getToolsContextString(
       '  *** REFERENCES ***',
       '  Docs:  https://github.com/bgauryy/octocode/tree/main/docs',
       '  Research playbook: https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer',
-      '  Quick commands (ls/cat/grep/find/repo/pr/pkg/…) are the fastest path; raw `tools` need a schema read first.',
+      '  Quick commands (search/unzip/clone/cache fetch) are the fastest path; use search for files, trees, content, repos, packages, PRs, history, artifacts, and diffs. Raw `tools` need a schema read first.',
       '  Do not hallucinate paths, lines, or fields — verify with the tools; snippets are discovery, not proof.',
       '',
     ].join('\n'),
@@ -642,8 +664,7 @@ export async function getToolsContextString(
     label: string;
   }> = [
     { cat: 'GitHub', label: 'GitHub' },
-    { cat: 'Local', label: 'Local' },
-    { cat: 'LSP', label: 'LSP' },
+    { cat: 'Local Code', label: 'Local Code' },
     { cat: 'Package', label: 'npm' },
     { cat: 'Other', label: 'Other' },
   ];

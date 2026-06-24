@@ -10,11 +10,18 @@ import { join, basename, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const LIMITS = { skillMd: 100, reference: 150, refNameChars: 30 };
+const LIMITS = { skillMd: 100, reference: 150, refNameChars: 30, descriptionLead: 50 };
+const DESC_LEAD_BLOAT = /\b(this skill|the skill|the following|in order to|assistant should|the user asks you to)\b/i;
 const GENERIC = new Set(['reference', 'doc', 'docs', 'notes', 'misc', 'stuff', 'temp', 'tmp', 'readme', 'index', 'file', 'data']);
 // references.md is the canonical research-audit-trail filename a created skill must carry — not a generic content ref.
 const NAME_EXEMPT = new Set(['references.md', 'references-template.md']);
 const COND = /\b(when|whenever|if|before|after|during|while|for )\b/i;
+// Agents read only name+description at discovery; allowed-tools/license affect install; hooks are
+// functional (the harness installs them). Anything else in frontmatter is authoring/repo metadata
+// that wastes discovery context.
+const FM_ALLOWED = new Set(['name', 'description', 'license', 'allowed-tools', 'allowed_tools', 'hooks']);
+// Body headings that are authoring/repo metadata, not task instructions the agent acts on.
+const META_HEADING = /^#{1,6}\s+(change\s?log|version\s?history|versions?|history|authors?|credits?|acknowledge?ments?|licen[cs]e|metadata|table of contents|contents|toc|todos?|maintainers?|contributing|contributors?)\b/i;
 
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
@@ -84,6 +91,16 @@ function splitSentences(str) {
     .filter((s) => s.split(/\s+/).length >= 10);
 }
 
+// Drop blockquotes and list items before the adjacent-similarity (tautology) pass.
+// Parallel enumerated/quoted items (e.g. "ADVOCATE rebuttal" / "CRITIC rebuttal") are
+// intentionally similar by design, not redundant prose — only narrative sentences should be policed.
+function stripStructuralLines(str) {
+  return str
+    .split('\n')
+    .filter((l) => !/^\s*(>|[-*+]\s|\d+[.)]\s)/.test(l))
+    .join('\n');
+}
+
 function lintSkill(skillDir) {
   const findings = [];
   const add = (sev, rule, msg) => findings.push({ sev, rule, msg });
@@ -99,10 +116,34 @@ function lintSkill(skillDir) {
     if (!fm.description) add('ERROR', 'frontmatter', 'frontmatter missing `description`');
     else {
       const d = fm.description.trim();
-      if (!/^use\b/i.test(d) || !/\bwhen\b/i.test(d.slice(0, 80)))
-        add('WARN', 'description-style', 'description should be "Use when ..." style (imperative trigger + when-clause)');
-      if (d.length > 1024) add('WARN', 'description-style', `description ${d.length} chars > 1024 limit`);
+      if (!d) add('ERROR', 'frontmatter', 'frontmatter `description` is empty');
+      else {
+        if (!/^use\b/i.test(d) || !/\bwhen\b/i.test(d))
+          add('WARN', 'description-style', 'description should be "Use when ..." style (imperative trigger + when-clause)');
+        if (d.length > 1024) add('WARN', 'description-style', `description ${d.length} chars > 1024 limit`);
+
+        const lead = d.slice(0, LIMITS.descriptionLead);
+        const whenIdx = d.search(/\bwhen\b/i);
+        if (!/^use\s/i.test(d))
+          add('WARN', 'description-concise', 'open with "Use when …" — the first ~50 chars are what agents scan');
+        if (whenIdx === -1)
+          add('WARN', 'description-concise', 'include a when-clause near the start (trigger intent in the first ~50 chars)');
+        else if (whenIdx > LIMITS.descriptionLead)
+          add('WARN', 'description-concise', `"when" appears at char ${whenIdx + 1}; move the trigger into the first ${LIMITS.descriptionLead} chars`);
+        // No total-length penalty here: Anthropic's limit is 1024 (enforced by description-style above),
+        // and descriptions should be trigger-rich/"pushy" to avoid undertriggering. Policing the LEAD
+        // (hook quality) matters; capping total length would push authors to delete useful triggers.
+        if (DESC_LEAD_BLOAT.test(lead))
+          add('WARN', 'description-concise', `first ${LIMITS.descriptionLead} chars waste space on meta wording — lead with concrete triggers: "${lead.trim()}…"`);
+        const leadWords = lead.trim().split(/\s+/).filter(Boolean).length;
+        if (leadWords > 10)
+          add('WARN', 'description-concise', `first ${LIMITS.descriptionLead} chars are ${leadWords} words; tighten the opening hook`);
+      }
     }
+    // W: redundant frontmatter metadata — agents read only name/description at discovery
+    const extraKeys = Object.keys(fm).filter((k) => !FM_ALLOWED.has(k.toLowerCase()));
+    if (extraKeys.length)
+      add('WARN', 'frontmatter-metadata', `frontmatter carries agent-irrelevant keys (${extraKeys.join(', ')}); agents read only name/description at discovery — drop authoring metadata (version/author/tags/dates) from SKILL.md`);
   }
 
   // W: SKILL.md leanness
@@ -168,6 +209,17 @@ function lintSkill(skillDir) {
     });
   }
 
+  // W: redundant metadata/authoring sections — not instructions the agent acts on
+  for (const { label, content } of allMdFiles) {
+    let inFence = false;
+    content.split('\n').forEach((ln, i) => {
+      if (/^\s*```/.test(ln)) { inFence = !inFence; return; }
+      if (inFence) return;
+      if (META_HEADING.test(ln))
+        add('WARN', 'metadata-section', `${label} line ${i + 1}: "${ln.trim()}" is authoring/repo metadata, not agent instruction — keep changelogs/authors/version notes in the repo README, not the skill`);
+    });
+  }
+
   // --- Prompt-hygiene checks ---
 
   for (const { label, content } of allMdFiles) {
@@ -187,8 +239,9 @@ function lintSkill(skillDir) {
         add('WARN', 'verbose', `${label} line ${i + 1}: filler phrase — rewrite concisely`);
     });
 
-    // W-tautology: adjacent sentences with high token overlap
-    const sents = splitSentences(body);
+    // W-tautology: adjacent sentences with high token overlap (narrative prose only —
+    // parallel blockquote/list items are intentionally similar, so exclude them)
+    const sents = splitSentences(stripStructuralLines(body));
     for (let i = 0; i < sents.length - 1; i++) {
       const a = sigTokens(sents[i]);
       const b = sigTokens(sents[i + 1]);

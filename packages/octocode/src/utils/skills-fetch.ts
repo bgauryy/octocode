@@ -456,10 +456,14 @@ export async function installMarketplaceSkill(
         throw new Error('Failed to write skill file');
       }
     } else {
-      const prefix = `${skill.path}/`;
+      const prefix = skill.path ? `${skill.path}/` : '';
       const files = tree.filter(
         item => item.type === 'blob' && item.path.startsWith(prefix)
       );
+
+      if (files.length === 0) {
+        throw new Error(`Skill folder not found: ${skill.path || '/'}`);
+      }
 
       if (files.length > MAX_SKILL_FILES) {
         throw new Error(
@@ -610,11 +614,14 @@ export async function readSkillFromGitHub(
   skillPath: string,
   branch = 'main'
 ): Promise<string> {
-  const normalized = skillPath.endsWith('/SKILL.md')
-    ? skillPath
-    : skillPath.endsWith('SKILL.md')
-      ? skillPath
-      : `${skillPath}/SKILL.md`;
+  const normalized =
+    skillPath.length === 0
+      ? 'SKILL.md'
+      : skillPath.endsWith('/SKILL.md')
+        ? skillPath
+        : skillPath.endsWith('SKILL.md')
+          ? skillPath
+          : `${skillPath}/SKILL.md`;
 
   const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${normalized}`;
   const response = await fetch(url, {

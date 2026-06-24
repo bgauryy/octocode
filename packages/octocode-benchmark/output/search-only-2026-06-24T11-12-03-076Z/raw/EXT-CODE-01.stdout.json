@@ -1,0 +1,282 @@
+{
+  "results": [
+    {
+      "kind": "code",
+      "path": "libs/providers/langchain-openai/src/chat_models/index.ts",
+      "snippet": "return this.completions._generate(messages,options,runManager);}override async *_streamChatModelEvents(messages: BaseMessage[],options: this[\"ParsedCallOptions\"],runManager?: CallbackManagerForLLMRun",
+      "matchIndices": [
+        {
+          "start": 93,
+          "end": 115,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "langchain-ai",
+        "repo": "langchainjs",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "langchain-ai/langchainjs"
+            },
+            "scope": {
+              "path": "libs/providers/langchain-openai/src/chat_models/index.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "_streamChatModelEvents"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "libs/providers/langchain-google-common/src/chat_models.ts",
+      "snippet": "return ret;}async *_streamChatModelEvents(messages: BaseMessage[],options: this[\"ParsedCallOptions\"],_runManager?: CallbackManagerForLLMRun",
+      "matchIndices": [
+        {
+          "start": 30,
+          "end": 52,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "langchain-ai",
+        "repo": "langchainjs",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "langchain-ai/langchainjs"
+            },
+            "scope": {
+              "path": "libs/providers/langchain-google-common/src/chat_models.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "_streamChatModelEvents"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "libs/providers/langchain-openai/src/chat_models/completions.ts",
+      "snippet": "* Native implementation of the content-block-centric streaming protocol * for OpenAI Chat Completions. */ async *_streamChatModelEvents(messages: BaseMessage[],options: this[\"ParsedCallOptions\"],_runManager?: CallbackManagerForLLMRun",
+      "matchIndices": [
+        {
+          "start": 124,
+          "end": 146,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "langchain-ai",
+        "repo": "langchainjs",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "langchain-ai/langchainjs"
+            },
+            "scope": {
+              "path": "libs/providers/langchain-openai/src/chat_models/completions.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "_streamChatModelEvents"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "libs/providers/langchain-openai/src/chat_models/responses.ts",
+      "snippet": "}}async *_streamChatModelEvents(messages: BaseMessage[],options: this[\"ParsedCallOptions\"],_runManager?: CallbackManagerForLLMRun",
+      "matchIndices": [
+        {
+          "start": 20,
+          "end": 42,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "langchain-ai",
+        "repo": "langchainjs",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "langchain-ai/langchainjs"
+            },
+            "scope": {
+              "path": "libs/providers/langchain-openai/src/chat_models/responses.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "_streamChatModelEvents"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    },
+    {
+      "kind": "code",
+      "path": "libs/providers/langchain-ibm/src/chat_models/ibm.ts",
+      "snippet": "}}async *_streamChatModelEvents(messages: BaseMessage[],options: this[\"ParsedCallOptions\"],_runManager?: CallbackManagerForLLMRun",
+      "matchIndices": [
+        {
+          "start": 20,
+          "end": 42,
+          "lineOffset": 0
+        }
+      ],
+      "metadata": {
+        "owner": "langchain-ai",
+        "repo": "langchainjs",
+        "queryId": "q1"
+      },
+      "next": {
+        "next.fetch": {
+          "query": {
+            "schema": "oql",
+            "target": "content",
+            "from": {
+              "kind": "github",
+              "repo": "langchain-ai/langchainjs"
+            },
+            "scope": {
+              "path": "libs/providers/langchain-ibm/src/chat_models/ibm.ts"
+            },
+            "fetch": {
+              "content": {
+                "contentView": "exact",
+                "match": {
+                  "text": "_streamChatModelEvents"
+                }
+              }
+            }
+          },
+          "why": "Read the exact content at this hit.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "pagination": {
+    "hasMore": true,
+    "currentPage": 1,
+    "totalPages": 5,
+    "nextPage": 2,
+    "itemsPerPage": 5,
+    "totalItems": 23,
+    "reportedTotalItems": 23,
+    "reachableTotalItems": 23,
+    "totalItemsKind": "reported",
+    "totalItemsCapped": false,
+    "uniqueFileCount": 5
+  },
+  "next": {
+    "next.page": {
+      "query": {
+        "schema": "oql",
+        "target": "code",
+        "from": {
+          "kind": "github",
+          "repo": "langchain-ai/langchainjs"
+        },
+        "scope": {
+          "language": "ts"
+        },
+        "where": {
+          "kind": "text",
+          "value": "_streamChatModelEvents"
+        },
+        "materialize": {
+          "mode": "never"
+        },
+        "view": "paginated",
+        "limit": 5,
+        "page": 2
+      },
+      "why": "More result pages remain.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "providerSemanticsApproximate",
+      "severity": "info",
+      "message": "GitHub code search returns path-level hits without line numbers; follow next.fetch for exact location/lines.",
+      "blocksAnswer": false,
+      "backend": "ghSearchCode"
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "ghSearchCode",
+      "source": {
+        "kind": "github",
+        "repo": "langchain-ai/langchainjs"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

@@ -51,22 +51,41 @@ export const SKILL_INSTALL_TARGETS = [
   'agents',
 ] as const;
 export type SkillInstallTarget = (typeof SKILL_INSTALL_TARGETS)[number];
+export const USER_SKILL_PLATFORMS = [
+  'common',
+  'cursor',
+  'claude',
+  'codex',
+] as const;
+export type UserSkillPlatform = (typeof USER_SKILL_PLATFORMS)[number];
 export const DEFAULT_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
-  'claude-code',
+  'agents',
 ];
 export const CLAUDE_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
   'claude-code',
   'claude-desktop',
 ];
+export const USER_SKILL_PLATFORM_TARGETS: Record<
+  UserSkillPlatform,
+  readonly SkillInstallTarget[]
+> = {
+  common: ['agents'],
+  cursor: ['cursor'],
+  claude: CLAUDE_SKILL_INSTALL_TARGETS,
+  codex: ['codex'],
+};
 export type SkillInstallResult = 'installed' | 'skipped' | 'failed';
 
 const SKILL_TARGET_IDS: Record<string, SkillInstallTarget> = {
   'claude-code': 'claude-code',
   'claude-desktop': 'claude-desktop',
+  claude: 'claude-code',
   cursor: 'cursor',
   codex: 'codex',
   opencode: 'opencode',
   agents: 'agents',
+  agent: 'agents',
+  common: 'agents',
 };
 
 function loadConfig(): OctocodeConfig {

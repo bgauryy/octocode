@@ -30,8 +30,8 @@ export const unzipCommand: CLICommand = {
             `    unzip app.zip\n` +
             `    unzip release.tar.gz\n` +
             `    ${dim('# then work on the unpacked tree:')}\n` +
-            `    ls ${UNZIP_EXAMPLE_PATH}\n` +
-            `    grep "apiKey" ${UNZIP_EXAMPLE_PATH}\n`
+            `    search ${UNZIP_EXAMPLE_PATH} --tree\n` +
+            `    search "apiKey" ${UNZIP_EXAMPLE_PATH}\n`
         );
       }
       process.exitCode = EXIT.USAGE;
@@ -65,9 +65,9 @@ export const unzipCommand: CLICommand = {
         if (localPath) {
           console.log(
             `  ${dim('Next — research it with the local tools:')}\n` +
-              `    ${c('cyan', `ls ${localPath}`)}                 ${dim('# map the tree')}\n` +
-              `    ${c('cyan', `grep <term> ${localPath}`)}        ${dim('# search code')}\n` +
-              `    ${c('cyan', `cat ${localPath}/<file>`)}         ${dim('# read a file')}\n`
+              `    ${c('cyan', `search ${localPath} --tree`)}       ${dim('# map the tree')}\n` +
+              `    ${c('cyan', `search <term> ${localPath}`)}        ${dim('# search code')}\n` +
+              `    ${c('cyan', `search ${localPath}/<file>`)}       ${dim('# read a file')}\n`
           );
         }
       }

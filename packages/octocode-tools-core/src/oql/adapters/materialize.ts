@@ -11,13 +11,11 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runDirect } from './runner.js';
 import { executeLocal, type AdapterResult } from './local.js';
 import { diagnostic } from '../diagnostics.js';
-import type {
-  OqlQuery,
-  OqlRecordResultRow,
-  QueryScope,
-  QuerySource,
-} from '../types.js';
+import { firstScopePath } from '../transformers/github/common.js';
+import type { OqlQuery, OqlRecordResultRow, QuerySource } from '../types.js';
 
+// See adapters/github.ts: splitRepo intentionally differs from
+// common.splitGithubSource on the slash-less repo case.
 function splitRepo(source: QuerySource): { owner?: string; repo?: string } {
   if (source.kind !== 'github') return {};
   if (source.repo && source.repo.includes('/')) {
@@ -25,11 +23,6 @@ function splitRepo(source: QuerySource): { owner?: string; repo?: string } {
     return { owner, repo };
   }
   return { owner: source.owner };
-}
-
-function firstScopePath(scope: QueryScope | undefined): string | undefined {
-  if (!scope?.path) return undefined;
-  return Array.isArray(scope.path) ? scope.path[0] : scope.path;
 }
 
 function extractClone(result: CallToolResult): {

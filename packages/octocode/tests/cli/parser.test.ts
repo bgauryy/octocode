@@ -136,11 +136,11 @@ describe('CLI Parser', () => {
       );
     });
 
-    it('should parse lsp command value options', () => {
+    it('should parse search semantic value options', () => {
       const result = parseArgs([
-        'lsp',
+        'search',
         'src/index.ts',
-        '--type',
+        '--op',
         'references',
         '--symbol',
         'runCLI',
@@ -150,20 +150,39 @@ describe('CLI Parser', () => {
         '.',
       ]);
 
-      expect(result.command).toBe('lsp');
+      expect(result.command).toBe('search');
       expect(result.args).toEqual(['src/index.ts']);
       expect(result.options).toEqual({
-        type: 'references',
+        op: 'references',
         symbol: 'runCLI',
         line: '42',
         'workspace-root': '.',
       });
     });
 
-    it('should parse symbols command value options', () => {
+    it('should parse search --items-per-page as a value option', () => {
       const result = parseArgs([
-        'symbols',
+        'search',
+        './src',
+        '--target',
+        'research',
+        '--items-per-page',
+        '1',
+      ]);
+
+      expect(result.command).toBe('search');
+      expect(result.args).toEqual(['./src']);
+      expect(result.options).toMatchObject({
+        target: 'research',
+        'items-per-page': '1',
+      });
+    });
+
+    it('should parse search symbol-outline value options', () => {
+      const result = parseArgs([
+        'search',
         'src',
+        '--symbols',
         '--ext',
         'ts,tsx',
         '--kind',
@@ -172,23 +191,26 @@ describe('CLI Parser', () => {
         '10',
       ]);
 
-      expect(result.command).toBe('symbols');
+      expect(result.command).toBe('search');
       expect(result.args).toEqual(['src']);
       expect(result.options).toEqual({
+        symbols: true,
         ext: 'ts,tsx',
         kind: 'function',
         limit: '10',
       });
     });
 
-    it('should parse repo command value options', () => {
+    it('should parse search repository value options', () => {
       const result = parseArgs([
-        'repo',
+        'search',
         'agent',
         'tools',
+        '--target',
+        'repositories',
         '--topic',
         'mcp,agents',
-        '--language',
+        '--lang',
         'TypeScript',
         '--owner',
         'openai',
@@ -219,11 +241,12 @@ describe('CLI Parser', () => {
         '10',
       ]);
 
-      expect(result.command).toBe('repo');
+      expect(result.command).toBe('search');
       expect(result.args).toEqual(['agent', 'tools']);
       expect(result.options).toEqual({
+        target: 'repositories',
         topic: 'mcp,agents',
-        language: 'TypeScript',
+        lang: 'TypeScript',
         owner: 'openai',
         stars: '>1000',
         forks: '>100',
@@ -241,9 +264,9 @@ describe('CLI Parser', () => {
       });
     });
 
-    it('should parse find command value and boolean options', () => {
+    it('should parse search file-discovery value and boolean options', () => {
       const result = parseArgs([
-        'find',
+        'search',
         'auth',
         '.',
         '--source',
@@ -259,7 +282,7 @@ describe('CLI Parser', () => {
         '--regex',
         'auth.*config',
         '--entry',
-        'f',
+        'file',
         '--min-depth',
         '1',
         '--max-depth',
@@ -272,17 +295,17 @@ describe('CLI Parser', () => {
         'node_modules,dist',
         '--context-lines',
         '3',
-        '--max-matches-per-file',
+        '--max-matches',
         '5',
         '--match-page',
         '2',
         '--details',
-        '--fixed-string',
+        '--fixed',
         '--limit',
         '20',
       ]);
 
-      expect(result.command).toBe('find');
+      expect(result.command).toBe('search');
       expect(result.args).toEqual(['auth', '.']);
       expect(result.options).toEqual({
         source: 'local',
@@ -291,25 +314,25 @@ describe('CLI Parser', () => {
         path: 'src',
         name: '*auth*',
         regex: 'auth.*config',
-        entry: 'f',
+        entry: 'file',
         'min-depth': '1',
         'max-depth': '4',
         'modified-within': '7d',
         include: '*.ts',
         'exclude-dir': 'node_modules,dist',
         'context-lines': '3',
-        'max-matches-per-file': '5',
+        'max-matches': '5',
         'match-page': '2',
         details: true,
-        'fixed-string': true,
+        fixed: true,
         limit: '20',
       });
     });
 
-    it('keeps token --source boolean while find --source consumes a value', () => {
-      expect(parseArgs(['token', '--source']).options.source).toBe(true);
+    it('keeps other --source boolean while search --source consumes a value', () => {
+      expect(parseArgs(['status', '--source']).options.source).toBe(true);
       expect(
-        parseArgs(['find', 'x', '.', '--source', 'github']).options.source
+        parseArgs(['search', 'x', '.', '--source', 'github']).options.source
       ).toBe('github');
     });
 
@@ -332,8 +355,8 @@ describe('CLI Parser', () => {
     });
 
     it('should skip a standalone "--" separator (npm/yarn style) and keep parsing', () => {
-      const result = parseArgs(['--', 'pkg', '@x/y', '--json']);
-      expect(result.command).toBe('pkg');
+      const result = parseArgs(['--', 'search', '@x/y', '--json']);
+      expect(result.command).toBe('search');
       expect(result.args).toEqual(['@x/y']);
       expect(result.options).toEqual({ json: true });
       // never produces an empty-string option key
@@ -341,8 +364,8 @@ describe('CLI Parser', () => {
     });
 
     it('should skip "--" anywhere in the argv, not just at the front', () => {
-      const result = parseArgs(['pkg', 'zod', '--', '--mode', 'lean']);
-      expect(result.command).toBe('pkg');
+      const result = parseArgs(['search', 'zod', '--', '--mode', 'lean']);
+      expect(result.command).toBe('search');
       expect(result.args).toEqual(['zod']);
       expect(result.options).toEqual({ mode: 'lean' });
     });

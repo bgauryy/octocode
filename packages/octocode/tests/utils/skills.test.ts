@@ -37,6 +37,7 @@ import {
   resolveModeForTarget,
   resolveSkillDestination,
   installSkillToDestination,
+  USER_SKILL_PLATFORM_TARGETS,
 } from '../../src/utils/skills.js';
 import { existsSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { getSkillsDirForTarget } from '../../src/utils/skills.js';
@@ -236,6 +237,16 @@ describe('Skills Utilities', () => {
       expect(resolveModeForTarget('hybrid', 'claude-desktop')).toBe('copy');
       expect(resolveModeForTarget('hybrid', 'cursor')).toBe('symlink');
       expect(resolveModeForTarget('copy', 'cursor')).toBe('copy');
+    });
+
+    it('maps user-facing skill platforms to install targets', () => {
+      expect(USER_SKILL_PLATFORM_TARGETS.common).toEqual(['agents']);
+      expect(USER_SKILL_PLATFORM_TARGETS.cursor).toEqual(['cursor']);
+      expect(USER_SKILL_PLATFORM_TARGETS.codex).toEqual(['codex']);
+      expect(USER_SKILL_PLATFORM_TARGETS.claude).toEqual([
+        'claude-code',
+        'claude-desktop',
+      ]);
     });
   });
 

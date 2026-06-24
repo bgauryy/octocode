@@ -1,6 +1,6 @@
-# Local Tools Reference
+# Local Code Tools Reference
 
-> Complete reference for Octocode MCP local tools: file system exploration, metadata search, code search, and targeted file reading.
+> Complete reference for Octocode MCP local code tools: file system exploration, metadata search, text/regex search, structural AST search, semantic follow-up anchors, and targeted file reading.
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Tool | Purpose |
 |------|---------|
-| `localSearchCode` | Ripgrep content search + AST/structural search (`mode:"structural"`). |
+| `localSearchCode` | Text/regex search + structural AST/code-shape search (`mode:"structural"`). Matches provide file/line anchors for `lspGetSemantics`. |
 | `localViewStructure` | Browse directory structure and metadata. |
 | `localFindFiles` | Find files/directories by name, path, time, size, type, and permissions. |
 | `localGetFileContent` | Read targeted file content by line range, match, signature skeleton, or char page. |

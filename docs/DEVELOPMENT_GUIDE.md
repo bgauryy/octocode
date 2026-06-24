@@ -48,8 +48,9 @@
 
 - **String Replacement**: `sed -i '' 's/old/new/g' src/**/*.ts`
 - **Move/Copy**: `mv`, `cp`, `rsync` for file operations
-- **Find & Move**: `find src -name "*.test.ts" -exec mv {} tests/ \;`
-- **Content Extract**: `head`, `tail`, `cat`, `grep`
+- **File Discovery & Move**: use your preferred file-discovery one-liner, then
+  `mv`, `cp`, or `rsync` for the move.
+- **Content Extract**: `head`, `tail`, or focused shell text tools.
 - **Bulk Actions**: Prefer Linux one-liners for simple operations
 - **Complex Tasks**: Write scripts (Node.js, Python, Shell)
 

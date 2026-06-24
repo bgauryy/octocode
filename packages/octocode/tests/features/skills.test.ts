@@ -25,6 +25,12 @@ vi.mock('../../src/utils/skills.js', () => ({
   resolveModeForTarget: (...args: unknown[]) => resolveModeForTarget(...args),
   resolveSkillDestination: (...args: unknown[]) =>
     resolveSkillDestination(...args),
+  USER_SKILL_PLATFORM_TARGETS: {
+    common: ['agents'],
+    cursor: ['cursor'],
+    claude: ['claude-code', 'claude-desktop'],
+    codex: ['codex'],
+  },
 }));
 
 import {
@@ -32,6 +38,7 @@ import {
   getSkillTargetDestinations,
   installAllSkillsForTargets,
   installSkillForTargets,
+  parseUserSkillPlatformList,
   parseSkillTargetList,
   removeSkillFromTargets,
 } from '../../src/features/skills.js';
@@ -69,6 +76,20 @@ describe('features/skills', () => {
     expect(parseSkillTargetList('bad,also-bad')).toEqual({
       targets: [],
       error: 'No valid targets provided',
+    });
+  });
+
+  it('parses user-facing platforms to low-level targets', () => {
+    expect(parseUserSkillPlatformList('common,cursor,claude')).toEqual({
+      platforms: ['common', 'cursor', 'claude'],
+      targets: ['agents', 'cursor', 'claude-code', 'claude-desktop'],
+    });
+  });
+
+  it('expands all user-facing platforms', () => {
+    expect(parseUserSkillPlatformList('all')).toEqual({
+      platforms: ['common', 'cursor', 'claude', 'codex'],
+      targets: ['agents', 'cursor', 'claude-code', 'claude-desktop', 'codex'],
     });
   });
 

@@ -1,0 +1,67 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "pullRequest",
+      "id": "#409",
+      "data": {
+        "number": 409,
+        "title": "langchain-skill",
+        "url": "https://github.com/bgauryy/octocode/pull/409",
+        "state": "open",
+        "author": "bgauryy",
+        "targetBranch": "main",
+        "createdAt": "2026-05-18T16:57:04Z"
+      },
+      "proofGrade": "candidate"
+    }
+  ],
+  "pagination": {
+    "hasMore": true,
+    "currentPage": 1,
+    "totalPages": 2,
+    "nextPage": 2,
+    "itemsPerPage": 1,
+    "totalItems": 2,
+    "reachableTotalItems": 1,
+    "totalItemsKind": "lowerBound"
+  },
+  "next": {
+    "next.page": {
+      "query": {
+        "schema": "oql",
+        "target": "pullRequests",
+        "from": {
+          "kind": "github",
+          "repo": "bgauryy/octocode"
+        },
+        "materialize": {
+          "mode": "never"
+        },
+        "view": "paginated",
+        "limit": 1,
+        "params": {
+          "limit": 1
+        },
+        "page": 2
+      },
+      "why": "More result pages remain.",
+      "confidence": "exact"
+    }
+  },
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "ghHistoryResearch",
+      "source": {
+        "kind": "github",
+        "repo": "bgauryy/octocode"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": false,
+    "complete": false,
+    "kind": "partial"
+  }
+}

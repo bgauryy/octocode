@@ -261,6 +261,13 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     return true;
   }
 
+  if (args.command === 'search' && args.options.scheme === true) {
+    const { oqlSchemaText } =
+      await import('@octocodeai/octocode-tools-core/schema');
+    process.stdout.write(`${oqlSchemaText()}\n`);
+    return true;
+  }
+
   const { loadCommand } = await loadCommandsModule();
   const command = await loadCommand(args.command);
 

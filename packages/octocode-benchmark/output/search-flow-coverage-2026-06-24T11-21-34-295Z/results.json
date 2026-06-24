@@ -1,0 +1,678 @@
+[
+  {
+    "id": "LOCAL-STRUCTURE",
+    "lane": "local",
+    "question": "Local structure view before search.",
+    "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands --tree --depth 1 --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 287,
+    "stdoutChars": 1622,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 14,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "LOCAL-PATH-SEARCH",
+    "lane": "local",
+    "question": "Local path/file discovery for search.ts.",
+    "command": "node packages/octocode/out/octocode.js search search.ts packages/octocode/src/cli/commands --search path --name search.ts --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 239,
+    "stdoutChars": 495,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "LOCAL-CONTENT-SEARCH",
+    "lane": "local",
+    "question": "Local content search for runOqlSearch.",
+    "command": "node packages/octocode/out/octocode.js search runOqlSearch packages/octocode/src/cli/commands/search.ts --context-lines 2 --max-matches 3 --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 221,
+    "stdoutChars": 3092,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 3,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "LOCAL-FETCH-NONE",
+    "lane": "local",
+    "question": "Local match-string fetch, exact mode.",
+    "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --match-string runOqlSearch --context-lines 4 --mode none --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 590,
+    "stdoutChars": 1582,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "partialResult",
+        "severity": "warning",
+        "blocksAnswer": false,
+        "message": "Found 3 occurrences of \"runOqlSearch\" on lines 16, 35, 240 — all shown as 3 slices, ±4 lines of context each; these lines are lineHint anchors for lspGetSemantics."
+      }
+    ]
+  },
+  {
+    "id": "LOCAL-FETCH-STANDARD",
+    "lane": "local",
+    "question": "Local match-string fetch, standard minify.",
+    "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --match-string runOqlSearch --context-lines 4 --mode standard --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 587,
+    "stdoutChars": 1269,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "partialResult",
+        "severity": "warning",
+        "blocksAnswer": false,
+        "message": "Found 3 occurrences of \"runOqlSearch\" on lines 16, 35, 240 — all shown as 3 slices, ±4 lines of context each; these lines are lineHint anchors for lspGetSemantics."
+      }
+    ]
+  },
+  {
+    "id": "LOCAL-FETCH-SYMBOLS",
+    "lane": "local",
+    "question": "Local symbols/minified outline.",
+    "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --mode symbols --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 610,
+    "stdoutChars": 12725,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "LOCAL-AST-STRUCTURAL",
+    "lane": "local",
+    "question": "Local AST structural code search.",
+    "command": "node packages/octocode/out/octocode.js search --pattern getString($$$ARGS) packages/octocode/src/cli/commands/search.ts --lang ts --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 242,
+    "stdoutChars": 11624,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 10,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "partial"
+    },
+    "hasContinuation": true,
+    "status": "partial",
+    "score": 1,
+    "reason": "partial with continuation",
+    "diagnostics": [
+      {
+        "code": "matchTruncated",
+        "severity": "info",
+        "blocksAnswer": false,
+        "message": "1 file(s) have more matches (showed 10 of 191) — page with controls.search.matchPage, or raise controls.search.maxMatchesPerFile."
+      }
+    ]
+  },
+  {
+    "id": "GH-REPO-SEARCH",
+    "lane": "github-provider",
+    "question": "GitHub repository search.",
+    "command": "node packages/octocode/out/octocode.js search zustand --target repositories --owner pmndrs --limit 5 --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1281,
+    "stdoutChars": 761,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "GH-STRUCTURE",
+    "lane": "github-provider",
+    "question": "GitHub structure view.",
+    "command": "node packages/octocode/out/octocode.js search pmndrs/zustand --tree --depth 2 --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1340,
+    "stdoutChars": 1686,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 17,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "GH-PATH-SEARCH-PROVIDER",
+    "lane": "github-provider",
+    "question": "GitHub provider path search using match:path.",
+    "command": "node packages/octocode/out/octocode.js search vanilla.ts pmndrs/zustand --match path --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1004,
+    "stdoutChars": 7874,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 12,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "providerSemanticsApproximate",
+        "severity": "info",
+        "blocksAnswer": false,
+        "message": "GitHub code search returns path-level hits without line numbers; follow next.fetch for exact location/lines."
+      }
+    ]
+  },
+  {
+    "id": "GH-PATH-SEARCH-FILES-DIAGNOSTIC",
+    "lane": "github-provider",
+    "question": "GitHub files target path search reports materialization requirement.",
+    "command": "node packages/octocode/out/octocode.js search vanilla.ts pmndrs/zustand --search path --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 5,
+    "durationMs": 225,
+    "stdoutChars": 618,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 0,
+    "diagnosticCount": 2,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "unsupported"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "expected diagnostic route honesty",
+    "diagnostics": [
+      {
+        "code": "requiresMaterialization",
+        "severity": "warning",
+        "blocksAnswer": true,
+        "message": "target:\"files\" over GitHub cannot enumerate by field \"basename\" without materialization (set materialize.mode \"auto\"/\"required\" with scope.path)."
+      },
+      {
+        "code": "unsupportedVendorPredicate",
+        "severity": "error",
+        "blocksAnswer": true,
+        "message": "Field predicates compile through the files backend, not local code search."
+      }
+    ]
+  },
+  {
+    "id": "GH-CONTENT-SEARCH",
+    "lane": "github-provider",
+    "question": "GitHub content/code search for createStore.",
+    "command": "node packages/octocode/out/octocode.js search createStore pmndrs/zustand --lang ts --limit 5 --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1127,
+    "stdoutChars": 3826,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 5,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "partial"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "providerSemanticsApproximate",
+        "severity": "info",
+        "blocksAnswer": false,
+        "message": "GitHub code search returns path-level hits without line numbers; follow next.fetch for exact location/lines."
+      }
+    ]
+  },
+  {
+    "id": "GH-FETCH-NONE",
+    "lane": "github-provider",
+    "question": "GitHub match-string fetch, exact mode.",
+    "command": "node packages/octocode/out/octocode.js search pmndrs/zustand/src/vanilla.ts --match-string createStore --context-lines 4 --mode none --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1590,
+    "stdoutChars": 1591,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "GH-FETCH-STANDARD",
+    "lane": "github-provider",
+    "question": "GitHub match-string fetch, standard minify.",
+    "command": "node packages/octocode/out/octocode.js search pmndrs/zustand/src/vanilla.ts --match-string createStore --context-lines 4 --mode standard --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1666,
+    "stdoutChars": 1483,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "GH-FETCH-SYMBOLS",
+    "lane": "github-provider",
+    "question": "GitHub symbols/minified outline.",
+    "command": "node packages/octocode/out/octocode.js search pmndrs/zustand/src/vanilla.ts --mode symbols --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1649,
+    "stdoutChars": 2457,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "MAT-MATERIALIZE",
+    "lane": "github-materialized-local",
+    "question": "Materialize GitHub src subtree using search target materialize.",
+    "command": "node packages/octocode/out/octocode.js search --query {\"target\":\"materialize\",\"from\":{\"kind\":\"github\",\"repo\":\"pmndrs/zustand\"},\"scope\":{\"path\":\"src\"},\"materialize\":{\"mode\":\"required\"}} --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1096,
+    "stdoutChars": 1312,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "staleCache",
+        "severity": "info",
+        "blocksAnswer": false,
+        "message": "Checkpoint served from a cached clone; set materialize.forceRefresh to refresh."
+      }
+    ]
+  },
+  {
+    "id": "MAT-STRUCTURE",
+    "lane": "github-materialized-local",
+    "question": "Continue with local structure view on materialized path.",
+    "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src --tree --depth 1 --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 210,
+    "stdoutChars": 1184,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 10,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed after src-path rerun",
+    "diagnostics": []
+  },
+  {
+    "id": "MAT-PATH-SEARCH",
+    "lane": "github-materialized-local",
+    "question": "Continue with local path search on materialized path.",
+    "command": "node packages/octocode/out/octocode.js search vanilla.ts /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663 --search path --name vanilla.ts --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 212,
+    "stdoutChars": 486,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "MAT-CONTENT-SEARCH",
+    "lane": "github-materialized-local",
+    "question": "Continue with local content search on materialized path.",
+    "command": "node packages/octocode/out/octocode.js search createStore /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663 --lang ts --limit 5 --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 225,
+    "stdoutChars": 4818,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 5,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "partial"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed",
+    "diagnostics": []
+  },
+  {
+    "id": "MAT-FETCH-NONE",
+    "lane": "github-materialized-local",
+    "question": "Fetch exact local materialized file by match string.",
+    "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --match-string createStore --context-lines 4 --mode none --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 436,
+    "stdoutChars": 1835,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed after src-path rerun with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "partialResult",
+        "severity": "warning",
+        "blocksAnswer": false,
+        "message": "Found 5 occurrences of \"createStore\" on lines 43, 53, 60, 99, 100 — all shown as 3 slices, ±4 lines of context each; these lines are lineHint anchors for lspGetSemantics."
+      }
+    ]
+  },
+  {
+    "id": "MAT-FETCH-STANDARD",
+    "lane": "github-materialized-local",
+    "question": "Fetch standard-minified materialized file by match string.",
+    "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --match-string createStore --context-lines 4 --mode standard --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 426,
+    "stdoutChars": 1729,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed after src-path rerun with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "partialResult",
+        "severity": "warning",
+        "blocksAnswer": false,
+        "message": "Found 5 occurrences of \"createStore\" on lines 43, 53, 60, 99, 100 — all shown as 3 slices, ±4 lines of context each; these lines are lineHint anchors for lspGetSemantics."
+      }
+    ]
+  },
+  {
+    "id": "MAT-FETCH-SYMBOLS",
+    "lane": "github-materialized-local",
+    "question": "Fetch materialized file symbols.",
+    "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --mode symbols --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 447,
+    "stdoutChars": 2521,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": false,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed after src-path rerun",
+    "diagnostics": []
+  },
+  {
+    "id": "MAT-AST-STRUCTURAL",
+    "lane": "github-materialized-local",
+    "question": "Run AST structural search on materialized GitHub code.",
+    "command": "node packages/octocode/out/octocode.js search --pattern createStoreImpl($$$ARGS) /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --lang ts --json --compact",
+    "searchOnly": true,
+    "networkUsed": false,
+    "exitCode": 0,
+    "durationMs": 215,
+    "stdoutChars": 1245,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 1,
+    "diagnosticCount": 0,
+    "evidence": {
+      "answerReady": true,
+      "complete": true,
+      "kind": "proof"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed after src-path rerun",
+    "diagnostics": []
+  },
+  {
+    "id": "GH-REMOTE-AS-LOCAL-DIRECT",
+    "lane": "github-materialized-local",
+    "question": "One-step remote-as-local search with --repo and required materialization.",
+    "command": "node packages/octocode/out/octocode.js search createStore src --repo pmndrs/zustand --lang ts --materialize required --limit 5 --json --compact",
+    "searchOnly": true,
+    "networkUsed": true,
+    "exitCode": 0,
+    "durationMs": 1124,
+    "stdoutChars": 4885,
+    "stderrChars": 0,
+    "jsonOk": true,
+    "resultCount": 5,
+    "diagnosticCount": 1,
+    "evidence": {
+      "answerReady": false,
+      "complete": false,
+      "kind": "partial"
+    },
+    "hasContinuation": true,
+    "status": "pass",
+    "score": 2,
+    "reason": "passed with 1 diagnostic(s)",
+    "diagnostics": [
+      {
+        "code": "staleCache",
+        "severity": "info",
+        "blocksAnswer": false,
+        "message": "Result came from a cached clone; set materialize.forceRefresh to refresh."
+      }
+    ]
+  }
+]

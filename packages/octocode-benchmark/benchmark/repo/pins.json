@@ -1,0 +1,8 @@
+{
+  "_note": "Written by clone.mjs — do not edit manually. Re-run clone.mjs to refresh.",
+  "react":       { "sha": "4a9df08157f001c01b078d259748512211233dcf", "tag": "v19.1.0",      "lang": "JavaScript/TypeScript", "url": "https://github.com/facebook/react.git" },
+  "tokio":       { "sha": "00754c8f9c8cd0c10fd54e5304cb9cb95a759d53", "tag": "tokio-1.45.0", "lang": "Rust",                  "url": "https://github.com/tokio-rs/tokio.git" },
+  "spring-boot": { "sha": "0ec7194fc1a3196e8e27cf845e05da1c99315600", "tag": "v3.5.3",       "lang": "Java",                  "url": "https://github.com/spring-projects/spring-boot.git" },
+  "chromium":    { "sha": "461037c6450ae1bd9ebd2642b4e9f301cb0fb375", "tag": null,           "lang": "C++",                   "url": "https://chromium.googlesource.com/chromium/src.git" },
+  "nextjs":      { "sha": "3ab8db7383ae904af872e14c26a9bd8a43879819", "tag": "v15.3.3",      "lang": "JavaScript/TypeScript", "url": "https://github.com/vercel/next.js.git" }
+}

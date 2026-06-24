@@ -1,0 +1,160 @@
+{
+  "summary": {
+    "benchmark": "octocode-search-only",
+    "createdAt": "2026-06-24T11:13:48.898Z",
+    "cwd": "/Users/guybary/Documents/octocode-mcp",
+    "outDir": "/Users/guybary/Documents/octocode-mcp/packages/octocode-benchmark/output/search-only-2026-06-24T11-12-03-076Z",
+    "searchOnly": true,
+    "totalRows": 23,
+    "pass": 20,
+    "partial": 3,
+    "fail": 0,
+    "score": 43,
+    "maxScore": 46,
+    "networkRows": 9,
+    "totalDurationMs": 22359,
+    "correctedRows": [
+      "LCL-FILES-01"
+    ]
+  },
+  "rows": [
+    {
+      "id": "SEARCH-SCHEME-01",
+      "area": "schema",
+      "question": "Does search expose the full OQL/search capability surface?",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-CONTENT-01",
+      "area": "local-content",
+      "question": "Read exact local content around a match anchor.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-CODE-01",
+      "area": "local-code",
+      "question": "Search local code with context and match cap.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-CODE-ONLYMATCH-01",
+      "area": "local-code",
+      "question": "Enumerate regex matches through only-matching output.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-AST-01",
+      "area": "local-ast",
+      "question": "Find AST call shapes with structural search and continuations.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-STRUCTURE-01",
+      "area": "local-structure",
+      "question": "Browse a local directory tree without reading file bodies.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-FILES-01",
+      "area": "local-files",
+      "question": "Find package manifests as file rows with metadata.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-SEMANTICS-SYMBOLS-01",
+      "area": "local-semantics",
+      "question": "Use LSP documentSymbols to discover exact symbol lines.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-SEMANTICS-REFS-01",
+      "area": "local-semantics",
+      "question": "Follow a discovered LSP line into references.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-DIFF-01",
+      "area": "local-diff",
+      "question": "Compare two explicit local files via search target diff.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-ARTIFACT-LIST-01",
+      "area": "local-artifacts",
+      "question": "List archive entries before extraction.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-ARTIFACT-EXTRACT-01",
+      "area": "local-artifacts",
+      "question": "Extract an archive entry by exact listed name.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-ARTIFACT-STRINGS-01",
+      "area": "local-artifacts",
+      "question": "Extract bounded printable strings with offsets.",
+      "networkUsed": false
+    },
+    {
+      "id": "LCL-RESEARCH-01",
+      "area": "local-research",
+      "question": "Run OQL research summary page through search.",
+      "networkUsed": false
+    },
+    {
+      "id": "EXT-PACKAGES-01",
+      "area": "external-packages",
+      "question": "Resolve npm package metadata and source handoff.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-REPOSITORIES-01",
+      "area": "external-repositories",
+      "question": "Discover repositories with language and star filters.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-CODE-01",
+      "area": "external-code",
+      "question": "Search GitHub code with a TypeScript scope.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-STRUCTURE-01",
+      "area": "external-structure",
+      "question": "Browse remote repository structure through search.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-PULLREQUESTS-01",
+      "area": "external-prs",
+      "question": "List pull requests through search.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-COMMITS-01",
+      "area": "external-commits",
+      "question": "List commit history through search.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-DIFF-01",
+      "area": "external-diff",
+      "question": "Compare a GitHub file at two refs through OQL diff.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-REMOTE-AS-LOCAL-01",
+      "area": "external-materialized",
+      "question": "Use --repo remote-as-local shorthand for a local proof lane.",
+      "networkUsed": true
+    },
+    {
+      "id": "EXT-MATERIALIZE-01",
+      "area": "external-materialized",
+      "question": "Materialize a bounded remote subtree through OQL.",
+      "networkUsed": true
+    }
+  ]
+}

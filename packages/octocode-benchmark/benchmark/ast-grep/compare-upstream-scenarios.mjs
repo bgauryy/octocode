@@ -88,7 +88,7 @@ const COMPARISON_CASES = {
     kind: 'call_expression',
   },
   'alamofire-request-lifecycle': {
-    skip: 'Octocode structural grep does not support Swift yet.',
+    skip: 'Octocode structural search does not support Swift yet.',
   },
 }
 
@@ -557,7 +557,7 @@ async function runLocalSearchToolOnce(corpusDir, testCase) {
         maxMatchesPerFile: 5000,
         itemsPerPage: 5000,
         page: 1,
-        researchGoal: 'Benchmark Octocode structural grep direct tool path',
+        researchGoal: 'Benchmark Octocode structural search direct tool path',
         reasoning: 'Deterministic ast-grep comparison benchmark',
       },
     ],
@@ -606,11 +606,11 @@ function runOctocodeOnce(octocode, corpusDir, testCase) {
   const rule = `rule:\n  kind: ${testCase.kind}\n`
   const result = runCommand(octocode.command, [
     ...octocode.baseArgs,
-    'grep',
+    'search',
     corpusDir,
     '--rule',
     rule,
-    '--type',
+    '--lang',
     testCase.octocodeType,
     '--json',
     '--limit',
@@ -681,7 +681,7 @@ function printTable(summary) {
   console.log(`repoDir: ${summary.repoDir}`)
   console.log(`warmups: ${summary.options.warmups}; repeats: ${summary.options.repeats} fixed measured runs; displayed ms is measured median after warmup`)
   console.log(`warm ms: median warmup duration. It is shown separately and excluded from measured ms.`)
-  console.log(`node/process note: public octocode grep still pays Node process startup on every measured run. localSearchCode adds validation, sanitization, pagination, and result shaping. Raw native isolates matcher cost.`)
+  console.log(`node/process note: public octocode search still pays Node process startup on every measured run. localSearchCode adds validation, sanitization, pagination, and result shaping. Raw native isolates matcher cost.`)
   console.log(`\n${pad('Scenario', 28)} ${pad('kind', 19)} ${pad('files', 7)} ${pad('hash', 10)} ${pad('lane', 28)} ${pad('warm ms', 9)} ${pad('ms', 9)} ${pad('matches', 8)} status`)
   console.log('-'.repeat(137))
   for (const row of summary.rows) {
@@ -710,7 +710,7 @@ function layerRows(row) {
     ['ast-grep CLI', row.astGrep],
     ['octocode raw native', row.octocodeRawNative],
     ['octocode localSearchCode tool', row.octocodeLocalSearchCode],
-    ['octocode grep CLI', row.octocodeCli ?? row.octocode],
+    ['octocode search CLI', row.octocodeCli ?? row.octocode],
   ]
   return lanes
     .filter(([, value]) => value)

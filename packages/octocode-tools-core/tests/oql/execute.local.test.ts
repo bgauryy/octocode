@@ -184,6 +184,37 @@ describe('OQL local execution (target:"structure" / "files")', () => {
       }
     );
   });
+
+  it('honors structure pattern, sort, and limit filters', async () => {
+    await withFixture(
+      {
+        'shared.ts': 'export const shared = 1;\n',
+        'status.ts': 'export const status = 1;\n',
+        'zebra.js': 'export const zebra = 1;\n',
+      },
+      async fixture => {
+        const env = single(
+          await runOqlSearch({
+            target: 'structure',
+            from: { kind: 'local', path: fixture },
+            fetch: {
+              tree: {
+                maxDepth: 1,
+                pattern: 's*.ts',
+                filesOnly: true,
+                sortBy: 'name',
+              },
+            },
+            limit: 1,
+          })
+        );
+
+        expect(env.results.map(r => path.basename(r.path))).toEqual([
+          'shared.ts',
+        ]);
+      }
+    );
+  });
 });
 
 describe('OQL local execution (target:"content")', () => {
@@ -395,8 +426,8 @@ describe('OQL structure target correctness', () => {
     const files = env.results.filter(r => r.entryType === 'file');
     const dirs = env.results.filter(r => r.entryType === 'directory');
     // OQL dir: 1 subdir (adapters) + the source files
-    expect(dirs.some(d => d.path.endsWith('/adapters'))).toBe(true);
-    expect(files.some(f => f.path.endsWith('/planner.ts'))).toBe(true);
+    expect(dirs.some(d => path.basename(d.path) === 'adapters')).toBe(true);
+    expect(files.some(f => path.basename(f.path) === 'planner.ts')).toBe(true);
     // file rows carry a numeric byte size; directory rows do not
     expect(
       files.every(f => typeof (f as { size?: number }).size === 'number')
@@ -425,6 +456,41 @@ describe('OQL boolean execution over target:"files" (improvement: was unsupporte
     expect(env.results.every(r => r.kind === 'file')).toBe(true);
     // only adapters/local.ts has both
     expect(env.results.every(r => r.path.endsWith('local.ts'))).toBe(true);
+  });
+
+  it('all[] preserves directory entryType for field predicates', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'files',
+        from: { kind: 'local', path: OQL_SRC },
+        where: {
+          kind: 'all',
+          of: [
+            {
+              kind: 'field',
+              field: 'entryType',
+              op: '=',
+              value: 'directory',
+            },
+            {
+              kind: 'field',
+              field: 'basename',
+              op: 'glob',
+              value: '*adapters*',
+            },
+          ],
+        },
+      })
+    );
+    expect(env.evidence.kind).toBe('proof');
+    expect(env.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'adapters',
+          entryType: 'directory',
+        }),
+      ])
+    );
   });
 
   it('any[] = union; not = files-only complement (no directories)', async () => {
@@ -512,5 +578,62 @@ describe('OQL negated discovery over target:"code"', () => {
         expect(env.provenance.map(p => p.backend)).toEqual(['localSearchCode']);
       }
     );
+  });
+});
+
+describe('controls.budget.maxFiles caps files (search --max-files parity)', () => {
+  it('budget.maxFiles alone (no controls.search) limits distinct files', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: { kind: 'text', value: 'diagnostic' },
+        controls: { budget: { maxFiles: 2 } },
+      })
+    );
+    const files = new Set(env.results.map(r => r.path));
+    expect(files.size).toBeLessThanOrEqual(2);
+    expect(files.size).toBeGreaterThan(0);
+  });
+});
+
+describe('structural zero-match self-correction (the #1 agent failure)', () => {
+  it('a too-specific pattern (0 matches) hands back a repair steering to a rule', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        // valid pattern, but no function has this bogus return type → 0 matches
+        where: {
+          kind: 'structural',
+          lang: 'ts',
+          pattern: 'function $N($$$A): ZzNoSuchReturnType000 { $$$B }',
+        },
+      })
+    );
+    expect(env.results.length).toBe(0);
+    const d = env.diagnostics.find(x => x.code === 'zeroMatches');
+    expect(d).toBeDefined();
+    expect(d!.blocksAnswer).toBe(false);
+    expect(d!.repair?.message).toMatch(/rule/i);
+  });
+
+  it('a rule that matches does NOT emit the structural zero-match hint', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: {
+          kind: 'structural',
+          lang: 'ts',
+          rule: {
+            kind: 'function_declaration',
+            has: { pattern: 'buildEnvelope' },
+          },
+        },
+      })
+    );
+    expect(env.results.length).toBeGreaterThan(0);
+    expect(env.diagnostics.some(x => x.code === 'zeroMatches')).toBe(false);
   });
 });

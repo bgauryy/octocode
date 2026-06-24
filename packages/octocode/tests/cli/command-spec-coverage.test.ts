@@ -38,9 +38,9 @@ describe('CLI command content is sourced from octocode-core', () => {
   it('command files no longer hardcode description/usage (only core has them)', async () => {
     // Spot-check a representative command object: it should expose name +
     // options + handler, but NOT a description/usage of its own.
-    const { grepCommand } = await import('../../src/cli/commands/grep.js');
-    const obj = grepCommand as unknown as Record<string, unknown>;
-    expect(obj.name).toBe('grep');
+    const { searchCommand } = await import('../../src/cli/commands/search.js');
+    const obj = searchCommand as unknown as Record<string, unknown>;
+    expect(obj.name).toBe('search');
     expect(typeof obj.handler).toBe('function');
     expect(obj.description).toBeUndefined();
     expect(obj.usage).toBeUndefined();

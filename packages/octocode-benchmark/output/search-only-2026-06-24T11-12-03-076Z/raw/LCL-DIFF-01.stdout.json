@@ -1,0 +1,44 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "diff",
+      "id": "/Users/guybary/Documents/octocode-mcp/package.json..package.json",
+      "data": {
+        "path": "package.json",
+        "basePath": "/Users/guybary/Documents/octocode-mcp/package.json",
+        "headPath": "package.json",
+        "baseRef": "base",
+        "headRef": "head",
+        "additions": 0,
+        "deletions": 0,
+        "patch": "  {\n    \"name\": \"octocode-monorepo\",\n    \"version\": \"1.0.0\",\n    \"description\": \"Monorepo for Octocode MCP and related packages - Model Context Protocol server for advanced GitHub repository analysis and code discovery.\",\n    \"author\": \"Guy Bary <bgauryy@octocodeai.com>\",\n    \"homepage\": \"https://octocode.ai\",\n    \"repository\": \"bgauryy/octocode-mcp.git\",\n    \"bugs\": \"https://github.com/bgauryy/octocode-mcp/issues\",\n    \"license\": \"MIT\",\n    \"type\": \"module\",\n    \"engines\": {\n      \"node\": \">=20.0.0\"\n    },\n    \"scripts\": {\n      \"build\": \"yarn prepublish && node ./scripts/workspace-health.mjs run build\",\n      \"build:native:all\": \"yarn workspace @octocodeai/octocode-engine build:all\",\n      \"platforms:check\": \"yarn workspace @octocodeai/octocode-engine platforms:check\",\n      \"build:publish\": \"yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace octocode-mcp build:publish\",\n      \"docs:verify\": \"node ./scripts/docs-verify.mjs\",\n      \"health:check\": \"node ./scripts/workspace-health.mjs check\",\n      \"health:report\": \"node ./scripts/workspace-health.mjs report\",\n      \"lint\": \"node ./scripts/workspace-health.mjs run lint\",\n      \"lint:fix\": \"yarn workspaces foreach -Apt run lint:fix\",\n      \"local:check\": \"node ./release/sync-packages-local.mjs\",\n      \"local:fix\": \"node ./release/sync-packages-local.mjs --fix\",\n      \"sync:version\": \"node ./release/sync-packages-version.mjs\",\n      \"sync:version:publish\": \"node ./release/sync-packages-version.mjs --pin-for-publish\",\n      \"deps:dedupe\": \"node ./scripts/dedupe-deps.mjs\",\n      \"deps:dedupe:fix\": \"node ./scripts/dedupe-deps.mjs --fix\",\n      \"test\": \"node ./scripts/workspace-health.mjs run test\",\n      \"test:quiet\": \"yarn workspaces foreach -Apt run test:quiet\",\n      \"typecheck\": \"node ./scripts/workspace-health.mjs run typecheck\",\n      \"verify\": \"node ./scripts/workspace-health.mjs verify\",\n      \"prepublish\": \"yarn readme:sync\",\n      \"readme:sync\": \"node ./scripts/sync-package-readmes.mjs\"\n    },\n    \"devDependencies\": {\n      \"@eslint/js\": \"^9.35.0\",\n      \"eslint\": \"^9.18.0\",\n      \"eslint-config-prettier\": \"^10.1.8\",\n      \"eslint-plugin-prettier\": \"^5.5.6\",\n      \"prettier\": \"^3.8.4\",\n      \"typescript\": \"^5.9.3\",\n      \"typescript-eslint\": \"^8.61.1\"\n    },\n    \"private\": true,\n    \"resolutions\": {\n      \"@octocodeai/octocode-core\": \"file:../octocode-mcp-host/packages/octocode-core\"\n    },\n    \"workspaces\": [\n      \"packages/*\",\n      \"packages/octocode-engine/npm/*\"\n    ]\n  }\n  ",
+        "unchanged": 55
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "zeroMatches",
+      "severity": "info",
+      "message": "Files are identical.",
+      "blocksAnswer": false,
+      "backend": "localGetFileContent"
+    }
+  ],
+  "provenance": [
+    {
+      "backend": "localGetFileContent",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/Documents/octocode-mcp/package.json"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

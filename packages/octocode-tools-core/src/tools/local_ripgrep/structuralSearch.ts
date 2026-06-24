@@ -148,7 +148,14 @@ export async function searchContentStructural(
   // A successful-but-empty structural search is almost always an incomplete
   // pattern; surface remediation through the typed warnings channel (not hints).
   const warnings = [...nativeResult.warnings];
-  if (files.length === 0 || nativeResult.totalMatches === 0) {
+  // The "complete AST node / use a YAML rule instead" advice only applies to a
+  // `pattern`. Don't emit it when the query already uses a `rule` (it would tell
+  // a rule author to switch to a rule).
+  if (
+    (files.length === 0 || nativeResult.totalMatches === 0) &&
+    query.pattern &&
+    !query.rule
+  ) {
     warnings.push(ZERO_MATCH_GUIDANCE);
   }
   return await buildSearchResult(files, query, 'structural', warnings, stats);

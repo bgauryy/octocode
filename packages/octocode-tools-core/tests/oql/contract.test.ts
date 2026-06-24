@@ -173,15 +173,6 @@ describe('OQL gate 2: sugar normalizes to documented canonical shape', () => {
     expect(normalized.from).toEqual({ kind: 'github', repo: 'facebook/react' });
   });
 
-  it('minify -> fetch.content.contentView', () => {
-    const normalized = normalizeQuery({
-      path: './a.ts',
-      target: 'content',
-      minify: 'symbols',
-    } as never);
-    expect(normalized.fetch?.content?.contentView).toBe('symbols');
-  });
-
   it('relationship graph goals default to bounded LSP proof', () => {
     const normalized = normalizeQuery({
       target: 'graph',
@@ -208,9 +199,38 @@ describe('OQL gate 2: sugar normalizes to documented canonical shape', () => {
     });
     expect(normalized.params?.proofLimit).toBeUndefined();
   });
+
+  it('search controls include context lines and inverted matches', () => {
+    const normalized = normalizeQuery({
+      target: 'code',
+      from: { kind: 'local', path: './src' },
+      where: { kind: 'text', value: 'TODO' },
+      controls: {
+        search: {
+          contextLines: 2,
+          invertMatch: true,
+        },
+      },
+    } as never);
+    expect(normalized.controls?.search).toMatchObject({
+      contextLines: 2,
+      invertMatch: true,
+    });
+  });
+
+  it('rejects invalid contextLines', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'code',
+        from: { kind: 'local', path: './src' },
+        where: { kind: 'text', value: 'TODO' },
+        controls: { search: { contextLines: -1 } },
+      } as never)
+    ).toThrowError(OqlValidationError);
+  });
 });
 
-describe('OQL gate 3 & 14 & 16 & 18: boolean/invert/legacy sugar', () => {
+describe('OQL gate 3 & 14 & 16 & 18: boolean/invert/sugar', () => {
   it('and/or -> all/any', () => {
     const n = normalizeQuery({
       path: './src',
@@ -293,6 +313,18 @@ describe('OQL gate 3: unknown fields fail', () => {
       normalizeQuery({ path: './src', text: 'a', bogusField: 1 } as never)
     ).toThrowError(OqlValidationError);
   });
+
+  for (const field of ['minify', 'contentView', 'langType']) {
+    it(`rejects removed top-level ${field} sugar`, () => {
+      expect(() =>
+        normalizeQuery({
+          path: './src',
+          text: 'a',
+          [field]: field === 'minify' ? 'symbols' : 'ts',
+        } as never)
+      ).toThrowError(OqlValidationError);
+    });
+  }
 });
 
 describe('OQL gate 4: reserved targets fail with unsupportedTarget', () => {
@@ -432,6 +464,16 @@ describe('OQL planner: predicate routing', () => {
     expect(p.defaults.schema).toBe('oql');
     expect(p.defaults.view).toBe('paginated');
     expect(p.defaults.page).toBe(1);
+  });
+
+  it('explain includes the selected transformer trace', () => {
+    const { plan: p } = plan({ path: './src', text: 'x' });
+    expect(p.transformers?.[0]).toMatchObject({
+      id: 'local.code.textRegex',
+      target: 'code',
+      status: 'active',
+      backends: [{ backend: 'localSearchCode', operation: 'searchCode' }],
+    });
   });
 });
 

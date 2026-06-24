@@ -13,7 +13,7 @@ packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/
 Example:
 
 ```bash
-BENCHMARK_NAME="octocode-unified-eval"
+BENCHMARK_NAME="octocode-live-tools"
 BENCH_TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BENCH_OUT="packages/octocode-benchmark/output/${BENCHMARK_NAME}-${BENCH_TIMESTAMP}"
 RAW="$BENCH_OUT/raw"
@@ -103,9 +103,9 @@ marked `networkUsed:true` and `cacheMode` is accurate.
 ```json
 {
   "schemaVersion": "1.0.0",
-  "benchmarkName": "octocode-unified-eval",
+  "benchmarkName": "octocode-live-tools",
   "timestampUtc": "2026-06-23T08:30:00Z",
-  "outputDir": "packages/octocode-benchmark/output/octocode-unified-eval-20260623T083000Z",
+  "outputDir": "packages/octocode-benchmark/output/octocode-live-tools-20260623T083000Z",
   "gitCommit": "abcdef0",
   "gitDirty": true,
   "node": "v26.3.1",
@@ -132,14 +132,14 @@ marked `networkUsed:true` and `cacheMode` is accurate.
 {
   "schemaVersion": "1.0.0",
   "benchmark": {
-    "name": "octocode-unified-eval",
+    "name": "octocode-live-tools",
     "kind": "cli-tools",
-    "recipe": "packages/octocode-benchmark/OCTOCODE_EVALS.md"
+    "recipe": "packages/octocode-benchmark/benchmark/octocode/README.md"
   },
   "run": {
-    "runId": "octocode-unified-eval-20260623T083000Z",
+    "runId": "octocode-live-tools-20260623T083000Z",
     "timestampUtc": "2026-06-23T08:30:00Z",
-    "outputDir": "packages/octocode-benchmark/output/octocode-unified-eval-20260623T083000Z",
+    "outputDir": "packages/octocode-benchmark/output/octocode-live-tools-20260623T083000Z",
     "gitCommit": "abcdef0",
     "gitDirty": true
   },
@@ -167,7 +167,7 @@ marked `networkUsed:true` and `cacheMode` is accurate.
       "commands": [
         {
           "id": "remote-ls",
-          "command": "octocode ls src --repo pmndrs/zustand --json --compact",
+          "command": "octocode search src --repo pmndrs/zustand --tree --json --compact",
           "exitCode": 0,
           "durationMs": 421,
           "stdoutFile": "raw/octocode-remote-local-ls.json"

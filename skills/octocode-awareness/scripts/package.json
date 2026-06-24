@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "scripts": {
+    "check": "node schema.mjs list && python3 awareness.py self-test"
+  }
+}

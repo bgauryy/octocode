@@ -1,0 +1,61 @@
+{
+  "results": [
+    {
+      "kind": "record",
+      "recordType": "artifact",
+      "id": "/Users/guybary/.octocode/tmp/binary/sample.tgz-extract-2026-06-24T11-12-10-673Z/archive-src/package.json",
+      "data": {
+        "mode": "extract",
+        "path": "sample.tgz",
+        "archiveFile": "archive-src/package.json",
+        "backend": "tar",
+        "localPath": "/Users/guybary/.octocode/tmp/binary/sample.tgz-extract-2026-06-24T11-12-10-673Z/archive-src/package.json",
+        "content": "{\"name\":\"octocode-eval-fixture\"}\n",
+        "contentLength": 33,
+        "isPartial": false
+      },
+      "next": {
+        "next.structure": {
+          "query": {
+            "schema": "oql",
+            "target": "structure",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/.octocode/tmp/binary/sample.tgz-extract-2026-06-24T11-12-10-673Z/archive-src/package.json"
+            }
+          },
+          "why": "List the extracted tree.",
+          "confidence": "exact"
+        },
+        "next.files": {
+          "query": {
+            "schema": "oql",
+            "target": "files",
+            "from": {
+              "kind": "local",
+              "path": "/Users/guybary/.octocode/tmp/binary/sample.tgz-extract-2026-06-24T11-12-10-673Z/archive-src/package.json"
+            }
+          },
+          "why": "Enumerate files in the extracted.",
+          "confidence": "exact"
+        }
+      },
+      "proofGrade": "text"
+    }
+  ],
+  "diagnostics": [],
+  "provenance": [
+    {
+      "backend": "localBinaryInspect",
+      "source": {
+        "kind": "local",
+        "path": "/Users/guybary/Documents/octocode-mcp/.octocode/eval-fixtures/sample.tgz"
+      }
+    }
+  ],
+  "evidence": {
+    "answerReady": true,
+    "complete": true,
+    "kind": "proof"
+  }
+}

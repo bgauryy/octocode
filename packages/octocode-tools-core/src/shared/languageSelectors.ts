@@ -439,11 +439,6 @@ export function toStructuralSearchIncludeGlobs(
   return globs.length ? globs : undefined;
 }
 
-export function knownLanguageExtensions(raw: string | undefined): string[] {
-  const selector = classifyLanguageSelector(raw);
-  return [...(selector?.extensions ?? [])];
-}
-
 export function toGithubRepositoryLanguage(
   raw: string | undefined
 ): string | undefined {

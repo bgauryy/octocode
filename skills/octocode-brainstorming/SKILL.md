@@ -48,8 +48,8 @@ Stop and ask before passing any. State the situation in 1–2 lines, name option
 ## Tools
 
 Three research surfaces. **Read `references/tools.md`** for the exact commands, flags, and per-surface query craft before/while running step 4:
-- **GitHub & packages** — Octocode CLI (`repo`/`pkg`/`ls`/`grep`/`cat`/`history`, raw tools for schema-exact/bulk).
-- **Local workspace** — auto-routing `ls`/`grep`/`find`/`cat`/`lsp`. Orient here **first** when the idea targets the user's own repo; skip for purely external ideas.
+- **GitHub & packages** — Octocode CLI (`search --target repositories|packages|commits`, remote structure/content/search, `pr`, and raw tools for schema-exact/bulk).
+- **Local workspace** — unified `search`: `--tree`, text/regex/file discovery, `--pattern`/`--rule`, `--content-view`, and `--op`. Orient here **first** when the idea targets the user's own repo; skip for purely external ideas.
 - **Web** — `scripts/serper-search.mjs` / `scripts/tavily-search.mjs` (`--check` keys at startup), then read + follow leads with the runtime web reader; fallback to README/awesome-list/aggregator seeds when no key. **When searching a subject, feature, or library: prefer formal sources first** — official docs, IETF/W3C/ISO specs, protocol RFCs, language/framework reference docs, and canonical awesome-lists — before blog posts or secondary aggregators.
 
 ## Workflow
@@ -74,7 +74,7 @@ Output a compact **framing slate**, then converge once: pick 1–3 framings to r
 
 **4. Parallel research** — hit **all three surfaces** (see `references/tools.md`): GitHub + packages (CLI, main agent), and web products / community / adjacent angles (workers, or main agent if no delegation). For web, **start with authoritative sources**: official docs, IETF/W3C/ISO specs, protocol RFCs, and framework references — they define ground truth; blogs and tutorials come after.
 - **Local first (conditional):** if the idea targets the user's own repo, run the Local orient flow *before* external surfaces — establish what exists and the real stack, then frame every GitHub/npm/web query with it. Skip for purely external ideas.
-- **Cross-pollinate:** web tool name → `repo`+`pkg`; repo link → read it; package README competitors → search both surfaces; web "unsolved" claim → `grep`/`ghSearchCode` to see if anyone solved it in code.
+- **Cross-pollinate:** web tool name → `search --target repositories` + `search --target packages`; repo link → read it; package README competitors → search both surfaces; web "unsolved" claim → `search`/`ghSearchCode` to see if anyone solved it in code.
 - **CHECKPOINT — before Advocate/Critic:** (1) ≥1 cross-pollination query per surface, received and incorporated; (2) any zero-result surface got ≥1 synonym-expanded retry before being marked failed. Skip cross-pollination only if the worker-ceiling gate fired (note "cross-pollination skipped (budget)").
 - **Stop when** one more generic search won't change the verdict, every major claim has a source or `weak` marker, and contradictions are gated. **One more pass when** the weakest major claim lacks a source, both sides lean on the same unverified assumption, or one surface strongly contradicts the others without tripping Gate 3.
 
