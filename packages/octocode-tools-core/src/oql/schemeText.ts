@@ -134,19 +134,19 @@ export const OQL_SCHEMA_DOC = {
     target: ACTIVE_TARGETS.join(' | '),
     from: '{ kind:"local", path } | { kind:"github", repo?, owner?, ref? } | { kind:"materialized", localPath, source? } | { kind:"npm" } — local row.path is relative to from.path; the pre-filled next.fetch carries the resolved ABSOLUTE path, so follow it directly rather than re-joining paths yourself',
     scope:
-      '{ path?, language?, include?, exclude?, excludeDir?, hidden?, noIgnore?, maxDepth? }',
+      '{ path?, language?, include?, exclude?, excludeDir?, hidden?, noIgnore?, minDepth?, maxDepth? } — minDepth/maxDepth bound directory recursion depth (0-64)',
     where:
       'filters for code/files only: text | regex | structural | field | all | any | not. To read a matched file slice, use fetch.content.match. For PR/commit/artifact text narrowing, use that target params hint.',
     materialize:
-      '{ mode:"never"|"auto"|"required", strategy?, allowFullRepo?, forceRefresh? }',
+      '{ mode:"never"|"auto"|"required", strategy?:"file"|"tree"|"subtree"|"repo", allowFullRepo?, forceRefresh? }',
     fetch:
-      '{ content?: { contentView:"exact"|"compact"|"symbols", match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{maxDepth?} } — read options for known files/trees; to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)',
+      '{ content?: { contentView:"exact"|"compact"|"symbols", fullContent?, match?:{text|regex,case?}, range?:{startLine?,endLine?,contextLines?}, charOffset?, charLength? }, tree?:{ maxDepth?, pattern?, includeSizes?, extensions?, filesOnly?, directoriesOnly?, sortBy?:"name"|"size"|"time"|"extension", reverse? } } — read options for known files/trees; fetch.content.fullContent:true returns the WHOLE file in one shot (lossless, no char-window paging); to read the region around a string, anchor with fetch.content.match (NOT a top-level where, which is code/files only)',
     params:
       'target options (validated by OQL for common fields and by the backing tool exhaustively) — see params hints below',
     select: 'string[] projection of result/continuation fields',
     view: 'discovery | paginated | detailed',
     controls:
-      '{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?, sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxBytes?, timeoutMs? } } — output/cost controls',
+      '{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?, sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxCandidates?, maxBytes?, maxMaterializedBytes?, maxPlanNodes?, maxBooleanExpansion?, timeoutMs? } } — output/cost controls',
     limit:
       'number — total result cap where supported. Prefer itemsPerPage for paged research/graph/file-history continuations.',
     page: 'number — top-level page number for OQL windowing/continuations',
@@ -183,7 +183,7 @@ export const OQL_SCHEMA_DOC = {
     structural:
       '{ kind:"structural", lang, pattern? | rule? } (exactly one; rule is a JSON object or grep-compatible YAML rule string) — pattern must match the COMPLETE node, so include the parts the real node has: a fn WITH a return type only matches if the pattern has one too (`function $N($$$A): $R { $$$B }`); omitting it returns 0. Shapes: `function $N($$$A) { $$$B }` (no-return-type fn), `($$$A) => $$$B` (arrow, block+expression), `$F($$$A)` (call), `$O.$M($$$A)` (method). For "find symbol X" the ROBUST form is a rule, not a pattern: `{ kind:"function_declaration", has:{ pattern:"X" } }`. 0 matches + no parse error = pattern shape ≠ real node (add `: $R`, or switch to a rule). Note: $$$-only patterns skip files with no literal anchor → low counts; add a literal name or use a regex where.',
     field:
-      '{ kind:"field", field:"path"|"basename"|"extension"|"size"|"modified"|"entryType", op:"="|"!="|"in"|"exists"|"glob"|"regex"|">"|">="|"<"|"<="|"within", value? } (use symbolic ops like "="; aliases such as "eq" are invalid; there is no "contains" op — use op:"glob", value:"*term*" or op:"regex")',
+      '{ kind:"field", field:"path"|"basename"|"extension"|"size"|"modified"|"accessed"|"empty"|"permissions"|"executable"|"readable"|"writable"|"entryType", op:"="|"!="|"in"|"exists"|"glob"|"regex"|">"|">="|"<"|"<="|"within"|"before", value? } (use symbolic ops like "="; aliases such as "eq" are invalid; there is no "contains" op — use op:"glob", value:"*term*" or op:"regex"; "within"/"before" compare modified/accessed times; empty/executable/readable/writable are boolean file attributes paired with op:"exists" or op:"=")',
     boolean:
       '{ kind:"all"|"any", of: Predicate[] } | { kind:"not", predicate }',
   },

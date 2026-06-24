@@ -1,4 +1,4 @@
-# Agentic Research Platform
+# Octocode - Agentic Research Platform
 
 <div align="center">
   <img src="https://github.com/bgauryy/octocode/raw/main/packages/octocode-mcp/assets/logo_white.png" width="400px" alt="Octocode Logo">
@@ -21,6 +21,7 @@ Run it as a **CLI** or an **MCP server**. A **Rust engine** keeps every call fas
 ## Table of Contents
 
 - [Why Octocode](#why-octocode)
+- [What You Can Do](#what-you-can-do)
 - [Tools](#tools)
 - [MCP](#mcp)
 - [CLI](#cli)
@@ -46,6 +47,20 @@ Most tools cover one slice: searching the web, or grepping your repo. Octocode c
 - **Reads the shape, not the noise.** Code is minified and skeletonized on the fly across 70+ languages, so an agent grasps a 100 KB file in a few hundred tokens instead of spending its context on boilerplate.
 - **Fast and self-contained.** Search, parsing, semantic navigation, and redaction run in one prebuilt **Rust engine**: quick on a laptop or a mega-repo, with no extra toolchain to install.
 - **Safe by default.** Every byte returned to the model is scanned and secrets redacted first (see [Security](#security)).
+
+## What You Can Do
+
+Octocode is useful whenever the next coding step depends on finding and proving context, not guessing it.
+
+| Need | Use Octocode to |
+|------|-----------------|
+| **Codebase questions** | Search local or GitHub code, read exact regions, browse trees, and carry file/line anchors into the answer. |
+| **Implementation research** | Compare patterns across repositories, npm packages, pull requests, commits, and local files before changing code. |
+| **Semantic navigation** | Resolve definitions, references, callers/callees, call hierarchy, hovers, symbols, diagnostics, and type relationships through LSP. |
+| **Structural matching** | Run AST-shaped searches with patterns or YAML rules so comments and strings do not become false positives. |
+| **Large-file context** | Minify, skeletonize, or paginate code so agents spend tokens on relevant structure instead of boilerplate. |
+| **Binary or archive inspection** | Inspect archives, compressed streams, native binaries, and strings without leaving the research flow. |
+| **Agent workflows** | Expose the same engine through MCP, CLI, OQL, and Agent Skills so assistants and humans use one evidence model. |
 
 ### Get Started
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import path from 'node:path';
 
 const runOqlSearch = vi.fn();
 const oqlSchemaText = vi.fn(() => '{"schema":"oql"}');
@@ -642,13 +643,86 @@ describe('octocode search shorthand sugar', () => {
       'tsconfig.json',
     ]);
     const [input] = runOqlSearch.mock.calls[0]! as [Record<string, unknown>];
-    expect(input).toMatchObject({
-      schema: 'oql',
-      target: 'diff',
-      from: { kind: 'local', path: expect.stringContaining('package.json') },
-      params: { baseRef: 'base', headRef: 'head', path: 'tsconfig.json' },
-    });
+    // Bug 4: BOTH the base (from.path) and the head (params.path) must be
+    // ABSOLUTE paths — a relative basename fails the localGetFileContent
+    // allowed-directories guard ("Path 'tsconfig.json' is outside allowed
+    // directories").
+    const from = (input as { from?: { kind?: string; path?: string } }).from;
+    const params = (input as { params?: { path?: string } }).params;
+    expect(input).toMatchObject({ schema: 'oql', target: 'diff' });
+    expect(from?.kind).toBe('local');
+    expect(path.isAbsolute(from?.path ?? '')).toBe(true);
+    expect(from?.path).toContain('package.json');
+    expect(path.isAbsolute(params?.path ?? '')).toBe(true);
+    expect(params?.path).toContain('tsconfig.json');
     expect((input as { where?: unknown }).where).toBeUndefined();
+  });
+
+  // Bug 3: exit-code classification via search must reach 3/4/7, not collapse
+  // every diagnostic-bearing result to USAGE (2).
+  function diagnosticEnvelope(code: string, message: string) {
+    return {
+      results: [],
+      diagnostics: [
+        {
+          code,
+          severity: 'error',
+          message,
+          blocksAnswer: true,
+        },
+      ],
+      provenance: [],
+      evidence: { answerReady: false, complete: false, kind: 'empty' },
+    };
+  }
+
+  it('returns NOT_FOUND (3) when a query resolves nothing (404)', async () => {
+    runOqlSearch.mockResolvedValue(
+      diagnosticEnvelope(
+        'invalidQuery',
+        'Repository nope/missing not found (404).'
+      )
+    );
+    await run({
+      query:
+        '{"target":"code","from":{"kind":"github","repo":"nope/missing"},"where":{"kind":"text","value":"x"}}',
+    });
+    expect(process.exitCode).toBe(EXIT.NOT_FOUND);
+  });
+
+  it('returns AUTH (4) when a query fails with bad credentials', async () => {
+    runOqlSearch.mockResolvedValue(
+      diagnosticEnvelope('invalidQuery', 'Bad credentials (401).')
+    );
+    await run({
+      query:
+        '{"target":"code","from":{"kind":"github","repo":"nope/missing"},"where":{"kind":"text","value":"x"}}',
+    });
+    expect(process.exitCode).toBe(EXIT.AUTH);
+  });
+
+  it('returns RATE_LIMIT (7) when a query is rate limited', async () => {
+    runOqlSearch.mockResolvedValue(
+      diagnosticEnvelope('rateLimited', 'API rate limit exceeded (429).')
+    );
+    await run({
+      query:
+        '{"target":"code","from":{"kind":"github","repo":"nope/missing"},"where":{"kind":"text","value":"x"}}',
+    });
+    expect(process.exitCode).toBe(EXIT.RATE_LIMIT);
+  });
+
+  it('returns USAGE (2) for a genuinely malformed query', async () => {
+    runOqlSearch.mockResolvedValue(
+      diagnosticEnvelope(
+        'invalidQuery',
+        'target:"diff" needs either {prNumber} or {baseRef,headRef,path}.'
+      )
+    );
+    await run({
+      query: '{"target":"diff","from":{"kind":"github","repo":"a/b"}}',
+    });
+    expect(process.exitCode).toBe(EXIT.USAGE);
   });
 
   it('owner/repo#N with --target diff lowers to a PR patch diff', async () => {

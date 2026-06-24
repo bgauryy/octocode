@@ -69,7 +69,7 @@ export const ToolErrors = {
   binaryFileUnsupported: (filePath: string) =>
     new ToolError(
       LOCAL_TOOL_ERROR_CODES.BINARY_FILE_UNSUPPORTED,
-      `Binary file unsupported: ${redactPath(filePath)}`,
+      `Binary file unsupported: ${redactPath(filePath)}. Use localBinaryInspect to read its format/strings, or localSearchCode to grep embedded strings.`,
       { path: filePath }
     ),
 

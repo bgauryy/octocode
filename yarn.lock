@@ -1500,12 +1500,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
-  version: 16.5.2
-  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=941c05&locator=octocode-monorepo%40workspace%3A."
+"@octocodeai/octocode-core@npm:^16.5.3":
+  version: 16.5.3
+  resolution: "@octocodeai/octocode-core@npm:16.5.3"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/237c7b6d83bcd007e330c816c601d033e5235473711483e659e322a3aeb4b181390b45c81818c9926a3cb4e0672ed17745755a1e7ab9a2cd9fd9a102219bf403
+  checksum: 10c0/7b6c6f263bb12d9b5376c53cb65227180e09aab78c5b300802400626cd029b71b300ed0a2c5c41c4d389b78c6c6eecd15a650758ece159654f701f06e345cf31
   languageName: node
   linkType: hard
 

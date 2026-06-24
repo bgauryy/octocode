@@ -106,22 +106,55 @@ function flattenGroupsToFiles(
 function buildResultRecords(
   queries: readonly QueryWithPagination[],
   groups: readonly CodeSearchGroupedResult[],
-  pagination: CodeSearchPagination | undefined
+  paginationByQuery: ReadonlyMap<string, CodeSearchPagination>
 ): CodeSearchResultRecord[] {
   if (groups.length === 0) return [];
-  const id =
-    queries.length === 1 && typeof queries[0]?.id === 'string'
-      ? queries[0].id
-      : 'ghSearchCode';
-  return [
-    {
-      id,
+
+  // Single query: collapse to one record keyed by the query id (or the tool
+  // name), carrying that query's pagination — identical to the prior shape.
+  if (queries.length === 1) {
+    const id =
+      typeof queries[0]?.id === 'string' ? queries[0].id : 'ghSearchCode';
+    const onlyId =
+      typeof queries[0]?.id === 'string' ? queries[0].id : undefined;
+    const pagination = onlyId ? paginationByQuery.get(onlyId) : undefined;
+    return [
+      {
+        id,
+        data: {
+          files: flattenGroupsToFiles(groups),
+          ...(pagination ? { pagination } : {}),
+        },
+      },
+    ];
+  }
+
+  // Multi-query bulk: emit one record PER query that produced results, each
+  // carrying its OWN pagination so an agent can page deeper on every query
+  // independently (previously the merged block dropped all but one).
+  const byQuery = new Map<string, CodeSearchGroupedResult[]>();
+  const order: string[] = [];
+  for (const group of groups) {
+    const queryId = group.queryId ?? 'ghSearchCode';
+    let bucket = byQuery.get(queryId);
+    if (!bucket) {
+      bucket = [];
+      byQuery.set(queryId, bucket);
+      order.push(queryId);
+    }
+    bucket.push(group);
+  }
+
+  return order.map(queryId => {
+    const pagination = paginationByQuery.get(queryId);
+    return {
+      id: queryId,
       data: {
-        files: flattenGroupsToFiles(groups),
+        files: flattenGroupsToFiles(byQuery.get(queryId)!),
         ...(pagination ? { pagination } : {}),
       },
-    },
-  ];
+    };
+  });
 }
 
 function escapeRegExp(value: string): string {
@@ -197,8 +230,7 @@ export function buildGhSearchCodeFinalizer<
 >(): BulkFinalizer<TQuery, GitHubCodeSearchOutputLocal> {
   return ({ queries, results }) => {
     const perQueryGroups: PerQueryGroups[] = [];
-    let upstreamPagination: CodeSearchPagination | undefined;
-    let upstreamPaginationQueries = 0;
+    const paginationByQuery = new Map<string, CodeSearchPagination>();
 
     const emptyQueries: Array<{
       id: string;
@@ -229,8 +261,7 @@ export function buildGhSearchCodeFinalizer<
       perQueryGroups.push({ id: res.id, groups });
 
       if (flat.pagination) {
-        upstreamPagination = flat.pagination;
-        upstreamPaginationQueries += 1;
+        paginationByQuery.set(res.id, flat.pagination);
       }
     });
 
@@ -250,14 +281,14 @@ export function buildGhSearchCodeFinalizer<
     );
 
     const errors = collectFlatErrors(results);
-    const resultPagination =
-      upstreamPagination && upstreamPaginationQueries === 1
-        ? upstreamPagination
-        : undefined;
     const conciseMode = queries.some(
       q => (q as { concise?: boolean }).concise === true
     );
-    const resultRecords = buildResultRecords(queries, groups, resultPagination);
+    const resultRecords = buildResultRecords(
+      queries,
+      groups,
+      paginationByQuery
+    );
     if (conciseMode) {
       for (const rec of resultRecords) {
         rec.data.files = rec.data.files.map(

@@ -13,6 +13,7 @@ import {
   LOCAL_FIND_FILES,
   LOCAL_FETCH_CONTENT,
   LSP_GET_SEMANTIC_CONTENT,
+  LOCAL_BINARY_INSPECT,
   OQL_SEARCH,
 } from '../../src/tools/toolConfig.js';
 import {
@@ -34,6 +35,24 @@ describe('Tool Configuration', () => {
       expect(ALL_TOOLS).toHaveLength(14);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
+      expect([...toolNames].sort()).toEqual(
+        [
+          TOOL_NAMES.GITHUB_SEARCH_CODE,
+          TOOL_NAMES.GITHUB_FETCH_CONTENT,
+          TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+          TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+          TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS,
+          TOOL_NAMES.PACKAGE_SEARCH,
+          TOOL_NAMES.GITHUB_CLONE_REPO,
+          TOOL_NAMES.LOCAL_RIPGREP,
+          TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
+          TOOL_NAMES.LOCAL_FIND_FILES,
+          TOOL_NAMES.LOCAL_FETCH_CONTENT,
+          LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+          TOOL_NAMES.LOCAL_BINARY_INSPECT,
+          OQL_SEARCH_TOOL_NAME,
+        ].sort()
+      );
 
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_SEARCH_CODE);
       expect(toolNames).toContain(TOOL_NAMES.GITHUB_FETCH_CONTENT);
@@ -46,6 +65,7 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_VIEW_STRUCTURE);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
+      expect(toolNames).toContain(TOOL_NAMES.LOCAL_BINARY_INSPECT);
       expect(toolNames).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
       expect(toolNames).toContain(OQL_SEARCH_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
@@ -187,6 +207,14 @@ describe('Tool Configuration', () => {
       expect(LOCAL_FETCH_CONTENT.type).toBe('content');
       expect(LOCAL_FETCH_CONTENT.isLocal).toBe(true);
       expect(LOCAL_FETCH_CONTENT.fn).toBeTypeOf('function');
+    });
+
+    it('LOCAL_BINARY_INSPECT should have correct config', () => {
+      expect(LOCAL_BINARY_INSPECT.name).toBe(TOOL_NAMES.LOCAL_BINARY_INSPECT);
+      expect(LOCAL_BINARY_INSPECT.type).toBe('content');
+      expect(LOCAL_BINARY_INSPECT.isLocal).toBe(true);
+      expect(LOCAL_BINARY_INSPECT.isBinary).toBe(true);
+      expect(LOCAL_BINARY_INSPECT.fn).toBeTypeOf('function');
     });
 
     it('LSP semantic tool should have correct config', () => {

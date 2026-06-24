@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { CLICommand, ParsedArgs } from '../types.js';
 import { getBool, getString, intFlag, isFlagError } from '../options.js';
 import { c, bold, dim } from '../../utils/colors.js';
-import { EXIT } from '../exit-codes.js';
+import { EXIT, classifyToolErrorText } from '../exit-codes.js';
 import { printCliError } from '../cli-error.js';
 import { resolveRef, isGithubRef, cloneCommandFor } from '../routing.js';
 import { outlineSymbols } from './symbol-outline.js';
@@ -508,13 +508,17 @@ function buildSugar(args: ParsedArgs): Resolved {
     fromFlag,
     repoOption
   );
+  // Two LOCAL files (no GitHub refs) -> local file-vs-file diff. The head file
+  // must be ABSOLUTE: it flows to params.path -> localGetFileContent, which
+  // rejects relative basenames as "outside allowed directories". The base file
+  // (corpus.path) is already absolutized by resolveCorpus/resolveRef.
   const localDiffPath =
     explicitTarget === 'diff' &&
     !githubDiff &&
     !fromFlag &&
     !repoOption &&
     positionals.length >= 2
-      ? positionals[1]
+      ? path.resolve(positionals[1]!)
       : undefined;
   const diffPath = githubDiff?.path ?? localDiffPath;
   const targetOnly = diffPath
@@ -1308,10 +1312,19 @@ function exitCodeFor(result: OqlRunResult): number {
     ? result.children.map(c => c.envelope)
     : [result];
   for (const env of envelopes) {
-    if (env.evidence.kind === 'unsupported') return EXIT.TOOL;
     if (env.diagnostics.some(d => d.code === 'rateLimited'))
       return EXIT.RATE_LIMIT;
-    if (env.diagnostics.some(d => d.code === 'invalidQuery')) return EXIT.USAGE;
+    // Classify the error-bearing diagnostics by message text the same way the
+    // direct-tool path does, so genuine not-found (3) / auth (4) / rate-limit
+    // (7) failures are reachable through `search`. A diagnostic that carries no
+    // such signal classifies as TOOL — for an `invalidQuery` that means a truly
+    // malformed query, which stays USAGE (2).
+    const invalidQuery = env.diagnostics.find(d => d.code === 'invalidQuery');
+    if (invalidQuery) {
+      const classified = classifyToolErrorText(invalidQuery.message);
+      return classified === EXIT.TOOL ? EXIT.USAGE : classified;
+    }
+    if (env.evidence.kind === 'unsupported') return EXIT.TOOL;
   }
   return EXIT.OK;
 }

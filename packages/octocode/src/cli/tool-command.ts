@@ -223,6 +223,7 @@ function formatFullDescription(fullDescription: string): string {
 }
 
 const LSP_TOOL_NAME = 'lspGetSemantics';
+const OQL_TOOL_NAME = 'oqlSearch';
 
 const LSP_TYPE_EXAMPLES: Array<[string, Record<string, unknown>]> = [
   [
@@ -332,17 +333,45 @@ function wrapPipeValues(
   return lines;
 }
 
-function getLspTypePreviewLines(): string[] {
-  const typeField = getDirectToolDisplayFields(LSP_TOOL_NAME).find(
-    field => field.name === 'type'
+function getFieldPreviewLines(
+  toolName: string,
+  fieldName: string,
+  label = `${fieldName}: `
+): string[] {
+  const field = getDirectToolDisplayFields(toolName).find(
+    item => item.name === fieldName
   );
-  const values = typeField ? getEnumValues(typeField.type) : [];
+  const values = field ? getEnumValues(field.type) : [];
 
   if (values.length === 0) {
     return [];
   }
 
-  return wrapPipeValues(values, 'type: ', '      ');
+  return wrapPipeValues(values, label, ''.padEnd(label.length));
+}
+
+function getToolPreviewLines(toolName: string): string[] {
+  if (toolName === LSP_TOOL_NAME) {
+    return getFieldPreviewLines(toolName, 'type');
+  }
+
+  if (toolName === 'ghHistoryResearch') {
+    return getFieldPreviewLines(toolName, 'type');
+  }
+
+  if (toolName === 'localBinaryInspect') {
+    return getFieldPreviewLines(toolName, 'mode');
+  }
+
+  if (toolName === 'ghSearchCode') {
+    return ['keywords: array<string> (AND terms)'];
+  }
+
+  if (toolName === 'localSearchCode') {
+    return ['keywords: string'];
+  }
+
+  return [];
 }
 
 export async function showAvailableTools(): Promise<void> {
@@ -393,9 +422,10 @@ export async function showAvailableTools(): Promise<void> {
       console.log(
         `    ${c('cyan', namePadded)} ${dim(fieldsPadded)} ${dim(shortDesc)}`
       );
-      if (toolName === LSP_TOOL_NAME) {
+      const previewLines = getToolPreviewLines(toolName);
+      if (previewLines.length > 0) {
         const indent = ''.padEnd(30);
-        for (const line of getLspTypePreviewLines()) {
+        for (const line of previewLines) {
           console.log(`    ${dim(indent)} ${dim(line)}`);
         }
       }
@@ -407,15 +437,39 @@ export async function showAvailableTools(): Promise<void> {
     `  ${bold('TO CALL')}  tools <name> --queries '<json>'  ${dim('# YAML (default)')}`
   );
   console.log(
-    `           tools <name> --queries '<json>' --json  ${dim('# raw envelope')}`
+    `           tools <name> --queries '<json>' --json  ${dim('# full CallToolResult')}`
   );
   console.log(
-    `           tools <name> --queries '<json>' --compact  ${dim('# leanest')}`
+    `           tools <name> --queries '<json>' --compact  ${dim('# lean structuredContent')}`
   );
   console.log();
   // Smart commands temporarily unhooked — will be re-added in a future release.
   console.log(`  ${dim('Full protocol: context  |  All commands: --help')}`);
   console.log();
+}
+
+export async function printToolCatalogJson(): Promise<void> {
+  const metadata = await getOptionalToolMetadata();
+  const toolNames = sortDirectToolNames(
+    TOOL_DEFINITIONS.map(tool => tool.name)
+  );
+
+  const catalog = toolNames.map(toolName => ({
+    name: toolName,
+    category: getDirectToolCategory(toolName),
+    description: extractShortDescription(
+      getDirectToolDescription(toolName, metadata)
+    ),
+    fields: getDirectToolDisplayFields(toolName).map(field => ({
+      name: field.name,
+      type: field.type,
+      required: field.required,
+      ...(field.constraints ? { constraints: field.constraints } : {}),
+      ...(field.description ? { description: field.description } : {}),
+    })),
+  }));
+
+  console.log(JSON.stringify(catalog, null, 2));
 }
 
 export async function showToolHelp(toolName: string): Promise<boolean> {
@@ -484,8 +538,18 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
     `      ${c('cyan', 'content[].text')}                   ${dim('YAML string (same as default output)')}`
   );
   console.log(
-    `      ${c('cyan', 'structuredContent.results[]')}      ${dim('tool result objects  (id + data)')}`
+    `      ${c('cyan', 'structuredContent.results[]')}      ${dim('tool result objects; most tools use id + data')}`
   );
+  if (tool.name === 'ghGetFileContent') {
+    console.log(
+      `      ${c('cyan', 'results[].files/directories')}      ${dim('grouped GitHub fetch entries; data aliases the same group for generic parsers')}`
+    );
+  }
+  if (tool.name === OQL_TOOL_NAME) {
+    console.log(
+      `      ${c('cyan', 'structuredContent.oql')}            ${dim('native OQL run root (same rich shape as search --query --json)')}`
+    );
+  }
   console.log(
     `      ${c('cyan', 'structuredContent.base')}           ${dim('cwd / workspace root used for the query')}`
   );
@@ -511,7 +575,7 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
     `    ${c('cyan', '--json')}     ${dim('raw JSON envelope (structuredContent + content + isError)')}`
   );
   console.log(
-    `    ${c('cyan', '--compact')}  ${dim('leanest output — fewer tokens')}`
+    `    ${c('cyan', '--compact')}  ${dim('lean structuredContent JSON')}`
   );
 
   console.log();
@@ -621,10 +685,11 @@ export async function getToolsContextString(
       '',
       '  *** TOOL CALLS ***',
       "  tools <name> --queries '<json>'           # run tool, YAML output",
-      "  tools <name> --queries '<json>' --json    # run tool, raw JSON envelope",
-      "  tools <name> --queries '<json>' --compact # run tool, leanest output",
+      "  tools <name> --queries '<json>' --json    # run tool, full CallToolResult JSON",
+      "  tools <name> --queries '<json>' --compact # run tool, lean structuredContent JSON",
+      "  search --query '<oql-json>' --json        # native OQL envelope JSON (results are OQL rows, not CallToolResult)",
       '',
-      '  Output: clean YAML by default; use --compact for leanest text, --json for the raw envelope.',
+      '  Output: clean YAML by default; use --compact for lean structuredContent JSON, --json for the full CallToolResult envelope.',
       '',
       '  Exit codes: 0=ok  2=bad-input  3=not-found  4=auth  5=tool-error  7=rate-limited',
       '',
@@ -642,12 +707,14 @@ export async function getToolsContextString(
     'Output contract (all tools):',
     [
       '  Default output: clean YAML — read it directly. No parsing needed.',
-      '  Add --compact for leanest output. Add --json for the full envelope below.',
+      '  Add --compact for lean structuredContent JSON. Add --json for the full CallToolResult envelope below.',
       '',
       '  --json envelope:',
       '    isError: boolean                       true = tool failed',
       '    content[].text: string                 YAML string (same as default output)',
-      '    structuredContent.results[]: array     tool result objects (id + data)',
+      '    structuredContent.results[]: array     tool result objects; most tools use id + data',
+      '    structuredContent.results[].files[]     ghGetFileContent grouped fetch entries; data aliases the same group',
+      '    structuredContent.oql: object           tools oqlSearch only: native OQL run root',
       '    structuredContent.base: string         cwd / workspace root used for the query',
       '    structuredContent.pagination: object   nextPage / nextCharOffset — page only when present',
       '    structuredContent.next: object         typed follow-up params for the next call',
@@ -755,6 +822,10 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     typeof maybeToolName === 'string' ? maybeToolName : undefined;
 
   if (!toolName || toolName === 'list' || args.options.list === true) {
+    if (args.options.json === true) {
+      await printToolCatalogJson();
+      return true;
+    }
     await showAvailableTools();
     return true;
   }

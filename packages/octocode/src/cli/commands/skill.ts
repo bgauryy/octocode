@@ -33,6 +33,13 @@ type GithubSkillFolder = {
   url: string;
 };
 
+const OCTOCODE_SKILLS_GITHUB = {
+  owner: 'bgauryy',
+  repo: 'octocode',
+  branch: 'main',
+  skillsPath: 'skills',
+} as const;
+
 function stripSkillMd(input: string): string {
   return input
     .replace(/\/SKILL\.md$/i, '')
@@ -134,6 +141,25 @@ function parseGitHubSkillFolder(
   );
 }
 
+function buildOctocodeSkillFolder(
+  skillName: string,
+  branchOverride?: string
+): GithubSkillFolder | null {
+  if (!isSafeSkillName(skillName)) {
+    return null;
+  }
+
+  const branch = branchOverride ?? OCTOCODE_SKILLS_GITHUB.branch;
+  const skillPath = `${OCTOCODE_SKILLS_GITHUB.skillsPath}/${skillName}`;
+  return {
+    owner: OCTOCODE_SKILLS_GITHUB.owner,
+    repo: OCTOCODE_SKILLS_GITHUB.repo,
+    branch,
+    skillPath,
+    url: `https://github.com/${OCTOCODE_SKILLS_GITHUB.owner}/${OCTOCODE_SKILLS_GITHUB.repo}/tree/${branch}/${skillPath}`,
+  };
+}
+
 function formatSkillName(name: string): string {
   return name
     .replace(/[-_]/g, ' ')
@@ -185,10 +211,13 @@ function printUsageError(message: string, jsonOutput: boolean): void {
     console.log();
     console.log(`  ${c('red', '✗')} ${message}`);
     console.log(
-      `  ${dim('Usage:')} skill --add <github-folder> --platform <common|cursor|claude|codex|all>`
+      `  ${dim('Usage:')} skill (--add <github-folder> | --name <octocode-skill>) --platform <common|cursor|claude|codex|all>`
     );
     console.log(
       `  ${dim('Example:')} skill --add https://github.com/owner/repo/tree/main/skills/my-skill --platform cursor`
+    );
+    console.log(
+      `  ${dim('Example:')} skill --name octocode-engineer --platform codex`
     );
     console.log();
   }
@@ -209,6 +238,7 @@ export const skillCommand: CLICommand = {
   name: 'skill',
   options: [
     { name: 'add', hasValue: true },
+    { name: 'name', hasValue: true },
     { name: 'platform', hasValue: true },
     { name: 'target', hasValue: true },
     { name: 'branch', hasValue: true },
@@ -219,13 +249,29 @@ export const skillCommand: CLICommand = {
   handler: async (args: ParsedArgs) => {
     const jsonOutput = Boolean(args.options['json']);
     const rawAdd = args.options['add'];
+    const rawName = args.options['name'];
+    const namedSkill =
+      typeof rawName === 'string' && rawName.trim().length > 0
+        ? rawName.trim()
+        : undefined;
     const githubFolder =
       typeof rawAdd === 'string' && rawAdd.trim().length > 0
         ? rawAdd.trim()
         : args.args[0];
 
-    if (!githubFolder) {
-      printUsageError('Missing GitHub skill folder', jsonOutput);
+    if (!githubFolder && !namedSkill) {
+      printUsageError(
+        'Missing GitHub skill folder or Octocode skill name',
+        jsonOutput
+      );
+      return;
+    }
+
+    if (githubFolder && namedSkill) {
+      printUsageError(
+        'Use either --add <github-folder> or --name <octocode-skill>, not both',
+        jsonOutput
+      );
       return;
     }
 
@@ -244,10 +290,14 @@ export const skillCommand: CLICommand = {
       args.options['branch'].trim().length > 0
         ? args.options['branch'].trim()
         : undefined;
-    const ref = parseGitHubSkillFolder(githubFolder, branchOverride);
+    const ref = namedSkill
+      ? buildOctocodeSkillFolder(namedSkill, branchOverride)
+      : parseGitHubSkillFolder(githubFolder, branchOverride);
     if (!ref) {
       printUsageError(
-        'Expected a GitHub folder URL or owner/repo/path shorthand',
+        namedSkill
+          ? 'Invalid Octocode skill name'
+          : 'Expected a GitHub folder URL or owner/repo/path shorthand',
         jsonOutput
       );
       return;
@@ -296,6 +346,9 @@ export const skillCommand: CLICommand = {
       await readSkillFromGitHub(ref.owner, ref.repo, ref.skillPath, ref.branch);
     } catch (error) {
       readError = error instanceof Error ? error.message : String(error);
+      if (namedSkill && readError.toLowerCase().includes('not found')) {
+        readError = `Octocode skill not found: ${namedSkill} (${ref.url})`;
+      }
     }
 
     if (readError) {

@@ -13,6 +13,7 @@ interface BasicToolConfig<TInput extends object> {
   name: string;
   title: string;
   inputSchema: object;
+  outputSchema?: object;
   executionFn: (args: TInput) => Promise<CallToolResult>;
   annotations?: {
     readOnlyHint?: boolean;
@@ -26,6 +27,7 @@ export function createBasicToolRegistration<TInput extends object>({
   name,
   title,
   inputSchema,
+  outputSchema,
   executionFn,
   annotations,
 }: BasicToolConfig<TInput>): (server: McpServer) => RegisteredTool {
@@ -35,6 +37,7 @@ export function createBasicToolRegistration<TInput extends object>({
       {
         description: DESCRIPTIONS[name],
         inputSchema: toMCPSchema(inputSchema),
+        ...(outputSchema ? { outputSchema: toMCPSchema(outputSchema) } : {}),
         annotations: {
           title,
           readOnlyHint: annotations?.readOnlyHint ?? true,

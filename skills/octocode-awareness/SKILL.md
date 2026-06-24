@@ -76,10 +76,10 @@ Scale this loop to task risk. For read-only questions, a quick recall/status che
 
 ```bash
 get-memory --query "editing the auth router?" --min-importance 4   # recall before acting
-pre-flight-intent --agent-id codex --rationale "Refactor auth" --target-file "src/auth/router.ts" --test-plan "yarn test"
-wait-for-lock --agent-id codex --target-file "src/auth/router.ts" --wait-seconds 120 # bounded wait, no lock acquired
+pre-flight-intent --agent-id codex --rationale "Refactor auth" --target-file "$PWD/src/auth/router.ts" --test-plan "yarn test"
+wait-for-lock --agent-id codex --target-file "$PWD/src/auth/router.ts" --wait-seconds 120 # bounded wait, no lock acquired
 verify --agent-id codex --workspace "$PWD" --all-pending --message "yarn test: passed" # close hook-managed checks
-release-file-lock --status SUCCESS --verified                       # manual release after verifying; --status FAILED if abandoning
+release-file-lock --agent-id codex --status SUCCESS --verified      # manual release after verifying; --status FAILED if abandoning
 refine-get --repo octocode-mcp --ref support-OQL                   # read handoff; refine-set to write
 notify-get --agent-id codex                                        # my unread + broadcasts; notify to send, --in-reply-to to thread
 ```

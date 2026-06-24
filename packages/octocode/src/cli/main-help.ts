@@ -43,6 +43,7 @@ function buildAgentInstructionsBlock(): string[] {
     `  ${dim('Trust evidence/status: empty is a real run with no rows, not proof of absence until scope, spelling, branch, and source were checked.')}`,
     '',
     `  ${dim('Tools:')} ${c('yellow', 'tools <name> --scheme')} ${dim('to read a schema (never guess fields), then')} ${c('yellow', "tools <name> --queries '<json>'")} ${dim('to run it. QUICK COMMANDS below cover the common path.')}`,
+    `  ${dim('JSON shape:')} ${c('cyan', 'tools --json')} ${dim('returns a CallToolResult;')} ${c('cyan', 'search --query --json')} ${dim('returns the native OQL envelope with domain rows and next.* continuations.')}`,
     `  ${dim('Skill reference — read the')} ${c('cyan', 'octocode-engineer')} ${dim('flows to understand the research loop and leverage every tool fully:')}`,
     `    ${underline(ENGINEER_SKILL_URL)}`,
     `  ${dim('Auth: humans run')} ${c('yellow', 'login')}${dim('; agents run')} ${c('yellow', 'auth status --json')} ${dim('for token state; pass GITHUB_TOKEN / OCTOCODE_TOKEN / GH_TOKEN via env. Deeper protocol:')} ${c('cyan', 'context')}${dim('.')}`,
@@ -57,6 +58,18 @@ function formatBriefFields(toolName: string): string {
   // `type` is the only always-required field; `uri` is required for every type
   // except workspaceSymbol, so it stays optional here (see tool-command.ts).
   if (toolName === LSP_TOOL) return '[type, uri?, symbolName?, lineHint?]';
+  if (toolName === 'ghHistoryResearch') {
+    return '[type: prs|commits, since?, until?]';
+  }
+  if (toolName === 'localBinaryInspect') {
+    return '[path*, mode: inspect|list|extract|decompress|strings|unpack]';
+  }
+  if (toolName === 'ghSearchCode') {
+    return '[keywords[]?, owner?, repo?]';
+  }
+  if (toolName === 'localSearchCode') {
+    return '[path*, keywords:string?, mode?]';
+  }
   const fields = getDirectToolDisplayFields(toolName).filter(
     f => !f.name.includes('.')
   );
@@ -201,7 +214,7 @@ export async function showHelp(): Promise<void> {
     // ── Management (users) ─────────────────────────────────────────────────
     `  ${bold('MANAGEMENT')}`,
     `    ${c('cyan', 'install')} ${dim('--ide <cursor|claude-desktop|windsurf|...>')}  ${dim('configure IDE')}`,
-    `    ${c('cyan', 'skill')}   ${dim('--add <github-folder> --platform <...>')}       ${dim('install Agent Skill folder')}`,
+    `    ${c('cyan', 'skill')}   ${dim('--name <skill> | --add <github-folder>')}        ${dim('install Agent Skill folder')}`,
     `    ${c('cyan', 'auth')}    ${dim('[login|logout|refresh|status] [--json]')}       ${dim('auth menu + script-safe status')}`,
     `    ${c('cyan', 'login')}   ${dim('[--hostname <host>]')}                         ${dim('interactive auth picker')}`,
     `    ${c('cyan', 'logout')}  ${dim('[--hostname <host>]')}                         ${dim('clear stored credentials')}`,

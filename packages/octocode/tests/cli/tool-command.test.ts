@@ -439,4 +439,51 @@ describe('toolCommand', () => {
     expect(context).not.toContain('"$schema"');
     expect(context).toContain('RESEARCH LOOP');
   });
+
+  // Bug 1: `tools <name> --scheme` must never throw a ReferenceError for any
+  // tool name (regression: OQL_TOOL_NAME was referenced but never defined, so
+  // the --json envelope section of showToolHelp blew up at runtime).
+  it('renders --scheme help for every direct tool without throwing', async () => {
+    const { showToolHelp, TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command.js');
+
+    for (const tool of TOOL_DEFINITIONS) {
+      await expect(showToolHelp(tool.name)).resolves.toBe(true);
+    }
+  });
+
+  it('renders --scheme help for oqlSearch without throwing', async () => {
+    const { showToolHelp } = await import('../../src/cli/tool-command.js');
+    await expect(showToolHelp('oqlSearch')).resolves.toBe(true);
+  });
+
+  // Bug 2: bare `tools --json` (no tool name) must emit a machine-readable JSON
+  // tool catalog, not the human-readable help text.
+  it('emits a JSON tool catalog for bare `tools --json`', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: [],
+      options: { json: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+
+    const parsed = JSON.parse(output) as Array<{ name: string }>;
+    expect(Array.isArray(parsed)).toBe(true);
+
+    const { TOOL_DEFINITIONS } = await import('../../src/cli/tool-command.js');
+    const names = parsed.map(entry => entry.name).sort();
+    expect(names).toEqual(TOOL_DEFINITIONS.map(t => t.name).sort());
+
+    for (const entry of parsed) {
+      expect(typeof entry.name).toBe('string');
+      expect(entry).toHaveProperty('category');
+      expect(entry).toHaveProperty('description');
+    }
+  });
 });

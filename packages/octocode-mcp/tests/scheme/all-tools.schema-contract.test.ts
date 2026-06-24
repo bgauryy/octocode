@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import {
   OQL_SEARCH_TOOL_NAME,
@@ -264,7 +264,10 @@ describe('all-tools schema contract', () => {
       it('parses with extra unknown envelope fields ignored (does not reject)', () => {
         const minQuery = MINIMAL_QUERY[toolName];
         if (!minQuery) return;
-        const r = bulkSchema.safeParse({ queries: [minQuery] });
+        const r = bulkSchema.safeParse({
+          queries: [minQuery],
+          unknownEnvelopeField: 'ignored',
+        });
         expect(
           r.success,
           `${toolName}: minimal parse should succeed.\n` +
@@ -344,7 +347,17 @@ describe('all-tools schema contract', () => {
           !file.startsWith('toolMetadata/')
       );
 
-      expect(schemeFiles).toHaveLength(14);
+      expect(schemeFiles).toHaveLength(
+        ALL_TOOLS.filter(tool => tool.name !== OQL_SEARCH_TOOL_NAME).length
+      );
+      expect(
+        existsSync(
+          new URL(
+            '../../../octocode-tools-core/src/oql/schema.ts',
+            import.meta.url
+          )
+        )
+      ).toBe(true);
       expect(splitSchemaFiles).toEqual([]);
     });
   });

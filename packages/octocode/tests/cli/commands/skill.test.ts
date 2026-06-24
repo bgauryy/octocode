@@ -167,6 +167,54 @@ describe('skillCommand', () => {
     });
   });
 
+  it('adds a named Octocode skill from the canonical skills path', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        name: 'octocode-engineer',
+        platform: 'common',
+        json: true,
+      },
+    });
+
+    expect(fetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
+      'bgauryy',
+      'octocode',
+      'skills/octocode-engineer',
+      'main'
+    );
+    expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'octocode-engineer',
+        path: 'skills/octocode-engineer',
+        source: expect.objectContaining({
+          owner: 'bgauryy',
+          repo: 'octocode',
+          branch: 'main',
+          skillsPath: 'skills',
+        }),
+      }),
+      expect.stringContaining('/octocode-home/skill-sources/')
+    );
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/agents/octocode-engineer',
+        mode: 'copy',
+      })
+    );
+    expect(jsonOutput()).toMatchObject({
+      success: true,
+      skill: 'octocode-engineer',
+      source:
+        'https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer',
+      platforms: ['common'],
+      installed: 1,
+    });
+  });
+
   it('requires an explicit platform for agent-safe installs', async () => {
     const command = await loadCommand();
 
@@ -232,6 +280,52 @@ describe('skillCommand', () => {
     expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
   });
 
+  it('rejects unsafe Octocode skill names', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        name: '../bad',
+        platform: 'common',
+        json: true,
+      },
+    });
+
+    expect(process.exitCode).toBe(EXIT.USAGE);
+    expect(fetchMocks.readSkillFromGitHub).not.toHaveBeenCalled();
+    expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
+    expect(jsonOutput()).toMatchObject({
+      success: false,
+      error: 'Invalid Octocode skill name',
+    });
+  });
+
+  it('rejects ambiguous --add and --name combinations', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        add: 'owner/repo/skills/review',
+        name: 'octocode-engineer',
+        platform: 'common',
+        json: true,
+      },
+    });
+
+    expect(process.exitCode).toBe(EXIT.USAGE);
+    expect(fetchMocks.readSkillFromGitHub).not.toHaveBeenCalled();
+    expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
+    expect(jsonOutput()).toMatchObject({
+      success: false,
+      error:
+        'Use either --add <github-folder> or --name <octocode-skill>, not both',
+    });
+  });
+
   it('rejects invalid platforms', async () => {
     const command = await loadCommand();
 
@@ -272,6 +366,34 @@ describe('skillCommand', () => {
     expect(jsonOutput()).toMatchObject({
       success: false,
       error: 'SKILL.md not found',
+    });
+  });
+
+  it('reports missing named Octocode skills as not found', async () => {
+    fetchMocks.readSkillFromGitHub.mockRejectedValueOnce(
+      new Error('SKILL.md not found')
+    );
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        name: 'missing-skill',
+        platform: 'common',
+        json: true,
+      },
+    });
+
+    expect(process.exitCode).toBe(EXIT.NOT_FOUND);
+    expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
+    expect(jsonOutput()).toMatchObject({
+      success: false,
+      skill: 'missing-skill',
+      source:
+        'https://github.com/bgauryy/octocode/tree/main/skills/missing-skill',
+      error:
+        'Octocode skill not found: missing-skill (https://github.com/bgauryy/octocode/tree/main/skills/missing-skill)',
     });
   });
 });

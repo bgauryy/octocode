@@ -92,6 +92,14 @@ type RepoGroup = {
   repo: string;
   files?: FileEntry[];
   directories?: DirectoryEntry[];
+  data?: RepoGroupData;
+};
+
+type RepoGroupData = {
+  owner: string;
+  repo: string;
+  files?: FileEntry[];
+  directories?: DirectoryEntry[];
 };
 
 type FileContentResponse = GitHubFetchContentOutputLocal;
@@ -359,7 +367,15 @@ function buildGroups(
     group.files = files;
   });
 
-  return Array.from(groups.values());
+  return Array.from(groups.values()).map(group => {
+    const data: RepoGroupData = {
+      owner: group.owner,
+      repo: group.repo,
+      ...(group.files ? { files: group.files } : {}),
+      ...(group.directories ? { directories: group.directories } : {}),
+    };
+    return { ...group, data };
+  });
 }
 
 function collectFileErrors(

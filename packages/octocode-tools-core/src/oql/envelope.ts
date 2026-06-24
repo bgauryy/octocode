@@ -57,6 +57,9 @@ export function buildEnvelope(args: BuildEnvelopeArgs): OqlResultEnvelope {
 
 /** Diagnostic codes that mean the requested semantics could not be executed. */
 const UNSUPPORTED_CODES = new Set([
+  'invalidQuery',
+  'ambiguousSugar',
+  'unknownField',
   'unsupportedTarget',
   'unsupportedPredicate',
   'unsupportedBoolean',
@@ -118,7 +121,8 @@ export function unsupportedEnvelope(
   diagnostics: OqlDiagnostic[],
   plan?: OqlExplainPlan,
   queryId?: string,
-  queryIndex?: number
+  queryIndex?: number,
+  next?: OqlResultEnvelope['next']
 ): OqlResultEnvelope {
   return buildEnvelope({
     queryId,
@@ -128,5 +132,6 @@ export function unsupportedEnvelope(
     provenance: [],
     executable: false,
     plan,
+    ...(next && Object.keys(next).length ? { next } : {}),
   });
 }

@@ -197,7 +197,9 @@ describe('command-help-specs', () => {
     expect(output).toContain('EXAMPLES');
     expect(output).toContain('SCHEME');
     expect(output).toContain('Sources: Local path, GitHub owner/repo');
-    expect(output).toContain('Targets: code, content, structure');
+    expect(output).toContain(
+      'Answer types / targets: code, content, structure'
+    );
     // semantics (formerly the lsp command) is now reachable via search --op
     expect(output).toContain('--op');
     expect(output).toContain('documentSymbols');

@@ -8,12 +8,12 @@
     "url": "https://github.com/bgauryy/octocode-mcp",
     "source": "github"
   },
-  "version": "11.2.2",
+  "version": "16.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "octocode-mcp",
-      "version": "11.2.2",
+      "version": "16.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -28,4 +28,3 @@
     }
   ]
 }
-

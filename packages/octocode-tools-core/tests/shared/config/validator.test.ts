@@ -151,7 +151,7 @@ describe('config/validator', () => {
 
       it('accepts valid enableAdditional array', () => {
         const result = validateConfig({
-          tools: { enableAdditional: ['localSearchCode', 'lspGotoDefinition'] },
+          tools: { enableAdditional: ['localSearchCode', 'lspGetSemantics'] },
         });
         expect(result.valid).toBe(true);
       });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { formatDirectToolSchemaText } from '@octocodeai/octocode-tools-core';
+import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
 const LOSS_LANGUAGE: RegExp[] = [
   /may be truncated/i,
@@ -19,10 +20,18 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   localViewStructure: ['page'],
   localFindFiles: ['page'],
   localGetFileContent: ['startLine', 'endLine'],
+  localBinaryInspect: ['path', 'mode'],
   lspGetSemantics: ['uri', 'lineHint', 'type'],
+  oqlSearch: ['page', 'itemsPerPage'],
 };
 
 describe('all-tools pagination contract', () => {
+  it('covers every tool in the live catalog', () => {
+    expect(Object.keys(TOOL_PAGINATION_KNOBS).sort()).toEqual(
+      ALL_TOOLS.map(tool => tool.name).sort()
+    );
+  });
+
   describe.each(Object.entries(TOOL_PAGINATION_KNOBS))(
     '%s',
     (toolName, knobs) => {

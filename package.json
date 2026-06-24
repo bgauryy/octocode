@@ -45,7 +45,7 @@
   },
   "private": true,
   "resolutions": {
-    "@octocodeai/octocode-core": "file:../octocode-mcp-host/packages/octocode-core"
+    "@octocodeai/octocode-core": "^16.5.3"
   },
   "workspaces": [
     "packages/*",

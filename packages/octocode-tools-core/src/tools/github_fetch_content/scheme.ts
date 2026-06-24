@@ -135,6 +135,14 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
       repo: z.string(),
       files: z.array(GitHubFetchFileEntrySchema).optional(),
       directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
+      data: z
+        .object({
+          owner: z.string(),
+          repo: z.string(),
+          files: z.array(GitHubFetchFileEntrySchema).optional(),
+          directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
+        })
+        .optional(),
     })
   ),
   errors: z

@@ -21,6 +21,8 @@ interface RemoteToolConfig<TQuery> {
 
   inputSchema: object;
 
+  outputSchema?: object;
+
   executionFn: (args: ToolExecutionArgs<TQuery>) => Promise<CallToolResult>;
 
   describe?: (base: string) => string;
@@ -45,6 +47,7 @@ export function createRemoteToolRegistration<TQuery>(
     name,
     title,
     inputSchema,
+    outputSchema,
     executionFn,
     describe,
     annotations,
@@ -62,6 +65,7 @@ export function createRemoteToolRegistration<TQuery>(
         {
           description,
           inputSchema: toMCPSchema(inputSchema),
+          ...(outputSchema ? { outputSchema: toMCPSchema(outputSchema) } : {}),
           annotations: {
             title,
             readOnlyHint: annotations?.readOnlyHint ?? true,

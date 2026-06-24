@@ -306,7 +306,10 @@ describe('OQL runner: validation + dry-run + GitHub routing', () => {
         {
           target: 'code',
           from: { kind: 'github', repo: 'vercel/next.js' },
-          scope: { language: 'typescript' },
+          // Multiple languages are genuinely lossy: GitHub code search cannot OR
+          // them in one query, so the transform must surface a lossyTransform
+          // diagnostic. A single language is expressible and is NOT lossy.
+          scope: { language: ['typescript', 'tsx'] },
           where: { kind: 'text', value: 'createComponentTree' },
         },
         { dryRun: true }

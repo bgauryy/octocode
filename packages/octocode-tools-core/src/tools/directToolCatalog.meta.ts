@@ -512,6 +512,101 @@ function buildKnownDirectToolCommandPatternQueries(
           limit: 5,
         },
       },
+      {
+        label: 'commit history',
+        query: {
+          type: 'commits',
+          owner: 'facebook',
+          repo: 'react',
+          path: 'packages/react/src',
+          since: '2024-01-01T00:00:00Z',
+          perPage: 5,
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE) {
+    return [
+      {
+        label: 'path search',
+        query: {
+          keywords: ['package.json'],
+          owner: 'facebook',
+          repo: 'react',
+          match: 'path',
+          concise: true,
+          limit: 5,
+        },
+      },
+      {
+        label: 'content search',
+        query: {
+          keywords: ['useState'],
+          owner: 'facebook',
+          repo: 'react',
+          extension: 'js',
+          limit: 5,
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES) {
+    return [
+      {
+        label: 'repository search',
+        query: {
+          keywords: ['react'],
+          language: 'TypeScript',
+          stars: '>1000',
+          concise: true,
+          limit: 5,
+        },
+      },
+      {
+        label: 'owner repositories',
+        query: {
+          owner: 'facebook',
+          concise: true,
+          limit: 5,
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE) {
+    return [
+      {
+        label: 'repo tree',
+        query: {
+          owner: 'facebook',
+          repo: 'react',
+          path: 'packages',
+          maxDepth: 2,
+          itemsPerPage: 50,
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO) {
+    return [
+      {
+        label: 'full repo clone',
+        query: {
+          owner: 'bgauryy',
+          repo: 'octocode',
+        },
+      },
+      {
+        label: 'subtree clone',
+        query: {
+          owner: 'facebook',
+          repo: 'react',
+          sparsePath: 'packages/react',
+        },
+      },
     ];
   }
 
@@ -530,6 +625,74 @@ function buildKnownDirectToolCommandPatternQueries(
           path: 'src',
           mode: 'structural',
           pattern: 'eval($X)',
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT) {
+    return [
+      {
+        label: 'exact line range',
+        query: {
+          path: 'src/index.ts',
+          startLine: 1,
+          endLine: 40,
+          minify: 'none',
+        },
+      },
+      {
+        label: 'matched slice',
+        query: {
+          path: 'src/index.ts',
+          matchString: 'registerTool',
+          contextLines: 8,
+          minify: 'standard',
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.LOCAL_FIND_FILES) {
+    return [
+      {
+        label: 'basename globs',
+        query: {
+          path: '.',
+          names: ['*.ts', 'package.json'],
+          entryType: 'f',
+          itemsPerPage: 20,
+        },
+      },
+      {
+        label: 'monorepo path glob',
+        query: {
+          path: '.',
+          pathPattern: 'packages/*/src/**',
+          entryType: 'f',
+          itemsPerPage: 20,
+        },
+      },
+    ];
+  }
+
+  if (toolName === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT) {
+    return [
+      {
+        label: 'archive listing',
+        query: {
+          path: 'archive.zip',
+          mode: 'list',
+          entriesPerPage: 50,
+        },
+      },
+      {
+        label: 'binary strings',
+        query: {
+          path: 'dist/app.node',
+          mode: 'strings',
+          minLength: 8,
+          charLength: 2000,
         },
       },
     ];

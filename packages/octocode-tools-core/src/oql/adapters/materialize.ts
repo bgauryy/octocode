@@ -14,6 +14,10 @@ import { diagnostic } from '../diagnostics.js';
 import { firstScopePath } from '../transformers/github/common.js';
 import type { OqlQuery, OqlRecordResultRow, QuerySource } from '../types.js';
 
+function dedupe(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
 // See adapters/github.ts: splitRepo intentionally differs from
 // common.splitGithubSource on the slash-less repo case.
 function splitRepo(source: QuerySource): { owner?: string; repo?: string } {
@@ -107,10 +111,23 @@ export async function executeMaterialize(
 
   // Re-root the query at the materialized path. scope.path already became the
   // sparse checkout root, so drop it from the local scope to avoid double-join.
+  // Clone byproducts (.git internals, the .octocode-clone-meta.json marker) are
+  // not part of the repo's file set — exclude them so materialized listings and
+  // totals match a real checkout (audit #11).
+  const baseScope = query.scope ?? {};
   const localQuery: OqlQuery = {
     ...query,
     from: { kind: 'materialized', localPath, source: from },
-    ...(query.scope ? { scope: { ...query.scope, path: undefined } } : {}),
+    scope: {
+      ...baseScope,
+      path: undefined,
+      excludeDir: dedupe([...(baseScope.excludeDir ?? []), '.git']),
+      exclude: dedupe([
+        ...(baseScope.exclude ?? []),
+        '.octocode-clone-meta.json',
+        '**/.octocode-clone-meta.json',
+      ]),
+    },
   };
 
   const localResult = await executeLocal(localQuery);

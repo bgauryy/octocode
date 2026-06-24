@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { withOutputSanitization } from '../../src/utils/secureServer.js';
+import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 
 const SECRETS = {
   AWS_KEY: 'AKIAIOSFODNN7EXAMPLE',
@@ -357,6 +358,29 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  localBinaryInspect: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `strings:\n  token=${SECRETS.GITHUB_TOKEN}\n  key=${SECRETS.OPENAI_KEY}`,
+      },
+    ],
+    structuredContent: {
+      data: {
+        results: [
+          {
+            id: 'q1',
+            data: {
+              mode: 'strings',
+              path: '/workspace/dist/app.node',
+              content: secretPayload('binary'),
+            },
+          },
+        ],
+      },
+    },
+  }),
+
   lspGetSemantics: () => ({
     content: [
       {
@@ -409,7 +433,52 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
       },
     },
   }),
+
+  oqlSearch: () => ({
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          results: [
+            {
+              kind: 'code',
+              path: '.env',
+              snippet: `OPENAI=${SECRETS.OPENAI_KEY}`,
+            },
+          ],
+        }),
+      },
+    ],
+    structuredContent: {
+      results: [
+        {
+          id: 'q1',
+          data: {
+            results: [
+              {
+                kind: 'code',
+                path: '.env',
+                snippet: `GITHUB=${SECRETS.GITHUB_TOKEN}`,
+              },
+            ],
+          },
+        },
+      ],
+      oql: {
+        results: [
+          {
+            kind: 'code',
+            path: '.env',
+            snippet: `AWS=${SECRETS.AWS_KEY}`,
+          },
+        ],
+      },
+    },
+  }),
 };
+
+const CATALOG_TOOL_NAMES = ALL_TOOLS.map(tool => tool.name).sort();
+const SANITIZATION_TOOL_NAMES = Object.keys(TOOL_RESULT_SHAPES).sort();
 
 describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization proxy', () => {
   describe('Per-tool realistic result sanitization', () => {
@@ -484,14 +553,20 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
   });
 
   describe('Proxy chain integrity', () => {
-    it('all 12 tools register through the proxy', () => {
+    it('covers every registered tool in the live catalog', () => {
+      expect(SANITIZATION_TOOL_NAMES).toEqual(CATALOG_TOOL_NAMES);
+    });
+
+    it('all catalog tools register through the proxy', () => {
       const { mockServer, proxy } = createProxyChain();
 
       for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
         proxy.registerTool(toolName, {} as never, (() => {}) as never);
       }
 
-      expect(mockServer.registerTool).toHaveBeenCalledTimes(12);
+      expect(mockServer.registerTool).toHaveBeenCalledTimes(
+        CATALOG_TOOL_NAMES.length
+      );
     });
 
     it('tool names are forwarded correctly to the real server', () => {

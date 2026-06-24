@@ -109,6 +109,29 @@ function materializedClonePath(
   return sc?.base ? nodePath.join(sc.base, localPath) : localPath;
 }
 
+function resolveSemanticSourceUri(
+  reportedUri: string | undefined,
+  fallbackUri: string | undefined,
+  workspaceRoot: string | undefined
+): string {
+  const fallback = fallbackUri ?? workspaceRoot ?? '.';
+  if (!reportedUri) return fallback;
+  if (nodePath.isAbsolute(reportedUri)) return reportedUri;
+
+  if (workspaceRoot && nodePath.isAbsolute(workspaceRoot)) {
+    return nodePath.resolve(workspaceRoot, reportedUri);
+  }
+
+  if (fallbackUri && nodePath.isAbsolute(fallbackUri)) {
+    const base = isExistingDirectory(fallbackUri)
+      ? fallbackUri
+      : nodePath.dirname(fallbackUri);
+    return nodePath.resolve(base, reportedUri);
+  }
+
+  return reportedUri;
+}
+
 function firstScopePath(query: OqlQuery): string | undefined {
   const path = query.scope?.path;
   return Array.isArray(path) ? path[0] : path;
@@ -2088,10 +2111,11 @@ export async function executeSemantics(
   const { data, status } = firstQueryData(result);
   const recordData = data as Record<string, unknown> | undefined;
   const pagination = semanticPagination(recordData, query);
-  const sourceUri =
-    typeof recordData?.uri === 'string'
-      ? recordData.uri
-      : (uri ?? workspaceRoot!);
+  const sourceUri = resolveSemanticSourceUri(
+    stringFrom(recordData?.uri),
+    uri,
+    workspaceRoot
+  );
   const source = semanticSource(query, sourceUri);
   const semanticItems = filterSemanticItemsByKind(
     expandSemanticData(recordData),

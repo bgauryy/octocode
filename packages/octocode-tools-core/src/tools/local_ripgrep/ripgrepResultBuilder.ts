@@ -130,17 +130,10 @@ export async function buildSearchResult(
   const filesWithMetadata = ranked.files;
   const rankDebug = ranked.debug;
 
-  let limitedFiles = filesWithMetadata;
-  let wasLimited = false;
-  if (
-    configuredQuery.maxFiles &&
-    filesWithMetadata.length > configuredQuery.maxFiles
-  ) {
-    limitedFiles = filesWithMetadata.slice(0, configuredQuery.maxFiles);
-    wasLimited = true;
-  }
-
-  const totalFiles = limitedFiles.length;
+  // `maxFiles` is a PER-PAGE size ceiling (cost bound), NOT a lossy hard cap.
+  // We paginate over the FULL ranked set so every matched file stays reachable
+  // by paging; `totalFiles` is the true total of the ranked set.
+  const totalFiles = filesWithMetadata.length;
   const isPathListMode = Boolean(
     configuredQuery.filesOnly || configuredQuery.filesWithoutMatch
   );
@@ -148,7 +141,7 @@ export async function buildSearchResult(
     configuredQuery.countLinesPerFile || configuredQuery.countMatchesPerFile
   );
   const isFileListMode = isPathListMode || isCountMode;
-  const summedMatches = limitedFiles.reduce(
+  const summedMatches = filesWithMetadata.reduce(
     (sum: number, f: LocalSearchCodeFile & { modified?: string }) =>
       sum + (f.matchCount ?? 0),
     0
@@ -165,13 +158,15 @@ export async function buildSearchResult(
     matchPage?: number;
     page?: number;
   };
-  const filesPerPage =
-    aligned.itemsPerPage || RESOURCE_LIMITS.DEFAULT_FILES_PER_PAGE;
+  const filesPerPage = Math.min(
+    aligned.itemsPerPage || RESOURCE_LIMITS.DEFAULT_FILES_PER_PAGE,
+    configuredQuery.maxFiles || Number.POSITIVE_INFINITY
+  );
   const currentPage = aligned.page || 1;
-  const totalFilePages = Math.ceil(totalFiles / filesPerPage);
+  const totalFilePages = Math.max(1, Math.ceil(totalFiles / filesPerPage));
   const startIdx = (currentPage - 1) * filesPerPage;
   const endIdx = Math.min(startIdx + filesPerPage, totalFiles);
-  const paginatedFiles = limitedFiles.slice(startIdx, endIdx);
+  const paginatedFiles = filesWithMetadata.slice(startIdx, endIdx);
 
   const matchesPerPage =
     aligned.maxMatchesPerFile || RESOURCE_LIMITS.DEFAULT_MATCHES_PER_PAGE;
@@ -258,7 +253,6 @@ export async function buildSearchResult(
       ...(isPathListMode ? {} : { totalMatches }),
       hasMore: currentPage < totalFilePages,
       ...(currentPage < totalFilePages ? { nextPage: currentPage + 1 } : {}),
-      ...(wasLimited ? { totalFilesFound: filesWithMetadata.length } : {}),
     },
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(Object.keys(next).length > 0 ? { next } : {}),

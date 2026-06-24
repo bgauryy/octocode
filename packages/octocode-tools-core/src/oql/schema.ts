@@ -331,7 +331,7 @@ const OqlInputQueryShape = {
     'Source. Defaults to local cwd when omitted; use {kind:"github",owner,repo} for remote or {kind:"materialized",localPath} after a fetch/clone.'
   ),
   where: PredicateSchema.optional().describe(
-    'Canonical predicate tree (kind: text | regex | structural | all | any | not). Mutually exclusive with the flat shorthand fields (text/regex/pattern/and/or/...): use ONE shape, not both.'
+    'Canonical predicate tree (kind: text | regex | structural | field | all | any | not). Mutually exclusive with the flat shorthand fields (text/regex/pattern/and/or/...): use ONE shape, not both.'
   ),
   materialize: z
     .union([MaterializePolicySchema, z.enum(['never', 'auto', 'required'])])

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { executeDirectTool } from '../../src/tools/directToolCatalog.js';
-import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
+import {
+  OQL_SEARCH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
+} from '../../src/tools/toolNames.js';
 import { cleanup } from '../../src/serverConfig.js';
 import {
   setRuntimeSurface,
@@ -161,5 +164,50 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     const text = JSON.stringify(result.structuredContent);
     expect(text).toContain('Directory fetch requires local clone support');
     expect(text).toContain('ENABLE_CLONE=true');
+  });
+
+  it('wraps oqlSearch output in the standard direct-tool results[].data shape', async () => {
+    setRuntimeSurface('cli');
+    cleanup();
+
+    const result = await executeDirectTool(OQL_SEARCH_TOOL_NAME, {
+      target: 'code',
+      from: { kind: 'local', path: 'src/oql' },
+      where: { kind: 'text', value: 'runOqlSearch' },
+      view: 'discovery',
+      limit: 2,
+    });
+
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as {
+      results?: Array<{ id?: string; status?: string; data?: unknown }>;
+      oql?: unknown;
+    };
+    expect(Array.isArray(structured.results)).toBe(true);
+    expect(structured.results?.[0]?.id).toBe('oqlSearch-1');
+    expect(structured.results?.[0]?.status).toBeUndefined();
+    expect(structured.results?.[0]?.data).toEqual(structured.oql);
+    expect(
+      (structured.results?.[0]?.data as { results?: unknown[] }).results?.length
+    ).toBeGreaterThan(0);
+  });
+
+  it('marks zero-match oqlSearch rows as empty without failing the call', async () => {
+    setRuntimeSurface('cli');
+    cleanup();
+
+    const result = await executeDirectTool(OQL_SEARCH_TOOL_NAME, {
+      target: 'code',
+      from: { kind: 'local', path: 'src/oql' },
+      where: { kind: 'text', value: 'definitely-no-such-oql-symbol-xyz' },
+      view: 'discovery',
+      limit: 2,
+    });
+
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as {
+      results?: Array<{ status?: string; data?: unknown }>;
+    };
+    expect(structured.results?.[0]?.status).toBe('empty');
   });
 });

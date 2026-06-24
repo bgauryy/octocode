@@ -102,7 +102,8 @@ async function runSingle(
       plan,
       query.id,
       queryIndex,
-      options.dryRun
+      options.dryRun,
+      query
     );
   }
 
@@ -141,7 +142,14 @@ function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
   // mapped OQL rows are match rows. Slicing those rows would create `next.page`
   // queries that advance the file page, not the hidden match row, so leave the
   // backend pagination intact and rely on next.matchPage for noisy files.
-  if (query.target === 'code' && exec.pagination?.totalItemsKind === 'files') {
+  // EXCEPTION: an explicit `limit` is a hard cap on the primary result-row
+  // domain — the caller asked for at most N rows, so it must be honored even
+  // here. Page-size paging (itemsPerPage only) still defers to backend paging.
+  if (
+    query.target === 'code' &&
+    exec.pagination?.totalItemsKind === 'files' &&
+    typeof query.limit !== 'number'
+  ) {
     return;
   }
 
@@ -733,13 +741,15 @@ function continuationResearchFacets(
 }
 
 function buildSemanticsContinuations(
-  row: OqlResultRow
+  row: OqlResultRow,
+  ctx: ContinuationCtx
 ): Record<string, OqlContinuation> | undefined {
   const data = (row as OqlRecordResultRow).data;
   const rawUri = typeof data?.uri === 'string' ? data.uri : undefined;
-  const sourceAnchor = semanticSourceAnchor(row as OqlRecordResultRow);
-  const uri =
-    rawUri && path.isAbsolute(rawUri) ? rawUri : (sourceAnchor ?? rawUri);
+  const sourceAnchor =
+    semanticSourceAnchor(row as OqlRecordResultRow) ??
+    semanticQueryAnchor(ctx.query);
+  const uri = semanticContinuationUri(rawUri, sourceAnchor);
   if (!uri) return undefined;
   const line =
     typeof data.line === 'number'
@@ -766,10 +776,38 @@ function buildSemanticsContinuations(
   };
 }
 
+function semanticContinuationUri(
+  rawUri: string | undefined,
+  sourceAnchor: string | undefined
+): string | undefined {
+  if (rawUri && path.isAbsolute(rawUri)) return rawUri;
+  if (sourceAnchor && path.isAbsolute(sourceAnchor)) {
+    const base = semanticAnchorBase(sourceAnchor);
+    return rawUri ? path.resolve(base, rawUri) : sourceAnchor;
+  }
+  return sourceAnchor ?? rawUri;
+}
+
+function semanticAnchorBase(sourceAnchor: string): string {
+  try {
+    return statSync(sourceAnchor).isDirectory()
+      ? sourceAnchor
+      : path.dirname(sourceAnchor);
+  } catch {
+    return path.dirname(sourceAnchor);
+  }
+}
+
 function semanticSourceAnchor(row: OqlRecordResultRow): string | undefined {
   const source = row.source;
   if (source?.kind === 'local') return source.path;
   if (source?.kind === 'materialized') return source.localPath;
+  return undefined;
+}
+
+function semanticQueryAnchor(query: OqlQuery): string | undefined {
+  if (query.from?.kind === 'local') return query.from.path;
+  if (query.from?.kind === 'materialized') return query.from.localPath;
   return undefined;
 }
 
@@ -792,12 +830,46 @@ function localFileSource(
   });
 }
 
+/**
+ * `target:"files"` over a GitHub source with no `where` cannot be enumerated by
+ * the provider, so the plan is non-executable (audit #6). Instead of a dead end,
+ * hand the agent a runnable next.materialize query — clone a bounded corpus and
+ * list files from the materialized checkpoint — mirroring the providerUnindexed
+ * recovery path.
+ */
+function blockedMaterializeContinuation(
+  query?: OqlQuery
+): OqlResultEnvelope['next'] | undefined {
+  if (
+    !query ||
+    query.from?.kind !== 'github' ||
+    query.target !== 'files' ||
+    query.where
+  ) {
+    return undefined;
+  }
+  return {
+    'next.materialize': {
+      query: {
+        schema: 'oql',
+        target: 'materialize',
+        from: query.from,
+        ...(query.scope ? { scope: query.scope } : {}),
+        materialize: { mode: 'required' },
+      },
+      why: 'target:"files" over GitHub needs a local corpus to enumerate; clone a bounded path (add scope.path to narrow), then list files from the materialized checkpoint.',
+      confidence: 'heuristic',
+    },
+  };
+}
+
 function unsupportedEnvelopeFromPlan(
   planned: PlanQueryResult,
   plan: OqlResultEnvelope['plan'],
   queryId?: string,
   queryIndex?: number,
-  dryRun?: boolean
+  dryRun?: boolean,
+  query?: OqlQuery
 ): OqlResultEnvelope {
   if (!planned.executable) {
     // In dry-run mode, distinguish repairable blocks (e.g. missing scope.path
@@ -823,7 +895,8 @@ function unsupportedEnvelopeFromPlan(
       planned.plan.diagnostics,
       plan,
       queryId,
-      queryIndex
+      queryIndex,
+      blockedMaterializeContinuation(query)
     );
   }
   // dry run of an executable query: report plan, evidence partial (not executed)

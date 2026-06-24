@@ -44,23 +44,35 @@ describe('direct-tool command patterns', () => {
     });
   });
 
-  it('derives useful command fields from the GitHub code search schema', () => {
+  it('uses curated path/content patterns for GitHub code search', () => {
     const patterns = buildDirectToolCommandPatterns(
       STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE
     );
 
-    expect(patterns).toHaveLength(1);
+    expect(patterns.map(pattern => pattern.label)).toEqual([
+      'path search',
+      'content search',
+    ]);
     expect(patterns[0]).toMatchObject({
-      label: 'schema-derived',
+      label: 'path search',
       query: {
-        keywords: ['runCLI'],
+        keywords: ['package.json'],
         owner: 'facebook',
         repo: 'react',
-        extension: 'ts',
+        match: 'path',
+        limit: 5,
       },
     });
-    expect(patterns[0]?.query).not.toHaveProperty('page');
-    expect(patterns[0]?.query).not.toHaveProperty('limit');
+    expect(patterns[1]).toMatchObject({
+      label: 'content search',
+      query: {
+        keywords: ['useState'],
+        owner: 'facebook',
+        repo: 'react',
+        extension: 'js',
+        limit: 5,
+      },
+    });
     expect(patterns[0]?.command).toContain('tools ghSearchCode --queries');
   });
 

@@ -507,7 +507,11 @@ def decay_components(
         recency = 0.0
     importance = (memory.get("importance_score") or 0) / 10.0
     access = math.log1p(memory.get("access_count") or 0) / math.log1p(ACCESS_SATURATION)
-    lexical_norm = lexical if 0.0 <= lexical <= 1.0 else 1.0 / (1.0 + max(lexical, 0.0))
+    # Relevance is pre-normalized to 0..1 by every caller (lexical_search squashes
+    # bm25; semantic_search min-max normalizes cosine). Clamp defensively — the old
+    # 1/(1+max(x,0)) branch silently mapped negative cosine to 1.0 (rewarding the
+    # LEAST similar memory), which broke semantic ranking.
+    lexical_norm = max(0.0, min(1.0, lexical))
     final = (
         weights["importance"] * importance
         + weights["recency"] * recency
@@ -742,16 +746,26 @@ def semantic_search(
         f"AND m.importance_score >= ? {where_tags} {where_states}",
         params,
     ).fetchall()
-    scored: list[dict[str, Any]] = []
+    raw: list[tuple[dict[str, Any], float]] = []
     for row in rows:
         memory = row_to_memory(row)
         if not valid_at(memory, as_of):
             continue
-        cos = _cosine(qvec, _from_blob(row["embedding"]))
-        comp = decay_components(memory, cos, half_life, weights)
+        raw.append((memory, _cosine(qvec, _from_blob(row["embedding"]))))
+    # Static-embedding cosines bunch in a narrow band, so a raw cosine barely moves
+    # the blend. Min-max normalize across the candidate pool so the most-similar
+    # memory gets relevance 1.0 and the least gets 0.0 — then decay re-ranks within.
+    cmin = min((c for _, c in raw), default=0.0)
+    cmax = max((c for _, c in raw), default=0.0)
+    span = (cmax - cmin) or 1.0
+    scored: list[dict[str, Any]] = []
+    for memory, cos in raw:
+        rel = (cos - cmin) / span
+        comp = decay_components(memory, rel, half_life, weights)
         memory["score"] = comp["final"]
         if explain:
-            memory["score_components"] = {**comp, "semantic": round(cos, 4)}
+            memory["score_components"] = {**comp, "semantic": round(cos, 4),
+                                          "semantic_norm": round(rel, 4)}
         scored.append(memory)
     scored.sort(key=lambda m: (m["score"], m["created_at"]), reverse=True)
     results = scored[:limit]
@@ -800,8 +814,11 @@ def search_memory(
             ).fetchall()
             for row in rows:
                 memory = row_to_memory(row)
-                # bm25 magnitudes are unbounded; normalize to 0..1 for blending.
-                memory["_lexical"] = 1.0 / (1.0 + max(0.0, -float(row["lexical_score"])))
+                # lexical_score = -bm25 (positive; larger = better match). bm25
+                # magnitudes are unbounded, so squash to 0..1 with a saturating
+                # transform that stays monotonic in relevance (0 -> 0, inf -> 1).
+                rel = max(0.0, float(row["lexical_score"]))
+                memory["_lexical"] = rel / (1.0 + rel)
                 candidates.append(memory)
         except sqlite3.OperationalError:
             candidates = []
@@ -2698,8 +2715,40 @@ def session_capture(args: argparse.Namespace) -> int:
 
 # ---- 3.1 optional local semantic recall (model2vec; degrades to lexical) ----
 
+def ensure_model2vec(install: bool) -> tuple[bool, str | None]:
+    """Make `model2vec` importable. Returns (available, note).
+
+    A shipped skill is just a folder, so the agent provisions semantic recall
+    on demand: `embed-index --install` pip-installs from scripts/requirements.txt
+    into the current interpreter. install=False only probes (never touches pip).
+    """
+    try:
+        import model2vec  # type: ignore  # noqa: F401
+        return True, None
+    except Exception:
+        pass
+    if not install:
+        return False, None
+    req = Path(__file__).resolve().parent / "requirements.txt"
+    cmd = [sys.executable, "-m", "pip", "install", "--quiet"]
+    cmd += ["-r", str(req)] if req.exists() else ["model2vec"]
+    proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    if proc.returncode != 0:
+        return False, (proc.stderr or proc.stdout or "pip install failed").strip()[:500]
+    try:
+        import model2vec  # type: ignore  # noqa: F401
+        return True, "installed"
+    except Exception as exc:  # pragma: no cover - environment dependent
+        return False, f"model2vec still unimportable after install: {exc}"
+
+
 def load_embedder():
     """Return (encode_fn, model_name) or (None, None) if model2vec/model unavailable."""
+    # Keep stdout a clean JSON channel: HuggingFace otherwise prints fetch progress
+    # bars and an unauthenticated-requests warning that corrupt captured output.
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     try:
         from model2vec import StaticModel  # type: ignore
     except Exception:
@@ -2741,9 +2790,16 @@ def index_embeddings(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
     encode, name = load_embedder()
+    install_note = None
     if encode is None:
-        return emit({"ok": False, "error": "no embedder available — `pip install model2vec` and/or "
-                     "vendor a model at scripts/models/ or set OCTOCODE_EMBED_MODEL"}, 1)
+        ok, install_note = ensure_model2vec(getattr(args, "install", False))
+        if ok:
+            encode, name = load_embedder()
+    if encode is None:
+        return emit({"ok": False, "error": "no embedder available — run `embed-index --install` "
+                     "(pip installs model2vec from scripts/requirements.txt), or `pip install model2vec`, "
+                     "or vendor a model at scripts/models/ or set OCTOCODE_EMBED_MODEL",
+                     "install_note": install_note}, 1)
     rows = conn.execute(
         f"SELECT memory_id, task_context, observation, tags_text FROM agent_memories "
         f"{'' if args.rebuild else 'WHERE embedding IS NULL OR embedding_model <> ?'}",
@@ -3811,6 +3867,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build/refresh local embedding vectors for `get-memory --semantic` (opt-in; needs model2vec).",
     )
     index_parser.add_argument("--rebuild", action="store_true", help="Re-embed all rows, not just missing ones.")
+    index_parser.add_argument("--install", action="store_true",
+                              help="If model2vec is missing, pip install it from scripts/requirements.txt first.")
     index_parser.set_defaults(func=index_embeddings)
 
     self_test_parser = subcommands.add_parser("self-test", help="Run a temporary database smoke test.")

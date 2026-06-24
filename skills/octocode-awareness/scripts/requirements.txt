@@ -1,0 +1,12 @@
+# Optional dependencies for paraphrase-tolerant semantic recall.
+# The skill is fully functional WITHOUT these — recall degrades to FTS5
+# lexical + decay ranking. Install only to enable `get-memory --semantic`:
+#   python3 scripts/awareness.py embed-index --install   # auto-installs this file
+#   # or manually:
+#   pip install -r scripts/requirements.txt && python3 scripts/awareness.py embed-index
+#
+# model2vec is a tiny static-embedding runtime (no torch). First `embed-index`
+# downloads the default model (minishlab/potion-base-8M, ~30MB) from HuggingFace
+# unless you vendor one at scripts/models/potion-base-8M or set OCTOCODE_EMBED_MODEL.
+model2vec>=0.3
+numpy>=1.21

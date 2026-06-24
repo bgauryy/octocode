@@ -60,8 +60,7 @@ describe('directToolCatalog', () => {
   it('exposes the canonical direct tool category order', () => {
     expect(DIRECT_TOOL_CATEGORIES).toEqual([
       'GitHub',
-      'Local',
-      'LSP',
+      'Local Code',
       'Package',
       'Other',
     ]);
@@ -107,10 +106,10 @@ describe('directToolCatalog', () => {
       'GitHub'
     );
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
-      'Local'
+      'Local Code'
     );
     expect(getDirectToolCategory(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)).toBe(
-      'LSP'
+      'Local Code'
     );
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.PACKAGE_SEARCH)).toBe(
       'Package'
@@ -154,7 +153,7 @@ describe('directToolCatalog', () => {
     );
 
     expect(localByName['id']).toBeUndefined();
-    expect(localByName['keywords']?.required).toBe(true);
+    expect(localByName['keywords']?.required).toBe(false);
     expect(localByName['include']?.type).toBe('array<string>');
     expect(localByName['matchContentLength']?.required).toBe(false);
     expect(localByName['page']?.required).toBe(false);
@@ -163,8 +162,8 @@ describe('directToolCatalog', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual({
-      keywords: 'keywords',
       path: '.',
+      keywords: 'runCLI',
     });
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO)
@@ -173,10 +172,10 @@ describe('directToolCatalog', () => {
       buildDirectToolExampleQuery(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)
     ).toEqual(
       expect.objectContaining({
-        uri: 'uri',
+        uri: '/path/to/file.ts',
         type: 'definition',
-        symbolName: 'symbolName',
-        lineHint: 1,
+        symbolName: 'myFunction',
+        lineHint: 42,
       })
     );
     expect(buildDirectToolExampleQuery('missingTool')).toEqual({});

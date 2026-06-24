@@ -69,6 +69,13 @@ export function applyContentPagination(
       charOffset: paginationMeta.charOffset,
       charLength: paginationMeta.charLength,
       totalChars: paginationMeta.totalChars,
+      // `nextCharOffset` is the schema-promised cursor ("take charOffset from
+      // pagination.nextCharOffset; don't compute it yourself"). applyPagination
+      // already computes it; preserve it so the finalizer's buildContinueChars
+      // can emit next.continueChars. Dropping it broke that continuation.
+      ...(paginationMeta.nextCharOffset !== undefined && {
+        nextCharOffset: paginationMeta.nextCharOffset,
+      }),
       chunkMode,
       ...(nextBlockChar !== undefined && { nextBlockChar }),
     },

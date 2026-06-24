@@ -158,7 +158,7 @@ type PackagePagination = {
   nextPage?: number;
 };
 
-function buildPackagePagination(
+export function buildPackagePagination(
   query: NpmSearchQuery,
   totalFound: number,
   returned: number,
@@ -166,8 +166,23 @@ function buildPackagePagination(
 ): PackagePagination {
   const currentPage = Math.max(1, (query as { page?: number }).page ?? 1);
   const perPage = isKeyword ? 10 : 1;
-  const totalPages = Math.max(1, Math.ceil(totalFound / perPage));
-  const hasMore = currentPage < totalPages;
+
+  // The keyword CLI search path reports `totalFound` as the count returned on
+  // THIS page (capped at the search limit), not the registry grand total. When
+  // a page comes back FULL, that count understates the true total and would
+  // otherwise yield hasMore:false even though more pages exist. Treat a full
+  // page as "there is at least one more page" so deeper paging stays reachable;
+  // only trust `totalFound` for a true totalPages when the page is NOT full.
+  const pageIsFull = isKeyword && returned >= perPage;
+  const totalPagesFromCount = Math.max(1, Math.ceil(totalFound / perPage));
+  const hasMore = pageIsFull || currentPage < totalPagesFromCount;
+  // Don't claim a precise totalPages from an understated count when the page is
+  // full and the count doesn't already imply a further page.
+  const totalPages =
+    pageIsFull && currentPage >= totalPagesFromCount
+      ? currentPage + 1
+      : totalPagesFromCount;
+
   return {
     currentPage,
     totalPages,

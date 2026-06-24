@@ -110,9 +110,26 @@ export function mapCodeResult(
   }
   return {
     results: rows,
-    pagination: toCodePagination(
-      result.pagination as Parameters<typeof toPagination>[0]
+    pagination: enrichCodePagination(
+      toCodePagination(result.pagination as Parameters<typeof toPagination>[0]),
+      rows.length
     ),
+  };
+}
+
+function enrichCodePagination(
+  pagination: Pagination | undefined,
+  rowCount: number
+): Pagination | undefined {
+  if (!pagination) return undefined;
+  if (pagination.totalItemsKind !== 'files') return pagination;
+  return {
+    ...pagination,
+    itemUnit: 'files',
+    rowCount,
+    ...(pagination.reportedTotalItems !== undefined
+      ? { reportedRowCount: pagination.reportedTotalItems }
+      : {}),
   };
 }
 

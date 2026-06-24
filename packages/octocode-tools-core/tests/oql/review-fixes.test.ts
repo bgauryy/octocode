@@ -56,12 +56,16 @@ describe('review fix #1: executable next.* continuations', () => {
       })
     );
     expect(env.results.length).toBe(4);
+    expect(env.pagination?.itemUnit).toBe('files');
+    expect(env.pagination?.rowCount).toBe(4);
     expect(env.pagination?.totalItemsKind).toBe('files');
     expect(env.pagination?.totalItems).toBe(2);
     expect(env.pagination?.reportedTotalItems).toBe(4);
+    expect(env.pagination?.reportedRowCount).toBe(4);
     expect(env.pagination?.hasMore).toBe(false);
     expect(env.next?.['next.page']).toBeUndefined();
   });
+
 });
 
 describe('boolean predicate over target:"code" executes (set algebra)', () => {

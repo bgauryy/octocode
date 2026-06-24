@@ -744,6 +744,9 @@ export interface Pagination {
   reportedTotalItems?: number;
   reachableTotalItems?: number;
   totalItemsKind?: string;
+  itemUnit?: string;
+  rowCount?: number;
+  reportedRowCount?: number;
   totalItemsCapped?: boolean;
   uniqueFileCount?: number;
   hasMore: boolean;

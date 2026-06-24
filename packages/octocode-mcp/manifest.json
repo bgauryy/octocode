@@ -2,9 +2,9 @@
   "dxt_version": "0.1",
   "name": "octocode-mcp",
   "display_name": "Octocode MCP Extension",
-  "version": "11.2.2",
-  "description": "GitHub code search and npm package exploration MCP server",
-  "long_description": "A comprehensive MCP server that provides GitHub code search, repository exploration, commit history, pull requests, issues, and npm package search capabilities. This extension enables AI assistants to efficiently search and analyze code across GitHub repositories and npm packages with advanced filtering and content retrieval features.",
+  "version": "16.2.0",
+  "description": "Code research MCP server for GitHub, npm, local files, LSP semantics, binary inspection, and OQL workflows",
+  "long_description": "A comprehensive MCP server that provides AI assistants with code research tools across GitHub repositories, npm packages, local files, LSP semantics, binary/archive inspection, and OQL multi-step workflows. It helps agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
   "author": {
     "name": "Guy Bary",
     "email": "bgauryy@octocodeai.com",
@@ -31,10 +31,6 @@
   },
   "tools": [
     {
-      "name": "mcp_octocode_apiStatusCheck",
-      "description": "Check GitHub and npm login status"
-    },
-    {
       "name": "mcp_octocode_ghSearchCode",
       "description": "Search code across GitHub repositories"
     },
@@ -47,16 +43,48 @@
       "description": "Search GitHub repositories"
     },
     {
-      "name": "mcp_octocode_ghSearchPRs",
-      "description": "Search GitHub pull requests"
-    },
-    {
-      "name": "mcp_octocode_githubSearchIssues",
-      "description": "Search GitHub issues"
+      "name": "mcp_octocode_ghHistoryResearch",
+      "description": "Search pull requests or commit history"
     },
     {
       "name": "mcp_octocode_ghViewRepoStructure",
       "description": "View GitHub repository structure"
+    },
+    {
+      "name": "mcp_octocode_ghCloneRepo",
+      "description": "Clone a GitHub repository or subtree for local analysis"
+    },
+    {
+      "name": "mcp_octocode_npmSearch",
+      "description": "Search npm packages and source repositories"
+    },
+    {
+      "name": "mcp_octocode_localSearchCode",
+      "description": "Search local code with ripgrep or structural AST patterns"
+    },
+    {
+      "name": "mcp_octocode_localViewStructure",
+      "description": "View local directory structure"
+    },
+    {
+      "name": "mcp_octocode_localFindFiles",
+      "description": "Find local files by name, path, metadata, and glob filters"
+    },
+    {
+      "name": "mcp_octocode_localGetFileContent",
+      "description": "Read local file content with minification and exact slices"
+    },
+    {
+      "name": "mcp_octocode_lspGetSemantics",
+      "description": "Run LSP semantic navigation over local files"
+    },
+    {
+      "name": "mcp_octocode_localBinaryInspect",
+      "description": "Inspect archives, compressed streams, binaries, and strings"
+    },
+    {
+      "name": "mcp_octocode_oqlSearch",
+      "description": "Run OQL research workflows with typed continuations"
     }
   ],
   "keywords": [
@@ -76,7 +104,7 @@
     "claude_desktop": ">=0.10.0",
     "platforms": ["darwin", "win32", "linux"],
     "runtimes": {
-      "node": ">=18.0.0"
+      "node": ">=20.0.0"
     }
   },
   "user_config": {
@@ -95,4 +123,4 @@
       "required": false
     }
   }
-} 
+}

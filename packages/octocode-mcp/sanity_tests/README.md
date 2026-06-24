@@ -32,20 +32,20 @@ comparisons.
 - [ghGetFileContent](./ghGetFileContent.md)
 - [ghViewRepoStructure](./ghViewRepoStructure.md)
 - [ghSearchRepos](./ghSearchRepos.md)
-- [ghSearchPRs](./ghSearchPRs.md)
+- [ghHistoryResearch](./ghHistoryResearch.md)
 - [npmSearch](./npmSearch.md)
 - [ghCloneRepo](./ghCloneRepo.md)
 - [localSearchCode](./localSearchCode.md)
 - [localViewStructure](./localViewStructure.md)
 - [localFindFiles](./localFindFiles.md)
 - [localGetFileContent](./localGetFileContent.md)
-- [lspGotoDefinition](./lspGotoDefinition.md)
-- [lspFindReferences](./lspFindReferences.md)
-- [lspCallHierarchy](./lspCallHierarchy.md)
+- [localBinaryInspect](./localBinaryInspect.md)
+- [lspGetSemantics](./lspGetSemantics.md)
+- [oqlSearch](./oqlSearch.md)
 
 ## Open pagination gaps (tracked)
 
-- `lspFindReferences` — over-budget `locations` tail-dropped, not char-paged (issue #1 / task #6).
+- `lspGetSemantics` references mode — over-budget `locations` tail-dropped, not char-paged (issue #1 / task #6).
 - `npmSearch` — no result-count page cursor for `searchLimit>1` (issue #2).
 - `localFindFiles` — `maxFiles` caps discovery before pagination (issue #3).
-- `lspCallHierarchy` — per-node `content` clipped to 500 chars (issue #4).
+- `lspGetSemantics` callHierarchy mode — per-node `content` clipped to 500 chars (issue #4).

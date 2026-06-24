@@ -46,9 +46,20 @@ describe('github fetch content finalizer next.continueChars', () => {
     };
 
     const out = run([query], [result]);
-    const file = (out.structuredContent.results as Array<{ files?: unknown[] }>)[0]
-      ?.files?.[0] as {
-      next?: { continueChars?: { tool: string; query: Record<string, unknown> } };
+    const group = (
+      out.structuredContent.results as Array<{
+        files?: unknown[];
+        data?: { files?: unknown[]; owner?: string; repo?: string };
+      }>
+    )[0]!;
+    expect(group.data?.owner).toBe('octo');
+    expect(group.data?.repo).toBe('engine');
+    expect(group.data?.files).toEqual(group.files);
+
+    const file = group.files?.[0] as {
+      next?: {
+        continueChars?: { tool: string; query: Record<string, unknown> };
+      };
     };
 
     expect(file.next?.continueChars).toEqual({
@@ -90,8 +101,9 @@ describe('github fetch content finalizer next.continueChars', () => {
     };
 
     const out = run([query], [result]);
-    const file = (out.structuredContent.results as Array<{ files?: unknown[] }>)[0]
-      ?.files?.[0] as { next?: unknown };
+    const file = (
+      out.structuredContent.results as Array<{ files?: unknown[] }>
+    )[0]?.files?.[0] as { next?: unknown };
 
     expect(file.next).toBeUndefined();
   });

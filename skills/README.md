@@ -1,6 +1,45 @@
 # OctoCode Skills
 
-Specialized AI agent skills extending OctoCode. **9 skills** live under `skills/`. The table below says **when to reach for each** — match your situation to the trigger column, not the skill name.
+Specialized AI agent skills extending OctoCode. **9 skills** live under `skills/`. They are user-facing playbooks: each one teaches an agent when to load extra knowledge, which evidence to gather, how to keep the work bounded, and what kind of answer or artifact to return.
+
+Use this README as the map. Match your situation to the capability or trigger, not the folder name.
+
+---
+
+## Why use these skills?
+
+Octocode already provides powerful code search, file reading, GitHub/npm research, local structure inspection, and LSP navigation. Skills make those tools feel reliable for a particular job:
+
+- **Less guessing** — the agent follows a purpose-built workflow instead of improvising.
+- **Better evidence** — research skills require real anchors such as files, lines, PRs, packages, or test output.
+- **Cleaner handoffs** — design, review, memory, and loop skills produce reusable artifacts instead of loose chat.
+- **Safer work** — skills add gates for installs, code edits, verification, file locks, and user approval.
+- **Less noise** — results are summarized for the user, while raw tool output stays behind the scenes unless it matters.
+
+## What users get
+
+| Need | Best skill family | What you get |
+|------|-------------------|--------------|
+| Decide whether an idea is worth pursuing | Brainstorming | Prior art, market/code evidence, objections, and a decision brief |
+| Understand or change code safely | Engineer | Architecture-aware investigation, implementation/review guidance, and cited findings |
+| Converge a clear research question | Loop | Repeated Act -> Observe -> Learn cycles with evidence, verification, and open gaps |
+| Write a technical proposal | RFC Generator | Alternatives, trade-offs, blast radius, recommendation, and rollout plan |
+| Get hard code-quality feedback | Roast | Severity-ranked issues, concrete fixes, and `file:line` citations |
+| Work on skills themselves | Skills | Skill search, rating, linting, install, creation, and safe refactors |
+| Coordinate multiple agents or long-running work | Awareness | Memory, file locks, handoffs, messages, and verify-before-done enforcement |
+| Inspect Octocode usage | Stats | A dashboard of saved tokens/chars, cache hits, errors, and rate limits |
+| Use Octocode from a terminal | CLI | One-off local/GitHub/npm lookups without MCP wiring |
+
+## How they work
+
+Skills use progressive disclosure:
+
+1. The agent sees each skill's `name` and `description`.
+2. When the user request matches, the agent reads that skill's `SKILL.md`.
+3. The skill may load focused `references/`, run bundled `scripts/`, or call Octocode tools/CLI.
+4. The agent returns the user-facing result: a brief, finding list, RFC, trace, dashboard, or verified handoff.
+
+The design goal is practical: keep the active instructions small, load detail only when needed, and make every high-confidence claim traceable to evidence.
 
 ---
 
