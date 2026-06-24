@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-engine",
-  "version": "16.5.1",
+  "version": "16.6.0",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
   "type": "module",
   "main": "index.cjs",

@@ -25,6 +25,38 @@ DEFAULT_DB_NAME = "awareness.sqlite3"
 MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME"
 CONFLICT_EXIT = 2
 MEMORY_STATES = ("ACTIVE", "SUPERSEDED")
+MEMORY_LABELS = (
+    "BUG",
+    "FEATURE",
+    "SUGGESTION",
+    "GOTCHA",
+    "IMPROVEMENT",
+    "DECISION",
+    "ARCHITECTURE",
+    "SECURITY",
+    "PERFORMANCE",
+    "TEST",
+    "BUILD",
+    "DOCS",
+    "CONFIG",
+    "WORKFLOW",
+    "REFACTOR",
+    "API",
+    "RELEASE",
+    "INCIDENT",
+    "OTHER",
+)
+MEMORY_SORTS = (
+    "smart",
+    "score",
+    "importance",
+    "recent",
+    "updated",
+    "accessed",
+    "access",
+    "label",
+    "file",
+)
 REFINEMENT_STATES = ("open", "ongoing", "done")
 REFINEMENT_QUALITY = ("good", "bad")
 # Repo-scoped agent-to-agent messages. Typed `kind` lets recipients filter and
@@ -119,6 +151,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             observation TEXT NOT NULL,
             importance_score INTEGER NOT NULL CHECK(importance_score BETWEEN 1 AND 10),
             state TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(state IN ('ACTIVE', 'SUPERSEDED')),
+            label TEXT NOT NULL DEFAULT 'OTHER',
             superseded_by TEXT,
             tags_json TEXT NOT NULL DEFAULT '[]',
             tags_text TEXT NOT NULL DEFAULT ',',
@@ -253,6 +286,8 @@ def ensure_memory_columns(conn: sqlite3.Connection) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(agent_memories)").fetchall()}
     if "state" not in cols:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN state TEXT NOT NULL DEFAULT 'ACTIVE'")
+    if "label" not in cols:
+        conn.execute("ALTER TABLE agent_memories ADD COLUMN label TEXT NOT NULL DEFAULT 'OTHER'")
     if "superseded_by" not in cols:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN superseded_by TEXT")
     if "updated_at" not in cols:
@@ -282,6 +317,7 @@ def ensure_memory_columns(conn: sqlite3.Connection) -> None:
     if "embedding_model" not in cols:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN embedding_model TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig "
         "ON agent_memories(failure_signature)"
@@ -318,6 +354,19 @@ def normalize_tags(tags: list[str] | None, tags_csv: str | None = None) -> list[
             normalized.append(cleaned)
             seen.add(cleaned)
     return normalized
+
+
+def normalize_memory_label(value: str | None) -> str:
+    if value is None:
+        return "OTHER"
+    cleaned = re.sub(r"[\s-]+", "_", value.strip().upper())
+    if not cleaned:
+        return "OTHER"
+    if cleaned not in MEMORY_LABELS:
+        raise argparse.ArgumentTypeError(
+            f"unknown memory label {value!r}; use one of: {', '.join(MEMORY_LABELS)}"
+        )
+    return cleaned
 
 
 def tags_text(tags: list[str]) -> str:
@@ -458,6 +507,7 @@ def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
         "observation": row["observation"],
         "importance_score": row["importance_score"],
         "state": col(row, "state", "ACTIVE"),
+        "label": col(row, "label", "OTHER") or "OTHER",
         "superseded_by": col(row, "superseded_by"),
         "tags": json.loads(row["tags_json"]),
         "file": col(row, "file"),
@@ -550,6 +600,7 @@ def tell_memory(args: argparse.Namespace) -> int:
     conn = connect(db_path)
     memory_id = "mem_" + uuid.uuid4().hex
     tags = normalize_tags(args.tag, args.tags)
+    label = normalize_memory_label(getattr(args, "label", None))
     created_at = utc_now()
     # A memory correlates to at most ONE file (normalized like locks), or none for general lessons.
     memory_file = normalize_file_path(args.file) if getattr(args, "file", None) else None
@@ -566,10 +617,10 @@ def tell_memory(args: argparse.Namespace) -> int:
             """
             INSERT INTO agent_memories (
                 memory_id, agent_id, task_context, observation, importance_score,
-                tags_json, tags_text, file_tree_fingerprint, file, created_at, updated_at,
+                label, tags_json, tags_text, file_tree_fingerprint, file, created_at, updated_at,
                 last_accessed_at, access_count, failure_signature, valid_from, valid_to
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             """,
             (
                 memory_id,
@@ -577,6 +628,7 @@ def tell_memory(args: argparse.Namespace) -> int:
                 args.task_context,
                 args.observation,
                 args.importance_score,
+                label,
                 json.dumps(tags),
                 tags_text(tags),
                 args.file_tree_fingerprint,
@@ -595,7 +647,7 @@ def tell_memory(args: argparse.Namespace) -> int:
                 INSERT INTO memory_fts(memory_id, task_context, observation, tags)
                 VALUES (?, ?, ?, ?)
                 """,
-                (memory_id, args.task_context, args.observation, " ".join(tags)),
+                (memory_id, args.task_context, args.observation, " ".join([*tags, label.lower()])),
             )
         for old_id in supersedes:
             # Supersede also closes the bi-temporal window: the old fact stops being
@@ -620,6 +672,7 @@ def tell_memory(args: argparse.Namespace) -> int:
                 "memory_id": memory_id,
                 "agent_id": args.agent_id,
                 "importance_score": args.importance_score,
+                "label": label,
                 "tags": tags,
                 "file": memory_file,
                 "state": "ACTIVE",
@@ -651,12 +704,113 @@ def tag_filter_sql(tags: list[str], params: list[Any]) -> str:
     return (" AND " + " AND ".join(clauses)) if clauses else ""
 
 
+def label_filter_sql(labels: list[str], params: list[Any]) -> str:
+    if not labels:
+        return ""
+    placeholders = ",".join("?" for _ in labels)
+    params.extend(labels)
+    return f" AND m.label IN ({placeholders})"
+
+
+def file_filter_sql(files: list[str], params: list[Any]) -> str:
+    if not files:
+        return ""
+    placeholders = ",".join("?" for _ in files)
+    params.extend(files)
+    return f" AND m.file IN ({placeholders})"
+
+
 def state_filter_sql(states: list[str], params: list[Any]) -> str:
     if not states:
         return ""
     placeholders = ",".join("?" for _ in states)
     params.extend(states)
     return f" AND m.state IN ({placeholders})"
+
+
+def compile_regexes(patterns: list[str], flag_name: str) -> tuple[list[re.Pattern[str]], str | None]:
+    compiled: list[re.Pattern[str]] = []
+    for pattern in patterns:
+        try:
+            compiled.append(re.compile(pattern))
+        except re.error as exc:
+            return [], f"{flag_name} invalid regex {pattern!r}: {exc}"
+    return compiled, None
+
+
+def filter_memory_regexes(
+    memories: list[dict[str, Any]],
+    regexes: list[re.Pattern[str]],
+    file_regexes: list[re.Pattern[str]],
+) -> list[dict[str, Any]]:
+    if not regexes and not file_regexes:
+        return memories
+    filtered: list[dict[str, Any]] = []
+    for memory in memories:
+        file_value = memory.get("file") or ""
+        if file_regexes and not all(pattern.search(file_value) for pattern in file_regexes):
+            continue
+        haystack = "\n".join(
+            [
+                memory.get("task_context") or "",
+                memory.get("observation") or "",
+                " ".join(memory.get("tags") or []),
+                memory.get("label") or "",
+                file_value,
+                memory.get("failure_signature") or "",
+            ]
+        )
+        if regexes and not all(pattern.search(haystack) for pattern in regexes):
+            continue
+        filtered.append(memory)
+    return filtered
+
+
+def sort_memories(memories: list[dict[str, Any]], sort: str) -> None:
+    if sort in ("smart", "score"):
+        memories.sort(
+            key=lambda m: (m.get("score", m.get("_rank", 0.0)), m.get("created_at") or ""),
+            reverse=True,
+        )
+    elif sort == "importance":
+        memories.sort(
+            key=lambda m: (
+                m.get("importance_score") or 0,
+                m.get("score", m.get("_rank", 0.0)),
+                m.get("created_at") or "",
+            ),
+            reverse=True,
+        )
+    elif sort in ("recent", "created"):
+        memories.sort(key=lambda m: m.get("created_at") or "", reverse=True)
+    elif sort == "updated":
+        memories.sort(key=lambda m: m.get("updated_at") or m.get("created_at") or "", reverse=True)
+    elif sort == "accessed":
+        memories.sort(
+            key=lambda m: m.get("last_accessed_at") or m.get("created_at") or "",
+            reverse=True,
+        )
+    elif sort == "access":
+        memories.sort(
+            key=lambda m: (m.get("access_count") or 0, m.get("last_accessed_at") or ""),
+            reverse=True,
+        )
+    elif sort == "label":
+        memories.sort(
+            key=lambda m: (
+                m.get("label") or "OTHER",
+                -(m.get("importance_score") or 0),
+                m.get("created_at") or "",
+            )
+        )
+    elif sort == "file":
+        memories.sort(
+            key=lambda m: (
+                m.get("file") or "",
+                -(m.get("importance_score") or 0),
+                m.get("created_at") or "",
+            )
+        )
 
 
 def valid_at(memory: dict[str, Any], as_of: datetime | None) -> bool:
@@ -672,50 +826,154 @@ def get_memory(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
     tags = normalize_tags(args.tag, args.tags)
+    labels = [normalize_memory_label(label) for label in (getattr(args, "label", None) or [])]
+    files = [normalize_file_path(path) for path in (getattr(args, "file", None) or [])]
     states = args.state or ["ACTIVE"]
     decay = not getattr(args, "no_decay", False)
     as_of = _parse_ts(getattr(args, "as_of", None))
+    regexes, regex_error = compile_regexes(getattr(args, "regex", None) or [], "--regex")
+    if regex_error:
+        return emit({"db_path": str(db_path), "error": regex_error}, 1)
+    file_regexes, file_regex_error = compile_regexes(
+        getattr(args, "file_regex", None) or [], "--file-regex"
+    )
+    if file_regex_error:
+        return emit({"db_path": str(db_path), "error": file_regex_error}, 1)
     weights = dict(DECAY_WEIGHTS)
     for key in weights:
         override = getattr(args, f"weight_{key}", None)
         if override is not None:
             weights[key] = override
 
-    mode = "lexical"
-    memories: list[dict[str, Any]] = []
-    if getattr(args, "semantic", False):
-        encode, name = load_embedder()
-        if encode is not None:
-            mode = f"semantic:{name}"
-            memories = semantic_search(
-                conn, encode, args.query, args.limit, args.min_importance,
-                tags, states, weights, getattr(args, "half_life", None), as_of,
-                explain=getattr(args, "explain", False),
+    sort = getattr(args, "sort", "smart")
+    query = getattr(args, "query", "") or ""
+    expanded_attempts: list[dict[str, Any]] = []
+
+    def recall_once(
+        *,
+        query_text: str,
+        min_importance: int,
+        query_tags: list[str],
+        query_labels: list[str],
+        query_states: list[str],
+        use_semantic: bool,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        mode = "lexical"
+        found: list[dict[str, Any]] = []
+        if use_semantic:
+            encode, name = load_embedder()
+            if encode is not None:
+                mode = f"semantic:{name}"
+                found = semantic_search(
+                    conn, encode, query_text, args.limit, min_importance,
+                    query_tags, query_labels, files, query_states, regexes, file_regexes,
+                    weights, getattr(args, "half_life", None), as_of, sort,
+                    explain=getattr(args, "explain", False),
+                )
+            else:
+                mode = "lexical (semantic unavailable — model2vec/model missing)"
+        if not found and not mode.startswith("semantic"):
+            found = search_memory(
+                conn, query_text, args.limit, min_importance, query_tags, query_labels,
+                files, query_states, regexes, file_regexes, decay=decay,
+                half_life=getattr(args, "half_life", None),
+                explain=getattr(args, "explain", False), weights=weights, as_of=as_of,
+                sort=sort,
             )
-        else:
-            mode = "lexical (semantic unavailable — model2vec/model missing)"
-    if not memories and not mode.startswith("semantic"):
-        memories = search_memory(
-            conn, args.query, args.limit, args.min_importance, tags, states,
-            decay=decay, half_life=getattr(args, "half_life", None),
-            explain=getattr(args, "explain", False), weights=weights, as_of=as_of,
-        )
+        return mode, found
+
+    mode, memories = recall_once(
+        query_text=query,
+        min_importance=args.min_importance,
+        query_tags=tags,
+        query_labels=labels,
+        query_states=states,
+        use_semantic=getattr(args, "semantic", False),
+    )
+
+    if getattr(args, "smart", False) and len(memories) < args.limit:
+        seen = {memory["memory_id"] for memory in memories}
+
+        def add_smart_attempt(
+            name: str,
+            *,
+            query_text: str = query,
+            min_importance: int = args.min_importance,
+            query_tags: list[str] = tags,
+            query_labels: list[str] = labels,
+            query_states: list[str] = states,
+            use_semantic: bool = getattr(args, "semantic", False),
+        ) -> None:
+            nonlocal mode, memories
+            if len(memories) >= args.limit:
+                return
+            attempt_mode, attempt_memories = recall_once(
+                query_text=query_text,
+                min_importance=min_importance,
+                query_tags=query_tags,
+                query_labels=query_labels,
+                query_states=query_states,
+                use_semantic=use_semantic,
+            )
+            added = 0
+            for memory in attempt_memories:
+                if memory["memory_id"] in seen:
+                    continue
+                seen.add(memory["memory_id"])
+                memories.append(memory)
+                added += 1
+                if len(memories) >= args.limit:
+                    break
+            expanded_attempts.append(
+                {
+                    "name": name,
+                    "mode": attempt_mode,
+                    "matched": len(attempt_memories),
+                    "added": added,
+                    "min_importance": min_importance,
+                    "dropped_tags": not query_tags and bool(tags),
+                    "dropped_labels": not query_labels and bool(labels),
+                    "states": query_states,
+                }
+            )
+            if attempt_mode.startswith("semantic"):
+                mode = attempt_mode
+
+        if args.min_importance > 1:
+            add_smart_attempt("lower-min-importance", min_importance=1)
+        if labels:
+            add_smart_attempt("drop-label-filter", query_labels=[], min_importance=1)
+        if tags:
+            add_smart_attempt("drop-tag-filter", query_tags=[], min_importance=1)
+        if query and (regexes or file_regexes or files):
+            add_smart_attempt("regex-or-file-only", query_text="", min_importance=1)
+        if not getattr(args, "semantic", False):
+            add_smart_attempt("semantic-if-indexed", min_importance=1, use_semantic=True)
+
+        sort_memories(memories, sort)
+        memories = memories[: args.limit]
+
+    bump_access(conn, [m["memory_id"] for m in memories])
     result = {
         "db_path": str(db_path),
         "states": states,
+        "labels": labels,
+        "sort": sort,
         "decay": decay,
         "mode": mode,
         "as_of": getattr(args, "as_of", None),
         "count": len(memories),
         "memories": memories,
     }
+    if expanded_attempts:
+        result["smart_expanded"] = expanded_attempts
     if not memories:
         # Don't let an agent read "0 results" as "nothing is known". Recall is
         # lexical (keyword) unless semantic is active, so a paraphrased query can
         # miss real lessons — nudge a retry before concluding absence.
         tip = ("No memories matched — this is NOT proof none exist. Recall is lexical here, so retry "
-               "with fewer / broader / synonymous terms (or the symbol or file name), and drop "
-               "--tag / --min-importance, before concluding nothing is known.")
+               "with fewer / broader / synonymous terms (or the symbol or file name), use "
+               "--smart, and drop --tag / --label / --min-importance before concluding nothing is known.")
         if "unavailable" in mode:
             tip += (" For paraphrase-tolerant recall, enable semantic: `pip install model2vec`, "
                     "run `embed-index`, then pass --semantic.")
@@ -730,20 +988,27 @@ def semantic_search(
     limit: int,
     min_importance: int,
     tags: list[str],
+    labels: list[str],
+    files: list[str],
     states: list[str],
+    regexes: list[re.Pattern[str]],
+    file_regexes: list[re.Pattern[str]],
     weights: dict[str, float],
     half_life: float | None,
     as_of: datetime | None,
+    sort: str,
     explain: bool = False,
 ) -> list[dict[str, Any]]:
     """3.1 Embedding recall: cosine over stored vectors, blended with decay signals."""
     qvec = encode(query)
     params: list[Any] = [min_importance]
     where_tags = tag_filter_sql(tags, params)
+    where_labels = label_filter_sql(labels, params)
+    where_files = file_filter_sql(files, params)
     where_states = state_filter_sql(states, params)
     rows = conn.execute(
         f"SELECT m.* FROM agent_memories m WHERE m.embedding IS NOT NULL "
-        f"AND m.importance_score >= ? {where_tags} {where_states}",
+        f"AND m.importance_score >= ? {where_tags} {where_labels} {where_files} {where_states}",
         params,
     ).fetchall()
     raw: list[tuple[dict[str, Any], float]] = []
@@ -767,10 +1032,9 @@ def semantic_search(
             memory["score_components"] = {**comp, "semantic": round(cos, 4),
                                           "semantic_norm": round(rel, 4)}
         scored.append(memory)
-    scored.sort(key=lambda m: (m["score"], m["created_at"]), reverse=True)
-    results = scored[:limit]
-    bump_access(conn, [m["memory_id"] for m in results])
-    return results
+    scored = filter_memory_regexes(scored, regexes, file_regexes)
+    sort_memories(scored, sort)
+    return scored[:limit]
 
 
 def search_memory(
@@ -779,12 +1043,17 @@ def search_memory(
     limit: int,
     min_importance: int,
     tags: list[str],
+    labels: list[str],
+    files: list[str],
     states: list[str],
+    regexes: list[re.Pattern[str]],
+    file_regexes: list[re.Pattern[str]],
     decay: bool = True,
     half_life: float | None = None,
     explain: bool = False,
     weights: dict[str, float] | None = None,
     as_of: datetime | None = None,
+    sort: str = "smart",
 ) -> list[dict[str, Any]]:
     weights = weights or DECAY_WEIGHTS
     terms = query_terms(query)
@@ -796,6 +1065,8 @@ def search_memory(
     if has_fts(conn) and terms:
         params: list[Any] = [" OR ".join(f'"{term}"' for term in terms), min_importance]
         where_tags = tag_filter_sql(tags, params)
+        where_labels = label_filter_sql(labels, params)
+        where_files = file_filter_sql(files, params)
         where_states = state_filter_sql(states, params)
         try:
             rows = conn.execute(
@@ -806,6 +1077,8 @@ def search_memory(
                 WHERE memory_fts MATCH ?
                   AND m.importance_score >= ?
                   {where_tags}
+                  {where_labels}
+                  {where_files}
                   {where_states}
                 ORDER BY lexical_score DESC
                 LIMIT ?
@@ -826,6 +1099,8 @@ def search_memory(
     if not candidates:
         params = [min_importance]
         where_tags = tag_filter_sql(tags, params)
+        where_labels = label_filter_sql(labels, params)
+        where_files = file_filter_sql(files, params)
         where_states = state_filter_sql(states, params)
         rows = conn.execute(
             f"""
@@ -833,9 +1108,11 @@ def search_memory(
             FROM agent_memories m
             WHERE m.importance_score >= ?
               {where_tags}
+              {where_labels}
+              {where_files}
               {where_states}
             ORDER BY m.importance_score DESC, m.created_at DESC
-            LIMIT 200
+            LIMIT 1000
             """,
             params,
         ).fetchall()
@@ -858,25 +1135,24 @@ def search_memory(
 
     if as_of is not None:
         candidates = [m for m in candidates if valid_at(m, as_of)]
+    candidates = filter_memory_regexes(candidates, regexes, file_regexes)
 
     if not decay:
-        candidates.sort(
-            key=lambda m: (m["importance_score"] * 10 + m["_lexical"], m["created_at"]),
-            reverse=True,
-        )
-        results = candidates[:limit]
+        for memory in candidates:
+            memory["_rank"] = memory["importance_score"] * 10 + memory["_lexical"]
+        sort_memories(candidates, sort)
     else:
         for memory in candidates:
             comp = decay_components(memory, memory["_lexical"], half_life, weights)
             memory["score"] = comp["final"]
             if explain:
                 memory["score_components"] = comp
-        candidates.sort(key=lambda m: (m["score"], m["created_at"]), reverse=True)
-        results = candidates[:limit]
+        sort_memories(candidates, sort)
+    results = candidates[:limit]
 
     for memory in results:
         memory.pop("_lexical", None)
-    bump_access(conn, [m["memory_id"] for m in results])
+        memory.pop("_rank", None)
     return results
 
 
@@ -2446,9 +2722,10 @@ def memory_import(args: argparse.Namespace) -> int:
             if has_fts(conn):
                 conn.execute("DELETE FROM memory_fts WHERE memory_id = ?", (mid,))
                 tags = " ".join(json.loads(keep.get("tags_json") or "[]")) if keep.get("tags_json") else ""
+                label = str(keep.get("label") or "OTHER").lower()
                 conn.execute(
                     "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)",
-                    (mid, keep.get("task_context", ""), keep.get("observation", ""), tags),
+                    (mid, keep.get("task_context", ""), keep.get("observation", ""), f"{tags} {label}".strip()),
                 )
             imported += 1
     return emit(
@@ -2573,6 +2850,9 @@ def stats(args: argparse.Namespace) -> int:
         "SELECT state, COUNT(*) AS count FROM agent_memories GROUP BY state").fetchall()}
     by_importance = {str(r["importance_score"]): r["count"] for r in conn.execute(
         "SELECT importance_score, COUNT(*) AS count FROM agent_memories GROUP BY importance_score").fetchall()}
+    by_label = {r["label"] or "OTHER": r["count"] for r in conn.execute(
+        "SELECT COALESCE(label, 'OTHER') AS label, COUNT(*) AS count "
+        "FROM agent_memories GROUP BY COALESCE(label, 'OTHER') ORDER BY count DESC").fetchall()}
     superseded = by_state.get("SUPERSEDED", 0)
     total = sum(by_state.values()) or 1
     stale_days = args.stale_days
@@ -2590,7 +2870,7 @@ def stats(args: argparse.Namespace) -> int:
         "SELECT state, quality, COUNT(*) AS count FROM refinements GROUP BY state, quality").fetchall()}
     return emit({
         "db_path": str(db_path),
-        "memories": {"by_state": by_state, "by_importance": by_importance},
+        "memories": {"by_state": by_state, "by_importance": by_importance, "by_label": by_label},
         "supersede_churn": round(superseded / total, 3),
         "stale_active": stale_active,
         "stale_days": stale_days,
@@ -2652,12 +2932,13 @@ def memory_index(args: argparse.Namespace) -> int:
     ]
     for m in top:
         loc = f" `{os.path.basename(m['file'])}`" if m.get("file") else ""
+        label = f" `{m.get('label') or 'OTHER'}`"
         obs = " ".join((m["observation"] or "").split())
         if len(obs) > 160:
             obs = obs[:157] + "..."
         tags = " ".join(f"#{t}" for t in (m.get("tags") or [])[:4])
         sig = f" ⚠{m['failure_signature']}" if m.get("failure_signature") else ""
-        out.append(f"- **[{m['importance_score']}]**{loc} {obs}{(' ' + tags) if tags else ''}{sig}  `{m['memory_id']}`")
+        out.append(f"- **[{m['importance_score']}]**{label}{loc} {obs}{(' ' + tags) if tags else ''}{sig}  `{m['memory_id']}`")
     if not top:
         out.append("_(no active memories yet)_")
     markdown = "\n".join(out) + "\n"
@@ -3118,10 +3399,54 @@ def self_test(args: argparse.Namespace) -> int:
         filed = run_json([
             "tell-memory", "--agent-id", "agent-a", "--task-context", "file-scoped",
             "--observation", "This lesson is about a specific file.", "--importance-score", "5",
-            "--file", "src/widget.ts", "--tag", "filemem",
+            "--label", "GOTCHA", "--file", "src/widget.ts", "--tag", "filemem",
         ])
         if not filed["memory"].get("file", "").endswith("src/widget.ts"):
             return emit({"ok": False, "error": "memory --file not stored", "stdout": filed}, 1)
+        if filed["memory"].get("label") != "GOTCHA":
+            return emit({"ok": False, "error": "memory --label not stored", "stdout": filed}, 1)
+        label_path = run_json([
+            "get-memory", "--query", "", "--label", "gotcha", "--file-regex", r"src/widget\.ts$",
+            "--sort", "importance", "--limit", "5",
+        ])
+        if not any(m["memory_id"] == filed["memory"]["memory_id"] for m in label_path["memories"]):
+            return emit({"ok": False, "error": "label/file-regex recall missed stored memory",
+                         "stdout": label_path}, 1)
+        smart = run_json([
+            "get-memory", "--query", "specific file", "--label", "BUG", "--smart", "--limit", "5",
+        ])
+        if not any(m["memory_id"] == filed["memory"]["memory_id"] for m in smart["memories"]):
+            return emit({"ok": False, "error": "smart recall failed to broaden label filter",
+                         "stdout": smart}, 1)
+        blank_label = run_json([
+            "tell-memory", "--agent-id", "agent-a", "--task-context", "blank label",
+            "--observation", "Blank labels become OTHER.", "--importance-score", "4",
+            "--label", "",
+        ])
+        if blank_label["memory"].get("label") != "OTHER":
+            return emit({"ok": False, "error": "blank memory label should become OTHER",
+                         "stdout": blank_label}, 1)
+        label_stats = run_json(["stats"])
+        if label_stats.get("memories", {}).get("by_label", {}).get("GOTCHA", 0) < 1:
+            return emit({"ok": False, "error": "stats missing memory labels",
+                         "stdout": label_stats}, 1)
+        viewer_out = str(Path(tmp_dir) / "awareness.html")
+        viewer = subprocess.run(
+            [
+                sys.executable, str(script.parent / "show-memories.py"),
+                "--memory-db", db_path, "--workspace-db", db_path,
+                "--no-serve", "--no-open", "--out", viewer_out,
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if viewer.returncode != 0:
+            return emit({"ok": False, "error": "show-memories static render failed",
+                         "stdout": viewer.stdout, "stderr": viewer.stderr}, 1)
+        if "GOTCHA" not in Path(viewer_out).read_text(encoding="utf-8"):
+            return emit({"ok": False, "error": "show-memories missing memory label",
+                         "stdout": json.loads(viewer.stdout or "{}")}, 1)
 
         # refine-delete: create, dry-run, delete, confirm gone.
         created = run_json([
@@ -3263,6 +3588,8 @@ def self_test(args: argparse.Namespace) -> int:
             return emit({"ok": False, "error": "memory-index did not write a valid index", "stdout": idx}, 1)
         if not Path(idx["path"]).exists():
             return emit({"ok": False, "error": "memory-index file missing on disk", "stdout": idx}, 1)
+        if "`GOTCHA`" not in idx.get("markdown", "") and "`OTHER`" not in idx.get("markdown", ""):
+            return emit({"ok": False, "error": "memory-index missing labels", "stdout": idx}, 1)
         results.append({"command": ["+bitemporal/stats/graph/semantic/memory-index checks"], "returncode": 0})
 
         # Notifications: a broadcast reaches another agent once, a directed reply
@@ -3426,6 +3753,12 @@ def build_parser() -> argparse.ArgumentParser:
     tell_parser.add_argument("--task-context", required=True)
     tell_parser.add_argument("--observation", required=True)
     tell_parser.add_argument("--importance-score", type=importance, required=True)
+    tell_parser.add_argument(
+        "--label",
+        type=normalize_memory_label,
+        default="OTHER",
+        help=f"Memory label/category. Empty or omitted becomes OTHER. Choices: {', '.join(MEMORY_LABELS)}.",
+    )
     tell_parser.add_argument("--tag", action="append", default=[])
     tell_parser.add_argument("--tags")
     tell_parser.add_argument(
@@ -3453,11 +3786,47 @@ def build_parser() -> argparse.ArgumentParser:
         aliases=["get_memory"],
         help="Recall relevant memories.",
     )
-    get_parser.add_argument("--query", required=True)
+    get_parser.add_argument("--query", default="", help="Recall query. May be empty when using filters.")
     get_parser.add_argument("--limit", type=positive_int, default=3)
     get_parser.add_argument("--min-importance", type=importance, default=1)
+    get_parser.add_argument(
+        "--label",
+        action="append",
+        type=normalize_memory_label,
+        default=[],
+        help="Filter by memory label/category; repeatable.",
+    )
     get_parser.add_argument("--tag", action="append", default=[])
     get_parser.add_argument("--tags")
+    get_parser.add_argument(
+        "--file",
+        action="append",
+        default=[],
+        help="Filter memories tied to this exact file path; normalized to absolute. Repeatable.",
+    )
+    get_parser.add_argument(
+        "--file-regex",
+        action="append",
+        default=[],
+        help="Regex filter against the stored memory file path; repeatable.",
+    )
+    get_parser.add_argument(
+        "--regex",
+        action="append",
+        default=[],
+        help="Regex filter against task, observation, tags, label, file, and failure signature; repeatable.",
+    )
+    get_parser.add_argument(
+        "--sort",
+        choices=list(MEMORY_SORTS),
+        default="smart",
+        help="Result order. smart/score use salience; alternatives sort by explicit fields.",
+    )
+    get_parser.add_argument(
+        "--smart",
+        action="store_true",
+        help="If strict recall under-fills, broaden safely: lower importance, then drop label/tag filters, then try semantic if indexed.",
+    )
     get_parser.add_argument(
         "--state",
         action="append",

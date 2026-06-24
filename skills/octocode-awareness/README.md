@@ -8,6 +8,27 @@ Its best path relies on **hooks**: hooks claim files before edits, release locks
 
 ---
 
+## Intention: developer-like awareness
+
+Awareness is meant to give an agent the same situational feel a careful developer builds while working inside a real project: what has already been learned, what work is currently in flight, which files are sensitive or claimed, who else is active, and what must be checked before the work can honestly be called done.
+
+At a high level, it adds a shared layer around the coding agent:
+
+| Awareness layer | What it gives the agent |
+|-----------------|-------------------------|
+| **Project memory** | Remembers reusable lessons, gotchas, workflows, and prior decisions so future runs do not start from zero. |
+| **Work handoff** | Keeps repo and branch-specific notes about unfinished work, current reasoning, and what the next agent should continue. |
+| **File ownership** | Shows which files are being touched, why they were claimed, who claimed them, and when the claim expires. |
+| **Peer coordination** | Lets agents working at the same time exchange claims, blockers, handoffs, replies, and decisions inside the repo channel. |
+| **Verification awareness** | Connects each edit intent to a stated test or review plan, then records whether that plan actually ran. |
+| **Environment context** | Captures useful run context such as workspace, branch, dirty state, platform, and runtime versions for handoffs. |
+| **Human visibility** | Provides an HTML viewer for memories, handoffs, messages, locks, and pending verification so the user can inspect the system. |
+| **Harness learning** | Records when the process itself needs improvement, such as repeated failures, missing checks, or better skill guidance. |
+
+In practice, this means an agent starts by orienting like a developer joining an active branch, works with visible ownership of files, coordinates instead of silently colliding, proves the declared checks before claiming success, and leaves behind only the context that will help the next run.
+
+---
+
 ## Why use it?
 
 Use this when the painful part is not code search - it is coordination and reliability:
@@ -154,13 +175,14 @@ Recall before you act; record a lesson when you learn one.
 
 ```bash
 # Recall (ranked by importance + recency-of-use + access + lexical match)
-python3 scripts/awareness.py get-memory --query "editing the auth router?" --min-importance 4
+python3 scripts/awareness.py get-memory --query "editing the auth router?" --min-importance 4 --smart
+python3 scripts/awareness.py get-memory --query "" --label GOTCHA --file-regex 'src/auth/.*router'
 
 # Record a reusable lesson (omit --file for a general, cross-file lesson)
 python3 scripts/awareness.py tell-memory --agent-id "codex" \
   --task-context "Refactoring auth validation" \
   --observation "The auth router normalizes tenant IDs before policy lookup; keep that order or cross-tenant tests fail." \
-  --importance-score 8 --tag auth --file src/auth/router.ts
+  --importance-score 8 --label GOTCHA --tag auth --file src/auth/router.ts
 
 # Replace a lesson with a better version (old one is marked SUPERSEDED)
 python3 scripts/awareness.py tell-memory ... --supersedes <memory-id>
@@ -178,7 +200,35 @@ python3 scripts/awareness.py memory-import .octocode/memories.jsonl   # dedupes 
 
 Memories are global per-machine by default. To **team-share them as files**, `memory-export` writes ACTIVE memories to a git-diffable JSONL you commit; teammates `memory-import` it (dedup by `memory_id`). For a **fully repo-local** store, set `OCTOCODE_MEMORY_HOME=<repo>/.octocode/memory` so every memory lives in the repo.
 
-Recall uses **salience decay**: ranking blends importance, recency *from last use* (re-use keeps a lesson fresh), saturating access count, and lexical match. Tune with `--no-decay`, `--half-life <days>`, and `--explain` (emits per-result score components).
+#### How recall ranks memories
+
+Recall is **not** importance-sorting — it blends four signals, each normalized to `0..1`, into one salience score:
+
+```
+final = 0.25*importance + 0.30*recency + 0.15*access + 0.30*relevance
+  importance = importance_score / 10
+  recency    = exp(-ln2 * age_days / half_life)   # age from LAST USE; re-use keeps it fresh (half_life=30d)
+  access     = log1p(access_count) / log1p(50)     # saturating — frequently-useful lessons rise
+  relevance  = how well the memory matches the query (the slot that changes per mode, below)
+```
+
+Every recall bumps `access_count` + `last_accessed_at` on the rows it returns. Tune with `--sort`, `--no-decay`, `--half-life`, and `--explain` (emits `score_components` per result). Full math: `references/self-harness.md`.
+
+**Two relevance modes:**
+
+| Mode | `relevance` source | Strength | Cost |
+|---|---|---|---|
+| **lexical** (default) | FTS5 `bm25`, squashed to `0..1` | exact keyword/term overlap | zero deps |
+| **semantic** (`--semantic`) | embedding cosine, min-max normalized across the pool | paraphrase-tolerant — finds lessons worded differently | needs `model2vec` + `embed-index` |
+
+Lexical is the always-on default. A paraphrased query can miss a real lesson, so a zero-result recall is **not** proof of absence — broaden terms, use `--smart`, drop filters, or switch to semantic. To enable semantic recall (opt-in, self-provisioning — the shipped skill is just a folder):
+
+```bash
+python3 scripts/awareness.py embed-index --install   # pip-installs model2vec from scripts/requirements.txt, then embeds all memories
+python3 scripts/awareness.py get-memory --query "how do I stop paging early?" --semantic
+```
+
+First `embed-index` downloads `minishlab/potion-base-8M` (~30 MB) from HuggingFace; for offline installs vendor it at `scripts/models/potion-base-8M` or set `OCTOCODE_EMBED_MODEL`. See `references/memory-recall.md`.
 
 ### 2. Refinements — work handoffs (per repo)
 
@@ -338,7 +388,7 @@ The `harness-guard` PreToolUse hook **enforces** this: edits to the skill's own 
 
 ```bash
 python3 scripts/awareness.py env      # running env + git repo/branch/dirty + open handoff here + unverified intents
-python3 scripts/awareness.py stats    # harness-health ledger: states, supersede churn, stale-ACTIVE, top weaknesses
+python3 scripts/awareness.py stats    # harness-health ledger: states, labels, supersede churn, stale-ACTIVE, top weaknesses
 python3 scripts/awareness.py memory-graph --format mermaid   # supersede lineage as Mermaid (paste anywhere)
 python3 scripts/awareness.py embed-index    # build local embeddings for get-memory --semantic (opt-in)
 node scripts/smoke-multi-agent.mjs           # temp-file two-agent lock + notify + prune validation

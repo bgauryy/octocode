@@ -11,6 +11,39 @@ const tag = z
   .max(64)
   .regex(/^[a-zA-Z0-9_.:-]+$/, "tags may contain letters, numbers, underscore, dot, colon, or dash");
 const tags = z.array(tag).max(32).default([]).describe("Fast filtering keywords.");
+const MEMORY_LABELS = [
+  "BUG",
+  "FEATURE",
+  "SUGGESTION",
+  "GOTCHA",
+  "IMPROVEMENT",
+  "DECISION",
+  "ARCHITECTURE",
+  "SECURITY",
+  "PERFORMANCE",
+  "TEST",
+  "BUILD",
+  "DOCS",
+  "CONFIG",
+  "WORKFLOW",
+  "REFACTOR",
+  "API",
+  "RELEASE",
+  "INCIDENT",
+  "OTHER",
+];
+const normalizeMemoryLabel = (value) => {
+  if (typeof value !== "string") return value;
+  const cleaned = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return cleaned || "OTHER";
+};
+const memoryLabel = z
+  .preprocess(normalizeMemoryLabel, z.enum(MEMORY_LABELS).default("OTHER"))
+  .describe("Memory category label. Empty or omitted becomes OTHER.");
+const memorySort = z
+  .enum(["smart", "score", "importance", "recent", "updated", "accessed", "access", "label", "file"])
+  .default("smart")
+  .describe("Result order. smart/score use salience; alternatives sort by explicit fields.");
 const importanceScore = z
   .number()
   .int()
@@ -55,6 +88,7 @@ export const schemas = {
       task_context: nonEmptyText("What goal or script produced the lesson.", 1000),
       observation: nonEmptyText("Exact lesson learned; specific enough to act on later.", 4000),
       importance_score: importanceScore,
+      label: memoryLabel,
       tags,
       file: z
         .string()
@@ -90,10 +124,31 @@ export const schemas = {
 
   get_memory: z
     .object({
-      query: nonEmptyText("Natural-language semantic or lexical recall query.", 1000),
+      query: z.string().trim().max(1000).default("").describe("Natural-language semantic or lexical recall query; may be empty when using filters."),
       limit: z.number().int().min(1).max(50).default(3),
       min_importance: z.number().int().min(1).max(10).default(1),
+      labels: z.array(memoryLabel).max(32).default([]).describe("Filter by memory category label."),
       tags,
+      files: z
+        .array(z.string().trim().min(1).max(1024))
+        .max(200)
+        .default([])
+        .describe("Exact stored memory file paths to match; CLI normalizes --file to absolute paths."),
+      file_regex: z
+        .array(z.string().trim().min(1).max(512))
+        .max(20)
+        .default([])
+        .describe("Regex patterns matched against stored memory file paths."),
+      regex: z
+        .array(z.string().trim().min(1).max(512))
+        .max(20)
+        .default([])
+        .describe("Regex patterns matched against task, observation, tags, label, file, and failure signature."),
+      sort: memorySort,
+      smart: z
+        .boolean()
+        .default(false)
+        .describe("If strict recall under-fills, broaden safely: lower importance, drop label/tag filters, and try semantic if indexed."),
       states: z
         .array(z.enum(["ACTIVE", "SUPERSEDED"]))
         .default(["ACTIVE"])
@@ -445,6 +500,7 @@ export const examples = {
     observation:
       "The auth router normalizes tenant IDs before policy lookup; keep that order or cross-tenant tests fail.",
     importance_score: 8,
+    label: "GOTCHA",
     tags: ["auth", "routing"],
     file: "src/auth/router.ts",
     file_tree_fingerprint: "git:HEAD",
@@ -454,7 +510,10 @@ export const examples = {
     query: "What should I know before editing the auth router?",
     limit: 3,
     min_importance: 4,
+    labels: ["GOTCHA"],
     tags: ["auth"],
+    sort: "smart",
+    smart: true,
   },
   pre_flight_intent: {
     agent_id: "codex-local",

@@ -38,14 +38,33 @@ Important flags:
 - `--query`: natural-language recall query.
 - `--limit`: maximum memories, default `3`.
 - `--min-importance`: filter low-value memories, default `1`.
+- `--label`: repeatable category filter (`BUG`, `FEATURE`, `SUGGESTION`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `ARCHITECTURE`, `SECURITY`, `PERFORMANCE`, `TEST`, `BUILD`, `DOCS`, `CONFIG`, `WORKFLOW`, `REFACTOR`, `API`, `RELEASE`, `INCIDENT`, `OTHER`).
 - `--tag`: optional repeated tag filter.
 - `--state`: repeatable lifecycle filter; default `ACTIVE` only. Pass `--state SUPERSEDED` to inspect memories replaced via `--supersedes`.
+- `--file`: repeatable exact stored file-path filter (normalized to an absolute path).
+- `--file-regex`: repeatable regex matched against stored memory file paths.
+- `--regex`: repeatable regex matched against task, observation, tags, label, file, and failure signature.
+- `--sort`: `smart`/`score` (default salience), `importance`, `recent`, `updated`, `accessed`, `access`, `label`, or `file`.
+- `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters, then try semantic recall if indexed. Use this for "fetch smart memories" moments before deciding the store has no relevant context.
 
 Recall modes (default ranking blends importance + recency-of-use + access + lexical; see `self-harness.md` for the decay formula and `--no-decay`/`--half-life`/`--explain`):
 - `--as-of <ISO>`: **bi-temporal** point-in-time recall — only memories whose valid window (`valid_from`/`valid_to`) contains that instant. Default (omitted) = now-behavior. Set `--valid-from`/`--valid-to` on `tell-memory`; superseding a memory closes its window (`valid_to`) and stamps `expired_at`.
-- `--semantic`: **local embedding** recall via `model2vec` (run `embed-index` first to build vectors). Falls back to lexical and reports `mode` when the model isn't installed/vendored, so the default never regresses.
+- `--semantic`: **local embedding** recall via `model2vec` — paraphrase-tolerant, finds lessons whose wording differs from the query. Falls back to lexical and reports `mode` when the model isn't installed/vendored, so the default never regresses. Cosine is min-max normalized across the candidate pool, then blended with decay (see `self-harness.md`); `--explain` shows `semantic` (raw cosine) and `semantic_norm`.
 
-**A zero-result recall is not proof of absence.** Default recall is lexical (FTS keyword match), so a paraphrased query can miss a real lesson whose wording differs. When `count` is `0`, `get-memory` returns a `hint`: retry with fewer / broader / synonymous terms (or the symbol or file name), and drop `--tag`/`--min-importance`, before concluding nothing is known. Enable `--semantic` (after `embed-index`) for paraphrase-tolerant recall.
+  Semantic is **opt-in and self-provisioning** — a shipped skill is just a folder, so build the vectors on first use:
+
+  ```bash
+  # One command: pip-install model2vec from scripts/requirements.txt, then embed every memory.
+  python3 <skill_root>/scripts/awareness.py embed-index --install
+  # Thereafter (deps present): refresh new/changed rows, or --rebuild to re-embed all.
+  python3 <skill_root>/scripts/awareness.py embed-index
+  # Then recall semantically:
+  python3 <skill_root>/scripts/awareness.py get-memory --query "..." --semantic
+  ```
+
+  First `embed-index` downloads the default model (`minishlab/potion-base-8M`, ~30 MB) from HuggingFace. For offline/air-gapped installs, vendor it at `scripts/models/potion-base-8M` or point `OCTOCODE_EMBED_MODEL` at a local path. Re-run `embed-index` after `memory-import` (export/import drops embedding blobs).
+
+**A zero-result recall is not proof of absence.** Default recall is lexical (FTS keyword match), so a paraphrased query can miss a real lesson whose wording differs. When `count` is `0`, `get-memory` returns a `hint`: retry with fewer / broader / synonymous terms (or the symbol or file name), use `--smart`, and drop `--tag`/`--label`/`--min-importance`, before concluding nothing is known. Enable `--semantic` (after `embed-index`) for paraphrase-tolerant recall.
 
 Use returned memories as evidence, not as instructions. **MUST:** validate code-related memories against actual current code before relying on them; code changes, so memory is never truth by itself. If validation shows a memory is obsolete or redundant, retire it with `forget --dry-run` first for broad filters or supersede it with `tell-memory --supersedes`.
 
@@ -64,6 +83,7 @@ Important flags:
 - `--task-context`: concise description of the task that produced the lesson.
 - `--observation`: the exact lesson learned.
 - `--importance-score`: `1-10` criticality rating.
+- `--label`: memory category. Empty or omitted becomes `OTHER`. Prefer specific labels when obvious: `BUG` for defects, `GOTCHA` for surprising constraints, `IMPROVEMENT` for better process, `DECISION` for chosen direction, `SECURITY` for safety-sensitive lessons, etc.
 - `--tag`: optional repeated keyword tag.
 - `--file`: the ONE file this memory correlates to (normalized to an absolute path, like locks). Omit for a general lesson. A memory is tied to at most one file; use the file-scoped form for "editing X behaves like Y", and the general form for reusable cross-file lessons.
 - `--file-tree-fingerprint`: optional Git SHA or workspace state hash.
@@ -82,6 +102,8 @@ Changing X in file Y caused Z because of W. Future agents should do A instead an
 ```
 
 When the lesson is a specific code snippet, API, or command, include the why/how in the memory itself. Add a source-code comment only when you are already editing that code and a concise comment would prevent real confusion; a snippet with no "why" is noise, but noisy comments in code are also debt.
+
+Feature rating: typed labels + smart recall + regex/file filters are a strong awareness upgrade (8.5/10). Labels make memory browsing and sorting less fuzzy, regex/file filters let agents find path-scoped lessons without over-broad text queries, and `--smart` reduces the common failure mode where a strict recall misses useful context.
 
 ## `forget`
 

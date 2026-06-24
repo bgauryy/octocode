@@ -71,14 +71,26 @@ Exact-signature grouping is brittle on free text, so signatures power *this view
 recency    = exp(-ln2 * age_days / half_life)   # age from LAST USE — re-use keeps it fresh
 importance = importance_score / 10
 access     = log1p(access_count) / log1p(50)     # saturating
-lexical    = normalized FTS5/bm25 (or term hits)
-final = 0.25*importance + 0.30*recency + 0.15*access + 0.30*lexical
+relevance  = query match, normalized to 0..1    # the "lexical" weight slot
+final = 0.25*importance + 0.30*recency + 0.15*access + 0.30*relevance
 ```
 
+The `relevance` term (the `lexical` weight) is filled differently per mode, but is
+always normalized to `0..1` so the weights mean what they say:
+- **lexical** (default): FTS5 `bm25` squashed monotonically via `rel/(1+rel)` (or term-hit
+  ratio on the no-FTS fallback). *Earlier builds mis-normalized this to a constant `1.0`,
+  which silently removed lexical relevance from ranking — fixed; verify with `--explain`.*
+- **semantic** (`--semantic`, needs `embed-index`): cosine similarity over stored vectors,
+  **min-max normalized across the candidate pool** so the most-similar memory scores `1.0`
+  and the least `0.0`. `--explain` shows both raw `semantic` (cosine) and `semantic_norm`.
+  Static-embedding cosines bunch in a narrow band, so the normalization is what makes
+  similarity actually reorder results; decay then re-ranks within.
+
 Every recall bumps `access_count` + `last_accessed_at` for the rows it returns, so
-frequently-useful lessons stay near the top. Flags: `--no-decay` (importance+lexical
-only), `--half-life <days>` (default 30), `--explain` (emit `score_components` per
-result — use it to tune). Older databases migrate automatically.
+frequently-useful lessons stay near the top. Flags: `--no-decay` (importance+relevance
+only), `--half-life <days>` (default 30), `--sort` (`smart`/`score`/`recent`/…),
+`--explain` (emit `score_components` per result — use it to tune). Older databases
+migrate automatically.
 
 ## 4. Refine the harness — the loop's last step
 

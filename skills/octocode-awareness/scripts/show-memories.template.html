@@ -140,6 +140,7 @@ async function del(kind,id,row){
 const MCOLS=[
   {k:"importance_score",label:"imp",type:"num",cell:m=>`<span class="imp" style="${impColor(m.importance_score)}">${esc(m.importance_score)}</span>`},
   {k:"state",label:"state",type:"str",cell:m=>`<span class="badge b-${(m.state||'').toLowerCase()}">${esc(m.state)}</span>`},
+  {k:"label",label:"label",type:"str",cell:m=>`<span class="chip">${esc(m.label||"OTHER")}</span>`},
   {k:"agent_id",label:"agent",type:"str",cell:m=>`<span class="mono">${esc(m.agent_id)}</span>`},
   {k:"file",label:"file",type:"str",cell:m=>fileCell(m.file)},
   {k:"observation",label:"observation",type:"str",cls:"txt",cell:m=>esc(m.observation)},

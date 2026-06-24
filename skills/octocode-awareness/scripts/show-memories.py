@@ -79,6 +79,7 @@ def load_memories(db: Path) -> list[dict]:
             "observation": r["observation"],
             "importance_score": r["importance_score"],
             "state": r["state"] if "state" in k else "ACTIVE",
+            "label": r["label"] if "label" in k and r["label"] else "OTHER",
             "file": r["file"] if "file" in k else None,
             "tags": json.loads(r["tags_json"]) if "tags_json" in k and r["tags_json"] else [],
             "failure_signature": r["failure_signature"] if "failure_signature" in k else None,
