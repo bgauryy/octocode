@@ -7,6 +7,9 @@
   "types": "index.d.ts",
   "license": "MIT",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/bgauryy/octocode-mcp.git",
