@@ -1545,7 +1545,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-engine@npm:^16.5.1, @octocodeai/octocode-engine@npm:^16.6.0, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
+"@octocodeai/octocode-engine@npm:^16.6.0, @octocodeai/octocode-engine@workspace:packages/octocode-engine":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
   dependencies:
@@ -5705,7 +5705,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/octocode-core": "npm:^16.5.3"
-    "@octocodeai/octocode-engine": "npm:^16.5.1"
+    "@octocodeai/octocode-engine": "npm:^16.6.0"
     "@octocodeai/octocode-tools-core": "workspace:^"
     "@octokit/oauth-methods": "npm:^6.0.2"
     "@octokit/plugin-throttling": "npm:^11.0.3"
@@ -5748,7 +5748,7 @@ __metadata:
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@octocodeai/octocode-core": "npm:^16.5.3"
-    "@octocodeai/octocode-engine": "npm:^16.5.1"
+    "@octocodeai/octocode-engine": "npm:^16.6.0"
     "@octocodeai/octocode-tools-core": "npm:16.6.0"
     "@octokit/auth-oauth-device": "npm:^8.0.3"
     "@octokit/oauth-methods": "npm:^6.0.2"

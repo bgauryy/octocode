@@ -102,7 +102,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octocodeai/octocode-core": "^16.5.3",
-    "@octocodeai/octocode-engine": "^16.5.1",
+    "@octocodeai/octocode-engine": "^16.6.0",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/request": "^10.0.10",
