@@ -242,7 +242,7 @@ function printUsageError(message: string, jsonOutput: boolean): void {
     console.log();
     console.log(`  ${c('red', '✗')} ${message}`);
     console.log(
-      `  ${dim('Usage:')} skill (--add <github-folder> | --name <octocode-skill>) [--platform common|cursor|claude|codex|opencode|all] [--mode copy|symlink|hybrid] [--force|--update] [--dry-run]`
+      `  ${dim('Usage:')} skill (--add <github-folder> | --name <octocode-skill>) [--platform common|cursor|claude|codex|opencode|pi|all] [--mode copy|symlink|hybrid] [--force|--update] [--dry-run]`
     );
     console.log(`  ${dim('List:  ')} skill --list`);
     console.log(`  ${dim('Example:')} skill --name octocode-engineer`);
@@ -411,7 +411,7 @@ export const skillCommand: CLICommand = {
     const parsedPlatforms = parseUserSkillPlatformList(rawPlatform);
     if (parsedPlatforms.error) {
       printUsageError(
-        `${parsedPlatforms.error}. Valid platforms: common, cursor, claude, codex, opencode, all`,
+        `${parsedPlatforms.error}. Valid platforms: common, cursor, claude, codex, opencode, pi, all`,
         jsonOutput
       );
       return;

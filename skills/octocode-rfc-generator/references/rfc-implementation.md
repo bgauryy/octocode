@@ -68,6 +68,13 @@ Every reference must state **how it supports the RFC thesis**.
 | Integration | {flows} | {approach} |
 | Performance | {metrics} | {approach} |
 
+### Acceptance Criteria
+- **Done when:** {observable end state}
+- **Verification commands:** `{command}` and expected signal
+- **Success signal:** {metric, behavior, or review outcome}
+- **Rollback trigger:** {condition that reverses rollout}
+- **Owner / approver:** {person or team}
+
 ### Rollout Strategy
 {Feature flags? Gradual? Big bang? Rollback plan?}
 ```

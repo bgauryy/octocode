@@ -10,11 +10,11 @@ npx octocode tools             # list tools
 npx octocode tools <name> --scheme  # schema for one tool
 npx octocode status --json     # auth/token/cache/MCP status
 npx octocode install --ide cursor  # install Octocode MCP for an IDE
-npx octocode skill --add bgauryy/octocode-mcp/skills/octocode-engineer --platform common
-for skill in octocode octocode-awareness octocode-brainstorming octocode-engineer octocode-loop octocode-research octocode-rfc-generator octocode-roast octocode-skills octocode-stats; do npx octocode skill --add "https://github.com/bgauryy/octocode/tree/main/skills/$skill" --platform all --mode copy --force; done
+npx octocode skill --name octocode-engineer --platform pi
+for skill in octocode octocode-awareness octocode-brainstorming octocode-engineer octocode-loop octocode-research octocode-rfc-generator octocode-roast octocode-skills octocode-stats; do npx octocode skill --name "$skill" --platform pi --mode copy --update; done
 ```
 
-`skill --add` is the agent-safe skill installer. It requires every destination as a flag and never prompts, so automation can use `--platform common|cursor|claude|codex|all`, `--mode copy|symlink`, `--force`, and `--json` deterministically.
+`skill` is the agent-safe skill installer. It never prompts, so automation can use `--name <octocode-skill>` or `--add <github-folder>`, `--platform common|cursor|claude|codex|opencode|pi|all`, `--mode copy|symlink|hybrid`, `--force|--update`, and `--json` deterministically.
 
 ## Docs
 

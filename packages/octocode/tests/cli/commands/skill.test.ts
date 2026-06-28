@@ -272,6 +272,33 @@ describe('skillCommand', () => {
     );
   });
 
+  it('adds a named Octocode skill to Pi', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        name: 'octocode-engineer',
+        platform: 'pi',
+        json: true,
+      },
+    });
+
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/pi/octocode-engineer',
+        mode: 'copy',
+      })
+    );
+    expect(jsonOutput()).toMatchObject({
+      success: true,
+      skill: 'octocode-engineer',
+      platforms: ['pi'],
+      installed: 1,
+    });
+  });
+
   it('uses the common default in a TTY without prompting', async () => {
     setStdoutTTY(true);
     const command = await loadCommand();

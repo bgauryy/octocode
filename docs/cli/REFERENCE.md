@@ -36,7 +36,7 @@ octocode tools <name> --queries '<json>' --compact
 octocode context [--full] [--json]
 
 # Agent setup
-octocode skill --add <github-folder> --platform common|cursor|claude|codex|all [--mode copy|symlink] [--force] [--json]
+octocode skill (--add <github-folder> | --name <octocode-skill>) [--platform common|cursor|claude|codex|opencode|pi|all] [--mode copy|symlink|hybrid] [--force|--update] [--json]
 ```
 
 ## Command Index
@@ -49,7 +49,7 @@ octocode skill --add <github-folder> --platform common|cursor|claude|codex|all [
 | `cache` | Materialize remote files/trees/repos, inspect status, or clear tmp storage. |
 | `tools` | List tools, read schemas, and run any MCP tool directly. |
 | `context` | Print agent-facing protocol, system prompt, tool descriptions, and schemas. |
-| `skill` | Fetch one GitHub Agent Skill folder and install it into Common, Cursor, Claude, Codex, or all supported skill destinations. |
+| `skill` | Fetch one GitHub Agent Skill folder or named Octocode skill and install it into Common, Cursor, Claude, Codex, OpenCode, Pi, or all supported skill destinations. |
 | `install` | Configure Octocode in supported MCP clients. |
 | `auth` | Run auth subcommands: `login`, `logout`, `refresh`, or read-only `status`. |
 | `login` / `logout` | Open the interactive auth picker or clear stored GitHub credentials directly. |
@@ -78,7 +78,7 @@ Use `octocode context --full` for complete tool descriptions, and `octocode cont
 | Outline a file / trace symbols semantically | `search <file> --op documentSymbols` or `search <file> --symbols`, then `search <file> --op ... --symbol ... --line ...`; structural `search` matches can also provide anchors |
 | Inspect PRs/history or clone for local analysis | `search --target pullRequests`, `search --target commits`, `clone`, `cache fetch`, or `search --repo` |
 | Inspect archives/binaries | `search --target artifacts`, `unzip` |
-| Install Agent Skills into clients | `skill --add <github-folder> --platform common|cursor|claude|codex|all` |
+| Install Agent Skills into clients | `skill (--add <github-folder> | --name <octocode-skill>) --platform common|cursor|claude|codex|opencode|pi|all` |
 | Configure Octocode | `install`, `auth`, `login`, `logout`, `status` |
 | Run any MCP tool directly | `tools --json --compact`, then `tools <name> --scheme --json --compact`, then `tools <name> --queries '<json>' --compact` |
 
@@ -484,10 +484,10 @@ octocode search <localPath-from-unzip-output> --tree
 
 ### skill
 
-Install one GitHub Agent Skill folder into deterministic skill destinations. This command is built for agents and scripts: `--platform` is required, `--target` is an alias, and the command never opens an interactive chooser.
+Install one GitHub Agent Skill folder or named Octocode skill into deterministic skill destinations. This command is built for agents and scripts: it defaults to `common`, accepts explicit destinations with `--platform`, `--target` is an alias, and the command never opens an interactive chooser.
 
 ```
-skill --add <github-folder> --platform common|cursor|claude|codex|all [--branch <ref>] [--mode copy|symlink] [--force] [--json]
+skill (--add <github-folder> | --name <octocode-skill>) [--platform common|cursor|claude|codex|opencode|pi|all] [--branch <ref>] [--mode copy|symlink|hybrid] [--force|--update] [--json]
 ```
 
 Accepted GitHub folder forms:
@@ -507,7 +507,9 @@ Platforms:
 | `cursor` | Cursor skills directory |
 | `claude` | Claude Code and Claude Desktop skill directories |
 | `codex` | Codex skills directory |
-| `all` | Common, Cursor, Claude, and Codex |
+| `opencode` | OpenCode skills directory |
+| `pi` | Pi's global `~/.pi/agent/skills` directory |
+| `all` | Common, Cursor, Claude, Codex, OpenCode, and Pi |
 
 Install modes:
 
@@ -515,21 +517,23 @@ Install modes:
 |------|----------|
 | `copy` | Default. Copy the fetched folder into every selected destination. |
 | `symlink` | Keep the fetched folder under Octocode's `skill-sources` cache and link each destination to it. |
+| `hybrid` | Copy for Claude targets and symlink everywhere else. |
 
 Examples:
 
 ```bash
-octocode skill --add bgauryy/octocode-mcp/skills/octocode-engineer --platform common
+octocode skill --name octocode-engineer --platform common
+octocode skill --name octocode-engineer --platform pi
 octocode skill --add bgauryy/octocode-mcp@main/skills/octocode-engineer --platform cursor,codex --mode copy --json
 octocode skill --add https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer --platform all --mode symlink --force
-for skill in octocode octocode-awareness octocode-brainstorming octocode-engineer octocode-loop octocode-research octocode-rfc-generator octocode-roast octocode-skills octocode-stats; do octocode skill --add "https://github.com/bgauryy/octocode/tree/main/skills/$skill" --platform all --mode copy --force; done
+for skill in octocode octocode-awareness octocode-brainstorming octocode-engineer octocode-loop octocode-research octocode-rfc-generator octocode-roast octocode-skills octocode-stats; do octocode skill --name "$skill" --platform pi --mode copy --update; done
 ```
 
 Agent-safe failure behavior:
 
 | Case | Exit |
 |------|------|
-| Missing `--add`, missing `--platform`, invalid platform, invalid mode, or invalid GitHub folder | `2` |
+| Missing source, invalid platform, invalid mode, or invalid GitHub folder | `2` |
 | GitHub folder does not contain `SKILL.md` or cannot be fetched | `3` |
 | One or more destination installs fail | `1` |
 

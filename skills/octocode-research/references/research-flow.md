@@ -3,9 +3,9 @@
 Read this when executing an Octocode research workflow. The front door picks the mode; this file gives compact command chains and proof rules.
 
 Start each workflow with a **surface plan**: local, GitHub, packages, PR/history, artifacts, web, and any skipped surfaces with reasons. Update it when cross-pollination changes the route.
+For long, contested, or public-facing decision briefs, read `references/long-research.md` before deep work. For repo ecosystem comparisons or "which implementation should we reuse?" questions, read `references/github-landscape.md`.
 
 ## Mode Flows
-
 ### Map: landscape / prior art
 
 ```text

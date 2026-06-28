@@ -349,12 +349,13 @@ npx octocode skill --list                                      # browse availabl
 npx octocode skill --name octocode-engineer                    # install to ~/.agents/skills (common)
 npx octocode skill --name octocode-engineer --platform codex   # install for Codex
 npx octocode skill --name octocode-engineer --platform claude  # install for Claude Code + Claude Desktop
+npx octocode skill --name octocode-engineer --platform pi      # install for Pi
 npx octocode skill --name octocode-engineer --all --dry-run    # preview before installing everywhere
 npx octocode skill --add owner/repo/skills/my-skill            # install any GitHub skill folder
 npx octocode skill --help                                      # read live flags
 ```
 
-Platforms: `common` (default, `~/.agents/skills`), `cursor`, `claude`, `codex`, `opencode`, `all` · Modes: `copy` (default), `symlink`, `hybrid` · bulk installs are covered in the [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
+Platforms: `common` (default, `~/.agents/skills`), `cursor`, `claude`, `codex`, `opencode`, `pi` (`~/.pi/agent/skills`), `all` · Modes: `copy` (default), `symlink`, `hybrid` · bulk installs are covered in the [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
 
 | Skill | Directory | Use it when | How it works |
 |-------|-----------|-------------|--------------|
@@ -459,12 +460,22 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 - **Skill route — recommended, leanest.** Drop the [`octocode-engineer`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
 
   ```bash
-  npx octocode skill --name octocode-engineer
+  npx octocode skill --name octocode-engineer --platform pi
   ```
 
 - **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose all 14 Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is actually called. Enable clone tools with `ENABLE_CLONE=true`.
 
 Tune Pi's behavior with an `APPEND_SYSTEM.md` (a compact starter lives at [`docs/PI/APPEND_SYSTEM.md`](https://github.com/bgauryy/octocode/blob/main/docs/PI/APPEND_SYSTEM.md)). The full walkthrough — adapter install, MCP config scopes, skills, system-prompt tuning, and custom models — is in the [**Pi Setup Guide**](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md).
+
+### Octocode Harness
+
+The Octocode harness is the recommended agent environment for research-driven development: Pi supplies the local coding loop, `npx octocode` supplies structured code research, and Octocode Skills encode the workflows agents should follow before they edit.
+
+Docs: [Pi Setup Guide](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md) · [APPEND_SYSTEM starter](https://github.com/bgauryy/octocode/blob/main/docs/PI/APPEND_SYSTEM.md)
+
+It is deliberately research-oriented because most agent failures start before implementation: the agent guesses the owner of a behavior, trusts a snippet without reading the exact source, or edits before proving blast radius. The harness pushes the agent through a cheaper loop first: orient with trees and discovery output, search with Octocode, read exact evidence, use AST/LSP when identity matters, then patch and verify.
+
+That shape keeps the editing surface small while preserving context for what matters: file anchors, symbols, call paths, PR/history evidence, package sources, and the verification command that proves the change. In short, Pi is the hands, Octocode is the map, and the skills/system prompt make the habit repeatable.
 
 ### The Manifest
 

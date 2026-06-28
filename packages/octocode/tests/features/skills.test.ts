@@ -30,6 +30,8 @@ vi.mock('../../src/utils/skills.js', () => ({
     cursor: ['cursor'],
     claude: ['claude-code', 'claude-desktop'],
     codex: ['codex'],
+    opencode: ['opencode'],
+    pi: ['pi'],
   },
 }));
 
@@ -80,16 +82,24 @@ describe('features/skills', () => {
   });
 
   it('parses user-facing platforms to low-level targets', () => {
-    expect(parseUserSkillPlatformList('common,cursor,claude')).toEqual({
-      platforms: ['common', 'cursor', 'claude'],
-      targets: ['agents', 'cursor', 'claude-code', 'claude-desktop'],
+    expect(parseUserSkillPlatformList('common,cursor,claude,pi')).toEqual({
+      platforms: ['common', 'cursor', 'claude', 'pi'],
+      targets: ['agents', 'cursor', 'claude-code', 'claude-desktop', 'pi'],
     });
   });
 
   it('expands all user-facing platforms', () => {
     expect(parseUserSkillPlatformList('all')).toEqual({
-      platforms: ['common', 'cursor', 'claude', 'codex'],
-      targets: ['agents', 'cursor', 'claude-code', 'claude-desktop', 'codex'],
+      platforms: ['common', 'cursor', 'claude', 'codex', 'opencode', 'pi'],
+      targets: [
+        'agents',
+        'cursor',
+        'claude-code',
+        'claude-desktop',
+        'codex',
+        'opencode',
+        'pi',
+      ],
     });
   });
 

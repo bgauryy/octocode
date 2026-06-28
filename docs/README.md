@@ -65,5 +65,6 @@ Design notes for the unified `npx octocode search` / OQL language.
 | Doc | When to read |
 |-----|--------------|
 | [Development Guide](https://github.com/bgauryy/octocode/blob/main/docs/DEVELOPMENT_GUIDE.md) | Monorepo setup, commands, testing standards |
-| [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md) | Install GitHub Agent Skill folders into Common, Cursor, Claude, and Codex |
-| [Pi Setup Guide](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md) | Use Octocode inside earendil-works/pi via `pi-mcp-adapter` |
+| [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md) | Install GitHub Agent Skill folders or named Octocode skills into supported agent skill directories |
+| [Pi Setup Guide](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md) | Configure the Octocode Harness in Pi: skills, `npx octocode`, prompt tuning, and custom models |
+| [Pi APPEND_SYSTEM starter](https://github.com/bgauryy/octocode/blob/main/docs/PI/APPEND_SYSTEM.md) | Compact system-prompt addendum for Pi + Octocode research-driven development |

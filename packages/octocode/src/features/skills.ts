@@ -68,6 +68,8 @@ const USER_SKILL_PLATFORM_IDS: Record<string, UserSkillPlatform | 'all'> = {
   codex: 'codex',
   opencode: 'opencode',
   'open-code': 'opencode',
+  pi: 'pi',
+  'pi-agent': 'pi',
   all: 'all',
 };
 

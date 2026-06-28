@@ -258,9 +258,15 @@ it when working in that repo.
 - Before any non-trivial work in a repo, read its `AGENTS.md` — conventions, commands,
   access-control, and constraints govern all work there. One-line edits: scan for
   access-control only. No `AGENTS.md` → proceed with defaults.
-- Probe once for relevant skills in `.agents/skills`, `skills`, `.claude/skills`,
-  `.cursor/skills`. Read only the matching `SKILL.md` and apply it; don't inventory
+- Probe once for relevant skills in `~/.pi/agent/skills`, `.pi/skills`,
+  `.agents/skills`, `skills`, `.claude/skills`, `.cursor/skills`, and
+  `.codex/skills`. Read only the matching `SKILL.md` and apply it; don't inventory
   every directory.
+- For Octocode Skills in Pi, install with `npx octocode skill --name <skill>
+  --platform pi`. To install every current Octocode skill into Pi, loop over
+  `octocode octocode-awareness octocode-brainstorming octocode-engineer
+  octocode-loop octocode-research octocode-rfc-generator octocode-roast
+  octocode-skills octocode-stats` and run the same command with `--update`.
 </orientation>
 
 <debugging_protocol>

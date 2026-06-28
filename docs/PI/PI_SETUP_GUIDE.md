@@ -14,7 +14,7 @@ Use the Octocode CLI (`npx octocode`) for all research. Install skills to extend
 
 ## 1. Install skills
 
-[Agent Skills](https://agentskills.io) (`SKILL.md` folders) are Pi's preferred extension model. Skills are activated automatically by task context or forced with `/skill:name`.
+[Agent Skills](https://agentskills.io) (`SKILL.md` folders) are Pi's preferred extension model. Pi loads them from `~/.pi/agent/skills/` globally and from `.pi/skills/` inside trusted projects. Skills are activated automatically by task context or forced with `/skill:name`.
 
 Browse all Octocode skills: **[skills.sh/bgauryy/octocode-mcp](https://www.skills.sh/bgauryy/octocode-mcp)**
 
@@ -24,26 +24,33 @@ Browse all Octocode skills: **[skills.sh/bgauryy/octocode-mcp](https://www.skill
 | `octocode-research` | Deep code exploration: trace flow, find usages, understand a codebase |
 | `octocode-brainstorming` | Validate ideas against GitHub, npm, and web evidence; produces a decision-ready brief. Add a [Tavily API key](https://tavily.com) (`TAVILY_API_KEY`) for richer web search results |
 | `octocode-rfc-generator` | Evidence-backed RFCs and design docs before starting implementations |
-| `octocode-pull-request-reviewer` | Structured code reviews grounded in evidence |
+| `octocode-loop` | Repeat Act -> Observe -> Learn loops until evidence converges |
+| `octocode-awareness` | Shared memory, file locks, handoffs, and verify-before-done discipline |
+| `octocode-roast` | Blunt but actionable code-quality critique |
 | `octocode-skills` | Search, evaluate, install, create, and update Agent Skills |
+| `octocode-stats` | Local Octocode usage and savings dashboard |
+| `octocode` | Quick Octocode transport/router skill |
 
-Install with `npx skills add`:
+Install the recommended starting skill into Pi's global skills directory:
 
 ```bash
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-engineer
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-research
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-brainstorming
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-rfc-generator
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-pull-request-reviewer
-npx skills add https://github.com/bgauryy/octocode-mcp --skill octocode-skills
+npx octocode skill --name octocode-engineer --platform pi
 ```
 
-> Default scope is global (`~/.pi/agent/skills/`). Add `--scope project` to install under `.pi/skills/` for the current repo only. Pi discovers skills automatically on next start; force one with `/skill:octocode-engineer`.
-
-**Fallback — if `npx skills add` is unavailable:**
+Install every current Octocode skill into Pi:
 
 ```bash
-npx -y degit bgauryy/octocode/skills/<skill-name> ~/.pi/agent/skills/<skill-name>
+for skill in octocode octocode-awareness octocode-brainstorming octocode-engineer octocode-loop octocode-research octocode-rfc-generator octocode-roast octocode-skills octocode-stats; do
+  npx octocode skill --name "$skill" --platform pi --mode copy --update
+done
+```
+
+Use `npx octocode skill --list` to see the live named-skill catalog, and `npx octocode skill --help` for the active flags. Pi discovers skills automatically on next start; force one with `/skill:octocode-engineer`.
+
+**Fallback — if you need a project-local Pi skill instead of the global `--platform pi` target:**
+
+```bash
+npx -y degit bgauryy/octocode/skills/<skill-name> .pi/skills/<skill-name>
 ```
 
 ---

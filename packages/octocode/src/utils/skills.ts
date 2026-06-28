@@ -48,6 +48,7 @@ export const SKILL_INSTALL_TARGETS = [
   'cursor',
   'codex',
   'opencode',
+  'pi',
   'agents',
 ] as const;
 export type SkillInstallTarget = (typeof SKILL_INSTALL_TARGETS)[number];
@@ -57,6 +58,7 @@ export const USER_SKILL_PLATFORMS = [
   'claude',
   'codex',
   'opencode',
+  'pi',
 ] as const;
 export type UserSkillPlatform = (typeof USER_SKILL_PLATFORMS)[number];
 export const DEFAULT_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
@@ -75,6 +77,7 @@ export const USER_SKILL_PLATFORM_TARGETS: Record<
   claude: CLAUDE_SKILL_INSTALL_TARGETS,
   codex: ['codex'],
   opencode: ['opencode'],
+  pi: ['pi'],
 };
 export type SkillInstallResult = 'installed' | 'skipped' | 'failed';
 
@@ -85,6 +88,8 @@ const SKILL_TARGET_IDS: Record<string, SkillInstallTarget> = {
   cursor: 'cursor',
   codex: 'codex',
   opencode: 'opencode',
+  pi: 'pi',
+  'pi-agent': 'pi',
   agents: 'agents',
   agent: 'agents',
   common: 'agents',
@@ -166,6 +171,8 @@ export function getSkillsDirForTarget(
         return join(HOME, '.codex', 'skills');
       case 'opencode':
         return join(HOME, '.opencode', 'skills');
+      case 'pi':
+        return join(HOME, '.pi', 'agent', 'skills');
       case 'agents':
         return join(HOME, '.agents', 'skills');
     }
@@ -180,6 +187,8 @@ export function getSkillsDirForTarget(
       return join(HOME, '.codex', 'skills');
     case 'opencode':
       return join(HOME, '.opencode', 'skills');
+    case 'pi':
+      return join(HOME, '.pi', 'agent', 'skills');
     case 'agents':
       return join(HOME, '.agents', 'skills');
   }

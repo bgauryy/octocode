@@ -19,7 +19,7 @@ For trivial one-file edits with no design choice, skip RFC mode and route to `oc
 
 ## How to run this skill
 
-1. **Frame the work.** Read `references/workflow.md` first, before researching — it defines mode selection (RFC / Plan / Decision / Migration / Validation), the understand checklist, option comparison, the validation gate, and delivery format.
+1. **Frame the work.** Read `references/workflow.md` first, before researching — it defines mode selection (RFC / Plan / Decision / Migration / Validation), brainstorming handoff intake, the understand checklist, option comparison, claim ledger, hard gates, validation, and delivery format.
 
 2. **Gather cited evidence.** While researching current state, prior art, packages, history, or binaries, follow `references/research-playbook.md` for the exact MCP/CLI tool map per evidence type, the per-scenario research tracks, evidence-citation rules, and recovery moves when a search comes up empty.
 
@@ -31,3 +31,4 @@ For trivial one-file edits with no design choice, skip RFC mode and route to `oc
 - Always compare at least two alternatives unless the user explicitly asks for a single implementation plan.
 - Order implementation steps by dependency, not preference; avoid time estimates.
 - Default output location when saving is approved: `.octocode/rfc/RFC-{meaningful-name}.md`. Ask before saving; otherwise keep the document in chat.
+- When changing this skill, run `scripts/eval-rfc.mjs --self-test` and smoke prompts in `evals/prompts.md`.

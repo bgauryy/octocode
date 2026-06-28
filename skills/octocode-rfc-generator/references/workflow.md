@@ -33,6 +33,32 @@ Capture this before research gets broad:
 
 Ask if the problem or desired output mode is unclear.
 
+## Brainstorming handoff intake
+
+If input includes an `octocode-brainstorming` RFC handoff, normalize it before research:
+
+| Handoff field | RFC use |
+|---|---|
+| Problem | Motivation and affected users/workflows |
+| Chosen framing + value thesis | Summary and Rationale |
+| Surviving evidence links | Evidence Summary, Current State, References |
+| Alternatives | Alternatives Considered |
+| Constraints + risks | Drawbacks, rollout, rollback, open questions |
+| Bounded MVP / first slice | Implementation Plan |
+| Success signal | Acceptance Criteria |
+
+If no handoff exists, build the same packet from Understand. If problem, decision, constraints, or success signal are missing, ask one focused question or label the output `Draft` with the gap.
+
+## Claim ledger
+
+Maintain a small private ledger while researching:
+
+```text
+claim | evidence | confidence | RFC section | gap / next proof
+```
+
+Use confidence `confirmed`, `likely`, or `uncertain`. Recommendations may rely only on confirmed/likely claims. Uncertain claims belong in Risks, Open Questions, or Future Possibilities.
+
 ## Compare options
 
 Always include at least two alternatives unless the user explicitly asks for a single implementation plan.
@@ -40,6 +66,16 @@ Always include at least two alternatives unless the user explicitly asks for a s
 Useful alternatives: do nothing / defer; minimal patch; incremental migration; full redesign; adopt package/library; build in-house; hybrid/phased rollout.
 
 Compare on: fit with current architecture; blast radius; compatibility and migration cost; operational risk; performance/security/data implications; maintenance and ownership; reversibility.
+
+## Hard gates
+
+Stop and ask, narrow, or clearly mark `Draft` before delivery when:
+
+- Scope contains multiple independent decisions -> split into RFCs or phases.
+- Current state has no real evidence -> research more or mark as unproven.
+- Only one option is considered and the user did not ask for a single-path plan -> add do-nothing, minimal patch, or phased rollout.
+- Public API/data/security/compatibility changes lack rollout, rollback trigger, and owner/approver.
+- Brainstorming handoff says `not ready`, `Prototype First`, `Narrow`, `Park`, or `Do Not Build`.
 
 ## Write the plan
 
@@ -75,6 +111,8 @@ Before delivering, check:
 - Risks have mitigations or open questions.
 - Implementation plan is actionable and verifiable.
 - Every non-obvious claim, recommendation, and rejected alternative has a citation or is marked uncertain.
+- No recommendation depends on an `uncertain` ledger claim.
+- Implementation-ready docs include acceptance criteria, verification commands, success signal, and rollback trigger.
 - No claim relies on "common practice" without explaining why it applies here.
 
 Reasoning traps:
@@ -88,6 +126,7 @@ Reasoning traps:
 Start with a concise summary:
 
 ```text
+Status: <Draft|Ready for Review|Blocked>
 Decision: <recommendation>
 Why: <1-2 evidence-backed reasons>
 Alternatives: <count and names>

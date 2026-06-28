@@ -243,6 +243,8 @@ describe('Skills Utilities', () => {
       expect(USER_SKILL_PLATFORM_TARGETS.common).toEqual(['agents']);
       expect(USER_SKILL_PLATFORM_TARGETS.cursor).toEqual(['cursor']);
       expect(USER_SKILL_PLATFORM_TARGETS.codex).toEqual(['codex']);
+      expect(USER_SKILL_PLATFORM_TARGETS.opencode).toEqual(['opencode']);
+      expect(USER_SKILL_PLATFORM_TARGETS.pi).toEqual(['pi']);
       expect(USER_SKILL_PLATFORM_TARGETS.claude).toEqual([
         'claude-code',
         'claude-desktop',
@@ -716,6 +718,13 @@ describe('getSkillsDirForTarget — all targets', () => {
 
   it('returns HOME-based path for opencode', () => {
     const result = getSkillsDirForTarget('opencode', '/custom/dest');
+    expect(result).toContain('skills');
+  });
+
+  it('returns Pi global agent skills path', () => {
+    const result = getSkillsDirForTarget('pi', '/custom/dest');
+    expect(result).toContain('.pi');
+    expect(result).toContain('agent');
     expect(result).toContain('skills');
   });
 
