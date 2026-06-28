@@ -103,7 +103,7 @@ describe('runCLI', () => {
     }
   });
 
-  it('keeps search --scheme --json --compact machine-readable JSON (not the text guide)', async () => {
+  it('keeps search --scheme --json --compact machine-readable and compact', async () => {
     const stdoutSpy = vi
       .spyOn(process.stdout, 'write')
       .mockImplementation(() => true);
@@ -118,10 +118,12 @@ describe('runCLI', () => {
       const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
 
       expect(handled).toBe(true);
-      // --json wins over --compact: must parse as JSON, never the text guide
-      expect(out).not.toContain('compact agent guide');
+      // JSON + compact returns the lean guide as structured JSON.
       expect(() => JSON.parse(out)).not.toThrow();
-      expect(JSON.parse(out).schema).toBe('oql');
+      const parsed = JSON.parse(out) as { schema: string; kind: string };
+      expect(parsed.schema).toBe('oql');
+      expect(parsed.kind).toBe('octocode.search.compactScheme');
+      expect(out.length).toBeLessThan(8000);
       expect(mocks.loadCommand).not.toHaveBeenCalled();
     } finally {
       stdoutSpy.mockRestore();

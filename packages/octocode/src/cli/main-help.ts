@@ -13,12 +13,11 @@ import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
   getDirectToolCategory,
-  getDirectToolDisplayFields,
+  getDirectToolDescription,
+  loadToolContent,
   sortDirectToolNames,
 } from '@octocodeai/octocode-tools-core/schema';
 import { COMMAND_SPECS } from './commands/specs.js';
-
-const LSP_TOOL = 'lspGetSemantics';
 
 // Quick (read-first) commands get a rich arg hint; every other command is
 // derived from COMMAND_SPECS below so the list never drifts or misses one.
@@ -33,7 +32,7 @@ function buildAgentInstructionsBlock(): string[] {
   const body = [
     'search = read-only research. Pick a SOURCE (local path · owner/repo[/path]',
     '· npm name · --query <oql>), then a LANE: text · --tree · --search path',
-    '· --op (LSP) · --target repositories|packages|pullRequests|commits|diff.',
+    '· --op (LSP) · --target repositories|packages|pullRequests|commits|artifacts|diff.',
     'Loop: orient cheap (tree/discovery) → narrow → read exact',
     '(--content-view exact) → prove. Snippets are discovery, not proof;',
     'status:empty is a real run, not absence — follow next.* continuations.',
@@ -47,39 +46,61 @@ function buildAgentInstructionsBlock(): string[] {
   ];
 }
 
-/** Brief [required*, optional?] summary for the --help tool list (top-level fields only). */
-function formatBriefFields(toolName: string): string {
-  // `type` is the only always-required field; `uri` is required for every type
-  // except workspaceSymbol, so it stays optional here (see tool-command.ts).
-  if (toolName === LSP_TOOL) return '[type, uri?, symbolName?, lineHint?]';
-  if (toolName === 'ghHistoryResearch') {
-    return '[type: prs|commits, since?, until?]';
-  }
-  if (toolName === 'localBinaryInspect') {
-    return '[path*, mode?]';
-  }
-  if (toolName === 'ghSearchCode') {
-    return '[keywords[]?, owner?, repo?]';
-  }
-  if (toolName === 'localSearchCode') {
-    return '[path*, keywords:string?, mode?]';
-  }
-  const fields = getDirectToolDisplayFields(toolName).filter(
-    f => !f.name.includes('.')
-  );
-  const required = fields.filter(f => f.required).map(f => `${f.name}*`);
-  const optional = fields.filter(f => !f.required);
-  if (required.length > 0) {
-    const optHint = optional.slice(0, 2).map(f => `${f.name}?`);
-    return `[${[...required, ...optHint].join(', ')}]`;
-  }
-  return `[${optional
-    .slice(0, 3)
-    .map(f => `${f.name}?`)
-    .join(', ')}]`;
+const DESCRIPTION_PREFIXES = new Set([
+  'github',
+  'local',
+  'npm',
+  'package',
+  'search',
+  'other',
+]);
+
+function truncateDescription(desc: string, maxLen: number): string {
+  if (desc.length <= maxLen) return desc;
+  const cut = desc.lastIndexOf(' ', maxLen - 1);
+  return cut > maxLen * 0.6
+    ? desc.slice(0, cut) + '…'
+    : desc.slice(0, maxLen - 1) + '…';
 }
 
-function buildToolBlock(): string[] {
+function extractShortDescription(fullDescription: string): string {
+  return fullDescription
+    .split('\n')[0]
+    .trim()
+    .replace(/^##\s*/, '');
+}
+
+async function getOptionalToolMetadata(): Promise<Awaited<
+  ReturnType<typeof loadToolContent>
+> | null> {
+  try {
+    return await loadToolContent();
+  } catch {
+    return null;
+  }
+}
+
+function formatConciseToolDescription(
+  toolName: string,
+  metadata: Awaited<ReturnType<typeof loadToolContent>> | null
+): string {
+  const raw = extractShortDescription(
+    getDirectToolDescription(toolName, metadata)
+  );
+  const parts = raw
+    .split(/\s+\|\s+/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  const concise =
+    parts.find(part => !DESCRIPTION_PREFIXES.has(part.toLowerCase())) ??
+    raw.replace(/^(?:github|local|npm|package|search|other)\s*\|\s*/i, '');
+
+  return truncateDescription(concise.replace(/\s+/g, ' ').trim(), 82);
+}
+
+function buildToolBlock(
+  metadata: Awaited<ReturnType<typeof loadToolContent>> | null
+): string[] {
   const lines: string[] = [];
   const allNames = sortDirectToolNames(
     DIRECT_TOOL_DEFINITIONS.map(t => t.name)
@@ -92,7 +113,9 @@ function buildToolBlock(): string[] {
     lines.push(`    ${dim(category)}`);
     for (const name of names) {
       const namePad = name.padEnd(28);
-      lines.push(`      ${c('cyan', namePad)} ${dim(formatBriefFields(name))}`);
+      lines.push(
+        `      ${c('cyan', namePad)} ${dim(formatConciseToolDescription(name, metadata))}`
+      );
     }
   }
 
@@ -134,7 +157,7 @@ function quick(name: string, argHint: string, description: string): string {
 
 export async function showHelp(): Promise<void> {
   const toolCount = DIRECT_TOOL_DEFINITIONS.length;
-  const toolLines = buildToolBlock();
+  const toolLines = buildToolBlock(await getOptionalToolMetadata());
   const agentInstructions = buildAgentInstructionsBlock();
 
   let isAuthenticated = false;
@@ -178,10 +201,10 @@ export async function showHelp(): Promise<void> {
     '',
 
     // ── Raw execution — every tool, schema-exact ───────────────────────────
-    `  ${bold(`TOOLS (${toolCount})`)}  ${dim('raw — read the scheme first, then run (≤5/call)')}`,
+    `  ${bold(`TOOLS (${toolCount})`)}  ${dim('name + concise description')}`,
     `    ${c('yellow', 'tools'.padEnd(31))} ${dim('list all tools')}`,
     `    ${c('yellow', 'tools <name> --scheme'.padEnd(31))} ${dim('read schema (never guess)')}`,
-    `    ${c('yellow', "tools <name> --queries '<json>'".padEnd(31))} ${dim('run a tool')}`,
+    `    ${c('yellow', "tools <name> --queries '<json>' --compact".padEnd(31))} ${dim('lean run')}`,
     ...toolLines,
     '',
 

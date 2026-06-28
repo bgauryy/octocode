@@ -1,27 +1,50 @@
-# Advocate vs Critic — the debate
+# Perspective Review — evidence challenge
 
-Load at the converge step (Workflow step 5), before running the debate. The goal is **not** to collect a pro list and a con list; it is to make the two agents *reason against each other* so only claims that survive scrutiny reach the verdict — then keep the **best of both**. Every claim must carry its reasoning *and* a citation; an assertion with neither is dropped before it counts.
+Load at the converge step (Workflow step 5), after research and cross-pollination. The goal is not to create a transcript; it is to clarify the idea, pressure-test the evidence, and output the strongest defensible decision. The main agent is referee.
 
-## Round 1 — opening cases (same evidence, dispatch together)
+## Inputs
 
-> **ADVOCATE** for "<idea>" — strongest case FOR. Each claim: assertion → *because* (reasoning) → citation (repo/package/web/local). Bull case only.
+Before dispatch or sequential lenses, provide:
 
-> **CRITIC** of "<idea>" — strongest case AGAINST: crowded competitors, abandoned repos, complaints, unsolved problems. Each claim: assertion → *because* → citation. Bear case only.
+- Clarified idea: `user + painful situation + desired outcome + success signal + core assumptions`.
+- Chosen framing(s), hypothesis map, claim ledger, and research limits.
+- Prior-art evidence with URLs or local `file:line` anchors.
 
-## Round 2 — rebuttal (each agent receives the *other's* Round-1 case)
+If the clarified idea is missing audience, problem, or success criterion, stop at Clarify. Do not spend workers to ask three versions of the same question.
 
-Rebut specific claims with evidence, **concede** what you cannot refute (say so explicitly), and attack the weakest-supported claim. New citations only — no repeating Round 1.
+## Roles
 
-> **ADVOCATE rebuttal** — answer the Critic's strongest points; concede what holds.
+Dispatch together when worker budget allows; otherwise run them sequentially with these labels. Each role returns at most 3 claims in this shape: `claim -> because -> evidence -> decision impact -> confidence`.
 
-> **CRITIC rebuttal** — answer the Advocate's strongest points; concede what holds.
+> **Critical Architect** — feasibility and architecture risk. Test integration complexity, blast radius, security/performance/maintenance risk, hidden constraints, and the hardest technical unknown to prove.
 
-## Referee / best-of-both (main agent)
+> **Visionary Entrepreneur** — opportunity and wedge. Test why now, who urgently cares, strategic value, differentiation, distribution path, and what winning would unlock.
 
-Keep every claim that *survived* rebuttal (→ high-confidence), drop every claim that was *conceded*, and mark every claim that stayed *contested* as a decision point. The verdict is the strongest defensible position assembled from **both** sides — not whoever shouted louder.
+> **Product** — workflow and MVP. Test target workflow, adoption friction, scope razor, retention/value metric, and the smallest prototype or research step that changes the decision.
 
-Record the **decision delta**: which claims flipped, which were conceded, which stayed contested, and who had the better evidence.
+## Evidence rules
 
-## No delegation tool
+- No uncited new claims. Persona output without evidence is dropped or marked `weak`.
+- Market/user claims from Visionary/Product still need sources or explicit `weak` markers.
+- Use the claim ledger; do not repeat raw search snippets.
+- A role may ask one targeted follow-up only if it changes the decision and the user is reachable; otherwise state the assumption.
 
-Run the four passes sequentially with the labels above, feeding each agent the prior pass verbatim. **Budget:** the debate is ~4 worker dispatches — count it against the 5-worker ceiling (Hard Gate 4); if web slices already spent the budget, run a single rebuttal round (one Advocate-rebuts + one Critic-rebuts) and note "debate shortened (budget)".
+## Cross-exam
+
+After openings, the main agent picks the 1-2 claims most likely to flip the verdict. If budget remains, ask only the relevant role(s) to rebut those claims with new evidence. If budget is gone, do the rebuttal as a short main-agent pass and note `perspective review shortened (budget)`.
+
+Rebuttal must concede what it cannot refute. Repeating the same citation is not a rebuttal.
+
+## Referee / best-of-panel
+
+Keep every claim that survived challenge, remove conceded claims, and mark unresolved claims as decision points. Record the **decision delta**: what flipped, what was conceded, what stayed contested, and which perspective had the strongest evidence.
+
+Decision labels:
+
+- `Build RFC` — idea is worth planning; prepare `octocode/octocode-rfc-generator` handoff.
+- `Prototype First` — prove one hard unknown before design work.
+- `Narrow` — choose a tighter user/problem/framing.
+- `Park` — evidence is thin or timing is wrong.
+- `Do Not Build` — existing solutions or risks dominate.
+
+RFC handoff is ready only when the verdict is `worth-prototyping` or clearly `underserved`, the user/problem/success signal are specific, prior art/differentiation are grounded, the panel agrees on a bounded MVP or first implementation slice, and the biggest unknown is now an implementation/design tradeoff rather than demand.

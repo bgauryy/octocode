@@ -7,6 +7,8 @@ description: Use when the user asks to "roast my code", "review code brutally", 
 
 **Sharp, evidence-backed code roasting with Octocode MCP.**
 
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+
 ## Prime Directive
 
 ```
@@ -44,13 +46,13 @@ Before running a roast, follow the six-phase procedure, output templates, and ve
 <mcp_discovery>
 Before starting, detect available research tools.
 
-**Check**: Is `octocode-mcp` available as an MCP server? Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
+**Check**: Is Octocode available as an MCP server? Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
 
 **If Octocode MCP exists but local tools return no results**:
 > Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
 
 **If Octocode MCP is not installed**:
-> Suggest: "Install Octocode MCP for deeper research — add an `octocode` server (`npx -y octocode-mcp`) with `env: {ENABLE_LOCAL: "true"}` to your `mcpServers`, then restart your editor."
+> Suggest: "Install Octocode MCP for deeper research using the config in `references/octocode.md`, then restart your editor."
 
 Proceed with whatever tools are available — do not block on setup.
 </mcp_discovery>

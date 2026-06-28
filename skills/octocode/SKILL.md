@@ -1,19 +1,22 @@
 ---
 name: octocode
-description: Use when code research should leverage Octocode through the best available transport: Octocode MCP tools if this host exposes them, otherwise the `octocode` CLI or `npx octocode`. Covers local/GitHub/npm search, exact file reads, AST/LSP navigation, PR/history, package lookup, archives, and raw tool calls.
+description: Use when code research should leverage Octocode through the best available transport: Octocode MCP tools if this host exposes them, otherwise the `npx octocode` CLI. Covers local/GitHub/npm search, exact file reads, AST/LSP navigation, PR/history, package lookup, archives, and raw tool calls.
 ---
 
 # Octocode
 
 Use Octocode for evidence-driven code research across local files, GitHub, npm, PR/history, archives, and LSP/AST semantics.
 
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+
 ## 1. Pick the transport
 
 - **MCP first when available.** Scan the active tool list, and any host-provided tool discovery, for an Octocode MCP server or namespaced tools such as `mcp__octocode...__localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `localViewStructure`, `lspGetSemantics`, `npmSearch`, or `localBinaryInspect`. Use those directly when present; read the tool/schema text before inputs, batch independent queries, and carry returned paths/lines/pages forward.
-- **CLI fallback.** If MCP tools are not exposed, use `octocode`; if missing, use `npx octocode` for the same commands. Run `octocode --help` or `npx octocode --help` when flags are uncertain.
+- **CLI fallback.** If MCP tools are not exposed, use `npx octocode` for all CLI commands. Run `npx octocode --help` when flags are uncertain.
+- **MCP setup reference.** For the canonical config and CLI probes, read `references/octocode.md`.
 - If neither MCP nor CLI works, ask the user to install/run `npx octocode` or enable the Octocode MCP server. Do not silently replace Octocode research with plain `rg`/`grep`.
 
-Use `OC` below as shorthand for either `octocode` or `npx octocode`.
+Use `OC` below as shorthand for `npx octocode`.
 
 ## 2. Work smart
 
@@ -57,4 +60,4 @@ Read `references/recipes.md` for tiny command sequences. For large investigation
 
 ## Failure and auth
 
-Bad input exits `2` and prints valid flags; `3` means not found; `4` auth; `5` tool error; `7` rate limited. Humans can run `OC login`; agents should check `OC auth status --json` or `OC status --json` and use `GITHUB_TOKEN`, `OCTOCODE_TOKEN`, or `GH_TOKEN` when available. Deep protocol: `OC context [--full]`. Docs: https://github.com/bgauryy/octocode/tree/main/docs
+Bad input exits `2` and prints valid flags; `3` means not found; `4` auth; `5` tool error; `7` rate limited. Humans can run `OC auth login`; agents should check `OC auth status --json` or `OC status --json` and use `GITHUB_TOKEN`, `OCTOCODE_TOKEN`, or `GH_TOKEN` when available. Deep protocol: `OC context [--full]`. Docs: https://github.com/bgauryy/octocode/tree/main/docs

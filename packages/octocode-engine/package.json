@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-engine",
-  "version": "16.6.1",
+  "version": "16.6.2",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
   "type": "module",
   "main": "index.cjs",
@@ -262,12 +262,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "16.6.1",
-    "@octocodeai/octocode-engine-darwin-x64": "16.6.1",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "16.6.1",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "16.6.1",
-    "@octocodeai/octocode-engine-linux-x64-musl": "16.6.1",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "16.6.1"
+    "@octocodeai/octocode-engine-darwin-arm64": "16.6.2",
+    "@octocodeai/octocode-engine-darwin-x64": "16.6.2",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "16.6.2",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "16.6.2",
+    "@octocodeai/octocode-engine-linux-x64-musl": "16.6.2",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "16.6.2"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -291,10 +291,11 @@
     "build:linux-x64-musl": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-musl && node scripts/postbuild.cjs",
     "build:linux-arm64-gnu": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target aarch64-unknown-linux-gnu && node scripts/postbuild.cjs",
     "build:windows-x64": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-pc-windows-msvc && node scripts/postbuild.cjs",
-    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && yarn build:ts",
+    "build:all": "yarn clean:binaries && yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && yarn build:ts",
     "build:dev": "yarn readme:sync && node scripts/prebuild.cjs && napi build --platform && node scripts/postbuild.cjs && tsc -p tsconfig.build.json",
     "build:ts": "yarn readme:sync && rm -rf dist && tsc -p tsconfig.build.json",
     "clean": "rm -rf dist/ && rm -f *.node",
+    "clean:binaries": "rm -f *.node && find npm -name '*.node' -delete",
     "gen": "node scripts/gen-patterns.mjs",
     "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/security/patterns.rs || (echo 'ERROR: src/security/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",
     "pack:check": "node scripts/check-pack-size.cjs",

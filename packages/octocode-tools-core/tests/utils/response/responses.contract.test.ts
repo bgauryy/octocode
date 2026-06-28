@@ -36,4 +36,23 @@ describe('response YAML formatter contract', () => {
     ).toBe('status: ok\n');
     expect(calls).toEqual([{ keysPriority: ['data', 'status'] }]);
   });
+
+  it('redacts secrets in the formatted text output without leaking the raw value', () => {
+    // Real serializer + real sanitizer (no installNative) — proves the
+    // per-field sanitization still redacts in the rendered text after dropping
+    // the whole-document scan.
+    const PAT = 'ghp_1234567890abcdefghijklmnopqrstuvwxyzAB';
+    const out = createResponseFormat({
+      status: 'ok',
+      data: {
+        files: [
+          { path: 'a.ts', snippet: `const t = "${PAT}";` },
+          { path: 'b.ts', snippet: 'foo(bar)' },
+        ],
+      },
+    });
+    expect(out).not.toContain(PAT);
+    expect(out).toContain('[REDACTED-');
+    expect(out).toContain('foo(bar)'); // benign content preserved
+  });
 });

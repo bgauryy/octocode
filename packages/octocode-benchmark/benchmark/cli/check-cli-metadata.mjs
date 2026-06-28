@@ -68,6 +68,10 @@ function runCli(args) {
     fail(
       `${command}: exit ${result.status}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
     );
+    // Don't hand corrupt/partial stdout to downstream parsers — a non-zero exit
+    // already recorded a failure; returning '' makes follow-on checks fail
+    // cleanly instead of asserting against truncated output.
+    return '';
   }
   return result.stdout;
 }
@@ -101,6 +105,11 @@ function validateCanonicalToolMetadata() {
     );
   }
 
+  assert(
+    completeMetadata.baseSchema &&
+      typeof completeMetadata.baseSchema === 'object',
+    'completeMetadata.baseSchema must be defined'
+  );
   for (const field of ['id', 'mainResearchGoal', 'researchGoal', 'reasoning']) {
     assert(
       typeof completeMetadata.baseSchema?.[field] === 'string' &&
@@ -248,15 +257,63 @@ function validateCliToolSurfaces(toolNames) {
     'main help must expose context'
   );
 
-  const toolsList = runCli(['tools', '--compact', '--no-color']);
+  const toolsList = runCli(['tools', '--no-color']);
   assert(
-    toolsList.includes('SCHEMA REQUIRED'),
-    'tools list must warn that schemas are required'
+    toolsList.includes(`Octocode Tools (${toolNames.length})`),
+    'tools list must show the live tool count'
+  );
+  assert(
+    toolsList.includes('name + concise description'),
+    'tools list must use the concise default catalog format'
   );
   for (const toolName of toolNames) {
     assert(
-      new RegExp(`\\n\\s+${toolName}\\s+\\[`).test(toolsList),
+      new RegExp(`\\n\\s+${toolName}\\s+`).test(toolsList),
       `tools list must include ${toolName}`
+    );
+  }
+  assert(
+    toolsList.includes('Search code contents or file paths'),
+    'tools list must include concise tool descriptions'
+  );
+  assert(
+    !new RegExp('\\n\\s+localSearchCode\\s+\\[').test(toolsList),
+    'tools list must not show schema field signatures in the default catalog'
+  );
+  assert(
+    toolsList.includes('tools <name> --scheme') &&
+      toolsList.includes("tools <name> --queries '<json>' --compact") &&
+      toolsList.includes('tools --json --compact'),
+    'tools list must expose schema, run, and machine-catalog follow-up commands'
+  );
+
+  const fullToolCatalog = parseJsonFromCli([
+    'tools',
+    '--json',
+    '--full',
+    '--no-color',
+  ]);
+  assert(
+    fullToolCatalog?.kind === 'octocode.toolCatalog.full',
+    'tools --json --full must emit the full catalog wrapper'
+  );
+  assert(
+    fullToolCatalog?.toolCount === toolNames.length &&
+      Array.isArray(fullToolCatalog?.tools) &&
+      fullToolCatalog.tools.length === toolNames.length,
+    'tools --json --full must include every live tool'
+  );
+  for (const toolName of toolNames) {
+    const entry = fullToolCatalog.tools.find(tool => tool?.name === toolName);
+    assert(entry, `tools --json --full must include ${toolName}`);
+    assert(
+      entry?.inputSchema?.type === 'object',
+      `tools --json --full must include ${toolName} inputSchema`
+    );
+    assert(
+      Array.isArray(entry?.fields) &&
+        entry.fields.some(field => typeof field?.description === 'string'),
+      `tools --json --full must include ${toolName} field descriptions`
     );
   }
 
@@ -391,12 +448,18 @@ function validateCliCommandSurfaces(commandNames) {
 
   const toolsHelp = runCli(['tools', '--help', '--no-color']);
   assert(
-    toolsHelp.includes('SCHEMA REQUIRED'),
-    'tools --help must expose schema-required guidance'
+    toolsHelp.includes(
+      `Octocode Tools (${Object.keys(completeMetadata.tools).length})`
+    ),
+    'tools --help must show the concise tool catalog'
   );
   assert(
-    toolsHelp.includes('context --full'),
-    'tools --help must mention full context'
+    toolsHelp.includes('tools <name> --scheme'),
+    'tools --help must expose schema-read guidance'
+  );
+  assert(
+    toolsHelp.includes('Full protocol: context'),
+    'tools --help must mention context for the full protocol'
   );
 }
 
@@ -405,9 +468,23 @@ function validateOqlScheme() {
     'search',
     '--scheme',
     '--json',
+    '--no-color',
+  ]);
+  const compactSchemeOutput = runCli([
+    'search',
+    '--scheme',
+    '--json',
     '--compact',
     '--no-color',
   ]);
+  let compactScheme = null;
+  try {
+    compactScheme = JSON.parse(compactSchemeOutput);
+  } catch (error) {
+    fail(
+      `octocode search --scheme --json --compact did not emit valid JSON: ${error.message}`
+    );
+  }
   assert(
     searchScheme?.schema === 'oql',
     'search --scheme JSON must declare schema:"oql"'
@@ -467,6 +544,23 @@ function validateOqlScheme() {
     /not a failure/i.test(String(ev['answerReady:false'] ?? '')),
     'answerReady:false must be framed as "not a failure" (pagination, not error)'
   );
+  assert(
+    compactScheme?.kind === 'octocode.search.compactScheme',
+    'search --scheme --json --compact must emit the compact agent guide JSON'
+  );
+  const compactTargets = new Set(
+    (compactScheme?.targets ?? []).map(entry => entry?.target)
+  );
+  for (const target of searchScheme?.activeTargets ?? []) {
+    assert(
+      compactTargets.has(target),
+      `compact search scheme must include active OQL target ${target}`
+    );
+  }
+  assert(
+    compactSchemeOutput.length < JSON.stringify(searchScheme).length,
+    'compact search scheme JSON must be smaller than the full OQL schema JSON'
+  );
 
   const oqlToolScheme = runCli([
     'tools',
@@ -496,7 +590,9 @@ function planFromSearchDryRun(name, args) {
     plan && typeof plan === 'object',
     `${name}: dry-run must return a plan`
   );
-  return plan ?? {};
+  // Propagate null on failure (not {}), so the caller skips the per-case
+  // assertions instead of masking the root cause behind empty-array fallbacks.
+  return plan && typeof plan === 'object' ? plan : null;
 }
 
 function backendKeys(plan) {
@@ -693,6 +789,9 @@ function validateSearchRouteMatrix() {
 
   for (const testCase of cases) {
     const plan = planFromSearchDryRun(testCase.name, testCase.args);
+    // planFromSearchDryRun already recorded a failure when it returns null;
+    // skip the dependent assertions rather than crashing on a null plan.
+    if (!plan) continue;
     assert(
       plan.normalized?.target === testCase.target,
       `${testCase.name}: expected target ${testCase.target}, got ${plan.normalized?.target}`

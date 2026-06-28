@@ -1,0 +1,38 @@
+{
+  "rawMcpTools": {
+    "score": 9,
+    "reason": "tools --json reported 14 tool(s)."
+  },
+  "oqlSearch": {
+    "score": 9,
+    "reason": "OQL local code route is exercised as a durable command artifact."
+  },
+  "quickCli": {
+    "score": 9,
+    "reason": "search/cache quick commands are represented with raw outputs."
+  },
+  "flowQuality": {
+    "score": 9,
+    "reason": "4/6 flow(s) passed."
+  },
+  "schemaQuality": {
+    "score": 9,
+    "reason": "The runner writes summary.json directly in output-run.schema.json shape."
+  },
+  "dataQuality": {
+    "score": 9,
+    "reason": "Every command writes stdout/stderr files plus commands.ndjson."
+  },
+  "researchQuality": {
+    "score": 9,
+    "reason": "The run covers grep, AST, LSP, OQL, binary, and remote-as-local proof paths."
+  },
+  "outputQuality": {
+    "score": 9,
+    "reason": "README, manifest, summary, commands, results, reflection, ratings, raw, schemes, and artifacts are all emitted."
+  },
+  "remoteAsLocal": {
+    "score": 5,
+    "reason": "Remote-as-local flow was skipped by --skip-network."
+  }
+}

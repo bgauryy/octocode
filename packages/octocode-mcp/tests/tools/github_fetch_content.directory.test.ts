@@ -162,8 +162,8 @@ describe('fetchMultipleGitHubFileContents - directory mode', () => {
 
     const text =
       result.content?.map(c => ('text' in c ? c.text : '')).join('') || '';
-    expect(text).toContain('ENABLE_LOCAL=true');
     expect(text).toContain('ENABLE_CLONE=true');
+    expect(text).toContain('ENABLE_LOCAL is not false');
     expect(text).toContain('error');
   });
 

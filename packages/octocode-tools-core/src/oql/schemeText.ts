@@ -239,6 +239,79 @@ function firstShorthand(guide: string): string | null {
   return shorthand || null;
 }
 
+type CompactTargetEntry = {
+  target: string;
+  task: string;
+};
+
+function compactTargetEntries(): CompactTargetEntry[] {
+  const entries: CompactTargetEntry[] = [];
+  const seenTargets = new Set<string>();
+  for (const [task, route] of Object.entries(
+    OQL_SCHEMA_DOC.targetDecisionTree
+  )) {
+    for (const match of route.matchAll(/target:"?(\w+)"?/g)) {
+      const target = match[1];
+      if (!target || seenTargets.has(target)) continue;
+      seenTargets.add(target);
+      entries.push({ target, task });
+    }
+  }
+  for (const target of OQL_SCHEMA_DOC.activeTargets) {
+    if (seenTargets.has(target)) continue;
+    seenTargets.add(target);
+    entries.push({ target, task: 'advanced target; see full schema' });
+  }
+  return entries;
+}
+
+function compactSchemeDoc(): Record<string, unknown> {
+  const d = OQL_SCHEMA_DOC;
+  const sourceOrder = ['local', 'github', 'npm', 'materialized'] as const;
+  const recipeKeys = [
+    'text search (local)',
+    'text search (GitHub)',
+    'read a remote file (exact)',
+    'package lookup (npm)',
+    'semantics (local/materialized)',
+  ];
+  const quickStart = d.quickStart as Record<string, string>;
+  const snippetRule = d.agentBestPractices.find(b => /snippet/i.test(b));
+  return {
+    schema: 'oql',
+    kind: 'octocode.search.compactScheme',
+    description: d.description,
+    sources: Object.fromEntries(
+      sourceOrder.map(key => [
+        key,
+        firstShorthand(d.sourceGuide[key]) ??
+          'a prior clone / cache fetch / materialize localPath',
+      ])
+    ),
+    targets: compactTargetEntries(),
+    recipes: Object.fromEntries(
+      recipeKeys
+        .map(key => [key, quickStart[key]])
+        .filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string'
+        )
+    ),
+    semantics: d.semanticsGuide,
+    proof: {
+      snippets: snippetRule,
+      providerUnindexed: d.evidenceSemantics.providerUnindexed,
+    },
+    commands: {
+      explain: "search --explain --query '{...}'",
+      fullSchema: 'search --scheme',
+    },
+  };
+}
+
+export function oqlCompactSchemeJson(): string {
+  return JSON.stringify(compactSchemeDoc(), null, 2);
+}
+
 /**
  * Lean, agent-facing summary of the OQL contract, served by
  * `octocode search --scheme --compact`. Every section is DERIVED from
@@ -263,12 +336,7 @@ export function oqlCompactSchemeText(): string {
   }
 
   lines.push('', 'TARGET — answer type (--target, or inferred from the args):');
-  const seenTargets = new Set<string>();
-  for (const [task, route] of Object.entries(d.targetDecisionTree)) {
-    const m = route.match(/target:(\w+)/);
-    const target = m?.[1];
-    if (!target || seenTargets.has(target)) continue;
-    seenTargets.add(target);
+  for (const { target, task } of compactTargetEntries()) {
     lines.push(`  ${target.padEnd(13)}${task}`);
   }
 

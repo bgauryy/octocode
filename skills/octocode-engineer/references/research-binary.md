@@ -6,12 +6,12 @@ Use this when a file is an archive, compressed stream, native binary, `.node` ad
 
 | Job | CLI | MCP |
 |---|---|---|
-| Inspect binary metadata (format/arch/counts/deps) | `octocode search <file> --target artifacts --inspect` | `localBinaryInspect(mode:"inspect")` |
-| List archive entries | `octocode search <file> --target artifacts --list` | `localBinaryInspect(mode:"list")` |
-| Extract one archive entry | `octocode search <file> --target artifacts --extract <entry>` | `localBinaryInspect(mode:"extract", archiveFile:"entry")` |
-| Decompress single stream | `octocode search <file> --target artifacts --decompress` | `localBinaryInspect(mode:"decompress")` |
-| Read printable strings | `octocode search <file> --target artifacts --strings` | `localBinaryInspect(mode:"strings")` |
-| Unpack full archive | `octocode unzip <archive>` | `localBinaryInspect(mode:"unpack")` |
+| Inspect binary metadata (format/arch/counts/deps) | `npx octocode search <file> --target artifacts --inspect` | `localBinaryInspect(mode:"inspect")` |
+| List archive entries | `npx octocode search <file> --target artifacts --list` | `localBinaryInspect(mode:"list")` |
+| Extract one archive entry | `npx octocode search <file> --target artifacts --extract <entry>` | `localBinaryInspect(mode:"extract", archiveFile:"entry")` |
+| Decompress single stream | `npx octocode search <file> --target artifacts --decompress` | `localBinaryInspect(mode:"decompress")` |
+| Read printable strings | `npx octocode search <file> --target artifacts --strings` | `localBinaryInspect(mode:"strings")` |
+| Unpack full archive | `npx octocode unzip <archive>` | `localBinaryInspect(mode:"unpack")` |
 
 ## Decision flow
 
@@ -76,7 +76,7 @@ Options:
 `isPartial`, `scanOffset`, and `pagination`. Read `data.content` and, when
 `isPartial`, page the rest with `scanOffset`/`charOffset`. To find a specific
 term in a binary strings artifact, follow the returned `next.search` query or
-run `octocode search <pattern> <strings-file>` over the extracted strings file
+run `npx octocode search <pattern> <strings-file>` over the extracted strings file
 instead of scanning every string manually.
 
 ### `unpack`
@@ -89,12 +89,12 @@ Output:
 Then continue:
 
 ```text
-octocode search <localPath> --tree --depth 1 --json
-→ octocode search <query> <localPath> --search path --json
-→ octocode search <kw> <localPath> --view discovery --json
-→ octocode search <localPath> --pattern/--rule ... --lang <language> when source grammar exists
-→ octocode search <path> --content-view symbols / --match-string ... --content-view exact --json
-→ octocode search <file> --op ... if language server can handle unpacked source
+npx octocode search <localPath> --tree --depth 1 --json
+→ npx octocode search <query> <localPath> --search path --json
+→ npx octocode search <kw> <localPath> --view discovery --json
+→ npx octocode search <localPath> --pattern/--rule ... --lang <language> when source grammar exists
+→ npx octocode search <path> --content-view symbols / --match-string ... --content-view exact --json
+→ npx octocode search <file> --op ... if language server can handle unpacked source
 ```
 
 ## Gotchas

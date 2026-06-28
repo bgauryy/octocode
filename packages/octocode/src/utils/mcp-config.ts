@@ -40,8 +40,8 @@ export function getOctocodeServerConfig(
   if (envOptions) {
     const env: Record<string, string> = {};
 
-    if (envOptions.enableLocal) {
-      env.ENABLE_LOCAL = 'true';
+    if (envOptions.enableLocal !== undefined) {
+      env.ENABLE_LOCAL = envOptions.enableLocal ? 'true' : 'false';
     }
 
     if (envOptions.githubToken) {

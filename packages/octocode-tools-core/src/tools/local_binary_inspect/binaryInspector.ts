@@ -226,6 +226,9 @@ async function handleList(path: string, query: BinaryInspectQuery) {
     mode: 'list' as const,
     path,
     backend: result.commandUsed,
+    // Authoritative total (uncapped count of all archive entries); read by the
+    // CLI renderer. Previously also duplicated inside pagination under the SAME
+    // name with the capped count — a name collision, now removed.
     totalEntries: all.length,
     entries,
     ...(perPage && {
@@ -234,7 +237,6 @@ async function handleList(path: string, query: BinaryInspectQuery) {
         totalPages,
         hasMore,
         entriesPerPage: perPage,
-        totalEntries: capped.length,
       },
     }),
   };
@@ -290,7 +292,6 @@ async function handleExtract(path: string, query: BinaryInspectQuery) {
     backend: result.commandUsed,
     localPath,
     content: paginated.content,
-    contentLength: content.length,
     isPartial: paginated.isPartial,
     ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
   };
@@ -345,7 +346,6 @@ async function handleDecompress(path: string, query: BinaryInspectQuery) {
     backend: result.backend,
     localPath,
     content: paginated.content,
-    contentLength: content.length,
     isPartial: paginated.isPartial,
     ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
   };
@@ -418,7 +418,6 @@ async function handleStrings(path: string, query: BinaryInspectQuery) {
     path,
     content: paginated.content,
     ...(localPath ? { localPath } : {}),
-    contentLength: content.length,
     totalFound: result.totalFound ?? 0,
     isPartial: paginated.isPartial,
     ...(paginated.pagination ? { pagination: paginated.pagination } : {}),

@@ -21,7 +21,7 @@ Rules:
 
 ### A. Flow Impact
 
-Tools: `localSearchCode` → `lspGetSemantics(type:"callers")` → `lspGetSemantics(type:"references", groupByFile:true)`.
+Tools: `npx octocode search <symbol> <path> --view discovery` → `npx octocode search <file> --op callers|references --symbol <name> --line <lineHint>`; use raw `lspGetSemantics(groupByFile:true)` only when file grouping is needed.
 
 Task:
 - For every modified public/high-risk function/type, find lineHint.
@@ -35,7 +35,7 @@ symbol | file:line | callers/references | impact | confidence
 
 ### B. Security + Error Handling
 
-Tools: AST/search patterns → exact `localGetFileContent`/`ghGetFileContent(matchString)` reads.
+Tools: `npx octocode search --pattern/--rule --lang <language>` or text search → `npx octocode search <file> --match-string <anchor> --content-view exact`.
 
 Task:
 - Injection/XSS/auth bypass/secrets/data exposure.
@@ -49,7 +49,7 @@ issue | file:line | severity | reachable path | fix
 
 ### C. Architecture + Quality + Performance
 
-Tools: structure map → AST/search → LSP references/callees → exact reads.
+Tools: `npx octocode search <path> --tree` → AST/search → `npx octocode search <file> --op references|callees --symbol <name> --line <lineHint>` → exact reads.
 
 Task:
 - Wrong layer/module, coupling, cycles, leaky abstractions.
@@ -63,7 +63,7 @@ issue | domain | file:line | architectural impact | fix
 
 ### D. Guidelines + Duplicates
 
-Tools: guidelines/context reads → search/AST for existing utilities/patterns.
+Tools: guidelines/context reads → `npx octocode search` / AST for existing utilities and patterns.
 
 Task:
 - Apply loaded user/project guidelines.

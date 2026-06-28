@@ -170,6 +170,32 @@ function expandData(data: Record<string, unknown> | undefined): unknown[] {
   return [data];
 }
 
+function sharedRepositoryRefs(
+  parent: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  const repositories = parent?.repositories;
+  if (
+    !repositories ||
+    typeof repositories !== 'object' ||
+    Array.isArray(repositories)
+  ) {
+    return undefined;
+  }
+
+  const compact: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(repositories)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const source = value as Record<string, unknown>;
+    const repo: Record<string, unknown> = {};
+    for (const key of ['repository', 'repositoryDirectory', 'owner', 'repo']) {
+      if (typeof source[key] === 'string') repo[key] = source[key];
+    }
+    if (Object.keys(repo).length > 0) compact[id] = repo;
+  }
+
+  return Object.keys(compact).length ? { repositories: compact } : undefined;
+}
+
 function parentMetadata(
   data: Record<string, unknown> | undefined
 ): Record<string, unknown> | undefined {
@@ -1212,8 +1238,11 @@ function finishRecords(
       typeof pag?.totalPages === 'number' &&
       pag.currentPage < pag.totalPages);
   const pagination = toOqlPagination(pag, hasMore);
+  const shared =
+    recordType === 'package' ? sharedRepositoryRefs(data) : undefined;
   return {
     results: records(items, recordType, source, parentMetadata(data)),
+    ...(shared ? { shared } : {}),
     ...(pagination ? { pagination } : {}),
     diagnostics,
     provenance: [{ backend, source }],

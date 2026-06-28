@@ -2,12 +2,12 @@
 
 AST structural search runs through Octocode structural search via either transport:
 
-- **CLI:** `octocode search <path> --pattern '<pattern>' --lang ts` · `octocode search <path> --rule '<yaml>' --lang ts`
+- **CLI:** `npx octocode search <path> --pattern '<pattern>' --lang ts` · `npx octocode search <path> --rule '<yaml>' --lang ts`
 - **MCP:** `localSearchCode({ mode:"structural", pattern:"<pattern>" | rule:{…}, path, langType:"ts" })`
 
-It is **structure-aware** — comments and strings never false-match — and local or clone-backed. For a GitHub repo, use `octocode search <repoPath> --repo owner/repo --pattern ... --lang ts`, `octocode clone owner/repo/path`, or `octocode cache fetch`, then run structural search on the local path.
+It is **structure-aware** — comments and strings never false-match — and local or clone-backed. For a GitHub repo, use `npx octocode search <repoPath> --repo owner/repo --pattern ... --lang ts`, `npx octocode clone owner/repo/path`, or `npx octocode cache fetch`, then run structural search on the local path.
 
-> The skill no longer ships preset scripts. The "presets" below are plain Octocode structural patterns — copy the pattern into `octocode search --pattern/--rule --lang <language>` or `localSearchCode(mode:"structural")`. Verify any decision-critical match by reading the `file:line` it returns.
+> The skill no longer ships preset scripts. The "presets" below are plain Octocode structural patterns — copy the pattern into `npx octocode search --pattern/--rule --lang <language>` or `localSearchCode(mode:"structural")`. Verify any decision-critical match by reading the `file:line` it returns.
 
 ---
 
@@ -21,7 +21,7 @@ It is **structure-aware** — comments and strings never false-match — and loc
 - **Relational `--rule` needs `stopBy: end`** on `inside`/`has` sub-rules, or they silently match nothing.
 
 ```yaml
-# octocode search src --rule '...' --lang ts  (YAML)
+# npx octocode search src --rule '...' --lang ts  (YAML)
 rule:
   pattern: await $C
   inside:
@@ -33,7 +33,7 @@ rule:
 
 ## JavaScript / TypeScript patterns
 
-| Smell | Pattern (use with `octocode search <path> --pattern '<pattern>' --lang ts`) |
+| Smell | Pattern (use with `npx octocode search <path> --pattern '<pattern>' --lang ts`) |
 |-------|----------------------------------------------------------------|
 | Empty catch | `--rule 'rule:\n  kind: catch_clause\n  not:\n    has:\n      kind: statement_block\n      has: {any: [{kind: expression_statement}, {kind: return_statement}, {kind: throw_statement}]}'` |
 | `console.*` left in | `console.$M($$$A)` |
@@ -51,7 +51,7 @@ rule:
 | Class declarations | `--rule 'rule: {kind: class_declaration}'` |
 | Async functions | `--rule 'rule: {kind: function_declaration, has: {kind: async, field: ...}}'` (or `--lang ts` + exact read) |
 
-For the ones expressed as a kind, the simplest robust form is `octocode search <path> --rule 'rule: {kind: <node_kind>}' --lang ts`. When a kind name is uncertain, get a skeleton with `octocode search <file> --symbols` or `octocode search <file> --content-view symbols`, or match a known snippet and inspect.
+For the ones expressed as a kind, the simplest robust form is `npx octocode search <path> --rule 'rule: {kind: <node_kind>}' --lang ts`. When a kind name is uncertain, get a skeleton with `npx octocode search <file> --symbols` or `npx octocode search <file> --content-view symbols`, or match a known snippet and inspect.
 
 ---
 
@@ -93,8 +93,8 @@ A literal-selector pattern like `fmt.Println($X)` matches nothing (a bare snippe
 ## Recommended AST workflow
 
 1. `search` (or raw `localSearchCode`/`localFindFiles`) to narrow candidate files.
-2. `octocode search --pattern/--rule --lang <language>` / `localSearchCode(mode:"structural")` to get structural proof — pair each match with `file:line`.
-3. `octocode search <file> --content-view exact` and `octocode search <file> --op ...` for semantic context and blast radius.
+2. `npx octocode search --pattern/--rule --lang <language>` / `localSearchCode(mode:"structural")` to get structural proof — pair each match with `file:line`.
+3. `npx octocode search <file> --content-view exact` and `npx octocode search <file> --op ...` for semantic context and blast radius.
 
 This keeps investigation fast and false positives near zero.
 
@@ -106,9 +106,9 @@ When cross-checking a structural result or working in an environment without Oct
 
 | Octocode | ast-grep |
 |---|---|
-| `octocode search src --pattern 'console.log($$$A)' --lang ts` | `sg run -p 'console.log($$$A)' -l ts src/` |
-| `octocode search src --rule 'rule: {kind: catch_clause}' --lang ts` | `sg run --rule rule.yml src/` (YAML in a file) |
-| `octocode search src --pattern 'eval($X)' --lang js --json` | `sg run -p 'eval($X)' -l js src/ --json=stream` |
+| `npx octocode search src --pattern 'console.log($$$A)' --lang ts` | `sg run -p 'console.log($$$A)' -l ts src/` |
+| `npx octocode search src --rule 'rule: {kind: catch_clause}' --lang ts` | `sg run --rule rule.yml src/` (YAML in a file) |
+| `npx octocode search src --pattern 'eval($X)' --lang js --json` | `sg run -p 'eval($X)' -l js src/ --json=stream` |
 
 Key differences:
 - Octocode ripgrep-pre-filters on a text anchor before parsing, making it faster on large corpora.

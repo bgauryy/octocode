@@ -9,19 +9,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = resolve(__dirname, '..');
 const ENV_PATH = resolve(SKILL_DIR, '.env');
 
-try {
-  const lines = readFileSync(ENV_PATH, 'utf8').split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
-    if (!process.env[key]) process.env[key] = val;
-  }
-} catch { /* .env not present */ }
-
 const ENDPOINT = 'https://google.serper.dev/search';
 
 // Serper time filters use Google's `tbs` qdr tokens.
@@ -32,12 +19,32 @@ function die(msg, code = 1) {
   process.exitCode = code;
 }
 
+function loadEnvFile() {
+  try {
+    const lines = readFileSync(ENV_PATH, 'utf8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const normalized = trimmed.startsWith('export ') ? trimmed.slice('export '.length).trim() : trimmed;
+      const eqIdx = normalized.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = normalized.slice(0, eqIdx).trim();
+      const val = normalized.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) process.env[key] = val;
+    }
+  } catch { /* .env not present */ }
+}
+
 function parseArgs(argv) {
-  const opts = { query: '', maxResults: 8, timeRange: 'year', gl: 'us', hl: 'en', check: false, help: false };
+  const opts = {
+    query: '', maxResults: 8, timeRange: 'year', gl: 'us', hl: 'en',
+    check: false, presenceOnly: false, help: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') { opts.help = true; continue; }
     if (a === '--check') { opts.check = true; continue; }
+    if (a === '--presence-only') { opts.presenceOnly = true; continue; }
     if (a === '--query' || a === '-q') { opts.query = argv[++i] || ''; continue; }
     if (a === '--max-results') { opts.maxResults = Number(argv[++i]) || 8; continue; }
     if (a === '--time-range') { opts.timeRange = argv[++i] || 'year'; continue; }
@@ -47,6 +54,25 @@ function parseArgs(argv) {
     die(`Unknown argument: ${a}`); return null;
   }
   return opts;
+}
+
+async function validateKey(apiKey, opts) {
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      q: 'Serper API health check',
+      num: 1,
+      gl: opts.gl,
+      hl: opts.hl,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Serper API ${res.status}: ${text}`);
+  }
 }
 
 async function search(opts, apiKey) {
@@ -119,21 +145,36 @@ Options:
   --time-range     day, week, month, or year (default: year)
   --gl             Country code (default: us)
   --hl             Language code (default: en)
-  --check          Exit 0 if SERPER_API_KEY is set, 1 otherwise
+  --check          Validate SERPER_API_KEY with a live Serper request
+  --presence-only  With --check, only verify a key is present locally
 
 .env file: ${ENV_PATH}`);
     return;
   }
 
+  loadEnvFile();
   const apiKey = process.env.SERPER_API_KEY;
 
   if (opts.check) {
-    if (apiKey) {
-      console.log('serper: available');
-      process.exitCode = 0;
-    } else {
+    if (!apiKey) {
       console.log(`serper: unavailable (SERPER_API_KEY not set)`);
       console.log(`Add SERPER_API_KEY to: ${ENV_PATH}`);
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.presenceOnly) {
+      console.log('serper: key present (not validated)');
+      process.exitCode = 0;
+      return;
+    }
+    try {
+      await validateKey(apiKey, opts);
+      console.log('serper: available (validated)');
+      process.exitCode = 0;
+    } catch (err) {
+      console.log('serper: unavailable (key failed live validation)');
+      console.log(err.message || String(err));
+      console.log(`Update SERPER_API_KEY in: ${ENV_PATH}`);
       process.exitCode = 1;
     }
     return;

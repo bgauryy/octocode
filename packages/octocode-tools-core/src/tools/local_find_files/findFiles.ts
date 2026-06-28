@@ -65,7 +65,7 @@ export async function findFiles(
 
     const timeFormatWarnings = validateTimeFilterFormats(queryWithDefaults);
 
-    const maxFiles = query.limit ?? LOCAL_MAX_LIMIT;
+    const requestedLimit = query.limit ?? LOCAL_MAX_LIMIT;
     const nativeResult = contextUtils.queryFileSystem({
       path: queryWithDefaults.path,
       recursive: true,
@@ -88,7 +88,7 @@ export async function findFiles(
       readable: queryWithDefaults.readable,
       writable: queryWithDefaults.writable,
       excludeDir: queryWithDefaults.excludeDir,
-      limit: maxFiles,
+      limit: LOCAL_MAX_LIMIT,
     });
 
     const discoveredFileCount = nativeResult.totalDiscovered;
@@ -99,7 +99,12 @@ export async function findFiles(
     const sortBy = query.sortBy || 'modified';
     sortLocalFindFilesEntrys(files, sortBy, collectModified);
 
-    const filesForOutput = formatForOutput(files, details, showLastModified);
+    const limitedFiles = files.slice(0, requestedLimit);
+    const filesForOutput = formatForOutput(
+      limitedFiles,
+      details,
+      showLastModified
+    );
     const totalFiles = filesForOutput.length;
 
     const filesPerPage =
@@ -134,7 +139,9 @@ export async function findFiles(
         totalFiles,
         hasMore: currentPage < totalPages,
         ...(currentPage < totalPages ? { nextPage: currentPage + 1 } : {}),
-        ...(wasFileCapped ? { totalFilesFound: discoveredFileCount } : {}),
+        ...(wasFileCapped || discoveredFileCount > totalFiles
+          ? { totalFilesFound: discoveredFileCount }
+          : {}),
       },
       ...(allWarnings.length > 0 && { warnings: allWarnings }),
     };

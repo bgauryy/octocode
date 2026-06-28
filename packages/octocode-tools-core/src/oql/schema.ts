@@ -301,8 +301,9 @@ const ACTIVE_TARGET_ENUM = ACTIVE_TARGETS as unknown as [string, ...string[]];
  * Raw input is intentionally permissive: it carries documented sugar fields
  * AND passes unknown keys through (`.catchall`) so the normalizer — not Zod —
  * decides whether an unknown key is sugar, `ambiguousSugar`, or `unknownField`.
- * The reserved-target enum is allowed here so the normalizer can emit
- * `unsupportedTarget` rather than a generic schema error.
+ * The reserved-target enum is allowed for internal normalization so callers
+ * using the OQL library get `unsupportedTarget`; the public tool schema below
+ * advertises only executable active targets.
  */
 const ALL_TARGETS = [...ACTIVE_TARGETS, ...RESERVED_TARGETS] as unknown as [
   string,
@@ -377,16 +378,18 @@ const OqlInputQueryShape = {
   verbose: z.boolean().optional(),
 } as const;
 
+const OqlExecutableInputQueryShape = {
+  ...OqlInputQueryShape,
+  target: z
+    .enum(ACTIVE_TARGET_ENUM)
+    .optional()
+    .describe(
+      'REQUIRED unless inferable from sugar (text/regex/pattern/rule/boolean → code, fetch.content → content, fetch.tree → structure). One of the active targets — run `search --scheme` for the full list and recipes.'
+    ),
+} as const;
+
 export const OqlDisplayQuerySchema = z
-  .object({
-    ...OqlInputQueryShape,
-    target: z
-      .enum(ACTIVE_TARGET_ENUM)
-      .optional()
-      .describe(
-        'REQUIRED unless inferable from sugar (text/regex/pattern/rule/boolean → code, fetch.content → content, fetch.tree → structure). One of the active targets — run `search --scheme` for the full list and recipes.'
-      ),
-  })
+  .object(OqlExecutableInputQueryShape)
   .catchall(z.unknown());
 
 export const OqlInputQuerySchema = z
@@ -402,7 +405,7 @@ export const OqlInputBatchSchema = z
 
 export const OqlSearchInputSchema = z
   .object({
-    ...OqlInputQueryShape,
+    ...OqlExecutableInputQueryShape,
     // Single-query fields are accepted alongside an optional batch envelope.
     // Normalization decides whether the object is a single query or a batch.
     queries: z.array(z.unknown()).min(1).max(5).optional(),

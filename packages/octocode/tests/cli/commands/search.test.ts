@@ -5,6 +5,11 @@ const runOqlSearch = vi.fn();
 const oqlSchemaText = vi.fn(() => '{"schema":"oql"}');
 const outlineSymbols = vi.fn();
 const materializeRemoteForCli = vi.fn();
+// Pass-through spy: the real secret scanner is aliased to a no-op stub in the
+// CLI vitest config (no native binary), so we verify the command INVOKES
+// sanitization on the envelope; real redaction is covered by the tools-core
+// responses test + the live E2E.
+const sanitizeStructuredContentSpy = vi.fn((x: unknown) => x);
 
 vi.mock('@octocodeai/octocode-tools-core/oql', async () => {
   // keep the real shorthand lowering (tools-core owns it); mock only execution
@@ -15,6 +20,7 @@ vi.mock('@octocodeai/octocode-tools-core/oql', async () => {
     ...actual,
     runOqlSearch: (...args: unknown[]) => runOqlSearch(...args),
     oqlSchemaText: () => oqlSchemaText(),
+    sanitizeStructuredContent: (x: unknown) => sanitizeStructuredContentSpy(x),
   };
 });
 
@@ -158,6 +164,40 @@ describe('octocode search command', () => {
     expect(runOqlSearch).not.toHaveBeenCalled();
   });
 
+  it('--scheme --json --compact prints the lean agent guide as JSON', async () => {
+    await run({ scheme: true, compact: true, json: true });
+    const parsed = JSON.parse(stdout) as { kind: string; targets: unknown[] };
+    expect(parsed.kind).toBe('octocode.search.compactScheme');
+    expect(Array.isArray(parsed.targets)).toBe(true);
+    expect(runOqlSearch).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes the OQL envelope before any output (no interface leaks secrets)', async () => {
+    sanitizeStructuredContentSpy.mockClear();
+    const envelope = {
+      results: [
+        {
+          kind: 'code',
+          source: { kind: 'local', path: '.' },
+          path: 'a.ts',
+          line: 1,
+          snippet: 'const t = "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB";',
+        },
+      ],
+      diagnostics: [],
+      provenance: [
+        { backend: 'localSearchCode', source: { kind: 'local', path: '.' } },
+      ],
+      evidence: { answerReady: true, complete: true, kind: 'proof' },
+    };
+    runOqlSearch.mockResolvedValue(envelope);
+    await run({}, ['ghp', './src']);
+    // The CLI must hand the raw OQL envelope to the sanitizer before printing —
+    // the interface-layer redaction the MCP path gets via sanitizeCallToolResult.
+    expect(sanitizeStructuredContentSpy).toHaveBeenCalledTimes(1);
+    expect(sanitizeStructuredContentSpy).toHaveBeenCalledWith(envelope);
+  });
+
   it('errors with USAGE exit when no query is provided', async () => {
     await run({});
     expect(process.exitCode).toBe(EXIT.USAGE);
@@ -178,6 +218,22 @@ describe('octocode search command', () => {
     expect(runOqlSearch).toHaveBeenCalledTimes(1);
     expect(stdout).toContain('a.ts');
     expect(process.exitCode).toBe(EXIT.OK);
+  });
+
+  it('accepts top-level array JSON as an OQL batch for --query', async () => {
+    runOqlSearch.mockResolvedValue(proofEnvelope());
+    await run({
+      query:
+        '[{"target":"structure","from":{"kind":"local","path":"src"}},{"target":"files","from":{"kind":"local","path":"src"}}]',
+    });
+    const [input] = runOqlSearch.mock.calls[0]! as [Record<string, unknown>];
+    expect(input).toMatchObject({
+      schema: 'oql',
+      queries: [
+        { target: 'structure', from: { kind: 'local', path: 'src' } },
+        { target: 'files', from: { kind: 'local', path: 'src' } },
+      ],
+    });
   });
 
   it('renders semantic document symbols in text output', async () => {
@@ -390,6 +446,114 @@ describe('octocode search command', () => {
     expect((opts as { dryRun?: boolean }).dryRun).toBe(true);
   });
 
+  it('renders compact research packet IDs and a copyable next.graph command', async () => {
+    runOqlSearch.mockResolvedValue({
+      results: [
+        {
+          kind: 'record',
+          recordType: 'research',
+          id: 'reachability',
+          data: {
+            intent: 'reachability',
+            summary: { sourceFiles: 2, candidateUnusedExports: 1 },
+            packets: [
+              {
+                subject: { id: 'sym:a.ts#deadFn' },
+                verdict: 'candidate-dead',
+                proofStatus: 'candidate',
+              },
+            ],
+          },
+          next: {
+            'next.graph': {
+              query: {
+                schema: 'oql',
+                target: 'graph',
+                from: { kind: 'local', path: '/repo/src' },
+                params: {
+                  intent: 'reachability',
+                  mode: 'prove',
+                  proof: 'lsp',
+                  proofLimit: 1,
+                },
+              },
+            },
+          },
+        },
+      ],
+      nextHints: {
+        'next.graph': {
+          why: 'Upgrade this candidate research to LSP-proven relationships.',
+          confidence: 'exact',
+        },
+      },
+      diagnostics: [],
+      provenance: [],
+      evidence: { answerReady: false, complete: false, kind: 'candidate' },
+    });
+
+    await run(
+      {
+        compact: true,
+        query:
+          '{"target":"research","from":{"kind":"local","path":"/repo/src"},"params":{"intent":"reachability"}}',
+      },
+      []
+    );
+
+    expect(stdout).toContain(
+      'packets=sym:a.ts#deadFn[candidate-dead/candidate]'
+    );
+    expect(stdout).toContain('next.graph');
+    expect(stdout).toContain('search --query');
+    expect(stdout).toContain('"target":"graph"');
+  });
+
+  it('renders copyable next.page and next.materialize commands in compact text', async () => {
+    runOqlSearch.mockResolvedValue({
+      results: [],
+      next: {
+        'next.page': {
+          query: {
+            schema: 'oql',
+            target: 'code',
+            from: { kind: 'local', path: '/repo/src' },
+            page: 2,
+          },
+          why: 'More result pages remain.',
+          confidence: 'exact',
+        },
+        'next.materialize': {
+          query: {
+            schema: 'oql',
+            target: 'materialize',
+            from: { kind: 'github', repo: 'facebook/react' },
+            materialize: { mode: 'required' },
+          },
+          why: 'GitHub code search returned no results.',
+          confidence: 'heuristic',
+        },
+      },
+      diagnostics: [],
+      provenance: [],
+      evidence: { answerReady: false, complete: false, kind: 'partial' },
+    });
+
+    await run(
+      {
+        compact: true,
+        query:
+          '{"target":"code","from":{"kind":"github","repo":"facebook/react"},"where":{"kind":"text","value":"x"}}',
+      },
+      []
+    );
+
+    expect(stdout).toContain('next.page');
+    expect(stdout).toContain('"page":2');
+    expect(stdout).toContain('next.materialize');
+    expect(stdout).toContain('"target":"materialize"');
+  });
+
   it('unsupported evidence yields a TOOL exit code', async () => {
     runOqlSearch.mockResolvedValue({
       results: [],
@@ -448,6 +612,20 @@ describe('octocode search shorthand sugar', () => {
       where: { kind: 'text', value: 'runCLI' },
     });
     expect(input.from).toMatchObject({ kind: 'local' });
+  });
+
+  it('routes a NON-EXISTENT file path + --content-view to content at that path (clean not-found, not a "." dir read)', async () => {
+    runOqlSearch.mockResolvedValue(proofEnvelope());
+    const ghost = '/tmp/octocode-ghost-dir/missing-file.ts';
+    await run({ 'content-view': 'symbols' }, [ghost]);
+    const [input] = runOqlSearch.mock.calls[0]! as [Record<string, unknown>];
+    expect(input).toMatchObject({ target: 'content' });
+    // The named file must become the corpus path so localGetFileContent can
+    // report a clean "File not found" — NOT fall back to cwd "." (a directory),
+    // which produced the misleading "Path is a directory" error.
+    const from = input.from as { kind?: string; path?: string };
+    expect(from.path).toBe(path.resolve(ghost));
+    expect(from.path).not.toBe('.');
   });
 
   it('lowers canonical text-search flags into search/OQL controls', async () => {
@@ -1199,7 +1377,7 @@ describe('octocode search shorthand sugar', () => {
     expect(input).toMatchObject({
       target: 'pullRequests',
       from: { kind: 'github', repo: 'facebook/react' },
-      params: { keywordsToSearch: 'fix auth' },
+      params: { keywordsToSearch: ['fix auth'] },
     });
 
     runOqlSearch.mockClear();

@@ -287,4 +287,23 @@ describe('buildShorthandInput (CLI shorthand lowering, owned by tools-core)', ()
       },
     });
   });
+
+  it('PR list shorthand lowers free text to keywordsToSearch array', () => {
+    const query = input(
+      buildShorthandInput({
+        target: 'pullRequests',
+        text: 'fix auth',
+        state: 'merged',
+        corpus: { kind: 'github', repo: 'facebook/react' },
+      })
+    );
+    expect(query).toMatchObject({
+      target: 'pullRequests',
+      from: { kind: 'github', repo: 'facebook/react' },
+      params: {
+        keywordsToSearch: ['fix auth'],
+        state: 'merged',
+      },
+    });
+  });
 });

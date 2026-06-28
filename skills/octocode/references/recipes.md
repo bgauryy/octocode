@@ -5,8 +5,8 @@ Read this when you need concrete multi-step command sequences. Each shows the ch
 ## Symbol lookup (definition + callers)
 
 ```bash
-octocode search 'runCLI' bgauryy/octocode-mcp --lang ts --limit 10
-octocode search bgauryy/octocode-mcp/packages/octocode/src/cli/index.ts --match-string 'export function runCLI' --content-view exact
+npx octocode search 'runCLI' bgauryy/octocode-mcp --lang ts --limit 10
+npx octocode search bgauryy/octocode-mcp/packages/octocode/src/cli/index.ts --match-string 'export function runCLI' --content-view exact
 ```
 
 ## Workspace mapping (layout + each package.json)
@@ -15,4 +15,4 @@ One `search --tree --depth 2`, then parallel `search <package.json> --content-vi
 
 ## Deep multi-file work in one repo (>~3 files)
 
-`octocode clone owner/repo`, then run `search`, `search --pattern` (AST), `search --symbols`, `search --op`, and `search --content-view exact` on the local clone instead of many GitHub round-trips.
+`npx octocode clone owner/repo`, then run `npx octocode search`, `npx octocode search --pattern` (AST), `npx octocode search --symbols`, `npx octocode search --op`, and `npx octocode search --content-view exact` on the local clone instead of many GitHub round-trips.

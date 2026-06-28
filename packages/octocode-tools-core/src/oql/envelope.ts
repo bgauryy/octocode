@@ -26,8 +26,10 @@ export interface BuildEnvelopeArgs {
   queryId?: string;
   queryIndex?: number;
   results: OqlProofGradedResultRow[];
+  shared?: OqlResultEnvelope['shared'];
   pagination?: Pagination;
   next?: OqlResultEnvelope['next'];
+  nextHints?: OqlResultEnvelope['nextHints'];
   diagnostics: OqlDiagnostic[];
   provenance: OqlProvenance[];
   /** Whether the plan was executable (no UNSUPPORTED nodes / blocking errors). */
@@ -46,8 +48,14 @@ export function buildEnvelope(args: BuildEnvelopeArgs): OqlResultEnvelope {
     ...(args.queryId ? { queryId: args.queryId } : {}),
     ...(args.queryIndex !== undefined ? { queryIndex: args.queryIndex } : {}),
     results: args.results,
+    ...(args.shared && Object.keys(args.shared).length
+      ? { shared: args.shared }
+      : {}),
     ...(args.pagination ? { pagination: args.pagination } : {}),
     ...(args.next && Object.keys(args.next).length ? { next: args.next } : {}),
+    ...(args.nextHints && Object.keys(args.nextHints).length
+      ? { nextHints: args.nextHints }
+      : {}),
     diagnostics: args.diagnostics,
     provenance: args.provenance,
     evidence: { answerReady, complete, kind },

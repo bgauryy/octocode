@@ -64,7 +64,9 @@ export function mapCodeResult(
   for (const file of result.files ?? []) {
     const matches = file.matches ?? [];
     if (matches.length === 0) {
-      // filesOnly / discovery / count modes: one row per file at line 1.
+      // filesOnly / discovery / count modes: one path-level row per file.
+      // There is no match line here; keep it absent so continuations use the
+      // original query match instead of fabricating a line-1 anchor.
       // Count modes carry file-level totals even though they do not carry match rows.
       const counts = file as {
         totalMatchedLines?: number;
@@ -74,7 +76,6 @@ export function mapCodeResult(
         kind: 'code',
         source,
         path: file.path,
-        line: 1,
         ...(counts.totalMatchedLines !== undefined
           ? { totalMatchedLines: counts.totalMatchedLines }
           : {}),

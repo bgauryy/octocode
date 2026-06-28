@@ -1,0 +1,79 @@
+
+  localSearchCode  Local | Search local files for text, regex, or AST patterns to find file and line. | Use discovery for paths, paginated for snippets, detailed for context, structural for AST search.
+  Runtime: same Octocode MCP tool implementation under the hood.
+
+  Description
+  Text/regex need keywords; structural needs pattern or rule. Narrow noisy searches before paging; searchEngine warns when fallback reduced capability.
+  Structural pattern tip: a pattern must match a complete AST node. A function usually needs a body ({ $$$BODY }), return type, and any required syntax — a bare name or signature without a body produces zero matches with no parse error. Use a YAML rule (inside/has/not/any) for partial or relational matches instead of a bare pattern.
+  Empty: broaden keywords, remove include/exclude/langType filters, or verify the path.
+
+  Command Patterns
+    # text search
+    tools localSearchCode --queries '{"path":".","keywords":"runCLI"}'
+    # structural code search
+    tools localSearchCode --queries '{"path":"src","mode":"structural","pattern":"eval($X)"}'
+
+  Input Schema
+    keywords (string) - The search pattern (text or regex). Set fixedString:true for a literal match, or perlRegex:true for advanced regex features (lookaheads, backreferences).
+    path (string) [required] - File or directory to search (absolute paths are safest). For remote repos: pass localPath from a ghCloneRepo or ghGetFileContent(type:"directory") result — it is already absolute.
+    mode (enum(paginated, discovery, detailed, structural), default "paginated") - "paginated" snippets; "discovery" paths only; "detailed" snippets plus context; "structural" AST/code-shape search with pattern or rule. Structural matches return line/capture anchors that can feed lspGetSemantics when symbol identity matters.
+    pattern (string) - Structural only: code-shaped AST pattern with $X (one node) or $$$ARGS (node list). Use this to find syntax shape, then use lspGetSemantics for semantic proof.
+    rule (string) - Structural only: YAML ast-grep rule for not/inside/has/all/any. Use for partial or relational AST queries before escalating matched anchors to lspGetSemantics.
+    fixedString (boolean) - Literal match (disables regex). Mutually exclusive with perlRegex.
+    perlRegex (boolean) - Advanced regex (lookaheads, backreferences). Mutually exclusive with fixedString.
+    caseInsensitive (boolean) - Case-insensitive matching. Mutually exclusive with caseSensitive.
+    caseSensitive (boolean) - Case-sensitive matching. Mutually exclusive with caseInsensitive.
+    wholeWord (boolean) - Matches whole words only.
+    invertMatch (boolean) - Returns non-matching lines. To list files lacking the pattern, use filesWithoutMatch instead.
+    include (array<string>) - Globs of files to search, e.g. '*.ts', 'src/**/*.tsx'. Only files matching any glob are searched.
+    exclude (array<string>) - Globs of files to skip, e.g. '*.min.js', 'dist/**'.
+    excludeDir (array<string>) - Directory names to skip entirely (e.g. 'node_modules', 'dist', '.git') — faster than exclude globs for whole directories.
+    noIgnore (boolean) - Searches files normally hidden by .gitignore/.ignore.
+    hidden (boolean) - Includes hidden (dot) files.
+    filesOnly (boolean) - Returns matching file paths without line content. Mutually exclusive with filesWithoutMatch.
+    filesWithoutMatch (boolean) - Returns files that do NOT contain the pattern — useful to find files missing a required import or header. Mutually exclusive with filesOnly.
+    contextLines (integer, 0-100) - Lines of context around each match. Pair with mode:'detailed' for self-contained snippets.
+    matchContentLength (integer, 1-100000, default 500) - Characters kept per match snippet. Raise for minified code or JSON, or when truncation hides matches.
+    maxMatchesPerFile (integer, 1-100000) - Caps matches per file and sets the per-file page size; when a file has more, file.pagination.hasMore appears — page it with matchPage. No effect in filesOnly/count modes.
+    maxFiles (integer, 1-100000) - Caps how many matched files are returned.
+    multiline (boolean) - Lets a match span lines. Add multilineDotall to let . cross newlines.
+    multilineDotall (boolean) - Lets . match newlines too. Requires multiline:true.
+    sort (enum(relevance, matchCount, path, modified, accessed, created), default "relevance") - Result ordering; non-relevance sorts skip ranking work.
+    sortReverse (boolean) - Reverses the sort (e.g. sort:'modified' + sortReverse:true = oldest first). No effect on 'relevance'/'matchCount'.
+    rankingProfile (enum(auto, typescript, javascript, rust, python, go, java, scala, markdown, json, yaml, generic), default "auto") - Language ranking profile for sort:'relevance'. 'auto' selects by langType then file extension; pass an explicit profile to force one.
+    debugRanking (boolean) - Include per-file ranking { score, profile, pathRole, reasons } so the relevance order is inspectable.
+    langType (string) - Language filter (ts, js, py, go, rust, …) — more precise than include globs.
+    countLinesPerFile (boolean) - Returns the count of matching lines per file instead of content — good for orientation (which files have the most hits). Mutually exclusive with countMatchesPerFile.
+    countMatchesPerFile (boolean) - Returns the total match count per file (counts multiple hits on one line). Mutually exclusive with countLinesPerFile.
+    onlyMatching (boolean) - Return matched substrings only, one per hit; useful for minified one-line files.
+    unique (boolean) - With onlyMatching, return each matched value once per file.
+    countUnique (boolean) - With onlyMatching, return each matched value once per file with its frequency.
+    matchWindow (integer, 0-200) - With onlyMatching, widen each matched span by this many characters on each side for context (trimmed sides marked with …). 0 = the bare match. Requires onlyMatching.
+    matchPage (integer, 1-1000, default 1) - Page within one file's matches; pair with maxMatchesPerFile to walk a noisy file.
+    itemsPerPage (integer, 1-1000) - Files per page.
+    page (integer, 1-1000, default 1) - Result page.
+
+  Auto-filled: id, researchGoal, reasoning
+
+  Output Schema
+    Default (YAML):
+      Clean YAML — read directly. Next steps come from typed fields: pagination, next, location, warnings, error.
+    --json envelope:
+      isError                          true = tool failed
+      content[].text                   YAML string (same as default output)
+      structuredContent.results[]      tool result objects; most tools use id + data
+      structuredContent.base           cwd / workspace root used for the query
+      structuredContent.pagination     nextPage / nextCharOffset — page only when present
+      structuredContent.next           typed follow-up params for the next call
+      structuredContent.location       where remote content was saved (kind, localPath, repoRoot, ...)
+      structuredContent.warnings[]     non-fatal issues to account for
+      structuredContent.error          failure detail when isError is true
+
+  Flags
+    --json     raw JSON envelope (structuredContent + content + isError)
+    --compact  lean structuredContent JSON
+
+  Example
+    tools localSearchCode --queries '{"path":".","keywords":"runCLI"}'
+    tools localSearchCode --queries '{"path":".","keywords":"runCLI"}' --json
+

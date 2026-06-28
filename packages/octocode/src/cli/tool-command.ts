@@ -46,6 +46,15 @@ const TOOL_RUNTIME_OPTION_KEYS = new Set([
 ]);
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = DIRECT_TOOL_DEFINITIONS;
+const RAW_LOCAL_PATH_TOOL_NAMES = new Set([
+  'localSearchCode',
+  'localFindFiles',
+  'localGetFileContent',
+  'localViewStructure',
+  'localBinaryInspect',
+]);
+const RAW_LOCAL_PATH_GUIDANCE =
+  'Path note: for raw local tools, prefer absolute paths; "." resolves against the command cwd/base and can surprise agents.';
 let toolMetadataPromise: Promise<
   Awaited<ReturnType<typeof loadToolContent>>
 > | null = null;
@@ -227,7 +236,6 @@ function formatFullDescription(fullDescription: string): string {
 }
 
 const LSP_TOOL_NAME = 'lspGetSemantics';
-const OQL_TOOL_NAME = 'oqlSearch';
 
 const LSP_TYPE_EXAMPLES: Array<[string, Record<string, unknown>]> = [
   [
@@ -378,33 +386,51 @@ function getToolPreviewLines(toolName: string): string[] {
   return [];
 }
 
+function getToolSchemaGuidance(toolName: string): string[] {
+  return RAW_LOCAL_PATH_TOOL_NAMES.has(toolName)
+    ? [RAW_LOCAL_PATH_GUIDANCE]
+    : [];
+}
+
+const DESCRIPTION_PREFIXES = new Set([
+  'github',
+  'local',
+  'npm',
+  'package',
+  'search',
+  'other',
+]);
+
+function formatConciseToolDescription(
+  toolName: string,
+  metadata: Awaited<ReturnType<typeof loadToolContent>> | null,
+  maxLen = 88
+): string {
+  const raw = extractShortDescription(
+    getDirectToolDescription(toolName, metadata)
+  );
+  const parts = raw
+    .split(/\s+\|\s+/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  const concise =
+    parts.find(part => !DESCRIPTION_PREFIXES.has(part.toLowerCase())) ??
+    raw.replace(/^(?:github|local|npm|package|search|other)\s*\|\s*/i, '');
+
+  return truncateDescription(concise.replace(/\s+/g, ' ').trim(), maxLen);
+}
+
 export async function showAvailableTools(): Promise<void> {
   const metadata = await getOptionalToolMetadata();
-
-  console.log();
-  console.log(
-    `  ${c('red', bold('SCHEMA REQUIRED — never call a tool without reading its schema:'))}`
-  );
-  console.log(
-    `    ${c('yellow', 'tools <name>')}                                     ${dim('# required fields, types, example call')}`
-  );
-  console.log(
-    `    ${c('yellow', 'tools <name> --scheme')}                            ${dim('# schema only, never runs')}`
-  );
-  console.log(
-    `    ${c('yellow', 'tools <n1> <n2> ...')}                              ${dim('# batch schema reads')}`
-  );
-  console.log(
-    `    ${c('yellow', 'context --full')}                                   ${dim('# full protocol + complete tool descriptions')}`
-  );
-  console.log(
-    `    ${c('yellow', 'context --json')}                                   ${dim('# machine-readable context wrapper')}`
-  );
-  console.log();
-
   const toolNames = sortDirectToolNames(
     TOOL_DEFINITIONS.map(tool => tool.name)
   );
+
+  console.log();
+  console.log(
+    `  ${c('magenta', bold(`Octocode Tools (${toolNames.length})`))}  ${dim('name + concise description')}`
+  );
+  console.log();
 
   for (const category of TOOL_CATEGORIES) {
     const toolsInCategory = toolNames.filter(
@@ -416,64 +442,186 @@ export async function showAvailableTools(): Promise<void> {
 
     console.log(`  ${bold(category)}`);
     for (const toolName of toolsInCategory) {
-      const shortDesc = truncateDescription(
-        extractShortDescription(getDirectToolDescription(toolName, metadata)),
-        60
-      );
-      const fields = formatRequiredFields(toolName);
       const namePadded = toolName.padEnd(26);
-      const fieldsPadded = fields.padEnd(32);
       console.log(
-        `    ${c('cyan', namePadded)} ${dim(fieldsPadded)} ${dim(shortDesc)}`
+        `    ${c('cyan', namePadded)} ${dim(formatConciseToolDescription(toolName, metadata))}`
       );
-      const previewLines = getToolPreviewLines(toolName);
-      if (previewLines.length > 0) {
-        const indent = ''.padEnd(30);
-        for (const line of previewLines) {
-          console.log(`    ${dim(indent)} ${dim(line)}`);
-        }
-      }
     }
     console.log();
   }
 
   console.log(
-    `  ${bold('TO CALL')}  tools <name> --queries '<json>'  ${dim('# YAML (default)')}`
+    `  ${bold('SCHEMA')}  ${c('yellow', 'tools <name> --scheme')}  ${dim('# required before raw calls')}`
   );
   console.log(
-    `           tools <name> --queries '<json>' --json  ${dim('# full CallToolResult')}`
+    `  ${bold('RUN')}     ${c('yellow', "tools <name> --queries '<json>' --compact")}  ${dim('# lean tool output')}`
   );
   console.log(
-    `           tools <name> --queries '<json>' --compact  ${dim('# lean structuredContent')}`
+    `  ${bold('JSON')}    ${c('yellow', 'tools --json --compact')}  ${dim('# lean machine catalog')}`
   );
   console.log();
-  // Smart commands temporarily unhooked — will be re-added in a future release.
-  console.log(`  ${dim('Full protocol: context  |  All commands: --help')}`);
+  console.log(`  ${dim('Full protocol: context  |  Help: tools <name>')}`);
   console.log();
 }
 
-export async function printToolCatalogJson(): Promise<void> {
+type ToolCatalogJsonOptions = {
+  full?: boolean;
+  compact?: boolean;
+};
+
+function printJsonPayload(payload: unknown, compact = false): void {
+  console.log(JSON.stringify(payload, null, compact ? 0 : 2));
+}
+
+function formatToolFieldsJson(toolName: string): Array<{
+  name: string;
+  type: string;
+  required: boolean;
+  constraints?: string;
+  description?: string;
+}> {
+  return getDirectToolDisplayFields(toolName).map(field => ({
+    name: field.name,
+    type: field.type,
+    required: field.required,
+    ...(field.constraints ? { constraints: field.constraints } : {}),
+    ...(field.description ? { description: field.description } : {}),
+  }));
+}
+
+function compactRunCommand(toolName: string): string {
+  return `${formatToolExampleCommand(toolName)} --compact`;
+}
+
+export async function printToolCatalogJson(
+  options: ToolCatalogJsonOptions = {}
+): Promise<void> {
   const metadata = await getOptionalToolMetadata();
   const toolNames = sortDirectToolNames(
     TOOL_DEFINITIONS.map(tool => tool.name)
   );
 
-  const catalog = toolNames.map(toolName => ({
-    name: toolName,
-    category: getDirectToolCategory(toolName),
-    description: extractShortDescription(
-      getDirectToolDescription(toolName, metadata)
-    ),
-    fields: getDirectToolDisplayFields(toolName).map(field => ({
-      name: field.name,
-      type: field.type,
-      required: field.required,
-      ...(field.constraints ? { constraints: field.constraints } : {}),
-      ...(field.description ? { description: field.description } : {}),
-    })),
-  }));
+  if (!options.full) {
+    const catalog = {
+      kind: 'octocode.toolCatalog',
+      version: 1,
+      toolCount: toolNames.length,
+      guidance: [
+        'Discovery only: this catalog intentionally omits full schemas.',
+        'Read one schema before raw execution: tools <name> --scheme --json.',
+        'Run tools with --compact unless you need the full CallToolResult envelope.',
+      ],
+      commands: {
+        list: 'tools --json',
+        fullCatalog: 'tools --json --full',
+        schema: 'tools <name> --scheme --json',
+        humanSchema: 'tools <name> --scheme',
+        runCompact: "tools <name> --queries '<json>' --compact",
+        runEnvelope: "tools <name> --queries '<json>' --json",
+      },
+      tools: toolNames.map(toolName => ({
+        name: toolName,
+        category: getDirectToolCategory(toolName),
+        description: formatConciseToolDescription(toolName, metadata),
+        fields: formatRequiredFields(toolName),
+        ...(getToolPreviewLines(toolName).length > 0
+          ? { hints: getToolPreviewLines(toolName) }
+          : {}),
+        schemaCommand: `tools ${toolName} --scheme --json`,
+        runCommand: compactRunCommand(toolName),
+      })),
+    };
 
-  console.log(JSON.stringify(catalog, null, 2));
+    printJsonPayload(catalog, options.compact);
+    return;
+  }
+
+  const catalog = {
+    kind: 'octocode.toolCatalog.full',
+    version: 1,
+    toolCount: toolNames.length,
+    guidance: [
+      'Full all-tool schema catalog. This is intentionally large.',
+      'For agent loops prefer tools --json, then tools <name> --scheme --json.',
+      'Use this only when automation truly needs every schema in one payload.',
+    ],
+    commands: {
+      list: 'tools --json',
+      leanCatalog: 'tools --json --compact',
+      schema: 'tools <name> --scheme --json',
+      compactSchema: 'tools <name> --scheme --json --compact',
+      humanSchema: 'tools <name> --scheme',
+      runCompact: "tools <name> --queries '<json>' --compact",
+      runEnvelope: "tools <name> --queries '<json>' --json",
+    },
+    tools: toolNames.map(toolName => {
+      const fullDescription = getDirectToolDescription(toolName, metadata);
+      const commandPatterns = buildDirectToolCommandPatterns(toolName);
+
+      return {
+        name: toolName,
+        category: getDirectToolCategory(toolName),
+        description: extractShortDescription(fullDescription),
+        fullDescription,
+        inputSchema: JSON.parse(formatDirectToolSchemaText(toolName)),
+        fields: formatToolFieldsJson(toolName),
+        ...(getToolSchemaGuidance(toolName).length > 0
+          ? { guidance: getToolSchemaGuidance(toolName) }
+          : {}),
+        autoFilledFields: getDirectToolAutoFilledFields(toolName),
+        schemaCommand: `tools ${toolName} --scheme --json`,
+        runCommand: compactRunCommand(toolName),
+        ...(commandPatterns.length > 0 ? { commandPatterns } : {}),
+      };
+    }),
+  };
+
+  printJsonPayload(catalog, options.compact);
+}
+
+export async function printToolSchemaJson(
+  toolName: string,
+  options: { compact?: boolean } = {}
+): Promise<boolean> {
+  const tool = findToolDefinition(toolName);
+  if (!tool) return false;
+
+  const metadata = await getOptionalToolMetadata();
+  const inputSchema = JSON.parse(formatDirectToolSchemaText(tool.name));
+  const fullDescription = getDirectToolDescription(tool.name, metadata);
+  const commandPatterns = buildDirectToolCommandPatterns(tool.name);
+  const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
+  const fields = formatToolFieldsJson(tool.name);
+  const guidance = getToolSchemaGuidance(tool.name);
+
+  printJsonPayload(
+    {
+      kind: 'octocode.toolSchema',
+      version: 1,
+      name: tool.name,
+      category: getDirectToolCategory(tool.name),
+      description: extractShortDescription(fullDescription),
+      inputSchema,
+      ...(options.compact
+        ? { fieldNames: fields.map(field => field.name) }
+        : { fullDescription, fields }),
+      ...(guidance.length > 0 ? { guidance } : {}),
+      autoFilledFields,
+      commands: {
+        catalog: 'tools --json',
+        schema: `tools ${tool.name} --scheme --json`,
+        compactSchema: `tools ${tool.name} --scheme --json --compact`,
+        humanSchema: `tools ${tool.name} --scheme`,
+        runCompact: compactRunCommand(tool.name),
+        runEnvelope: `tools ${tool.name} --queries '<json>' --json`,
+      },
+      ...(!options.compact && commandPatterns.length > 0
+        ? { commandPatterns }
+        : {}),
+    },
+    options.compact
+  );
+  return true;
 }
 
 export async function showToolHelp(toolName: string): Promise<boolean> {
@@ -489,12 +637,16 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   const fullDescription = getDirectToolDescription(tool.name, metadata);
   const shortDesc = extractShortDescription(fullDescription);
   const extendedDesc = formatFullDescription(fullDescription);
+  const guidance = getToolSchemaGuidance(tool.name);
 
   console.log();
   console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
   console.log(
     `  ${dim('Runtime: same Octocode MCP tool implementation under the hood.')}`
   );
+  for (const line of guidance) {
+    console.log(`  ${dim(line)}`);
+  }
   console.log();
 
   if (extendedDesc) {
@@ -547,11 +699,6 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
   if (tool.name === 'ghGetFileContent') {
     console.log(
       `      ${c('cyan', 'results[].files/directories')}      ${dim('grouped GitHub fetch entries; data aliases the same group for generic parsers')}`
-    );
-  }
-  if (tool.name === OQL_TOOL_NAME) {
-    console.log(
-      `      ${c('cyan', 'structuredContent.oql')}            ${dim('native OQL run root (same rich shape as search --query --json)')}`
     );
   }
   console.log(
@@ -627,9 +774,13 @@ export async function showMultipleToolSchemas(
     const fields = getDirectToolDisplayFields(tool.name);
     const autoFilledFields = getDirectToolAutoFilledFields(tool.name);
     const commandPatterns = buildDirectToolCommandPatterns(tool.name);
+    const guidance = getToolSchemaGuidance(tool.name);
 
     console.log();
     console.log(`  ${c('magenta', bold(tool.name))}  ${dim(shortDesc)}`);
+    for (const line of guidance) {
+      console.log(`  ${dim(line)}`);
+    }
     console.log(`  ${bold('Input Schema')}`);
     for (const field of fields) {
       const reqTag = field.required ? c('red', ' [required]') : '';
@@ -665,9 +816,12 @@ export async function getToolsContextString(
       '  *** SCHEMA CHECK — REQUIRED BEFORE EVERY RAW TOOL CALL ***',
       '  This context lists what each tool is for. It does NOT include schemas —',
       "  read a tool's schema before calling it:",
+      '    tools --json                   # lean machine catalog, no full schemas',
       '    tools <name> --scheme           # schema: fields, types, bounds, defaults',
+      '    tools <name> --scheme --json    # one machine-readable schema',
       '    tools <name>                    # same schema/help shortcut',
       '    tools <n1> <n2> ... --scheme    # batch: read multiple schemas at once',
+      '    tools --json --full             # full all-tool schema dump; expensive, rare',
       '',
       '  *** RESEARCH LOOP ***',
       '  1. Orient: localViewStructure / ghViewRepoStructure / npmSearch.',
@@ -688,6 +842,8 @@ export async function getToolsContextString(
       '  responseCharLength/responseCharOffset (root params, siblings of queries) cap the whole envelope.',
       '',
       '  *** TOOL CALLS ***',
+      '  tools --json                                  # lean catalog; choose one tool',
+      '  tools <name> --scheme --json                  # one tool schema; avoid all-schema dumps',
       "  tools <name> --queries '<json>'           # run tool, YAML output",
       "  tools <name> --queries '<json>' --json    # run tool, full CallToolResult JSON",
       "  tools <name> --queries '<json>' --compact # run tool, lean structuredContent JSON",
@@ -718,7 +874,6 @@ export async function getToolsContextString(
       '    content[].text: string                 YAML string (same as default output)',
       '    structuredContent.results[]: array     tool result objects; most tools use id + data',
       '    structuredContent.results[].files[]     ghGetFileContent grouped fetch entries; data aliases the same group',
-      '    structuredContent.oql: object           tools oqlSearch only: native OQL run root',
       '    structuredContent.base: string         cwd / workspace root used for the query',
       '    structuredContent.pagination: object   nextPage / nextCharOffset — page only when present',
       '    structuredContent.next: object         typed follow-up params for the next call',
@@ -816,6 +971,29 @@ function printToolError(message: string, details: string[] = []): void {
   console.log();
 }
 
+function printToolCommandError(
+  args: ParsedArgs,
+  toolName: string | undefined,
+  message: string,
+  details: string[] = []
+): void {
+  if (args.options.json === true || args.options.compact === true) {
+    printJsonPayload(
+      {
+        kind: 'octocode.toolError',
+        version: 1,
+        ...(toolName ? { tool: toolName } : {}),
+        error: message,
+        ...(details.length > 0 ? { details } : {}),
+      },
+      args.options.compact === true
+    );
+    return;
+  }
+
+  printToolError(message, details);
+}
+
 function getErrorDetails(error: unknown): string[] {
   return error instanceof DirectToolInputError ? error.details : [];
 }
@@ -827,7 +1005,10 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
   if (!toolName || toolName === 'list' || args.options.list === true) {
     if (args.options.json === true) {
-      await printToolCatalogJson();
+      await printToolCatalogJson({
+        full: args.options.full === true,
+        compact: args.options.compact === true,
+      });
       return true;
     }
     await showAvailableTools();
@@ -845,7 +1026,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
 
   const tool = findToolDefinition(toolName);
   if (!tool) {
-    printToolError(`Unknown tool: ${toolName}`, [
+    printToolCommandError(args, toolName, `Unknown tool: ${toolName}`, [
       `Available tools: ${TOOL_DEFINITIONS.map(item => item.name).join(', ')}`,
     ]);
     process.exitCode = EXIT.NOT_FOUND;
@@ -870,6 +1051,12 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   }
 
   if (args.options.scheme === true) {
+    if (args.options.json === true) {
+      await printToolSchemaJson(tool.name, {
+        compact: args.options.compact === true,
+      });
+      return true;
+    }
     await showToolHelp(tool.name);
     return true;
   }
@@ -878,7 +1065,9 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
   try {
     inputText = getInputText(tool.name, args);
   } catch (error) {
-    printToolError(
+    printToolCommandError(
+      args,
+      tool.name,
       error instanceof Error ? error.message : 'Failed to parse tool input.',
       getErrorDetails(error)
     );
@@ -918,7 +1107,9 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     }
     return true;
   } catch (error) {
-    printToolError(
+    printToolCommandError(
+      args,
+      tool.name,
       error instanceof Error ? error.message : 'Tool execution failed.',
       getErrorDetails(error)
     );

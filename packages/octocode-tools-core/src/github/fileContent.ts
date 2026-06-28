@@ -79,9 +79,16 @@ export async function fetchGitHubFileContentAPI(
   const { signaturesExtracted, ...processedData } = processedResult;
   const charOffset = params.charOffset ?? 0;
   const charLength = params.charLength;
-  const paginatedResult = signaturesExtracted
-    ? processedData
-    : applyContentPagination(processedData, charOffset, charLength);
+  // fullContent:true is an explicit "give me the WHOLE file in one shot" request
+  // and opts out of the default char-window pagination (the documented
+  // contract) — but only when no explicit window was asked for. Huge files
+  // still paginate BY DEFAULT; an explicit charOffset/charLength still windows.
+  const wantsWholeFile =
+    params.fullContent === true && charOffset === 0 && charLength === undefined;
+  const paginatedResult =
+    signaturesExtracted || wantsWholeFile
+      ? processedData
+      : applyContentPagination(processedData, charOffset, charLength);
 
   const isContinuationPage = (params.charOffset ?? 0) > 0;
   if (!params.noTimestamp && !isContinuationPage) {

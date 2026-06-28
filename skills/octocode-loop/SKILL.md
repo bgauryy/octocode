@@ -7,11 +7,13 @@ description: Use when a clear research or code goal needs grounded Act→Observe
 
 Run **grounded research loops** — Act → Observe → Learn → Repeat — where every step is proven by a real Octocode tool result, never guessed. Use this when the goal and the research path are already clear and the work is iterative: issue a call, read the result, adjust, repeat until evidence converges or a budget is hit. This file is the router; mechanics live in `references/`.
 
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+
 Core principle: an agent steered by concrete tool feedback beats one running open-loop. So every iteration MUST end in a **grounded observation** — an actual result with a `status` — and the next action is chosen from that observation, not from assumption. Treat snippets as leads; conclusions are earned by proof.
 
 ## Transport: MCP or CLI
 
-Use the Octocode **MCP server** tools when the host has them (`oqlSearch` / `ghSearchCode` / `ghViewRepoStructure` / `ghGetFileContent` / `ghSearchRepos` / `npmSearch` / `ghHistoryResearch`, plus local + LSP tools when present). Otherwise use the **CLI** (`octocode <cmd>`, or `npx octocode` if not installed). Same capabilities — pick by what the user has. Load `references/tools.md` when you need the exact MCP↔CLI mapping, `status` semantics, schema-first calling, or how to carry anchors across iterations.
+Use the Octocode **MCP server** tools when the host has them (`oqlSearch` / `ghSearchCode` / `ghViewRepoStructure` / `ghGetFileContent` / `ghSearchRepos` / `npmSearch` / `ghHistoryResearch`, plus local + LSP tools when present). Otherwise use the **CLI** (`npx octocode <cmd>`). If MCP configuration is needed, read `references/octocode.md`. Same capabilities — pick by what the user has. Load `references/tools.md` when you need the exact MCP↔CLI mapping, `status` semantics, schema-first calling, or how to carry anchors across iterations.
 
 ## The loop (all modes)
 

@@ -63,4 +63,31 @@ describe('fetchContent next.continueChars', () => {
 
     expect((result as { next?: unknown }).next).toBeUndefined();
   });
+
+  it('fullContent:true returns the WHOLE file in one shot for content over the limit; default still paginates', async () => {
+    const hugeFile = join(dir, 'huge.txt');
+    // ~32k chars of prose — comfortably over the default output char limit.
+    const body = 'lorem ipsum dolor sit amet '.repeat(1200);
+    await writeFile(hugeFile, body, 'utf-8');
+
+    // Default (no fullContent): a large file auto-paginates.
+    const paged = await fetchContent({
+      path: hugeFile,
+      minify: 'none',
+    } as never);
+    expect((paged.pagination as { hasMore?: boolean })?.hasMore).toBe(true);
+    expect((paged.content as string).length).toBeLessThan(body.length);
+
+    // fullContent:true: the WHOLE file, no char-window pagination.
+    const whole = await fetchContent({
+      path: hugeFile,
+      minify: 'none',
+      fullContent: true,
+    } as never);
+    expect(whole.content).toBe(body);
+    expect(
+      (whole.pagination as { hasMore?: boolean } | undefined)?.hasMore
+    ).toBeFalsy();
+    expect((whole as { next?: unknown }).next).toBeUndefined();
+  });
 });

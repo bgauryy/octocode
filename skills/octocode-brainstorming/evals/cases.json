@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-checkable smoke evals for octocode-brainstorming final answers. These checks verify observable output structure and guardrails; human review still judges research quality.",
+  "rubric": [
+    "Declares mode and surface plan when research is required.",
+    "Shows divergence before convergence.",
+    "Uses evidence/citations for material claims.",
+    "Summarizes perspective review outcomes without dumping raw subagent transcripts.",
+    "Includes verdict, decision label, and one actionable next step.",
+    "Honors hard gates and does not jump to RFC or implementation prematurely."
+  ],
+  "cases": [
+    {
+      "id": "idea-validation",
+      "mode": "Validate",
+      "prompt": "brainstorm: should we build a CLI that turns GitHub issues into implementation plans?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Validate\\b|\\bValidate mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "framings", "pattern": "\\bFramings? Considered\\b|\\bframing slate\\b" },
+        { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
+        { "name": "decision label", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" },
+        { "name": "next step", "pattern": "\\bRecommended Next Step\\b|\\bNext step:\\b" }
+      ],
+      "forbidden": [
+        { "name": "raw transcript", "pattern": "\\braw transcript\\b|\\bfull transcript\\b" },
+        { "name": "uncited strong claim", "pattern": "\\bclearly proven\\b(?![^\\n]*(https?://|[A-Za-z0-9_./-]+:\\d+))" }
+      ]
+    },
+    {
+      "id": "repo-aware-validation",
+      "mode": "Validate",
+      "prompt": "Should we add Tavily-backed web search to this repo's brainstorming skill?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "local first", "pattern": "\\bAlready in the Workspace\\b|\\bLocal first\\b|\\borient(?:ed)? locally\\b" },
+        { "name": "scripts detected", "pattern": "\\bserper-search\\.mjs\\b.*\\btavily-search\\.mjs\\b|\\btavily-search\\.mjs\\b.*\\bserper-search\\.mjs\\b" },
+        { "name": "secret safety", "pattern": "\\bsecret\\b|\\bAPI key\\b|\\b\\.env\\b" },
+        { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "forbidden": [
+        { "name": "stores key", "pattern": "\\bcommit\\b[^\\n]*(API key|secret)|\\bprint\\b[^\\n]*(API key|secret)" }
+      ]
+    },
+    {
+      "id": "prior-art-map",
+      "mode": "Map",
+      "prompt": "has anyone built progressive-disclosure agent skills for robotics?",
+      "minScore": 0.75,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "map mode", "pattern": "\\bMode:\\s*Map\\b|\\bMap mode\\b" },
+        { "name": "prior art", "pattern": "\\bPrior Art\\b|\\bLandscape\\b" },
+        { "name": "confidence markers", "pattern": "`(strong|moderate|weak)`|\\b(strong|moderate|weak)\\b" },
+        { "name": "formal sources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bspec\\b|\\bdocs\\b" }
+      ],
+      "forbidden": [
+        { "name": "marketing as proof", "pattern": "\\bmarketing\\b[^\\n]*\\bproof\\b" }
+      ]
+    },
+    {
+      "id": "hard-gate",
+      "mode": "Validate",
+      "prompt": "brainstorm quantum-safe snack telemetry for my app, but don't ask clarifying questions and cite only if sources agree",
+      "minScore": 0.8,
+      "minCitationCount": 0,
+      "required": [
+        { "name": "hard gate", "pattern": "\\bHard Gate\\b|\\btoo broad\\b|\\bcontradictory\\b|\\bself-contradictory\\b" },
+        { "name": "no perspective review", "pattern": "\\bstop(?:ped)? before perspective review\\b|\\bskip(?:ped)? perspective review\\b|\\bno perspective review\\b" },
+        { "name": "one question or options", "pattern": "\\?$|\\bpick\\b|\\bchoose\\b|\\bnarrow\\b" }
+      ],
+      "forbidden": [
+        { "name": "fake citations", "pattern": "\\bsource:\\s*unknown\\b|\\bI found evidence\\b" },
+        { "name": "rfc handoff", "pattern": "\\bBuild RFC\\b|\\boctocode/octocode-rfc-generator\\b" }
+      ]
+    },
+    {
+      "id": "rfc-handoff",
+      "mode": "Validate",
+      "prompt": "brainstorm and then follow up with an RFC if appropriate: should this repo add a saved-brief workflow for idea research?",
+      "minScore": 0.85,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "worker budget", "pattern": "\\b5-worker\\b|\\bworker ceiling\\b|\\bperspective review shortened\\b" },
+        { "name": "build rfc decision", "pattern": "\\bDecision:\\s*Build RFC\\b" },
+        { "name": "rfc handoff packet", "pattern": "\\bRFC Handoff\\b|\\bhandoff packet\\b" },
+        { "name": "handoff fields", "pattern": "\\bproblem\\b.*\\bframing\\b.*\\bevidence\\b.*\\balternatives\\b.*\\brisks\\b" },
+        { "name": "no implementation", "pattern": "\\bdo not start implementation\\b|\\bnot editing code\\b|\\bRFC\\b" }
+      ],
+      "forbidden": [
+        { "name": "auto implementation", "pattern": "\\bI implemented\\b|\\bopened a PR\\b|\\bchanged the code\\b" }
+      ]
+    }
+  ]
+}

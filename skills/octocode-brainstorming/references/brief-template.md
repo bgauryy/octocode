@@ -13,6 +13,7 @@ Use this for the **saved** artifact (`.octocode/brainstorming/<YYYY-MM-DD>-<topi
 | **Mode** | Generate / Validate / Map |
 | **Created** | {YYYY-MM-DD} |
 | **Verdict** | Crowded / Underserved / Contested / Worth-prototyping |
+| **Decision** | Build RFC / Prototype First / Narrow / Park / Do Not Build |
 | **Research limits** | {none, or: no search engine, cross-pollination skipped (budget), thin evidence} |
 
 ---
@@ -50,29 +51,32 @@ Group by surface. Every entry carries a confidence marker (`strong`/`moderate`/`
 
 ---
 
-## The Debate
-The Advocate and Critic argued the **same evidence** and then rebutted each other.
-Record what each claim's reasoning was and whether it survived.
+## Perspective Review
+Critical Architect, Visionary Entrepreneur, and Product reviewed the **same evidence**.
+Record only what survived challenge, what was conceded, and what remains contested.
 
-### Bull Case — survived rebuttal
-- {claim} — *because* {reasoning}. Evidence: {ref}. Critic's rebuttal: {rebuttal}; **held because** {why}.
+### Critical Architect
+- {held/contested claim} — *because* {reasoning}. Evidence: {ref}. Decision impact: {risk / blocker / implementation unknown}. `{confidence}`
 
-### Bear Case — survived rebuttal
-- {claim} — *because* {reasoning}. Evidence: {ref}. Advocate's rebuttal: {rebuttal}; **held because** {why}.
+### Visionary Entrepreneur
+- {held/contested claim} — *because* {reasoning}. Evidence: {ref}. Decision impact: {wedge / upside / timing / distribution}. `{confidence}`
+
+### Product
+- {held/contested claim} — *because* {reasoning}. Evidence: {ref}. Decision impact: {MVP boundary / adoption friction / success signal}. `{confidence}`
 
 ### Conceded / Resolved
-- {claim that one side dropped after rebuttal, and why} — removes it as a live concern.
+- {claim the panel dropped after challenge, and why} — removes it as a live concern.
 
 ### Decision Delta
-What changed across the debate: which claims flipped, which stayed contested, who had
-the better evidence. This is the value of running the two against each other.
+What changed across the review: which claims flipped, which stayed contested, which
+perspective had the better evidence, and whether the decision changed.
 
 ---
 
 ## Verdict
-The synthesis of the **best surviving arguments from both sides** — not a tie-break, the
+The synthesis of the **best surviving arguments from the panel** — not a vote, the
 strongest defensible position. Agreement → high-confidence, lead with it. Standing
-disagreement → name it as a decision point with both sides. Key unknowns called out.
+disagreement → name it as a decision point with evidence. Key unknowns called out.
 
 ---
 
@@ -88,7 +92,22 @@ disagreement → name it as a decision point with both sides. Key unknowns calle
 
 ## Recommended Next Step
 One action. e.g. "Prototype the hardest unknown first: {X}" / "Too broad — narrow to {Y}" /
-"Build — closest base to fork/extend is {Z}" / "Don't build — {existing thing} already covers it".
+"Build RFC — hand off to `octocode/octocode-rfc-generator` with packet below" /
+"Don't build — {existing thing} already covers it".
+
+---
+
+## RFC Handoff Packet
+_(Conditional — include only when Decision is Build RFC or the user explicitly asks for an RFC.)_
+- **Problem:** {specific user + painful situation + desired outcome}
+- **Chosen framing:** {researched framing}
+- **Value thesis:** {who gets what valuable outcome}
+- **Surviving evidence:** {links / file anchors}
+- **Alternatives to compare:** {do nothing / package / build / hybrid}
+- **Constraints and risks:** {architecture, security, product, rollout}
+- **Bounded MVP / first slice:** {scope}
+- **Open questions:** {what `octocode-rfc-generator` should decide}
+- **Success signal:** {metric or observable outcome}
 
 ---
 

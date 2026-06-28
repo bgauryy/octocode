@@ -21,10 +21,13 @@ describe('main-help', () => {
       .map((c: unknown[]) => String(c[0]))
       .join('');
     expect(output).toContain('ghSearchCode');
+    expect(output).toContain('Search code contents');
     expect(output).toContain('<AGENT_INSTRUCTIONS>');
     expect(output).toContain('localSearchCode');
+    expect(output).toContain('Search local files');
     expect(output).toContain('lspGetSemantics');
     expect(output).toContain('npmSearch');
+    expect(output).not.toContain('[path*');
     expect(output).toContain('install');
     // Command list is derived from core specs, so every command appears —
     // including lsp-server, which the old hardcoded MANAGEMENT block omitted.

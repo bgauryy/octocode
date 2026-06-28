@@ -129,12 +129,11 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
     .optional(),
   responsePagination: responseEnvelopeFields.responsePagination,
   results: z.array(
+    // Canonical row shape, aligned with every other tool: { id, data:{...} }.
+    // The previously-mirrored flat top-level owner/repo/files/directories were
+    // byte-identical duplicates of data.* and have been removed.
     z.object({
       id: z.string(),
-      owner: z.string(),
-      repo: z.string(),
-      files: z.array(GitHubFetchFileEntrySchema).optional(),
-      directories: z.array(GitHubFetchDirectoryEntrySchema).optional(),
       data: z
         .object({
           owner: z.string(),

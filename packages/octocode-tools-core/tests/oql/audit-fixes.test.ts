@@ -94,4 +94,46 @@ describe('audit #12: explicit limit is a hard cap on the primary result domain',
     expect(env.results.length).toBe(2);
     expect(env.pagination?.hasMore).toBe(true);
   });
+
+  it('does not invent next.page for local code row limits', async () => {
+    const dir = path.resolve(__dirname, '../../src/oql');
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: dir },
+        where: { kind: 'text', value: 'OqlQuery' },
+        limit: 2,
+      })
+    );
+    expect(env.results.length).toBe(2);
+    expect(env.next?.['next.page']).toBeUndefined();
+  });
+
+  it('does not keep hasMore true on an exhausted local code page with a row limit', async () => {
+    const dir = path.resolve(__dirname, '../../src/oql');
+    const first = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: dir },
+        where: { kind: 'text', value: 'OqlQuery' },
+        view: 'discovery',
+        limit: 2,
+        page: 1,
+      })
+    );
+    const lastPage = first.pagination?.totalPages ?? 1;
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: dir },
+        where: { kind: 'text', value: 'OqlQuery' },
+        view: 'discovery',
+        limit: 2,
+        page: lastPage,
+      })
+    );
+    expect(env.pagination?.currentPage).toBe(lastPage);
+    expect(env.pagination?.hasMore).toBe(false);
+    expect(env.next?.['next.page']).toBeUndefined();
+  });
 });

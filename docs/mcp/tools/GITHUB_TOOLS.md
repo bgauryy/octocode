@@ -10,7 +10,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GH_TOKEN` | GitHub CLI compatible token. |
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
-| `ENABLE_LOCAL` | Required for clone and directory fetch workflows. |
+| `ENABLE_LOCAL` | Local tools default on; set `false` to disable clone-backed local workflows. |
 | `ENABLE_CLONE` | Enables `ghCloneRepo` and `ghGetFileContent(type="directory")`. |
 
 Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. All tools support `page`, `responseCharOffset`, and `responseCharLength` for pagination. Use `octocode tools <toolName>` for the exact active schema.
@@ -80,7 +80,7 @@ File extraction modes are mutually exclusive: use one of `fullContent`, `startLi
 
 Directory mode:
 
-- Requires `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
+- Requires `ENABLE_CLONE=true` and local tools not explicitly disabled.
 - Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` pointing directly to `localSearchCode` and `localViewStructure` with ready-to-use `path` values — pass them as-is.
 - Rejects file-only extraction fields.
 
@@ -187,7 +187,7 @@ Rules:
 
 Clone a repository or sparse subtree into Octocode's local cache.
 
-Requires `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`.
+Requires `ENABLE_CLONE=true` and local tools not explicitly disabled.
 
 Key fields:
 

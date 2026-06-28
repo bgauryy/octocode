@@ -51,7 +51,10 @@ checks rather than default runner steps, so network, npm, clone, and
 auth-dependent checks do not make the benchmark flaky. See the
 [split CLI/tool/OQL question catalog](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md)
 for GitHub, npm, clone-backed local proof, minify, OQL, parity, and workflow
-checks.
+checks. For durable smoke artifacts, run
+`node packages/octocode-benchmark/benchmark/octocode/run-live-smoke.mjs` (or
+`--skip-network` for local-only lanes), then
+`node packages/octocode-benchmark/benchmark/octocode/validate-output-runs.mjs`.
 Agents must write reported runs to
 `packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/` and
 follow the

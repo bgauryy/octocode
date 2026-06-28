@@ -68,6 +68,14 @@ export class PathValidator {
     if (!this.allowedRoots.includes(resolvedRoot)) {
       this.allowedRoots.push(resolvedRoot);
     }
+    try {
+      const realRoot = fs.realpathSync(resolvedRoot);
+      if (!this.allowedRoots.includes(realRoot)) {
+        this.allowedRoots.push(realRoot);
+      }
+    } catch {
+      // Non-existent roots are still useful for validating future output paths.
+    }
   }
 
   private isResolvedPathAllowed(
@@ -102,27 +110,6 @@ export class PathValidator {
     const expandedPath = this.expandTilde(inputPath);
     const absolutePath = path.resolve(expandedPath);
 
-    const isAllowed = this.allowedRoots.some(root => {
-      if (absolutePath === root) {
-        return true;
-      }
-      return absolutePath.startsWith(root + path.sep);
-    });
-
-    if (!isAllowed) {
-      return {
-        isValid: false,
-        error: `Path '${redactPath(inputPath)}' is outside allowed directories`,
-      };
-    }
-
-    if (shouldIgnore(absolutePath)) {
-      return {
-        isValid: false,
-        error: `Path '${redactPath(inputPath)}' is in an ignored directory or matches an ignored pattern`,
-      };
-    }
-
     try {
       const realPath = fs.realpathSync(absolutePath);
       const isRealPathAllowed = this.isResolvedPathAllowed(
@@ -134,6 +121,13 @@ export class PathValidator {
         return {
           isValid: false,
           error: `Symlink target '${redactPath(realPath)}' is outside allowed directories`,
+        };
+      }
+
+      if (shouldIgnore(absolutePath)) {
+        return {
+          isValid: false,
+          error: `Path '${redactPath(inputPath)}' is in an ignored directory or matches an ignored pattern`,
         };
       }
 
@@ -221,6 +215,13 @@ export class PathValidator {
       return {
         isValid: false,
         error: `Path '${redactPath(inputPath)}' is in an ignored directory or matches an ignored pattern`,
+      };
+    }
+
+    if (shouldIgnore(resolvedPath)) {
+      return {
+        isValid: false,
+        error: `Path '${redactPath(inputPath)}' resolves into an ignored directory or matches an ignored pattern`,
       };
     }
 

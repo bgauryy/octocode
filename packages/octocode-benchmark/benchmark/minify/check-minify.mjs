@@ -89,7 +89,13 @@ for (const testCase of cases) {
   }
 
   let res = null
-  try { res = engine.minifyContentResult(content, filePath) } catch (e) { failures.push(`${name}: minify threw: ${e.message}`); continue }
+  try { res = engine.minifyContentResult(content, filePath) } catch (e) {
+    failures.push(`${name}: minify threw: ${e.message}`)
+    // Keep the row visible in the table (as ERROR) instead of silently dropping
+    // it — a missing row mid-table is easy to overlook.
+    rows.push({ name, ext, kind, type: 'ERROR', inB: content.length, outB: 0, cut: '—', ok: false })
+    continue
+  }
 
   const out = res.content || ''
   const ok = !res.failed && out.length > 0
@@ -101,7 +107,7 @@ for (const testCase of cases) {
     reason: res.reason ?? null,
     content: res.content,
   })
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 10; i += 1) {
     const next = engine.minifyContentResult(content, filePath)
     const snapshot = JSON.stringify({
       failed: next.failed,
@@ -123,7 +129,7 @@ for (const testCase of cases) {
     if (first.length > content.length) {
       failures.push(`${name}: ${api} grew output from ${content.length}B to ${first.length}B`)
     }
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       const next = fn(content, filePath)
       if (next !== first) {
         failures.push(`${name}: ${api} is not deterministic on repeat ${i + 1}`)

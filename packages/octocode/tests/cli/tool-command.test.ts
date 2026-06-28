@@ -236,6 +236,7 @@ describe('toolCommand', () => {
     expect(output).toContain('Command Patterns');
     expect(output).toContain('"keywords":"runCLI"');
     expect(output).toContain('"pattern":"eval($X)"');
+    expect(output).toContain('prefer absolute paths');
   });
 
   it('rejects legacy --input usage and points to the canonical contract', async () => {
@@ -386,6 +387,24 @@ describe('toolCommand', () => {
     expect(output).toContain('Tool input must be a JSON object');
   });
 
+  it('prints machine-readable JSON for raw tool validation errors with --json', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearchCode'],
+      options: { queries: 'null', json: true },
+    });
+
+    const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
+    expect(parsed).toMatchObject({
+      kind: 'octocode.toolError',
+      tool: 'localSearchCode',
+      error: expect.stringContaining('Tool input must be a JSON object'),
+    });
+    expect(process.exitCode).toBe(2);
+  });
+
   it('gives a specific error when localSearchCode keywords is an array', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
@@ -457,9 +476,9 @@ describe('toolCommand', () => {
     await expect(showToolHelp('oqlSearch')).resolves.toBe(true);
   });
 
-  // Bug 2: bare `tools --json` (no tool name) must emit a machine-readable JSON
-  // tool catalog, not the human-readable help text.
-  it('emits a JSON tool catalog for bare `tools --json`', async () => {
+  // Bug 2: bare `tools --json` (no tool name) must emit a lean machine-readable
+  // discovery catalog, not the human-readable help text or every full schema.
+  it('emits a lean JSON tool catalog for bare `tools --json`', async () => {
     const { toolCommand } = await import('../../src/cli/tool-command.js');
 
     await toolCommand.handler!({
@@ -473,17 +492,149 @@ describe('toolCommand', () => {
       .join('\n')
       .trim();
 
-    const parsed = JSON.parse(output) as Array<{ name: string }>;
-    expect(Array.isArray(parsed)).toBe(true);
+    const parsed = JSON.parse(output) as {
+      kind: string;
+      toolCount: number;
+      commands: { schema: string; fullCatalog: string };
+      tools: Array<{
+        name: string;
+        category: string;
+        description: string;
+        fields: string;
+        schemaCommand: string;
+        runCommand: string;
+      }>;
+    };
+    expect(parsed.kind).toBe('octocode.toolCatalog');
+    expect(parsed.commands.schema).toBe('tools <name> --scheme --json');
+    expect(parsed.commands.fullCatalog).toBe('tools --json --full');
 
     const { TOOL_DEFINITIONS } = await import('../../src/cli/tool-command.js');
-    const names = parsed.map(entry => entry.name).sort();
+    const names = parsed.tools.map(entry => entry.name).sort();
     expect(names).toEqual(TOOL_DEFINITIONS.map(t => t.name).sort());
+    expect(parsed.toolCount).toBe(TOOL_DEFINITIONS.length);
 
-    for (const entry of parsed) {
+    for (const entry of parsed.tools) {
       expect(typeof entry.name).toBe('string');
       expect(entry).toHaveProperty('category');
       expect(entry).toHaveProperty('description');
+      expect(typeof entry.fields).toBe('string');
+      expect(entry.schemaCommand).toBe(`tools ${entry.name} --scheme --json`);
+      expect(entry.runCommand).toContain('--compact');
     }
+  });
+
+  it('keeps the full all-tool schema dump behind `tools --json --full`', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: [],
+      options: { json: true, full: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+
+    const parsed = JSON.parse(output) as {
+      kind: string;
+      toolCount: number;
+      commands: { list: string; schema: string };
+      tools: Array<{
+        name: string;
+        fullDescription?: string;
+        inputSchema?: { type?: string };
+        fields: Array<{ name: string; description?: string }>;
+      }>;
+    };
+    expect(parsed.kind).toBe('octocode.toolCatalog.full');
+    expect(parsed.commands.list).toBe('tools --json');
+    expect(parsed.commands.schema).toBe('tools <name> --scheme --json');
+    expect(parsed.toolCount).toBe(parsed.tools.length);
+
+    const localSearchCode = parsed.tools.find(
+      entry => entry.name === 'localSearchCode'
+    );
+    expect(localSearchCode).toBeDefined();
+    expect(localSearchCode?.fullDescription).toMatch(/Search local code/);
+    expect(localSearchCode?.inputSchema?.type).toBe('object');
+    expect(Array.isArray(localSearchCode?.fields)).toBe(true);
+    expect(
+      localSearchCode?.fields.some(
+        field => typeof field.description === 'string'
+      )
+    ).toBe(true);
+  });
+
+  it('emits a single machine-readable schema for `tools <name> --scheme --json`', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearchCode'],
+      options: { scheme: true, json: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+
+    const parsed = JSON.parse(output) as {
+      kind: string;
+      name: string;
+      inputSchema: { type?: string };
+      fields: Array<{ name: string; required: boolean }>;
+      commands: {
+        catalog: string;
+        schema: string;
+        runCompact: string;
+        runEnvelope: string;
+      };
+      guidance?: string[];
+    };
+
+    expect(parsed.kind).toBe('octocode.toolSchema');
+    expect(parsed.name).toBe('localSearchCode');
+    expect(parsed.inputSchema.type).toBe('object');
+    expect(parsed.fields.some(field => field.name === 'path')).toBe(true);
+    expect(parsed.commands.catalog).toBe('tools --json');
+    expect(parsed.commands.schema).toBe(
+      'tools localSearchCode --scheme --json'
+    );
+    expect(parsed.commands.runCompact).toContain('--compact');
+    expect(parsed.commands.runEnvelope).toContain('tools localSearchCode');
+    expect(parsed.guidance?.join('\n')).toContain('prefer absolute paths');
+  });
+
+  it('deduplicates prose in compact tool schemas', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearchCode'],
+      options: { scheme: true, json: true, compact: true },
+    });
+
+    const output = consoleSpy.mock.calls
+      .map((call: unknown[]) => call.map(String).join(' '))
+      .join('\n')
+      .trim();
+
+    const parsed = JSON.parse(output) as {
+      inputSchema: { type?: string };
+      fields?: unknown[];
+      fieldNames?: string[];
+      fullDescription?: string;
+      guidance?: string[];
+    };
+
+    expect(parsed.inputSchema.type).toBe('object');
+    expect(parsed.fields).toBeUndefined();
+    expect(parsed.fullDescription).toBeUndefined();
+    expect(parsed.fieldNames).toContain('path');
+    expect(parsed.guidance?.join('\n')).toContain('prefer absolute paths');
   });
 });

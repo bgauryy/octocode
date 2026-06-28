@@ -1,41 +1,752 @@
 {
-  "benchmark": "octocode-search-flow-coverage",
-  "createdAt": "2026-06-24T11:23:13.435Z",
-  "cwd": "/Users/guybary/Documents/octocode-mcp",
-  "outDir": "/Users/guybary/Documents/octocode-mcp/packages/octocode-benchmark/output/search-flow-coverage-2026-06-24T11-21-34-295Z",
-  "searchOnly": true,
-  "totalRows": 24,
-  "pass": 23,
-  "partial": 1,
-  "fail": 0,
-  "score": 47,
-  "maxScore": 48,
-  "lanes": {
-    "local": {
-      "rows": 7,
-      "pass": 6,
-      "partial": 1,
-      "fail": 0
+  "schemaVersion": "1.0.0",
+  "benchmark": {
+    "name": "octocode-search-flow-coverage",
+    "kind": "oql-flow",
+    "recipe": "packages/octocode-benchmark/benchmark/octocode/README.md",
+    "description": "Migrated legacy live Octocode benchmark run."
+  },
+  "run": {
+    "runId": "search-flow-coverage-2026-06-24T11-21-34-295Z",
+    "timestampUtc": "2026-06-24T11:23:13.435Z",
+    "outputDir": "packages/octocode-benchmark/output/search-flow-coverage-2026-06-24T11-21-34-295Z",
+    "gitCommit": "5ce00c5e",
+    "gitDirty": true
+  },
+  "environment": {
+    "os": "darwin",
+    "arch": "arm64",
+    "node": "v22.22.0",
+    "packageManager": "yarn",
+    "cliCommand": "node packages/octocode/out/octocode.js",
+    "authState": "unknown"
+  },
+  "determinism": {
+    "cacheMode": "mixed",
+    "fixedInputs": [
+      "local",
+      "LOCAL-STRUCTURE",
+      "LOCAL-PATH-SEARCH",
+      "LOCAL-CONTENT-SEARCH",
+      "LOCAL-FETCH-NONE",
+      "LOCAL-FETCH-STANDARD",
+      "LOCAL-FETCH-SYMBOLS",
+      "LOCAL-AST-STRUCTURAL",
+      "github-provider",
+      "GH-REPO-SEARCH",
+      "GH-STRUCTURE",
+      "GH-PATH-SEARCH-PROVIDER",
+      "GH-PATH-SEARCH-FILES-DIAGNOSTIC",
+      "GH-CONTENT-SEARCH",
+      "GH-FETCH-NONE",
+      "GH-FETCH-STANDARD",
+      "GH-FETCH-SYMBOLS",
+      "github-materialized-local",
+      "MAT-MATERIALIZE",
+      "MAT-STRUCTURE",
+      "MAT-PATH-SEARCH",
+      "MAT-CONTENT-SEARCH",
+      "MAT-FETCH-NONE",
+      "MAT-FETCH-STANDARD",
+      "MAT-FETCH-SYMBOLS",
+      "MAT-AST-STRUCTURAL",
+      "GH-REMOTE-AS-LOCAL-DIRECT"
+    ],
+    "paginationFixed": true,
+    "networkUsed": true,
+    "knownNondeterminism": [
+      "Legacy run migrated from existing raw artifacts."
+    ]
+  },
+  "surfaces": [
+    {
+      "name": "local",
+      "expected": 7,
+      "observed": 7,
+      "status": "warn"
     },
-    "github-provider": {
-      "rows": 8,
-      "pass": 8,
-      "partial": 0,
-      "fail": 0
+    {
+      "name": "github-provider",
+      "expected": 8,
+      "observed": 8,
+      "status": "pass"
     },
-    "github-materialized-local": {
-      "rows": 9,
-      "pass": 9,
-      "partial": 0,
-      "fail": 0
+    {
+      "name": "github-materialized-local",
+      "expected": 9,
+      "observed": 9,
+      "status": "pass"
+    }
+  ],
+  "flows": [
+    {
+      "name": "LOCAL-STRUCTURE",
+      "commands": [
+        {
+          "id": "LOCAL-STRUCTURE",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands --tree --depth 1 --json --compact",
+          "exitCode": 0,
+          "durationMs": 287,
+          "stdoutFile": "raw/LOCAL-STRUCTURE.stdout.json",
+          "stderrFile": "raw/LOCAL-STRUCTURE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local",
+        "LOCAL-STRUCTURE"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LOCAL-PATH-SEARCH",
+      "commands": [
+        {
+          "id": "LOCAL-PATH-SEARCH",
+          "command": "node packages/octocode/out/octocode.js search search.ts packages/octocode/src/cli/commands --search path --name search.ts --json --compact",
+          "exitCode": 0,
+          "durationMs": 239,
+          "stdoutFile": "raw/LOCAL-PATH-SEARCH.stdout.json",
+          "stderrFile": "raw/LOCAL-PATH-SEARCH.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local",
+        "LOCAL-PATH-SEARCH"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LOCAL-CONTENT-SEARCH",
+      "commands": [
+        {
+          "id": "LOCAL-CONTENT-SEARCH",
+          "command": "node packages/octocode/out/octocode.js search runOqlSearch packages/octocode/src/cli/commands/search.ts --context-lines 2 --max-matches 3 --json --compact",
+          "exitCode": 0,
+          "durationMs": 221,
+          "stdoutFile": "raw/LOCAL-CONTENT-SEARCH.stdout.json",
+          "stderrFile": "raw/LOCAL-CONTENT-SEARCH.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local",
+        "LOCAL-CONTENT-SEARCH"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LOCAL-FETCH-NONE",
+      "commands": [
+        {
+          "id": "LOCAL-FETCH-NONE",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --match-string runOqlSearch --context-lines 4 --mode none --json --compact",
+          "exitCode": 0,
+          "durationMs": 590,
+          "stdoutFile": "raw/LOCAL-FETCH-NONE.stdout.json",
+          "stderrFile": "raw/LOCAL-FETCH-NONE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local",
+        "LOCAL-FETCH-NONE"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "LOCAL-FETCH-STANDARD",
+      "commands": [
+        {
+          "id": "LOCAL-FETCH-STANDARD",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --match-string runOqlSearch --context-lines 4 --mode standard --json --compact",
+          "exitCode": 0,
+          "durationMs": 587,
+          "stdoutFile": "raw/LOCAL-FETCH-STANDARD.stdout.json",
+          "stderrFile": "raw/LOCAL-FETCH-STANDARD.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local",
+        "LOCAL-FETCH-STANDARD"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "LOCAL-FETCH-SYMBOLS",
+      "commands": [
+        {
+          "id": "LOCAL-FETCH-SYMBOLS",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --mode symbols --json --compact",
+          "exitCode": 0,
+          "durationMs": 610,
+          "stdoutFile": "raw/LOCAL-FETCH-SYMBOLS.stdout.json",
+          "stderrFile": "raw/LOCAL-FETCH-SYMBOLS.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local",
+        "LOCAL-FETCH-SYMBOLS"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LOCAL-AST-STRUCTURAL",
+      "commands": [
+        {
+          "id": "LOCAL-AST-STRUCTURAL",
+          "command": "node packages/octocode/out/octocode.js search --pattern getString($$$ARGS) packages/octocode/src/cli/commands/search.ts --lang ts --json --compact",
+          "exitCode": 0,
+          "durationMs": 242,
+          "stdoutFile": "raw/LOCAL-AST-STRUCTURAL.stdout.json",
+          "stderrFile": "raw/LOCAL-AST-STRUCTURAL.stderr.txt"
+        }
+      ],
+      "status": "warn",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local",
+        "LOCAL-AST-STRUCTURAL"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 3,
+      "notes": "partial with continuation"
+    },
+    {
+      "name": "GH-REPO-SEARCH",
+      "commands": [
+        {
+          "id": "GH-REPO-SEARCH",
+          "command": "node packages/octocode/out/octocode.js search zustand --target repositories --owner pmndrs --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1281,
+          "stdoutFile": "raw/GH-REPO-SEARCH.stdout.json",
+          "stderrFile": "raw/GH-REPO-SEARCH.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-provider",
+        "GH-REPO-SEARCH"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "GH-STRUCTURE",
+      "commands": [
+        {
+          "id": "GH-STRUCTURE",
+          "command": "node packages/octocode/out/octocode.js search pmndrs/zustand --tree --depth 2 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1340,
+          "stdoutFile": "raw/GH-STRUCTURE.stdout.json",
+          "stderrFile": "raw/GH-STRUCTURE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-provider",
+        "GH-STRUCTURE"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "GH-PATH-SEARCH-PROVIDER",
+      "commands": [
+        {
+          "id": "GH-PATH-SEARCH-PROVIDER",
+          "command": "node packages/octocode/out/octocode.js search vanilla.ts pmndrs/zustand --match path --json --compact",
+          "exitCode": 0,
+          "durationMs": 1004,
+          "stdoutFile": "raw/GH-PATH-SEARCH-PROVIDER.stdout.json",
+          "stderrFile": "raw/GH-PATH-SEARCH-PROVIDER.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-provider",
+        "GH-PATH-SEARCH-PROVIDER"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "GH-PATH-SEARCH-FILES-DIAGNOSTIC",
+      "commands": [
+        {
+          "id": "GH-PATH-SEARCH-FILES-DIAGNOSTIC",
+          "command": "node packages/octocode/out/octocode.js search vanilla.ts pmndrs/zustand --search path --json --compact",
+          "exitCode": 5,
+          "durationMs": 225,
+          "stdoutFile": "raw/GH-PATH-SEARCH-FILES-DIAGNOSTIC.stdout.json",
+          "stderrFile": "raw/GH-PATH-SEARCH-FILES-DIAGNOSTIC.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "unsupported",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "github-provider",
+        "GH-PATH-SEARCH-FILES-DIAGNOSTIC"
+      ],
+      "outputQualityScore": 5,
+      "notes": "expected diagnostic route honesty"
+    },
+    {
+      "name": "GH-CONTENT-SEARCH",
+      "commands": [
+        {
+          "id": "GH-CONTENT-SEARCH",
+          "command": "node packages/octocode/out/octocode.js search createStore pmndrs/zustand --lang ts --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1127,
+          "stdoutFile": "raw/GH-CONTENT-SEARCH.stdout.json",
+          "stderrFile": "raw/GH-CONTENT-SEARCH.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "github-provider",
+        "GH-CONTENT-SEARCH"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "GH-FETCH-NONE",
+      "commands": [
+        {
+          "id": "GH-FETCH-NONE",
+          "command": "node packages/octocode/out/octocode.js search pmndrs/zustand/src/vanilla.ts --match-string createStore --context-lines 4 --mode none --json --compact",
+          "exitCode": 0,
+          "durationMs": 1590,
+          "stdoutFile": "raw/GH-FETCH-NONE.stdout.json",
+          "stderrFile": "raw/GH-FETCH-NONE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-provider",
+        "GH-FETCH-NONE"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "GH-FETCH-STANDARD",
+      "commands": [
+        {
+          "id": "GH-FETCH-STANDARD",
+          "command": "node packages/octocode/out/octocode.js search pmndrs/zustand/src/vanilla.ts --match-string createStore --context-lines 4 --mode standard --json --compact",
+          "exitCode": 0,
+          "durationMs": 1666,
+          "stdoutFile": "raw/GH-FETCH-STANDARD.stdout.json",
+          "stderrFile": "raw/GH-FETCH-STANDARD.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-provider",
+        "GH-FETCH-STANDARD"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "GH-FETCH-SYMBOLS",
+      "commands": [
+        {
+          "id": "GH-FETCH-SYMBOLS",
+          "command": "node packages/octocode/out/octocode.js search pmndrs/zustand/src/vanilla.ts --mode symbols --json --compact",
+          "exitCode": 0,
+          "durationMs": 1649,
+          "stdoutFile": "raw/GH-FETCH-SYMBOLS.stdout.json",
+          "stderrFile": "raw/GH-FETCH-SYMBOLS.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-provider",
+        "GH-FETCH-SYMBOLS"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "MAT-MATERIALIZE",
+      "commands": [
+        {
+          "id": "MAT-MATERIALIZE",
+          "command": "node packages/octocode/out/octocode.js search --query {\"target\":\"materialize\",\"from\":{\"kind\":\"github\",\"repo\":\"pmndrs/zustand\"},\"scope\":{\"path\":\"src\"},\"materialize\":{\"mode\":\"required\"}} --json --compact",
+          "exitCode": 0,
+          "durationMs": 1096,
+          "stdoutFile": "raw/MAT-MATERIALIZE.stdout.json",
+          "stderrFile": "raw/MAT-MATERIALIZE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-MATERIALIZE"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "MAT-STRUCTURE",
+      "commands": [
+        {
+          "id": "MAT-STRUCTURE",
+          "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src --tree --depth 1 --json --compact",
+          "exitCode": 0,
+          "durationMs": 210,
+          "stdoutFile": "raw/MAT-STRUCTURE.stdout.json",
+          "stderrFile": "raw/MAT-STRUCTURE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-STRUCTURE"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed after src-path rerun"
+    },
+    {
+      "name": "MAT-PATH-SEARCH",
+      "commands": [
+        {
+          "id": "MAT-PATH-SEARCH",
+          "command": "node packages/octocode/out/octocode.js search vanilla.ts /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663 --search path --name vanilla.ts --json --compact",
+          "exitCode": 0,
+          "durationMs": 212,
+          "stdoutFile": "raw/MAT-PATH-SEARCH.stdout.json",
+          "stderrFile": "raw/MAT-PATH-SEARCH.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-PATH-SEARCH"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "MAT-CONTENT-SEARCH",
+      "commands": [
+        {
+          "id": "MAT-CONTENT-SEARCH",
+          "command": "node packages/octocode/out/octocode.js search createStore /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663 --lang ts --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 225,
+          "stdoutFile": "raw/MAT-CONTENT-SEARCH.stdout.json",
+          "stderrFile": "raw/MAT-CONTENT-SEARCH.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-CONTENT-SEARCH"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "MAT-FETCH-NONE",
+      "commands": [
+        {
+          "id": "MAT-FETCH-NONE",
+          "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --match-string createStore --context-lines 4 --mode none --json --compact",
+          "exitCode": 0,
+          "durationMs": 436,
+          "stdoutFile": "raw/MAT-FETCH-NONE.stdout.json",
+          "stderrFile": "raw/MAT-FETCH-NONE.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-FETCH-NONE"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed after src-path rerun with 1 diagnostic(s)"
+    },
+    {
+      "name": "MAT-FETCH-STANDARD",
+      "commands": [
+        {
+          "id": "MAT-FETCH-STANDARD",
+          "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --match-string createStore --context-lines 4 --mode standard --json --compact",
+          "exitCode": 0,
+          "durationMs": 426,
+          "stdoutFile": "raw/MAT-FETCH-STANDARD.stdout.json",
+          "stderrFile": "raw/MAT-FETCH-STANDARD.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-FETCH-STANDARD"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed after src-path rerun with 1 diagnostic(s)"
+    },
+    {
+      "name": "MAT-FETCH-SYMBOLS",
+      "commands": [
+        {
+          "id": "MAT-FETCH-SYMBOLS",
+          "command": "node packages/octocode/out/octocode.js search /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --mode symbols --json --compact",
+          "exitCode": 0,
+          "durationMs": 447,
+          "stdoutFile": "raw/MAT-FETCH-SYMBOLS.stdout.json",
+          "stderrFile": "raw/MAT-FETCH-SYMBOLS.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-FETCH-SYMBOLS"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed after src-path rerun"
+    },
+    {
+      "name": "MAT-AST-STRUCTURAL",
+      "commands": [
+        {
+          "id": "MAT-AST-STRUCTURAL",
+          "command": "node packages/octocode/out/octocode.js search --pattern createStoreImpl($$$ARGS) /Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663/src/vanilla.ts --lang ts --json --compact",
+          "exitCode": 0,
+          "durationMs": 215,
+          "stdoutFile": "raw/MAT-AST-STRUCTURAL.stdout.json",
+          "stderrFile": "raw/MAT-AST-STRUCTURAL.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "github-materialized-local",
+        "MAT-AST-STRUCTURAL"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed after src-path rerun"
+    },
+    {
+      "name": "GH-REMOTE-AS-LOCAL-DIRECT",
+      "commands": [
+        {
+          "id": "GH-REMOTE-AS-LOCAL-DIRECT",
+          "command": "node packages/octocode/out/octocode.js search createStore src --repo pmndrs/zustand --lang ts --materialize required --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1124,
+          "stdoutFile": "raw/GH-REMOTE-AS-LOCAL-DIRECT.stdout.json",
+          "stderrFile": "raw/GH-REMOTE-AS-LOCAL-DIRECT.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "github-materialized-local",
+        "GH-REMOTE-AS-LOCAL-DIRECT"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    }
+  ],
+  "ratings": {
+    "rawMcpTools": {
+      "score": 10,
+      "reason": "Raw tool and scheme rows were captured with command evidence."
+    },
+    "oqlSearch": {
+      "score": 10,
+      "reason": "OQL/search rows include evidence and continuation checks."
+    },
+    "quickCli": {
+      "score": 10,
+      "reason": "Quick command lanes have raw stdout/stderr artifacts."
+    },
+    "flowQuality": {
+      "score": 10,
+      "reason": "Rows are grouped into benchmark flows with pass/warn/fail status."
+    },
+    "schemaQuality": {
+      "score": 9,
+      "reason": "summary.json validates against output-run.schema.json."
+    },
+    "dataQuality": {
+      "score": 10,
+      "reason": "Raw outputs and command ledgers are preserved for replay."
+    },
+    "researchQuality": {
+      "score": 10,
+      "reason": "Rows distinguish proof, partial evidence, and continuation quality."
+    },
+    "outputQuality": {
+      "score": 9,
+      "reason": "Required README, reflection, ratings, commands, and raw artifacts are present."
+    },
+    "remoteAsLocal": {
+      "score": 10,
+      "reason": "Remote-as-local rows are represented when present in the run."
     }
   },
-  "materializedPath": "/Users/guybary/.octocode/tmp/clone/pmndrs/zustand/main__sp_25a663",
-  "correctedRows": [
-    "MAT-STRUCTURE",
-    "MAT-FETCH-NONE",
-    "MAT-FETCH-STANDARD",
-    "MAT-FETCH-SYMBOLS",
-    "MAT-AST-STRUCTURAL"
-  ]
+  "reflection": {
+    "whatWorked": [
+      "23 row(s) passed with raw command artifacts preserved.",
+      "Existing command ledger and raw outputs were sufficient to reconstruct schema-valid summaries."
+    ],
+    "whatDidNotWork": [
+      "1 row(s) were partial/warn and 0 row(s) failed."
+    ],
+    "missing": [
+      "Legacy manifest did not capture the exact git commit at original run time; migrated summary records the current checkout and keeps gitDirty true when applicable."
+    ],
+    "possibleImprovements": [
+      "Use benchmark/octocode/run-live-smoke.mjs for future live runs so summaries are schema-valid at creation time."
+    ],
+    "praises": [
+      "The original run preserved raw stdout/stderr and commands.ndjson, making repair auditable."
+    ],
+    "nextFix": "Keep search-flow-coverage-2026-06-24T11-21-34-295Z under validate-output-runs.mjs so summary drift fails fast."
+  },
+  "verdict": {
+    "status": "warn",
+    "summary": "23/24 rows passed; 1 warn/partial; 0 failed."
+  }
 }

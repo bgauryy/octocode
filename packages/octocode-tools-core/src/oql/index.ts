@@ -56,8 +56,14 @@ export type {
 export {
   oqlSchemaText,
   oqlCompactSchemeText,
+  oqlCompactSchemeJson,
   OQL_SCHEMA_DOC,
 } from './schemeText.js';
+// Secret redaction for OQL envelopes. The OQL adapters intentionally produce
+// RAW rows ("sanitization is applied by the interface layer on final output");
+// the MCP interface sanitizes via sanitizeCallToolResult, so the CLI `search`
+// interface must apply this before rendering or it leaks secrets in snippets.
+export { sanitizeStructuredContent } from '../responses.js';
 export {
   analyzeResearchFlow,
   type AnalyzeResearchOptions,

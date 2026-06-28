@@ -7,13 +7,15 @@ description: "Use when you need an RFC, design doc, architecture proposal, migra
 
 Use this skill when a change needs **thinking before coding**: architecture choices, migrations, cross-package changes, risky refactors, implementation plans, or formal RFC/design docs. The output is evidence-backed and actionable, not a brainstorm.
 
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+
 Core flow:
 
 ```text
 UNDERSTAND → RESEARCH → COMPARE OPTIONS → WRITE RFC / PLAN → VALIDATE → DELIVER
 ```
 
-If the task is a trivial one-file edit with no design choice, say an RFC is unnecessary and suggest using `octocode-engineer` directly.
+For trivial one-file edits with no design choice, skip RFC mode and route to `octocode-engineer`.
 
 ## How to run this skill
 
@@ -21,7 +23,7 @@ If the task is a trivial one-file edit with no design choice, say an RFC is unne
 
 2. **Gather cited evidence.** While researching current state, prior art, packages, history, or binaries, follow `references/research-playbook.md` for the exact MCP/CLI tool map per evidence type, the per-scenario research tracks, evidence-citation rules, and recovery moves when a search comes up empty.
 
-3. **Write the document.** When producing a full RFC, copy the body sections (Summary through Prior Art) from `references/rfc-template.md`. After drafting the body, append the closing sections from `references/rfc-implementation.md` (Unresolved Questions, Future Possibilities, References, Implementation Plan). For a lighter implementation plan, use the trimmed plan skeleton in `references/workflow.md` instead of the full template.
+3. **Write the document.** When producing a full RFC, adapt the body sections (Summary through Prior Art) from `references/rfc-template.md`. After drafting the body, append the closing sections from `references/rfc-implementation.md` (Unresolved Questions, Future Possibilities, References, Implementation Plan). Replace all placeholders/examples and drop unused sections. For a lighter implementation plan, use the trimmed plan skeleton in `references/workflow.md` instead of the full template.
 
 ## Non-negotiables
 

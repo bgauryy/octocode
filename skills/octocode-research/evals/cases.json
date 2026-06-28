@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-checkable smoke evals for octocode-research final answers. These checks verify observable output structure and guardrails; human review still judges evidence quality.",
+  "rubric": [
+    "Declares the research mode and active/skipped surfaces.",
+    "Keeps more than one hypothesis alive for investigations.",
+    "Uses exact evidence anchors rather than raw search snippets.",
+    "Marks confidence honestly and gives one next action.",
+    "Reads OQL/search schemas before JSON research or graph proof.",
+    "Handles degraded transports without pretending confidence is unchanged."
+  ],
+  "cases": [
+    {
+      "id": "code-investigation",
+      "mode": "Investigate",
+      "prompt": "Why does localSearchCode return an empty result for a symbol I can see in the file?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Investigate\\b|\\bInvestigate mode\\b" },
+        { "name": "scope or surfaces", "pattern": "\\bScope\\b|\\bSurface Plan\\b|\\bactive surfaces\\b" },
+        { "name": "two hypotheses", "pattern": "\\bhypothes(?:is|es)\\b|\\balternate\\b|\\bdisconfirm" },
+        { "name": "exact evidence", "pattern": "\\bExact evidence\\b|\\bEvidence:\\b|[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
+        { "name": "next action", "pattern": "\\bNext:|\\bRecommended next step\\b" }
+      ],
+      "forbidden": [
+        { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" }
+      ]
+    },
+    {
+      "id": "prior-art-map",
+      "mode": "Map",
+      "prompt": "Map current npm/GitHub options for structural TypeScript search.",
+      "minScore": 0.75,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "map mode", "pattern": "\\bMode:\\s*Map\\b|\\bMap mode\\b" },
+        { "name": "repositories and packages", "pattern": "\\brepositor(?:y|ies)\\b.*\\bpackage|\\bpackage\\b.*\\brepositor(?:y|ies)\\b" },
+        { "name": "package health", "pattern": "\\blast publish\\b|\\bmaintainer\\b|\\bissue\\b|\\brelease cadence\\b|\\bdependency freshness\\b" },
+        { "name": "landscape clusters", "pattern": "\\bLandscape\\b|\\bPrior Art\\b|\\bclusters?\\b|\\bactive\\b.*\\babandoned\\b" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b|`(strong|moderate|weak)`" }
+      ],
+      "forbidden": [
+        { "name": "downloads alone", "pattern": "\\bdownloads alone (?:prove|validate)\\b" }
+      ]
+    },
+    {
+      "id": "oql-graph-proof",
+      "mode": "Investigate",
+      "prompt": "Find likely dead exports in this repo and say what is safe to delete.",
+      "minScore": 0.8,
+      "minCitationCount": 1,
+      "required": [
+        { "name": "scheme first", "pattern": "\\bsearch --scheme --compact\\b|\\bsearch --scheme\\b" },
+        { "name": "research graph", "pattern": "\\btarget\\s*:\\s*[\"']research[\"']|\\btarget\\s*:\\s*[\"']graph[\"']|\\bresearch/graph\\b" },
+        { "name": "candidate not proof", "pattern": "\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b" },
+        { "name": "upgrade proof", "pattern": "\\bLSP\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b" },
+        { "name": "gate broad deletion", "pattern": "\\bgate\\b|\\bdo not delete\\b|\\bbroad removals?\\b" }
+      ],
+      "forbidden": [
+        { "name": "delete from candidate only", "pattern": "\\bsafe to delete\\b(?![^\\n]*(LSP|exact|test|import|AST|confirmed))" }
+      ]
+    },
+    {
+      "id": "degraded-transport",
+      "mode": "Investigate",
+      "prompt": "Research why the CLI help mentions a flag that no longer works, but Octocode is unavailable.",
+      "minScore": 0.8,
+      "minCitationCount": 0,
+      "required": [
+        { "name": "degraded confidence", "pattern": "\\bconfidence degraded\\b|\\bdegraded transport\\b|\\bConfidence:\\s*uncertain\\b" },
+        { "name": "fallback path", "pattern": "\\brg\\b|\\bfile reads?\\b|\\bweb\\b" },
+        { "name": "does not block", "pattern": "\\bcontinue\\b|\\bwithout blocking\\b|\\bnot required\\b" },
+        { "name": "install or auth only if needed", "pattern": "\\bnpx octocode\\b|\\bnpx octocode auth\\b|\\bonly if needed\\b" }
+      ],
+      "forbidden": [
+        { "name": "pretends full confidence", "pattern": "\\bConfidence:\\s*confirmed\\b" }
+      ]
+    }
+  ]
+}

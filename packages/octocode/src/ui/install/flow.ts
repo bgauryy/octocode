@@ -54,7 +54,7 @@ export async function runInstallFlow(): Promise<void> {
   const state: InstallFlowState = {
     client: null,
     hasExistingOctocode: false,
-    enableLocal: false,
+    enableLocal: true,
     githubAuth: { method: 'skip' },
   };
 
@@ -182,10 +182,9 @@ async function showConfirmationAndPrompt(
 
   const method = 'npx' as const;
 
-  const envOptions: OctocodeEnvOptions = {};
-  if (state.enableLocal) {
-    envOptions.enableLocal = true;
-  }
+  const envOptions: OctocodeEnvOptions = {
+    enableLocal: state.enableLocal,
+  };
   if (state.githubAuth.method === 'token' && state.githubAuth.token) {
     envOptions.githubToken = state.githubAuth.token;
   }
@@ -287,10 +286,9 @@ async function showConfirmationAndPrompt(
 async function performInstall(state: InstallFlowState): Promise<void> {
   const method = 'npx' as const;
 
-  const envOptions: OctocodeEnvOptions = {};
-  if (state.enableLocal) {
-    envOptions.enableLocal = true;
-  }
+  const envOptions: OctocodeEnvOptions = {
+    enableLocal: state.enableLocal,
+  };
   if (state.githubAuth.method === 'token' && state.githubAuth.token) {
     envOptions.githubToken = state.githubAuth.token;
   }

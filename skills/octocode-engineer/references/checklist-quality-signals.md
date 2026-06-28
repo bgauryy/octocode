@@ -1,10 +1,10 @@
 # Quality Signal Catalog
 
-Quality signals to look for, and how to get evidence for each with the **native octocode toolset** — or, where the native tools can't *measure*, the approximation and the external tool that can. This skill ships no scanner; treat every signal as a hypothesis and prove it before presenting (see [workflow-validation-playbooks.md](./workflow-validation-playbooks.md)).
+Quality signals to look for, and how to get evidence for each with the **native Octocode toolset (`npx octocode`)** — or, where the native tools can't *measure*, the approximation and the external tool that can. This skill ships no scanner; treat every signal as a hypothesis and prove it before presenting (see [workflow-validation-playbooks.md](./workflow-validation-playbooks.md)).
 
 Three evidence classes:
 
-- **Shape** — provable with AST (`octocode search --pattern/--rule --lang <language>` / `localSearchCode mode:"structural"`). Near-zero false positives.
+- **Shape** — provable with AST (`npx octocode search --pattern/--rule --lang <language>` / `localSearchCode mode:"structural"`). Near-zero false positives.
 - **Relationship** — provable with LSP (`references`, `callers`/`callees`) + import reads.
 - **Measurement** — a number (complexity, MI, coupling, type-coverage %, cycles). **Not native.** Approximate, or run an external tool from [measurement-tools.md](./measurement-tools.md) and say which.
 

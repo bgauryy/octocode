@@ -30,7 +30,9 @@ import {
   type OqlBatch,
   type OqlCodeResultRow,
   type OqlContinuation,
+  type OqlContinuationHint,
   type OqlContentResultRow,
+  type OqlDiagnostic,
   type OqlProofGrade,
   type OqlProofGradedResultRow,
   type OqlQuery,
@@ -110,19 +112,23 @@ async function runSingle(
   const exec = await dispatch(query, planned);
   relativizeResultPaths(query, exec.results);
   applyResultRowWindow(query, exec);
+  pruneSharedRefs(exec);
   const next = attachContinuations(query, exec);
   applyProofGrades(query, exec.results);
 
   // select: project row fields + continuations (projection only — never changes
   // result domains or triggers fetches). Unknown fields are reported, not fatal.
   const projectionDiagnostics = applySelect(query, exec.results);
+  const nextHints = compactRowContinuationHints(exec.results);
 
   return buildEnvelope({
     queryId: query.id,
     queryIndex,
     results: exec.results,
+    ...(exec.shared ? { shared: exec.shared } : {}),
     ...(exec.pagination ? { pagination: exec.pagination } : {}),
     ...(Object.keys(next).length ? { next } : {}),
+    ...(nextHints ? { nextHints } : {}),
     diagnostics: [
       ...planned.plan.diagnostics,
       ...exec.diagnostics,
@@ -138,6 +144,7 @@ async function runSingle(
 function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
   // Content has its own char-window pagination and per-row next.charRange.
   if (query.target === 'content') return;
+  const limitIsHardCap = typeof query.limit === 'number' && query.limit > 0;
   // Local code search paginates matched files and caps per-file matches; the
   // mapped OQL rows are match rows. Slicing those rows would create `next.page`
   // queries that advance the file page, not the hidden match row, so leave the
@@ -148,22 +155,33 @@ function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
   if (
     query.target === 'code' &&
     exec.pagination?.totalItemsKind === 'files' &&
-    typeof query.limit !== 'number'
+    !limitIsHardCap
   ) {
     return;
   }
 
-  const cap =
-    typeof query.limit === 'number'
-      ? query.limit
-      : typeof query.itemsPerPage === 'number'
-        ? query.itemsPerPage
-        : undefined;
+  const cap = limitIsHardCap
+    ? query.limit
+    : typeof query.itemsPerPage === 'number'
+      ? query.itemsPerPage
+      : undefined;
   if (!cap || cap < 1 || exec.results.length <= cap) return;
 
   const totalItems = exec.pagination?.totalItems ?? exec.results.length;
   const currentPage = exec.pagination?.currentPage ?? query.page ?? 1;
   exec.results = exec.results.slice(0, cap);
+  if (limitIsHardCap) {
+    const hasMore = exec.pagination?.hasMore ?? true;
+    exec.pagination = {
+      ...exec.pagination,
+      currentPage,
+      itemsPerPage: cap,
+      totalItems,
+      totalItemsCapped: true,
+      hasMore,
+    };
+    return;
+  }
   exec.pagination = {
     ...exec.pagination,
     currentPage,
@@ -173,6 +191,40 @@ function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
       exec.pagination?.totalPages ?? Math.max(1, Math.ceil(totalItems / cap)),
     hasMore: true,
   };
+}
+
+function pruneSharedRefs(exec: AdapterResult): void {
+  const repositories = exec.shared?.repositories;
+  if (
+    !repositories ||
+    typeof repositories !== 'object' ||
+    Array.isArray(repositories)
+  ) {
+    return;
+  }
+
+  const referenced = new Set<string>();
+  for (const row of exec.results) {
+    if (row.kind !== 'record' || row.recordType !== 'package') continue;
+    const repositoryId = row.data.repositoryId;
+    if (typeof repositoryId === 'string') referenced.add(repositoryId);
+  }
+
+  if (referenced.size === 0) {
+    delete exec.shared?.repositories;
+    if (exec.shared && Object.keys(exec.shared).length === 0) {
+      delete exec.shared;
+    }
+    return;
+  }
+
+  const pruned: Record<string, unknown> = {};
+  for (const id of referenced) {
+    const ref = (repositories as Record<string, unknown>)[id];
+    if (ref !== undefined) pruned[id] = ref;
+  }
+
+  exec.shared = { ...exec.shared, repositories: pruned };
 }
 
 /**
@@ -275,7 +327,13 @@ function attachContinuations(
   // Content reads page the char-window domain, not the result-row domain. The
   // per-row `next.charRange` is the executable continuation there, so never
   // emit a misleading `next.page` for target:"content".
-  if (exec.pagination?.hasMore && query.target !== 'content') {
+  const hardLimitWithoutPage =
+    typeof query.limit === 'number' && query.itemsPerPage === undefined;
+  if (
+    exec.pagination?.hasMore &&
+    query.target !== 'content' &&
+    !hardLimitWithoutPage
+  ) {
     next['next.page'] = exec.pagination.next ?? {
       query: { ...query, page: (query.page ?? 1) + 1 },
       why: 'More result pages remain.',
@@ -335,6 +393,47 @@ function attachContinuations(
     }
   }
   return next;
+}
+
+function compactRowContinuationHints(
+  results: OqlResultRow[]
+): Record<string, OqlContinuationHint> | undefined {
+  const nextHints: Record<string, OqlContinuationHint> = {};
+  let hasHints = false;
+
+  for (const row of results) {
+    const next = (row as { next?: Record<string, OqlContinuation> }).next;
+    if (!next) continue;
+
+    for (const [key, continuation] of Object.entries(next)) {
+      if (!continuation.why || !continuation.confidence) continue;
+      const hint = {
+        why: continuation.why,
+        confidence: continuation.confidence,
+      };
+      const existing = nextHints[key];
+      if (!existing) {
+        nextHints[key] = hint;
+        hasHints = true;
+      }
+
+      if (!existing || hintsEqual(existing, hint)) {
+        const { why, confidence, ...queryOnly } = continuation;
+        void why;
+        void confidence;
+        next[key] = queryOnly;
+      }
+    }
+  }
+
+  return hasHints ? nextHints : undefined;
+}
+
+function hintsEqual(
+  left: OqlContinuationHint,
+  right: OqlContinuationHint
+): boolean {
+  return left.why === right.why && left.confidence === right.confidence;
 }
 
 function applyProofGrades(
@@ -871,6 +970,11 @@ function unsupportedEnvelopeFromPlan(
   dryRun?: boolean,
   query?: OqlQuery
 ): OqlResultEnvelope {
+  const dryRunGuidance =
+    dryRun && query ? dryRunResearchGraphGuidance(query) : [];
+  const dryRunNext =
+    dryRun && query ? dryRunResearchGraphNext(query) : undefined;
+
   if (!planned.executable) {
     // In dry-run mode, distinguish repairable blocks (e.g. missing scope.path
     // for materialization) from structural capability gaps (UNSUPPORTED route
@@ -885,10 +989,11 @@ function unsupportedEnvelopeFromPlan(
         ...(queryId ? { queryId } : {}),
         ...(queryIndex !== undefined ? { queryIndex } : {}),
         results: [],
-        diagnostics: planned.plan.diagnostics,
+        diagnostics: [...planned.plan.diagnostics, ...dryRunGuidance],
         provenance: [],
         evidence: { answerReady: false, complete: false, kind: 'partial' },
         ...(plan ? { plan } : {}),
+        ...(dryRunNext ? { next: dryRunNext } : {}),
       };
     }
     return unsupportedEnvelope(
@@ -904,10 +1009,64 @@ function unsupportedEnvelopeFromPlan(
     ...(queryId ? { queryId } : {}),
     ...(queryIndex !== undefined ? { queryIndex } : {}),
     results: [],
-    diagnostics: planned.plan.diagnostics,
+    diagnostics: [...planned.plan.diagnostics, ...dryRunGuidance],
     provenance: [],
     evidence: { answerReady: false, complete: false, kind: 'partial' },
     ...(plan ? { plan } : {}),
+    ...(dryRunNext ? { next: dryRunNext } : {}),
+  };
+}
+
+function dryRunResearchGraphGuidance(query: OqlQuery): OqlDiagnostic[] {
+  if (query.target !== 'research' && query.target !== 'graph') return [];
+
+  const message =
+    query.target === 'research'
+      ? 'Dry run only planned target:"research"; execute without --dry-run to get the summary plus paged candidate packets. Compact text shows packet subject IDs and next.graph; follow next.graph to upgrade the current page to bounded LSP proof.'
+      : 'Dry run only planned target:"graph"; execute without --dry-run to get reachability packets. Use params:{mode:"prove",proof:"lsp"} or follow next.graph to run bounded LSP proof for the current page.';
+
+  return [
+    diagnostic('partialResult', message, {
+      backend: query.target === 'graph' ? 'smartOqlGraph' : 'smartOqlResearch',
+      blocksAnswer: false,
+      severity: 'info',
+    }),
+  ];
+}
+
+function dryRunResearchGraphNext(
+  query: OqlQuery
+): Record<string, OqlContinuation> | undefined {
+  if (query.target !== 'research' && query.target !== 'graph') return undefined;
+  const from = query.from;
+  if (from?.kind !== 'local' && from?.kind !== 'materialized') return undefined;
+
+  const params = query.params ?? {};
+  const intent =
+    typeof params.intent === 'string' && params.intent.length > 0
+      ? params.intent
+      : 'reachability';
+  const proofLimit = Math.min(25, Math.max(1, query.itemsPerPage ?? 10));
+
+  return {
+    'next.graph': {
+      query: {
+        schema: 'oql',
+        target: 'graph',
+        from,
+        params: {
+          ...params,
+          mode: 'prove',
+          proof: 'lsp',
+          intent,
+          proofLimit,
+        },
+        ...(query.page ? { page: query.page } : {}),
+        ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
+      },
+      why: 'Run the bounded LSP proof lane for this research/graph page.',
+      confidence: 'exact',
+    },
   };
 }
 
@@ -1201,6 +1360,8 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
   const results = [];
   const diagnostics = [];
   const provenance = [];
+  const nextHints: Record<string, OqlContinuationHint> = {};
+  const shared: Record<string, unknown> = {};
   let approximate = false;
   let anyOpenPages = false;
   for (const c of children) {
@@ -1212,6 +1373,8 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
     }
     diagnostics.push(...c.envelope.diagnostics);
     provenance.push(...c.envelope.provenance);
+    mergeNextHints(nextHints, c.envelope.nextHints);
+    mergeShared(shared, c.envelope.shared);
     if (c.envelope.evidence.kind === 'candidate') approximate = true;
     if (childHasOpenPages(c.envelope)) anyOpenPages = true;
   }
@@ -1233,7 +1396,9 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
   return {
     envelope: buildEnvelope({
       results,
+      ...(Object.keys(shared).length ? { shared } : {}),
       ...(anyOpenPages ? { pagination: { hasMore: true } } : {}),
+      ...(Object.keys(nextHints).length ? { nextHints } : {}),
       diagnostics,
       provenance,
       executable: children.every(
@@ -1242,6 +1407,35 @@ function mergeChildren(children: OqlBatchResultEnvelope['children']): {
       approximate,
     }),
   };
+}
+
+function mergeNextHints(
+  target: Record<string, OqlContinuationHint>,
+  source: Record<string, OqlContinuationHint> | undefined
+): void {
+  if (!source) return;
+  for (const [key, hint] of Object.entries(source)) {
+    const existing = target[key];
+    if (!existing || hintsEqual(existing, hint)) {
+      target[key] = hint;
+    }
+  }
+}
+
+function mergeShared(
+  target: Record<string, unknown>,
+  source: Record<string, unknown> | undefined
+): void {
+  if (!source) return;
+  for (const [key, value] of Object.entries(source)) {
+    const existing = target[key];
+    if (
+      existing === undefined ||
+      JSON.stringify(existing) === JSON.stringify(value)
+    ) {
+      target[key] = value;
+    }
+  }
 }
 
 /** Mirror of envelope.hasOpenPages for a child envelope. */

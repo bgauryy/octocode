@@ -22,6 +22,74 @@ function single(r: Awaited<ReturnType<typeof runOqlSearch>>) {
 }
 
 describe('research mode:"prove" one-call LSP upgrade (P5)', () => {
+  it('dry-run explains research packet output and emits a next.graph proof query', async () => {
+    const env = single(
+      await runOqlSearch(
+        {
+          target: 'research',
+          from: { kind: 'local', path: OQL_SRC },
+          params: { intent: 'reachability' },
+          itemsPerPage: 3,
+          explain: true,
+        },
+        { dryRun: true }
+      )
+    );
+
+    expect(env.results).toEqual([]);
+    expect(env.evidence).toMatchObject({
+      kind: 'partial',
+      answerReady: false,
+      complete: false,
+    });
+    expect(
+      env.diagnostics.some(d => d.message.includes('candidate packets'))
+    ).toBe(true);
+    const nextGraph = env.next?.['next.graph']?.query as OqlInputQuery;
+    expect(nextGraph).toMatchObject({
+      target: 'graph',
+      from: { kind: 'local', path: OQL_SRC },
+      params: {
+        intent: 'reachability',
+        mode: 'prove',
+        proof: 'lsp',
+        proofLimit: 3,
+      },
+      itemsPerPage: 3,
+    });
+  });
+
+  it('dry-run explains graph proof output and emits a proof-mode graph query', async () => {
+    const env = single(
+      await runOqlSearch(
+        {
+          target: 'graph',
+          from: { kind: 'local', path: OQL_SRC },
+          params: { intent: 'reachability' },
+          itemsPerPage: 2,
+          explain: true,
+        },
+        { dryRun: true }
+      )
+    );
+
+    expect(env.results).toEqual([]);
+    expect(
+      env.diagnostics.some(d => d.message.includes('bounded LSP proof'))
+    ).toBe(true);
+    const nextGraph = env.next?.['next.graph']?.query as OqlInputQuery;
+    expect(nextGraph).toMatchObject({
+      target: 'graph',
+      params: {
+        intent: 'reachability',
+        mode: 'prove',
+        proof: 'lsp',
+        proofLimit: 2,
+      },
+      itemsPerPage: 2,
+    });
+  });
+
   it('emits an executable next.graph proof:"lsp" upgrade on the research row', async () => {
     const env = single(
       await runOqlSearch({
@@ -35,10 +103,13 @@ describe('research mode:"prove" one-call LSP upgrade (P5)', () => {
     expect(env.evidence.kind).not.toBe('proof');
 
     const row = env.results[0] as {
-      next?: Record<string, { query: OqlInputQuery; confidence: string }>;
+      next?: Record<string, { query: OqlInputQuery; confidence?: string }>;
     };
     const upgrade = row.next?.['next.graph'];
     expect(upgrade).toBeDefined();
+    expect(env.nextHints?.['next.graph']).toMatchObject({
+      confidence: 'exact',
+    });
     const q = upgrade!.query as OqlInputQuery;
     expect(q.target).toBe('graph');
     expect(q.params).toMatchObject({
@@ -52,7 +123,7 @@ describe('research mode:"prove" one-call LSP upgrade (P5)', () => {
     );
     expect((q.params as { proofLimit: number }).proofLimit).toBe(4);
     expect(q.itemsPerPage).toBe(4);
-    expect(upgrade!.confidence).toBe('exact');
+    expect(upgrade!.confidence).toBeUndefined();
   });
 
   it('emits an executable next.graph proof:"lsp" upgrade on candidate graph rows', async () => {
@@ -67,11 +138,14 @@ describe('research mode:"prove" one-call LSP upgrade (P5)', () => {
 
     const row = env.results[0] as {
       proofGrade?: string;
-      next?: Record<string, { query: OqlInputQuery; confidence: string }>;
+      next?: Record<string, { query: OqlInputQuery; confidence?: string }>;
     };
     expect(row.proofGrade).toBe('missing');
     const upgrade = row.next?.['next.graph'];
     expect(upgrade).toBeDefined();
+    expect(env.nextHints?.['next.graph']).toMatchObject({
+      confidence: 'exact',
+    });
     const q = upgrade!.query as OqlInputQuery;
     expect(q.target).toBe('graph');
     expect(q.params).toMatchObject({
@@ -81,6 +155,6 @@ describe('research mode:"prove" one-call LSP upgrade (P5)', () => {
     });
     expect((q.params as { proofLimit: number }).proofLimit).toBe(3);
     expect(q.itemsPerPage).toBe(3);
-    expect(upgrade!.confidence).toBe('exact');
+    expect(upgrade!.confidence).toBeUndefined();
   });
 });

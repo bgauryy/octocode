@@ -81,13 +81,14 @@ describe('paths', () => {
     expect(mod.paths.home).toBe('/home/tester/.config/.octocode');
   });
 
-  it('IGNORES OCTOCODE_HOME (no override): home stays the platform default', async () => {
+  it('honors OCTOCODE_HOME for isolated test and agent caches', async () => {
     mockPlatform('darwin', '/Users/tester');
     process.env.OCTOCODE_HOME = '/tmp/custom-octocode-home';
     const mod = await import('../../../src/shared/paths.js');
 
-    expect(mod.paths.home).toBe('/Users/tester/.octocode');
-    expect(mod.getDefaultOctocodeHome()).toBe('/Users/tester/.octocode');
+    expect(mod.paths.home).toBe('/tmp/custom-octocode-home');
+    expect(mod.getDefaultOctocodeHome()).toBe('/tmp/custom-octocode-home');
+    expect(mod.paths.binary).toBe('/tmp/custom-octocode-home/tmp/binary');
   });
 
   it('ensureHome creates home with 0o700', async () => {

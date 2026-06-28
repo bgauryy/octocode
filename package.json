@@ -44,9 +44,6 @@
     "typescript-eslint": "^8.61.1"
   },
   "private": true,
-  "resolutions": {
-    "@octocodeai/octocode-core": "portal:../octocode-mcp-host/packages/octocode-core"
-  },
   "workspaces": [
     "packages/*",
     "packages/octocode-engine/npm/*"

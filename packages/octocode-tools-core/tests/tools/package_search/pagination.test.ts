@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildPackagePagination } from '../../../src/tools/package_search/execution.js';
+import {
+  buildPackagePagination,
+  compactPackageRepositories,
+} from '../../../src/tools/package_search/execution.js';
 import type { z } from 'zod';
 import type { NpmPackageQuerySchema } from '@octocodeai/octocode-core/schemas';
 
@@ -39,5 +42,53 @@ describe('npmSearch keyword pagination (full-page heuristic)', () => {
     expect(pg.perPage).toBe(1);
     expect(pg.hasMore).toBe(false);
     expect(pg.totalPages).toBe(1);
+  });
+});
+
+describe('npmSearch package repository compaction', () => {
+  it('hoists repeated GitHub next calls into a shared repository table', () => {
+    const compacted = compactPackageRepositories([
+      {
+        name: 'octocode',
+        repository: 'https://github.com/bgauryy/octocode-mcp',
+        next: { old: true },
+      },
+      {
+        name: 'octocode-cli',
+        repository: 'https://github.com/bgauryy/octocode-mcp',
+        next: { old: true },
+      },
+      {
+        name: 'fuse.js',
+        repository: 'https://github.com/krisk/Fuse',
+        next: { old: true },
+      },
+    ]);
+
+    expect(compacted.packages).toEqual([
+      { name: 'octocode', repositoryId: 'r1' },
+      { name: 'octocode-cli', repositoryId: 'r1' },
+      { name: 'fuse.js', repositoryId: 'r2' },
+    ]);
+    expect(Object.keys(compacted.repositories ?? {})).toEqual(['r1', 'r2']);
+    expect(compacted.repositories?.r1).toMatchObject({
+      repository: 'https://github.com/bgauryy/octocode-mcp',
+      owner: 'bgauryy',
+      repo: 'octocode-mcp',
+      next: {
+        viewRepoStructure: {
+          tool: 'ghViewRepoStructure',
+          query: { owner: 'bgauryy', repo: 'octocode-mcp' },
+        },
+        searchCode: {
+          tool: 'ghSearchCode',
+          query: { owner: 'bgauryy', repo: 'octocode-mcp' },
+        },
+        cloneRepo: {
+          tool: 'ghCloneRepo',
+          query: { owner: 'bgauryy', repo: 'octocode-mcp' },
+        },
+      },
+    });
   });
 });

@@ -154,23 +154,23 @@ describe('resolveLocal', () => {
     process.env = originalEnv;
   });
 
-  describe('CLI surface ignores ENABLE_LOCAL (local always enabled)', () => {
+  describe('local tools default on, explicit opt-out applies on every surface', () => {
     afterEach(() => {
       _resetRuntimeSurface();
     });
 
-    it('enables local on the CLI surface even when ENABLE_LOCAL=false', () => {
+    it('disables local on the CLI surface when ENABLE_LOCAL=false', () => {
       setRuntimeSurface('cli');
       process.env.ENABLE_LOCAL = 'false';
-      expect(resolveLocal(undefined).enabled).toBe(true);
+      expect(resolveLocal(undefined).enabled).toBe(false);
     });
 
-    it('enables local on the CLI surface even when file config disables it', () => {
+    it('disables local on the CLI surface when file config disables it', () => {
       setRuntimeSurface('cli');
-      expect(resolveLocal({ enabled: false }).enabled).toBe(true);
+      expect(resolveLocal({ enabled: false }).enabled).toBe(false);
     });
 
-    it('still honors ENABLE_LOCAL=false on the MCP surface (contrast)', () => {
+    it('disables local on the MCP surface when ENABLE_LOCAL=false', () => {
       setRuntimeSurface('mcp');
       process.env.ENABLE_LOCAL = 'false';
       expect(resolveLocal(undefined).enabled).toBe(false);
@@ -178,9 +178,9 @@ describe('resolveLocal', () => {
   });
 
   describe('enabled defaults', () => {
-    it('should default enabled to false for the MCP surface when no config or env var', () => {
+    it('should default enabled to true when no config or env var', () => {
       const result = resolveLocal(undefined);
-      expect(result.enabled).toBe(false);
+      expect(result.enabled).toBe(true);
     });
 
     it('should respect ENABLE_LOCAL=false override', () => {

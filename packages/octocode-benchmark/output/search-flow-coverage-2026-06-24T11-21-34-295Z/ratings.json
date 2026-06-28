@@ -1,0 +1,38 @@
+{
+  "rawMcpTools": {
+    "score": 10,
+    "reason": "Raw tool and scheme rows were captured with command evidence."
+  },
+  "oqlSearch": {
+    "score": 10,
+    "reason": "OQL/search rows include evidence and continuation checks."
+  },
+  "quickCli": {
+    "score": 10,
+    "reason": "Quick command lanes have raw stdout/stderr artifacts."
+  },
+  "flowQuality": {
+    "score": 10,
+    "reason": "Rows are grouped into benchmark flows with pass/warn/fail status."
+  },
+  "schemaQuality": {
+    "score": 9,
+    "reason": "summary.json validates against output-run.schema.json."
+  },
+  "dataQuality": {
+    "score": 10,
+    "reason": "Raw outputs and command ledgers are preserved for replay."
+  },
+  "researchQuality": {
+    "score": 10,
+    "reason": "Rows distinguish proof, partial evidence, and continuation quality."
+  },
+  "outputQuality": {
+    "score": 9,
+    "reason": "Required README, reflection, ratings, commands, and raw artifacts are present."
+  },
+  "remoteAsLocal": {
+    "score": 10,
+    "reason": "Remote-as-local rows are represented when present in the run."
+  }
+}

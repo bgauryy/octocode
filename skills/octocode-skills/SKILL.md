@@ -1,11 +1,13 @@
 ---
 name: octocode-skills
-description: Use this skill when the user asks to find, evaluate, preview, install, rate, review, score, create, update, improve, refactor, lint, or synthesize Agent Skills (the `SKILL.md` folder format) across GitHub, local skill folders, and skill marketplaces. Covers searching for a skill for a task, deep-diving a candidate, installing one or more skills into one or more agents at user or project scope, rating or linting an existing SKILL.md, refactoring or updating a skill in place, or creating a new local skill from researched patterns. Do NOT activate for general package search (npm, cargo), general (non-skill) web search, or code research not involving SKILL.md files.
+description: Use when finding, evaluating, previewing, installing, rating, reviewing, improving, refactoring, linting, or synthesizing Agent Skills (`SKILL.md` folders) across GitHub, local skill folders, and skill marketplaces. Covers deep-diving a candidate, installing skills into agents, rating or linting an existing skill, updating one in place, or creating a local skill from researched patterns. Skip for general package search (npm, cargo), non-skill web search, or code research not involving SKILL.md files.
 ---
 
 # Octocode Skills
 
 Search for, evaluate, create, and update Agent Skills — powered by the Octocode CLI (`npx octocode`) for all code research. Find and judge skills by inspecting real skill files, compare workflow quality, author new skills from researched patterns, update existing ones in place, and gate every write or install action. A skill is a folder with `SKILL.md` (`name`, `description`, instructions) plus optional `scripts/`, `references/`, `assets/`. Agents load them by progressive disclosure — so keep recommendations and any skill you author lean.
+
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
 
 ## Operating Model
 
@@ -13,10 +15,10 @@ Flow: `UNDERSTAND -> DISCOVER -> INSPECT -> JUDGE -> RECOMMEND -> USER GATE -> A
 
 Hard rules:
 
-- MUST inspect actual `SKILL.md` content (and behavior-affecting referenced files for strong/risky/unclear candidates) before recommending, adapting, installing, or quoting it. Skip candidates lacking valid `name`+`description`.
-- MUST identify every candidate by `(owner/repo, path-to-SKILL.md)` or absolute/workspace path. Recommend by task fit, workflow quality, safety gates, and portability; use installs/stars only as a tiebreaker.
-- MUST gate installs, file writes, local skill creation, target selection, config changes, overwrites, and symlinks behind explicit user approval.
-- FORBIDDEN: handing the user a raw search dump to rank — filter, explain tradeoffs, recommend a next step. FORBIDDEN: copying a skill wholesale unless license and user allow it.
+- Inspect actual `SKILL.md` content (and behavior-affecting referenced files for strong/risky/unclear candidates) before recommending, adapting, installing, or quoting it. Skip candidates lacking valid `name`+`description`.
+- Identify every candidate by `(owner/repo, path-to-SKILL.md)` or absolute/workspace path. Recommend by task fit, workflow quality, safety gates, and portability; use installs/stars only as a tiebreaker.
+- Gate installs, file writes, local skill creation, target selection, config changes, overwrites, and symlinks behind explicit user approval.
+- Do not hand the user a raw search dump to rank; filter, explain tradeoffs, and recommend a next step. Copy a skill wholesale only when license and user allow it.
 
 Stop when: one recommendation is justified by inspected content; or two High-quality candidates are inspected and the top pick fits; or three search angles return nothing new; or a user gate is pending.
 
@@ -56,7 +58,7 @@ Load on demand; each states when to read it. References cross-link each other, s
 - `references/agent-skills-guide.md` — when evaluating, improving, or authoring a skill: structure, progressive disclosure, context discipline, instruction patterns, scripts.
 - `references/description-tuning.md` — when optimizing a `description` trigger with eval queries.
 - `references/self-improvement.md` — when the user asks to rate, review, score, improve, refactor, or lint a `SKILL.md`.
-- `references/skill-lint.md` — when linting/auditing skill structure, and ALWAYS after creating or editing a skill; documents `scripts/skill-lint.mjs`.
+- `references/skill-lint.md` — when linting/auditing skill structure, and after creating or editing a skill; documents `scripts/skill-lint.mjs`.
 - `references/install-reference.md` — when installing a skill or choosing targets, scopes, destinations, or conflict behavior.
 - `references/fetch-and-create-locally.md` — when fetching a remote skill via Octocode into a local folder, verbatim or adapted.
 - `references/create-local-skill.md` — when creating or synthesizing a new local skill from research.
@@ -64,6 +66,6 @@ Load on demand; each states when to read it. References cross-link each other, s
 
 ## Acting Gates
 
-Install (detail in `references/install-reference.md`): normalize input to a folder with a valid `SKILL.md`; MUST ask provider(s), scope per provider, project root, and copy-vs-symlink before writing; inspect `scripts/`/hooks before copying third-party skills; per-destination conflict check (Overwrite/Skip/Rename/Diff/Cancel); confirm the full plan; verify each destination and report per-destination result.
+Install (detail in `references/install-reference.md`): normalize input to a folder with a valid `SKILL.md`; ask provider(s), scope per provider, project root, and copy-vs-symlink before writing; inspect `scripts/`/hooks before copying third-party skills; per-destination conflict check (Overwrite/Skip/Rename/Diff/Cancel); confirm the full plan; verify each destination and report per-destination result.
 
 Create a local skill (detail in `references/create-local-skill.md`): synthesize research, present a short plan, gate, then write lean files and a `references/references.md` audit trail (shape in `references/references-template.md`). Run `scripts/skill-lint.mjs` before reporting any created or edited skill as done.

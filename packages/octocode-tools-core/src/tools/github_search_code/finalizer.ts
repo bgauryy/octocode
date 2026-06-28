@@ -22,7 +22,6 @@ type CodeSearchFileResult = {
   owner: string;
   repo: string;
   path: string;
-  queryId?: string;
   matches: Array<Omit<CodeSearchGroupedMatch, 'path'>>;
 };
 
@@ -33,6 +32,29 @@ type CodeSearchResultRecord = {
     pagination?: CodeSearchPagination;
   };
 };
+
+function queryById(
+  queries: readonly QueryWithPagination[]
+): ReadonlyMap<string, QueryWithPagination> {
+  const byId = new Map<string, QueryWithPagination>();
+  for (const query of queries) {
+    if (typeof query.id === 'string') byId.set(query.id, query);
+  }
+  return byId;
+}
+
+function hasScopedGitHubQuery(
+  emptyQueries: readonly { id: string }[],
+  queries: readonly QueryWithPagination[]
+): boolean {
+  const queriesById = queryById(queries);
+  return emptyQueries.some(empty => {
+    const query = queriesById.get(empty.id) as
+      | (QueryWithPagination & { owner?: unknown; repo?: unknown })
+      | undefined;
+    return typeof query?.owner === 'string' && typeof query?.repo === 'string';
+  });
+}
 
 function readPerQueryFlat(result: FlatQueryResult): CodeSearchFlatResult {
   const data = result.data as Partial<CodeSearchFlatResult> | undefined;
@@ -95,7 +117,9 @@ function flattenGroupsToFiles(
         owner: group.owner,
         repo: group.repo,
         path: match.path,
-        ...(group.queryId ? { queryId: group.queryId } : {}),
+        // queryId intentionally omitted from output: it always equals the
+        // parent results[].id. It is still part of `key` above so files from
+        // different queries never merge.
         matches: [matchWithoutPath],
       });
     }
@@ -319,6 +343,16 @@ export function buildGhSearchCodeFinalizer<
       responseData.warnings = [
         ...(Array.isArray(responseData.warnings) ? responseData.warnings : []),
         'GitHub code search returned incomplete_results: the search index did not fully complete. Empty or partial results may be a false negative — retry, narrow scope (owner/repo/path), or materialize the repo and search locally before concluding absence.',
+      ];
+    }
+
+    if (
+      emptyQueries.length > 0 &&
+      hasScopedGitHubQuery(emptyQueries, queries)
+    ) {
+      responseData.warnings = [
+        ...(Array.isArray(responseData.warnings) ? responseData.warnings : []),
+        'GitHub code search returned no results for a scoped repository query. Treat this as unproven absence: verify the repo/path with ghViewRepoStructure, then materialize or clone a bounded path and search locally before concluding.',
       ];
     }
 

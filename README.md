@@ -62,18 +62,18 @@ octocode
 
 - **Cursor / VS Code** — one-click install:
 
-  [<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyJAb2N0b2NvZGVhaS9tY3BAbGF0ZXN0Il19) [<img src="https://img.shields.io/badge/VS_Code-VS_Code?style=flat-square&label=Install%20Server&color=0098FF" alt="Install in VS Code">](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522octocode%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522%2540octocodeai%252Fmcp%2540latest%255D%257D) [<img alt="Install in VS Code Insiders" src="https://img.shields.io/badge/VS_Code_Insiders-VS_Code_Insiders?style=flat-square&label=Install%20Server&color=24bfa5">](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522octocode%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522%2540octocodeai%252Fmcp%2540latest%255D%257D)
+  [<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](cursor://anysphere.cursor-deeplink/mcp/install?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBvY3RvY29kZWFpL21jcEBsYXRlc3QiXX0%3D) [<img src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code">](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522octocode%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522%2540octocodeai%252Fmcp%2540latest%2522%255D%257D) [<img src="https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code Insiders">](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522octocode%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522%2540octocodeai%252Fmcp%2540latest%2522%255D%257D)
 
-- **Claude Code:**
+- **Claude Code** — [<img src="https://img.shields.io/badge/Claude_Code-Install-CC785C?style=flat-square&logo=anthropic&logoColor=white" alt="Install for Claude Code">](https://docs.anthropic.com/en/docs/claude-code/mcp):
 
   ```bash
-  claude mcp add-json octocode --scope user '{"command":"npx","args":["@octocodeai/mcp@latest"]}'
+  claude mcp add-json octocode --scope user '{"command":"npx","args":["-y","@octocodeai/mcp@latest"]}'
   ```
 
-- **Any other client** — interactive installer:
+- **Supported clients** — installer command:
 
   ```bash
-  octocode install
+  octocode install --ide cursor
   ```
 
 ➡️ Learn more at **[octocode.ai](https://octocode.ai)**.
@@ -113,7 +113,7 @@ See [Quick Start](#quick-start) to install in your terminal or AI assistant.
 
 ## Tools
 
-Octocode ships **14 research tools**; the same implementations run identically over [MCP](#mcp) and the [CLI](#cli). `ghCloneRepo` is opt-in for MCP (`ENABLE_CLONE=true`) and enabled by default for CLI; local tools require `ENABLE_LOCAL` (CLI default: on, MCP default: off). All flags: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md).
+Octocode ships **14 research tools**; the same implementations run identically over [MCP](#mcp) and the [CLI](#cli). Local tools are enabled by default; `ENABLE_LOCAL=false` disables them. `ghCloneRepo` is opt-in for MCP (`ENABLE_CLONE=true`) and enabled by default for CLI. All flags: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `symbols` = skeleton with line numbers, `standard` = comments/blanks stripped (default), `none` = exact bytes.
 
@@ -164,7 +164,7 @@ Full schemas, fields, and examples for every tool live in [`docs/mcp/tools`](htt
 
 The MCP server exposes the Octocode tool catalog directly to your AI assistant over stdio. Install once; the assistant calls tools automatically.
 
-**Install:** see [Quick Start](#quick-start) for one-click badges, the `claude mcp add-json` command, or the interactive `octocode install` (non-interactive: `octocode install --ide cursor|claude-code|…`).
+**Install:** see [Quick Start](#quick-start) for one-click badges, the `claude mcp add-json` command, or `octocode install --ide cursor|claude-code|...`.
 
 https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
 
@@ -173,14 +173,13 @@ https://github.com/user-attachments/assets/de8d14c0-2ead-46ed-895e-09144c9b5071
 Add to your MCP client config file:
 
 ```json
-{
-  "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["@octocodeai/mcp@latest"]
+      "type": "stdio",
+      "args": [
+        "@octocodeai/mcp@latest"
+      ]
     }
-  }
-}
 ```
 
 Add a GitHub token and options under `env` — see [Authentication](#authentication-methods) and [Configuration](#configuration).
@@ -211,11 +210,11 @@ octocode --help       # full usage
 
 #### More commands
 
-- **GitHub & npm** — `search <…> --target repositories|packages|pullRequests|commits|artifacts`
+- **GitHub & npm** — `search <…> --target repositories|packages|pullRequests|commits|artifacts|diff`
 - **LSP** — `search <file> --op definition|references|callers|callees|hover|diagnostic|callHierarchy` (`--symbol`, `--line` to narrow)
 - **Cache & clone** — `clone`, `unzip`, `cache fetch|status|clear`
 - **Skills** — `skill --list | --name <skill> | --add <github-folder>`
-- **Language servers** — `lsp-server list|install|status|uninstall`
+- **Language servers** — `lsp-server list|install|status|uninstall|clean`
 - **Setup & introspection** — `install`, `auth`, `status`, `tools`, `context`
 
 Full syntax, flags, and exit codes: [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
@@ -234,7 +233,7 @@ environment variables  >  <octocode-home>/.octocoderc  >  built-in defaults
 2. **Global config**: `<octocode-home>/.octocoderc`, machine-wide defaults read by **both the CLI and the MCP server**.
 3. **Built-in defaults**: used when neither is set.
 
-**Octocode home** (`<octocode-home>`) holds the global config, encrypted credentials, sessions, stats, and tmp materialization caches. Its location is fixed per platform (there is no override):
+**Octocode home** (`<octocode-home>`) holds the global config, encrypted credentials, sessions, stats, and tmp materialization caches. It defaults by platform and can be overridden with `OCTOCODE_HOME`:
 
 | Platform | Location |
 |----------|----------|
@@ -250,9 +249,10 @@ The **Scope** column shows where a setting applies: `Both`, or `MCP` (the CLI ig
 
 | Env var | `.octocoderc` key | Default | Scope | What it does |
 |---------|-------------------|---------|-------|--------------|
+| `OCTOCODE_HOME` | env only | platform default | Both | Overrides the Octocode data directory for config, credentials, sessions, stats, and caches. |
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | Both | GitHub token, in priority order. Tokens stay in env, never in `.octocoderc`. |
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | Both | API endpoint; use `/api/v3` for GitHub Enterprise. |
-| `ENABLE_LOCAL` | `local.enabled` | CLI `true`, MCP `false` | Both | Turns local filesystem + LSP tools on/off. |
+| `ENABLE_LOCAL` | `local.enabled` | `true` | Both | Turns local filesystem + LSP tools on/off; set `false` to disable. |
 | `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Both | `ghCloneRepo` and directory fetch. Default differs by surface; set `false` to disable in either. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Both | Absolute root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Both | Extra path allowlist for local access; empty means home directory only after validation. |
@@ -261,7 +261,7 @@ The **Scope** column shows where a setting applies: `Both`, or `MCP` (the CLI ig
 | `MAX_RETRIES` | `network.maxRetries` | `3` | Both | Retry attempts (clamped `0..10`). |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Both | Response format: `yaml` or `json`. |
 
-> **Local and clone defaults differ by surface.** The **CLI** defaults local tools and clone on; the **MCP server** defaults them off, so a deployment can control what an assistant may touch. Explicit env or `.octocoderc` values override those defaults.
+> **Local defaults on; clone differs by surface.** Both CLI and MCP default local tools on; set `ENABLE_LOCAL=false` to disable them. The **CLI** defaults clone on, while the **MCP server** requires `ENABLE_CLONE=true`.
 
 Per-project overrides and custom LSP servers live in a workspace `.octocode/` folder. For the full `.octocoderc` schema, a ready-to-copy example, clone-cache tuning, GitHub Enterprise setup, and precedence details, see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md).
 
@@ -338,7 +338,7 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp) · Skills index: [skills/README.md](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
 
-These are the skills the Octocode team itself uses to build Octocode. **9 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table mirrors the [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md). ⭐ **[Engineer](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer)** is the recommended starting skill.
+These are the skills the Octocode team itself uses to build Octocode. **10 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table mirrors the [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md). ⭐ **[Engineer](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer)** is the recommended starting skill.
 
 ```bash
 npx octocode skill --list                                     # browse available skills
@@ -356,6 +356,7 @@ Platforms: `common` (default, `~/.agents/skills`), `cursor`, `claude`, `codex`, 
 | ⭐ [**Engineer**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer) | `octocode-engineer/` | You need to understand, implement, review, refactor, or audit code. The default for "work on this code." |
 | [**Loop**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-loop) | `octocode-loop/` | The goal and research path are clear and the work needs grounded Act -> Observe -> Learn -> Repeat loops until evidence converges. |
 | [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | `octocode-brainstorming/` | The idea is fuzzy: validate prior art, check whether something is worth building, or produce a decision brief. |
+| [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | You need evidence-first technical research across local code, GitHub, npm, history, artifacts, or formal sources without starting an edit. |
 | [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | `octocode-rfc-generator/` | You need a design doc, RFC, architecture proposal, migration plan, or rollout plan before coding. |
 | [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | You want brutal but actionable code critique with severity-ranked findings and fixes. |
 | [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | You are working on Agent Skills themselves: find, evaluate, install, lint, create, or update `SKILL.md` folders. |

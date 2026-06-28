@@ -27,9 +27,12 @@ octocode search <file> --target artifacts --inspect
 octocode unzip <archive>
 
 # Raw tool runner
-octocode tools
+octocode tools                                # all tools, concise descriptions
+octocode tools --json --compact               # lean minified machine catalog
+octocode tools --json --full                  # wrapped full all-tool schema catalog
 octocode tools <name> --scheme
-octocode tools <name> --queries '<json>'
+octocode tools <name> --scheme --json --compact # one minified machine schema
+octocode tools <name> --queries '<json>' --compact
 octocode context [--full] [--json]
 
 # Agent setup
@@ -59,11 +62,11 @@ Removed commands: `cat`, `ls`, `find`, `diff`, `history`, `repo`, `pkg`, `binary
 Agents should use this order:
 
 1. `octocode context`
-2. `octocode tools`
-3. `octocode tools <name> --scheme`
-4. `octocode tools <name> --queries '<json>'`
+2. `octocode tools --json --compact`
+3. `octocode tools <name> --scheme --json --compact`
+4. `octocode tools <name> --queries '<json>' --compact`
 
-Use `octocode context --full` for complete tool descriptions, and `octocode context --json` when automation needs a machine-readable `{ "context": "..." }` wrapper. Read schemas on demand with `octocode tools <name> --scheme`.
+Use `octocode context --full` for complete tool descriptions, and `octocode context --json` when automation needs a machine-readable `{ "context": "..." }` wrapper. Bare `octocode tools --json` is a lean discovery catalog; add `--compact` to minify it for agents. Read one full schema on demand with `octocode tools <name> --scheme --json --compact`. Use `octocode tools --json --full` only when automation truly needs every schema in one payload.
 
 ## UX Map
 
@@ -77,7 +80,7 @@ Use `octocode context --full` for complete tool descriptions, and `octocode cont
 | Inspect archives/binaries | `search --target artifacts`, `unzip` |
 | Install Agent Skills into clients | `skill --add <github-folder> --platform common|cursor|claude|codex|all` |
 | Configure Octocode | `install`, `auth`, `login`, `logout`, `status` |
-| Run any MCP tool directly | `tools <name> --scheme`, then `tools <name> --queries '<json>'` |
+| Run any MCP tool directly | `tools --json --compact`, then `tools <name> --scheme --json --compact`, then `tools <name> --queries '<json>' --compact` |
 
 ## Global Options
 
@@ -85,7 +88,7 @@ Use `octocode context --full` for complete tool descriptions, and `octocode cont
 |--------|---------|
 | `--help` | Show help. |
 | `--version` | Show version. |
-| `--json` | Print raw JSON MCP envelope for tool runs. |
+| `--json` | Print JSON output. For tool runs this is the raw MCP envelope; for bare `tools --json` this is the lean catalog. |
 | `--compact` | Print lean tool output. |
 | `--no-color` | Disable ANSI color. Also honors `NO_COLOR=1`. |
 
@@ -562,7 +565,13 @@ Shows auth state, token presence/source, MCP client install health, and cache in
 
 ## Tool Runner
 
-`octocode tools` uses the canonical direct-tool catalog from `@octocodeai/octocode-tools-core/direct`; the CLI does not maintain separate tool schemas.
+`octocode tools` uses the canonical direct-tool catalog from `@octocodeai/octocode-tools-core/direct`; the CLI does not maintain separate tool schemas. By default it prints every tool grouped by category with only the tool name and a concise description.
+
+Agent-friendly schema flow:
+
+- `octocode tools --json --compact` prints a lean discovery catalog with tool names, categories, short descriptions, compact field hints, and per-tool schema/run commands. It intentionally omits full field descriptions and nested schemas.
+- `octocode tools <name> --scheme --json --compact` prints one machine-readable full schema for the chosen tool.
+- `octocode tools --json --full` prints the full all-tool schema catalog as a wrapped JSON payload with `tools[]`; it is intentionally explicit because it is much larger.
 
 Raw tool calls use `--queries`. Legacy `--input` is not supported, and unsupported tool flags are rejected before execution.
 
@@ -590,10 +599,12 @@ Examples:
 
 ```bash
 octocode tools
+octocode tools --json --compact
 octocode tools localSearchCode --scheme
-octocode tools localSearchCode --queries '{"path":".","keywords":"runCLI"}'
-octocode tools ghSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}'
-octocode tools ghCloneRepo --queries '{"owner":"facebook","repo":"react","sparsePath":"packages/react"}'
+octocode tools localSearchCode --scheme --json --compact
+octocode tools localSearchCode --queries '{"path":".","keywords":"runCLI"}' --compact
+octocode tools ghSearchCode --queries '{"keywordsToSearch":["useReducer"],"owner":"facebook","repo":"react"}' --compact
+octocode tools ghCloneRepo --queries '{"owner":"facebook","repo":"react","sparsePath":"packages/react"}' --compact
 ```
 
 ## Environment
@@ -604,7 +615,7 @@ octocode tools ghCloneRepo --queries '{"owner":"facebook","repo":"react","sparse
 | `GH_TOKEN` | GitHub CLI compatible token. |
 | `GITHUB_TOKEN` | GitHub token fallback. |
 | `OCTOCODE_HOME` | Override Octocode data directory. Defaults: macOS `~/.octocode`, Windows `%APPDATA%\octocode`, Linux `${XDG_CONFIG_HOME:-~/.config}/octocode`. |
-| `ENABLE_LOCAL` | Enable local filesystem tools (default: `true`). |
+| `ENABLE_LOCAL` | Enable local filesystem tools (default: `true`; set `false` to disable). |
 | `ENABLE_CLONE` | Clone gate. CLI clone/materialization is enabled by default and only disabled by `ENABLE_CLONE=false`; MCP clone tools require `ENABLE_CLONE=true`. |
 | `NO_COLOR` | Disable terminal color. |
 

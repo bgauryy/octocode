@@ -58,7 +58,7 @@ Each surface is provider-agnostic unless noted. Treat install counts and audit b
 - Public install-count leaderboard.
 - Search box, agent filter ("available for these agents"), per-skill page (see Per-Skill Check above).
 - Install pattern: `npx skills add <github-url> --skill <skill-name>`.
-- **Registry search API** (MUST use for public skill searches, in parallel with GitHub):
+- **Registry search API** (use for broad public skill searches, in parallel with GitHub):
   ```bash
   curl 'https://www.skills.sh/api/search?q={{SEARCH_KEY}}&limit=100' \
     --compressed \
@@ -66,7 +66,7 @@ Each surface is provider-agnostic unless noted. Treat install counts and audit b
   ```
   Response: `{"skills": [{"id": "owner/repo/skillId", "skillId": string, "name": string, "installs": number, "source": "owner/repo"}], "count": number}`
   Sort results by `installs` descending; top entries are the most battle-tested candidates.
-  Do NOT use for org-specific or private searches — Octocode tools only for those.
+  Skip for org-specific or private searches — use Octocode tools only for those.
 
 ### `claude-plugins.dev` (Kamalnrf)
 

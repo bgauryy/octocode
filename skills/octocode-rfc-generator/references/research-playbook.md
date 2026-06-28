@@ -8,12 +8,12 @@ Use when the current repo matters.
 
 | Need | MCP | CLI |
 |---|---|---|
-| Map structure | `localViewStructure` | `octocode search <path> --tree` |
-| Find files | `localFindFiles` through OQL `target:"files"` | `octocode search --search path` |
-| Search code | `localSearchCode` | `octocode search` |
-| Read exact code | `localGetFileContent` | `octocode search <file> --content-view exact` |
-| AST shape proof | `localSearchCode(mode:"structural")` | `octocode search <path> --pattern '<shape>' --lang <language>` |
-| Symbols / LSP | `lspGetSemantics` | `octocode search <file> --symbols` / `octocode search <file> --op ...` |
+| Map structure | `localViewStructure` | `npx octocode search <path> --tree` |
+| Find files | `localFindFiles` through OQL `target:"files"` | `npx octocode search --search path` |
+| Search code | `localSearchCode` | `npx octocode search` |
+| Read exact code | `localGetFileContent` | `npx octocode search <file> --content-view exact` |
+| AST shape proof | `localSearchCode(mode:"structural")` | `npx octocode search <path> --pattern '<shape>' --lang <language>` |
+| Symbols / LSP | `lspGetSemantics` | `npx octocode search <file> --symbols` / `npx octocode search <file> --op ...` |
 
 Local flow:
 
@@ -27,13 +27,13 @@ Use for prior art, package choices, cross-repo comparison, and history.
 
 | Need | MCP | CLI |
 |---|---|---|
-| Package → repo | `npmSearch` | `octocode search <name> --target packages` |
-| Discover repos | `ghSearchRepos` | `octocode search <keywords> --target repositories` |
-| Map repo | `ghViewRepoStructure` | `octocode search owner/repo --tree` |
-| Search GitHub | `ghSearchCode` | `octocode search kw owner/repo` |
-| Read GitHub file | `ghGetFileContent` | `octocode search owner/repo/path --content-view exact` |
-| PR/commit history | `ghHistoryResearch` | `octocode pr` / `octocode search owner/repo/path --target commits` |
-| Clone for deep proof | `ghCloneRepo` | `octocode clone` |
+| Package → repo | `npmSearch` | `npx octocode search <name> --target packages` |
+| Discover repos | `ghSearchRepos` | `npx octocode search <keywords> --target repositories` |
+| Map repo | `ghViewRepoStructure` | `npx octocode search owner/repo --tree` |
+| Search GitHub | `ghSearchCode` | `npx octocode search kw owner/repo` |
+| Read GitHub file | `ghGetFileContent` | `npx octocode search owner/repo/path --content-view exact` |
+| PR/commit history | `ghHistoryResearch` | `npx octocode search owner/repo#N --target pullRequests` / `npx octocode search owner/repo/path --target commits` |
+| Clone for deep proof | `ghCloneRepo` | `npx octocode clone` |
 
 External flow:
 
@@ -49,12 +49,12 @@ Use when the source is packaged or compiled.
 
 | Need | MCP | CLI |
 |---|---|---|
-| Inspect binary metadata | `localBinaryInspect(mode:"inspect")` | `octocode search <file> --target artifacts --inspect` |
-| List archive entries | `localBinaryInspect(mode:"list")` | `octocode search <file> --target artifacts --list` |
-| Extract one entry | `localBinaryInspect(mode:"extract")` | `octocode search <file> --target artifacts --extract <entry>` |
-| Decompress stream | `localBinaryInspect(mode:"decompress")` | `octocode search <file> --target artifacts --decompress` |
-| Inspect strings | `localBinaryInspect(mode:"strings")` | `octocode search <file> --target artifacts --strings` |
-| Unpack archive | `localBinaryInspect(mode:"unpack")` | `octocode unzip` |
+| Inspect binary metadata | `localBinaryInspect(mode:"inspect")` | `npx octocode search <file> --target artifacts --inspect` |
+| List archive entries | `localBinaryInspect(mode:"list")` | `npx octocode search <file> --target artifacts --list` |
+| Extract one entry | `localBinaryInspect(mode:"extract")` | `npx octocode search <file> --target artifacts --extract <entry>` |
+| Decompress stream | `localBinaryInspect(mode:"decompress")` | `npx octocode search <file> --target artifacts --decompress` |
+| Inspect strings | `localBinaryInspect(mode:"strings")` | `npx octocode search <file> --target artifacts --strings` |
+| Unpack archive | `localBinaryInspect(mode:"unpack")` | `npx octocode unzip` |
 
 Flow: identify/list → extract one entry or unpack all → run local tools on the returned `localPath`.
 

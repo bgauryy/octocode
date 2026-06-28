@@ -8,7 +8,7 @@ Octocode exposes **one** public semantic tool:
 |------|------------|
 | `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
 
-Semantic operations are local-only. They require `ENABLE_LOCAL=true` and a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
+Semantic operations are local-only. Local tools are enabled by default; `ENABLE_LOCAL=false` disables them. LSP needs a file that exists on disk. Use `localSearchCode` first when you need a symbol `lineHint`; `mode:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
 
 For external repos: clone first with `ghCloneRepo` (or fetch a subtree with `ghGetFileContent(type:"directory")`), then use the returned `localPath` as the `uri` prefix for `lspGetSemantics`. The path is always absolute and immediately valid.
 

@@ -7,16 +7,22 @@ description: "Use when investigating, implementing, reviewing, refactoring, or a
 
 Use this skill to understand, review, or change code without guessing. This file is the **router**; detailed playbooks live in `references/`. Read the smallest set of references the scenario needs.
 
-## 0. Transport default: CLI first
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
 
-Default to the **Octocode CLI** quick commands (`search`, `pr`, `unzip`, `clone`, `cache fetch`). Use `search --search path` for file discovery, `search --tree` for structure, `search --content-view exact|compact|symbols` for reads, `search --pattern/--rule --lang <lang>` for structural code search, `search --op <semantic-op>` for LSP semantics, `search --target repositories` for repo discovery, `search --target packages` for package lookup, `search --target commits` for history, `search --target artifacts` for binary/archive inspection, and `search --target diff` for file diffs. If `octocode` is not installed, use `npx octocode <cmd>`. Use MCP tools only when the host provides them and the CLI is unavailable.
+## 0. Transport default: smart CLI/MCP probe
+
+First check whether Octocode MCP tools are registered in the host. If `localSearchCode`, `ghSearchCode`, `npmSearch`, `lspGetSemantics`, or `oqlSearch` are available, use them directly. Otherwise default to **`npx octocode` CLI** current commands: `search`, `unzip`, `clone`, and `cache fetch` for research/materialization; `tools` for raw schema-first calls; `context`, `auth`, `status`, `lsp-server`, `skill`, and `install` for setup and diagnostics.
+
+If neither MCP nor CLI is available, tell the user to install/run the CLI with `npx octocode`, authenticate with `npx octocode auth login` when GitHub access is needed, or register MCP using `references/octocode.md`.
+
+Use `npx octocode search --search path` for file discovery, `npx octocode search --tree` for structure, `npx octocode search --content-view exact|compact|symbols` for reads, `npx octocode search --pattern/--rule --lang <lang>` for structural code search, `npx octocode search --op <semantic-op>` for LSP semantics, `npx octocode search --target repositories` for repo discovery, `npx octocode search --target packages` for package lookup, `npx octocode search --target pullRequests` for PRs, `npx octocode search --target commits` for history, `npx octocode search --target artifacts` for binary/archive inspection, `npx octocode search --target diff` for file diffs, and OQL `target:"research"` / `target:"graph"` for reachability and proof packets.
 
 Hard rules:
 - Prefer `--json` whenever another step depends on returned paths, refs, line numbers, or pagination.
-- Read `octocode tools <name> --scheme` before every raw-tool call. Quick-command flags and raw-tool fields differ.
-- Use `octocode search --scheme` / `search --explain` before relying on OQL for partial targets.
-- For dead-code, reachability, or drift sweeps, start with `search target:"research"` as a broad candidate pass, then prove with LSP/AST/exact reads.
-- Treat snippets as leads. Prove with `search --match-string --content-view exact`, AST, LSP, history, or tests.
+- Read `npx octocode tools <name> --scheme` before every raw-tool call. Quick-command flags and raw-tool fields differ.
+- Use `npx octocode search --scheme` / `npx octocode search --explain` before relying on OQL for partial targets.
+- For dead-code, reachability, or drift sweeps, start with `npx octocode search` OQL `target:"research"` as a broad candidate pass, then prove with LSP/AST/exact reads.
+- Treat snippets as leads. Prove with `npx octocode search --match-string --content-view exact`, AST, LSP, history, or tests.
 - Follow returned `next.*`, pagination, char offsets, match/file pages. Never invent offsets or paths.
 - Keep ≥2 plausible explanations alive for ambiguous bugs until evidence eliminates one.
 - Reflect before final output: weakest claim, strongest counter, whether one cheap command changes the answer.

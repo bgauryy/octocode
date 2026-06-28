@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { HOME, getAppDataPath, isMac, isWindows } from './platform/index.js';
 
 const DIR_NAME = '.octocode';
@@ -11,12 +11,16 @@ function readNonEmptyEnv(name: string): string | undefined {
 }
 
 /**
- * Octocode's home directory. Fixed per platform — there is no override env var:
+ * Octocode's home directory. Set OCTOCODE_HOME to isolate caches in tests/CI.
+ * Default per platform:
  *   - macOS:   `~/.octocode`
  *   - Linux:   `${XDG_CONFIG_HOME:-~/.config}/.octocode`
  *   - Windows: `%APPDATA%\.octocode`
  */
 export function getDefaultOctocodeHome(): string {
+  const override = readNonEmptyEnv('OCTOCODE_HOME');
+  if (override) return resolve(override);
+
   if (isWindows) {
     return join(getAppDataPath(), DIR_NAME);
   }

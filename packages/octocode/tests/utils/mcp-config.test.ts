@@ -98,6 +98,17 @@ describe('MCP Config Utilities', () => {
       expect(config.env!.ENABLE_LOCAL).toBe('true');
       expect(config.env!.GITHUB_TOKEN).toBe('test-token');
     });
+
+    it('should write ENABLE_LOCAL=false when local tools are disabled', async () => {
+      const { getOctocodeServerConfig } =
+        await import('../../src/utils/mcp-config.js');
+      const config = getOctocodeServerConfig('npx', {
+        enableLocal: false,
+      });
+
+      expect(config.env).toBeDefined();
+      expect(config.env!.ENABLE_LOCAL).toBe('false');
+    });
   });
 
   describe('mergeOctocodeConfig', () => {

@@ -7,6 +7,8 @@ description: Use when the user asks to show Octocode stats, usage, a dashboard, 
 
 Generate a local HTML dashboard from Octocode usage stats. The build script owns all parsing, calculations, rendering, and browser-opening behavior; do not reimplement those calculations in chat or another script.
 
+Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+
 ## When to Activate
 
 Use this skill when the user asks to:

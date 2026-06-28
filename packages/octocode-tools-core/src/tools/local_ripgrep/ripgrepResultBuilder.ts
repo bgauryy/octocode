@@ -112,7 +112,14 @@ export async function buildSearchResult(
   warnings: string[],
   stats?: SearchStats
 ): Promise<LocalSearchCodeToolResult> {
-  const sort: RankSort = (configuredQuery.sort as RankSort) ?? 'relevance';
+  // Structural (AST) matches are already precise — a `call_expression` match
+  // IS a call, with no comment/string noise for a relevance scorer to filter.
+  // Default them to deterministic source/path order (matching ast-grep), and
+  // reserve the language-aware relevance scorer for noisy text search. An
+  // explicit `sort` always wins for either engine.
+  const defaultSort: RankSort =
+    searchEngine === 'structural' ? 'path' : 'relevance';
+  const sort: RankSort = (configuredQuery.sort as RankSort) ?? defaultSort;
   // Ranking enriches ordering; it must never gate results. Any unexpected
   // failure degrades to the engine's original order so every matched file is
   // still returned to the tool.

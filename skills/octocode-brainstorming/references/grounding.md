@@ -10,7 +10,7 @@ Load when you need to justify or trace the method/tooling claims in `SKILL.md`. 
 
 ## Tooling (web engines)
 
-Flags and limits below reflect the live API contracts (verified 2026-06-22):
+Flags and limits below reflect the live API contracts (verified 2026-06-28):
 
-- Tavily `/search`: `search_depth`, `topic` (general/news/finance), `time_range`, `max_results` (0–20), `include_domains`/`exclude_domains`, `auto_parameters`, `start_date`/`end_date`. [Tavily API reference](https://docs.tavily.com/documentation/api-reference/endpoint/search)
+- Tavily `/search`: `search_depth` (`basic`/`advanced`/`fast`/`ultra-fast`), `topic` (general/news/finance), `time_range`, `max_results` (0–20), `include_domains`/`exclude_domains`, `auto_parameters`, `start_date`/`end_date`. [Tavily API reference](https://docs.tavily.com/documentation/api-reference/endpoint/search)
 - Serper `/search`: `q`, `gl`, `hl`, `num`, `page`, `tbs` (recency via `qdr:d|w|m|y`), `autocorrect`, `location`. [serper.dev](https://serper.dev/) · [Serper params (LiteLLM)](https://docs.litellm.ai/docs/search/serper)

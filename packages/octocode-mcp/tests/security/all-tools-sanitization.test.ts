@@ -464,15 +464,6 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
           },
         },
       ],
-      oql: {
-        results: [
-          {
-            kind: 'code',
-            path: '.env',
-            snippet: `AWS=${SECRETS.AWS_KEY}`,
-          },
-        ],
-      },
     },
   }),
 };
@@ -671,7 +662,7 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
   describe('Clean content preservation', () => {
     for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
-      it(`${toolName}: clean results pass through unmodified`, async () => {
+      it(`${toolName}: clean structured results compact duplicate text`, async () => {
         const { registerAndCall } = createProxyChain();
         const cleanResult: CallToolResult = {
           content: [
@@ -693,8 +684,9 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
         const result = await registerAndCall(toolName, handler);
 
         const text = (result.content[0] as { type: 'text'; text: string }).text;
-        expect(text).toContain('calculateTotal');
-        expect(text).toContain('items');
+        expect(text).toBe(
+          'structuredContent available. Read structuredContent for full data.'
+        );
 
         const sc = result.structuredContent as Record<string, unknown>;
         expect((sc.data as Record<string, unknown>).count).toBe(42);

@@ -18,7 +18,7 @@
 
 ## 3. Quality
 - [ ] `structuredContent.results[].data` contains the OQL envelope for raw MCP/CLI tool calls.
-- [ ] `structuredContent.oql` preserves the native OQL root for advanced parsers.
+- [ ] `structuredContent` does not duplicate the same envelope under a top-level `oql` mirror.
 - [ ] `search --query --json` remains the native OQL envelope, not a CallToolResult.
 
 ## 4. Agent Effectiveness

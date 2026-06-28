@@ -14,7 +14,7 @@ Which mode?
 4. Cancel.
 ```
 
-- `Rate-only` (rate, review, score, audit): stop after REPORT. MUST NOT edit files. End with a numbered next-action gate (apply fixes, show diff, cancel).
+- `Rate-only` (rate, review, score, audit): stop after REPORT; do not edit files. End with a numbered next-action gate (apply fixes, show diff, cancel).
 - `Improve` / `refactor` / `rewrite`: full flow including REWRITE and VALIDATE; gate before writing.
 - `Fix all` / `apply fixes`: skip MAP INTENT and RATE ISSUES if a prior rating exists; go straight to REWRITE → VALIDATE → REPORT.
 
@@ -30,7 +30,7 @@ Rate issues: run the lint, then check weak rules in critical sections, vague act
 
 Rewrite (skip in Rate-only): fix Critical+High first; keep `SKILL.md` lean (the lint targets ≤100 lines); move long examples/schemas/static refs into `references/` with explicit load conditions; keep `description` trigger-rich (see `description-tuning.md`) without keyword stuffing.
 
-Validate (skip in Rate-only): valid `name`+`description`; clear steps, gates, recovery, output UX; referenced files exist (or missing ones documented as risks); critical actions use MUST/NEVER/FORBIDDEN where needed; no write/install bypasses a user gate. Re-run `scripts/skill-lint.mjs` until ERRORs clear.
+Validate (skip in Rate-only): valid `name`+`description`; clear steps, gates, recovery, output UX; referenced files exist (or missing ones documented as risks); critical actions use strong modal language only where needed; no write/install bypasses a user gate. Re-run `scripts/skill-lint.mjs` until errors clear.
 
 ## Report
 

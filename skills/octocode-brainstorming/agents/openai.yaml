@@ -1,0 +1,4 @@
+interface:
+  display_name: "Octocode Brainstorming"
+  short_description: "Evidence-grounded idea validation and prior-art mapping."
+  default_prompt: "Use $octocode-brainstorming to validate this idea with local context, GitHub/packages, web evidence, perspective review, and a decision-ready brief."

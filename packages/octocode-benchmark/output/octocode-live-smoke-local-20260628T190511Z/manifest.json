@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "benchmarkName": "octocode-live-smoke-local",
+  "runId": "octocode-live-smoke-local-20260628T190511Z",
+  "createdAt": "2026-06-28T19:05:11.148Z",
+  "outputDir": "packages/octocode-benchmark/output/octocode-live-smoke-local-20260628T190511Z",
+  "gitCommit": "5ce00c5e",
+  "gitDirty": true,
+  "cliCommand": "node packages/octocode/out/octocode.js",
+  "skipNetwork": true
+}

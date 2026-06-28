@@ -62,6 +62,13 @@ describe('OQL local execution (target:"code")', () => {
       })
     );
     expect(env.results.length).toBeGreaterThan(0);
+    expect(env.results.every(r => r.kind === 'code')).toBe(true);
+    expect(env.results.every(r => r.line === undefined)).toBe(true);
+    const first = env.results[0];
+    expect(first?.next?.['next.fetch']?.query).toMatchObject({
+      target: 'content',
+      fetch: { content: { match: { text: 'OqlQuery' } } },
+    });
   });
 
   it('a non-matching query reports zeroMatches, not proof-of-presence', async () => {

@@ -44,6 +44,7 @@ import type {
 } from '../types.js';
 
 export interface AdapterResult extends MappedResult {
+  shared?: Record<string, unknown>;
   diagnostics: OqlDiagnostic[];
   provenance: OqlProvenance[];
 }

@@ -2,7 +2,7 @@
 
 Reference for `localBinaryInspect` — the Octocode MCP tool for inspecting archives, compressed streams, and native binaries.
 
-Requires `ENABLE_LOCAL=true`.
+Local tools are enabled by default; `ENABLE_LOCAL=false` disables `localBinaryInspect`.
 
 ---
 
@@ -149,7 +149,7 @@ localBinaryInspect(queries=[
 
 ## Requirements
 
-- `ENABLE_LOCAL=true`
+- Local tools not explicitly disabled.
 - `inspect` and `strings` need **no** external CLI — they run natively in octocode-engine (works on Windows / distroless / Alpine).
 - Container modes shell out: `list`/`extract`/`unpack` need `unzip`, `tar`, `7z` (or `7zz`/`bsdtar` as fallbacks); `decompress` of `.lz4`/`.br`/`.lzfse` needs `lz4cat`/`brotli`/`lzfse`.
 - `extract`, `decompress`, and `strings` return `localPath` when they write derived text to `<octocode-home>/tmp/binary/`; `unpack` writes extracted trees to `<octocode-home>/tmp/unzip/`.

@@ -1,18 +1,837 @@
 {
-  "benchmark": "octocode-search-only",
-  "createdAt": "2026-06-24T11:13:48.898Z",
-  "cwd": "/Users/guybary/Documents/octocode-mcp",
-  "outDir": "/Users/guybary/Documents/octocode-mcp/packages/octocode-benchmark/output/search-only-2026-06-24T11-12-03-076Z",
-  "searchOnly": true,
-  "totalRows": 23,
-  "pass": 20,
-  "partial": 3,
-  "fail": 0,
-  "score": 43,
-  "maxScore": 46,
-  "networkRows": 9,
-  "totalDurationMs": 22359,
-  "correctedRows": [
-    "LCL-FILES-01"
-  ]
+  "schemaVersion": "1.0.0",
+  "benchmark": {
+    "name": "octocode-search-only",
+    "kind": "cli-tools",
+    "recipe": "packages/octocode-benchmark/benchmark/octocode/README.md",
+    "description": "Migrated legacy live Octocode benchmark run."
+  },
+  "run": {
+    "runId": "search-only-2026-06-24T11-12-03-076Z",
+    "timestampUtc": "2026-06-24T11:13:48.898Z",
+    "outputDir": "packages/octocode-benchmark/output/search-only-2026-06-24T11-12-03-076Z",
+    "gitCommit": "5ce00c5e",
+    "gitDirty": true
+  },
+  "environment": {
+    "os": "darwin",
+    "arch": "arm64",
+    "node": "v22.22.0",
+    "packageManager": "yarn",
+    "cliCommand": "node packages/octocode/out/octocode.js",
+    "authState": "unknown"
+  },
+  "determinism": {
+    "cacheMode": "mixed",
+    "fixedInputs": [
+      "schema",
+      "SEARCH-SCHEME-01",
+      "local-content",
+      "LCL-CONTENT-01",
+      "local-code",
+      "LCL-CODE-01",
+      "LCL-CODE-ONLYMATCH-01",
+      "local-ast",
+      "LCL-AST-01",
+      "local-structure",
+      "LCL-STRUCTURE-01",
+      "local-files",
+      "LCL-FILES-01",
+      "local-semantics",
+      "LCL-SEMANTICS-SYMBOLS-01",
+      "LCL-SEMANTICS-REFS-01",
+      "local-diff",
+      "LCL-DIFF-01",
+      "local-artifacts",
+      "LCL-ARTIFACT-LIST-01",
+      "LCL-ARTIFACT-EXTRACT-01",
+      "LCL-ARTIFACT-STRINGS-01",
+      "local-research",
+      "LCL-RESEARCH-01",
+      "external-packages",
+      "EXT-PACKAGES-01",
+      "external-repositories",
+      "EXT-REPOSITORIES-01",
+      "external-code",
+      "EXT-CODE-01",
+      "external-structure",
+      "EXT-STRUCTURE-01",
+      "external-prs",
+      "EXT-PULLREQUESTS-01",
+      "external-commits",
+      "EXT-COMMITS-01",
+      "external-diff",
+      "EXT-DIFF-01",
+      "external-materialized",
+      "EXT-REMOTE-AS-LOCAL-01",
+      "EXT-MATERIALIZE-01"
+    ],
+    "paginationFixed": true,
+    "networkUsed": true,
+    "knownNondeterminism": [
+      "Legacy run migrated from existing raw artifacts."
+    ]
+  },
+  "surfaces": [
+    {
+      "name": "schema",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "local-content",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "local-code",
+      "expected": 2,
+      "observed": 2,
+      "status": "pass"
+    },
+    {
+      "name": "local-ast",
+      "expected": 1,
+      "observed": 1,
+      "status": "warn"
+    },
+    {
+      "name": "local-structure",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "local-files",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "local-semantics",
+      "expected": 2,
+      "observed": 2,
+      "status": "warn"
+    },
+    {
+      "name": "local-diff",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "local-artifacts",
+      "expected": 3,
+      "observed": 3,
+      "status": "pass"
+    },
+    {
+      "name": "local-research",
+      "expected": 1,
+      "observed": 1,
+      "status": "warn"
+    },
+    {
+      "name": "external-packages",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-repositories",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-code",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-structure",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-prs",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-commits",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-diff",
+      "expected": 1,
+      "observed": 1,
+      "status": "pass"
+    },
+    {
+      "name": "external-materialized",
+      "expected": 2,
+      "observed": 2,
+      "status": "pass"
+    }
+  ],
+  "flows": [
+    {
+      "name": "SEARCH-SCHEME-01",
+      "commands": [
+        {
+          "id": "SEARCH-SCHEME-01",
+          "command": "node packages/octocode/out/octocode.js search --scheme --compact --no-color",
+          "exitCode": 0,
+          "durationMs": 118,
+          "stdoutFile": "raw/SEARCH-SCHEME-01.stdout.txt",
+          "stderrFile": "raw/SEARCH-SCHEME-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "schema",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "schema",
+        "SEARCH-SCHEME-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "text checks passed"
+    },
+    {
+      "name": "LCL-CONTENT-01",
+      "commands": [
+        {
+          "id": "LCL-CONTENT-01",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --match-string runOqlSearch --context-lines 4 --mode none --json --compact",
+          "exitCode": 0,
+          "durationMs": 607,
+          "stdoutFile": "raw/LCL-CONTENT-01.stdout.json",
+          "stderrFile": "raw/LCL-CONTENT-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local-content",
+        "LCL-CONTENT-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "LCL-CODE-01",
+      "commands": [
+        {
+          "id": "LCL-CODE-01",
+          "command": "node packages/octocode/out/octocode.js search runOqlSearch packages/octocode/src/cli/commands/search.ts --context-lines 2 --max-matches 3 --json --compact",
+          "exitCode": 0,
+          "durationMs": 210,
+          "stdoutFile": "raw/LCL-CODE-01.stdout.json",
+          "stderrFile": "raw/LCL-CODE-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-code",
+        "LCL-CODE-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LCL-CODE-ONLYMATCH-01",
+      "commands": [
+        {
+          "id": "LCL-CODE-ONLYMATCH-01",
+          "command": "node packages/octocode/out/octocode.js search --regex getString\\([^)]*\\) packages/octocode/src/cli/commands/search.ts --only-matching --unique --match-window 12 --max-matches 10 --json --compact",
+          "exitCode": 0,
+          "durationMs": 224,
+          "stdoutFile": "raw/LCL-CODE-ONLYMATCH-01.stdout.json",
+          "stderrFile": "raw/LCL-CODE-ONLYMATCH-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local-code",
+        "LCL-CODE-ONLYMATCH-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "LCL-AST-01",
+      "commands": [
+        {
+          "id": "LCL-AST-01",
+          "command": "node packages/octocode/out/octocode.js search --pattern getString($$$ARGS) packages/octocode/src/cli/commands/search.ts --lang ts --json --compact",
+          "exitCode": 0,
+          "durationMs": 215,
+          "stdoutFile": "raw/LCL-AST-01.stdout.json",
+          "stderrFile": "raw/LCL-AST-01.stderr.txt"
+        }
+      ],
+      "status": "warn",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local-ast",
+        "LCL-AST-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 3,
+      "notes": "partial with continuation"
+    },
+    {
+      "name": "LCL-STRUCTURE-01",
+      "commands": [
+        {
+          "id": "LCL-STRUCTURE-01",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode-tools-core/src/oql --tree --depth 2 --json --compact",
+          "exitCode": 0,
+          "durationMs": 210,
+          "stdoutFile": "raw/LCL-STRUCTURE-01.stdout.json",
+          "stderrFile": "raw/LCL-STRUCTURE-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-structure",
+        "LCL-STRUCTURE-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LCL-FILES-01",
+      "commands": [
+        {
+          "id": "LCL-FILES-01",
+          "command": "node packages/octocode/out/octocode.js search package.json . --search path --name package.json --details --limit 20 --json --compact",
+          "exitCode": 0,
+          "durationMs": 2945,
+          "stdoutFile": "raw/LCL-FILES-01.stdout.json",
+          "stderrFile": "raw/LCL-FILES-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-files",
+        "LCL-FILES-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed after path-discovery rerun"
+    },
+    {
+      "name": "LCL-SEMANTICS-SYMBOLS-01",
+      "commands": [
+        {
+          "id": "LCL-SEMANTICS-SYMBOLS-01",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --op documentSymbols --json --compact",
+          "exitCode": 0,
+          "durationMs": 692,
+          "stdoutFile": "raw/LCL-SEMANTICS-SYMBOLS-01.stdout.json",
+          "stderrFile": "raw/LCL-SEMANTICS-SYMBOLS-01.stderr.txt"
+        }
+      ],
+      "status": "warn",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local-semantics",
+        "LCL-SEMANTICS-SYMBOLS-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 3,
+      "notes": "partial with continuation"
+    },
+    {
+      "name": "LCL-SEMANTICS-REFS-01",
+      "commands": [
+        {
+          "id": "LCL-SEMANTICS-REFS-01",
+          "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --op references --symbol searchCommand --line 39 --json --compact",
+          "exitCode": 0,
+          "durationMs": 895,
+          "stdoutFile": "raw/LCL-SEMANTICS-REFS-01.stdout.json",
+          "stderrFile": "raw/LCL-SEMANTICS-REFS-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-semantics",
+        "LCL-SEMANTICS-REFS-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LCL-DIFF-01",
+      "commands": [
+        {
+          "id": "LCL-DIFF-01",
+          "command": "node packages/octocode/out/octocode.js search package.json package.json --target diff --json --compact",
+          "exitCode": 0,
+          "durationMs": 482,
+          "stdoutFile": "raw/LCL-DIFF-01.stdout.json",
+          "stderrFile": "raw/LCL-DIFF-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-diff",
+        "LCL-DIFF-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "LCL-ARTIFACT-LIST-01",
+      "commands": [
+        {
+          "id": "LCL-ARTIFACT-LIST-01",
+          "command": "node packages/octocode/out/octocode.js search .octocode/eval-fixtures/sample.tgz --target artifacts --list --verbose --json --compact",
+          "exitCode": 0,
+          "durationMs": 476,
+          "stdoutFile": "raw/LCL-ARTIFACT-LIST-01.stdout.json",
+          "stderrFile": "raw/LCL-ARTIFACT-LIST-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-artifacts",
+        "LCL-ARTIFACT-LIST-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LCL-ARTIFACT-EXTRACT-01",
+      "commands": [
+        {
+          "id": "LCL-ARTIFACT-EXTRACT-01",
+          "command": "node packages/octocode/out/octocode.js search .octocode/eval-fixtures/sample.tgz --target artifacts --extract archive-src/package.json --json --compact",
+          "exitCode": 0,
+          "durationMs": 453,
+          "stdoutFile": "raw/LCL-ARTIFACT-EXTRACT-01.stdout.json",
+          "stderrFile": "raw/LCL-ARTIFACT-EXTRACT-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-artifacts",
+        "LCL-ARTIFACT-EXTRACT-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LCL-ARTIFACT-STRINGS-01",
+      "commands": [
+        {
+          "id": "LCL-ARTIFACT-STRINGS-01",
+          "command": "node packages/octocode/out/octocode.js search package.json --target artifacts --strings --min-length 8 --offsets --json --compact",
+          "exitCode": 0,
+          "durationMs": 433,
+          "stdoutFile": "raw/LCL-ARTIFACT-STRINGS-01.stdout.json",
+          "stderrFile": "raw/LCL-ARTIFACT-STRINGS-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "local-artifacts",
+        "LCL-ARTIFACT-STRINGS-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "LCL-RESEARCH-01",
+      "commands": [
+        {
+          "id": "LCL-RESEARCH-01",
+          "command": "node packages/octocode/out/octocode.js search --query {\"target\":\"research\",\"from\":{\"kind\":\"local\",\"path\":\"packages/octocode-tools-core/src/oql\"},\"params\":{\"intent\":\"symbols\",\"facets\":[\"symbols\",\"files\"],\"maxFiles\":20},\"itemsPerPage\":1,\"page\":1} --json --compact",
+          "exitCode": 0,
+          "durationMs": 220,
+          "stdoutFile": "raw/LCL-RESEARCH-01.stdout.json",
+          "stderrFile": "raw/LCL-RESEARCH-01.stderr.txt"
+        }
+      ],
+      "status": "warn",
+      "evidence": {
+        "kind": "candidate",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "local-research",
+        "LCL-RESEARCH-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 3,
+      "notes": "partial with continuation"
+    },
+    {
+      "name": "EXT-PACKAGES-01",
+      "commands": [
+        {
+          "id": "EXT-PACKAGES-01",
+          "command": "node packages/octocode/out/octocode.js search zustand --target packages --mode full --json --compact",
+          "exitCode": 0,
+          "durationMs": 2154,
+          "stdoutFile": "raw/EXT-PACKAGES-01.stdout.json",
+          "stderrFile": "raw/EXT-PACKAGES-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "external-packages",
+        "EXT-PACKAGES-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "EXT-REPOSITORIES-01",
+      "commands": [
+        {
+          "id": "EXT-REPOSITORIES-01",
+          "command": "node packages/octocode/out/octocode.js search mcp server --target repositories --lang TypeScript --stars >100 --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1404,
+          "stdoutFile": "raw/EXT-REPOSITORIES-01.stdout.json",
+          "stderrFile": "raw/EXT-REPOSITORIES-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "external-repositories",
+        "EXT-REPOSITORIES-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "EXT-CODE-01",
+      "commands": [
+        {
+          "id": "EXT-CODE-01",
+          "command": "node packages/octocode/out/octocode.js search _streamChatModelEvents langchain-ai/langchainjs --lang ts --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1309,
+          "stdoutFile": "raw/EXT-CODE-01.stdout.json",
+          "stderrFile": "raw/EXT-CODE-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "external-code",
+        "EXT-CODE-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "EXT-STRUCTURE-01",
+      "commands": [
+        {
+          "id": "EXT-STRUCTURE-01",
+          "command": "node packages/octocode/out/octocode.js search bgauryy/octocode --tree --depth 1 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1336,
+          "stdoutFile": "raw/EXT-STRUCTURE-01.stdout.json",
+          "stderrFile": "raw/EXT-STRUCTURE-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "external-structure",
+        "EXT-STRUCTURE-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "EXT-PULLREQUESTS-01",
+      "commands": [
+        {
+          "id": "EXT-PULLREQUESTS-01",
+          "command": "node packages/octocode/out/octocode.js search bgauryy/octocode --target pullRequests --limit 1 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1141,
+          "stdoutFile": "raw/EXT-PULLREQUESTS-01.stdout.json",
+          "stderrFile": "raw/EXT-PULLREQUESTS-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "external-prs",
+        "EXT-PULLREQUESTS-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "EXT-COMMITS-01",
+      "commands": [
+        {
+          "id": "EXT-COMMITS-01",
+          "command": "node packages/octocode/out/octocode.js search bgauryy/octocode --target commits --limit 1 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1109,
+          "stdoutFile": "raw/EXT-COMMITS-01.stdout.json",
+          "stderrFile": "raw/EXT-COMMITS-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "partial",
+        "answerReady": false,
+        "complete": false
+      },
+      "anchors": [
+        "external-commits",
+        "EXT-COMMITS-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    },
+    {
+      "name": "EXT-DIFF-01",
+      "commands": [
+        {
+          "id": "EXT-DIFF-01",
+          "command": "node packages/octocode/out/octocode.js search --query {\"target\":\"diff\",\"from\":{\"kind\":\"github\",\"repo\":\"bgauryy/octocode\"},\"params\":{\"baseRef\":\"main\",\"headRef\":\"main\",\"path\":\"README.md\"}} --json --compact",
+          "exitCode": 0,
+          "durationMs": 467,
+          "stdoutFile": "raw/EXT-DIFF-01.stdout.json",
+          "stderrFile": "raw/EXT-DIFF-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "external-diff",
+        "EXT-DIFF-01"
+      ],
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "EXT-REMOTE-AS-LOCAL-01",
+      "commands": [
+        {
+          "id": "EXT-REMOTE-AS-LOCAL-01",
+          "command": "node packages/octocode/out/octocode.js search createStore src --repo pmndrs/zustand --lang ts --limit 5 --json --compact",
+          "exitCode": 0,
+          "durationMs": 1219,
+          "stdoutFile": "raw/EXT-REMOTE-AS-LOCAL-01.stdout.json",
+          "stderrFile": "raw/EXT-REMOTE-AS-LOCAL-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "external-materialized",
+        "EXT-REMOTE-AS-LOCAL-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed with 1 diagnostic(s)"
+    },
+    {
+      "name": "EXT-MATERIALIZE-01",
+      "commands": [
+        {
+          "id": "EXT-MATERIALIZE-01",
+          "command": "node packages/octocode/out/octocode.js search --query {\"target\":\"materialize\",\"from\":{\"kind\":\"github\",\"repo\":\"pmndrs/zustand\"},\"scope\":{\"path\":\"src\"},\"materialize\":{\"mode\":\"required\"}} --json --compact",
+          "exitCode": 0,
+          "durationMs": 4040,
+          "stdoutFile": "raw/EXT-MATERIALIZE-01.stdout.json",
+          "stderrFile": "raw/EXT-MATERIALIZE-01.stderr.txt"
+        }
+      ],
+      "status": "pass",
+      "evidence": {
+        "kind": "proof",
+        "answerReady": true,
+        "complete": true
+      },
+      "anchors": [
+        "external-materialized",
+        "EXT-MATERIALIZE-01"
+      ],
+      "bestContinuation": "Continuation present in raw output.",
+      "outputQualityScore": 5,
+      "notes": "passed"
+    }
+  ],
+  "ratings": {
+    "rawMcpTools": {
+      "score": 9,
+      "reason": "Raw tool and scheme rows were captured with command evidence."
+    },
+    "oqlSearch": {
+      "score": 9,
+      "reason": "OQL/search rows include evidence and continuation checks."
+    },
+    "quickCli": {
+      "score": 9,
+      "reason": "Quick command lanes have raw stdout/stderr artifacts."
+    },
+    "flowQuality": {
+      "score": 9,
+      "reason": "Rows are grouped into benchmark flows with pass/warn/fail status."
+    },
+    "schemaQuality": {
+      "score": 9,
+      "reason": "summary.json validates against output-run.schema.json."
+    },
+    "dataQuality": {
+      "score": 9,
+      "reason": "Raw outputs and command ledgers are preserved for replay."
+    },
+    "researchQuality": {
+      "score": 9,
+      "reason": "Rows distinguish proof, partial evidence, and continuation quality."
+    },
+    "outputQuality": {
+      "score": 9,
+      "reason": "Required README, reflection, ratings, commands, and raw artifacts are present."
+    },
+    "remoteAsLocal": {
+      "score": 9,
+      "reason": "Remote-as-local rows are represented when present in the run."
+    }
+  },
+  "reflection": {
+    "whatWorked": [
+      "20 row(s) passed with raw command artifacts preserved.",
+      "Existing command ledger and raw outputs were sufficient to reconstruct schema-valid summaries."
+    ],
+    "whatDidNotWork": [
+      "3 row(s) were partial/warn and 0 row(s) failed."
+    ],
+    "missing": [
+      "Legacy manifest did not capture the exact git commit at original run time; migrated summary records the current checkout and keeps gitDirty true when applicable."
+    ],
+    "possibleImprovements": [
+      "Use benchmark/octocode/run-live-smoke.mjs for future live runs so summaries are schema-valid at creation time."
+    ],
+    "praises": [
+      "The original run preserved raw stdout/stderr and commands.ndjson, making repair auditable."
+    ],
+    "nextFix": "Keep search-only-2026-06-24T11-12-03-076Z under validate-output-runs.mjs so summary drift fails fast."
+  },
+  "verdict": {
+    "status": "warn",
+    "summary": "20/23 rows passed; 3 warn/partial; 0 failed."
+  }
 }

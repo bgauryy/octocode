@@ -14,7 +14,7 @@ Exit `1` if any ERROR is found; WARN is advisory. Always run it before reporting
 
 ## What it enforces
 
-ERROR — must fix:
+ERROR — fix:
 
 - `frontmatter` — `SKILL.md` has a `---` block with both `name` and `description` (non-empty).
 - `missing-reference` — every `references/<file>.md` linked in `SKILL.md` actually exists.
@@ -32,15 +32,15 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 - `duplicate-content` — the same sentence (≥ 12 words) appears in two or more skill files. Cross-file duplication inflates context and creates drift when one copy is updated. Consolidate into the canonical file and cross-link.
 - `frontmatter-metadata` — frontmatter holds only keys the agent or installer needs (`name`, `description`, `allowed-tools`, `license`). Agents read just `name`+`description` at discovery, so authoring/repo keys (`version`, `author`, `tags`, `created`/`updated`, `category`, …) are dead weight in the activation context. Drop them or track them in the repo, not in `SKILL.md`.
 - `metadata-section` — a body heading is authoring/repo metadata rather than a task instruction (`## Changelog`, `## Version History`, `## Author(s)`, `## Credits`, `## License`, `## Metadata`, `## Table of Contents`, `## TODO`, `## Maintainers`, …). The agent never acts on these; they only spend tokens. Keep changelogs, credits, and version notes in the repo README, not the skill.
-- `rigid` — density of imperative modals (`MUST`/`NEVER`/`ALWAYS`/`FORBIDDEN`/`REQUIRED`) exceeds 12% of content lines. Rigid prompts break on legitimate edge cases. Prefer defaults with escape hatches; reserve these keywords for genuinely fragile, destructive, or order-dependent steps.
-- `verbose` — filler phrases detected (`in order to`, `please note`, `make sure to`, `it is important`, etc.). These consume tokens without adding information. Cut or rewrite concisely.
+- `rigid` — density of imperative modals exceeds 12% of content lines. Rigid prompts break on legitimate edge cases. Prefer defaults with escape hatches; reserve strict modal keywords for genuinely fragile, destructive, or order-dependent steps.
+- `verbose` — filler phrases detected. They consume tokens without adding information; rewrite concisely.
 - `tautology` — two adjacent narrative sentences share > 75% significant-token overlap. One is likely restating the other. Remove the weaker restatement. (Blockquotes and list items are exempt: parallel enumerated/quoted items — e.g. an Advocate line mirrored by a Critic line — are intentionally similar, not redundant.)
-- `contradiction` — the same verb appears after both `MUST`/`ALWAYS` and `NEVER`/`MUST NOT`/`do not` in the same file. Conflicting instructions cause unpredictable agent behavior. Resolve to a single clear rule.
+- `contradiction` — the same verb appears after both strict positive and strict negative phrasing in the same file. Conflicting instructions cause unpredictable agent behavior. Resolve to a single clear rule.
 
 ## Prompt rules the lint backs
 
 - Lean over complete: every token in `SKILL.md` competes with conversation context. Cut anything the agent already does well without the skill.
-- Not rigid, not verbose: prefer defaults with escape hatches over exhaustive menus; reserve MUST/NEVER for fragile, destructive, or order-dependent steps.
+- Not rigid, not verbose: prefer defaults with escape hatches over exhaustive menus; reserve strict modal language for fragile, destructive, or order-dependent steps.
 - No duplication: each fact lives in one place. Cross-link instead of repeating.
 - No redundant data for agents: ship only what the agent reads to do the task. Authoring/repo metadata (extra frontmatter keys, changelogs, author/license/version sections) belongs in the repo, not in `SKILL.md` or `references/` where it burns activation tokens.
 - Smart routing: `references/` files may link other `references/` files so an agent loads only the next file it needs — the lint counts these cross-links. Keep each reference single-purpose with a short indicative name.

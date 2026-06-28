@@ -92,7 +92,21 @@ type PackageData = {
   downloads?: number;
   repository?: string;
   repositoryDirectory?: string;
+  repositoryId?: string;
   next?: Record<string, unknown>;
+};
+
+type PackageRepositoryData = {
+  repository: string;
+  owner: string;
+  repo: string;
+  repositoryDirectory?: string;
+  next: Record<string, unknown>;
+};
+
+type CompactPackageData = {
+  packages: PackageData[];
+  repositories?: Record<string, PackageRepositoryData>;
 };
 
 function buildNext(
@@ -146,6 +160,51 @@ function formatPackageData(pkg: PackageResult): PackageData {
   const next = buildNext(url, root);
   if (next) data.next = next;
   return data;
+}
+
+export function compactPackageRepositories(
+  packages: PackageData[]
+): CompactPackageData {
+  if (packages.length <= 1) return { packages };
+
+  const repositories: Record<string, PackageRepositoryData> = {};
+  const idsByKey = new Map<string, string>();
+  let nextId = 1;
+
+  const compacted = packages.map(pkg => {
+    if (!pkg.repository) return pkg;
+    const gh = resolveGitHubOwnerRepo(pkg.repository);
+    if (!gh) return pkg;
+
+    const key = `${pkg.repository}\0${pkg.repositoryDirectory ?? ''}`;
+    let id = idsByKey.get(key);
+    if (!id) {
+      id = `r${nextId++}`;
+      idsByKey.set(key, id);
+      repositories[id] = {
+        repository: pkg.repository,
+        owner: gh.owner,
+        repo: gh.repo,
+        ...(pkg.repositoryDirectory
+          ? { repositoryDirectory: pkg.repositoryDirectory }
+          : {}),
+        next: buildNext(pkg.repository, pkg.repositoryDirectory)!,
+      };
+    }
+
+    const { repository, repositoryDirectory, next, ...rest } = pkg;
+    void repository;
+    void repositoryDirectory;
+    void next;
+    return {
+      ...rest,
+      repositoryId: id,
+    };
+  });
+
+  return Object.keys(repositories).length
+    ? { packages: compacted, repositories }
+    : { packages };
 }
 
 type PackagePagination = {
@@ -236,8 +295,9 @@ export async function searchPackages(
           isKeyword
         );
 
+        const compacted = compactPackageRepositories(packages);
         const data = {
-          packages,
+          ...compacted,
           pagination,
         };
 

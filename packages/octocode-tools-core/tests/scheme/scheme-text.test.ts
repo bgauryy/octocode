@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   oqlSchemaText,
   oqlCompactSchemeText,
+  oqlCompactSchemeJson,
 } from '../../src/oql/schemeText.js';
+import { ACTIVE_TARGETS } from '../../src/oql/types.js';
 
 describe('oqlSchemaText (full --scheme)', () => {
   it('retains the advanced research surface', () => {
@@ -28,6 +30,9 @@ describe('oqlCompactSchemeText (--scheme --compact)', () => {
     expect(compact).toContain('SOURCE');
     expect(compact).toContain('TARGET');
     expect(compact).toContain('COMMON RECIPES');
+    for (const target of ACTIVE_TARGETS) {
+      expect(compact).toContain(target);
+    }
   });
 
   it('surfaces the npm and remote-file-read recipes (Haiku gaps)', () => {
@@ -49,5 +54,14 @@ describe('oqlCompactSchemeText (--scheme --compact)', () => {
     const compactLines = compact.split('\n').length;
     const fullLines = oqlSchemaText().split('\n').length;
     expect(compactLines).toBeLessThan(fullLines / 2);
+  });
+
+  it('has a compact machine-readable form', () => {
+    const parsed = JSON.parse(oqlCompactSchemeJson()) as {
+      kind: string;
+      targets: Array<{ target: string }>;
+    };
+    expect(parsed.kind).toBe('octocode.search.compactScheme');
+    expect(parsed.targets.map(entry => entry.target)).toContain('graph');
   });
 });

@@ -1,0 +1,46 @@
+{
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event UserPromptSubmit || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event Stop || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "SubagentStop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event SubagentStop || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${CLAUDE_SKILL_DIR}\"; [ -n \"$d\" ] || d=\"${CLAUDE_PROJECT_DIR}/skills/octocode-brainstorming\"; s=\"$d/scripts/brainstorm-run.mjs\"; [ -f \"$s\" ] && exec node \"$s\" hook --event SessionEnd || exit 0'",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}

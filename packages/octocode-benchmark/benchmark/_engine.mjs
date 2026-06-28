@@ -25,6 +25,9 @@ export function pad(value, width) {
  */
 export function loadManifestSamples(areaDir, sampleDir = join(benchmarkRoot, 'samples')) {
   const manifest = JSON.parse(readFileSync(join(areaDir, 'manifest.json'), 'utf8'))
+  if (!Array.isArray(manifest.samples)) {
+    throw new Error(`${join(areaDir, 'manifest.json')}: "samples" must be an array`)
+  }
   const byExt = new Map(manifest.samples.map((s) => [s.ext, s]))
 
   // Resolve + integrity-check the sample for `ext`; pushes a precise issue (and

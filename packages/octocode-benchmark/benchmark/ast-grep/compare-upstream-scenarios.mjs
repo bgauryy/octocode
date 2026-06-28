@@ -588,16 +588,27 @@ async function runLocalSearchTool(corpusDir, testCase, options) {
 function parseOctocodeJson(output) {
   const parsed = JSON.parse(output)
   if (parsed?.success === false) throw new Error(parsed.error || 'octocode CLI returned success:false')
-  const data = parsed?.results?.[0]?.data ?? parsed?.data ?? parsed
-  const files = data?.files ?? parsed?.files ?? []
-  const pagination = data?.pagination ?? parsed?.pagination ?? {}
+  const sc = parsed?.structuredContent ?? parsed
+  const results = Array.isArray(sc?.results) ? sc.results : []
+
+  // OQL CLI shape: `results` is a FLAT array of code-match rows
+  // ({ kind:'code', path, line, ... }) — one row per match. Count the rows and
+  // their distinct files.
+  const codeRows = results.filter(
+    r => r?.kind === 'code' || (r?.path && typeof r?.line === 'number'),
+  )
+  if (codeRows.length > 0) {
+    return { matches: codeRows.length, files: new Set(codeRows.map(r => r.path)).size }
+  }
+
+  // Legacy grouped shape: results[0].data.files[].matches.
+  const data = sc?.results?.[0]?.data ?? sc?.data ?? sc
+  const files = data?.files ?? sc?.files ?? []
+  const pagination = data?.pagination ?? sc?.pagination ?? {}
   const totalMatches =
     pagination.totalMatches ??
     files.reduce((sum, file) => sum + (file.matchCount ?? file.matches?.length ?? 0), 0)
-  return {
-    matches: totalMatches,
-    files: pagination.totalFiles ?? files.length,
-  }
+  return { matches: totalMatches, files: pagination.totalFiles ?? files.length }
 }
 
 function runOctocodeOnce(octocode, corpusDir, testCase) {
@@ -611,12 +622,14 @@ function runOctocodeOnce(octocode, corpusDir, testCase) {
     '--lang',
     testCase.octocodeType,
     '--json',
+    // High caps so no scenario is truncated (the largest corpus tops 8k
+    // matches); the comparison must count EVERY match to match ast-grep.
     '--limit',
-    '5000',
-    '--page-size',
-    '5000',
+    '200000',
+    '--items-per-page',
+    '200000',
     '--max-matches',
-    '5000',
+    '200000',
   ])
   if (result.error) throw result.error
   if (result.status !== 0) {

@@ -49,7 +49,22 @@ export const NpmSearchOutputLocalSchema = z
                       downloads: z.number().optional(),
                       repository: z.string().optional(),
                       repositoryDirectory: z.string().optional(),
+                      repositoryId: z.string().optional(),
                       next: z.record(z.string(), z.unknown()).optional(),
+                    })
+                    .passthrough()
+                )
+                .optional(),
+              repositories: z
+                .record(
+                  z.string(),
+                  z
+                    .object({
+                      repository: z.string(),
+                      owner: z.string(),
+                      repo: z.string(),
+                      repositoryDirectory: z.string().optional(),
+                      next: z.record(z.string(), z.unknown()),
                     })
                     .passthrough()
                 )

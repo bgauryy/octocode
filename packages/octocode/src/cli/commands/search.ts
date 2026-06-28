@@ -16,7 +16,10 @@ import {
   runOqlSearch,
   oqlSchemaText,
   oqlCompactSchemeText,
+  oqlCompactSchemeJson,
+  sanitizeStructuredContent,
   buildShorthandInput,
+  type OqlContinuation,
   type OqlResultEnvelope,
   type OqlRunResult,
   isBatchEnvelope,
@@ -228,13 +231,15 @@ export const searchCommand: CLICommand = {
     normalizeTargetAlias(options);
 
     // --scheme: print the OQL schema and exit. --scheme --compact prints the
-    // lean agent guide (TEXT); --json forces the JSON schema and wins over
-    // --compact (keeps `--scheme --json --compact` machine-readable).
+    // lean agent guide (TEXT); --scheme --json --compact prints the same guide
+    // as small machine-readable JSON. Plain --scheme --json remains full.
     if (getBool(options, 'scheme')) {
       const schemeText =
-        getBool(options, 'compact') && !getBool(options, 'json')
-          ? oqlCompactSchemeText()
-          : oqlSchemaText();
+        getBool(options, 'json') && getBool(options, 'compact')
+          ? oqlCompactSchemeJson()
+          : getBool(options, 'compact')
+            ? oqlCompactSchemeText()
+            : oqlSchemaText();
       process.stdout.write(`${schemeText}\n`);
       return;
     }
@@ -280,6 +285,12 @@ export const searchCommand: CLICommand = {
       process.exitCode = EXIT.TOOL;
       return;
     }
+
+    // Redact secrets before ANY output path (json / raw / rendered). OQL
+    // adapters return raw rows and rely on the interface layer to sanitize; the
+    // MCP path does this via sanitizeCallToolResult, so the CLI must too — else
+    // code snippets can leak tokens/keys to stdout.
+    result = sanitizeStructuredContent(result) as OqlRunResult;
 
     if (getBool(options, 'json')) {
       // --compact emits single-line minified JSON (stream/parse friendly);
@@ -375,7 +386,7 @@ function resolveInput(args: ParsedArgs): Resolved {
   const jsonText = readJsonText(args);
   if (jsonText && 'text' in jsonText) {
     try {
-      return { input: JSON.parse(jsonText.text) };
+      return { input: parseOqlQueryJson(jsonText.text) };
     } catch (err) {
       return {
         error: `Could not parse OQL query JSON: ${(err as Error).message}`,
@@ -386,6 +397,11 @@ function resolveInput(args: ParsedArgs): Resolved {
 
   // 2. Shorthand sugar -> the sugar object the core normalizer accepts.
   return buildSugar(args);
+}
+
+function parseOqlQueryJson(text: string): unknown {
+  const parsed = JSON.parse(text) as unknown;
+  return Array.isArray(parsed) ? { schema: 'oql', queries: parsed } : parsed;
 }
 
 function readJsonText(
@@ -413,7 +429,7 @@ function readJsonText(
   }
   // bare positional JSON, e.g. `search '{...}'`
   const first = args.args[0];
-  if (first && first.trim().startsWith('{')) return { text: first };
+  if (first && looksLikeJsonText(first)) return { text: first };
   return undefined;
 }
 
@@ -1053,6 +1069,14 @@ function isSinglePositionalTarget(
   }
   if (!target && !hasTargetIntent(args.options)) return false;
   if (target === 'packages' || target === 'repositories') return false;
+  // A file-like positional with content intent (e.g. --content-view, line
+  // range, --match-string) is the read TARGET even if it doesn't exist yet —
+  // otherwise it falls through to a text search with no corpus and resolves to
+  // cwd ".", yielding a misleading "Path is a directory" instead of a clean
+  // "File not found".
+  if (hasContentIntent(args.options) && looksLikeFilePath(first ?? '')) {
+    return true;
+  }
   return isCorpusLike(first) || target === 'content' || target === 'structure';
 }
 
@@ -1524,35 +1548,109 @@ function renderEnvelope(env: OqlResultEnvelope, compact: boolean): string {
     )
   );
 
-  // Surface next.* continuations so humans can follow the research/graph
-  // workflow without switching to --json. Each key prints its name and a
-  // truncated --query flag value ready to copy-paste into the terminal.
-  if (env.next && Object.keys(env.next).length > 0) {
-    lines.push('');
-    for (const [rawKey, cont] of Object.entries(env.next)) {
-      // Stored keys are already prefixed ("next.page", "next.graph"); strip it
-      // so the label map matches and we don't print a doubled "next.next.".
-      const key = rawKey.startsWith('next.')
-        ? rawKey.slice('next.'.length)
-        : rawKey;
-      const label =
-        key === 'graph'
-          ? 'upgrade to LSP proof'
-          : key === 'page'
-            ? 'next page'
-            : key === 'charRange'
-              ? 'next char window'
-              : key;
-      lines.push(dim(`  next.${key}`) + `  ${dim(label)}`);
-      if (!compact && cont.query) {
-        const q = JSON.stringify(cont.query);
-        const truncated = q.length > 220 ? q.slice(0, 220) + '…' : q;
-        lines.push(dim(`    --query '${truncated}'`));
-      }
-    }
+  const continuationLines = renderContinuationLines(env, compact);
+  if (continuationLines.length > 0) {
+    lines.push('', ...continuationLines);
   }
 
   return lines.join('\n');
+}
+
+type RenderableContinuation = {
+  rawKey: string;
+  key: string;
+  label: string;
+  continuation: OqlContinuation;
+  origin?: string;
+  hint?: string;
+};
+
+function renderContinuationLines(
+  env: OqlResultEnvelope,
+  compact: boolean
+): string[] {
+  const entries = collectRenderableContinuations(env);
+  if (entries.length === 0) return [];
+
+  const lines: string[] = [];
+  for (const entry of entries) {
+    const origin = entry.origin ? ` (${entry.origin})` : '';
+    lines.push(
+      dim(`  next.${entry.key}`) + `  ${dim(`${entry.label}${origin}`)}`
+    );
+    if (!compact && entry.hint) {
+      lines.push(dim(`    ${entry.hint}`));
+    }
+    const command = continuationCommand(entry.continuation);
+    if (command) {
+      lines.push(dim(`    ${command}`));
+    }
+  }
+  return lines;
+}
+
+function collectRenderableContinuations(
+  env: OqlResultEnvelope
+): RenderableContinuation[] {
+  const entries: RenderableContinuation[] = [];
+
+  for (const [rawKey, continuation] of Object.entries(env.next ?? {})) {
+    const key = normalizeNextKey(rawKey);
+    entries.push({
+      rawKey,
+      key,
+      continuation,
+      label: continuationLabel(key),
+      hint: continuation.why ?? env.nextHints?.[rawKey]?.why,
+    });
+  }
+
+  for (const row of env.results) {
+    if (row.kind !== 'record') continue;
+    if (row.recordType !== 'research' && row.recordType !== 'graph') continue;
+    const next = row.next?.['next.graph'];
+    if (!next) continue;
+    entries.push({
+      rawKey: 'next.graph',
+      key: 'graph',
+      continuation: next,
+      label: continuationLabel('graph'),
+      origin: row.id ?? row.recordType,
+      hint: env.nextHints?.['next.graph']?.why,
+    });
+  }
+
+  return entries;
+}
+
+function normalizeNextKey(rawKey: string): string {
+  return rawKey.startsWith('next.') ? rawKey.slice('next.'.length) : rawKey;
+}
+
+function continuationLabel(key: string): string {
+  switch (key) {
+    case 'graph':
+      return 'upgrade to LSP proof';
+    case 'page':
+      return 'next page';
+    case 'materialize':
+      return 'materialize for local proof';
+    case 'charRange':
+      return 'next char window';
+    default:
+      return key;
+  }
+}
+
+function continuationCommand(
+  continuation: OqlContinuation
+): string | undefined {
+  if (!continuation.query) return undefined;
+  return `search --query ${shellQuote(JSON.stringify(continuation.query))}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function renderRow(row: OqlResultEnvelope['results'][number]): string {
@@ -1632,6 +1730,7 @@ function renderRecord(row: {
       detail = renderSemanticsRecord(d);
       break;
     case 'research':
+    case 'graph':
       detail = renderResearchRecord(d);
       break;
   }
@@ -1757,6 +1856,7 @@ function renderResearchRecord(d: Record<string, unknown>): string {
     typeof summary[key] === 'number' ? String(summary[key]) : undefined;
   const parts = [
     typeof d.intent === 'string' ? `intent=${d.intent}` : undefined,
+    renderPacketSummary(d),
     n('sourceFiles') && `files=${n('sourceFiles')}`,
     n('unusedFiles') && `unusedFiles=${n('unusedFiles')}`,
     n('exportedSymbols') && `symbols=${n('exportedSymbols')}`,
@@ -1769,6 +1869,21 @@ function renderResearchRecord(d: Record<string, unknown>): string {
     n('duplicateDependencies') && `duplicateDeps=${n('duplicateDependencies')}`,
   ].filter(Boolean);
   return parts.join('  ');
+}
+
+function renderPacketSummary(d: Record<string, unknown>): string | undefined {
+  const packets = recordArray(d.packets);
+  if (packets.length === 0) return undefined;
+  return `packets=${previewList(packets.map(renderPacketId), 3)}`;
+}
+
+function renderPacketId(packet: Record<string, unknown>): string {
+  const subject = recordValue(packet.subject);
+  const id = stringField(subject, 'id') ?? 'packet';
+  const verdict = stringField(packet, 'verdict');
+  const proofStatus = stringField(packet, 'proofStatus');
+  const suffix = [verdict, proofStatus].filter(Boolean).join('/');
+  return suffix ? `${id}[${suffix}]` : id;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

@@ -9,19 +9,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = resolve(__dirname, '..');
 const ENV_PATH = resolve(SKILL_DIR, '.env');
 
-try {
-  const lines = readFileSync(ENV_PATH, 'utf8').split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
-    if (!process.env[key]) process.env[key] = val;
-  }
-} catch { /* .env not present */ }
-
 const ENDPOINT = 'https://api.tavily.com/search';
 
 function die(msg, code = 1) {
@@ -29,20 +16,44 @@ function die(msg, code = 1) {
   process.exitCode = code;
 }
 
+function loadEnvFile() {
+  try {
+    const lines = readFileSync(ENV_PATH, 'utf8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const normalized = trimmed.startsWith('export ') ? trimmed.slice('export '.length).trim() : trimmed;
+      const eqIdx = normalized.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = normalized.slice(0, eqIdx).trim();
+      const val = normalized.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) process.env[key] = val;
+    }
+  } catch { /* .env not present */ }
+}
+
 function splitList(v) {
   return String(v || '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function normalizeApiKey(raw) {
+  let key = String(raw || '').trim();
+  key = key.replace(/^Authorization\s*:\s*/i, '').trim();
+  key = key.replace(/^Bearer\s+/i, '').trim();
+  return key;
 }
 
 function parseArgs(argv) {
   const opts = {
     query: '', searchDepth: 'advanced', maxResults: 8, topic: 'general', timeRange: 'year',
     includeDomains: [], excludeDomains: [], autoParameters: false, startDate: '', endDate: '',
-    check: false, help: false,
+    check: false, presenceOnly: false, help: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') { opts.help = true; continue; }
     if (a === '--check') { opts.check = true; continue; }
+    if (a === '--presence-only') { opts.presenceOnly = true; continue; }
     if (a === '--query' || a === '-q') { opts.query = argv[++i] || ''; continue; }
     if (a === '--depth') { opts.searchDepth = argv[++i] || 'advanced'; continue; }
     if (a === '--max-results') { opts.maxResults = Number(argv[++i]) || 8; continue; }
@@ -59,6 +70,26 @@ function parseArgs(argv) {
   // Tavily caps max_results at 20 (0–20); clamp to avoid a 400.
   opts.maxResults = Math.max(0, Math.min(20, opts.maxResults));
   return opts;
+}
+
+async function validateKey(apiKey) {
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: 'Tavily API health check',
+      search_depth: 'basic',
+      max_results: 1,
+      include_answer: false,
+      include_raw_content: false,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Tavily API ${res.status}: ${text}`);
+  }
 }
 
 async function search(opts, apiKey) {
@@ -106,7 +137,7 @@ Usage:
 
 Options:
   --query, -q        Search query (required unless --check)
-  --depth            basic or advanced (default: advanced; advanced = 2 credits, deeper extraction)
+  --depth            basic, advanced, fast, or ultra-fast (default: advanced; advanced = 2 credits, deeper extraction)
   --max-results      Number of results, 0–20 (default: 8; clamped to API max of 20)
   --topic            general, news, or finance (default: general)
   --time-range       day, week, month, or year (default: year)
@@ -115,21 +146,36 @@ Options:
   --start-date       YYYY-MM-DD lower bound (precise recency)
   --end-date         YYYY-MM-DD upper bound
   --auto-parameters  Let Tavily auto-tune query params for the question
-  --check            Exit 0 if TAVILY_API_KEY is set, 1 otherwise
+  --check            Validate TAVILY_API_KEY with a live Tavily request
+  --presence-only    With --check, only verify a key is present locally
 
 .env file: ${ENV_PATH}`);
     return;
   }
 
-  const apiKey = process.env.TAVILY_API_KEY;
+  loadEnvFile();
+  const apiKey = normalizeApiKey(process.env.TAVILY_API_KEY || process.env.TAVILY_API_TOKEN);
 
   if (opts.check) {
-    if (apiKey) {
-      console.log('tavily: available');
-      process.exitCode = 0;
-    } else {
+    if (!apiKey) {
       console.log(`tavily: unavailable (TAVILY_API_KEY not set)`);
       console.log(`Add TAVILY_API_KEY to: ${ENV_PATH}`);
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.presenceOnly) {
+      console.log('tavily: key present (not validated)');
+      process.exitCode = 0;
+      return;
+    }
+    try {
+      await validateKey(apiKey);
+      console.log('tavily: available (validated)');
+      process.exitCode = 0;
+    } catch (err) {
+      console.log('tavily: unavailable (key failed live validation)');
+      console.log(err.message || String(err));
+      console.log(`Update TAVILY_API_KEY in: ${ENV_PATH}`);
       process.exitCode = 1;
     }
     return;

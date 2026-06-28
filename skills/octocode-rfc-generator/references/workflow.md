@@ -74,6 +74,7 @@ Before delivering, check:
 - Blast radius is mapped for shared symbols/contracts.
 - Risks have mitigations or open questions.
 - Implementation plan is actionable and verifiable.
+- Every non-obvious claim, recommendation, and rejected alternative has a citation or is marked uncertain.
 - No claim relies on "common practice" without explaining why it applies here.
 
 Reasoning traps:

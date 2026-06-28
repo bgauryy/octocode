@@ -47,6 +47,10 @@ type FetchDirectoryData = {
 
 type FetchStructuredContent = {
   readonly results?: readonly {
+    readonly data?: {
+      readonly files?: readonly FetchFileData[];
+      readonly directories?: readonly FetchDirectoryData[];
+    };
     readonly files?: readonly FetchFileData[];
     readonly directories?: readonly FetchDirectoryData[];
   }[];
@@ -135,8 +139,9 @@ function parseFetchResult(
     | FetchStructuredContent
     | undefined;
   const first = structured?.results?.[0];
-  if (kind === 'file') return first?.files?.[0] ?? {};
-  return first?.directories?.[0] ?? {};
+  const data = first?.data ?? first;
+  if (kind === 'file') return data?.files?.[0] ?? {};
+  return data?.directories?.[0] ?? {};
 }
 
 function normalizeRepoPath(...parts: readonly (string | undefined)[]): string {

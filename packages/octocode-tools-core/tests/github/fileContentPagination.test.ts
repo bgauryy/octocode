@@ -79,8 +79,8 @@ describe('ghGetFileContent finalizer — next.continueChars fires from nextCharO
     } as never);
 
     const file = (
-      out.structuredContent.results as Array<{ files?: unknown[] }>
-    )[0]?.files?.[0] as {
+      out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
+    )[0]?.data?.files?.[0] as {
       next?: { continueChars?: { query: Record<string, unknown> } };
     };
 

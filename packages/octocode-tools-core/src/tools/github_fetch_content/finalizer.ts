@@ -341,7 +341,7 @@ function readDirectoryEntry(
 function buildGroups(
   results: readonly FlatQueryResult[],
   queries: readonly PartialFileContentQuery[]
-): RepoGroup[] {
+): Array<{ id: string; data: RepoGroupData }> {
   const groups = new Map<string, RepoGroup>();
 
   results.forEach((result, index) => {
@@ -374,7 +374,10 @@ function buildGroups(
       ...(group.files ? { files: group.files } : {}),
       ...(group.directories ? { directories: group.directories } : {}),
     };
-    return { ...group, data };
+    // Emit only { id, data } — the canonical row shape. owner/repo/files/
+    // directories live ONLY under data (previously also mirrored flat at the
+    // top level, byte-identical, which doubled file-content payloads).
+    return { id: group.id, data };
   });
 }
 

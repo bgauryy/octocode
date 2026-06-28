@@ -705,7 +705,7 @@ function targetParams(parts: SearchShorthand): Record<string, unknown> {
       });
     case 'pullRequests':
       return clean({
-        keywordsToSearch: parts.text,
+        keywordsToSearch: parts.text ? [parts.text] : undefined,
         query: undefined,
         concise: parts.concise,
         state: parts.state,

@@ -91,7 +91,7 @@ async function handleDirectoryFetch(
   const config = getConfigSync();
   if (!(config.local.enabled && config.local.enableClone)) {
     return createErrorResult(
-      'Directory fetch requires local clone support. Set ENABLE_LOCAL=true and ENABLE_CLONE=true.',
+      'Directory fetch requires local clone support. Set ENABLE_CLONE=true and make sure ENABLE_LOCAL is not false.',
       query
     );
   }

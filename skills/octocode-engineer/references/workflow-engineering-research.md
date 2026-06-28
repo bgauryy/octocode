@@ -1,8 +1,8 @@
 # Workflow — Engineering Research Recipes
 
-Step-focused recipes built on the native octocode toolset. Prefer the CLI quick commands; use MCP/raw tools only when the CLI is unavailable or a schema-exact field is needed. For flags and the CLI/MCP fallback map, see [context-cli-mcp-commands.md](./context-cli-mcp-commands.md). For presenting findings, see [template-artifact-report.md](./template-artifact-report.md). For AST patterns, see [context-ast-pattern-cookbook.md](./context-ast-pattern-cookbook.md). For the graph research six-step algorithm and safe-delete decision logic, see [workflow-graph.md](./workflow-graph.md).
+Step-focused recipes built on the native Octocode toolset (`npx octocode`). Prefer the CLI quick commands; use MCP/raw tools only when the CLI is unavailable or a schema-exact field is needed. For flags and the CLI/MCP fallback map, see [context-cli-mcp-commands.md](./context-cli-mcp-commands.md). For presenting findings, see [template-artifact-report.md](./template-artifact-report.md). For AST patterns, see [context-ast-pattern-cookbook.md](./context-ast-pattern-cookbook.md). For the graph research six-step algorithm and safe-delete decision logic, see [workflow-graph.md](./workflow-graph.md).
 
-Notation: each step names the **job**; default to CLI quick commands and use MCP/raw tools only when needed. Shorthand: `search`=`octocode search`/`localSearchCode`, `semantics …`=`octocode search --op …`/`lspGetSemantics`, `ast`=`octocode search --pattern/--rule --lang <lang>`/`localSearchCode(mode:"structural")`, `symbols`=`octocode search --symbols` or `octocode search --content-view symbols`/`documentSymbols`, `read`=`octocode search --content-view exact`/`localGetFileContent`, `tree`=`octocode search --tree`/structure tools, file discovery=`octocode search --search path`/target:"files".
+Notation: each step names the **job**; default to CLI quick commands and use MCP/raw tools only when needed. Shorthand: `search`=`npx octocode search`/`localSearchCode`, `semantics …`=`npx octocode search --op …`/`lspGetSemantics`, `ast`=`npx octocode search --pattern/--rule --lang <lang>`/`localSearchCode(mode:"structural")`, `symbols`=`npx octocode search --symbols` or `npx octocode search --content-view symbols`/`documentSymbols`, `read`=`npx octocode search --content-view exact`/`localGetFileContent`, `tree`=`npx octocode search --tree`/structure tools, file discovery=`npx octocode search --search path`/target:"files".
 
 ---
 
@@ -55,7 +55,7 @@ Notation: each step names the **job**; default to CLI quick commands and use MCP
 ### 4 — Dead export / package-drift validation
 
 1. Run Smart OQL first for the candidate universe:
-   `octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json`.
+   `npx octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json`.
 2. Use `data.symbols` (`symbol`, `kind`, `file`, `line`, `directRefs`, `externalRefs`, `retainedBy`, `verdict`) to choose high-value rows. Treat the envelope as candidate evidence, especially when counts greatly exceed knip.
 3. For each deletion candidate, run `semantics references` excluding declaration — **but a zero may just be open-file scope**, so load likely consumers first (batch `documentSymbols`/`definition` on them, or `symbols`/`read`) and re-query before treating it as evidence.
 4. `ast` import-statement search for the name → none = no static import.
@@ -115,7 +115,7 @@ Notation: each step names the **job**; default to CLI quick commands and use MCP
 
 ### 11 — Refactoring plan (safe restructure)
 
-1. `search <symbol> --view discovery` → every file mentioning it.
+1. `search <symbol> <path> --view discovery` → every file mentioning it.
 2. `semantics references` (exclude decl) → consumer count, split test vs prod (0 test = coverage risk).
 3. `ast` import search → static import map.
 4. `semantics callers`/`callees` → call graph around the target.
@@ -144,6 +144,6 @@ Notation: each step names the **job**; default to CLI quick commands and use MCP
 
 ---
 
-## History recipes (the "why")
+## Change-Intent Recipes
 
-For history and PR archaeology patterns, see [research-external.md](./research-external.md) §History and PR archaeology. Key rule: use history to recover the rationale behind a contract before you change it.
+For PR and commit archaeology patterns, see [research-external.md](./research-external.md) §Change Intent And PR Archaeology. Key rule: use commit/PR evidence to recover the rationale behind a contract before you change it.

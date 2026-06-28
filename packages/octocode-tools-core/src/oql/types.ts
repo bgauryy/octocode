@@ -571,6 +571,7 @@ export interface OqlPackageData {
   description?: string;
   downloads?: number;
   repository?: string;
+  repositoryId?: string;
   [k: string]: unknown;
 }
 export interface OqlPullRequestData {
@@ -768,6 +769,11 @@ export interface OqlContinuation {
   query: OqlCanonicalInput;
   baseQueryId?: string;
   queryIndex?: number;
+  why?: string;
+  confidence?: 'exact' | 'heuristic';
+}
+
+export interface OqlContinuationHint {
   why: string;
   confidence: 'exact' | 'heuristic';
 }
@@ -778,8 +784,10 @@ export interface OqlResultEnvelope {
   queryId?: string;
   queryIndex?: number;
   results: OqlProofGradedResultRow[];
+  shared?: Record<string, unknown>;
   pagination?: Pagination;
   next?: Record<string, OqlContinuation>;
+  nextHints?: Record<string, OqlContinuationHint>;
   diagnostics: OqlDiagnostic[];
   provenance: OqlProvenance[];
   evidence: {

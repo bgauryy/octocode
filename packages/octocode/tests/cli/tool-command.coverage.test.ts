@@ -125,8 +125,11 @@ describe('tool-command coverage', () => {
     expect(output).not.toContain('\n  LSP\n');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('ghSearchCode');
-    expect(output).toContain('workspaceSymbol');
-    expect(output).toContain('diagnostic');
+    expect(output).toContain('Search code.');
+    expect(output).toContain('Local search.');
+    expect(output).not.toContain('[path*');
+    expect(output).not.toContain('workspaceSymbol');
+    expect(output).not.toContain('diagnostic');
     expect(output).toContain('tools <name>');
     expect(process.exitCode).toBeUndefined();
   });

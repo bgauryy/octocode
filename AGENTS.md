@@ -44,7 +44,7 @@ Same set surfaces through both MCP and CLI — schemas/descriptions from `octoco
 
 **GitHub:** `ghSearchCode` · `ghGetFileContent` (dir mode needs `ENABLE_CLONE`) · `ghViewRepoStructure` · `ghSearchRepos` · `ghHistoryResearch` (PR/commit history) · `ghCloneRepo` (needs `ENABLE_CLONE`)
 **Package:** `npmSearch`
-**Local** (need `ENABLE_LOCAL`, default on): `localSearchCode` (ripgrep + structural AST) · `localViewStructure` · `localFindFiles` · `localGetFileContent` · `localBinaryInspect`
+**Local** (default on; `ENABLE_LOCAL=false` disables): `localSearchCode` (ripgrep + structural AST) · `localViewStructure` · `localFindFiles` · `localGetFileContent` · `localBinaryInspect`
 **LSP:** `lspGetSemantics` (semantic navigation, standalone)
 
 Every tool accepts **1–N bulk queries**; each query carries research context (`mainResearchGoal`, `researchGoal`, `reasoning`). All I/O is sanitized (secrets redacted, paths validated, command whitelist `rg`/`find`/`ls`). Output defaults to YAML, minified, paginated.

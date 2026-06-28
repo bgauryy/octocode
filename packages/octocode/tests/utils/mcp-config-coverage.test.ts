@@ -37,6 +37,16 @@ describe('MCP Config Coverage Tests', () => {
       expect(result.env!.ENABLE_LOCAL).toBe('true');
     });
 
+    it('should include ENABLE_LOCAL=false env when enableLocal is false', async () => {
+      const { getOctocodeServerConfig } =
+        await import('../../src/utils/mcp-config.js');
+
+      const result = getOctocodeServerConfig('npx', { enableLocal: false });
+
+      expect(result.env).toBeDefined();
+      expect(result.env!.ENABLE_LOCAL).toBe('false');
+    });
+
     it('should include GITHUB_TOKEN env when githubToken is provided', async () => {
       const { getOctocodeServerConfig } =
         await import('../../src/utils/mcp-config.js');

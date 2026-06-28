@@ -52,11 +52,12 @@ describe('github fetch content finalizer next.continueChars', () => {
         data?: { files?: unknown[]; owner?: string; repo?: string };
       }>
     )[0]!;
+    // Canonical shape: owner/repo/files live ONLY under data (no flat mirror).
     expect(group.data?.owner).toBe('octo');
     expect(group.data?.repo).toBe('engine');
-    expect(group.data?.files).toEqual(group.files);
+    expect(group.files).toBeUndefined();
 
-    const file = group.files?.[0] as {
+    const file = group.data?.files?.[0] as {
       next?: {
         continueChars?: { tool: string; query: Record<string, unknown> };
       };
@@ -102,8 +103,8 @@ describe('github fetch content finalizer next.continueChars', () => {
 
     const out = run([query], [result]);
     const file = (
-      out.structuredContent.results as Array<{ files?: unknown[] }>
-    )[0]?.files?.[0] as { next?: unknown };
+      out.structuredContent.results as Array<{ data?: { files?: unknown[] } }>
+    )[0]?.data?.files?.[0] as { next?: unknown };
 
     expect(file.next).toBeUndefined();
   });

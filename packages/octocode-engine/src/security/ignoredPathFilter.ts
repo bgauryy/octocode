@@ -68,6 +68,10 @@ export function shouldIgnorePath(pathToCheck: string): boolean {
 }
 
 function normalizePathForIgnoreMatching(normalizedPath: string): string {
+  if (normalizedPath === '/private/tmp') return '/tmp';
+  if (normalizedPath.startsWith('/private/tmp/')) {
+    return normalizedPath.slice('/private'.length);
+  }
   if (normalizedPath === '/private/var') return '/var';
   if (normalizedPath.startsWith('/private/var/')) {
     return normalizedPath.slice('/private'.length);

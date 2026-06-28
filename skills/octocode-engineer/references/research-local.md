@@ -6,25 +6,25 @@ Use this for local codebases, cloned repos, unpacked archives, local diffs, and 
 
 | Job | CLI | MCP | Notes |
 |---|---|---|---|
-| Map directory | `octocode search <path> --tree --depth N` | `localViewStructure` | First step on unknown trees; identify source/test/generated dirs |
-| Find files/dirs | `octocode search <query> [path] --search path` | `localFindFiles` through OQL `target:"files"` | Names, regex, pathPattern, size, modified time, entryType |
-| Text search | `octocode search <kw> <path>` | `localSearchCode` through OQL `target:"code"` | Discovery, paginated snippets, detailed context, counts |
-| AST search | `octocode search <path> --pattern '<shape>' --lang <lang>` / `--rule` | `localSearchCode(mode:"structural")` through OQL `target:"code"` | Shape proof; comments/strings never false-match |
-| Read file | `octocode search <file> --content-view exact\|compact\|symbols` | `localGetFileContent` | Use symbols/compact/exact, matchString, line ranges |
-| Symbols/outline | `octocode search <file> --symbols` or `octocode search <file> --op documentSymbols` | `lspGetSemantics(type:"documentSymbols")` or `localGetFileContent(minify:"symbols")` | Outline before body reads |
-| Semantic nav | `octocode search <file> --op <t> --symbol S --line N` | `lspGetSemantics` | Definition, references, callers, callees, callHierarchy, hover, typeDefinition, implementation |
-| Smart reachability | `octocode search --query '{"target":"research",...}' --json` | OQL `target:"research"` | Candidate unused exports/files/deps with flow + verdict rows; prove before deleting |
+| Map directory | `npx octocode search <path> --tree --depth N` | `localViewStructure` | First step on unknown trees; identify source/test/generated dirs |
+| Find files/dirs | `npx octocode search <query> [path] --search path` | `localFindFiles` through OQL `target:"files"` | Names, regex, pathPattern, size, modified time, entryType |
+| Text search | `npx octocode search <kw> <path>` | `localSearchCode` through OQL `target:"code"` | Discovery, paginated snippets, detailed context, counts |
+| AST search | `npx octocode search <path> --pattern '<shape>' --lang <lang>` / `--rule` | `localSearchCode(mode:"structural")` through OQL `target:"code"` | Shape proof; comments/strings never false-match |
+| Read file | `npx octocode search <file> --content-view exact\|compact\|symbols` | `localGetFileContent` | Use symbols/compact/exact, matchString, line ranges |
+| Symbols/outline | `npx octocode search <file> --symbols` or `npx octocode search <file> --op documentSymbols` | `lspGetSemantics(type:"documentSymbols")` or `localGetFileContent(minify:"symbols")` | Outline before body reads |
+| Semantic nav | `npx octocode search <file> --op <t> --symbol S --line N` | `lspGetSemantics` | Definition, references, callers, callees, callHierarchy, hover, typeDefinition, implementation |
+| Smart reachability | `npx octocode search --query '{"target":"research",...}' --json` | OQL `target:"research"` | Candidate unused exports/files/deps with flow + verdict rows; prove before deleting |
 
 ## Default local workflow
 
 ```text
-octocode search <path> --tree --depth 1 --json   map package/source dirs first
-→ octocode search <query> <path> --search path --json  slice noisy trees
-→ octocode search <kw> <path> --view discovery   search all cheaply
-→ octocode search <file> --content-view symbols  understand declarations
-→ octocode search <file> --match-string ... --content-view exact  exact body + lineHint
-→ octocode search <path> --pattern/--rule ... --lang <lang>  prove code shape if needed
-→ octocode search <file> --op ... --line <lineHint> prove identity/blast radius
+npx octocode search <path> --tree --depth 1 --json   map package/source dirs first
+→ npx octocode search <query> <path> --search path --json  slice noisy trees
+→ npx octocode search <kw> <path> --view discovery   search all cheaply
+→ npx octocode search <file> --content-view symbols  understand declarations
+→ npx octocode search <file> --match-string ... --content-view exact  exact body + lineHint
+→ npx octocode search <path> --pattern/--rule ... --lang <lang>  prove code shape if needed
+→ npx octocode search <file> --op ... --line <lineHint> prove identity/blast radius
 ```
 
 Rules:
@@ -33,7 +33,7 @@ Rules:
 - Smart OQL `target:"research"` is the broad dead-code/package-drift pass, but its evidence is candidate-grade until confirmed by LSP/AST/exact reads or knip.
 - Always get a real `lineHint` before LSP. Never guess.
 - Use directory mapping before broad searches.
-- Use raw `octocode tools <name> --scheme` only when the quick command cannot express the field or paging control you need.
+- Use raw `npx octocode tools <name> --scheme` only when the quick command cannot express the field or paging control you need.
 
 ## `localViewStructure` — map before search
 
@@ -93,7 +93,7 @@ Rules:
 - Use YAML `rule` for `inside` / `has` / `not` / `all` / `any`.
 - Add `stopBy: end` to relational sub-rules.
 - Include a literal token when possible so files can be pre-filtered before parsing.
-- AST is local or clone-backed only. For remote repos, use `octocode search <path> --repo <owner/repo[@ref]> --pattern ... --lang <lang>` or clone/cache first.
+- AST is local or clone-backed only. For remote repos, use `npx octocode search <path> --repo <owner/repo[@ref]> --pattern ... --lang <lang>` or clone/cache first.
 - Quote structural patterns with single quotes so the shell does not expand `$X` or `$$$ARGS`.
 
 Example relational rule:

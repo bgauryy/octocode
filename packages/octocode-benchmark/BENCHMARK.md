@@ -702,9 +702,9 @@ yarn workspace @octocodeai/octocode-benchmark benchmark
 | Check | Script | What it validates |
 |---|---|---|
 | Support matrix | `benchmark/check-matrix.mjs` | Every extension in `getSupportedStructuralExtensions()` has a test entry |
-| AST | `benchmark/ast/check-ast.mjs` | All 19 tree-sitter grammars parse real samples and match canonical patterns |
+| AST | `benchmark/ast/check-ast.mjs` | All 33 tree-sitter grammars parse real samples and match canonical patterns |
 | LSP | `benchmark/lsp/check-lsp.mjs` | Language-id resolution and server wiring for 18 languages |
-| Minify | `benchmark/minify/check-minify.mjs` | Minifier output for 141 samples across 70+ formats |
+| Minify | `benchmark/minify/check-minify.mjs` | Minifier output for 149 samples across 70+ formats |
 | CLI metadata | `benchmark/cli/check-cli-metadata.mjs` | All raw tool descriptions/schemes, CLI command descriptions/schemes, agent context instructions, and OQL schema render from canonical metadata |
 
 These do not invoke ast-grep at all. Matrix, AST, LSP, and minify validate the

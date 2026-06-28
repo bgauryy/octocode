@@ -453,8 +453,13 @@ function buildSuccessResult(
 
   if (
     effectiveCharLength === undefined &&
+    !query.fullContent &&
     outputContent.length > defaultOutputCharLength
   ) {
+    // fullContent:true is an explicit "give me the WHOLE file in one shot"
+    // request — it opts out of the default char-window auto-pagination (the
+    // documented contract). Without this guard fullContent was a no-op on files
+    // larger than the limit (capped identically to a normal read).
     effectiveCharLength = defaultOutputCharLength;
     autoPaginated = true;
     warnings.push(

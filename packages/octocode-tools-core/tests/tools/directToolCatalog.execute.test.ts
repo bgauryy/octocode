@@ -30,9 +30,31 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     cleanup();
   });
 
-  it('ignores ENABLE_LOCAL=false on the CLI surface (local always enabled)', async () => {
-    // The CLI is local-first: ENABLE_LOCAL must NOT gate it. The local gate
-    // (localToolsDisabled) must not fire regardless of ENABLE_LOCAL.
+  it('runs a local tool by default when ENABLE_LOCAL is unset', async () => {
+    setRuntimeSurface('mcp');
+    delete process.env.ENABLE_LOCAL;
+    cleanup();
+
+    const result = await executeDirectTool(STATIC_TOOL_NAMES.LOCAL_RIPGREP, {
+      queries: [
+        {
+          path: 'src/shared/config',
+          keywords: 'resolveLocal',
+          maxFiles: 3,
+          mainResearchGoal: 'Verify local tools default on',
+          researchGoal: 'Default local gate behavior',
+          reasoning: 'Regression test: local tools should work by default',
+        },
+      ],
+    });
+
+    const structured = result.structuredContent as
+      | { error?: { code?: string } }
+      | undefined;
+    expect(structured?.error?.code).not.toBe('localToolsDisabled');
+  });
+
+  it('rejects a local tool when ENABLE_LOCAL is false on the CLI surface', async () => {
     setRuntimeSurface('cli');
     process.env.ENABLE_LOCAL = 'false';
     cleanup();
@@ -43,17 +65,19 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
           path: 'src/shared/config',
           keywords: 'resolveLocal',
           maxFiles: 3,
-          mainResearchGoal: 'Verify CLI ignores ENABLE_LOCAL',
-          researchGoal: 'CLI local-first gate bypass',
-          reasoning: 'Regression test: CLI must ignore ENABLE_LOCAL',
+          mainResearchGoal: 'Verify ENABLE_LOCAL explicit opt-out',
+          researchGoal: 'CLI local gate behavior',
+          reasoning: 'Regression test: ENABLE_LOCAL=false disables local tools',
         },
       ],
     });
 
+    expect(result.isError).toBe(true);
     const structured = result.structuredContent as
-      | { error?: { code?: string } }
+      | { error?: { code?: string; message?: string } }
       | undefined;
-    expect(structured?.error?.code).not.toBe('localToolsDisabled');
+    expect(structured?.error?.code).toBe('localToolsDisabled');
+    expect(structured?.error?.message).toContain('ENABLE_LOCAL=true');
   });
 
   it('rejects a local tool when ENABLE_LOCAL is false on the MCP surface', async () => {
@@ -166,7 +190,7 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     expect(text).toContain('ENABLE_CLONE=true');
   });
 
-  it('wraps oqlSearch output in the standard direct-tool results[].data shape', async () => {
+  it('wraps oqlSearch output once in the standard direct-tool results[].data shape', async () => {
     setRuntimeSurface('cli');
     cleanup();
 
@@ -186,10 +210,49 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     expect(Array.isArray(structured.results)).toBe(true);
     expect(structured.results?.[0]?.id).toBe('oqlSearch-1');
     expect(structured.results?.[0]?.status).toBeUndefined();
-    expect(structured.results?.[0]?.data).toEqual(structured.oql);
+    expect(structured).not.toHaveProperty('oql');
     expect(
       (structured.results?.[0]?.data as { results?: unknown[] }).results?.length
     ).toBeGreaterThan(0);
+  });
+
+  it('deduplicates direct oqlSearch row continuation hints without dropping executable queries', async () => {
+    setRuntimeSurface('cli');
+    cleanup();
+
+    const result = await executeDirectTool(OQL_SEARCH_TOOL_NAME, {
+      target: 'code',
+      from: { kind: 'local', path: 'src/oql' },
+      where: { kind: 'text', value: 'runOqlSearch' },
+      view: 'discovery',
+      limit: 2,
+    });
+
+    expect(result.isError).not.toBe(true);
+    const structured = result.structuredContent as {
+      results?: Array<{
+        data?: {
+          nextHints?: Record<string, { why?: string; confidence?: string }>;
+          results?: Array<{
+            next?: Record<
+              string,
+              { query?: Record<string, unknown>; why?: string; confidence?: string }
+            >;
+          }>;
+        };
+      }>;
+    };
+    const data = structured.results?.[0]?.data;
+    const firstRowNext = data?.results?.[0]?.next;
+    expect(data?.nextHints?.['next.fetch']).toMatchObject({
+      why: 'Read the exact content at this hit.',
+      confidence: 'exact',
+    });
+    expect(firstRowNext?.['next.fetch']?.query).toMatchObject({
+      target: 'content',
+    });
+    expect(firstRowNext?.['next.fetch']).not.toHaveProperty('why');
+    expect(firstRowNext?.['next.fetch']).not.toHaveProperty('confidence');
   });
 
   it('marks zero-match oqlSearch rows as empty without failing the call', async () => {

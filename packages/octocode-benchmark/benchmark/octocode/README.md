@@ -4,6 +4,19 @@ This folder is the durable question catalog for live Octocode CLI, raw tool, and
 
 These docs define what to ask and how to score it. Reported runs still write artifacts under `packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/` and must follow the agent benchmark runbook at https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md.
 
+## Automated Smoke
+
+Use the live smoke runner when a benchmark claim needs durable artifacts instead of a manual transcript:
+
+```bash
+node packages/octocode-benchmark/benchmark/octocode/run-live-smoke.mjs
+node packages/octocode-benchmark/benchmark/octocode/run-live-smoke.mjs --skip-network
+node packages/octocode-benchmark/benchmark/octocode/validate-output-runs.mjs
+node packages/octocode-benchmark/benchmark/octocode/validate-output-runs.mjs --repair-legacy
+```
+
+`run-live-smoke.mjs` writes the full runbook layout (`README.md`, `manifest.json`, `summary.json`, `commands.ndjson`, `results.md`, `reflection.md`, `ratings.json`, `raw/`, `schemes/`, `artifacts/`) and validates the new `summary.json` before exiting. The default mode exercises GitHub/npm/cache flows; `--skip-network` keeps only local deterministic lanes. `validate-output-runs.mjs` checks every recorded run with a `summary.json`; `--repair-legacy` converts older loose summaries from their existing `results.json` and `commands.ndjson` evidence.
+
 ## Layout
 
 | Folder | Focus | Main question |

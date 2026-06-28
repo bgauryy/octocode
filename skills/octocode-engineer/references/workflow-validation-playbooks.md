@@ -1,10 +1,10 @@
 # Validation Playbooks
 
-How to validate a finding before presenting it. Every signal is a hypothesis — never present it as fact without validation. The native octocode toolset proves **shapes** (AST) and **relationships** (LSP); claims that need a **metric** (coupling, complexity, cycles-as-clusters) can't be measured natively — validate by approximation and mark them `likely`/`uncertain` (see [checklist-quality-signals.md](./checklist-quality-signals.md)).
+How to validate a finding before presenting it. Every signal is a hypothesis — never present it as fact without validation. The native Octocode toolset (`npx octocode`) proves **shapes** (AST) and **relationships** (LSP); claims that need a **metric** (coupling, complexity, cycles-as-clusters) can't be measured natively — validate by approximation and mark them `likely`/`uncertain` (see [checklist-quality-signals.md](./checklist-quality-signals.md)).
 
 Confidence scale: `confirmed` = ≥2 independent evidence sources agree; `likely` = one source or approximation; `uncertain` = hypothesis only. For tool commands, see [context-cli-mcp-commands.md](./context-cli-mcp-commands.md).
 
-Shorthand as in [workflow-engineering-research.md](./workflow-engineering-research.md): `semantics <type>` = `octocode search --op <type>` / `lspGetSemantics`; `ast` = `octocode search --pattern/--rule --lang <language>` / `localSearchCode(mode:"structural")`.
+Shorthand as in [workflow-engineering-research.md](./workflow-engineering-research.md): `semantics <type>` = `npx octocode search --op <type>` / `lspGetSemantics`; `ast` = `npx octocode search --pattern/--rule --lang <language>` / `localSearchCode(mode:"structural")`.
 
 ---
 

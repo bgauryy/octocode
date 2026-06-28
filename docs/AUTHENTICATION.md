@@ -300,11 +300,10 @@ The refresh API base URL is derived from the stored hostname: `github.com` uses 
 Remote GitHub tools work with token auth alone. The clone-backed tools (`ghCloneRepo`, `ghGetFileContent type:"directory"`) also require:
 
 ```bash
-export ENABLE_LOCAL=true
 export ENABLE_CLONE=true
 ```
 
-These can also be set in `~/.octocode/.octocoderc`.
+This can also be set in `~/.octocode/.octocoderc`. Local tools stay enabled by default unless `ENABLE_LOCAL=false` is set.
 
 ## Troubleshooting
 
@@ -313,7 +312,7 @@ These can also be set in `~/.octocode/.octocoderc`.
 | No token found | Run `npx octocode status`, then `npx octocode login`, or set an env var. |
 | 401 Unauthorized | Verify token scopes and the selected GitHub host. |
 | Enterprise requests hit github.com | Set `GITHUB_API_URL` to the Enterprise API URL. |
-| Clone tools unavailable | Set `ENABLE_LOCAL=true` and `ENABLE_CLONE=true`. |
+| Clone tools unavailable | Set `ENABLE_CLONE=true` and make sure `ENABLE_LOCAL` is not set to `false`. |
 | Stored token expired, no refresh | Token is an OAuth App token that cannot refresh — run `npx octocode login` again. |
 | Refresh token expired | `refreshTokenExpiresAt` is past — run `npx octocode login`. |
 | Env token is active but OAuth was just saved | Env tokens take priority; unset the env var to use the stored token. |

@@ -83,7 +83,11 @@ for (const l of LANGS) {
   if (cfg && cfg.command) { try { avail = engine.isCommandAvailable(cfg.command) ? 'installed' : 'absent' } catch { avail = '?' } }
 
   // NATIVE SEMANTICS
-  let sem = 'server-backed'
+  // Default 'server-backed' = no native probe for this language (semantics come
+  // from the external server). When the sample is missing/corrupt, readSample
+  // already failed the row — label it 'skipped' so the table doesn't imply the
+  // native probe ran.
+  let sem = content ? 'server-backed' : 'skipped (no sample)'
   if (content) {
     if (l.boundary) {
       let n = 0

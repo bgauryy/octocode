@@ -1,0 +1,166 @@
+[
+  {
+    "name": "metadata-and-schema",
+    "commands": [
+      {
+        "id": "META-TOOLS",
+        "command": "node packages/octocode/out/octocode.js tools --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 103,
+        "stdoutFile": "raw/META-TOOLS.stdout.json",
+        "stderrFile": "raw/META-TOOLS.stderr.txt"
+      },
+      {
+        "id": "SCHEME-LOCAL-SEARCH",
+        "command": "node packages/octocode/out/octocode.js tools localSearchCode --scheme --no-color",
+        "exitCode": 0,
+        "durationMs": 89,
+        "stdoutFile": "raw/SCHEME-LOCAL-SEARCH.stdout.txt",
+        "stderrFile": "raw/SCHEME-LOCAL-SEARCH.stderr.txt"
+      }
+    ],
+    "status": "pass",
+    "evidence": {
+      "kind": "schema",
+      "answerReady": true,
+      "complete": true,
+      "toolCount": 14
+    },
+    "anchors": [
+      "tools",
+      "localSearchCode scheme"
+    ],
+    "outputQualityScore": 5
+  },
+  {
+    "name": "local-grep-pagination",
+    "commands": [
+      {
+        "id": "LOCAL-GREP",
+        "command": "node packages/octocode/out/octocode.js search runOqlSearch packages/octocode/src/cli/commands/search.ts --context-lines 1 --max-matches 2 --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 433,
+        "stdoutFile": "raw/LOCAL-GREP.stdout.json",
+        "stderrFile": "raw/LOCAL-GREP.stderr.txt"
+      },
+      {
+        "id": "LOCAL-ONLY-MATCHING",
+        "command": "node packages/octocode/out/octocode.js search --regex \"getString\\\\([^)]*\\\\)\" packages/octocode/src/cli/commands/search.ts --only-matching --unique --match-window 12 --max-matches 5 --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 412,
+        "stdoutFile": "raw/LOCAL-ONLY-MATCHING.stdout.json",
+        "stderrFile": "raw/LOCAL-ONLY-MATCHING.stderr.txt"
+      }
+    ],
+    "status": "pass",
+    "evidence": {
+      "kind": "local",
+      "answerReady": true,
+      "complete": true
+    },
+    "anchors": [
+      "packages/octocode/src/cli/commands/search.ts",
+      "runOqlSearch"
+    ],
+    "bestContinuation": "Use returned next/search pagination from raw output.",
+    "outputQualityScore": 5
+  },
+  {
+    "name": "local-ast-lsp-oql",
+    "commands": [
+      {
+        "id": "LOCAL-AST",
+        "command": "node packages/octocode/out/octocode.js search --pattern \"getString($$$ARGS)\" packages/octocode/src/cli/commands/search.ts --lang ts --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 420,
+        "stdoutFile": "raw/LOCAL-AST.stdout.json",
+        "stderrFile": "raw/LOCAL-AST.stderr.txt"
+      },
+      {
+        "id": "LOCAL-LSP-SYMBOLS",
+        "command": "node packages/octocode/out/octocode.js search packages/octocode/src/cli/commands/search.ts --op documentSymbols --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 481,
+        "stdoutFile": "raw/LOCAL-LSP-SYMBOLS.stdout.json",
+        "stderrFile": "raw/LOCAL-LSP-SYMBOLS.stderr.txt"
+      },
+      {
+        "id": "LOCAL-OQL",
+        "command": "node packages/octocode/out/octocode.js search --query \"{\\\"target\\\":\\\"code\\\",\\\"from\\\":{\\\"kind\\\":\\\"local\\\",\\\"path\\\":\\\"packages/octocode/src/cli/commands/search.ts\\\"},\\\"where\\\":{\\\"kind\\\":\\\"text\\\",\\\"value\\\":\\\"runOqlSearch\\\"},\\\"controls\\\":{\\\"search\\\":{\\\"maxMatchesPerFile\\\":2,\\\"contextLines\\\":1}},\\\"itemsPerPage\\\":1,\\\"page\\\":1}\" --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 426,
+        "stdoutFile": "raw/LOCAL-OQL.stdout.json",
+        "stderrFile": "raw/LOCAL-OQL.stderr.txt"
+      }
+    ],
+    "status": "pass",
+    "evidence": {
+      "kind": "semantic-proof",
+      "answerReady": true,
+      "complete": true
+    },
+    "anchors": [
+      "AST",
+      "LSP documentSymbols",
+      "OQL target:code"
+    ],
+    "outputQualityScore": 5
+  },
+  {
+    "name": "archive-binary",
+    "commands": [
+      {
+        "id": "BINARY-LIST",
+        "command": "node packages/octocode/out/octocode.js search .octocode/eval-fixtures/sample.tgz --target artifacts --list --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 418,
+        "stdoutFile": "raw/BINARY-LIST.stdout.json",
+        "stderrFile": "raw/BINARY-LIST.stderr.txt"
+      },
+      {
+        "id": "BINARY-EXTRACT",
+        "command": "node packages/octocode/out/octocode.js search .octocode/eval-fixtures/sample.tgz --target artifacts --extract archive-src/package.json --json --compact --no-color",
+        "exitCode": 0,
+        "durationMs": 456,
+        "stdoutFile": "raw/BINARY-EXTRACT.stdout.json",
+        "stderrFile": "raw/BINARY-EXTRACT.stderr.txt"
+      }
+    ],
+    "status": "pass",
+    "evidence": {
+      "kind": "binary-proof",
+      "answerReady": true,
+      "complete": true
+    },
+    "anchors": [
+      ".octocode/eval-fixtures/sample.tgz"
+    ],
+    "outputQualityScore": 5
+  },
+  {
+    "name": "cache-fetch-file-tree-clone",
+    "commands": [],
+    "status": "warn",
+    "evidence": {
+      "kind": "skipped",
+      "answerReady": false,
+      "complete": false,
+      "reason": "Skipped by --skip-network."
+    },
+    "outputQualityScore": 3,
+    "notes": "Skipped by --skip-network."
+  },
+  {
+    "name": "external-package-github-remote-local",
+    "commands": [],
+    "status": "warn",
+    "evidence": {
+      "kind": "skipped",
+      "answerReady": false,
+      "complete": false,
+      "reason": "Skipped by --skip-network."
+    },
+    "outputQualityScore": 3,
+    "notes": "Skipped by --skip-network."
+  }
+]

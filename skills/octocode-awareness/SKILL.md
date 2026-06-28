@@ -42,7 +42,6 @@ hooks:
 # Octocode Awareness
 
 Local, file-backed experience for agents — a portable script (`scripts/awareness.py`) backed by SQLite that works across processes without Docker, a server, or external services. It registers no MCP tools. Its job: make an agent **more aware** on a coding task — *self-awareness* (recall before acting), *code-awareness* (understand a file before editing), *collaboration* (coordinate with concurrent agents via locks + messages), *repo memory* (carry handoffs and lessons run-to-run), and *harness-awareness* (verify before concluding; improve in loops). `README.md` is the high-level tour for users.
-
 ## Three stores — one shared DB
 
 All records live in **ONE store**: `~/.octocode/memory/awareness.sqlite3` (relocate with `OCTOCODE_MEMORY_HOME`; global `--db` overrides the file; workspace-aware commands use `--workspace` for logical repo/channel scope). No per-repo databases — scoping is by column, not by file. Keep the three distinct; never cross them.
@@ -53,7 +52,7 @@ All records live in **ONE store**: `~/.octocode/memory/awareness.sqlite3` (reloc
 | **Refinements** | Per-repo/branch work-handoff (reasoning, what to remember, `open`/`ongoing`/`done`) for the next agent | **Workspace** (`repo`/`ref`) |
 | **Notifications** | Typed agent-to-agent messages + threads for agents on the repo **at the same time** | **Repo channel** (`workspace_path`) |
 
-References — load the one that matches the task:
+References — load the one that matches the task; use `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage:
 - `references/memory-recall.md` — `get-memory`/`tell-memory`/`forget`/`reflect` flags, the importance scale, and lexical-vs-semantic recall, when recording or recalling lessons.
 - `references/coordination-protocol.md` — `pre-flight-intent`/`wait-for-lock`/`release-file-lock`/`notify` semantics, exit codes, and refinements, when authoring payloads or wiring a wrapper.
 - `references/files-awareness.md` — `status`, timestamps, `env`, and the collision protocol, whenever multiple agents may touch the same repo.

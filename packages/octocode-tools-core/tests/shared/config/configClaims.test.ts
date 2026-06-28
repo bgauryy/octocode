@@ -73,18 +73,21 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('ENABLE_LOCAL -> local.enabled (MCP default false)', () => {
-    it('defaults to false on the MCP surface', () => {
-      expect(resolveLocal(undefined).enabled).toBe(false);
+  describe('ENABLE_LOCAL -> local.enabled (default true, explicit false disables)', () => {
+    it('defaults to true when neither env nor file config disables it', () => {
+      expect(resolveLocal(undefined).enabled).toBe(true);
     });
+
     it('ENABLE_LOCAL=false disables, overriding file=true', () => {
       process.env.ENABLE_LOCAL = 'false';
       expect(resolveLocal({ enabled: true }).enabled).toBe(false);
     });
+
     it('ENABLE_LOCAL=1 enables', () => {
       process.env.ENABLE_LOCAL = '1';
       expect(resolveLocal({ enabled: false }).enabled).toBe(true);
     });
+
     it('file value applies when no env', () => {
       expect(resolveLocal({ enabled: false }).enabled).toBe(false);
     });
@@ -222,21 +225,21 @@ describe('README/CONFIGURATION config claims', () => {
     });
   });
 
-  describe('runtime surface: local.enabled / local.enableClone differ by flow', () => {
+  describe('runtime surface: local.enabled defaults on; clone defaults differ by flow', () => {
     describe('CLI surface', () => {
       beforeEach(() => setRuntimeSurface('cli'));
 
-      it('local is always ENABLED', () => {
+      it('local defaults to ENABLED', () => {
         expect(resolveLocal(undefined).enabled).toBe(true);
       });
 
-      it('IGNORES ENABLE_LOCAL=false (CLI is local-first)', () => {
+      it('ENABLE_LOCAL=false disables local tools', () => {
         process.env.ENABLE_LOCAL = 'false';
-        expect(resolveLocal(undefined).enabled).toBe(true);
+        expect(resolveLocal(undefined).enabled).toBe(false);
       });
 
-      it('IGNORES .octocoderc local.enabled=false (local always on in CLI)', () => {
-        expect(resolveLocal({ enabled: false }).enabled).toBe(true);
+      it('.octocoderc local.enabled=false disables local tools', () => {
+        expect(resolveLocal({ enabled: false }).enabled).toBe(false);
       });
 
       it('clone defaults to ENABLED', () => {
@@ -256,8 +259,13 @@ describe('README/CONFIGURATION config claims', () => {
     describe('MCP surface (default)', () => {
       beforeEach(() => setRuntimeSurface('mcp'));
 
-      it('local honors ENABLE_LOCAL (default off, true enables)', () => {
+      it('local defaults on and honors ENABLE_LOCAL=false', () => {
+        expect(resolveLocal(undefined).enabled).toBe(true);
+        process.env.ENABLE_LOCAL = 'false';
         expect(resolveLocal(undefined).enabled).toBe(false);
+      });
+
+      it('ENABLE_LOCAL=true leaves local tools enabled', () => {
         process.env.ENABLE_LOCAL = 'true';
         expect(resolveLocal(undefined).enabled).toBe(true);
       });

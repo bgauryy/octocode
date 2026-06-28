@@ -14,6 +14,16 @@ function runFinalizer(results: AnyRec[]) {
   return out.structuredContent as AnyRec;
 }
 
+function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
+  const finalize = buildGhSearchCodeFinalizer();
+  const out = finalize({
+    queries: queries as never,
+    results: results as never,
+    config: {} as never,
+  });
+  return out.structuredContent as AnyRec;
+}
+
 describe('ghSearchCode finalizer — incomplete_results (GitHub index degradation)', () => {
   it('flags an empty query as incompleteResults and surfaces a visible warning', () => {
     const sc = runFinalizer([
@@ -42,5 +52,16 @@ describe('ghSearchCode finalizer — incomplete_results (GitHub index degradatio
     expect(empty).toHaveLength(1);
     expect(empty[0].incompleteResults).toBeUndefined();
     expect(sc.warnings).toBeUndefined();
+  });
+
+  it('warns that a scoped repo no-match is not proof of absence', () => {
+    const sc = runFinalizerWithQueries(
+      [{ id: 'q1', owner: 'facebook', repo: 'react' }],
+      [{ id: 'q1', data: { results: [] } }]
+    );
+
+    const warnings = sc.warnings as string[];
+    expect(warnings.join(' ')).toContain('unproven absence');
+    expect(warnings.join(' ')).toContain('materialize or clone');
   });
 });
