@@ -65,6 +65,69 @@ describe('runCLI', () => {
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
+  it('prints the full OQL schema for search --scheme without loading the command', async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      const { runCLI } = await import('../../src/cli/index.js');
+      const handled = await runCLI(['search', '--scheme']);
+      const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
+
+      expect(handled).toBe(true);
+      expect(out).toContain('"schema": "oql"');
+      expect(out).not.toContain('compact agent guide');
+      expect(mocks.loadCommand).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('prints the compact agent guide for search --scheme --compact', async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      const { runCLI } = await import('../../src/cli/index.js');
+      const handled = await runCLI(['search', '--scheme', '--compact']);
+      const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
+
+      expect(handled).toBe(true);
+      expect(out).toContain('compact agent guide');
+      expect(out).toContain('--content-view exact');
+      expect(out).toContain('search --scheme');
+      expect(out).not.toContain('"schema": "oql"');
+      expect(mocks.loadCommand).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('keeps search --scheme --json --compact machine-readable JSON (not the text guide)', async () => {
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation(() => true);
+    try {
+      const { runCLI } = await import('../../src/cli/index.js');
+      const handled = await runCLI([
+        'search',
+        '--scheme',
+        '--json',
+        '--compact',
+      ]);
+      const out = stdoutSpy.mock.calls.map(c => String(c[0])).join('');
+
+      expect(handled).toBe(true);
+      // --json wins over --compact: must parse as JSON, never the text guide
+      expect(out).not.toContain('compact agent guide');
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(JSON.parse(out).schema).toBe('oql');
+      expect(mocks.loadCommand).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
   it('passes --full to context', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
 

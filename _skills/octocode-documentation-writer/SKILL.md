@@ -92,7 +92,7 @@ Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSear
 >   "mcpServers": {
 >     "octocode": {
 >       "command": "npx",
->       "args": ["-y", "octocode-mcp"],
+>       "args": ["-y", "@octocodeai/mcp"],
 >       "env": {"ENABLE_LOCAL": "true"}
 >     }
 >   }

@@ -33,6 +33,7 @@ export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
 
 const TOOL_RUNTIME_OPTION_KEYS = new Set([
   'queries',
+  'query', // alias for --queries (the OQL `search --query` flag agents reach for)
   'json',
   'help',
   'version',
@@ -125,9 +126,12 @@ function getInputText(toolName: string, args: ParsedArgs): string | undefined {
     );
   }
 
-  return typeof args.options.queries === 'string'
-    ? args.options.queries
-    : args.args[1];
+  // Accept `--query` as an alias for `--queries`: `--query` is the OQL flag on
+  // `search`, so agents routinely reach for it on raw tools too. Don't make them
+  // pay for the easy-to-conflate name — treat both as the queries payload.
+  if (typeof args.options.queries === 'string') return args.options.queries;
+  if (typeof args.options.query === 'string') return args.options.query;
+  return args.args[1];
 }
 
 function getPayloadQueries(rawPayload: unknown): unknown[] {
@@ -932,6 +936,7 @@ export const toolCommand: CLICommand = {
   name: 'tools',
   options: [
     { name: 'queries', hasValue: true },
+    { name: 'query', hasValue: true },
     { name: 'list' },
     { name: 'scheme' },
   ],

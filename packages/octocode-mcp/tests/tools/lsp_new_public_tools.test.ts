@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQuerySchema,
@@ -18,7 +18,7 @@ describe('new public LSP tools', () => {
   it('advertises only lspGetSemantics without removed LSP tools', () => {
     const names = ALL_TOOLS.map(tool => tool.name);
 
-    expect(names).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
+    expect(names).toContain(LSP_GET_SEMANTICS_TOOL_NAME);
     for (const removedName of removedLspToolNames) {
       expect(names).not.toContain(removedName);
     }
@@ -32,7 +32,7 @@ describe('new public LSP tools', () => {
 
     expect(server.registrations).toContainEqual(
       expect.objectContaining({
-        name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+        name: LSP_GET_SEMANTICS_TOOL_NAME,
         options: expect.objectContaining({
           inputSchema: expect.any(Object),
           annotations: expect.objectContaining({ readOnlyHint: true }),

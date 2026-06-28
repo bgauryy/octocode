@@ -29,7 +29,7 @@ export function getOctocodeServerConfig(
     case 'npx':
       config = {
         command: 'npx',
-        args: ['octocode-mcp@latest'],
+        args: ['@octocodeai/mcp@latest'],
       };
       break;
 

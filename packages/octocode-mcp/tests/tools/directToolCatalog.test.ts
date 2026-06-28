@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { STATIC_TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolNames.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
@@ -76,9 +76,11 @@ describe('directToolCatalog', () => {
     expect(
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.LOCAL_RIPGREP)
     ).toEqual(['id', 'researchGoal', 'reasoning']);
-    expect(
-      getDirectToolAutoFilledFields(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)
-    ).toEqual(['id', 'researchGoal', 'reasoning']);
+    expect(getDirectToolAutoFilledFields(LSP_GET_SEMANTICS_TOOL_NAME)).toEqual([
+      'id',
+      'researchGoal',
+      'reasoning',
+    ]);
   });
 
   it('exposes the canonical direct tool output shape for CLI help', () => {
@@ -108,7 +110,7 @@ describe('directToolCatalog', () => {
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
       'Local Code'
     );
-    expect(getDirectToolCategory(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)).toBe(
+    expect(getDirectToolCategory(LSP_GET_SEMANTICS_TOOL_NAME)).toBe(
       'Local Code'
     );
     expect(getDirectToolCategory(STATIC_TOOL_NAMES.PACKAGE_SEARCH)).toBe(
@@ -168,9 +170,7 @@ describe('directToolCatalog', () => {
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO)
     ).toEqual({ owner: 'bgauryy', repo: 'octocode' });
-    expect(
-      buildDirectToolExampleQuery(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)
-    ).toEqual(
+    expect(buildDirectToolExampleQuery(LSP_GET_SEMANTICS_TOOL_NAME)).toEqual(
       expect.objectContaining({
         uri: '/path/to/file.ts',
         type: 'definition',
@@ -277,27 +277,31 @@ describe('directToolCatalog', () => {
     );
   });
 
-  it('reports unknown fields instead of rewriting old keys', () => {
+  it('warns on unknown fields but does NOT hard-fail — strips them and proceeds', () => {
     const warnings: Array<{ fields: string[]; index: number }> = [];
 
-    expect(() =>
-      prepareDirectToolInput(
-        STATIC_TOOL_NAMES.LOCAL_RIPGREP,
-        [
-          { keywords: 'a', path: '.', limit: 3, bogusKey: true },
-          { keywords: 'b', path: '.', fixed_string: true },
-        ],
-        {
-          sourceLabel: 'unit-test',
-          onUnknownFields: (fields, index) => warnings.push({ fields, index }),
-        }
-      )
-    ).toThrow();
+    const prepared = prepareDirectToolInput(
+      STATIC_TOOL_NAMES.LOCAL_RIPGREP,
+      [
+        { keywords: 'a', path: '.', limit: 3, bogusKey: true },
+        { keywords: 'b', path: '.', fixed_string: true },
+      ],
+      {
+        sourceLabel: 'unit-test',
+        onUnknownFields: (fields, index) => warnings.push({ fields, index }),
+      }
+    ) as { queries: Array<Record<string, unknown>> };
 
+    // Agent is still warned about the stray keys...
     expect(warnings).toEqual([
       { fields: ['limit', 'bogusKey'], index: 0 },
       { fields: ['fixed_string'], index: 1 },
     ]);
+    // ...but the call proceeds with the valid fields, stray keys stripped.
+    expect(prepared.queries[0]).toMatchObject({ keywords: 'a', path: '.' });
+    expect(prepared.queries[0]).not.toHaveProperty('bogusKey');
+    expect(prepared.queries[0]).not.toHaveProperty('limit');
+    expect(prepared.queries[1]).not.toHaveProperty('fixed_string');
   });
 
   it('preserves envelope-level fields alongside rebuilt queries', () => {

@@ -1,23 +1,72 @@
 import { LSPClient } from './client.js';
-import { getLanguageServerForFile } from './config.js';
+import {
+  getLanguageServerForFile,
+  resolveServerForFile,
+} from './config.js';
 import { LspClientPool, type PoolKey } from './lspClientPool.js';
-import { nativeBinding } from './native.js';
+import { manifestInstallHint } from './serverManifest.js';
 import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
+import type { LspServerSource } from './types.js';
 
 export async function isLanguageServerAvailable(
   filePath: string,
   workspaceRoot?: string
 ): Promise<boolean> {
-  const serverConfig = await getLanguageServerForFile(
+  const resolution = await resolveServerForFile(
     filePath,
     workspaceRoot ?? process.cwd()
   );
-  if (!serverConfig) return false;
-  return nativeBinding.isCommandAvailable(serverConfig.command);
+  return resolution != null && resolution.source !== 'unavailable';
 }
 
 export const LSP_UNAVAILABLE_HINT =
   'No language server is available for this file, so no semantic results were returned. Install a matching language server or set the relevant OCTOCODE_*_SERVER_PATH environment variable. For a text-based search meanwhile, use localSearchCode.';
+
+// Single source of truth for toolchain-coupled servers — ones that can't be a
+// portable download because they need a host toolchain/runtime to function.
+// Both `unavailableHintFor` (by languageId) and the CLI's `lsp-server`
+// (by server name) derive from this one list, so they can't drift.
+export interface ToolchainServer {
+  server: string;
+  languageId: string;
+  hint: string;
+}
+
+export const TOOLCHAIN_SERVERS: readonly ToolchainServer[] = [
+  {
+    server: 'gopls',
+    languageId: 'go',
+    hint: 'Install Go, then `go install golang.org/x/tools/gopls@latest` (gopls needs the Go toolchain at runtime).',
+  },
+  {
+    server: 'jdtls',
+    languageId: 'java',
+    hint: 'Install a JDK/JRE 21+ and Eclipse JDT LS (https://download.eclipse.org/jdtls/).',
+  },
+  {
+    server: 'sourcekit-lsp',
+    languageId: 'swift',
+    hint: 'Install Xcode or Xcode Command Line Tools (`xcode-select --install`); sourcekit-lsp ships at /usr/bin/sourcekit-lsp on macOS.',
+  },
+  {
+    server: 'csharp-ls',
+    languageId: 'csharp',
+    hint: 'Install .NET SDK, then `dotnet tool install -g csharp-ls` (adds csharp-ls to ~/.dotnet/tools).',
+  },
+];
+
+const TOOLCHAIN_INSTALL_HINTS: Record<string, string> = Object.fromEntries(
+  TOOLCHAIN_SERVERS.map(t => [t.languageId, t.hint])
+);
+
+/** Honest, actionable guidance for a file whose server did not resolve. */
+export function unavailableHintFor(languageId?: string, command?: string): string {
+  const toolchain = languageId ? TOOLCHAIN_INSTALL_HINTS[languageId] : undefined;
+  if (toolchain) return toolchain;
+  const manifest = command ? manifestInstallHint(command) : null;
+  if (manifest) return manifest;
+  return LSP_UNAVAILABLE_HINT;
+}
 
 const POOL_IDLE_TIMEOUT_MS = parseInt(
   process.env.OCTOCODE_LSP_POOL_IDLE_MS || '60000',
@@ -25,18 +74,15 @@ const POOL_IDLE_TIMEOUT_MS = parseInt(
 );
 
 // Languages whose servers emit $/progress notifications and need waitForReady.
-// TypeScript, Python, C/C++, and data-format servers (JSON/YAML/TOML/HTML/CSS)
+// TypeScript, Python, C/C++, and data-format servers (JSON/YAML/HTML/CSS)
 // answer queries immediately after the LSP handshake — skipping waitForReady
 // avoids burning the 2-second SETTLE_MS window for them.
 const PROGRESS_LANGUAGES: ReadonlySet<string> = new Set([
   'go',
   'rust',
   'java',
-  'kotlin',
-  'swift',
   'csharp',
-  'elixir',
-  'erlang',
+  'swift',
 ]);
 
 // Per-language upper bound for $/progress drain (ms).
@@ -45,11 +91,8 @@ const SERVER_READY_TIMEOUT_MS: Partial<Record<string, number>> = {
   go:      15_000,
   rust:    60_000,
   java:   120_000,
-  kotlin:  60_000,
-  swift:   30_000,
   csharp:  30_000,
-  elixir:  30_000,
-  erlang:  30_000,
+  swift:   30_000,
 };
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 
@@ -119,6 +162,8 @@ export type LspStatusResult = {
   workspaceRoot?: string;
   languageId?: string;
   serverAvailable?: boolean;
+  /** Which layer of the resolution ladder provided the server (or `unavailable`). */
+  serverSource?: LspServerSource;
   hints: string[];
 };
 
@@ -142,14 +187,10 @@ export async function getLspStatus(
 
   const workspaceRoot =
     input.workspaceRoot ?? (await resolveWorkspaceRootForFile(input.filePath));
-  const serverConfig = await getLanguageServerForFile(
-    input.filePath,
-    workspaceRoot
-  );
-  const languageId = serverConfig?.languageId;
-  const serverAvailable = serverConfig
-    ? nativeBinding.isCommandAvailable(serverConfig.command)
-    : false;
+  const resolution = await resolveServerForFile(input.filePath, workspaceRoot);
+  const languageId = resolution?.config.languageId;
+  const serverSource: LspServerSource = resolution?.source ?? 'unavailable';
+  const serverAvailable = serverSource !== 'unavailable';
 
   return {
     ...base,
@@ -157,9 +198,10 @@ export async function getLspStatus(
     workspaceRoot,
     languageId,
     serverAvailable,
+    serverSource,
     hints: serverAvailable
-      ? ['Language server appears available for this file.']
-      : [LSP_UNAVAILABLE_HINT],
+      ? [`Language server resolved for this file (source: ${serverSource}).`]
+      : [unavailableHintFor(languageId, resolution?.config.command)],
   };
 }
 

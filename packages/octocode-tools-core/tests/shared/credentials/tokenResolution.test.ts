@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const ENV_VARS = ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'] as const;
+const ENV_VARS = ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
 function saveAndClearEnv() {
@@ -110,6 +110,29 @@ describe('tokenResolution', () => {
         wasRefreshed: false,
         username: 'user1',
       });
+    });
+
+    it('picks up GITHUB_PERSONAL_ACCESS_TOKEN when all other env vars absent', async () => {
+      process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'pat-resolved';
+      const mod = await loadModule();
+      mod.initTokenResolution({ getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }) });
+
+      const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
+      expect(result).toMatchObject({
+        token: 'pat-resolved',
+        source: 'env:GITHUB_PERSONAL_ACCESS_TOKEN',
+      });
+    });
+
+    it('GITHUB_PERSONAL_ACCESS_TOKEN loses to GITHUB_TOKEN', async () => {
+      process.env.GITHUB_TOKEN = 'github-wins';
+      process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'pat-loses';
+      const mod = await loadModule();
+      mod.initTokenResolution({ getTokenWithRefresh: vi.fn().mockResolvedValue({ token: null, source: 'none' }) });
+
+      const result = await mod.resolveTokenFull({ getGhCliToken: () => null });
+      expect(result?.source).toBe('env:GITHUB_TOKEN');
+      expect(result?.token).toBe('github-wins');
     });
 
     it('reports wasRefreshed=true when token was refreshed', async () => {

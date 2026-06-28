@@ -239,6 +239,9 @@ function validateCommandArgs(
       };
     }
   }
+  // grep: no per-flag allowlist — only the shared dangerous-pattern scan below
+  // applies. grep flags are wide (e.g. -r, -Z, --include) and intentionally
+  // left to the pattern scan rather than a strict allowlist.
 
   const patternPositions = getPatternArgPositions(command, args);
 
@@ -338,16 +341,10 @@ function getFindPatternPositions(args: string[]): Set<number> {
 }
 
 function getPatternArgPositions(command: string, args: string[]): Set<number> {
-  switch (true) {
-    case isRgCommand(command):
-      return getRgPatternPositions(args);
-    case command === 'grep':
-      return getGrepPatternPositions(args);
-    case command === 'find':
-      return getFindPatternPositions(args);
-    default:
-      return new Set();
-  }
+  if (isRgCommand(command)) return getRgPatternPositions(args);
+  if (command === 'grep') return getGrepPatternPositions(args);
+  if (command === 'find') return getFindPatternPositions(args);
+  return new Set();
 }
 
 function findDisallowedRgFlag(args: string[]): string | null {

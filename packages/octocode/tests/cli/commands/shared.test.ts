@@ -48,7 +48,7 @@ vi.mock('../../../src/ui/constants.js', () => ({
 }));
 
 const authMocks = vi.hoisted(() => ({
-  getAuthStatus: vi.fn().mockReturnValue({
+  getAuthStatusAsync: vi.fn().mockResolvedValue({
     authenticated: false,
     hostname: 'github.com',
   }),
@@ -56,7 +56,7 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../../src/features/github-oauth.js', () => ({
-  getAuthStatus: authMocks.getAuthStatus,
+  getAuthStatusAsync: authMocks.getAuthStatusAsync,
   getStoragePath: authMocks.getStoragePath,
 }));
 
@@ -68,7 +68,7 @@ describe('cli/commands/shared', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    authMocks.getAuthStatus.mockReturnValue({
+    authMocks.getAuthStatusAsync.mockResolvedValue({
       authenticated: false,
       hostname: 'github.com',
     });
@@ -208,7 +208,7 @@ describe('cli/commands/shared', () => {
 
   describe('printAuthStatus', () => {
     it('prints the shared authenticated status shape', async () => {
-      authMocks.getAuthStatus.mockReturnValue({
+      authMocks.getAuthStatusAsync.mockResolvedValue({
         authenticated: true,
         hostname: 'github.com',
         username: 'octo',
@@ -217,7 +217,7 @@ describe('cli/commands/shared', () => {
       const { printAuthStatus } =
         await import('../../../src/cli/commands/shared.js');
 
-      printAuthStatus();
+      await printAuthStatus();
 
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('GitHub Authentication')
@@ -231,14 +231,14 @@ describe('cli/commands/shared', () => {
     });
 
     it('prints login hints for unauthenticated status', async () => {
-      authMocks.getAuthStatus.mockReturnValue({
+      authMocks.getAuthStatusAsync.mockResolvedValue({
         authenticated: false,
         hostname: 'github.com',
       });
       const { printAuthStatus } =
         await import('../../../src/cli/commands/shared.js');
 
-      printAuthStatus();
+      await printAuthStatus();
 
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Not authenticated')
@@ -327,6 +327,11 @@ describe('statusCommand', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.clearAllMocks();
+    authMocks.getAuthStatusAsync.mockResolvedValue({
+      authenticated: false,
+      hostname: 'github.com',
+    });
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     process.exitCode = undefined;
   });

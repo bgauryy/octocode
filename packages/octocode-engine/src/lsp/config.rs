@@ -223,12 +223,6 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_CSHARP_SERVER_PATH"),
         },
-        ".sh" | ".bash" | ".zsh" => ServerSpec {
-            language_id: "shellscript",
-            command: "bash-language-server",
-            args: &["start"],
-            env_var: Some("OCTOCODE_BASH_SERVER_PATH"),
-        },
         ".json" | ".jsonc" => ServerSpec {
             language_id: "json",
             command: "vscode-json-language-server",
@@ -240,12 +234,6 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             command: "yaml-language-server",
             args: &["--stdio"],
             env_var: Some("OCTOCODE_YAML_SERVER_PATH"),
-        },
-        ".toml" => ServerSpec {
-            language_id: "toml",
-            command: "taplo",
-            args: &["lsp", "stdio"],
-            env_var: Some("OCTOCODE_TOML_SERVER_PATH"),
         },
         ".html" | ".htm" => ServerSpec {
             language_id: "html",
@@ -271,42 +259,11 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &["--stdio"],
             env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
         },
-        // ── New language additions ────────────────────────────────────────────
-        ".rb" | ".rake" | ".gemspec" | ".ru" => ServerSpec {
-            language_id: "ruby",
-            command: "ruby-lsp",
-            args: &[],
-            env_var: Some("OCTOCODE_RUBY_SERVER_PATH"),
-        },
         ".php" => ServerSpec {
             language_id: "php",
             command: "intelephense",
             args: &["--stdio"],
             env_var: Some("OCTOCODE_PHP_SERVER_PATH"),
-        },
-        ".kt" | ".kts" => ServerSpec {
-            language_id: "kotlin",
-            command: "kotlin-language-server",
-            args: &[],
-            env_var: Some("OCTOCODE_KOTLIN_SERVER_PATH"),
-        },
-        ".ex" | ".exs" => ServerSpec {
-            language_id: "elixir",
-            command: "elixir-ls",
-            args: &[],
-            env_var: Some("OCTOCODE_ELIXIR_SERVER_PATH"),
-        },
-        ".tf" | ".hcl" | ".tfvars" => ServerSpec {
-            language_id: "terraform",
-            command: "terraform-ls",
-            args: &["serve"],
-            env_var: Some("OCTOCODE_TERRAFORM_SERVER_PATH"),
-        },
-        ".lua" => ServerSpec {
-            language_id: "lua",
-            command: "lua-language-server",
-            args: &[],
-            env_var: Some("OCTOCODE_LUA_SERVER_PATH"),
         },
         ".sql" => ServerSpec {
             language_id: "sql",
@@ -314,47 +271,11 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_SQL_SERVER_PATH"),
         },
-        ".proto" => ServerSpec {
-            language_id: "proto",
-            command: "protols",
-            args: &[],
-            env_var: Some("OCTOCODE_PROTO_SERVER_PATH"),
-        },
-        ".ml" | ".mli" => ServerSpec {
-            language_id: "ocaml",
-            command: "ocamllsp",
-            args: &[],
-            env_var: Some("OCTOCODE_OCAML_SERVER_PATH"),
-        },
-        ".zig" => ServerSpec {
-            language_id: "zig",
-            command: "zls",
-            args: &[],
-            env_var: Some("OCTOCODE_ZIG_SERVER_PATH"),
-        },
-        ".jl" => ServerSpec {
-            language_id: "julia",
-            command: "julia",
-            args: &["--project=@.", "-e", "using LanguageServer; runserver()"],
-            env_var: Some("OCTOCODE_JULIA_SERVER_PATH"),
-        },
-        ".erl" | ".hrl" => ServerSpec {
-            language_id: "erlang",
-            command: "erlang-ls",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_ERLANG_SERVER_PATH"),
-        },
         ".swift" => ServerSpec {
             language_id: "swift",
             command: "sourcekit-lsp",
             args: &[],
             env_var: Some("OCTOCODE_SWIFT_SERVER_PATH"),
-        },
-        ".r" => ServerSpec {
-            language_id: "r",
-            command: "R",
-            args: &["--slave", "-e", "languageserver::run()"],
-            env_var: Some("OCTOCODE_R_SERVER_PATH"),
         },
         _ => return None,
     };

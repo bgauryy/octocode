@@ -1,7 +1,10 @@
 import type { TokenSource } from '../../types/index.js';
 import { c, bold, dim } from '../../utils/colors.js';
 import { IDE_INFO, CLIENT_INFO } from '../../ui/constants.js';
-import { getAuthStatus, getStoragePath } from '../../features/github-oauth.js';
+import {
+  getAuthStatusAsync,
+  getStoragePath,
+} from '../../features/github-oauth.js';
 import { DETECTABLE_MCP_CLIENTS } from '../../utils/mcp-paths.js';
 
 export type GetTokenSource = 'octocode' | 'gh' | 'auto';
@@ -65,10 +68,10 @@ export function printLoginHint(): void {
   console.log(`    ${c('cyan', '→')} ${c('yellow', 'gh auth login')}`);
 }
 
-export function formatAuthStatusAsJson(
+export async function formatAuthStatusAsJson(
   hostname: string
-): Record<string, unknown> {
-  const status = getAuthStatus(hostname);
+): Promise<Record<string, unknown>> {
+  const status = await getAuthStatusAsync(hostname);
   const tokenSource = status.tokenSource || 'none';
   const tokenPresent = tokenSource !== 'none';
   return {
@@ -83,12 +86,14 @@ export function formatAuthStatusAsJson(
   };
 }
 
-export function printAuthStatus(hostname: string = 'github.com'): void {
+export async function printAuthStatus(
+  hostname: string = 'github.com'
+): Promise<void> {
   console.log();
   console.log(`  ${bold('🔐 GitHub Authentication')}`);
   console.log();
 
-  const status = getAuthStatus(hostname);
+  const status = await getAuthStatusAsync(hostname);
 
   if (status.authenticated) {
     console.log(

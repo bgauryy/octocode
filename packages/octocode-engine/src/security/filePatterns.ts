@@ -1,3 +1,9 @@
+// File-access block list: prevents reading sensitive files by name/extension.
+// SYNC NOTE: discoveryFilter.ts:DISCOVERY_IGNORED_FILE_NAMES and
+// DISCOVERY_IGNORED_FILE_EXTENSIONS partially overlap this list (e.g. id_rsa,
+// id_dsa, .pem, .key, .crt). Both sets must be kept in sync — a new sensitive
+// file added here should also be added to discoveryFilter.ts to prevent it
+// from appearing in discovery results, and vice versa.
 export const IGNORED_FILE_PATTERNS: RegExp[] = [
   /\.env$/,
   /\.env\..+$/,

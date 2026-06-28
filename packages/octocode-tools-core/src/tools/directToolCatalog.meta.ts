@@ -16,7 +16,7 @@
  */
 import { z } from 'zod';
 import { OQL_SEARCH_TOOL_NAME, STATIC_TOOL_NAMES } from './toolNames.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   CloneRepoQueryLocalSchema,
   BulkCloneRepoLocalSchema,
@@ -107,7 +107,7 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
     STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT,
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
-    LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+    LSP_GET_SEMANTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
     OQL_SEARCH_TOOL_NAME,
   ].map((name, index) => [name, index])
@@ -262,7 +262,7 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     inputSchema: LocalFetchContentBulkQuerySchema,
   },
   {
-    name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+    name: LSP_GET_SEMANTICS_TOOL_NAME,
     schema: LspGetSemanticsQueryDisplaySchema,
     inputSchema: BulkLspGetSemanticsQuerySchema,
   },
@@ -471,7 +471,7 @@ function buildSchemaDerivedExampleQuery(
     example.uri ??= 'uri';
   }
 
-  if (toolName === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME) {
+  if (toolName === LSP_GET_SEMANTICS_TOOL_NAME) {
     example.type ??= 'definition';
     example.symbolName ??= 'symbolName';
     example.lineHint ??= 1;
@@ -698,7 +698,7 @@ function buildKnownDirectToolCommandPatternQueries(
     ];
   }
 
-  if (toolName === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME) {
+  if (toolName === LSP_GET_SEMANTICS_TOOL_NAME) {
     return [
       {
         label: 'semantic definition',
@@ -800,27 +800,17 @@ function buildDirectToolPayload(
         )
       : {};
 
-  let hadUnknownFields = false;
-  const wrappedOptions: PrepareDirectToolInputOptions = {
-    ...options,
-    onUnknownFields: (fields, index) => {
-      hadUnknownFields = true;
-      options.onUnknownFields?.(fields, index);
-    },
-  };
+  // Unknown fields never hard-fail the call: normalizeQueryObject drops them and
+  // the agent is warned via onUnknownFields. Proceeding with the valid fields is
+  // more robust for agents that send a stray or typo'd key.
   const processedQueries = queriesInput.map((query, index) =>
     applyDefaultQueryFields(
       toolName,
       index,
-      normalizeQueryObject(toolName, query, index, wrappedOptions),
+      normalizeQueryObject(toolName, query, index, options),
       { sourceLabel: options.sourceLabel }
     )
   );
-  if (hadUnknownFields && options.onUnknownFields !== undefined) {
-    throw new DirectToolInputError(
-      'Tool input contains unknown fields. See warnings above for details.'
-    );
-  }
   return { ...envelopeFields, queries: processedQueries };
 }
 

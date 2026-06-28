@@ -140,6 +140,24 @@ describe('octocode search command', () => {
     expect(runOqlSearch).not.toHaveBeenCalled();
   });
 
+  it('--scheme --compact prints the lean agent guide derived from the schema', async () => {
+    // oqlCompactSchemeText is NOT mocked (only oqlSchemaText is), so this runs
+    // the real renderer over OQL_SCHEMA_DOC.
+    await run({ scheme: true, compact: true });
+    expect(stdout).toContain('compact agent guide');
+    expect(stdout).toContain('SOURCE');
+    expect(stdout).toContain('TARGET');
+    // npm + remote-file-read recipes (Haiku gaps) are surfaced
+    expect(stdout).toContain('--target packages');
+    expect(stdout).toContain('--content-view exact');
+    // references vs callers distinction
+    expect(stdout).toContain('references');
+    expect(stdout).toContain('callers');
+    // points back to the full schema, and never runs a query
+    expect(stdout).toContain('search --scheme');
+    expect(runOqlSearch).not.toHaveBeenCalled();
+  });
+
   it('errors with USAGE exit when no query is provided', async () => {
     await run({});
     expect(process.exitCode).toBe(EXIT.USAGE);

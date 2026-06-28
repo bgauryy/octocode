@@ -10,7 +10,7 @@ import type {
 import {
   ALL_TOOLS as CORE_ALL_TOOLS,
   STATIC_TOOL_NAMES,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  LSP_GET_SEMANTICS_TOOL_NAME,
   OQL_SEARCH_TOOL_NAME,
   DEFAULT_TOOL_METADATA_GATEWAY,
   getDescription,
@@ -60,7 +60,7 @@ const MCP_FN_MAP: Record<string, McpToolConfig['fn']> = {
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: registerLocalViewStructureTool,
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: registerLocalFindFilesTool,
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: registerLocalFetchContentTool,
-  [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: registerLspGetSemanticsTool,
+  [LSP_GET_SEMANTICS_TOOL_NAME]: registerLspGetSemanticsTool,
   [STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT]: registerLocalBinaryInspectTool,
   [OQL_SEARCH_TOOL_NAME]: registerOqlSearchTool,
 };
@@ -107,7 +107,7 @@ export const LOCAL_FETCH_CONTENT = ALL_TOOLS.find(
   t => t.name === STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT
 )!;
 export const LSP_GET_SEMANTIC_CONTENT = ALL_TOOLS.find(
-  t => t.name === LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
+  t => t.name === LSP_GET_SEMANTICS_TOOL_NAME
 )!;
 export const LOCAL_BINARY_INSPECT = ALL_TOOLS.find(
   t => t.name === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT

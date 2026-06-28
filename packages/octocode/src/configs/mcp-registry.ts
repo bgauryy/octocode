@@ -1277,10 +1277,10 @@ export const MCP_REGISTRY: MCPRegistryEntry[] = [
     category: 'developer-tools',
     repository: 'https://github.com/bgauryy/octocode-mcp',
     installationType: 'npx',
-    npmPackage: 'octocode-mcp',
+    npmPackage: '@octocodeai/mcp',
     installConfig: {
       command: 'npx',
-      args: ['-y', 'octocode-mcp@latest'],
+      args: ['-y', '@octocodeai/mcp@latest'],
     },
     requiredEnvVars: [
       {

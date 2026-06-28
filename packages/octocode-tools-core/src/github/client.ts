@@ -30,9 +30,6 @@ function isExpired(cached: CachedInstance): boolean {
 }
 
 const instances = new Map<string, CachedInstance>();
-let pendingDefaultPromise: Promise<
-  InstanceType<typeof OctokitWithThrottling>
-> | null = null;
 
 let purgeTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -44,9 +41,9 @@ function purgeExpiredInstances(): void {
   }
 
   if (instances.size > MAX_INSTANCES) {
-    const sorted = [...instances.entries()]
-      .filter(([key]) => key !== 'DEFAULT')
-      .sort((a, b) => a[1].createdAt - b[1].createdAt);
+    const sorted = [...instances.entries()].sort(
+      (a, b) => a[1].createdAt - b[1].createdAt
+    );
 
     const excess = instances.size - MAX_INSTANCES;
     for (let i = 0; i < excess && i < sorted.length; i++) {
@@ -143,44 +140,21 @@ export async function getOctokit(
 ): Promise<InstanceType<typeof OctokitWithThrottling>> {
   ensurePurgeTimer();
 
-  if (authInfo?.token) {
-    const key = hashToken(authInfo.token);
-    const cached = instances.get(key);
+  const token = authInfo?.token ?? (await getGitHubToken());
+  const key = token ? hashToken(token) : 'ANONYMOUS';
 
-    if (cached && !isExpired(cached)) {
-      return cached.client;
-    }
-
-    if (instances.size >= MAX_INSTANCES) {
-      purgeExpiredInstances();
-    }
-
-    const newInstance = createOctokitInstance(authInfo.token);
-    instances.set(key, { client: newInstance, createdAt: Date.now() });
-    return newInstance;
+  const cached = instances.get(key);
+  if (cached && !isExpired(cached)) {
+    return cached.client;
   }
 
-  const defaultCached = instances.get('DEFAULT');
-  if (defaultCached && !isExpired(defaultCached)) {
-    return defaultCached.client;
+  if (instances.size >= MAX_INSTANCES) {
+    purgeExpiredInstances();
   }
 
-  if (pendingDefaultPromise) {
-    return pendingDefaultPromise;
-  }
-
-  pendingDefaultPromise = (async () => {
-    try {
-      const token = await getGitHubToken();
-      const instance = createOctokitInstance(token ?? undefined);
-      instances.set('DEFAULT', { client: instance, createdAt: Date.now() });
-      return instance;
-    } finally {
-      pendingDefaultPromise = null;
-    }
-  })();
-
-  return pendingDefaultPromise;
+  const newInstance = createOctokitInstance(token ?? undefined);
+  instances.set(key, { client: newInstance, createdAt: Date.now() });
+  return newInstance;
 }
 
 export const MAX_BRANCH_CACHE_SIZE = 200;
@@ -234,7 +208,6 @@ function cacheDefaultBranch(cacheKey: string, branch: string): void {
 
 export function clearOctokitInstances(): void {
   instances.clear();
-  pendingDefaultPromise = null;
   defaultBranchCache.clear();
 
   if (purgeTimer) {

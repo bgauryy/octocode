@@ -215,7 +215,7 @@ describe('skillCommand', () => {
     });
   });
 
-  it('requires an explicit platform for agent-safe installs', async () => {
+  it('defaults to the common platform when none is given', async () => {
     const command = await loadCommand();
 
     await command.handler({
@@ -227,12 +227,20 @@ describe('skillCommand', () => {
       },
     });
 
-    expect(process.exitCode).toBe(EXIT.USAGE);
-    expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
+    // No rigid "--platform required" gate: it falls back to the platform-agnostic
+    // `common` target and installs.
+    expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalled();
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/agents/review',
+        mode: 'copy',
+      })
+    );
     expect(jsonOutput()).toMatchObject({
-      success: false,
-      error:
-        'Missing required option: --platform <common|cursor|claude|codex|all>',
+      success: true,
+      skill: 'review',
+      platforms: ['common'],
+      installed: 1,
     });
   });
 
@@ -264,7 +272,7 @@ describe('skillCommand', () => {
     );
   });
 
-  it('does not prompt for platform selection in a TTY', async () => {
+  it('uses the common default in a TTY without prompting', async () => {
     setStdoutTTY(true);
     const command = await loadCommand();
 
@@ -276,8 +284,10 @@ describe('skillCommand', () => {
       },
     });
 
-    expect(process.exitCode).toBe(EXIT.USAGE);
-    expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
+    // A TTY must not trigger an interactive platform prompt — it proceeds with
+    // the `common` default and installs non-interactively.
+    expect(process.exitCode).not.toBe(EXIT.USAGE);
+    expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalled();
   });
 
   it('rejects unsafe Octocode skill names', async () => {

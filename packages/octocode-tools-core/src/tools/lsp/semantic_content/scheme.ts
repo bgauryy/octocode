@@ -99,7 +99,6 @@ const LspSchema = z.object({
 });
 
 const EmptyCategorySchema = z.enum([
-  'serverUnavailable',
   'unsupportedOperation',
   'symbolNotFound',
   'anchorFailed',

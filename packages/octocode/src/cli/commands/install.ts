@@ -397,7 +397,7 @@ export const installCommand: CLICommand = {
     if (result.success) {
       spinner?.succeed('Installation complete!');
       console.log();
-      console.log(`  ${bold('Installing octocode-mcp')}`);
+      console.log(`  ${bold('Installing @octocodeai/mcp')}`);
       console.log(`    ${dim('IDE:')}    ${getIDEDisplayName(installClient)}`);
       console.log(
         `    ${dim('Method:')} ${INSTALL_METHOD_INFO[installMethod].name}`

@@ -141,4 +141,4 @@ For the complete package documentation index, see [docs/README.md](https://githu
 ## See Also
 
 - [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) — All env vars and `.octocoderc` options
-- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md) — GitHub auth
+- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) — GitHub auth

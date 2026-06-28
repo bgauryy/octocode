@@ -60,21 +60,32 @@ vi.mock('../../../src/features/gh-auth.js', () => ({
   }),
 }));
 
-vi.mock('../../../src/features/github-oauth.js', () => ({
-  login: vi.fn(),
-  logout: vi.fn(),
-  getAuthStatus: vi.fn(),
-  getStoragePath: vi.fn().mockReturnValue('/mock/.octocode/credentials.json'),
-  getOctocodeToken: vi.fn(),
-  getGhCliToken: vi.fn(),
-  getToken: vi.fn(),
-  getTokenType: vi.fn(),
-  refreshAuthToken: vi.fn(),
-}));
+vi.mock('../../../src/features/github-oauth.js', () => {
+  const getAuthStatus = vi
+    .fn()
+    .mockReturnValue({ authenticated: false, tokenSource: 'none' });
+  return {
+    login: vi.fn(),
+    logout: vi.fn(),
+    getAuthStatus,
+    getAuthStatusAsync: vi
+      .fn()
+      .mockImplementation(async (...args: unknown[]) =>
+        getAuthStatus(...(args as Parameters<typeof getAuthStatus>))
+      ),
+    getStoragePath: vi.fn().mockReturnValue('/mock/.octocode/credentials.json'),
+    getOctocodeToken: vi.fn(),
+    getGhCliToken: vi.fn(),
+    getToken: vi.fn(),
+    getTokenType: vi.fn(),
+    refreshAuthToken: vi.fn(),
+  };
+});
 
 vi.mock('../../../src/utils/token-storage.js', () => ({
   getCredentials: vi.fn().mockResolvedValue(null),
   hasEnvToken: vi.fn().mockReturnValue(false),
+  getEnvTokenSource: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('../../../src/utils/prompts.js', () => ({
@@ -519,6 +530,119 @@ describe('cli/commands/auth', () => {
       expect(parsed.success).toBe(false);
       expect(parsed.error).toContain('Invalid git protocol');
       expect(process.exitCode).toBe(EXIT.USAGE);
+    });
+
+    // Issue 3: dead branch removed — authenticated+tokenSource=undefined no longer treated as octocode
+    it('does not treat authenticated-but-missing-tokenSource as already-octocode', async () => {
+      const { loginCommand, getAuthStatus, login } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: true,
+        hostname: 'github.com',
+        tokenSource: undefined as never,
+      });
+      vi.mocked(login).mockResolvedValue({ success: true, username: 'x' });
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: { json: true },
+      });
+
+      // Should NOT show "alreadyAuthenticated: true" — should proceed with OAuth
+      const lines = jsonLines();
+      const alreadyMsg = lines.find(l => l.alreadyAuthenticated === true);
+      expect(alreadyMsg).toBeUndefined();
+    });
+
+    // Issue 4: env token priority warning
+    it('warns in plain mode when an env token is active before starting OAuth', async () => {
+      const {
+        loginCommand,
+        getAuthStatus,
+        login,
+        hasEnvToken,
+        getEnvTokenSource,
+      } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+        tokenSource: 'none',
+      });
+      vi.mocked(hasEnvToken).mockReturnValue(true);
+      vi.mocked(getEnvTokenSource).mockReturnValue('env:OCTOCODE_TOKEN');
+      vi.mocked(login).mockResolvedValue({ success: true, username: 'x' });
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: { json: false },
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('OCTOCODE_TOKEN')
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('takes priority')
+      );
+    });
+
+    it('emits json warning step when env token is active', async () => {
+      const {
+        loginCommand,
+        getAuthStatus,
+        login,
+        hasEnvToken,
+        getEnvTokenSource,
+      } = await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+        tokenSource: 'none',
+      });
+      vi.mocked(hasEnvToken).mockReturnValue(true);
+      vi.mocked(getEnvTokenSource).mockReturnValue(
+        'env:GITHUB_PERSONAL_ACCESS_TOKEN'
+      );
+      vi.mocked(login).mockResolvedValue({ success: true, username: 'x' });
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: { json: true },
+      });
+
+      const lines = jsonLines();
+      const warning = lines.find(l => l.step === 'warning');
+      expect(warning).toBeDefined();
+      expect(String(warning!.envVar)).toContain('GITHUB_PERSONAL_ACCESS_TOKEN');
+    });
+
+    // Issue 2: auth menu env var hint
+    it('includes env var hint in choices when no auth found', async () => {
+      const { loginCommand, getAuthStatus, select, hasEnvToken } =
+        await loadAuthModule();
+      vi.mocked(getAuthStatus).mockReturnValue({
+        authenticated: false,
+        hostname: 'github.com',
+        tokenSource: 'none',
+      });
+      vi.mocked(hasEnvToken).mockReturnValue(false);
+      vi.mocked(select).mockResolvedValue('back');
+
+      await loginCommand.handler!({
+        command: 'login',
+        args: [],
+        options: {},
+      });
+
+      const callArgs = vi.mocked(select).mock.calls[0]?.[0] as {
+        choices: Array<{ type?: string; separator?: string }>;
+      };
+      const separators = callArgs.choices.filter(c => c.type === 'separator');
+      const envHint = separators.some(
+        s => s.separator && /OCTOCODE_TOKEN|GITHUB_TOKEN/i.test(s.separator)
+      );
+      expect(envHint).toBe(true);
     });
   });
 

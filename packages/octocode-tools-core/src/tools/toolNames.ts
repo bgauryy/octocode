@@ -3,7 +3,7 @@ import { completeMetadata } from '@octocodeai/octocode-core';
 export const STATIC_TOOL_NAMES = completeMetadata.toolNames;
 
 // Derived from core — single source of truth, drift-proof.
-export const LSP_GET_SEMANTIC_CONTENT_TOOL_NAME =
+export const LSP_GET_SEMANTICS_TOOL_NAME =
   STATIC_TOOL_NAMES.LSP_GET_SEMANTIC_CONTENT;
 
 // OQL is currently a tools-core search surface; keep its name in one place
@@ -16,7 +16,7 @@ const LOCAL_TOOL_NAMES_SET = new Set<string>([
   STATIC_TOOL_NAMES.LOCAL_FIND_FILES,
   STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
   STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  LSP_GET_SEMANTICS_TOOL_NAME,
 ]);
 
 export function isLocalTool(toolName: string): boolean {

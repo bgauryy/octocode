@@ -56,6 +56,7 @@ export const USER_SKILL_PLATFORMS = [
   'cursor',
   'claude',
   'codex',
+  'opencode',
 ] as const;
 export type UserSkillPlatform = (typeof USER_SKILL_PLATFORMS)[number];
 export const DEFAULT_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
@@ -73,6 +74,7 @@ export const USER_SKILL_PLATFORM_TARGETS: Record<
   cursor: ['cursor'],
   claude: CLAUDE_SKILL_INSTALL_TARGETS,
   codex: ['codex'],
+  opencode: ['opencode'],
 };
 export type SkillInstallResult = 'installed' | 'skipped' | 'failed';
 

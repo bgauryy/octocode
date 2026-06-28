@@ -3,7 +3,7 @@ import { incrementToolCharSavings } from '@octocodeai/octocode-tools-core/sessio
 import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import { attachRawResponseChars } from '../../../octocode-tools-core/src/utils/response/charSavings.js';
 import { createMockMcpServer } from '../fixtures/mcp-fixtures.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 
 const mockSearchContentRipgrep = vi.hoisted(() => vi.fn());
 const mockViewStructure = vi.hoisted(() => vi.fn());
@@ -59,7 +59,7 @@ const RAW_BY_TOOL: Record<string, number> = {
   [TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: 22_222,
   [TOOL_NAMES.LOCAL_FIND_FILES]: 33_333,
   [TOOL_NAMES.LOCAL_FETCH_CONTENT]: 44_444,
-  [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: 55_555,
+  [LSP_GET_SEMANTICS_TOOL_NAME]: 55_555,
 };
 
 describe('local + LSP tool stats runtime contract', () => {
@@ -180,7 +180,7 @@ describe('local + LSP tool stats runtime contract', () => {
       ],
     });
 
-    await mockServer.callTool(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME, {
+    await mockServer.callTool(LSP_GET_SEMANTICS_TOOL_NAME, {
       queries: [
         {
           id: 'semantic',
@@ -200,7 +200,7 @@ describe('local + LSP tool stats runtime contract', () => {
       TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
       TOOL_NAMES.LOCAL_FIND_FILES,
       TOOL_NAMES.LOCAL_FETCH_CONTENT,
-      LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+      LSP_GET_SEMANTICS_TOOL_NAME,
     ];
 
     expect(recordedToolNames).toEqual(expectedToolNames);

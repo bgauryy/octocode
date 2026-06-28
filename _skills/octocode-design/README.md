@@ -37,7 +37,7 @@ The skill is system-level, not only visual. It covers:
 - Local tools enabled (`ENABLE_LOCAL=true`) for project-level analysis.
 
 See:
-- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md)
+- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
 - [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md)
 
 ---

@@ -38,8 +38,12 @@ describe('ENV_TOKEN_VARS', () => {
     expect(ENV_TOKEN_VARS[2]).toBe('GITHUB_TOKEN');
   });
 
-  it('should have exactly 3 entries', () => {
-    expect(ENV_TOKEN_VARS).toHaveLength(3);
+  it('should have GITHUB_PERSONAL_ACCESS_TOKEN fourth (lowest priority)', () => {
+    expect(ENV_TOKEN_VARS[3]).toBe('GITHUB_PERSONAL_ACCESS_TOKEN');
+  });
+
+  it('should have exactly 4 entries', () => {
+    expect(ENV_TOKEN_VARS).toHaveLength(4);
   });
 });
 
@@ -76,6 +80,23 @@ describe('getTokenFromEnv', () => {
   it('prefers GH_TOKEN over GITHUB_TOKEN', () => {
     process.env.GH_TOKEN = 'winner';
     process.env.GITHUB_TOKEN = 'loser';
+    expect(getTokenFromEnv()).toBe('winner');
+  });
+
+  it('returns GITHUB_PERSONAL_ACCESS_TOKEN when all higher-priority vars absent', () => {
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'pat-token-abc';
+    expect(getTokenFromEnv()).toBe('pat-token-abc');
+  });
+
+  it('prefers GITHUB_TOKEN over GITHUB_PERSONAL_ACCESS_TOKEN', () => {
+    process.env.GITHUB_TOKEN = 'winner';
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'loser';
+    expect(getTokenFromEnv()).toBe('winner');
+  });
+
+  it('prefers OCTOCODE_TOKEN over GITHUB_PERSONAL_ACCESS_TOKEN', () => {
+    process.env.OCTOCODE_TOKEN = 'winner';
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'loser';
     expect(getTokenFromEnv()).toBe('winner');
   });
 
@@ -123,6 +144,17 @@ describe('getEnvTokenSource', () => {
     process.env.GH_TOKEN = 'b';
     process.env.GITHUB_TOKEN = 'c';
     expect(getEnvTokenSource()).toBe('env:OCTOCODE_TOKEN');
+  });
+
+  it('returns "env:GITHUB_PERSONAL_ACCESS_TOKEN" when only PAT is set', () => {
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'tok';
+    expect(getEnvTokenSource()).toBe('env:GITHUB_PERSONAL_ACCESS_TOKEN');
+  });
+
+  it('GITHUB_TOKEN wins over GITHUB_PERSONAL_ACCESS_TOKEN', () => {
+    process.env.GITHUB_TOKEN = 'a';
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'b';
+    expect(getEnvTokenSource()).toBe('env:GITHUB_TOKEN');
   });
 });
 

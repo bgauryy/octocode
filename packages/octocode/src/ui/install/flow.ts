@@ -226,7 +226,7 @@ async function showConfirmationAndPrompt(
   console.log();
   console.log(`  ${bold('Summary:')}`);
   console.log(`    ${dim('Client:')}       ${clientInfo.name}`);
-  console.log(`    ${dim('Method:')}       npx (octocode-mcp@latest)`);
+  console.log(`    ${dim('Method:')}       npx (@octocodeai/mcp@latest)`);
 
   const localStatus = state.enableLocal
     ? c('green', 'Enabled')
@@ -302,7 +302,7 @@ async function performInstall(state: InstallFlowState): Promise<void> {
     envOptions
   );
 
-  const spinner = new Spinner('Configuring octocode-mcp...').start();
+  const spinner = new Spinner('Configuring @octocodeai/mcp...').start();
 
   const result = installOctocodeForClient({
     client: state.client!,

@@ -122,15 +122,15 @@
       }
     },
     {
-      "ext": "sh",
-      "file": "nvm.sh",
-      "bytes": 159400,
-      "sha256": "3561491d0a9e6c59d934f2c9e2f1095788a6fe3be21fcec224271cfb2a41587a",
+      "ext": "swift",
+      "file": "swift-rotate.swift",
+      "bytes": 10572,
+      "sha256": "3dad75dd195bcdf2a0baf77bd68a4fda6216cb9eb4edd9cd032e82f7ac5b5fb7",
       "source": {
-        "repo": "nvm-sh/nvm",
-        "branch": "master",
-        "path": "nvm.sh",
-        "url": "https://raw.githubusercontent.com/nvm-sh/nvm/master/nvm.sh"
+        "repo": "apple/swift-algorithms",
+        "branch": "main",
+        "path": "Sources/Algorithms/Rotate.swift",
+        "url": "https://raw.githubusercontent.com/apple/swift-algorithms/main/Sources/Algorithms/Rotate.swift"
       }
     },
     {
@@ -206,15 +206,15 @@
       }
     },
     {
-      "ext": "toml",
-      "file": "pip-pyproject.toml",
-      "bytes": 10622,
-      "sha256": "1bd29dcf2da5d41e7aff9ae1372b8483f65e538aaa9ebf2d0ef9a70179ca994a",
+      "ext": "sql",
+      "file": "adventureworks.sql",
+      "bytes": 5649,
+      "sha256": "759c1fbd78f05ff40da0326d42c9727fe09a03da07804a9b8acdbcfa6b98181a",
       "source": {
-        "repo": "pypa/pip",
-        "branch": "main",
-        "path": "pyproject.toml",
-        "url": "https://raw.githubusercontent.com/pypa/pip/main/pyproject.toml"
+        "repo": "local",
+        "branch": "n/a",
+        "path": "benchmark/samples/adventureworks.sql",
+        "url": "https://learn.microsoft.com/en-us/sql/samples/adventureworks-install-configure"
       }
     }
   ]

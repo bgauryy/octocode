@@ -82,6 +82,8 @@ export const OQL_SCHEMA_DOC = {
       'search ./src --tree   |   search facebook/react --tree',
     'read a file (local or owner/repo/path)':
       'search ./src/index.ts   |   search facebook/react/packages/react/src/index.js',
+    'read a remote file (exact)':
+      'search facebook/react/README.md --content-view exact',
     'semantics (local/materialized)':
       'search ./src/index.ts --op documentSymbols   |   search ./src/index.ts --op references --symbol runCLI --line 42',
     'artifact inspect/list':
@@ -128,6 +130,17 @@ export const OQL_SCHEMA_DOC = {
       'Non-fatal structural-search warning. Some files were not parsed, often because a literal prefilter had no anchor; add a literal/rule or broaden proof before claiming absence.',
     providerUnindexed:
       'GitHub provider returned zero rows. This is NOT absence. Verify the path with structure, then use bounded local proof: search "term" path --repo owner/repo --materialize required, clone owner/repo[/path], or cache fetch owner/repo [path] --depth file|tree|clone.',
+  },
+  // LSP op distinctions agents most often confuse. documentSymbols is the
+  // anchor step; references ≠ callers.
+  semanticsGuide: {
+    documentSymbols:
+      "list a file's symbols to get line anchors first (run before references/callers/hover)",
+    references:
+      'all usages of a symbol across the workspace (often includes its declaration)',
+    callers:
+      'incoming calls to a function/method (call sites only) — narrower than references',
+    hover: 'type, signature, and docs at a symbol',
   },
   query: {
     schema: '"oql" (inserted by normalization)',
@@ -205,4 +218,88 @@ export const OQL_SCHEMA_DOC = {
 
 export function oqlSchemaText(): string {
   return JSON.stringify(OQL_SCHEMA_DOC, null, 2);
+}
+
+/**
+ * Extract the first copy-paste shorthand from a sourceGuide entry. Shorthands
+ * are comma-separated; the list ends at a sentence boundary (". "). Path dots
+ * like `./src` are followed by a non-space, so they don't end the shorthand.
+ */
+function firstShorthand(guide: string): string | null {
+  const marker = 'shorthand: ';
+  const i = guide.indexOf(marker);
+  if (i === -1) return null;
+  const rest = guide.slice(i + marker.length).trim();
+  let end = rest.length;
+  const comma = rest.indexOf(',');
+  if (comma !== -1) end = Math.min(end, comma);
+  const sentenceEnd = rest.search(/\.\s/);
+  if (sentenceEnd !== -1) end = Math.min(end, sentenceEnd);
+  const shorthand = rest.slice(0, end).trim().replace(/\.$/, '');
+  return shorthand || null;
+}
+
+/**
+ * Lean, agent-facing summary of the OQL contract, served by
+ * `octocode search --scheme --compact`. Every section is DERIVED from
+ * `OQL_SCHEMA_DOC` (sourceGuide, targetDecisionTree, quickStart, semanticsGuide,
+ * agentBestPractices, evidenceSemantics) so it can never drift from the full
+ * `--scheme`. Cold agents read this; advanced flows stay in the full schema.
+ */
+export function oqlCompactSchemeText(): string {
+  const d = OQL_SCHEMA_DOC;
+  const lines: string[] = [
+    'octocode search — compact agent guide (full reference: search --scheme)',
+    '',
+    'SOURCE — where to look (choose one):',
+  ];
+
+  const sourceOrder = ['local', 'github', 'npm', 'materialized'] as const;
+  for (const key of sourceOrder) {
+    const sh = firstShorthand(d.sourceGuide[key]);
+    lines.push(
+      `  ${key.padEnd(13)}${sh ?? 'a prior clone / cache fetch / materialize localPath'}`
+    );
+  }
+
+  lines.push('', 'TARGET — answer type (--target, or inferred from the args):');
+  const seenTargets = new Set<string>();
+  for (const [task, route] of Object.entries(d.targetDecisionTree)) {
+    const m = route.match(/target:(\w+)/);
+    const target = m?.[1];
+    if (!target || seenTargets.has(target)) continue;
+    seenTargets.add(target);
+    lines.push(`  ${target.padEnd(13)}${task}`);
+  }
+
+  lines.push('', 'COMMON RECIPES:');
+  const recipeKeys = [
+    'text search (local)',
+    'text search (GitHub)',
+    'read a remote file (exact)',
+    'package lookup (npm)',
+    'semantics (local/materialized)',
+  ];
+  const quickStart = d.quickStart as Record<string, string>;
+  for (const key of recipeKeys) {
+    const recipe = quickStart[key];
+    if (recipe) lines.push(`  ${recipe}`);
+  }
+
+  lines.push('', 'LSP SEMANTICS (run documentSymbols first, then narrow):');
+  for (const [op, desc] of Object.entries(d.semanticsGuide)) {
+    lines.push(`  ${op.padEnd(16)}${desc}`);
+  }
+
+  lines.push('', 'PROOF — snippets are discovery, not proof:');
+  const snippetRule = d.agentBestPractices.find(b => /snippet/i.test(b));
+  if (snippetRule) lines.push(`  ${snippetRule}`);
+  lines.push(`  ${d.evidenceSemantics.providerUnindexed}`);
+
+  lines.push(
+    '',
+    "Routing debug: search --explain --query '{...}'",
+    'Full schema:   search --scheme'
+  );
+  return lines.join('\n');
 }

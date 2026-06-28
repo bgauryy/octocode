@@ -3,7 +3,7 @@ import type {
   LSPRange,
 } from '@octocodeai/octocode-engine/lsp/types';
 
-export { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../toolNames.js';
+export { LSP_GET_SEMANTICS_TOOL_NAME } from '../../toolNames.js';
 
 export const SEMANTIC_CONTENT_TYPES = [
   'definition',
@@ -137,7 +137,6 @@ export function compactLocation(snippet: {
 }
 
 export type SemanticEmptyCategory =
-  | 'serverUnavailable'
   | 'unsupportedOperation'
   | 'symbolNotFound'
   | 'anchorFailed'

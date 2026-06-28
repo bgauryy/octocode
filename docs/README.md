@@ -11,7 +11,7 @@ Install, configure, and use the Octocode MCP server.
 | Doc | When to read |
 |-----|--------------|
 | [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) | All env vars and `.octocoderc` options |
-| [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md) | GitHub login, token priority, Enterprise, clone tools |
+| [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) | GitHub login, token priority, Enterprise, clone tools |
 | [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) | Token storage, encryption, refresh chain |
 | [Session Persistence](https://github.com/bgauryy/octocode/blob/main/docs/mcp/SESSION.md) | Deferred writes, exit handlers, usage statistics |
 

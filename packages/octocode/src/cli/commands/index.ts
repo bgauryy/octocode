@@ -26,6 +26,7 @@ const commandLoaders: Record<string, CommandLoader> = {
   login: async () => (await import('./auth.js')).loginCommand,
   logout: async () => (await import('./auth.js')).logoutCommand,
   status: async () => (await import('./status.js')).statusCommand,
+  'lsp-server': async () => (await import('./lsp-server.js')).lspServerCommand,
 };
 
 // Every command the CLI dispatches. Each MUST have a matching spec in

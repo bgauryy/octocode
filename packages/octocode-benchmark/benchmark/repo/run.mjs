@@ -10,12 +10,11 @@
  * Repos must be cloned first:
  *   node benchmark/repo/clone.mjs
  *
- * Each test probe exercises one tool layer:
- *   text   — localSearchCode (ripgrep)
- *   ast    — localSearchCode mode:"structural"
- *   lsp    — lspGetSemantics
- *   read   — localGetFileContent
- *   symbols — lspGetSemantics type:"documentSymbols"
+ * Each test probe exercises one engine layer (the layers actually run below):
+ *   text    — structuralSearch text/ripgrep-style search over a real repo file
+ *   ast     — structuralSearch mode:"structural" (metavar/rule patterns)
+ *   symbols — structuralSearch parse-probe: counts AST nodes a real file yields
+ *             (NOT a language server — it does not call lspGetSemantics)
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
@@ -222,7 +221,12 @@ const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const targets = args.length ? args : Object.keys(SUITES);
 
 let pins = {};
-try { pins = JSON.parse(readFileSync(PINS_FILE, 'utf8')); } catch {}
+try {
+  pins = JSON.parse(readFileSync(PINS_FILE, 'utf8'));
+} catch (e) {
+  // Don't silently render "SHA: unknown" — surface that pins are unreadable.
+  console.error(`warning: could not read ${PINS_FILE}: ${e.message} (results will show unknown pins)`);
+}
 
 const unknown = targets.filter(k => !SUITES[k]);
 if (unknown.length) {

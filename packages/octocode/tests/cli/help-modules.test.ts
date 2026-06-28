@@ -22,13 +22,14 @@ describe('main-help', () => {
       .join('');
     expect(output).toContain('ghSearchCode');
     expect(output).toContain('<AGENT_INSTRUCTIONS>');
-    expect(output).toContain('octocode-engineer');
     expect(output).toContain('localSearchCode');
     expect(output).toContain('lspGetSemantics');
     expect(output).toContain('npmSearch');
     expect(output).toContain('install');
-    // Smart commands temporarily unhooked — SMART COMMANDS section removed
-    expect(output).toContain('MANAGEMENT');
+    // Command list is derived from core specs, so every command appears —
+    // including lsp-server, which the old hardcoded MANAGEMENT block omitted.
+    expect(output).toContain('MORE COMMANDS');
+    expect(output).toContain('lsp-server');
     expect(output).toContain('TOOLS');
     expect(output).toContain('context');
     expect(output).toContain('tools');
@@ -92,6 +93,28 @@ describe('command-help-specs', () => {
     ]) {
       expect(findStaticCommandHelp(name)).toBeUndefined();
     }
+  });
+
+  it('search help teaches the two scheme views and the Haiku-gap recipes', async () => {
+    const { findStaticCommandHelp } =
+      await import('../../src/cli/command-help-specs.js');
+    const search = findStaticCommandHelp('search');
+    expect(search).toBeDefined();
+    const blob = [
+      ...(search!.scheme ?? []),
+      ...(search!.examples ?? []),
+      ...(search!.options ?? []).map(o => o.description),
+    ].join('\n');
+
+    // both schema entry points
+    expect(blob).toContain('search --scheme --compact');
+    expect(blob).toContain('search --scheme');
+    // Haiku gaps: npm, remote file read, references-vs-callers
+    expect(blob).toContain('--target packages');
+    expect(blob).toContain(
+      'search facebook/react/README.md --content-view exact'
+    );
+    expect(blob).toContain('callers = incoming calls only');
   });
 
   it('keeps static command help option lists documented and unique', async () => {

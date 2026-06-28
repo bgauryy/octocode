@@ -309,7 +309,7 @@
       "source": {
         "repo": "local",
         "branch": "n/a",
-        "path": "benchmark/ast/samples/adventureworks.sql",
+        "path": "benchmark/samples/adventureworks.sql",
         "url": "https://learn.microsoft.com/en-us/sql/samples/adventureworks-install-configure"
       }
     },

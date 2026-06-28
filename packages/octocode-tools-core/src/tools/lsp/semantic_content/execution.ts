@@ -11,8 +11,12 @@ import { executeWithToolBoundary } from '../../executionGuard.js';
 import {
   acquirePooledClient,
   isLanguageServerAvailable,
+  unavailableHintFor,
 } from '@octocodeai/octocode-engine/lsp/manager';
+import { detectLanguageId } from '@octocodeai/octocode-engine/lsp/config';
 import { resolveImportAliasDefinitions } from '@octocodeai/octocode-engine/lsp/resolver';
+import { ToolError } from '../../../errors/ToolError.js';
+import { LOCAL_TOOL_ERROR_CODES } from '../../../errors/localToolErrors.js';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import type {
   CallHierarchyItem,
@@ -31,7 +35,7 @@ import {
 import {
   compactLocation,
   compactResolvedSymbol,
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  LSP_GET_SEMANTICS_TOOL_NAME,
   type CompactLocation,
   type LspGetSemanticsQuery,
   type LspSemanticEnvelope,
@@ -62,6 +66,25 @@ function isNativeJsTsFile(uri: string): boolean {
     );
   }
   return nativeJsTsExtsCache.has(path.extname(uri).toLowerCase());
+}
+
+/**
+ * Throw when a real language server cannot answer a semantic operation. We do
+ * NOT fabricate a syntactic/same-file stand-in: a faked answer is worse than an
+ * honest failure because the agent would trust it. The thrown ToolError is
+ * routed by the execution boundary into the standard `status:"error"` envelope
+ * (errorCode `lspServerUnavailable`), and the message directs the agent to text
+ * search instead. documentSymbols/structural search keep their tree-sitter path
+ * and never reach here.
+ */
+function throwLspUnavailable(uri: string, op: SemanticContentType): never {
+  const languageId = detectLanguageId(uri);
+  const hint = unavailableHintFor(languageId, undefined);
+  throw new ToolError(
+    LOCAL_TOOL_ERROR_CODES.LSP_SERVER_UNAVAILABLE,
+    `No ${languageId} language server is available for ${uri}, so "${op}" cannot be answered semantically. ${hint} ` +
+      `Meanwhile, use localSearchCode (text or structural search) to find the symbol's occurrences and localGetFileContent to read the surrounding code.`
+  );
 }
 
 const WORKSPACE_SYMBOL_FALLBACK_EXTENSIONS = [
@@ -242,7 +265,7 @@ export async function executeLspGetSemantics(
     args.queries || [],
     async query => {
       return executeWithToolBoundary({
-        toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+        toolName: LSP_GET_SEMANTICS_TOOL_NAME,
         query,
         contextMessage: 'lspGetSemantics execution failed',
         execute: async () => {
@@ -252,7 +275,7 @@ export async function executeLspGetSemantics(
       });
     },
     {
-      toolName: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+      toolName: LSP_GET_SEMANTICS_TOOL_NAME,
       minQueryTimeoutMs: 30_000,
     },
     args
@@ -471,10 +494,7 @@ async function getSemanticContent(
     return getFileDiagnostics(query);
   }
 
-  const anchor = await resolveSymbolAnchor(
-    query,
-    LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
-  );
+  const anchor = await resolveSymbolAnchor(query, LSP_GET_SEMANTICS_TOOL_NAME);
   if (anchor.ok === false) {
     const message =
       typeof anchor.error.error === 'string'
@@ -491,26 +511,14 @@ async function getSemanticContent(
     workspaceRoot
   );
   if (!serverAvailable) {
-    // Native fast path: same-file references for JS/TS without a server.
-    // Cross-file resolution still requires a language server.
-    if (query.type === 'references') {
-      const native = nativeReferences(query, anchor.value);
-      if (native) return native;
-    }
-    return emptyEnvelope(
-      query.type,
-      anchor.value,
-      'Language server unavailable'
-    );
+    // No server → throw, so the agent pivots to text search. We never return a
+    // same-file-only or syntactic approximation dressed up as a semantic answer.
+    throwLspUnavailable(anchor.value.uri, query.type);
   }
 
   const client = await acquirePooledClient(workspaceRoot, anchor.value.uri);
   if (!client) {
-    return emptyEnvelope(
-      query.type,
-      anchor.value,
-      'Language server unavailable'
-    );
+    throwLspUnavailable(anchor.value.uri, query.type);
   }
 
   switch (query.type) {
@@ -644,10 +652,7 @@ async function getSemanticContent(
 async function getDocumentSymbols(
   query: LspGetSemanticsQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
-  const anchor = await resolveFileAnchor(
-    query,
-    LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
-  );
+  const anchor = await resolveFileAnchor(query, LSP_GET_SEMANTICS_TOOL_NAME);
   if (anchor.ok === false) return anchor.error;
 
   const workspaceRoot =
@@ -697,6 +702,12 @@ async function getDocumentSymbols(
   }
 
   const complete = source !== undefined;
+  // No outline AND no server → throw (the agent should use text search). The
+  // native (JS/TS) + markdown paths already ran above, so this only fires for
+  // an unsupported language with no server.
+  if (!complete && !serverAvailable) {
+    throwLspUnavailable(anchor.value.uri, 'documentSymbols');
+  }
   const compactSymbols = flattenDocumentSymbols(symbols);
   const topLevelSymbols = countTopLevelDocumentSymbols(symbols);
   const { pageItems, pagination } = paginateItems(
@@ -705,18 +716,12 @@ async function getDocumentSymbols(
     query.itemsPerPage ?? DEFAULT_SYMBOLS_PER_PAGE
   );
   const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
-  const incompleteReason = complete
-    ? undefined
-    : serverAvailable
-      ? 'documentSymbolProvider unsupported'
-      : 'Language server unavailable; native outline supports JS/TS only';
+  // Server is present (checked above) but lacks documentSymbolProvider.
   const empty = complete
     ? undefined
     : {
-        category: (serverAvailable
-          ? 'unsupportedOperation'
-          : 'serverUnavailable') as SemanticEmptyCategory,
-        reason: incompleteReason ?? 'document symbols unavailable',
+        category: 'unsupportedOperation' as SemanticEmptyCategory,
+        reason: 'documentSymbolProvider unsupported',
       };
 
   return {
@@ -772,17 +777,11 @@ function locationsEnvelope(
   };
 }
 
-type ReferencesSource = { kind: 'lsp' } | { kind: 'native'; scope: 'file' };
-
-const LSP_REFERENCES_SOURCE: ReferencesSource = { kind: 'lsp' };
-
 function referencesEnvelope(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
-  locations: CodeSnippet[],
-  source: ReferencesSource = LSP_REFERENCES_SOURCE
+  locations: CodeSnippet[]
 ): LspSemanticEnvelope {
-  const native = source.kind === 'native';
   const refs = locations.map((location): ReferenceLocation => {
     const isDefinition =
       location.uri === anchor.uri &&
@@ -802,9 +801,7 @@ function referencesEnvelope(
     refs.length === 0
       ? {
           category: 'noReferences' as const,
-          reason: native
-            ? 'no in-file references found'
-            : 'referencesProvider returned no references',
+          reason: 'referencesProvider returned no references',
         }
       : undefined;
 
@@ -812,13 +809,11 @@ function referencesEnvelope(
     type: 'references',
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
-    lsp: native
-      ? { serverAvailable: false, source: 'native' }
-      : {
-          serverAvailable: true,
-          provider: 'referencesProvider',
-          source: 'lsp',
-        },
+    lsp: {
+      serverAvailable: true,
+      provider: 'referencesProvider',
+      source: 'lsp',
+    },
     payload: {
       kind: 'references',
       ...(byFile ? { byFile: pageItems } : { locations: pageItems }),
@@ -827,59 +822,7 @@ function referencesEnvelope(
       ...(empty ? { empty } : {}),
     },
     pagination,
-    // The native-source caveat is retained on the empty path because it
-    // explains why cross-file refs are absent.
-    ...(empty && native
-      ? {
-          warnings: [
-            'source: native (oxc) — same-file references only; install a language server for cross-file references.',
-          ],
-        }
-      : {}),
   };
-}
-
-/** A native-oxc `Range` (0-based, UTF-16) as emitted by `findInFileReferences`. */
-type NativeRange = {
-  start: { line: number; character: number };
-  end: { line: number; character: number };
-};
-
-/**
- * Native same-file references envelope via oxc, or null when oxc declines the
- * input (non-JS/TS, parse failure, or cursor not on a resolvable binding).
- */
-function nativeReferences(
-  query: SymbolAnchoredSemanticQuery,
-  anchor: SymbolAnchor
-): LspSemanticEnvelope | null {
-  if (!isNativeJsTsFile(anchor.uri)) return null;
-  let ranges: NativeRange[];
-  try {
-    const json = contextUtils.findInFileReferences(
-      anchor.content,
-      anchor.uri,
-      anchor.resolvedSymbol.position.line,
-      anchor.resolvedSymbol.position.character
-    );
-    if (!json) return null;
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return null;
-    ranges = parsed as NativeRange[];
-  } catch {
-    return null;
-  }
-
-  const lines = anchor.content.split('\n');
-  const locations: CodeSnippet[] = ranges.map(range => ({
-    uri: anchor.uri,
-    range,
-    content: (lines[range.start.line] ?? '').trim(),
-  }));
-  return referencesEnvelope(query, anchor, locations, {
-    kind: 'native',
-    scope: 'file',
-  });
 }
 
 async function hoverEnvelope(
@@ -1036,30 +979,12 @@ async function getWorkspaceSymbols(
     workspaceRoot
   );
   if (!serverAvailable) {
-    return {
-      type: 'workspaceSymbol',
-      uri: anchorFile,
-      lsp: { serverAvailable: false },
-      payload: {
-        kind: 'empty',
-        category: 'serverUnavailable',
-        reason: 'Language server unavailable',
-      },
-    } satisfies LspSemanticEnvelope;
+    throwLspUnavailable(anchorFile, 'workspaceSymbol');
   }
 
   const client = await acquirePooledClient(workspaceRoot, anchorFile);
   if (!client) {
-    return {
-      type: 'workspaceSymbol',
-      uri: anchorFile,
-      lsp: { serverAvailable: false },
-      payload: {
-        kind: 'empty',
-        category: 'serverUnavailable',
-        reason: 'Language server unavailable',
-      },
-    } satisfies LspSemanticEnvelope;
+    throwLspUnavailable(anchorFile, 'workspaceSymbol');
   }
 
   if (!client.hasCapability('workspaceSymbolProvider')) {
@@ -1226,30 +1151,12 @@ async function getFileDiagnostics(
 
   const serverAvailable = await isLanguageServerAvailable(uri, workspaceRoot);
   if (!serverAvailable) {
-    return {
-      type: 'diagnostic',
-      uri,
-      lsp: { serverAvailable: false },
-      payload: {
-        kind: 'empty',
-        category: 'serverUnavailable',
-        reason: 'Language server unavailable',
-      },
-    } satisfies LspSemanticEnvelope;
+    throwLspUnavailable(uri, 'diagnostic');
   }
 
   const client = await acquirePooledClient(workspaceRoot, uri);
   if (!client) {
-    return {
-      type: 'diagnostic',
-      uri,
-      lsp: { serverAvailable: false },
-      payload: {
-        kind: 'empty',
-        category: 'serverUnavailable',
-        reason: 'Language server unavailable',
-      },
-    } satisfies LspSemanticEnvelope;
+    throwLspUnavailable(uri, 'diagnostic');
   }
 
   if (!client.hasCapability('diagnosticProvider')) {
@@ -1606,7 +1513,8 @@ function emptyCategoryForReason(
   type: SemanticContentType,
   reason: string
 ): SemanticEmptyCategory {
-  if (/unavailable/i.test(reason)) return 'serverUnavailable';
+  // "unavailable" is no longer an empty category — no server now throws
+  // (errorCode lspServerUnavailable) rather than returning an empty envelope.
   if (/unsupported/i.test(reason)) return 'unsupportedOperation';
   if (/could not find symbol|symbol.*not found/i.test(reason)) {
     return 'symbolNotFound';

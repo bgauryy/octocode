@@ -30,7 +30,17 @@ export const statusCommand: CLICommand = {
     const jsonOutput = Boolean(args.options['json']);
     const includeSyncAnalysis = Boolean(args.options['sync']);
 
-    const auth = formatAuthStatusAsJson(hostname);
+    // `status` reports GitHub auth + cache health and takes no positional. A
+    // stray arg (commonly `status <language>`, conflated with `lsp-server
+    // status`) would otherwise be silently dropped — warn and point the way.
+    const stray = args.args[0];
+    if (stray && !jsonOutput) {
+      console.error(
+        `  ${c('yellow', '!')} ${dim(`'${stray}' ignored — status reports GitHub auth + cache health (no positional args). For a language server use`)} ${c('cyan', 'lsp-server status <file>')} ${dim('or')} ${c('cyan', 'lsp-server list')}${dim('.')}`
+      );
+    }
+
+    const auth = await formatAuthStatusAsJson(hostname);
 
     const mcpClients = DETECTABLE_MCP_CLIENTS.map(clientId => {
       const cfgPath = getMCPConfigPath(clientId);
@@ -139,7 +149,7 @@ export const statusCommand: CLICommand = {
     console.log(`  ${bold('🟢 Octocode Status')}`);
     console.log();
 
-    printAuthStatus(hostname);
+    await printAuthStatus(hostname);
 
     const found = mcpClients.filter(c => c.exists);
     console.log();

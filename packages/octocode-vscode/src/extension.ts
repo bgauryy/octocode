@@ -12,7 +12,7 @@ import { readJsonFile } from './jsonUtils';
 
 const MCP_SERVER_NAME = 'octocode';
 const MCP_COMMAND = 'npx';
-const MCP_ARGS = ['octocode-mcp@latest'];
+const MCP_ARGS = ['@octocodeai/mcp@latest'];
 
 const GITHUB_AUTH_PROVIDER_ID = 'github';
 const GITHUB_SCOPES = ['repo', 'read:user'];
@@ -336,7 +336,7 @@ async function startMcpServer(): Promise<void> {
     outputChannel.appendLine('Starting Octocode MCP server...');
 
     try {
-      mcpProcess = spawn('npx', ['octocode-mcp@latest'], {
+      mcpProcess = spawn('npx', ['@octocodeai/mcp@latest'], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: process.platform === 'win32',

@@ -4,6 +4,10 @@ import {
   RegisteredTool,
 } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// The server name/version are derived from package.json (src/index.ts builds
+// `${name}_${version}`), so assert against that source rather than hardcoding a
+// package name that changes on rename/version-sync.
+import { name as pkgName } from '../package.json';
 
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js');
 vi.mock('@modelcontextprotocol/sdk/server/stdio.js');
@@ -232,7 +236,7 @@ describe('Index Module', () => {
 
       expect(mockMcpServerConstructor).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: expect.stringContaining('octocode-mcp'),
+          name: expect.stringContaining(pkgName),
           title: 'Octocode MCP',
           version: expect.any(String),
         }),

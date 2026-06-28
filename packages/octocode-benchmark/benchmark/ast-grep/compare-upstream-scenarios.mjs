@@ -23,6 +23,7 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { createHash } from 'node:crypto'
+import { engine as sharedEngine } from '../_engine.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const benchmarkRoot = join(here, '..')
@@ -423,12 +424,9 @@ function assertWarmupCounts(label, runs, warmups) {
   }
 }
 
-let engineModule = null
+// Canonical engine — shared loader (index.cjs), no bespoke require path here.
 function loadEngine() {
-  if (!engineModule) {
-    engineModule = require(join(monorepoRoot, 'packages', 'octocode-engine', 'index.cjs'))
-  }
-  return engineModule
+  return sharedEngine
 }
 
 let directToolModule = null

@@ -15,6 +15,7 @@ import {
 import {
   runOqlSearch,
   oqlSchemaText,
+  oqlCompactSchemeText,
   buildShorthandInput,
   type OqlResultEnvelope,
   type OqlRunResult,
@@ -36,6 +37,32 @@ type CliSearchShorthand = Record<string, unknown> & {
  * typed envelope. No OQL logic lives here (the brain owns it); shorthand only
  * builds the sugar object the core normalizer already accepts.
  */
+/**
+ * Map friendly `--target` abbreviations to the canonical OQL enum. The top-level
+ * help and agent prompt advertise short forms (`repos`, `PRs`); without this an
+ * agent copying them hits "--target must be one of …". Unknown values pass
+ * through unchanged so the OQL layer still validates real typos. Mutates in place.
+ */
+const TARGET_ALIASES: Record<string, string> = {
+  repo: 'repositories',
+  repos: 'repositories',
+  pr: 'pullRequests',
+  prs: 'pullRequests',
+  pullrequest: 'pullRequests',
+  pullrequests: 'pullRequests',
+  commit: 'commits',
+  package: 'packages',
+  pkg: 'packages',
+  npm: 'packages',
+  artifact: 'artifacts',
+};
+function normalizeTargetAlias(options: Record<string, unknown>): void {
+  const raw = options['target'];
+  if (typeof raw !== 'string') return;
+  const canonical = TARGET_ALIASES[raw.trim().toLowerCase()];
+  if (canonical) options['target'] = canonical;
+}
+
 export const searchCommand: CLICommand = {
   name: 'search',
   options: [
@@ -195,9 +222,20 @@ export const searchCommand: CLICommand = {
   handler: async (args): Promise<void> => {
     const { options } = args;
 
-    // --scheme: print the OQL schema and exit.
+    // Accept friendly `--target` abbreviations (the ones the help/agent prompt
+    // use, e.g. `repos`, `PRs`) and fold them to the canonical OQL enum so an
+    // agent copying the help string doesn't hit "must be one of …".
+    normalizeTargetAlias(options);
+
+    // --scheme: print the OQL schema and exit. --scheme --compact prints the
+    // lean agent guide (TEXT); --json forces the JSON schema and wins over
+    // --compact (keeps `--scheme --json --compact` machine-readable).
     if (getBool(options, 'scheme')) {
-      process.stdout.write(`${oqlSchemaText()}\n`);
+      const schemeText =
+        getBool(options, 'compact') && !getBool(options, 'json')
+          ? oqlCompactSchemeText()
+          : oqlSchemaText();
+      process.stdout.write(`${schemeText}\n`);
       return;
     }
     if (getBool(options, 'raw') && getBool(options, 'json')) {
@@ -478,6 +516,38 @@ function resolveGithubDiffShortcut(
  *   search --pattern '<shape>' [target] --lang t -> structural pattern
  *   search --rule '<json|yaml>' [target] --lang t -> structural rule
  */
+/**
+ * Warn (to stderr, never fatal) about two silently-ignored shorthand mistakes:
+ *  • Extra path positionals — `search` takes ONE corpus, so `search t a.ts b.ts`
+ *    quietly searched only `a.ts`. Conservative: text/diff lanes consume 2
+ *    positionals, flag/target-only lanes consume 1, so we only flag the surplus.
+ *  • A grep-style `\|` in a LITERAL text term — it matches verbatim (a no-op for
+ *    alternation); point at `--regex`, which is what the user meant.
+ * stderr keeps stdout (YAML/JSON results) clean, so this is safe in every mode.
+ */
+function emitSearchInputWarnings(o: {
+  positionals: string[];
+  text: string | undefined;
+  fromFlag: boolean;
+  targetOnly: boolean;
+  hasDiff: boolean;
+}): void {
+  const consumed = o.hasDiff ? 2 : o.fromFlag || o.targetOnly ? 1 : 2;
+  const ignored = o.positionals.slice(consumed);
+  if (ignored.length > 0) {
+    const list = ignored.map(s => `'${s}'`).join(', ');
+    process.stderr.write(
+      `  ${c('yellow', '!')} ${dim(`ignored extra argument${ignored.length > 1 ? 's' : ''} ${list} — search takes a single corpus (one path or owner/repo). Search a directory, or narrow with`)} ${c('cyan', '--include <glob>')}${dim('.')}\n`
+    );
+  }
+  if (o.text && o.text.includes('\\|')) {
+    const asRegex = o.text.replace(/\\\|/g, '|');
+    process.stderr.write(
+      `  ${c('yellow', '!')} ${dim(`'${o.text}' is matched literally — \`\\|\` is not alternation. For OR-matching use`)} ${c('cyan', `--regex '${asRegex}'`)}${dim('.')}\n`
+    );
+  }
+}
+
 function buildSugar(args: ParsedArgs): Resolved {
   const { options } = args;
   const positionals = args.args.filter(a => !a.startsWith('-'));
@@ -533,6 +603,16 @@ function buildSugar(args: ParsedArgs): Resolved {
       ? positionals[0]
       : positionals[fromFlag || targetOnly ? 0 : 1];
   const targetArg = positionalTargetArg ?? pathOption;
+
+  // Surface two otherwise-silent input mistakes (same "guide, don't drop" rule
+  // as the stray-arg / --target alias fixes) instead of quietly ignoring them.
+  emitSearchInputWarnings({
+    positionals,
+    text,
+    fromFlag,
+    targetOnly,
+    hasDiff: Boolean(diffPath),
+  });
 
   if (
     !fromFlag &&

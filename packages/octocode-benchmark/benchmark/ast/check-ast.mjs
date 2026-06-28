@@ -19,14 +19,12 @@
 // is claimed by exactly one grammar entry, so a new engine grammar without a
 // sample + proof here fails the check. Exits non-zero on any failure.
 
-import { readFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { engine } from '../_engine.mjs'
+import { engine, loadManifestSamples, pad } from '../_engine.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const manifest = JSON.parse(readFileSync(join(here, 'manifest.json'), 'utf8'))
-const sampleFor = new Map(manifest.samples.map((s) => [s.ext, s]))
+const samples = loadManifestSamples(here)
 
 const PARSE_PROBE = '$$$'
 
@@ -133,24 +131,16 @@ for (const g of GRAMMARS) {
   if (signatureExts.has(g.ext) !== g.sig) issues.push(g.sig ? 'engine reports structural-only, expected signature' : 'engine reports signature, expected structural-only')
   for (const a of g.aliases) if (!structuralExts.has(a)) issues.push(`alias ${a} not in structural list`)
 
-  // PARSE (real sample)
-  const sample = sampleFor.get(g.ext)
+  // PARSE (real sample — content is sha256/byte-verified by readSample)
+  const { content } = samples.readSample(g.ext, issues)
   let parseInfo = 'no sample'
-  let content = ''
-  if (!sample) {
-    issues.push(`no sample in ast/manifest.json`)
-  } else {
-    const p = join(here, 'samples', sample.file)
-    if (!existsSync(p)) { issues.push(`sample file missing: ${sample.file}`) }
-    else {
-      content = readFileSync(p, 'utf8')
-      let nodes = 0
-      try { nodes = sc(content, g.ext, PARSE_PROBE) } catch (e) { issues.push(`parse threw: ${e.message}`) }
-      if (nodes <= 0) issues.push('real sample parsed 0 nodes')
-      parseInfo = `${nodes} nodes`
-      for (const a of g.aliases) {
-        try { if (sc(content, a, PARSE_PROBE) <= 0) issues.push(`alias ${a} parsed 0 nodes`) } catch (e) { issues.push(`alias ${a} threw: ${e.message}`) }
-      }
+  if (content) {
+    let nodes = 0
+    try { nodes = sc(content, g.ext, PARSE_PROBE) } catch (e) { issues.push(`parse threw: ${e.message}`) }
+    if (nodes <= 0) issues.push('real sample parsed 0 nodes')
+    parseInfo = `${nodes} nodes`
+    for (const a of g.aliases) {
+      try { if (sc(content, a, PARSE_PROBE) <= 0) issues.push(`alias ${a} parsed 0 nodes`) } catch (e) { issues.push(`alias ${a} threw: ${e.message}`) }
     }
   }
 
@@ -178,7 +168,6 @@ for (const g of GRAMMARS) {
 
 for (const ext of structuralExts) if (!claimed.has(ext)) failures.push(`coverage: engine supports ".${ext}" but no grammar entry claims it`)
 
-const pad = (s, n) => String(s).padEnd(n)
 console.log(`\nAST benchmark — ${rows.length} grammars over real samples (ast/samples/)`)
 console.log(`${pad('Grammar', 12)} ${pad('ext', 6)} ${pad('tier', 7)} ${pad('parse', 12)} ${pad('match', 6)} ${pad('signature', 10)} status`)
 console.log('-'.repeat(72))

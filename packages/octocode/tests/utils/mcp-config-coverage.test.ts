@@ -289,7 +289,7 @@ describe('MCP Config Coverage Tests', () => {
 
       const existing: MCPConfig = {
         mcpServers: {
-          octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+          octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
         },
       };
 
@@ -390,7 +390,7 @@ describe('MCP Config Coverage Tests', () => {
       const config: MCPConfig = {
         mcpServers: {
           'external-mcp': { command: 'npx', args: [] },
-          octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+          octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
         },
       };
 
@@ -780,22 +780,11 @@ describe('MCP Config Coverage Tests', () => {
     it('should use Windows config when isWindows is true', async () => {
       vi.resetModules();
 
+      // Per-test override (not hoisted) so the re-imported module sees Windows.
+      // mcp-paths.js / mcp-io.js are already mocked at the top level, so we don't
+      // re-`vi.mock` them here (that hoists and triggers a deprecation warning).
       vi.doMock('../../src/utils/platform.js', () => ({
         isWindows: true,
-      }));
-
-      vi.mock('../../src/utils/mcp-paths.js', () => ({
-        getMCPConfigPath: vi.fn(),
-        clientConfigExists: vi.fn(),
-        configFileExists: vi.fn(),
-        detectCurrentClient: vi.fn(),
-        detectAvailableClients: vi.fn(),
-        MCP_CLIENTS: {},
-      }));
-
-      vi.mock('../../src/utils/mcp-io.js', () => ({
-        readMCPConfig: vi.fn(),
-        writeMCPConfig: vi.fn(),
       }));
 
       const { mergeOctocodeConfig } =

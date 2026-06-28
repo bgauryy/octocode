@@ -4,7 +4,7 @@ import { EXIT } from '../exit-codes.js';
 import {
   login as oauthLogin,
   logout as oauthLogout,
-  getAuthStatus,
+  getAuthStatusAsync,
   getStoragePath,
   refreshAuthToken,
   type VerificationInfo,
@@ -22,7 +22,11 @@ import {
   runGitHubAuthLogin,
   runGitHubAuthLogout,
 } from '../../features/gh-auth.js';
-import { getCredentials, hasEnvToken } from '../../utils/token-storage.js';
+import {
+  getCredentials,
+  hasEnvToken,
+  getEnvTokenSource,
+} from '../../utils/token-storage.js';
 
 type AuthMenuAction =
   | 'login'
@@ -33,12 +37,9 @@ type AuthMenuAction =
   | 'back';
 
 function isOctocodeAuthStatus(
-  status: ReturnType<typeof getAuthStatus>
+  status: Awaited<ReturnType<typeof getAuthStatusAsync>>
 ): boolean {
-  return (
-    status.tokenSource === 'octocode' ||
-    (status.authenticated && status.tokenSource === undefined)
-  );
+  return status.tokenSource === 'octocode';
 }
 
 function normalizeGitProtocol(
@@ -76,7 +77,7 @@ async function runOctocodeLogin(args: ParsedArgs): Promise<void> {
     (typeof hostnameOpt === 'string' ? hostnameOpt : undefined) || 'github.com';
   const jsonOutput = Boolean(args.options['json']);
   const forceLogin = Boolean(args.options['force']);
-  const status = getAuthStatus(hostname);
+  const status = await getAuthStatusAsync(hostname);
   const alreadyOctocode = isOctocodeAuthStatus(status);
 
   if (alreadyOctocode && !forceLogin) {
@@ -140,6 +141,28 @@ async function runOctocodeLogin(args: ParsedArgs): Promise<void> {
   if (!gitProtocol) {
     printInvalidGitProtocol(String(gitProtocolOpt), jsonOutput);
     return;
+  }
+
+  if (hasEnvToken()) {
+    const envSource = getEnvTokenSource();
+    const envVar = envSource?.replace('env:', '') || 'environment variable';
+    if (jsonOutput) {
+      console.log(
+        JSON.stringify({
+          step: 'warning',
+          envVar,
+          message: `${envVar} is set and takes priority — stored OAuth token won't be used until you unset it`,
+        })
+      );
+    } else {
+      console.log();
+      console.log(
+        `  ${c('yellow', '⚠')} ${bold(envVar)} is set and takes priority over stored credentials.`
+      );
+      console.log(
+        `  ${dim("Your new OAuth token will be stored but won't be used until you unset that variable.")}`
+      );
+    }
   }
 
   if (!jsonOutput) {
@@ -276,10 +299,10 @@ async function runAuthMenu(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  printAuthStatus(hostname);
+  await printAuthStatus(hostname);
   await loadInquirer();
 
-  const status = getAuthStatus(hostname);
+  const status = await getAuthStatusAsync(hostname);
   const ghAuth = checkGitHubAuth();
   const octocodeCredentials = await getCredentials(hostname);
   const hasOctocode =
@@ -339,7 +362,13 @@ async function runAuthMenu(args: ParsedArgs): Promise<void> {
     });
   }
 
-  choices.push({ type: 'separator' });
+  if (!hasEnvToken()) {
+    choices.push({
+      type: 'separator',
+      separator:
+        'Or set OCTOCODE_TOKEN / GITHUB_TOKEN / GITHUB_PERSONAL_ACCESS_TOKEN env var',
+    });
+  }
   choices.push({ name: 'Back', value: 'back' });
 
   const action = await select<AuthMenuAction>({
@@ -406,7 +435,7 @@ export const logoutCommand: CLICommand = {
       'github.com';
     const jsonOutput = Boolean(args.options['json']);
     const skipConfirm = Boolean(args.options['yes']);
-    const status = getAuthStatus(hostname);
+    const status = await getAuthStatusAsync(hostname);
 
     if (!status.authenticated) {
       if (jsonOutput) {
@@ -507,13 +536,13 @@ export const authCommand: CLICommand = {
         console.log(
           JSON.stringify({
             success: true,
-            ...formatAuthStatusAsJson(hostname),
+            ...(await formatAuthStatusAsJson(hostname)),
           })
         );
         return;
       }
 
-      printAuthStatus(hostname);
+      await printAuthStatus(hostname);
       return;
     }
 
@@ -536,7 +565,7 @@ export const authCommand: CLICommand = {
       return;
     }
     if (subcommand === 'refresh') {
-      const currentStatus = getAuthStatus(hostname);
+      const currentStatus = await getAuthStatusAsync(hostname);
       const tokenSource = currentStatus.tokenSource;
 
       if (tokenSource === 'env') {

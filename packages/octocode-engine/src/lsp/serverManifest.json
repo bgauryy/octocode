@@ -1,0 +1,32 @@
+{
+  "$comment": "Auto-download manifest for portable, toolchain-free language servers. Verified 2026-06-27 against live GitHub Releases. sha256 is intentionally null and MUST be pinned per asset before OCTOCODE_LSP_AUTO_INSTALL is enabled for that server — see docs/context/LSP_GUIDE.md. Scope is the main supported code languages: Rust (rust-analyzer), C/C++ (clangd). Toolchain-coupled servers (gopls/go, jdtls/jre) are detect-and-instruct; pure-JS servers (typescript-language-server, pyright, yaml/json/html/css) are bundled npm deps. Markdown/MDX are handled by the MINIFIER (heading-section heuristics), NOT LSP.",
+  "version": 1,
+  "servers": {
+    "rust-analyzer": {
+      "languageId": "rust",
+      "repo": "rust-lang/rust-analyzer",
+      "releaseTag": "2026-06-22",
+      "platforms": {
+        "darwin-arm64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-apple-darwin.gz", "archive": "gz", "binName": "rust-analyzer", "sha256": null },
+        "darwin-x64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-apple-darwin.gz", "archive": "gz", "binName": "rust-analyzer", "sha256": null },
+        "linux-x64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-unknown-linux-gnu.gz", "archive": "gz", "binName": "rust-analyzer", "sha256": null },
+        "linux-x64-musl": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-unknown-linux-musl.gz", "archive": "gz", "binName": "rust-analyzer", "sha256": null },
+        "linux-arm64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-aarch64-unknown-linux-gnu.gz", "archive": "gz", "binName": "rust-analyzer", "sha256": null },
+        "win32-x64": { "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-06-22/rust-analyzer-x86_64-pc-windows-msvc.zip", "archive": "zip", "binPath": "rust-analyzer.exe", "binName": "rust-analyzer.exe", "sha256": null }
+      }
+    },
+    "clangd": {
+      "languageId": "cpp",
+      "repo": "clangd/clangd",
+      "releaseTag": "22.1.0",
+      "launchArgs": [],
+      "platforms": {
+        "darwin-arm64": { "url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-mac-22.1.0.zip", "archive": "zip", "binPath": "clangd_22.1.0/bin/clangd", "binName": "clangd", "sha256": null },
+        "darwin-x64": { "url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-mac-22.1.0.zip", "archive": "zip", "binPath": "clangd_22.1.0/bin/clangd", "binName": "clangd", "sha256": null },
+        "linux-x64": { "url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-linux-22.1.0.zip", "archive": "zip", "binPath": "clangd_22.1.0/bin/clangd", "binName": "clangd", "sha256": null },
+        "win32-x64": { "url": "https://github.com/clangd/clangd/releases/download/22.1.0/clangd-windows-22.1.0.zip", "archive": "zip", "binPath": "clangd_22.1.0/bin/clangd.exe", "binName": "clangd.exe", "sha256": null }
+      },
+      "unsupportedPlatforms": { "linux-arm64": "clangd publishes no linux-arm64 release asset; install via the system package manager." }
+    }
+  }
+}

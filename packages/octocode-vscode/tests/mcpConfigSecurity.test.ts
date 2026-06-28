@@ -78,7 +78,7 @@ describe('MCP Config Token Security', () => {
           [MCP_SERVER_NAME]: {
             command: 'npx',
             type: 'stdio',
-            args: ['octocode-mcp@latest'],
+            args: ['@octocodeai/mcp@latest'],
           },
         },
       });

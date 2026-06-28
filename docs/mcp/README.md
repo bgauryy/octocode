@@ -7,7 +7,7 @@ The Octocode MCP server exposes Octocode research tools to AI coding clients via
 | Doc | Purpose |
 |-----|---------|
 | [CONFIGURATION.md](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) | All env vars, `.octocoderc` options, precedence, local state paths |
-| [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md) | GitHub OAuth, token priority, Enterprise, clone auth |
+| [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) | GitHub OAuth, token priority, Enterprise, clone auth |
 
 ## Tools
 

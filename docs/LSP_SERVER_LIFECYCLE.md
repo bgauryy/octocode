@@ -1,179 +1,258 @@
-# LSP Server Lifecycle — Indexing, Cold Start, and Pool Management
+# LSP in Octocode — Lifecycle, Provisioning, and the No-Fallback Contract
 
-**Source-verified 2026-06-24 against `packages/octocode-engine/src/lsp/` and `packages/octocode-tools-core/src/tools/lsp/semantic_content/`.**
-
----
-
-## Two-Layer Architecture
-
-Octocode uses two completely different technologies that complement each other:
-
-| Layer | What it is | Speed | Semantic? | Engine |
-|---|---|---|---|---|
-| **Tree-sitter / OXC** | Parser embedded in the binary | Sub-ms per file | No — syntax only | `structural/`, `search/`, `grammar.rs` |
-| **LSP** | IPC to an external language server | Cold: 1–120s; warm: <100ms | Yes — cross-file | `lsp/client.rs`, `manager.ts`, `semantic_content/execution.ts` |
-
-Tree-sitter answers "what does this code look like?" — shapes, boundaries, calls, imports.
-LSP answers "what does this symbol mean?" — definition identity, all usages, call graph.
-
-`documentSymbols` is special: it can use native JS/TS extraction, a Markdown heading outline, or LSP. JS/TS `references` also has a native same-file fallback when no server is available. Cross-file identity and the other semantic operations (`definition`, `references` beyond same-file JS/TS, `hover`, `callers`, `callees`, `callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, `diagnostic`) require LSP.
+Companion: `docs/context/LSP_GUIDE.md` (protocol primer + platformized resolution ladder).
 
 ---
 
-## What "Indexing" Means — Per Server
+## Two layers, two different jobs
 
-Indexing is the server's startup work: read every project file and build an internal model (type graph, symbol table, cross-file references) before it can answer semantic queries correctly.
+| Layer | What it is | Speed | Answers |
+|---|---|---|---|
+| **Tree-sitter / OXC** | parser compiled into the engine | sub-ms/file | *"what does this code look like?"* — outlines, shapes, calls, imports (`structural/`, `signatures/`, `grammar.rs`) |
+| **LSP** | a real language server, spawned over stdio | cold 1–120s, warm <100ms | *"what does this symbol mean?"* — cross-file definition identity, all references, call/type graph (`lsp/client.rs`, `manager.ts`, tools-core `semantic_content/execution.ts`) |
 
-| Server | Language | What it indexes | Cold-start | Uses `$/progress`? |
-|---|---|---|---|---|
-| `typescript-language-server` | TS/JS | Lazy per-file; tsconfig graph | < 1s | No |
-| `pylsp` | Python | Jedi/Rope analysis | 2–5s | No |
-| `gopls` | Go | `go list -json ./...`, full module type-check | 3–15s | Yes |
-| `rust-analyzer` | Rust | `cargo metadata` → crate graph → name resolution → type inference → macro expansion | **5–60s** | Yes (multiple waves) |
-| `clangd` | C/C++ | Per-file (needs `compile_commands.json`); no whole-project | Fast/file | No |
-| `jdtls` | Java | JVM startup + Eclipse JDT full workspace compilation | **30–120s** | Yes |
+These are **not** interchangeable. Tree-sitter cannot resolve a symbol across files, infer a type, or follow an import — that needs a language server.
 
-rust-analyzer is the hardest case. It emits multiple sequential `$/progress` waves:
-1. `"Loading proc-macros"` — loads procedural macro crates
-2. `"Indexing"` — name resolution for all crates
-3. `"Building CrateGraph"` — type inference
-4. `"Cache Priming"` — warm the query cache
+## The no-fallback contract (the rule that matters)
 
-A query that arrives between waves may get wrong/empty results.
+When a semantic operation needs a language server and **no server is available**, octocode **throws** — it does *not* fabricate a syntactic or same-file approximation. A faked answer is worse than an honest failure, because the calling agent would trust it.
 
----
+- The thrown error is the standard typed envelope: `status:"error"`, `errorCode:"lspServerUnavailable"`. In bulk it lands under `errors[]`.
+- The message names the language, says no server is available, gives the install hint, and **directs the agent to `localSearchCode` (text/structural search) + `localGetFileContent`** instead.
+- octocode never returns a same-file-only `references` result, or a tree-sitter guess, dressed up as a semantic answer.
 
-## Current Implementation
+**Throws when no server:** `definition`, `references`, `hover`, `callers`, `callees`, `callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, `diagnostic`.
 
-### Pool Architecture
+**Never throws (genuine tree-sitter features, server-free):** `documentSymbols` (native OXC for JS/TS, Markdown heading outline, or LSP when present) and structural/AST search via `localSearchCode`. These are real syntactic capabilities, not LSP stand-ins. `documentSymbols` only throws for a non-JS/TS language with no server *and* no outline.
 
-`packages/octocode-engine/src/lsp/lspClientPool.ts` holds a `Map<key, PoolEntry>` where each entry is a started `LSPClient` plus an idle timer.
+> A server that *is* running but lacks a capability, or returns zero results, still yields an honest *empty* (`unsupportedOperation` / `noReferences` / …) — that is an accurate answer ("none"), not a missing-server failure.
 
+## Provisioning — three classes (how a server becomes available)
+
+octocode maximizes the chance a real server answers via the resolution ladder (override → PATH → bundled → ecosystem discovery → managed cache; see `LSP_GUIDE.md` §13). Use `octocode lsp-server list` to see all servers and their current status, `lsp-server status <file>` to check resolution for a specific file, and `lsp-server install <name>` to trigger an auto-download. Servers fall into:
+
+- **Bundled (npm dep, offline)** — pure-JS servers launched with the current Node; zero install. TS/JS, Python (pyright), Shell (bash-language-server), PHP (intelephense), YAML, JSON/HTML/CSS.
+- **Auto-download (managed cache)** — portable single-binary servers fetched from a pinned release into `~/.octocode/lsp/<server>/<tag>/` (prompt-by-default, SHA-verified). rust-analyzer (all platforms), clangd (no linux-arm64 asset). Set `OCTOCODE_LSP_AUTO_INSTALL=auto` to skip the prompt or `=off` to disable downloads entirely.
+- **Detect-and-instruct (host toolchain)** — need a runtime octocode won't auto-install: gopls (Go), jdtls (JDK 21+), sourcekit-lsp (Xcode/CLI tools on macOS), csharp-ls (.NET SDK). The status/hint tells you how to install; semantic ops throw until you do.
+
+## Supported language servers
+
+Scope is the **main languages**. Niche/long-tail servers were intentionally removed from
+LSP routing (their tree-sitter grammars remain for structural/AST search). A file type not
+listed below has no server config: semantic ops return `lspServerUnavailable` and the agent
+falls back to text search.
+
+| Language | Extensions | Server | Provisioning |
+|---|---|---|---|
+| TypeScript / JS (+ TSX/JSX) | `.ts .mts .cts .tsx .js .mjs .cjs .jsx` | typescript-language-server (`tsgo`/override aware) | **bundled** |
+| Python | `.py .pyi` | pyright (`pylsp` via override) | **bundled** |
+| Shell | `.sh` | bash-language-server | **bundled** |
+| PHP | `.php` | intelephense | **bundled** |
+| YAML | `.yaml .yml` | yaml-language-server | **bundled** |
+| JSON | `.json .jsonc` | vscode-json-language-server | **bundled** |
+| HTML | `.html .htm` | vscode-html-language-server | **bundled** |
+| CSS / SCSS / LESS | `.css .scss .less` | vscode-css-language-server | **bundled** |
+| Rust | `.rs` | rust-analyzer | **auto-download** |
+| C / C++ | `.c .h .cpp .cc .cxx .hpp` | clangd | **auto-download** (no linux-arm64 asset) |
+| Go | `.go` | gopls | **detect-and-instruct** (needs Go toolchain) |
+| Java | `.java` | jdtls | **detect-and-instruct** (needs JDK 21+) |
+| Swift | `.swift` | sourcekit-lsp | **detect-and-instruct** (needs Xcode or `xcode-select --install`) |
+| C# | `.cs` | csharp-ls | **detect-and-instruct** (needs .NET SDK + `dotnet tool install -g csharp-ls`) |
+| SQL | `.sql` | sqls | **PATH / override only** |
+
+Any built-in server can be overridden with `OCTOCODE_<LANG>_SERVER_PATH` or `.octocode/lsp-servers.json`.
+PATH/override-only servers resolve only if already on `PATH` / in an ecosystem dir; otherwise
+semantic ops throw with an install hint.
+
+**Removed from LSP routing** (use text/structural search instead): TOML, Ruby, Kotlin,
+Elixir, Terraform, Lua, Proto, OCaml, Zig, Julia, Erlang, R, GDScript. Their tree-sitter
+grammars stay available for `localSearchCode` structural/AST queries.
+
+### Custom / bring-your-own LSP (any language)
+
+A language with **no built-in spec** (e.g. Scala, Kotlin, Ruby) gets full semantic support by
+registering a server in a JSON config — no rebuild, no code change. This is also how you swap a
+built-in server for a different one. Resolution reads, in order (`config.rs::user_config_paths`):
+
+1. `$OCTOCODE_LSP_CONFIG` (explicit file path)
+2. `<workspace>/.octocode/lsp-servers.json` (per-project, checked in or local)
+3. `~/.octocode/lsp-servers.json` (per-user, all projects)
+
+The file maps a **file extension** to a launch spec. A custom entry takes precedence over the
+built-in spec for that extension:
+
+```jsonc
+// .octocode/lsp-servers.json — register Scala (metals)
+{
+  "languageServers": {
+    ".scala": { "command": "metals", "args": ["stdio"], "languageId": "scala" },
+    ".sc":    { "command": "metals", "args": ["stdio"], "languageId": "scala" }
+  }
+}
 ```
-LspClientPool (idleTimeoutMs = 60s, configurable via OCTOCODE_LSP_POOL_IDLE_MS)
-  key: "$serverId_or_languageId\0$workspaceRoot"  (one slot per server/language × workspace pair)
-  hit: return cached client, reset idle timer
-  miss: factory() → start server → return client
-  evict: idle timer fires → client.stop()
-```
 
-One pool per process, meaning an MCP server session keeps warm servers across tool calls within the same session.
-
-### ProgressTracker
-
-`packages/octocode-engine/src/lsp/json_rpc.rs`:
-
-```
-SETTLE_MS = 2_000    // wait this long for the first $/progress begin
-QUIESCE_MS = 200     // after count reaches 0, wait this long for any follow-up wave
-total cap: caller's timeout_ms (LSPClient default 45_000; pooled manager passes a language profile)
-```
-
-Two-phase logic:
-1. **Settle**: if no `$/progress begin` arrives within SETTLE_MS, treat the server as ready.
-2. **Drain + quiesce**: wait for all tokens to end, then wait QUIESCE_MS; if new tokens start, repeat.
-
----
-
-## Six Ideas — Evaluated Against Source
-
-### Idea 1: Server persistence across calls
-
-**Status: Implemented** via `LspClientPool` (60s idle timeout).
-
-Pool resides in the Node.js process. A long-lived MCP server process keeps warm servers across tool calls to the same workspace. Separate one-shot CLI invocations start separate processes, so they do not share a pool with each other. The 60s idle timer can be extended with `OCTOCODE_LSP_POOL_IDLE_MS`.
-
-**Current cold-start gate**: the pool factory calls `waitForReady` for languages that emit `$/progress`, so the first semantic query waits for known indexing waves before it runs. Languages that do not use `$/progress` skip this wait to avoid a fixed 2s settle penalty.
-
----
-
-### Idea 2: Per-language timeout profiles
-
-**Status: Implemented** in `manager.ts`.
-
-Before: one 45s cap for all servers — too long for clangd (per-file, always fast), too short for jdtls (JVM + full compilation, can take 120s).
-
-After: per-language table in `manager.ts`:
-
-| Language | Timeout | Rationale |
+| Field | Required | Meaning |
 |---|---|---|
-| TypeScript/JS | 0 (skip `waitForReady`) | No `$/progress`; answers queries immediately after handshake |
-| Python | 0 (skip) | pylsp doesn't use `$/progress` |
-| C/C++ | 0 (skip) | clangd per-file; no workspace progress |
-| Bash/shell | 0 (skip) | bash-language-server no progress |
-| Script/data languages | 0 (skip) | JSON/YAML/TOML/HTML/CSS servers have no indexing |
-| Go | 15_000 | `go list` + module type-check, usually <10s |
-| Rust | 60_000 | cargo metadata + multi-crate analysis |
-| C# | 30_000 | OmniSharp workspace |
-| Swift | 30_000 | sourcekit-lsp |
-| Kotlin | 60_000 | kotlin-language-server full compilation |
-| Java | 120_000 | jdtls JVM startup + Eclipse compilation |
-| Elixir | 30_000 | workspace analysis via ElixirLS |
-| Erlang | 30_000 | workspace analysis via Erlang language server |
+| `command` | yes | Executable name (resolved on `PATH`) or absolute path. Shell wrappers are rejected. |
+| `languageId` | yes | LSP `languageId` sent on `textDocument/didOpen` (e.g. `scala`, `ruby`). |
+| `args` | no | Launch args (default `[]`). |
+| `initializationOptions` | no | Passed verbatim in the LSP `initialize` request. |
 
-`PROGRESS_LANGUAGES` currently contains `go`, `rust`, `java`, `kotlin`, `swift`, `csharp`, `elixir`, and `erlang`. Servers outside that set skip the `waitForReady` call entirely. For them, `waitForReady` would always burn SETTLE_MS (2s) waiting for a progress event that never comes.
+With the config present, semantic ops (`definition`, `references`, `hover`, call hierarchy, …)
+work for that language exactly like a built-in one. **Without it, the extension stays unsupported:
+the engine resolves no server and the no-fallback contract applies** — semantic ops throw
+`lspServerUnavailable` and the agent falls back to `localSearchCode` + `localGetFileContent`.
+Both halves of this contract are asserted by the benchmark (`benchmark/lsp/check-lsp.mjs`,
+"Custom LSP — bring-your-own server (Scala / metals)"), and verified **live against a real
+server** by `benchmark/lsp/check-custom-lsp.mjs` (`yarn lsp:custom`) — which registers
+`bash-language-server` (a language with no built-in spec) and runs real `documentSymbols` /
+`references` / `hover` through it.
 
----
+### Markup & docs: what's LSP vs minify
 
-### Idea 3: Progress streaming to caller
+- **HTML / CSS / SCSS / LESS / JSON / YAML are LSP** — served by the bundled
+  `vscode-*-language-server` / `yaml-language-server` (markup/data, offline-ready). They're
+  not "code" languages but they do have real language servers.
+- **Markdown / MDX are NOT LSP.** They are handled by the **minifier** using heading-section
+  heuristics (ATX `#`/`##` and setext headings → `minify/strategies/markdown.rs`; `md`,
+  `markdown`, `mdx` all map to the markdown strategy in `minify/config.rs`). There is no
+  markdown language server in octocode — `documentSymbols` on a `.md` file uses the native
+  heading-outline path, and structure/compression comes from the minifier, not a server.
 
-**Status: Open.**
+## Full format support matrix
 
-Currently, when `waitForReady` times out or a query lands during indexing, the response says "may still be indexing" but doesn't show which progress tokens are still active or how far along they are.
+Per-extension capabilities across all four axes — minify strategy, structural AST,
+signature outline, and LSP server — machine-generated from the shipped napi binary.
+The LSP column here is the per-extension view of the [Supported language servers](#supported-language-servers)
+table above.
 
-What would be needed:
-- Expose `active progress tokens` from `ProgressTracker` to the caller.
-- Thread the indexing state into the response envelope as `lsp.indexingStatus`.
-- Require protocol changes in tools-core response shaping.
+<!-- BEGIN GENERATED: support-matrix (yarn matrix:check --write) — do not edit between these markers -->
 
-**Effort**: M. Not yet implemented; useful but not blocking.
+_Generated by `yarn matrix:check --write` (benchmark/check-matrix.mjs) — every cell probed live against the shipped napi binary. Do not edit between the markers; run `yarn matrix:check` to re-verify._
 
----
+> **Note:** The matrix queries the native layer (`config.rs`) only. Two servers injected at the TS layer (`config.ts`) are not reflected: **bash-language-server** for `.sh` (languageId `shellscript`) and **intelephense** for `.php` (the native spec emits `intelephense` as command — both bundled and active). Their LSP cells show `—` in the matrix below but the servers are bundled and resolve correctly (`lsp-server status <file>` will show `resolved: bundled`).
 
-### Idea 4: documentSymbols always-fast guarantee
+**151 extensions** known to the engine — 61 with structural AST, 47 with a signature outline, 32 with an LSP server, 90 minify-only.
 
-**Status: Partially implemented.**
+### Rich formats — AST + signature + LSP
 
-`nativeDocumentSymbols()` in `execution.ts` uses OXC to extract JS/TS symbols without any server. JS/TS `documentSymbols` now prefers native OXC when it produces symbols, even if a language server is available, making the common file-outline path server-free.
+Extensions with a wired tree-sitter grammar (and, where configured, a language server). The minify column is the configured strategy.
 
-Markdown files also have a heading-outline fallback that emits `documentSymbols` with `lsp.source: "markdown"`. For non-JS/TS code languages (Rust, Go, Python, Java, C++), `nativeDocumentSymbols` returns null — there is no tree-sitter based symbol extractor. These still go through the server.
+| Extension | Minify | Structural AST | Signature outline | LSP (server → language-id) |
+|-----------|--------|:--------------:|-------------------|----------------------------|
+| `.bash` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.c` | `conservative` | ✅ | ✅ tree-sitter | `clangd` → `c` |
+| `.cc` | `conservative` | ✅ | ✅ tree-sitter | `clangd` → `cpp` |
+| `.cjs` | `terser` | ✅ | ✅ tree-sitter | `typescript-language-server` → `javascript` |
+| `.cpp` | `conservative` | ✅ | ✅ tree-sitter | `clangd` → `cpp` |
+| `.cs` | `conservative` | ✅ | ✅ tree-sitter | `csharp-ls` → `csharp` |
+| `.css` | `aggressive` | ✅ | — | `vscode-css-language-server` → `css` |
+| `.cts` | `conservative` | ✅ | ✅ tree-sitter | `typescript-language-server` → `typescript` |
+| `.cxx` | `conservative` | ✅ | ✅ tree-sitter | `clangd` → `cpp` |
+| `.erl` | `aggressive` | ✅ | ✅ tree-sitter | — |
+| `.ex` | `aggressive` | ✅ | ✅ tree-sitter | — |
+| `.exs` | `aggressive` | ✅ | ✅ tree-sitter | — |
+| `.gemspec` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.go` | `conservative` | ✅ | ✅ tree-sitter | `gopls` → `go` |
+| `.h` | `conservative` | ✅ | ✅ tree-sitter | `clangd` → `c` |
+| `.hcl` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.hh` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.hpp` | `conservative` | ✅ | ✅ tree-sitter | `clangd` → `cpp` |
+| `.hrl` | `aggressive` | ✅ | ✅ tree-sitter | — |
+| `.htm` | `aggressive` | ✅ | — | `vscode-html-language-server` → `html` |
+| `.html` | `aggressive` | ✅ | — | `vscode-html-language-server` → `html` |
+| `.hxx` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.java` | `conservative` | ✅ | ✅ tree-sitter | `jdtls` → `java` |
+| `.jl` | `conservative` | ✅ | — | — |
+| `.js` | `terser` | ✅ | ✅ tree-sitter | `typescript-language-server` → `javascript` |
+| `.json` | `json` | ✅ | — | `vscode-json-language-server` → `json` |
+| `.jsonc` | `json` | ✅ | — | `vscode-json-language-server` → `json` |
+| `.jsx` | `terser` | ✅ | ✅ tree-sitter | `typescript-language-server` → `javascriptreact` |
+| `.kt` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.kts` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.less` | `aggressive` | ✅ | — | `vscode-css-language-server` → `less` |
+| `.lua` | `aggressive` | ✅ | ✅ tree-sitter | — |
+| `.mjs` | `terser` | ✅ | ✅ tree-sitter | `typescript-language-server` → `javascript` |
+| `.ml` | `conservative` | ✅ | — | — |
+| `.mli` | `conservative` | ✅ | — | — |
+| `.mts` | `conservative` | ✅ | ✅ tree-sitter | `typescript-language-server` → `typescript` |
+| `.php` | `conservative` | ✅ | ✅ tree-sitter | `intelephense` → `php` |
+| `.proto` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.py` | `conservative` | ✅ | ✅ tree-sitter | `pylsp` → `python` |
+| `.pyi` | `conservative` | ✅ | ✅ tree-sitter | `pylsp` → `python` |
+| `.r` | `aggressive` | ✅ | ✅ tree-sitter | — |
+| `.rake` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.rb` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.rs` | `conservative` | ✅ | ✅ tree-sitter | `rust-analyzer` → `rust` |
+| `.ru` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.sbt` | — | ✅ | ✅ tree-sitter | — |
+| `.sc` | — | ✅ | ✅ tree-sitter | — |
+| `.scala` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.scss` | `aggressive` | ✅ | — | `vscode-css-language-server` → `scss` |
+| `.sh` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.sql` | `conservative` | ✅ | — | `sqls` → `sql` |
+| `.swift` | `conservative` | ✅ | ✅ tree-sitter | `sourcekit-lsp` → `swift` |
+| `.tf` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.tfvars` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.toml` | `conservative` | ✅ | — | — |
+| `.ts` | `conservative` | ✅ | ✅ tree-sitter | `typescript-language-server` → `typescript` |
+| `.tsx` | `conservative` | ✅ | ✅ tree-sitter | `typescript-language-server` → `typescriptreact` |
+| `.yaml` | `conservative` | ✅ | — | `yaml-language-server` → `yaml` |
+| `.yml` | `conservative` | ✅ | — | `yaml-language-server` → `yaml` |
+| `.zig` | `conservative` | ✅ | ✅ tree-sitter | — |
+| `.zsh` | `conservative` | ✅ | ✅ tree-sitter | — |
 
-**Remaining gap**: Tree-sitter symbol extraction for compiled languages would enable always-fast documentSymbols for all 30+ supported grammars. Open as a future feature.
+Notes:
+- **Signature outline is tree-sitter only** — markup/style/config grammars (HTML/CSS/SCSS/LESS/Scala/JSON/YAML/TOML) parse for structural `rule` queries but have no function body, so no skeleton. There is **no** regex/heuristic fallback.
+- **`.jsx`** resolves the LSP server as `javascriptreact` (to enable JSX) even though its tree-sitter grammar registry id is `javascript` (shared JS grammar). `.tsx` has its own grammar, so both ids are `typescriptreact`.
+- **`.hh` / `.hxx`** have the C++ grammar + signatures but **no clangd server config** (only `.cpp/.cc/.cxx/.hpp` are mapped).
+- **C/C++**: structural `rule` queries (e.g. `kind: call_expression`) work fully; a bare call-shaped `pattern` can hit tree-sitter's declaration-vs-call ambiguity — prefer a `rule` with `kind`. JS/TS also have a native (oxc) symbol/in-file-reference path that needs **no server installed**.
 
----
+### Minify-only formats
 
-### Idea 5: Explicit `waitForIndexing` param
+Native comment/whitespace stripping; no AST/LSP. (90 extensions, grouped by strategy.)
 
-**Status: Open.**
+**`aggressive`** (18): `clj` `cljs` `ejs` `erb` `handlebars` `hbs` `jinja` `jinja2` `mustache` `pl` `pm` `svelte` `svg` `twig` `vue` `xml` `xsl` `xslt`
 
-Currently there's no way to opt into a longer wait. A query either uses the pool timeout or gets `noLocations`.
+**`conservative`** (66): `adb` `ads` `asm` `awk` `bzl` `cfg` `cmake` `coffee` `conf` `config` `csv` `dart` `dockerignore` `elm` `env` `f` `f03` `f08` `f90` `f95` `fish` `for` `fs` `fsx` `gitignore` `gql` `gradle` `graphql` `groovy` `haml` `hs` `ini` `jade` `kotlin` `lhs` `lisp` `lsp` `mm` `nasm` `nim` `nix` `pas` `perl` `plsql` `pp` `properties` `ps1` `psd1` `psm1` `pug` `rkt` `rst` `rust` `sass` `scm` `slim` `star` `styl` `tsql` `v` `vb` `vbs` `vhd` `vhdl` `wast` `wat`
 
-What would be needed: add `waitForIndexingMs?: number` to `LspGetSemanticsQuery`. When set, the pool `waitForReady` timeout for that query is extended beyond the language default. Useful for CI or one-shot analysis jobs where user doesn't mind waiting 120s.
+**`general`** (2): `log` `txt`
 
-**Effort**: S. Low priority while the pool already waits for the configured progress languages.
+**`json`** (1): `json5`
 
----
+**`markdown`** (3): `markdown` `md` `mdx`
 
-### Idea 6: SCIP/precomputed index
+### Verify
 
-**Status: Open.**
+```bash
+yarn matrix:check     # this matrix, live
+yarn ast:check        # structural search + signatures on real samples
+yarn lsp:check        # language-id + server resolution + native semantics
+yarn lsp:live         # spawn a real server, exercise every LSP operation type
+yarn minify:check     # minifier over every configured format
+yarn benchmark        # all of the above
+```
 
-rust-analyzer, gopls, and others can produce a SCIP index (Sourcegraph Code Intelligence Protocol) — a serialized version of the symbol/reference graph that can be loaded instantly without re-analyzing. This would eliminate cold-start entirely.
+<!-- END GENERATED: support-matrix -->
 
-**Effort**: XL. Requires SCIP producer tooling, a SCIP consumer in the engine, and a cache management layer. Lower priority after Ideas 1–4 are solid.
+## Lifecycle — pool, cold start, indexing
 
----
+- **Pool** (`lspClientPool.ts`): one warm `LSPClient` per (server × workspace), 60s idle timeout (`OCTOCODE_LSP_POOL_IDLE_MS`). A long-lived MCP session reuses warm servers across tool calls; one-shot CLI invocations don't share a pool.
+- **Cold start / indexing**: a server reads the project and builds its model before answering correctly. Costs vary — typescript-language-server <1s, gopls 3–15s, rust-analyzer 5–60s (multiple `$/progress` waves), jdtls 30–120s.
+- **Readiness** (`manager.ts` + `json_rpc.rs`): for servers that emit `$/progress` (go, rust, java, csharp, swift) the pool factory calls `waitForReady` with a per-language cap before the first query; servers without `$/progress` (TS/JS, Python, clangd, data formats) skip the wait to avoid a fixed 2s settle penalty.
+- **Spawn gate**: every resolved command passes `validateLSPServerPath` (rejects shell wrappers / nonexistent / non-executable) in `LSPClient.start()` before the process is spawned.
+- **Discovery caching** (`serverDiscovery.ts`): ecosystem-dir lookup results are memoised per `(command, workspaceRoot)` for the process lifetime. Ecosystem dirs are pre-filtered to existing ones once, cutting stat calls from ~15-per-server to ~5. Call `clearDiscoveryCache()` (or restart) after installing a server mid-session.
 
-## Summary Table
+## Open / future (non-blocking)
 
-| Idea | Status | Source / next |
-|---|---|---|
-| 1. Server pool | ✅ Done (60s idle, `OCTOCODE_LSP_POOL_IDLE_MS`) | Pre-existing |
-| 1a. Pool factory calls `waitForReady` | ✅ Done for progress languages | `manager.ts` |
-| 2. Per-language timeout profiles | ✅ Implemented | `manager.ts` |
-| 3. Progress streaming to caller | 🔲 Open | Future |
-| 4. documentSymbols native-first (JS/TS) | ✅ Implemented | `semantic_content/execution.ts` |
-| 4a. documentSymbols Markdown heading fallback | ✅ Implemented | `semantic_content/execution.ts` |
-| 4b. documentSymbols native for compiled langs | 🔲 Open (needs tree-sitter symbol extractor) | Future |
-| 5. `waitForIndexingMs` opt-in param | 🔲 Open | Future |
-| 6. SCIP precomputed index | 🔲 Open | Future |
+Progress streaming to the caller (`lsp.indexingStatus`), an opt-in `waitForIndexingMs`, tree-sitter symbol extraction for compiled-language `documentSymbols`, and a SCIP precomputed index — all deferred; none change the no-fallback contract above.
+
+> **Known issue — cold `references` under-reports.** On a one-shot CLI invocation,
+> `references` (and other project-wide ops) can return incomplete results
+> *labelled* `complete=true`, because `typescript-language-server` emits no
+> `$/progress` and the project isn't indexed yet when queried. This is the one
+> behaviour that can make an agent wrong rather than just slow — analysis and the
+> proposed fix (honest `complete=false` + cross-check hint, with an opt-in
+> `waitForIndexingMs`) are in
+> [`LSP_REFERENCES_INDEXING_RFC.md`](https://github.com/bgauryy/octocode/blob/main/docs/LSP_REFERENCES_INDEXING_RFC.md). Meanwhile,
+> prefer `--op callers` or `localSearchCode` to confirm "who uses this".

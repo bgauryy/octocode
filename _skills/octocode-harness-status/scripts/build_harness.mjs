@@ -1028,7 +1028,7 @@ function buildHtml(data) {
     </div>
     <div class="form-group">
       <label class="form-label">Args (one per line)</label>
-      <textarea class="form-textarea" id="edit-args" rows="3" placeholder="octocode-mcp@latest"></textarea>
+      <textarea class="form-textarea" id="edit-args" rows="3" placeholder="@octocodeai/mcp@latest"></textarea>
       <div class="form-hint">Each line becomes one argument. Other config fields (url, headers, &hellip;) are preserved.</div>
     </div>
     <div class="form-group">

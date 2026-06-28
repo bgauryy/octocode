@@ -175,7 +175,7 @@ The CLI writes the config file automatically. Then confirm the result:
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["octocode-mcp@latest"]
+      "args": ["@octocodeai/mcp@latest"]
     }
   }
 }
@@ -196,7 +196,7 @@ The CLI writes the config file automatically. Then confirm the result:
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["octocode-mcp@latest"],
+      "args": ["@octocodeai/mcp@latest"],
       "env": {
         "GITHUB_TOKEN": "ghp_xxxx",
         "ENABLE_LOCAL": "true"
@@ -305,4 +305,4 @@ Tools responding = setup complete.
 | Skills not loading | Verify `~/<client>/skills/<skill>/SKILL.md` has `name` + `description` |
 | Already installed, want to update | Add `--force`: `npx octocode install --ide cursor --force` |
 
-Docs: [Auth](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md) · [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md) · [Skills](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
+Docs: [Auth](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md) · [Skills](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)

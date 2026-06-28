@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 
 import { nativeBinding, type NativeLspClientBinding } from './native.js';
+import { validateLSPServerPath } from './validation.js';
 import type {
   CallHierarchyItem,
   CodeSnippet,
@@ -12,9 +13,11 @@ import type {
 
 export class LSPClient {
   private readonly nativeClient: NativeLspClientBinding;
+  private readonly command: string;
   private initialized = false;
 
   constructor(config: LanguageServerConfig) {
+    this.command = config.command;
     this.nativeClient = new nativeBinding.NativeLspClient({
       command: config.command,
       args: config.args,
@@ -26,6 +29,15 @@ export class LSPClient {
   }
 
   async start(): Promise<void> {
+    // Security gate: never spawn a command that isn't a real, executable,
+    // non-shell server binary — even one resolved from the managed download
+    // cache. This is the single chokepoint before the native process spawn.
+    const validation = validateLSPServerPath(this.command);
+    if (!validation.isValid) {
+      throw new Error(
+        `Refusing to start language server: ${validation.error ?? `invalid server path '${this.command}'`}`
+      );
+    }
     await this.nativeClient.start();
     this.initialized = true;
   }

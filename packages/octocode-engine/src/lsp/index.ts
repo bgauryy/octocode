@@ -1,5 +1,44 @@
 export { LSPClient } from './client.js';
-export { detectLanguageId, getLanguageServerForFile } from './config.js';
+export {
+  detectLanguageId,
+  getLanguageServerForFile,
+  isCommandOnPath,
+  resolveServerForFile,
+  BUNDLED_SERVER_NAMES,
+  type ServerResolution,
+} from './config.js';
+export { detectPlatformId, isMuslLinux, type PlatformId } from './platform.js';
+export {
+  detectIdeContext,
+  type IdeContext,
+  type IdeHost,
+} from './ideContext.js';
+export {
+  clearDiscoveryCache,
+  discoverServer,
+  discoverServerBatch,
+  type DiscoveredServer,
+  type DiscoverySource,
+} from './serverDiscovery.js';
+export {
+  cachedServerBinPath,
+  isAutoDownloadable,
+  listManifestServers,
+  managedCacheRoot,
+  manifestInstallHint,
+  manifestServer,
+  provisionMode,
+  resolveCachedServer,
+  type ArchiveKind,
+  type ManifestAsset,
+  type ManifestServer,
+  type ProvisionMode,
+} from './serverManifest.js';
+export {
+  provisionServer,
+  uninstallServer,
+  type ProvisionResult,
+} from './serverProvisioner.js';
 export {
   acquirePooledClient,
   getLspStatus,
@@ -8,6 +47,9 @@ export {
   pooledClientCount,
   releaseAllPooledClients,
   releasePooledClientForFile,
+  unavailableHintFor,
+  TOOLCHAIN_SERVERS,
+  type ToolchainServer,
   type LspStatusInput,
   type LspStatusResult,
 } from './manager.js';
@@ -29,6 +71,7 @@ export type {
   LanguageServerConfig,
   LSPPaginationInfo,
   LSPRange,
+  LspServerSource,
   OutgoingCall,
   ReferenceLocation,
   ReferencesByFile,

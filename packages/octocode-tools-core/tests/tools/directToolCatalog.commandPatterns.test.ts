@@ -7,7 +7,7 @@ import {
   getDirectToolCategory,
 } from '../../src/tools/directToolCatalog.meta.js';
 import {
-  LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+  LSP_GET_SEMANTICS_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../../src/tools/toolNames.js';
 
@@ -78,7 +78,7 @@ describe('direct-tool command patterns', () => {
 
     it('keeps semantic patterns compact for definition and outline flows', () => {
       const patterns = buildDirectToolCommandPatterns(
-        LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
+        LSP_GET_SEMANTICS_TOOL_NAME
       );
 
       expect(patterns.map(pattern => pattern.label)).toEqual([
@@ -105,7 +105,7 @@ describe('direct-tool command patterns', () => {
       expect(getDirectToolCategory(STATIC_TOOL_NAMES.LOCAL_RIPGREP)).toBe(
         'Local Code'
       );
-      expect(getDirectToolCategory(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME)).toBe(
+      expect(getDirectToolCategory(LSP_GET_SEMANTICS_TOOL_NAME)).toBe(
         'Local Code'
       );
     });

@@ -46,7 +46,7 @@ jobs:
         run: yarn workspace octocode-security run build:dev
 
       - name: Build MCP package types
-        run: yarn workspace octocode-mcp run build:dev
+        run: yarn workspace @octocodeai/mcp run build:dev
 
       - name: Run type checks
         run: yarn typecheck

@@ -97,7 +97,7 @@ describe('statusCommand', () => {
       (id: string) => `/cfg/${id}.json`
     );
     vi.mocked(configFileExists).mockReturnValue(false);
-    vi.mocked(formatAuthStatusAsJson).mockReturnValue({
+    vi.mocked(formatAuthStatusAsJson).mockResolvedValue({
       authenticated: true,
       username: 'me',
       hostname: 'github.com',
@@ -105,9 +105,9 @@ describe('statusCommand', () => {
       tokenConfigured: true,
       tokenSource: 'env',
     });
-    vi.mocked(printAuthStatus).mockImplementation(() =>
-      console.log('AUTH_STATUS')
-    );
+    vi.mocked(printAuthStatus).mockImplementation(async () => {
+      console.log('AUTH_STATUS');
+    });
   });
 
   afterEach(() => {
@@ -217,7 +217,7 @@ describe('statusCommand', () => {
   });
 
   it('--json reports unauthenticated state without failing read-only status', async () => {
-    vi.mocked(formatAuthStatusAsJson).mockReturnValue({
+    vi.mocked(formatAuthStatusAsJson).mockResolvedValue({
       authenticated: false,
       hostname: 'github.com',
     });

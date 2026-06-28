@@ -353,8 +353,6 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('category: unsupportedOperation');
     expect(text).toContain('Could not find symbol');
     expect(text).toContain('category: symbolNotFound');
-    expect(text).toContain('Language server unavailable');
-    expect(text).toContain('category: serverUnavailable');
   });
 
   it('reports unsupported providers and missing call hierarchy roots', async () => {
@@ -432,21 +430,22 @@ describe('new public LSP tool execution', () => {
     expect(text).toContain('hoverProvider returned no hover content');
   });
 
-  it('handles serverAvailable=false for symbol-anchored queries', async () => {
+  it('throws lspServerUnavailable for symbol-anchored queries when no server', async () => {
     vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
     const result = await executeLspGetSemantics({
       queries: [anchored('definition'), anchored('references')],
     } as never);
     const text = textOf(result);
-    expect(text).toContain('Language server unavailable');
+    expect(text).toContain('lspServerUnavailable');
+    expect(text).toContain('localSearchCode');
   });
 
-  it('handles acquirePooledClient returning null for symbol queries', async () => {
+  it('throws lspServerUnavailable when acquirePooledClient returns null', async () => {
     vi.mocked(acquirePooledClient).mockResolvedValue(null);
     const result = await executeLspGetSemantics({
       queries: [anchored('definition')],
     } as never);
-    expect(textOf(result)).toContain('Language server unavailable');
+    expect(textOf(result)).toContain('lspServerUnavailable');
   });
 
   it('handles documentSymbols with an invalid/missing path', async () => {
@@ -456,14 +455,16 @@ describe('new public LSP tool execution', () => {
     expect(textOf(result)).toContain('file_not_found');
   });
 
-  it('handles documentSymbols when language server is unavailable', async () => {
+  it('documentSymbols stays server-free (native outline) when no server', async () => {
+    // documentSymbols is a genuine tree-sitter/OXC feature — it does NOT throw
+    // when no server is available for a JS/TS file; it returns the native outline.
     vi.mocked(isLanguageServerAvailable).mockResolvedValue(false);
     const result = await executeLspGetSemantics({
       queries: [{ uri: filePath, type: 'documentSymbols' }],
     } as never);
     const text = textOf(result);
-    expect(text).toContain('Language server unavailable');
     expect(text).toContain('kind: documentSymbols');
+    expect(text).not.toContain('lspServerUnavailable');
   });
 
   it('paginates document symbols across pages', async () => {

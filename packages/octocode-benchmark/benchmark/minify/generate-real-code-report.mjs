@@ -10,9 +10,9 @@ import {
 } from 'node:fs';
 import { basename, extname, join, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { engineRoot, requireEngine } from '../_engine.mjs';
+import { engine } from '../_engine.mjs';
 
-// index.js is CommonJS (native .node addon); use createRequire for ESM compatibility
+// Canonical engine via the shared loader (index.cjs napi binary).
 const {
   applyContentViewMinification,
   applyMinification,
@@ -21,7 +21,7 @@ const {
   minifyContent,
   minifyContentSync,
   SUPPORTED_SIGNATURE_EXTENSIONS,
-} = requireEngine(join(engineRoot, 'index.js'));
+} = engine;
 
 const DEFAULT_CORPUS_ROOT = '/tmp/octocode-context-real-corpus';
 const EXCERPT_CHARS = 1800;
@@ -1406,8 +1406,19 @@ ${missingExtensions.join(', ')}
 }
 
 async function main() {
-  const corpusRoot = resolve(process.argv[2] ?? DEFAULT_CORPUS_ROOT);
+  // Flag-safe corpus path + an explicit destructive-write gate. This script
+  // regenerates minify/<lang>/ by WIPING the committed samples that
+  // check-minify.mjs depends on, so it refuses to run without --write.
+  const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const corpusRoot = resolve(positional[0] ?? DEFAULT_CORPUS_ROOT);
   const outputRoot = resolve(new URL('.', import.meta.url).pathname);
+
+  if (!process.argv.includes('--write')) {
+    throw new Error(
+      `Refusing to regenerate: this WIPES the committed minify/ samples that check-minify.mjs uses. ` +
+        `Re-run with --write to regenerate from corpus ${corpusRoot}.`
+    );
+  }
 
   if (!existsSync(corpusRoot)) {
     throw new Error(`Corpus root does not exist: ${corpusRoot}`);

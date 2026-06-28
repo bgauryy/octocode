@@ -59,6 +59,9 @@ function withToolTimeout(
 
     signal?.addEventListener('abort', onAbort, { once: true });
 
+    // Re-check after registering the listener: the signal may have been aborted
+    // in the window between addEventListener and this line, which the listener
+    // alone cannot catch.
     if (signal?.aborted) {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
@@ -119,14 +122,14 @@ async function runSecure<T extends Record<string, unknown>, TAuth>(
       string,
       unknown
     >;
-      const rawResult = await withToolTimeout(
-        toolName,
-        handler(sanitizedParams as T, authInfo, sessionId),
-        signal,
-        timeoutMs
-      );
-      return rawResult;
-    } catch (error) {
+    const rawResult = await withToolTimeout(
+      toolName,
+      handler(sanitizedParams as T, authInfo, sessionId),
+      signal,
+      timeoutMs
+    );
+    return rawResult;
+  } catch (error) {
       return createErrorResult(
         `Security validation error: ${
           error instanceof Error ? error.message : 'Unknown error'

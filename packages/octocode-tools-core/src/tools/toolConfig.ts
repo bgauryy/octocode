@@ -71,7 +71,7 @@ import { executeRipgrepSearch } from './local_ripgrep/execution.js';
 import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { executeOqlSearchTool } from './oql_search/execution.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from './lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import { OQL_SEARCH_TOOL_NAME } from './toolNames.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
@@ -319,8 +319,8 @@ function createToolCatalog(
   });
 
   const LSP_GET_SEMANTIC_CONTENT: ToolConfig = {
-    name: LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
-    description: getDescription(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME, gateway),
+    name: LSP_GET_SEMANTICS_TOOL_NAME,
+    description: getDescription(LSP_GET_SEMANTICS_TOOL_NAME, gateway),
     isDefault: true,
     isLocal: true,
     skipMetadataCheck: true,

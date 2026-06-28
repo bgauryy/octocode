@@ -48,11 +48,11 @@ describe('areMCPServersEqual', () => {
   it('should return true for identical configs', () => {
     const a: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@latest'],
+      args: ['@octocodeai/mcp@latest'],
     };
     const b: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@latest'],
+      args: ['@octocodeai/mcp@latest'],
     };
     expect(areMCPServersEqual(a, b)).toBe(true);
   });
@@ -60,11 +60,11 @@ describe('areMCPServersEqual', () => {
   it('should return false for different commands', () => {
     const a: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@latest'],
+      args: ['@octocodeai/mcp@latest'],
     };
     const b: MCPServer = {
       command: 'node',
-      args: ['octocode-mcp@latest'],
+      args: ['@octocodeai/mcp@latest'],
     };
     expect(areMCPServersEqual(a, b)).toBe(false);
   });
@@ -72,11 +72,11 @@ describe('areMCPServersEqual', () => {
   it('should return false for different args', () => {
     const a: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@latest'],
+      args: ['@octocodeai/mcp@latest'],
     };
     const b: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@1.0.0'],
+      args: ['@octocodeai/mcp@1.0.0'],
     };
     expect(areMCPServersEqual(a, b)).toBe(false);
   });
@@ -84,11 +84,11 @@ describe('areMCPServersEqual', () => {
   it('should return false for different args length', () => {
     const a: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@latest'],
+      args: ['@octocodeai/mcp@latest'],
     };
     const b: MCPServer = {
       command: 'npx',
-      args: ['octocode-mcp@latest', '--flag'],
+      args: ['@octocodeai/mcp@latest', '--flag'],
     };
     expect(areMCPServersEqual(a, b)).toBe(false);
   });
@@ -213,7 +213,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/cursor.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         },
         exists: true,
@@ -224,7 +224,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/claude.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         },
         exists: true,
@@ -245,7 +245,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/cursor.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         },
         exists: true,
@@ -277,7 +277,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/cursor.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         },
         exists: true,
@@ -288,7 +288,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/claude.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@1.0.0'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@1.0.0'] },
           },
         },
         exists: true,
@@ -311,7 +311,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/cursor.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         },
         exists: true,
@@ -357,7 +357,7 @@ describe('analyzeSyncState', () => {
         configPath: '/path/cursor.json',
         config: {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         },
         exists: true,
@@ -389,7 +389,7 @@ describe('prepareSyncPayload', () => {
           missingIn: ['claude-desktop'],
           hasConflict: false,
           variants: new Map([
-            ['cursor', { command: 'npx', args: ['octocode-mcp@latest'] }],
+            ['cursor', { command: 'npx', args: ['@octocodeai/mcp@latest'] }],
           ]),
         },
       ],
@@ -424,10 +424,10 @@ describe('prepareSyncPayload', () => {
           missingIn: [],
           hasConflict: true,
           variants: new Map([
-            ['cursor', { command: 'npx', args: ['octocode-mcp@latest'] }],
+            ['cursor', { command: 'npx', args: ['@octocodeai/mcp@latest'] }],
             [
               'claude-desktop',
-              { command: 'npx', args: ['octocode-mcp@1.0.0'] },
+              { command: 'npx', args: ['@octocodeai/mcp@1.0.0'] },
             ],
           ]),
         },
@@ -445,7 +445,7 @@ describe('prepareSyncPayload', () => {
     const resolutions: ConflictResolution[] = [
       {
         mcpId: 'octocode',
-        chosenConfig: { command: 'npx', args: ['octocode-mcp@latest'] },
+        chosenConfig: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
         sourceClient: 'cursor',
       },
     ];
@@ -453,7 +453,7 @@ describe('prepareSyncPayload', () => {
     const payload = prepareSyncPayload(analysis, resolutions);
     expect(payload).toHaveLength(1);
     expect(payload[0].mcpId).toBe('octocode');
-    expect(payload[0].server.args).toContain('octocode-mcp@latest');
+    expect(payload[0].server.args).toContain('@octocodeai/mcp@latest');
   });
 
   it('should combine needsSync entries and resolved conflicts in one payload', () => {
@@ -633,19 +633,19 @@ describe('getCanonicalConfig', () => {
       missingIn: [],
       hasConflict: true,
       variants: new Map([
-        ['cursor', { command: 'npx', args: ['octocode-mcp@latest'] }],
-        ['claude-desktop', { command: 'npx', args: ['octocode-mcp@1.0.0'] }],
+        ['cursor', { command: 'npx', args: ['@octocodeai/mcp@latest'] }],
+        ['claude-desktop', { command: 'npx', args: ['@octocodeai/mcp@1.0.0'] }],
       ]),
     };
 
     const resolution: ConflictResolution = {
       mcpId: 'octocode',
-      chosenConfig: { command: 'npx', args: ['octocode-mcp@2.0.0'] },
+      chosenConfig: { command: 'npx', args: ['@octocodeai/mcp@2.0.0'] },
       sourceClient: 'cursor',
     };
 
     const result = getCanonicalConfig(diff, resolution);
-    expect(result).toEqual({ command: 'npx', args: ['octocode-mcp@2.0.0'] });
+    expect(result).toEqual({ command: 'npx', args: ['@octocodeai/mcp@2.0.0'] });
   });
 
   it('should return first variant when no conflict and variants exist', () => {
@@ -655,12 +655,15 @@ describe('getCanonicalConfig', () => {
       missingIn: ['claude-desktop'],
       hasConflict: false,
       variants: new Map([
-        ['cursor', { command: 'npx', args: ['octocode-mcp@latest'] }],
+        ['cursor', { command: 'npx', args: ['@octocodeai/mcp@latest'] }],
       ]),
     };
 
     const result = getCanonicalConfig(diff);
-    expect(result).toEqual({ command: 'npx', args: ['octocode-mcp@latest'] });
+    expect(result).toEqual({
+      command: 'npx',
+      args: ['@octocodeai/mcp@latest'],
+    });
   });
 
   it('should return null when there is a conflict without resolution', () => {
@@ -670,8 +673,8 @@ describe('getCanonicalConfig', () => {
       missingIn: [],
       hasConflict: true,
       variants: new Map([
-        ['cursor', { command: 'npx', args: ['octocode-mcp@latest'] }],
-        ['claude-desktop', { command: 'npx', args: ['octocode-mcp@1.0.0'] }],
+        ['cursor', { command: 'npx', args: ['@octocodeai/mcp@latest'] }],
+        ['claude-desktop', { command: 'npx', args: ['@octocodeai/mcp@1.0.0'] }],
       ]),
     };
 
@@ -913,7 +916,7 @@ describe('quickSync', () => {
     ]);
     vi.mocked(readMCPConfig).mockReturnValue({
       mcpServers: {
-        octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+        octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
       },
     });
 
@@ -978,7 +981,7 @@ describe('quickSync', () => {
       if (path.includes('cursor')) {
         return {
           mcpServers: {
-            octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+            octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
           },
         };
       }

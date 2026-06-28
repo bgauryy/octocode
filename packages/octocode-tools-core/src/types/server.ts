@@ -2,6 +2,7 @@ export type TokenSourceType =
   | 'env:OCTOCODE_TOKEN'
   | 'env:GH_TOKEN'
   | 'env:GITHUB_TOKEN'
+  | 'env:GITHUB_PERSONAL_ACCESS_TOKEN'
   | 'gh-cli'
   | 'octocode-storage'
   | 'none';

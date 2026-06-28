@@ -84,16 +84,16 @@ If `workspaceRoot` is omitted:
 2. Files outside `WORKSPACE_ROOT` walk upward to the nearest project marker, such as `package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, or `pyproject.toml`.
 3. If no marker exists, the file's directory is used.
 
-## Native vs. server fidelity (JS/TS)
+## Native vs. server fidelity, and the no-fallback contract
 
-For JavaScript/TypeScript, `documentSymbols` and same-file `references` have a **native fast path** (oxc) that runs with no language server:
+`documentSymbols` has a **native fast path** (oxc for JS/TS, Markdown heading outline) that runs with no language server and is preferred even when a server is present:
 
 | Source (`lsp.source`) | When | Fidelity |
 |-----------------------|------|----------|
-| `lsp` | A TS language server is available | Type-aware. Cross-file references, type-accurate. |
-| `native` | No server available | Syntax-only. **No type inference.** `documentSymbols` is a full outline; `references` are **same-file only** — cross-file references need a server. |
+| `lsp` | A language server is available | Type-aware, cross-file. |
+| `native` / `markdown` | `documentSymbols` only | Syntax-only outline; no type inference. |
 
-The native path means `documentSymbols` returns an outline even with no toolchain installed (previously it returned "No symbols found"). Results carry `lsp.source` so callers know the tier. Other languages always require a server.
+Every **other** semantic operation — `references`, `definition`, `hover`, `callers`/`callees`/`callHierarchy`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`/`subtypes`, `diagnostic` — requires a real server. When no server is available octocode **does not fall back to a syntactic guess**: it returns `status:"error"` with `errorCode:"lspServerUnavailable"` and a message directing you to `localSearchCode` (text/structural search) + `localGetFileContent`. (There is no longer a same-file-only `references` native path — a partial answer that silently omits cross-file usages is a trap, so it now errors instead.) See `docs/LSP_SERVER_LIFECYCLE.md`.
 
 ## TypeScript backends
 
@@ -126,18 +126,39 @@ Common environment overrides:
 | `OCTOCODE_JAVA_SERVER_PATH` | Java |
 | `OCTOCODE_CLANGD_SERVER_PATH` | C/C++ |
 | `OCTOCODE_CSHARP_SERVER_PATH` | C# |
-| `OCTOCODE_BASH_SERVER_PATH` | Bash/Shell |
+| `OCTOCODE_PHP_SERVER_PATH` | PHP |
+| `OCTOCODE_SQL_SERVER_PATH` | SQL |
+| `OCTOCODE_SWIFT_SERVER_PATH` | Swift |
 | `OCTOCODE_JSON_SERVER_PATH` | JSON |
 | `OCTOCODE_YAML_SERVER_PATH` | YAML |
-| `OCTOCODE_TOML_SERVER_PATH` | TOML |
 | `OCTOCODE_HTML_SERVER_PATH` | HTML |
 | `OCTOCODE_CSS_SERVER_PATH` | CSS/SCSS/LESS |
 
-Custom language-server config is loaded from:
+### Custom / bring-your-own servers
 
-1. `OCTOCODE_LSP_CONFIG`
-2. `.octocode/lsp-servers.json`
-3. `<octocode-home>/lsp-servers.json`
+To add a language with **no built-in server** (e.g. Scala, Kotlin, Ruby) — or to replace a
+built-in one — register it in a JSON config. Loaded in precedence order:
+
+1. `$OCTOCODE_LSP_CONFIG` (explicit file path)
+2. `<workspace>/.octocode/lsp-servers.json` (per-project)
+3. `~/.octocode/lsp-servers.json` (per-user)
+
+The file maps a file **extension** to a launch spec; a custom entry overrides the built-in spec
+for that extension:
+
+```jsonc
+{
+  "languageServers": {
+    ".scala": { "command": "metals", "args": ["stdio"], "languageId": "scala" }
+  }
+}
+```
+
+`command` and `languageId` are required; `args` (default `[]`) and `initializationOptions`
+(passed verbatim in `initialize`) are optional. With the config present, every semantic op works
+for that language; without it the extension is unsupported and semantic ops throw
+`lspServerUnavailable` (→ fall back to `localSearchCode`). See
+[`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
 
 ## Examples
 

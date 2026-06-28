@@ -475,7 +475,7 @@ function validateOqlScheme() {
     '--compact',
     '--no-color',
   ]);
-  for (const target of searchScheme.activeTargets ?? []) {
+  for (const target of searchScheme?.activeTargets ?? []) {
     assert(
       oqlToolScheme.includes(target),
       `oqlSearch tool scheme must include active OQL target ${target}`

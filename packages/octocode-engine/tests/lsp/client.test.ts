@@ -120,6 +120,38 @@ describe('LSPClient native wrapper', () => {
     await expect(client.closeDocument(file)).resolves.toBeUndefined();
   });
 
+  it('refuses to start a rejected shell-wrapper command before spawning', async () => {
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), 'octocode-engine-shell-reject-')
+    );
+    tempDirs.push(root);
+    const client = new LSPClient({
+      command: 'bash',
+      args: [],
+      workspaceRoot: root,
+      languageId: 'plaintext',
+    });
+    await expect(client.start()).rejects.toThrow(
+      /Refusing to start language server/
+    );
+  });
+
+  it('refuses to start a nonexistent absolute server path', async () => {
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), 'octocode-engine-missing-reject-')
+    );
+    tempDirs.push(root);
+    const client = new LSPClient({
+      command: path.join(root, 'no-such-server'),
+      args: [],
+      workspaceRoot: root,
+      languageId: 'plaintext',
+    });
+    await expect(client.start()).rejects.toThrow(
+      /Refusing to start language server/
+    );
+  });
+
   it('fails startup promptly and preserves recent stderr when the server exits', async () => {
     const root = await mkdtemp(
       path.join(os.tmpdir(), 'octocode-engine-start-fail-')

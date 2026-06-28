@@ -49,14 +49,14 @@ Install via the CLI or add to your MCP config:
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["-y", "octocode-mcp"],
+      "args": ["-y", "@octocodeai/mcp"],
       "env": { "ENABLE_LOCAL": "true" }
     }
   }
 }
 ```
 
-For authentication and full setup, see the [Octocode MCP docs](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md).
+For authentication and full setup, see the [Octocode MCP docs](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md).
 
 ---
 

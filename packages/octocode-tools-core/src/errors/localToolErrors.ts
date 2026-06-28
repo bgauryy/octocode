@@ -13,6 +13,8 @@ export const LOCAL_TOOL_ERROR_CODES = {
   COMMAND_EXECUTION_FAILED: 'commandExecutionFailed',
   COMMAND_TIMEOUT: 'commandTimeout',
   TOOL_EXECUTION_FAILED: 'toolExecutionFailed',
+
+  LSP_SERVER_UNAVAILABLE: 'lspServerUnavailable',
 } as const;
 
 export type LocalToolErrorCode =
@@ -105,5 +107,13 @@ export const LOCAL_TOOL_ERROR_REGISTRY: Record<
     category: LocalToolErrorCategory.EXECUTION,
     description: 'Generic tool execution failure',
     recoverability: 'unrecoverable',
+  },
+
+  [LOCAL_TOOL_ERROR_CODES.LSP_SERVER_UNAVAILABLE]: {
+    code: LOCAL_TOOL_ERROR_CODES.LSP_SERVER_UNAVAILABLE,
+    category: LocalToolErrorCategory.EXECUTION,
+    description:
+      'No language server available for semantic analysis — use text search (localSearchCode) and localGetFileContent instead',
+    recoverability: 'user-action-required',
   },
 };

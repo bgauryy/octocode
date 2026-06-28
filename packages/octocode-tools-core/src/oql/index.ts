@@ -53,7 +53,11 @@ export type {
   TransformerRegistryEntry,
   TransformerStatus,
 } from './transformers/contract.js';
-export { oqlSchemaText, OQL_SCHEMA_DOC } from './schemeText.js';
+export {
+  oqlSchemaText,
+  oqlCompactSchemeText,
+  OQL_SCHEMA_DOC,
+} from './schemeText.js';
 export {
   analyzeResearchFlow,
   type AnalyzeResearchOptions,

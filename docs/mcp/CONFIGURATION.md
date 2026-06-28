@@ -19,7 +19,7 @@ Use environment variables for per-client/per-project settings and tokens. Use `.
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"],
+      "args": ["-y", "@octocodeai/mcp@latest"],
       "env": {
         "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
         "ENABLE_LOCAL": "true",
@@ -161,31 +161,33 @@ Octocode also reads a per-project `.octocode/` directory at the workspace root. 
 
 ### `lsp-servers.json` format
 
-Keys are file-extension patterns (must start with `.`). `languageId` is required.
+Keys are file-extension patterns (must start with `.`). `command` and `languageId` are
+required; `args` (default `[]`) and `initializationOptions` (passed verbatim in the LSP
+`initialize` request) are optional. A custom entry **overrides the built-in server** for that
+extension, and — more usefully — **adds semantics for a language with no built-in server**
+(e.g. Scala, Kotlin, Ruby):
 
 ```jsonc
 {
   "languageServers": {
-    ".py": {
-      "command": "pylsp",
-      "args": [],
-      "languageId": "python"
-    },
-    ".go": {
-      "command": "gopls",
-      "args": [],
-      "languageId": "go"
-    },
+    // Bring-your-own: Scala has no built-in server — this gives it full semantics.
+    ".scala": { "command": "metals", "args": ["stdio"], "languageId": "scala" },
+
+    // Override a built-in: a different Java launch with init options.
     ".java": {
       "command": "jdtls",
       "args": ["-data", "/tmp/jdtls-workspace"],
-      "languageId": "java"
+      "languageId": "java",
+      "initializationOptions": { "bundles": [] }
     }
   }
 }
 ```
 
-TypeScript/JavaScript are bundled — no entry needed. Set `OCTOCODE_LSP_CONFIG` to point to a different file entirely.
+TypeScript/JavaScript are bundled — no entry needed. Set `OCTOCODE_LSP_CONFIG` to point to a
+different file entirely. Without an entry, an unsupported extension's semantic ops throw
+`lspServerUnavailable` and the agent falls back to text/structural search — see
+[`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
 
 ## Quick Checks
 
@@ -208,7 +210,7 @@ Common fixes:
 
 ## See Also
 
-- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/mcp/AUTHENTICATION.md)
+- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
 - [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
 - [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LOCAL_TOOLS.md)
 - [LSP Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LSP_TOOLS.md)

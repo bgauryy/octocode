@@ -112,6 +112,26 @@
       "import": "./dist/lsp/manager.js",
       "default": "./dist/lsp/manager.js"
     },
+    "./lsp/platform": {
+      "types": "./dist/lsp/platform.d.ts",
+      "import": "./dist/lsp/platform.js",
+      "default": "./dist/lsp/platform.js"
+    },
+    "./lsp/serverDiscovery": {
+      "types": "./dist/lsp/serverDiscovery.d.ts",
+      "import": "./dist/lsp/serverDiscovery.js",
+      "default": "./dist/lsp/serverDiscovery.js"
+    },
+    "./lsp/serverManifest": {
+      "types": "./dist/lsp/serverManifest.d.ts",
+      "import": "./dist/lsp/serverManifest.js",
+      "default": "./dist/lsp/serverManifest.js"
+    },
+    "./lsp/serverProvisioner": {
+      "types": "./dist/lsp/serverProvisioner.d.ts",
+      "import": "./dist/lsp/serverProvisioner.js",
+      "default": "./dist/lsp/serverProvisioner.js"
+    },
     "./lsp/resolver": {
       "types": "./dist/lsp/resolver.d.ts",
       "import": "./dist/lsp/resolver.js",
@@ -198,6 +218,18 @@
       ],
       "lsp/manager": [
         "./dist/lsp/manager.d.ts"
+      ],
+      "lsp/platform": [
+        "./dist/lsp/platform.d.ts"
+      ],
+      "lsp/serverDiscovery": [
+        "./dist/lsp/serverDiscovery.d.ts"
+      ],
+      "lsp/serverManifest": [
+        "./dist/lsp/serverManifest.d.ts"
+      ],
+      "lsp/serverProvisioner": [
+        "./dist/lsp/serverProvisioner.d.ts"
       ],
       "lsp/resolver": [
         "./dist/lsp/resolver.d.ts"
@@ -305,8 +337,13 @@
     "prepublishOnly": "yarn version:sync"
   },
   "dependencies": {
+    "bash-language-server": "^5.6.0",
+    "intelephense": "^1.14.1",
+    "pyright": "^1.1.411",
     "typescript": "^5.9.3",
     "typescript-language-server": "^4.4.0",
+    "vscode-langservers-extracted": "^4.10.0",
+    "yaml-language-server": "^1.23.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

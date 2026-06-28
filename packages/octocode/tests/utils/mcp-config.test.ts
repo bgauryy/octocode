@@ -74,7 +74,7 @@ describe('MCP Config Utilities', () => {
       const config = getOctocodeServerConfig('npx');
 
       expect(config.command).toBe('npx');
-      expect(config.args).toContain('octocode-mcp@latest');
+      expect(config.args).toContain('@octocodeai/mcp@latest');
     });
 
     it('should throw for unknown method (direct removed)', async () => {
@@ -144,7 +144,7 @@ describe('MCP Config Utilities', () => {
         await import('../../src/utils/mcp-config.js');
       const config = {
         mcpServers: {
-          octocode: { command: 'npx', args: ['octocode-mcp@latest'] },
+          octocode: { command: 'npx', args: ['@octocodeai/mcp@latest'] },
         },
       };
 

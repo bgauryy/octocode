@@ -62,7 +62,7 @@ for (const dir of dirs) {
   let ext = dir
   const metaPath = join(base, 'metadata.json')
   if (existsSync(metaPath)) {
-    try { const m = JSON.parse(readFileSync(metaPath, 'utf8')); if (m.source) ext = extname(m.source).replace(/^\./, '') || dir } catch { /* keep dir */ }
+    try { const m = JSON.parse(readFileSync(metaPath, 'utf8')); if (m.source) ext = extname(m.source).replace(/^\./, '') || dir } catch (e) { throw new Error(`malformed ${metaPath}: ${e.message}`) }
   }
   ext = ext.toLowerCase()
   realExtensions.add(ext)
@@ -172,7 +172,7 @@ function syntheticSampleFor(ext) {
   if (['json', 'jsonc', 'json5'].includes(ext)) {
     return languageSynthetic('{\n  // generated fixture\n  "name": "octocode",\n  "items": [1, 2, 3],\n}\n')
   }
-  if (['md', 'markdown'].includes(ext)) {
+  if (['md', 'markdown', 'mdx'].includes(ext)) {
     return languageSynthetic('# Generated Fixture\n\n## Details\n\nA wrapped paragraph with enough words to normalize.\n\n<!-- hidden -->\n')
   }
   if (['html', 'htm', 'vue', 'svelte'].includes(ext)) {

@@ -1,7 +1,7 @@
 import { createRequire } from 'module';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { maskEveryOtherChar } from './maskUtils.js';
+import { deduplicateSpans, applyMaskToSpans } from './maskUtils.js';
 import { allRegexPatterns } from './regexes/index.js';
 import type { SensitiveDataPattern } from './types.js';
 
@@ -172,7 +172,7 @@ function sanitizeWithJsFallback(
 function maskWithJsFallback(text: string): string {
   if (!text) return text;
 
-  const matches: Array<{ start: number; end: number }> = [];
+  const spans: Array<{ start: number; end: number }> = [];
 
   for (const pattern of allRegexPatterns) {
     if (pattern.fileContext) continue;
@@ -180,33 +180,13 @@ function maskWithJsFallback(text: string): string {
     const regex = cloneGlobalRegex(pattern.regex);
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
-      matches.push({ start: match.index, end: match.index + match[0].length });
+      spans.push({ start: match.index, end: match.index + match[0].length });
       if (match[0].length === 0) regex.lastIndex++;
     }
   }
 
-  if (matches.length === 0) return text;
-
-  matches.sort((left, right) => left.start - right.start);
-
-  const nonOverlapping: Array<{ start: number; end: number }> = [];
-  let lastEnd = 0;
-  for (const match of matches) {
-    if (match.start >= lastEnd) {
-      nonOverlapping.push(match);
-      lastEnd = match.end;
-    }
-  }
-
-  let result = '';
-  let position = 0;
-  for (const match of nonOverlapping) {
-    result += text.slice(position, match.start);
-    result += maskEveryOtherChar(text.slice(match.start, match.end));
-    position = match.end;
-  }
-  result += text.slice(position);
-  return result;
+  if (spans.length === 0) return text;
+  return applyMaskToSpans(text, deduplicateSpans(spans));
 }
 
 export const nativeSanitizeContent = (

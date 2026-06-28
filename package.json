@@ -15,7 +15,7 @@
     "build": "yarn prepublish && node ./scripts/workspace-health.mjs run build",
     "build:native:all": "yarn workspace @octocodeai/octocode-engine build:all",
     "platforms:check": "yarn workspace @octocodeai/octocode-engine platforms:check",
-    "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace octocode-mcp build:publish",
+    "build:publish": "yarn prepublish && yarn build:native:all && yarn platforms:check && yarn workspace @octocodeai/mcp build:publish",
     "docs:verify": "node ./scripts/docs-verify.mjs",
     "health:check": "node ./scripts/workspace-health.mjs check",
     "health:report": "node ./scripts/workspace-health.mjs report",
@@ -45,7 +45,7 @@
   },
   "private": true,
   "resolutions": {
-    "@octocodeai/octocode-core": "^16.5.3"
+    "@octocodeai/octocode-core": "portal:../octocode-mcp-host/packages/octocode-core"
   },
   "workspaces": [
     "packages/*",

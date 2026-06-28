@@ -21,7 +21,7 @@ import {
   DESCRIPTIONS,
 } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
 import { OQL_SEARCH_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 
 const removedLspToolNames = [
   `lsp${'Goto'}Definition`,
@@ -48,7 +48,7 @@ describe('Tool Configuration', () => {
           TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
           TOOL_NAMES.LOCAL_FIND_FILES,
           TOOL_NAMES.LOCAL_FETCH_CONTENT,
-          LSP_GET_SEMANTIC_CONTENT_TOOL_NAME,
+          LSP_GET_SEMANTICS_TOOL_NAME,
           TOOL_NAMES.LOCAL_BINARY_INSPECT,
           OQL_SEARCH_TOOL_NAME,
         ].sort()
@@ -66,7 +66,7 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FIND_FILES);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_BINARY_INSPECT);
-      expect(toolNames).toContain(LSP_GET_SEMANTIC_CONTENT_TOOL_NAME);
+      expect(toolNames).toContain(LSP_GET_SEMANTICS_TOOL_NAME);
       expect(toolNames).toContain(OQL_SEARCH_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
         expect(toolNames).not.toContain(removedName);
@@ -218,9 +218,7 @@ describe('Tool Configuration', () => {
     });
 
     it('LSP semantic tool should have correct config', () => {
-      expect(LSP_GET_SEMANTIC_CONTENT.name).toBe(
-        LSP_GET_SEMANTIC_CONTENT_TOOL_NAME
-      );
+      expect(LSP_GET_SEMANTIC_CONTENT.name).toBe(LSP_GET_SEMANTICS_TOOL_NAME);
       expect(LSP_GET_SEMANTIC_CONTENT.type).toBe('content');
       expect(LSP_GET_SEMANTIC_CONTENT.isLocal).toBe(true);
       expect(LSP_GET_SEMANTIC_CONTENT.skipMetadataCheck).toBe(true);

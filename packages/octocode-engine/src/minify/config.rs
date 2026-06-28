@@ -147,6 +147,7 @@ static MINIFY_CONFIG: LazyLock<HashMap<&'static str, FileTypeConfig>> = LazyLock
         "pp"    => FileTypeConfig::with("conservative", &["hash"]),
         "md"    => FileTypeConfig::new("markdown"),
         "markdown" => FileTypeConfig::new("markdown"),
+        "mdx"   => FileTypeConfig::new("markdown"),
         "rst"   => FileTypeConfig::with("conservative", &["hash"]),
         "star"  => FileTypeConfig::with("conservative", &["hash"]),
         "bzl"   => FileTypeConfig::with("conservative", &["hash"]),

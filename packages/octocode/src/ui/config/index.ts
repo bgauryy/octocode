@@ -242,7 +242,7 @@ async function showConfigMenu(): Promise<ConfigMenuChoice> {
       {
         name: '- Edit configuration',
         value: 'edit',
-        description: 'Configure all octocode-mcp settings for a client',
+        description: 'Configure all @octocodeai/mcp settings for a client',
       },
       {
         name: '- View all configuration options',
@@ -817,7 +817,7 @@ async function runEditConfigFlow(): Promise<void> {
       `  ${c('yellow', 'WARN')} Octocode is not configured for ${clientInfo.name}.`
     );
     console.log(
-      `  ${dim('Please install Octocode first using "Install octocode-mcp".')}`
+      `  ${dim('Please install Octocode first using "Install @octocodeai/mcp".')}`
     );
     console.log();
     return;
@@ -991,7 +991,7 @@ async function showCurrentJsonConfig(): Promise<void> {
       `  ${c('yellow', 'WARN')} Octocode is not configured for ${clientInfo.name}.`
     );
     console.log(
-      `  ${dim('Please install Octocode first using "Install octocode-mcp".')}`
+      `  ${dim('Please install Octocode first using "Install @octocodeai/mcp".')}`
     );
     console.log();
     return;
@@ -1065,7 +1065,7 @@ function showConfigInfo(): void {
   ${dim('  "mcpServers": {')}
   ${dim('    "octocode": {')}
   ${dim('      "command": "npx",')}
-  ${dim('      "args": ["octocode-mcp@latest"],')}
+  ${dim('      "args": ["@octocodeai/mcp@latest"],')}
   ${c('green', '      "env": { "ENABLE_LOCAL": "1" }')}
   ${dim('    }')}
   ${dim('  }')}

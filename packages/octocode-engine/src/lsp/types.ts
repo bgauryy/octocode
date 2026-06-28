@@ -1,5 +1,20 @@
 export type InitializationOptions = Record<string, unknown>;
 
+/**
+ * Where a language-server executable was resolved from, for honest status
+ * reporting. Ordered by the resolution ladder (see docs/context/LSP_GUIDE.md):
+ * explicit override / PATH → bundled JS dep → project-local → ecosystem dir →
+ * managed download cache → IDE bridge; `unavailable` when nothing provides it.
+ */
+export type LspServerSource =
+  | 'path'
+  | 'bundled'
+  | 'project-local'
+  | 'ecosystem'
+  | 'managed-cache'
+  | 'ide-bridge'
+  | 'unavailable';
+
 export interface LanguageServerConfig {
   command: string;
 

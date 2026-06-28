@@ -10,16 +10,21 @@ async function withMockedManager(run: () => Promise<void>) {
     return client;
   });
   vi.doMock('../../src/lsp/client.js', () => ({ LSPClient }));
+  const buildConfig = (filePath: string, workspaceRoot: string) => {
+    if (filePath.endsWith('.missing')) return null;
+    return {
+      command: process.execPath,
+      args: [],
+      workspaceRoot,
+      languageId: filePath.endsWith('.py') ? 'python' : 'typescript',
+    };
+  };
   vi.doMock('../../src/lsp/config.js', () => ({
-    getLanguageServerForFile: vi.fn(
+    getLanguageServerForFile: vi.fn(buildConfig),
+    resolveServerForFile: vi.fn(
       (filePath: string, workspaceRoot: string) => {
-        if (filePath.endsWith('.missing')) return null;
-        return {
-          command: process.execPath,
-          args: [],
-          workspaceRoot,
-          languageId: filePath.endsWith('.py') ? 'python' : 'typescript',
-        };
+        const config = buildConfig(filePath, workspaceRoot);
+        return config ? { config, source: 'path' } : null;
       }
     ),
   }));

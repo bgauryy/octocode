@@ -6,7 +6,7 @@ import {
   OQL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../../../octocode-tools-core/src/tools/toolNames.js';
-import { LSP_GET_SEMANTIC_CONTENT_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
 const SHARED_FIELDS = [
   'id',
   'mainResearchGoal',
@@ -19,7 +19,7 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   [STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FIND_FILES]: { path: '.' },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
-  [LSP_GET_SEMANTIC_CONTENT_TOOL_NAME]: {
+  [LSP_GET_SEMANTICS_TOOL_NAME]: {
     uri: '/tmp/test.ts',
     type: 'definition',
     symbolName: 'myFn',

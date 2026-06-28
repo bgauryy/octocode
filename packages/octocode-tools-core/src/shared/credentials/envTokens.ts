@@ -4,6 +4,7 @@ export const ENV_TOKEN_VARS = [
   'OCTOCODE_TOKEN',
   'GH_TOKEN',
   'GITHUB_TOKEN',
+  'GITHUB_PERSONAL_ACCESS_TOKEN',
 ] as const;
 
 export function getTokenFromEnv(): string | null {

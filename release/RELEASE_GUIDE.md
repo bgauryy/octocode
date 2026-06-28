@@ -470,7 +470,7 @@ tmp=$(mktemp -d) && cd "$tmp" && npm init -y >/dev/null
 ENGINE_VERSION=16.5.1
 MCP_VERSION=16.2.0
 CLI_VERSION=2.0.0
-npm install "octocode-mcp@$MCP_VERSION" "octocode@$CLI_VERSION"
+npm install "@octocodeai/mcp@$MCP_VERSION" "octocode@$CLI_VERSION"
 npm ls "@octocodeai/octocode-engine@$ENGINE_VERSION"
 node --input-type=module -e "const e = await import('@octocodeai/octocode-engine'); console.log('engine:', typeof e.applyContentViewMinification === 'function')"
 # tools-core is bundled, not published — it must NOT be installed in node_modules:
@@ -528,12 +528,12 @@ standalone script that still expects a separate security native package must be
 removed or updated before cutting a standalone release.
 
 ```bash
-yarn workspace octocode-mcp run build:bin:darwin-arm64
-yarn workspace octocode-mcp run build:bin:darwin-x64
-yarn workspace octocode-mcp run build:bin:linux-arm64
-yarn workspace octocode-mcp run build:bin:linux-x64
-yarn workspace octocode-mcp run build:bin:linux-x64-musl
-yarn workspace octocode-mcp run build:bin:windows-x64
+yarn workspace @octocodeai/mcp run build:bin:darwin-arm64
+yarn workspace @octocodeai/mcp run build:bin:darwin-x64
+yarn workspace @octocodeai/mcp run build:bin:linux-arm64
+yarn workspace @octocodeai/mcp run build:bin:linux-x64
+yarn workspace @octocodeai/mcp run build:bin:linux-x64-musl
+yarn workspace @octocodeai/mcp run build:bin:windows-x64
 
 cd packages/octocode-mcp/dist
 shasum -a 256 octocode-mcp-* > checksums-sha256.txt
