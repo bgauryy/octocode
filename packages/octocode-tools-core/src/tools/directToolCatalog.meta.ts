@@ -150,6 +150,7 @@ type DirectToolAutoFilledField =
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;
+  rejectUnknownFields?: boolean;
 
   onUnknownFields?: (unknownFields: string[], queryIndex: number) => void;
 }
@@ -800,9 +801,6 @@ function buildDirectToolPayload(
         )
       : {};
 
-  // Unknown fields never hard-fail the call: normalizeQueryObject drops them and
-  // the agent is warned via onUnknownFields. Proceeding with the valid fields is
-  // more robust for agents that send a stray or typo'd key.
   const processedQueries = queriesInput.map((query, index) =>
     applyDefaultQueryFields(
       toolName,
@@ -863,7 +861,10 @@ function normalizeQueryObject(
   toolName: string,
   query: unknown,
   queryIndex: number,
-  options: Pick<PrepareDirectToolInputOptions, 'onUnknownFields'> = {}
+  options: Pick<
+    PrepareDirectToolInputOptions,
+    'onUnknownFields' | 'rejectUnknownFields'
+  > = {}
 ): Record<string, unknown> {
   if (!isRecord(query)) {
     throw new DirectToolInputError(
@@ -884,13 +885,20 @@ function normalizeQueryObject(
       exactQuery[key] = value;
       continue;
     }
-    // Drop unknown fields (legacy/removed/typo) so the schema never hard-fails
-    // the call; the agent is still warned via onUnknownFields below.
     unknownFields.push(key);
   }
 
   if (unknownFields.length > 0 && schemaFields.size > 0) {
     options.onUnknownFields?.(unknownFields, queryIndex);
+    if (options.rejectUnknownFields === true) {
+      throw new DirectToolInputError(
+        `Unknown field(s): ${unknownFields.join(', ')}`,
+        [
+          `Remove unknown field(s) from query ${queryIndex + 1}: ${unknownFields.join(', ')}`,
+          `Run tools ${toolName} --scheme to see valid fields.`,
+        ]
+      );
+    }
   }
 
   return exactQuery;

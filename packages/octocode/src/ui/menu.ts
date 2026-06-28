@@ -1,10 +1,6 @@
 import { c, bold, dim } from '../utils/colors.js';
-import {
-  loadInquirer,
-  Separator,
-  input,
-  selectWithCancel,
-} from '../utils/prompts.js';
+import { loadInquirer, input, selectWithCancel } from '../utils/prompts.js';
+import { separatorChoice } from '../utils/prompt-separator.js';
 import { clearScreen } from '../utils/platform.js';
 import {
   runInstallFlow,
@@ -266,10 +262,10 @@ async function showMainMenu(state: AppState): Promise<MenuChoice> {
   });
 
   choices.push(
-    new Separator() as unknown as {
+    separatorChoice<{
       name: string;
       value: MenuChoice;
-    }
+    }>()
   );
   choices.push({
     name: dim('Exit'),
@@ -327,11 +323,11 @@ async function showOctocodeMenu(state: AppState): Promise<OctocodeMenuChoice> {
   }
 
   choices.push(
-    new Separator() as unknown as {
+    separatorChoice<{
       name: string;
       value: OctocodeMenuChoice;
       description?: string;
-    }
+    }>()
   );
 
   choices.push({
@@ -420,21 +416,21 @@ async function showAuthMenu(
     const envVar =
       status.envTokenSource?.replace('env:', '') || 'environment variable';
     choices.push(
-      new Separator(
-        `  ${c('green', '✅')} Using ${c('cyan', envVar)} ${dim('(takes priority)')}`
-      ) as unknown as {
+      separatorChoice<{
         name: string;
         value: AuthMenuChoice;
         description?: string;
-      }
+      }>(
+        `  ${c('green', '✅')} Using ${c('cyan', envVar)} ${dim('(takes priority)')}`
+      )
     );
 
     choices.push(
-      new Separator() as unknown as {
+      separatorChoice<{
         name: string;
         value: AuthMenuChoice;
         description?: string;
-      }
+      }>()
     );
   }
 
@@ -478,11 +474,11 @@ async function showAuthMenu(
   }
 
   choices.push(
-    new Separator() as unknown as {
+    separatorChoice<{
       name: string;
       value: AuthMenuChoice;
       description?: string;
-    }
+    }>()
   );
 
   choices.push({
@@ -664,10 +660,10 @@ async function showGhCliGuidance(): Promise<void> {
         name: '- Open GitHub CLI website',
         value: 'open-site',
       },
-      new Separator() as unknown as {
+      separatorChoice<{
         name: string;
         value: GhGuidanceChoice;
-      },
+      }>(),
       {
         name: `${c('dim', '- Back')}`,
         value: 'back',

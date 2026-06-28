@@ -1,10 +1,6 @@
 import { bold, c, dim } from '../../utils/colors.js';
-import {
-  select,
-  Separator,
-  confirm,
-  loadInquirer,
-} from '../../utils/prompts.js';
+import { select, confirm, loadInquirer } from '../../utils/prompts.js';
+import { separatorChoice } from '../../utils/prompt-separator.js';
 import {
   getAllClientInstallStatus,
   readMCPConfig,
@@ -68,7 +64,7 @@ async function inspectMCPServer(
         value: 'remove',
         description: 'Remove this server from configuration',
       },
-      new Separator() as unknown as { name: string; value: ServerMenuChoice },
+      separatorChoice<{ name: string; value: ServerMenuChoice }>(),
       {
         name: `${c('dim', '- Back')}`,
         value: 'back',
@@ -154,9 +150,7 @@ async function inspectClient(clientStatus: ClientInstallStatus): Promise<void> {
       description: config.mcpServers![id].command,
     }));
 
-    choices.push(
-      new Separator() as unknown as { name: string; value: InspectMenuChoice }
-    );
+    choices.push(separatorChoice<{ name: string; value: InspectMenuChoice }>());
     choices.push({
       name: `${c('dim', '- Back')}`,
       value: 'back',
@@ -215,9 +209,7 @@ export async function runInspectFlow(): Promise<void> {
       description: client.configPath,
     }));
 
-    choices.push(
-      new Separator() as unknown as { name: string; value: InspectMenuChoice }
-    );
+    choices.push(separatorChoice<{ name: string; value: InspectMenuChoice }>());
     choices.push({
       name: `${c('dim', '- Back')}`,
       value: 'back',

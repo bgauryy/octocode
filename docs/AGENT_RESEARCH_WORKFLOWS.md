@@ -17,18 +17,17 @@ Carry anchors forward at every step: package name, `owner/repo`, branch/ref, pat
 Preferred transport order:
 
 1. **MCP registered**: use `localSearchCode`, `ghSearchCode`, `npmSearch`, `lspGetSemantics`, `oqlSearch`, and related tools directly.
-2. **CLI available**: use `octocode`.
-3. **No global binary**: use `npx octocode`.
-4. **No Octocode transport**: ask the user to install/run `npx octocode` and authenticate with `npx octocode auth login` when GitHub access is required.
+2. **CLI available**: use `npx octocode`.
+3. **No Octocode transport**: ask the user to run `npx octocode` and authenticate with `npx octocode auth login` when GitHub access is required.
 
 Setup and health commands:
 
 ```bash
-octocode --help
-octocode auth status --json
-octocode context
-octocode tools
-octocode lsp-server status <file>
+npx octocode --help
+npx octocode auth status --json
+npx octocode context
+npx octocode tools
+npx octocode lsp-server status <file>
 npx octocode auth login
 ```
 
@@ -36,7 +35,7 @@ The built CLI surface is:
 
 - Research/materialization: `search`, `unzip`, `clone`, `cache fetch`
 - Raw tools/context: `tools`, `context`
-- Management: `skill`, `install`, `auth`, `login`, `logout`, `status`, `lsp-server`
+- Management: `skill`, `install`, `auth`, `status`, `lsp-server`
 
 Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `binary`, and `diff` should be expressed as `search` lanes.
 
@@ -44,7 +43,7 @@ Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, 
 
 1. Prefer `search` for read-only workflows: local files, GitHub, npm packages, LSP semantics, artifacts, PRs, commits, diffs, research packets, and graph proof.
 2. Read `search --scheme` before writing OQL JSON; use `search --explain --dry-run --json` when routing or completeness is uncertain.
-3. Read `octocode tools <name> --scheme` before any raw tool call. Raw fields differ from CLI flags.
+3. Read `npx octocode tools <name> --scheme` before any raw tool call. Raw fields differ from CLI flags.
 4. Use `--json` for automation and `--compact` for low-token exploration.
 5. Treat snippets as candidate evidence. Prove claims with fetched file content, exact PR/patch content, materialized local paths, AST, LSP, binary metadata, or tests.
 6. Follow returned `next.*`, `pagination`, `charOffset`, `matchPage`, `filePage`, `commentPage`, and `commitPage`. Do not invent offsets, pages, paths, refs, or local paths.
@@ -67,21 +66,21 @@ Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, 
 
 | Need | Current CLI | Raw/MCP tool |
 |------|-------------|--------------|
-| Unified read-only research | `octocode search ...` | `oqlSearch` |
-| Local/GitHub text or regex search | `search <term> <path\|owner/repo> --view discovery` | `localSearchCode` / `ghSearchCode` |
-| AST structural search | `search <path> --pattern '<ast>' --lang <lang>` or `--rule '<yaml>'` | `localSearchCode(mode:"structural")` |
-| Exact content read | `search <file\|owner/repo/path> --content-view exact --match-string <s>` | `localGetFileContent` / `ghGetFileContent` |
-| Tree/structure | `search <path\|owner/repo> --tree --depth N` | `localViewStructure` / `ghViewRepoStructure` |
-| File/path metadata search | `search <query> <path> --search path --name <glob> --ext <list>` | `localFindFiles` or OQL `target:"files"` |
-| LSP semantics | `search <file> --op references|definition|callers|callees|hover --symbol S --line N` | `lspGetSemantics` |
-| Package lookup | `search <package> --target packages` | `npmSearch` |
-| Repository discovery | `search <keywords> --target repositories` | `ghSearchRepos` |
-| PR list/deep-read | `search owner/repo[#N] --target pullRequests --comments --patches --file <path>` | `ghHistoryResearch(type:"prs")` |
-| Commit history | `search owner/repo[/path] --target commits --since <iso>` | `ghHistoryResearch(type:"commits")` |
-| Clone/materialize repo | `clone owner/repo[/path][@ref]` or `cache fetch owner/repo [path] --depth file|tree|clone` | `ghCloneRepo` / directory fetch |
-| Artifacts/binaries | `search <file> --target artifacts --inspect|--list|--strings|--extract|--decompress`; `unzip <archive>` | `localBinaryInspect` |
-| Diff/patch | `search <left> <right> --target diff` or PR patch flags | OQL diff / `ghHistoryResearch` patches |
-| Dead-code/reachability | `search --query '{"target":"research",...}'` then `target:"graph"` with `proof:"lsp"` | `oqlSearch` |
+| Unified read-only research | `npx octocode search ...` | `oqlSearch` |
+| Local/GitHub text or regex search | `npx octocode search <term> <path\|owner/repo> --view discovery` | `localSearchCode` / `ghSearchCode` |
+| AST structural search | `npx octocode search <path> --pattern '<ast>' --lang <lang>` or `--rule '<yaml>'` | `localSearchCode(mode:"structural")` |
+| Exact content read | `npx octocode search <file\|owner/repo/path> --content-view exact --match-string <s>` | `localGetFileContent` / `ghGetFileContent` |
+| Tree/structure | `npx octocode search <path\|owner/repo> --tree --depth N` | `localViewStructure` / `ghViewRepoStructure` |
+| File/path metadata search | `npx octocode search <query> <path> --search path --name <glob> --ext <list>` | `localFindFiles` or OQL `target:"files"` |
+| LSP semantics | `npx octocode search <file> --op references|definition|callers|callees|hover --symbol S --line N` | `lspGetSemantics` |
+| Package lookup | `npx octocode search <package> --target packages` | `npmSearch` |
+| Repository discovery | `npx octocode search <keywords> --target repositories` | `ghSearchRepos` |
+| PR list/deep-read | `npx octocode search owner/repo[#N] --target pullRequests --comments --patches --file <path>` | `ghHistoryResearch(type:"prs")` |
+| Commit history | `npx octocode search owner/repo[/path] --target commits --since <iso>` | `ghHistoryResearch(type:"commits")` |
+| Clone/materialize repo | `npx octocode clone owner/repo[/path][@ref]` or `npx octocode cache fetch owner/repo [path] --depth file|tree|clone` | `ghCloneRepo` / directory fetch |
+| Artifacts/binaries | `npx octocode search <file> --target artifacts --inspect|--list|--strings|--extract|--decompress`; `npx octocode unzip <archive>` | `localBinaryInspect` |
+| Diff/patch | `npx octocode search <left> <right> --target diff` or PR patch flags | OQL diff / `ghHistoryResearch` patches |
+| Dead-code/reachability | `npx octocode search --query '{"target":"research",...}'` then `target:"graph"` with `proof:"lsp"` | `oqlSearch` |
 
 ## OQL Coverage And Fallbacks
 
@@ -103,44 +102,44 @@ Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, 
 ### 1. Package To Source To Evidence
 
 ```text
-search <package> --target packages --json
+npx octocode search <package> --target packages --json
 -> take owner/repo and directory from package metadata
--> search <owner/repo[/dir]> --tree --json
--> search <distinctive-symbol> <owner/repo> --view discovery --json
--> search <owner/repo/path> --match-string <symbol> --content-view exact --json
--> cache fetch or clone only if AST/LSP/local proof is needed
+-> npx octocode search <owner/repo[/dir]> --tree --json
+-> npx octocode search <distinctive-symbol> <owner/repo> --view discovery --json
+-> npx octocode search <owner/repo/path> --match-string <symbol> --content-view exact --json
+-> npx octocode cache fetch ... or npx octocode clone ... only if AST/LSP/local proof is needed
 ```
 
 ### 2. Repo Discovery To Pattern Examples
 
 ```text
-search <keywords> --target repositories --lang <language> --stars ">100" --concise --json
+npx octocode search <keywords> --target repositories --lang <language> --stars ">100" --concise --json
 -> shortlist owner/repo candidates
--> search <term> <owner/repo> --view discovery --json
--> search <owner/repo/path> --content-view symbols --json
--> search <owner/repo/path> --match-string <anchor> --content-view exact --json
+-> npx octocode search <term> <owner/repo> --view discovery --json
+-> npx octocode search <owner/repo/path> --content-view symbols --json
+-> npx octocode search <owner/repo/path> --match-string <anchor> --content-view exact --json
 ```
 
 ### 3. GitHub Code Search To Fetch
 
 ```text
-search <symbol-or-string> <owner/repo> --view discovery --json
+npx octocode search <symbol-or-string> <owner/repo> --view discovery --json
 -> read diagnostics and pagination
--> search <owner/repo/path> --match-string <anchor> --content-view exact --json
+-> npx octocode search <owner/repo/path> --match-string <anchor> --content-view exact --json
 -> cite the fetched file slice, not the search snippet
 ```
 
 ### 4. Remote To Local Bridge
 
 ```text
-search <owner/repo> --tree --depth 1 --json
--> cache fetch <owner/repo> <path> --depth tree --json
-   or clone <owner/repo[/path][@ref]>
-   or search <repo-relative-path> --repo <owner/repo[@ref]> ...
--> search <localPath> --tree --json
--> search <term> <localPath> --view discovery --json
--> search <localPath> --pattern '<shape>' --lang <lang> --json
--> search <file> --op references --symbol <name> --line <lineHint> --json
+npx octocode search <owner/repo> --tree --depth 1 --json
+-> npx octocode cache fetch <owner/repo> <path> --depth tree --json
+   or npx octocode clone <owner/repo[/path][@ref]>
+   or npx octocode search <repo-relative-path> --repo <owner/repo[@ref]> ...
+-> npx octocode search <localPath> --tree --json
+-> npx octocode search <term> <localPath> --view discovery --json
+-> npx octocode search <localPath> --pattern '<shape>' --lang <lang> --json
+-> npx octocode search <file> --op references --symbol <name> --line <lineHint> --json
 ```
 
 Clone or cache when clone cost buys project context, repeated local searches, AST, LSP, binary inspection, or many-file reads.
@@ -148,13 +147,13 @@ Clone or cache when clone cost buys project context, repeated local searches, AS
 ### 5. Local Repo Investigation
 
 ```text
-search <path> --tree --depth 1 --json
--> search <query> <path> --search path --json
--> search <term> <path> --view discovery --json --compact
--> search <file> --content-view symbols --json
--> search <file> --match-string <anchor> --content-view exact --json
--> search <path> --pattern/--rule ... --lang <lang> --json
--> search <file> --op references|callers|callees --symbol <name> --line <lineHint> --json
+npx octocode search <path> --tree --depth 1 --json
+-> npx octocode search <query> <path> --search path --json
+-> npx octocode search <term> <path> --view discovery --json --compact
+-> npx octocode search <file> --content-view symbols --json
+-> npx octocode search <file> --match-string <anchor> --content-view exact --json
+-> npx octocode search <path> --pattern/--rule ... --lang <lang> --json
+-> npx octocode search <file> --op references|callers|callees --symbol <name> --line <lineHint> --json
 ```
 
 Use AST for code shape. Use LSP after a real line anchor exists.
@@ -162,11 +161,11 @@ Use AST for code shape. Use LSP after a real line anchor exists.
 ### 6. Change History And Intent
 
 ```text
-search <owner/repo[/path]> --target commits --since <iso> --json
+npx octocode search <owner/repo[/path]> --target commits --since <iso> --json
 -> inspect commit headlines for PR numbers
--> search <owner/repo#N> --target pullRequests --json
--> search <owner/repo#N> --target pullRequests --patches --file <path> --json
--> search <owner/repo/path> --content-view exact --json for current code
+-> npx octocode search <owner/repo#N> --target pullRequests --json
+-> npx octocode search <owner/repo#N> --target pullRequests --patches --file <path> --json
+-> npx octocode search <owner/repo/path> --content-view exact --json for current code
 ```
 
 Prefer selected patches over full PR dumps.
@@ -174,10 +173,10 @@ Prefer selected patches over full PR dumps.
 ### 7. Unified OQL Router
 
 ```bash
-octocode search --scheme
-octocode search --query '{"target":"code","from":{"kind":"local","path":"src"},"where":{"kind":"text","value":"registerTool"},"view":"discovery","limit":10}' --json
-octocode search --query '{"target":"content","from":{"kind":"local","path":"src/index.ts"},"fetch":{"content":{"match":{"text":"registerTool"},"contentView":"exact"}}}' --json
-octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
+npx octocode search --scheme
+npx octocode search --query '{"target":"code","from":{"kind":"local","path":"src"},"where":{"kind":"text","value":"registerTool"},"view":"discovery","limit":10}' --json
+npx octocode search --query '{"target":"content","from":{"kind":"local","path":"src/index.ts"},"fetch":{"content":{"match":{"text":"registerTool"},"contentView":"exact"}}}' --json
+npx octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
 ```
 
 Use raw tools when `search` cannot express a tool-specific field or exact pagination lane.
@@ -185,10 +184,10 @@ Use raw tools when `search` cannot express a tool-specific field or exact pagina
 ### 8. Cache Fetch To Local Proof
 
 ```bash
-octocode cache fetch owner/repo path/to/dir --depth tree --json
-octocode search /absolute/localPath --tree --json
-octocode search "symbolName" /absolute/localPath --json --compact
-octocode search /absolute/localPath/file.ts --match-string "symbolName" --content-view exact --json
+npx octocode cache fetch owner/repo path/to/dir --depth tree --json
+npx octocode search /absolute/localPath --tree --json
+npx octocode search "symbolName" /absolute/localPath --json --compact
+npx octocode search /absolute/localPath/file.ts --match-string "symbolName" --content-view exact --json
 ```
 
 Use `--force-refresh` only when freshness matters.
@@ -196,14 +195,14 @@ Use `--force-refresh` only when freshness matters.
 ### 9. Artifacts, Archives, And Binaries
 
 ```text
-search <file> --target artifacts --inspect
--> search <file> --target artifacts --list
--> search <file> --target artifacts --strings --json
--> search <file> --target artifacts --extract <entry>
--> unzip <archive> --json
--> search <localPath> --tree
--> search <term> <localPath>
--> search <file> --content-view exact
+npx octocode search <file> --target artifacts --inspect
+-> npx octocode search <file> --target artifacts --list
+-> npx octocode search <file> --target artifacts --strings --json
+-> npx octocode search <file> --target artifacts --extract <entry>
+-> npx octocode unzip <archive> --json
+-> npx octocode search <localPath> --tree
+-> npx octocode search <term> <localPath>
+-> npx octocode search <file> --content-view exact
 ```
 
 List before extract. Use strings to find anchors. Use `unzip` when many files matter. Run artifact inspection again on nested `.node`, `.so`, `.dll`, `.wasm`, `.zip`, or compressed files.
@@ -211,10 +210,10 @@ List before extract. Use strings to find anchors. Use `unzip` when many files ma
 ### 10. Diff And Patch Review
 
 ```text
-search <left> <right> --target diff --json
--> search <owner/repo#N> --target pullRequests --json
--> search <owner/repo#N> --target pullRequests --patches --file <path> --json
--> search <current-file> --match-string <changedSymbol> --content-view exact --json
+npx octocode search <left> <right> --target diff --json
+-> npx octocode search <owner/repo#N> --target pullRequests --json
+-> npx octocode search <owner/repo#N> --target pullRequests --patches --file <path> --json
+-> npx octocode search <current-file> --match-string <changedSymbol> --content-view exact --json
 ```
 
 Use current file content to separate what changed from what exists now.
@@ -222,8 +221,8 @@ Use current file content to separate what changed from what exists now.
 ### 11. Smart Reachability, Unused Symbols, And Package Drift
 
 ```bash
-octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
-octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"intent":"symbols","mode":"prove","proof":"lsp","proofLimit":20},"page":1,"itemsPerPage":25}' --json
+npx octocode search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
+npx octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"params":{"intent":"symbols","mode":"prove","proof":"lsp","proofLimit":20},"page":1,"itemsPerPage":25}' --json
 ```
 
 `target:"research"` and `target:"graph"` provide candidate and proof packets, but destructive edits still need exact source inspection, AST/LSP confirmation, and project-specific entrypoint knowledge.
@@ -232,11 +231,11 @@ octocode search --query '{"target":"graph","from":{"kind":"local","path":"."},"p
 
 | Signal | Meaning | Next step |
 |--------|---------|-----------|
-| `auth` / token error | GitHub/npm/private data may be inaccessible | Run `auth status --json`; ask for login only when protected data is required. |
+| `auth` / token error | GitHub/npm/private data may be inaccessible | Run `npx octocode auth status --json`; ask for login only when protected data is required. |
 | `rate limited` | Provider result is incomplete for now | Preserve query, narrow scope, or retry later. |
 | `ENABLE_LOCAL` / local disabled | Local filesystem, clone, directory fetch, LSP, or binary work may be blocked | Use remote-only proof where possible; otherwise enable local tools. |
 | `ENABLE_CLONE` / clone disabled | Materialization is unavailable | Use remote content slices or ask to enable clone. |
-| `serverUnavailable` / LSP unavailable | Semantic proof is inconclusive | Use AST/exact content; materialize project context; check `lsp-server status`. |
+| `serverUnavailable` / LSP unavailable | Semantic proof is inconclusive | Use AST/exact content; materialize project context; check `npx octocode lsp-server status`. |
 | `partialResult`, truncation, `hasMore`, char pagination | Response is incomplete | Follow the advertised continuation. |
 | Sanitizer/redaction warning | Secret-like content was masked | Do not reconstruct secrets; cite only non-sensitive evidence. |
 | Provider approximation | Provider did not prove every predicate | Materialize and re-run locally, or downgrade confidence. |

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MCPConfig } from '../../src/types/index.js';
-import type { MCPRegistryEntry } from '../../src/configs/mcp-registry.js';
+import type { MCPRegistryEntry } from '../../src/utils/mcp-config.js';
 
 vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,

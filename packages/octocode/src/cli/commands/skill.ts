@@ -60,6 +60,7 @@ const KNOWN_OCTOCODE_SKILLS = [
   'octocode-engineer',
   'octocode-roast',
   'octocode-brainstorming',
+  'octocode-research',
   'octocode-rfc-generator',
   'octocode-loop',
   'octocode-awareness',

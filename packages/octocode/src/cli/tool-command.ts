@@ -1084,11 +1084,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     validateRawToolFootguns(tool.name, inputText);
     const input = prepareDirectToolInputFromJsonText(tool.name, inputText, {
       sourceLabel: 'octocode',
-      onUnknownFields: (unknownFields, queryIndex) => {
-        console.error(
-          `  ${c('yellow', '!')} Query ${queryIndex + 1}: unknown field(s): ${unknownFields.join(', ')} — run \`tools ${tool.name}\` to see valid fields.`
-        );
-      },
+      rejectUnknownFields: true,
     });
     if (!input) {
       await showToolHelp(tool.name);

@@ -13,7 +13,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `ENABLE_LOCAL` | Local tools default on; set `false` to disable clone-backed local workflows. |
 | `ENABLE_CLONE` | Enables `ghCloneRepo` and `ghGetFileContent(type="directory")`. |
 
-Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. All tools support `page`, `responseCharOffset`, and `responseCharLength` for pagination. Use `octocode tools <toolName>` for the exact active schema.
+Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. All tools support `page`, `responseCharOffset`, and `responseCharLength` for pagination. Use `npx octocode tools <toolName> --scheme` for the exact active schema.
 
 ## Tool Selection
 

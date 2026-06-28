@@ -1,5 +1,6 @@
 import { c, bold, dim } from '../../utils/colors.js';
-import { loadInquirer, select, Separator } from '../../utils/prompts.js';
+import { loadInquirer, select } from '../../utils/prompts.js';
+import { separatorChoice } from '../../utils/prompt-separator.js';
 import { Spinner } from '../../utils/spinner.js';
 import {
   selectMCPClient,
@@ -112,7 +113,7 @@ export async function runInstallFlow(): Promise<void> {
               name: `${c('green', '✅')} Update existing configuration`,
               value: 'update' as const,
             },
-            new Separator() as unknown as { name: string; value: UpdateChoice },
+            separatorChoice<{ name: string; value: UpdateChoice }>(),
             {
               name: `${c('dim', '- Back to client selection')}`,
               value: 'back' as const,
@@ -267,7 +268,7 @@ async function showConfirmationAndPrompt(
         name: `${c('green', '✅')} Proceed with configuration`,
         value: 'proceed' as const,
       },
-      new Separator() as unknown as { name: string; value: FinalChoice },
+      separatorChoice<{ name: string; value: FinalChoice }>(),
       {
         name: `${c('dim', '- Back to edit options')}`,
         value: 'back' as const,

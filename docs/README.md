@@ -29,7 +29,7 @@ Install, configure, and use the Octocode MCP server.
 
 | Doc | When to read |
 |-----|--------------|
-| [Agent Research Workflows](https://github.com/bgauryy/octocode/blob/main/docs/context/AGENT_RESEARCH_WORKFLOWS.md) | Product-level workflows for package, GitHub, OQL, cache/fetch/clone, local ripgrep, AST, LSP, artifacts, and diff research |
+| [Agent Research Workflows](https://github.com/bgauryy/octocode/blob/main/docs/AGENT_RESEARCH_WORKFLOWS.md) | Canonical agent workflows for package, GitHub, OQL, cache/fetch/clone, local, AST, LSP, artifacts, and diff research |
 | [Search Guide](https://github.com/bgauryy/octocode/blob/main/docs/context/SEARCH_GUIDE.md) | Practical ripgrep, structural AST, LSP, and exact-read best practices for code research |
 | [Clone & Local Workflow](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) | Pull a GitHub repo, then analyze locally with LSP |
 | [Tool Verification](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Release-grade tool contract verification playbook |
@@ -50,11 +50,11 @@ Install, run, and manage Octocode from the terminal.
 
 ## Query Language
 
-Design notes for the unified `octocode search` / OQL language.
+Design notes for the unified `npx octocode search` / OQL language.
 
 | Doc | When to read |
 |-----|--------------|
-| [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) | Typed query language behind `octocode search` |
+| [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) | Typed query language behind `npx octocode search` |
 | [Octocode Query Language Plan](https://github.com/bgauryy/octocode/blob/main/docs/context/OCTOCODE_QUERY_LANGUAGE_PLAN.md) | Implementation plan, prerequisites, package split, milestones, tests, and risks |
 | [OQL Research Graph Flow](https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md) | Research/graph proof flow and next-step continuations |
 

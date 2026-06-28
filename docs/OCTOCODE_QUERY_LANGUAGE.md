@@ -1,6 +1,6 @@
 # Octocode Query Language
 
-OQL is the JSON language behind `octocode search`: one typed routing layer over
+OQL is the JSON language behind `npx octocode search`: one typed routing layer over
 Octocode's existing primitives — ripgrep code/file search, structural AST,
 native graph facts, content reads, LSP semantics, and GitHub/npm/history/binary/
 diff/clone runners. It gives humans and agents one consistent way to ask bounded
@@ -54,7 +54,7 @@ Pick your depth — each tier stands on its own:
 | Trust/automate the results | + [Result Envelope, Evidence, Diagnostics](#result-envelope-evidence-and-diagnostics) · [Continuations](#continuations) · [Research, Graph, Safe Deletion](#research-graph-and-safe-deletion) | ~15 min |
 | Implement or debug a backend | + [Transformer Architecture appendix](#appendix-transformer-architecture-contributor-only--internal) | contributor |
 
-The executable contract always wins over prose: `octocode search --scheme`. If
+The executable contract always wins over prose: `npx octocode search --scheme`. If
 this doc and `--scheme` ever disagree, `--scheme` is correct — open an issue.
 
 ## Table of Contents
@@ -85,37 +85,37 @@ this doc and `--scheme` ever disagree, `--scheme` is correct — open an issue.
 ## Cheatsheet
 
 One row per target. Shorthand is verified live; use `--query '<json>'` when a
-lane needs fields shorthand cannot express. Run `octocode search --scheme` for
+lane needs fields shorthand cannot express. Run `npx octocode search --scheme` for
 the full contract. Note: a bare `packages/foo` path is read as a GitHub
 `owner/repo` — prefix local paths with `./` (or pass `--source local`).
 
 | Target | Purpose | Copy-paste CLI | Use when |
 |---|---|---|---|
-| `code` | Text / regex / AST matches | `octocode search "runCLI" ./src --lang ts` | Find where a string, pattern, or AST shape appears. |
-| `content` | Read a file / range / symbol outline | `octocode search ./src/index.ts --content-view symbols` | You know the file and want to read it (not search). |
-| `structure` | Browse a directory or repo tree | `octocode search ./src --tree --depth 2` | Orient before searching; see what exists. |
-| `files` | Discover files by path/name/ext/size | `octocode search "x" ./src --search path --ext ts` | List files matching path/metadata, or files (not) containing text. |
-| `semantics` | LSP: defs, refs, callers, symbols, hover | `octocode search ./src/index.ts --op references --symbol runCLI --line 42` | Prove symbol identity/reachability (run `--op documentSymbols` first for line anchors). |
-| `repositories` | GitHub repo discovery | `octocode search "mcp server" --target repositories --lang TypeScript --stars ">100"` | Find repos by topic/language/stars. |
-| `packages` | npm package discovery | `octocode search zod --target packages` | Resolve a package + its source repo. |
-| `pullRequests` | PR search / deep read | `octocode search facebook/react#1 --target pullRequests --comments --patches` | Inspect a PR's discussion, files, patches. |
-| `commits` | Commit history (+ optional diffs) | `octocode search facebook/react/packages/react/src --target commits --since 2024-01-01T00:00:00Z` | "What changed here / when / by whom." |
-| `artifacts` | Binary / archive / strings inspection | `octocode search dist/server.node --target artifacts --inspect` | Inspect/list/extract/strings a binary or archive. |
-| `diff` | PR patch OR two-ref/two-file diff | `octocode search src/a.ts src/b.ts --target diff` | Compare two files/refs, or read a PR patch. (Two-ref content diff now produces a real line diff.) |
-| `research` | Candidate dead-code / reachability packets | `octocode search --query '{"target":"research","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols","files"]},"itemsPerPage":1}'` | "What looks dead, why, what keeps it alive?" Always candidate-grade. |
-| `graph` | Retained-by chains + bounded LSP proof | `octocode search --query '{"target":"graph","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols"],"proof":"lsp","proofLimit":5}}'` | "What retains this? Is the keeper itself dead?" Upgrade research candidates. |
-| `materialize` | Clone/cache a bounded GitHub subtree | `octocode clone facebook/react/packages/react/src` (or `--target materialize`) | Make remote code behave like local for AST/LSP/negation proof. |
+| `code` | Text / regex / AST matches | `npx octocode search "runCLI" ./src --lang ts` | Find where a string, pattern, or AST shape appears. |
+| `content` | Read a file / range / symbol outline | `npx octocode search ./src/index.ts --content-view symbols` | You know the file and want to read it (not search). |
+| `structure` | Browse a directory or repo tree | `npx octocode search ./src --tree --depth 2` | Orient before searching; see what exists. |
+| `files` | Discover files by path/name/ext/size | `npx octocode search "x" ./src --search path --ext ts` | List files matching path/metadata, or files (not) containing text. |
+| `semantics` | LSP: defs, refs, callers, symbols, hover | `npx octocode search ./src/index.ts --op references --symbol runCLI --line 42` | Prove symbol identity/reachability (run `--op documentSymbols` first for line anchors). |
+| `repositories` | GitHub repo discovery | `npx octocode search "mcp server" --target repositories --lang TypeScript --stars ">100"` | Find repos by topic/language/stars. |
+| `packages` | npm package discovery | `npx octocode search zod --target packages` | Resolve a package + its source repo. |
+| `pullRequests` | PR search / deep read | `npx octocode search facebook/react#1 --target pullRequests --comments --patches` | Inspect a PR's discussion, files, patches. |
+| `commits` | Commit history (+ optional diffs) | `npx octocode search facebook/react/packages/react/src --target commits --since 2024-01-01T00:00:00Z` | "What changed here / when / by whom." |
+| `artifacts` | Binary / archive / strings inspection | `npx octocode search dist/server.node --target artifacts --inspect` | Inspect/list/extract/strings a binary or archive. |
+| `diff` | PR patch OR two-ref/two-file diff | `npx octocode search src/a.ts src/b.ts --target diff` | Compare two files/refs, or read a PR patch. (Two-ref content diff now produces a real line diff.) |
+| `research` | Candidate dead-code / reachability packets | `npx octocode search --query '{"target":"research","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols","files"]},"itemsPerPage":1}'` | "What looks dead, why, what keeps it alive?" Always candidate-grade. |
+| `graph` | Retained-by chains + bounded LSP proof | `npx octocode search --query '{"target":"graph","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols"],"proof":"lsp","proofLimit":5}}'` | "What retains this? Is the keeper itself dead?" Upgrade research candidates. |
+| `materialize` | Clone/cache a bounded GitHub subtree | `npx octocode clone facebook/react/packages/react/src` (or `--target materialize`) | Make remote code behave like local for AST/LSP/negation proof. |
 
 The live CLI schema is the executable contract:
 
 ```bash
-octocode search --scheme
-octocode search --query '<json>' --json --compact
-octocode search --explain --query '<json>' --json --compact
+npx octocode search --scheme
+npx octocode search --query '<json>' --json --compact
+npx octocode search --explain --query '<json>' --json --compact
 ```
 
 Inside this monorepo, the local built CLI is
-`node packages/octocode/out/octocode.js search --scheme`. MCP exposes the same
+`npx octocode search --scheme`. MCP exposes the same
 schema through the thin `oqlSearch` tool; the CLI and MCP tool import the shared
 OQL schema rather than duplicating the shape.
 
@@ -208,7 +208,8 @@ Key rule callouts:
 - `target:code` REQUIRES a `where`; omitting it is not "search everything."
 - `content`/`structure` REJECT `where` — use `fetch`.
 - GitHub zero rows = `providerUnindexed`, NOT absence. Verify the path with
-  `--tree`, then `--materialize required` / `clone` / `cache fetch`.
+  `--tree`, then `--materialize required`, `npx octocode clone`, or
+  `npx octocode cache fetch`.
 - `research`/`graph` are ALWAYS `evidence:"candidate"` / `answerReady:false` —
   that is normal, not a failure.
 
@@ -221,22 +222,22 @@ shorthand cannot express it. Verified live 2026-06-24. Local paths are
 **Orient in an unknown codebase**
 
 ```bash
-octocode search ./src --tree --depth 2                  # see the shape
-octocode search ./src/index.ts --content-view symbols   # outline a file
+npx octocode search ./src --tree --depth 2                  # see the shape
+npx octocode search ./src/index.ts --content-view symbols   # outline a file
 ```
 
 **Find a function/string (local, then read exact)**
 
 ```bash
-octocode search "runCLI" ./src --lang ts --view discovery        # locate (paths only)
-octocode search ./src/cli/index.ts --op documentSymbols          # get line anchors
-octocode search ./src/cli/index.ts --match-string "runCLI" --content-view exact   # read exact
+npx octocode search "runCLI" ./src --lang ts --view discovery        # locate (paths only)
+npx octocode search ./src/cli/index.ts --op documentSymbols          # get line anchors
+npx octocode search ./src/cli/index.ts --match-string "runCLI" --content-view exact   # read exact
 ```
 
 **Enumerate exports with regex**
 
 ```bash
-octocode search --query '{"target":"code","from":{"kind":"local","path":"./src"},
+npx octocode search --query '{"target":"code","from":{"kind":"local","path":"./src"},
   "where":{"kind":"regex","value":"^export (function|const|type|interface) [A-Za-z0-9_]+","multiline":true},
   "select":["path","line","snippet","next.semantic"]}'
 ```
@@ -244,9 +245,9 @@ octocode search --query '{"target":"code","from":{"kind":"local","path":"./src"}
 **Structural AST search (pattern must match the COMPLETE node)**
 
 ```bash
-octocode search --pattern 'function $N($$$ARGS) { $$$BODY }' ./src --lang ts
+npx octocode search --pattern 'function $N($$$ARGS) { $$$BODY }' ./src --lang ts
 # To find a symbol by name robustly, prefer a rule over a bare pattern:
-octocode search --rule '{"kind":"function_declaration","has":{"pattern":"runCLI"}}' ./src --lang ts
+npx octocode search --rule '{"kind":"function_declaration","has":{"pattern":"runCLI"}}' ./src --lang ts
 ```
 
 > 0 matches + no parse error = your pattern shape does not match the real node. A
@@ -256,8 +257,8 @@ octocode search --rule '{"kind":"function_declaration","has":{"pattern":"runCLI"
 **Find files (by extension; or files NOT containing text)**
 
 ```bash
-octocode search "x" ./src --search path --ext ts          # files by ext
-octocode search --query '{"target":"files","from":{"kind":"local","path":"./src"},
+npx octocode search "x" ./src --search path --ext ts          # files by ext
+npx octocode search --query '{"target":"files","from":{"kind":"local","path":"./src"},
   "where":{"kind":"all","of":[
     {"kind":"field","field":"extension","op":"=","value":"ts"},
     {"kind":"not","predicate":{"kind":"text","value":"MCP_REGISTRY"}}]}}'   # negation needs local universe
@@ -266,45 +267,45 @@ octocode search --query '{"target":"files","from":{"kind":"local","path":"./src"
 **Prove where a symbol is used (deletion safety)**
 
 ```bash
-octocode search ./src/index.ts --op documentSymbols                          # 1. line anchors
-octocode search ./src/index.ts --op references --symbol runCLI --line 42     # 2. refs (set includeDeclaration:false via --query)
+npx octocode search ./src/index.ts --op documentSymbols                          # 1. line anchors
+npx octocode search ./src/index.ts --op references --symbol runCLI --line 42     # 2. refs (set includeDeclaration:false via --query)
 ```
 
 **Search GitHub, recover from a zero result (providerUnindexed)**
 
 ```bash
-octocode search "createServer" facebook/react              # provider code search
-octocode search facebook/react/packages/react/src --tree   # verify the path exists
-octocode search useState packages/react/src --repo facebook/react --materialize required   # bounded local proof
+npx octocode search "createServer" facebook/react              # provider code search
+npx octocode search facebook/react/packages/react/src --tree   # verify the path exists
+npx octocode search useState packages/react/src --repo facebook/react --materialize required   # bounded local proof
 ```
 
 **Inspect an npm package, then its source**
 
 ```bash
-octocode search zod --target packages
+npx octocode search zod --target packages
 # then follow the source-repo continuation into GitHub or materialize
 ```
 
 **Read a PR deeply / diff two refs**
 
 ```bash
-octocode search facebook/react#1 --target pullRequests --deep
-octocode search src/a.ts src/b.ts --target diff
+npx octocode search facebook/react#1 --target pullRequests --deep
+npx octocode search src/a.ts src/b.ts --target diff
 ```
 
 **Inspect a binary / archive**
 
 ```bash
-octocode search dist/server.node --target artifacts --inspect
-octocode search app.zip --target artifacts --list
-octocode search dist/app.bin --target artifacts --strings --min-length 6
+npx octocode search dist/server.node --target artifacts --inspect
+npx octocode search app.zip --target artifacts --list
+npx octocode search dist/app.bin --target artifacts --strings --min-length 6
 ```
 
 **Dead-code triage (two-phase research, then graph proof)**
 
 ```bash
 # 1. summary page (counts) + first candidate packet
-octocode search --query '{"target":"research","from":{"kind":"local","path":"."},
+npx octocode search --query '{"target":"research","from":{"kind":"local","path":"."},
   "params":{"intent":"reachability","facets":["symbols","files","relations"],"mode":"analyze"},"itemsPerPage":1}'
 # 2. follow next.page for packets, then the row's pre-filled next.graph (proof:"lsp") for bounded LSP proof.
 # Never claim "safe to delete" while evidence.kind=="candidate" or answerReady==false.
@@ -313,7 +314,7 @@ octocode search --query '{"target":"research","from":{"kind":"local","path":"."}
 **See routing before running (proof-sensitive queries)**
 
 ```bash
-octocode search --explain --query '{"target":"code","from":{"kind":"local","path":"./src"},"where":{"kind":"text","value":"term"}}'
+npx octocode search --explain --query '{"target":"code","from":{"kind":"local","path":"./src"},"where":{"kind":"text","value":"term"}}'
 ```
 
 ## Query Anatomy
@@ -736,7 +737,7 @@ redaction diagnostics are present.
 
 `params` is for target-specific options. OQL validates common fields early, then
 the backing tool remains the exhaustive validator. The tables below mirror
-`octocode search --scheme`; fields accepted only by an internal pass-through are
+`npx octocode search --scheme`; fields accepted only by an internal pass-through are
 not part of the agent contract until the scheme lists them.
 
 ### `semantics`
@@ -813,7 +814,7 @@ Backs onto `ghSearchRepos`.
 
 The CLI exposes additional repository filters as flags: `--forks`, `--created`,
 `--updated`, `--size`, `--visibility`, and `--good-first-issues`. See
-`octocode search --help` for the full filter set.
+`npx octocode search --help` for the full filter set.
 
 ### `packages`
 
@@ -1052,8 +1053,8 @@ saying code is safe to delete.
 
 It returns a materialized checkpoint with fields such as `localPath`, `repoRoot`,
 `ref`, `cache`, and `complete`, plus continuations for local structure/files. For
-CLI alternatives use `clone owner/repo[/path]` or
-`cache fetch owner/repo [path] --depth file|tree|clone`.
+CLI alternatives use `npx octocode clone owner/repo[/path]` or
+`npx octocode cache fetch owner/repo [path] --depth file|tree|clone`.
 
 ## Materialization And GitHub Index Misses
 
@@ -1065,19 +1066,19 @@ Use this recovery order:
 
 ```bash
 # 1. Verify the remote path exists.
-octocode search facebook/react/packages/react/src --tree --depth 2
+npx octocode search facebook/react/packages/react/src --tree --depth 2
 
 # 2. One-step bounded local proof through search/OQL.
-octocode search useState packages/react/src --repo facebook/react --materialize required --lang js
+npx octocode search useState packages/react/src --repo facebook/react --materialize required --lang js
 
 # 3. Explicit disk materialization when the next work is multi-file.
-octocode clone facebook/react/packages/react/src
-octocode cache fetch facebook/react packages/react/src --depth tree
+npx octocode clone facebook/react/packages/react/src
+npx octocode cache fetch facebook/react packages/react/src --depth tree
 ```
 
-For file-level checks use `cache fetch owner/repo path/to/file --depth file`. For
-deliberate whole-repo work use `clone owner/repo` or
-`cache fetch owner/repo --depth clone`, but prefer a subtree in large monorepos.
+For file-level checks use `npx octocode cache fetch owner/repo path/to/file --depth file`.
+For deliberate whole-repo work use `npx octocode clone owner/repo` or
+`npx octocode cache fetch owner/repo --depth clone`, but prefer a subtree in large monorepos.
 When OQL emits `next.materialize`, follow it directly; it preserves the bounded
 `scope.path` from the failed query.
 
@@ -1249,8 +1250,8 @@ rejects reserved targets with `unsupportedTarget`; validates common target
 | none of the above | no inference — supply `target` explicitly |
 
 A bare path is NOT enough for the JSON layer to infer a target. (The CLI's
-positional shorthand is what turns `octocode search ./dir` into a `structure`
-read and `octocode search ./file.ts` into a `content` read; that lowering happens
+positional shorthand is what turns `npx octocode search ./dir` into a `structure`
+read and `npx octocode search ./file.ts` into a `content` read; that lowering happens
 in the CLI before OQL, not in `inferTarget`.)
 
 Use `--explain` when a query mixes boolean predicates; a GitHub query may require

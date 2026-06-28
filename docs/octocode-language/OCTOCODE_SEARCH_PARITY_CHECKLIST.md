@@ -1,18 +1,18 @@
 # Octocode Search Parity Checklist
 
-This document is the agent-facing audit guide for making `octocode search`
+This document is the agent-facing audit guide for making `npx octocode search`
 replace Octocode's raw tools and quick CLI commands without duplicating
 implementation logic.
 
 Authoritative contract:
-https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE.md
+https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md
 
 Implementation plan:
-https://github.com/bgauryy/octocode/blob/main/docs/octocode-language/OCTOCODE_QUERY_LANGUAGE_PLAN.md
+https://github.com/bgauryy/octocode/blob/main/docs/context/OCTOCODE_QUERY_LANGUAGE_PLAN.md
 
 ## Replacement Rule
 
-`octocode search` may replace another Octocode surface only when all of these
+`npx octocode search` may replace another Octocode surface only when all of these
 are true:
 
 1. The query lowers into a canonical OQL object and `--explain` shows the exact
@@ -28,8 +28,10 @@ are true:
    pagination, or output semantics.
 
 Non-goal: `search` should not replace management/meta commands such as
-`install`, `auth`, `login`, `logout`, `status`, `cache status`, `cache clear`,
-`tools`, `context`, `--help`, or `--version`.
+`npx octocode install`, `npx octocode auth login`, `npx octocode auth logout`,
+`npx octocode auth status`, `npx octocode cache status`,
+`npx octocode cache clear`, `npx octocode tools`, `npx octocode context`,
+`npx octocode --help`, or `npx octocode --version`.
 
 ## Ownership Boundary
 
@@ -56,7 +58,7 @@ Evidence anchors:
 
 Last verified from the built CLI on 2026-06-22.
 
-Raw tools checked with `octocode tools <name> --scheme`:
+Raw tools checked with `npx octocode tools <name> --scheme`:
 
 | Group | Tools |
 |---|---|
@@ -65,13 +67,13 @@ Raw tools checked with `octocode tools <name> --scheme`:
 | LSP | `lspGetSemantics` |
 | Package | `npmSearch` |
 
-CLI commands checked with `<command> --help`:
+CLI commands checked with `npx octocode <command> --help`:
 
 | Surface | Commands |
 |---|---|
 | Search/research | `search`, `grep`, `cat`, `ls`, `find`, `lsp`, `repo`, `pkg`, `pr`, `history`, `binary`, `unzip`, `clone`, `cache`, `diff` |
 | Raw/meta | `tools`, `context`, top-level `--help` |
-| Management | `install`, `auth`, `login`, `logout`, `status` |
+| Management | `install`, `auth login`, `auth logout`, `auth status` |
 
 Current `search --scheme` target inventory:
 
@@ -132,7 +134,7 @@ Status meanings:
 
 ## OQL Rating Scorecard
 
-Rating is for the current `octocode search` implementation as verified from the
+Rating is for the current `npx octocode search` implementation as verified from the
 built CLI and raw schemas on 2026-06-22, not the desired final design.
 
 > **2026-06-22 update.** Open-gap closures (continuation registry, capability
@@ -205,13 +207,13 @@ Rating rule for future audits:
 | `history` | Yes | `target:"commits"` or `pullRequests` | Commit history, path/subtree, PR handoff, rename/diff behavior. |
 | `binary` | Yes | `target:"artifacts"` | Inspect/list/extract/decompress/strings/unpack modes, string scan offsets, char windows, and output paths. |
 | `unzip` | Yes | `target:"artifacts"` | Exposes extracted `localPath`; rows now emit `next.structure`/`next.files` follow-ups rooted at it. |
-| `clone` | Yes | `target:"materialize"` | `target:"materialize"` returns a first-class checkpoint row + continuations; `cache status`/`cache clear` remain management. |
-| `cache fetch` | Yes | `target:"materialize"` | Returns materialized `localPath`/`repoRoot`/`cache`/`complete` + `next.structure`/`next.files`; `cache status`/`cache clear` remain management. |
+| `clone` | Yes | `target:"materialize"` | `target:"materialize"` returns a first-class checkpoint row + continuations; `npx octocode cache status` / `npx octocode cache clear` remain management. |
+| `cache fetch` | Yes | `target:"materialize"` | Returns materialized `localPath`/`repoRoot`/`cache`/`complete` + `next.structure`/`next.files`; `npx octocode cache status` / `npx octocode cache clear` remain management. |
 | `diff` | Yes | `target:"diff"` | Two typed lanes: PR patch (`{prNumber}`) and direct file (`{baseRef,headRef,path}`); neither → repair diagnostic. |
 | `search` | Already | OQL runner | Must stay a thin wrapper over tools-core. |
 | `tools` | No | Raw tool runner | Keep for schema-exact debug, parity probes, and compatibility. |
 | `context` | No | Protocol/help surface | Keep for agent bootstrapping and schema discovery. |
-| `install`, `auth`, `login`, `logout`, `status` | No | Management | Keep outside OQL. |
+| `install`, `auth login`, `auth logout`, `auth status` | No | Management | Keep outside OQL. |
 
 ## Minification And Content Views
 
@@ -317,13 +319,13 @@ between requested ref/path and returned local path.
 
 ## Agent Parity Procedure
 
-Use this procedure before declaring `octocode search` a replacement for any
+Use this procedure before declaring `npx octocode search` a replacement for any
 tool or command.
 
 1. Read the live schema:
 
 ```bash
-octocode search --scheme
+npx octocode search --scheme
 ```
 
 Check that `activeTargets`, `query.target`, `from`, `params`, and target-specific
@@ -332,7 +334,7 @@ examples agree. Drift here is a blocker for agent trust.
 2. Run a dry plan:
 
 ```bash
-octocode search --explain --dry-run --query '<json>'
+npx octocode search --explain --dry-run --query '<json>'
 ```
 
 Check:
@@ -460,7 +462,7 @@ Do not treat these as proof:
 
 Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
 
-1. ✅ `octocode search --scheme` now lists every active target in `query.target`
+1. ✅ `npx octocode search --scheme` now lists every active target in `query.target`
    (derived from `ACTIVE_TARGETS`).
 2. ✅ `unsupportedTarget` (and "could not determine target") repair text now
    names the current active targets.
@@ -567,11 +569,11 @@ For each row in the raw tool matrix, keep one golden test:
 Recommended probe order:
 
 ```bash
-octocode search --scheme
-octocode search --explain --dry-run --query '<oql>'
-octocode search --json --query '<oql>'
-octocode tools <rawTool> --scheme
-octocode tools <rawTool> --json --queries '<raw>'
+npx octocode search --scheme
+npx octocode search --explain --dry-run --query '<oql>'
+npx octocode search --json --query '<oql>'
+npx octocode tools <rawTool> --scheme
+npx octocode tools <rawTool> --json --queries '<raw>'
 ```
 
 ## Replacement Readiness Summary

@@ -7,8 +7,8 @@ import {
   select,
   input,
   checkbox,
-  Separator,
 } from '../../utils/prompts.js';
+import { separatorChoice } from '../../utils/prompt-separator.js';
 import { Spinner } from '../../utils/spinner.js';
 import { openInEditor } from '../../utils/platform.js';
 import {
@@ -254,7 +254,7 @@ async function showConfigMenu(): Promise<ConfigMenuChoice> {
         value: 'show-json',
         description: 'Display the actual MCP config JSON for a client',
       },
-      new Separator() as unknown as { name: string; value: ConfigMenuChoice },
+      separatorChoice<{ name: string; value: ConfigMenuChoice }>(),
       {
         name: `${c('dim', '- Back to main menu')}`,
         value: 'back',
@@ -329,7 +329,7 @@ async function promptOpenConfigFile(configPath: string): Promise<void> {
         value: 'default',
         description: 'Open with system default application',
       },
-      new Separator() as unknown as { name: string; value: OpenChoice },
+      separatorChoice<{ name: string; value: OpenChoice }>(),
       {
         name: `${c('dim', '- Skip')}`,
         value: 'no',
@@ -387,7 +387,7 @@ async function editBooleanOption(
         name: `${c('yellow', '○')} Disable`,
         value: 'disable',
       },
-      new Separator() as unknown as { name: string; value: BoolChoice },
+      separatorChoice<{ name: string; value: BoolChoice }>(),
       {
         name: `${c('dim', '- Cancel')}`,
         value: 'cancel',
@@ -536,7 +536,7 @@ async function editArrayOption(
             ? 'Reset to all tools enabled'
             : 'Remove all tools from this list',
       },
-      new Separator() as unknown as { name: string; value: ArrayAction },
+      separatorChoice<{ name: string; value: ArrayAction }>(),
       {
         name: `${c('dim', '- Cancel')}`,
         value: 'cancel',
@@ -1065,7 +1065,7 @@ function showConfigInfo(): void {
   ${dim('  "mcpServers": {')}
   ${dim('    "octocode": {')}
   ${dim('      "command": "npx",')}
-  ${dim('      "args": ["@octocodeai/mcp@latest"],')}
+  ${dim('      "args": ["-y", "@octocodeai/mcp@latest"],')}
   ${c('green', '      "env": { "ENABLE_LOCAL": "1" }')}
   ${dim('    }')}
   ${dim('  }')}

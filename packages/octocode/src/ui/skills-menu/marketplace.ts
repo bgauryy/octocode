@@ -1,5 +1,6 @@
 import { c, bold, dim } from '../../utils/colors.js';
-import { select, Separator, input, search } from '../../utils/prompts.js';
+import { select, input, search } from '../../utils/prompts.js';
+import { separatorChoice } from '../../utils/prompt-separator.js';
 import { Spinner } from '../../utils/spinner.js';
 import { dirExists, removeDirectory } from '../../utils/fs.js';
 import { getSkillsDestDir } from '../../utils/skills.js';
@@ -87,10 +88,10 @@ async function selectMarketplace(
   }
 
   choices.push(
-    new Separator() as unknown as {
+    separatorChoice<{
       name: string;
       value: MarketplaceMenuChoice;
-    }
+    }>()
   );
   choices.push({
     name: `${c('dim', '- Back to skills menu')}`,
@@ -232,9 +233,7 @@ async function showSkillDetails(
     });
   }
 
-  choices.push(
-    new Separator() as unknown as { name: string; value: InstallChoice }
-  );
+  choices.push(separatorChoice<{ name: string; value: InstallChoice }>());
   choices.push({
     name: `${c('dim', '- Back')}`,
     value: 'back',
@@ -293,7 +292,7 @@ async function deleteSkill(skill: MarketplaceSkill): Promise<boolean> {
     message: 'Delete this installed skill?',
     choices: [
       { name: `${c('red', 'Delete')} Yes, delete skill`, value: 'yes' },
-      new Separator() as unknown as { name: string; value: 'yes' | 'no' },
+      separatorChoice<{ name: string; value: 'yes' | 'no' }>(),
       { name: `${c('dim', '- Cancel')}`, value: 'no' },
     ],
     loop: false,
@@ -366,10 +365,10 @@ async function showOfficialFlowMenu(
   }
 
   choices.push(
-    new Separator() as unknown as {
+    separatorChoice<{
       name: string;
       value: OfficialFlowChoice;
-    }
+    }>()
   );
   choices.push({
     name: `${c('dim', '- Back')}`,

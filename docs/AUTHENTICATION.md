@@ -6,7 +6,7 @@ GitHub is the only supported Octocode provider. This page covers every aspect of
 
 ```bash
 # Recommended: OAuth login via Octocode CLI
-npx octocode login
+npx octocode auth login
 
 # Or use GitHub CLI credentials (already logged in)
 gh auth login
@@ -46,7 +46,7 @@ All env-token lookups read `process.env` directly every call — no startup cach
 ### 1. Octocode OAuth Login (recommended)
 
 ```bash
-npx octocode login
+npx octocode auth login
 ```
 
 Opens a browser for GitHub's OAuth Device Flow. After approval the token is stored encrypted in `<octocode-home>/credentials.json`. The OAuth App client ID is `178c6fc778ccc68e1d6a` and the default scopes are `repo`, `read:org`, and `gist`.
@@ -90,7 +90,7 @@ No extra configuration required. `gh` manages its own token refresh.
 
 ## Credential Storage
 
-Stored credentials (from `octocode login`) live in two files:
+Stored credentials (from `npx octocode auth login`) live in two files:
 
 | File | Purpose | Permissions |
 |------|---------|-------------|
@@ -146,7 +146,7 @@ interface StoredCredentials {
 
 **Expiry guard**: a stored token is considered expired when `expiresAt` is within **5 minutes** of now. This allows the refresh to complete before any in-flight request sees an expired token.
 
-**Refresh token expiry**: if `refreshTokenExpiresAt` is in the past, refresh is blocked and the user must run `octocode login` again.
+**Refresh token expiry**: if `refreshTokenExpiresAt` is in the past, refresh is blocked and the user must run `npx octocode auth login` again.
 
 Error messages from the refresh path are sanitized — GitHub-token-like strings are masked before they appear in any log or return value.
 
@@ -175,14 +175,14 @@ After startup, `getGitHubToken()` (called by `getOctokit()` before each GitHub A
 
 ## CLI Auth Commands
 
-### `login`
+### `auth login`
 
 ```bash
-npx octocode login                        # interactive menu (TTY)
-npx octocode login --json                 # non-interactive OAuth (prints JSON steps)
-npx octocode login --hostname myhost.com  # GitHub Enterprise
-npx octocode login --git-protocol ssh     # request SSH git protocol
-npx octocode login --force                # re-authenticate even if already signed in
+npx octocode auth login                        # interactive menu (TTY)
+npx octocode auth login --json                 # non-interactive OAuth (prints JSON steps)
+npx octocode auth login --hostname myhost.com  # GitHub Enterprise
+npx octocode auth login --git-protocol ssh     # request SSH git protocol
+npx octocode auth login --force                # re-authenticate even if already signed in
 ```
 
 **Interactive menu** (default when stdout is a TTY and no `--force`/`--json`):
@@ -211,36 +211,36 @@ The menu reads live auth state (`getAuthStatusAsync`) before rendering. The pres
 
 ### Switching Accounts
 
-**Option A — interactive menu:** run `octocode login` and select "Switch Octocode account". This signs out the current stored token then immediately starts a new OAuth flow.
+**Option A — interactive menu:** run `npx octocode auth login` and select "Switch Octocode account". This signs out the current stored token then immediately starts a new OAuth flow.
 
 **Option B — command line:**
 
 ```bash
-npx octocode login --force
+npx octocode auth login --force
 ```
 
 `--force` signs out any existing stored token for the hostname, then runs the OAuth device flow again. It does not affect env tokens or gh CLI auth.
 
 > **Env token in effect?** When `OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, or `GITHUB_PERSONAL_ACCESS_TOKEN` is set, it takes priority over stored credentials. The `--force` flow stores a new token but it won't be used until you unset the env var. The CLI warns you when this is the case.
 
-### `logout`
+### `auth logout`
 
 ```bash
-npx octocode logout                   # confirm then delete stored Octocode token
-npx octocode logout --yes             # skip confirmation
-npx octocode logout --json            # JSON output
-npx octocode logout --hostname myhost # Enterprise host
+npx octocode auth logout                   # confirm then delete stored Octocode token
+npx octocode auth logout --yes             # skip confirmation
+npx octocode auth logout --json            # JSON output
+npx octocode auth logout --hostname myhost # Enterprise host
 ```
 
-`logout` removes the stored OAuth credentials for the given hostname from `<octocode-home>/credentials.json`. It does **not** revoke the GitHub token server-side (no client secret is available), and it does **not** affect env tokens or gh CLI auth.
+`auth logout` removes the stored OAuth credentials for the given hostname from `<octocode-home>/credentials.json`. It does **not** revoke the GitHub token server-side (no client secret is available), and it does **not** affect env tokens or gh CLI auth.
 
 To sign out of the gh CLI use `gh auth logout`.
 
-### `auth` subcommands
+### Other `auth` subcommands
 
 ```bash
-npx octocode auth login               # same as `login`
-npx octocode auth logout              # same as `logout`
+npx octocode auth login
+npx octocode auth logout
 npx octocode auth status              # print auth status (human-readable)
 npx octocode auth status --json       # print auth status (JSON)
 npx octocode auth refresh             # refresh a stored GitHub App token
@@ -290,7 +290,7 @@ The default API URL is `https://api.github.com`. The CLI and MCP server use `GIT
 OAuth login for Enterprise:
 
 ```bash
-npx octocode login --hostname github.mycompany.com
+npx octocode auth login --hostname github.mycompany.com
 ```
 
 The refresh API base URL is derived from the stored hostname: `github.com` uses `https://api.github.com`, any other host uses `https://<hostname>/api/v3`.
@@ -309,18 +309,18 @@ This can also be set in `~/.octocode/.octocoderc`. Local tools stay enabled by d
 
 | Symptom | Check |
 |---------|-------|
-| No token found | Run `npx octocode status`, then `npx octocode login`, or set an env var. |
+| No token found | Run `npx octocode status`, then `npx octocode auth login`, or set an env var. |
 | 401 Unauthorized | Verify token scopes and the selected GitHub host. |
 | Enterprise requests hit github.com | Set `GITHUB_API_URL` to the Enterprise API URL. |
 | Clone tools unavailable | Set `ENABLE_CLONE=true` and make sure `ENABLE_LOCAL` is not set to `false`. |
-| Stored token expired, no refresh | Token is an OAuth App token that cannot refresh — run `npx octocode login` again. |
-| Refresh token expired | `refreshTokenExpiresAt` is past — run `npx octocode login`. |
+| Stored token expired, no refresh | Token is an OAuth App token that cannot refresh — run `npx octocode auth login` again. |
+| Refresh token expired | `refreshTokenExpiresAt` is past — run `npx octocode auth login`. |
 | Env token is active but OAuth was just saved | Env tokens take priority; unset the env var to use the stored token. |
-| Wrong account | Run `npx octocode logout` then `npx octocode login`, or update `gh` with `gh auth switch`. |
+| Wrong account | Run `npx octocode auth logout` then `npx octocode auth login`, or update `gh` with `gh auth switch`. |
 
 ## Related
 
-- [Credentials Architecture](mcp/CREDENTIALS.md) — encryption, storage APIs, cache details
-- [Configuration Reference](mcp/CONFIGURATION.md) — all env vars and config file options
-- [GitHub Tools Reference](mcp/tools/GITHUB_TOOLS.md)
-- [CLI Reference](cli/REFERENCE.md)
+- [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) — encryption, storage APIs, cache details
+- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) — all env vars and config file options
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/GITHUB_TOOLS.md)
+- [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)

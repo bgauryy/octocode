@@ -1,6 +1,7 @@
 import type { MCPClient } from '../../types/index.js';
 import { c, dim, bold } from '../../utils/colors.js';
-import { select, Separator, input } from '../../utils/prompts.js';
+import { select, input } from '../../utils/prompts.js';
+import { separatorChoice } from '../../utils/prompt-separator.js';
 import {
   MCP_CLIENTS,
   detectCurrentClient,
@@ -124,7 +125,7 @@ async function promptNoConfigurationsFound(
         name: `${c('cyan', '-')} Custom Path - ${dim('Specify your own MCP config path')}`,
         value: 'custom' as MCPClient,
       },
-      new Separator() as unknown as ClientChoice,
+      separatorChoice<ClientChoice>(),
       {
         name: `${c('dim', '- Back')}`,
         value: 'back',
@@ -172,12 +173,12 @@ async function promptNoConfigurationsFound(
     return 0;
   });
 
-  choices.push(new Separator() as unknown as ClientChoice);
+  choices.push(separatorChoice<ClientChoice>());
   choices.push({
     name: `${c('cyan', '-')} Custom Path - ${dim('Specify your own MCP config path')}`,
     value: 'custom' as MCPClient,
   });
-  choices.push(new Separator() as unknown as ClientChoice);
+  choices.push(separatorChoice<ClientChoice>());
   choices.push({
     name: `${c('dim', '- Back')}`,
     value: 'back',
@@ -242,19 +243,19 @@ async function promptExistingConfigurations(
   });
 
   if (availableClients.length > 0) {
-    choices.push(new Separator() as unknown as ClientChoice);
+    choices.push(separatorChoice<ClientChoice>());
     choices.push({
       name: `${c('blue', '+')} Install to another client - ${dim(`${availableClients.length} available`)}`,
       value: 'install-new',
     });
   }
 
-  choices.push(new Separator() as unknown as ClientChoice);
+  choices.push(separatorChoice<ClientChoice>());
   choices.push({
     name: `${c('cyan', '-')} Custom Path - ${dim('Specify your own MCP config path')}`,
     value: 'custom' as MCPClient,
   });
-  choices.push(new Separator() as unknown as ClientChoice);
+  choices.push(separatorChoice<ClientChoice>());
   choices.push({
     name: `${c('dim', '- Back')}`,
     value: 'back',
@@ -320,7 +321,7 @@ async function promptInstallToNewClient(
     return 0;
   });
 
-  choices.push(new Separator() as unknown as ClientChoice);
+  choices.push(separatorChoice<ClientChoice>());
   choices.push({
     name: `${c('dim', '- Back to configurations')}`,
     value: 'back',
@@ -441,7 +442,7 @@ export async function promptLocalTools(): Promise<boolean | null> {
         name: `${c('yellow', '○')} Disable - ${dim('Use only GitHub tools')}`,
         value: 'disable' as const,
       },
-      new Separator() as unknown as { name: string; value: LocalToolsChoice },
+      separatorChoice<{ name: string; value: LocalToolsChoice }>(),
       {
         name: `${c('dim', '- Back')}`,
         value: 'back' as const,
@@ -480,7 +481,7 @@ export async function promptGitHubAuth(): Promise<{
         name: `${c('dim', '○')} Skip - ${dim('Configure manually later')}`,
         value: 'skip' as const,
       },
-      new Separator() as unknown as { name: string; value: GitHubAuthMethod },
+      separatorChoice<{ name: string; value: GitHubAuthMethod }>(),
       {
         name: `${c('dim', '- Back')}`,
         value: 'back' as const,

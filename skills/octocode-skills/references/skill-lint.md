@@ -5,20 +5,22 @@ Load when the user asks to lint, audit, or check a skill's structure/prompt hygi
 ## Run it
 
 ```bash
-node scripts/skill-lint.mjs                       # lint every skill under the repo skills/ root
+node scripts/skill-lint.mjs                       # lint every skill under the nearest parent skills/ root
 node scripts/skill-lint.mjs ../some-skill         # lint one or more skill folders
 node scripts/skill-lint.mjs ../some-skill --json  # machine-readable findings
 ```
 
 Exit `1` if any ERROR is found; WARN is advisory. Always run it before reporting a created/edited skill as done, and surface the findings.
 
+No-arg scans are relative to the linter copy being run: the local `.agents/skills/octocode-skills` copy scans `.agents/skills`, while the packaged `skills/octocode-skills` copy scans `skills`.
+
 ## What it enforces
 
 ERROR — fix:
 
 - `frontmatter` — `SKILL.md` has a `---` block with both `name` and `description` (non-empty).
-- `missing-reference` — every `references/<file>.md` linked in `SKILL.md` actually exists.
-- `link-outside-skill` — markdown links in `SKILL.md` or any `references/*.md` must not point outside the skill folder via `../`, absolute local paths (`/`, `~/`), or `file://` URLs. A skill is installed as a self-contained folder; relative escapes break on install. Use a GitHub URL instead (e.g. `https://github.com/owner/repo/blob/main/path/to/file.md`).
+- `missing-reference` — every `references/<file>.md` mentioned in `SKILL.md` or behavior references actually exists; fenced examples and `references/references*.md` audit-trail files are ignored.
+- `link-outside-skill` — markdown links in `SKILL.md` or any `references/*.md` must not point outside the skill folder via `../`, absolute local paths (`/`, `~/`), or `file://` URLs. Fenced examples are ignored. A skill is installed as a self-contained folder; relative escapes break on install. Use a GitHub URL instead (e.g. `https://github.com/owner/repo/blob/main/path/to/file.md`).
 
 WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and say why):
 
@@ -50,10 +52,11 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 ## Fixing a failing skill
 
 1. Run the lint; group findings ERROR-first.
-2. For `skill-too-long`/`no-references`: extract the conditional sections into short `references/*.md` with explicit load conditions in `SKILL.md`.
-3. For `reference-too-long`: split by sub-topic and cross-link.
-4. For `duplicate-content`: move the sentence to the canonical file; replace the other occurrence with a cross-link.
-5. For `rigid`/`verbose`/`tautology`/`contradiction`: edit the offending lines directly; the lint message quotes the exact text.
-5a. For `frontmatter-metadata`/`metadata-section`: delete the agent-irrelevant frontmatter keys and metadata headings (changelog/author/license/version); if the data is worth keeping, move it to the repo README.
-6. For `description-concise`: rewrite the frontmatter `description` so chars 1–50 are `Use when <triggers>`; keep the rest trigger-rich and ≤1024 chars total (don't strip useful triggers to chase brevity).
-7. Re-run until ERRORs clear; treat residual WARNs as a gated decision with the user.
+2. For `missing-reference`: fix the filename, create the missing reference, or keep illustrative paths inside fenced examples.
+3. For `skill-too-long`/`no-references`: extract the conditional sections into short `references/*.md` with explicit load conditions in `SKILL.md`.
+4. For `reference-too-long`: split by sub-topic and cross-link.
+5. For `duplicate-content`: move the sentence to the canonical file; replace the other occurrence with a cross-link.
+6. For `rigid`/`verbose`/`tautology`/`contradiction`: edit the offending lines directly; the lint message quotes the exact text.
+7. For `frontmatter-metadata`/`metadata-section`: delete the agent-irrelevant frontmatter keys and metadata headings (changelog/author/license/version); if the data is worth keeping, move it to the repo README.
+8. For `description-concise`: rewrite the frontmatter `description` so chars 1–50 are `Use when <triggers>`; keep the rest trigger-rich and ≤1024 chars total (don't strip useful triggers to chase brevity).
+9. Re-run until ERRORs clear; treat residual WARNs as a gated decision with the user.

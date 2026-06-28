@@ -195,14 +195,14 @@ different file entirely. Without an entry, an unsupported extension's semantic o
 echo "GITHUB_TOKEN: ${GITHUB_TOKEN:+set}"
 echo "ENABLE_LOCAL: ${ENABLE_LOCAL:-not set}"
 echo "ENABLE_CLONE: ${ENABLE_CLONE:-not set}"
-octocode status --json
+npx octocode status --json
 ```
 
 Common fixes:
 
 | Symptom | Check |
 |---------|-------|
-| Token missing | Set `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, or run `octocode auth login`. |
+| Token missing | Set `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, or run `npx octocode auth login`. |
 | Local tools unavailable | Check for `ENABLE_LOCAL=false`, `local.enabled:false`, or tool filters hiding them. |
 | Clone unavailable (MCP) | Set `ENABLE_CLONE=true` and make sure local tools are not explicitly disabled. The CLI enables clone by default unless you set `ENABLE_CLONE=false`. |
 | Tool hidden | Check `TOOLS_TO_RUN`, `ENABLE_TOOLS`, and `DISABLE_TOOLS`. |

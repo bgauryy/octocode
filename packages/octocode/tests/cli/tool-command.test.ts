@@ -315,6 +315,25 @@ describe('toolCommand', () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it('rejects unknown raw tool fields without executing the tool', async () => {
+    const { toolCommand } = await import('../../src/cli/tool-command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: [
+        'ghCloneRepo',
+        '{"owner":"bgauryy","repo":"octocode","path":"docs","depth":1}',
+      ],
+      options: {},
+    });
+
+    expect(publicMocks.noop).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Unknown field(s): path, depth');
+    expect(output).toContain('tools ghCloneRepo --scheme');
+    expect(process.exitCode).toBe(2);
+  });
+
   it('tool execution throwing should show error and return false', async () => {
     const err = new Error('Ripgrep launcher failed.');
     publicMocks.localSearchCode.mockRejectedValueOnce(err);

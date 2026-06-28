@@ -20,7 +20,7 @@ npx octocode skill --add https://github.com/bgauryy/octocode-mcp/tree/main/skill
 ## Command Shape
 
 ```bash
-octocode skill --add <github-folder> --platform common|cursor|claude|codex|all [--branch <ref>] [--mode copy|symlink] [--force] [--json]
+npx octocode skill --add <github-folder> --platform common|cursor|claude|codex|all [--branch <ref>] [--mode copy|symlink] [--force] [--json]
 ```
 
 | Option | Required | Use |
@@ -37,10 +37,10 @@ octocode skill --add <github-folder> --platform common|cursor|claude|codex|all [
 Accepted forms:
 
 ```bash
-octocode skill --add owner/repo/skills/my-skill --platform common
-octocode skill --add owner/repo@main/skills/my-skill --platform cursor
-octocode skill --add https://github.com/owner/repo/tree/main/skills/my-skill --platform claude
-octocode skill --add https://github.com/owner/repo/blob/main/skills/my-skill/SKILL.md --platform codex
+npx octocode skill --add owner/repo/skills/my-skill --platform common
+npx octocode skill --add owner/repo@main/skills/my-skill --platform cursor
+npx octocode skill --add https://github.com/owner/repo/tree/main/skills/my-skill --platform claude
+npx octocode skill --add https://github.com/owner/repo/blob/main/skills/my-skill/SKILL.md --platform codex
 ```
 
 If the URL points at `SKILL.md`, Octocode installs the containing folder. Before installing, it fetches and validates that `SKILL.md` exists.

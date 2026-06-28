@@ -521,7 +521,8 @@ Examples:
 ```bash
 octocode skill --add bgauryy/octocode-mcp/skills/octocode-engineer --platform common
 octocode skill --add bgauryy/octocode-mcp@main/skills/octocode-engineer --platform cursor,codex --mode copy --json
-octocode skill --add https://github.com/bgauryy/octocode-mcp/tree/main/skills/octocode-engineer --platform all --mode symlink --force
+octocode skill --add https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer --platform all --mode symlink --force
+for skill in octocode octocode-awareness octocode-brainstorming octocode-engineer octocode-loop octocode-research octocode-rfc-generator octocode-roast octocode-skills octocode-stats; do octocode skill --add "https://github.com/bgauryy/octocode/tree/main/skills/$skill" --platform all --mode copy --force; done
 ```
 
 Agent-safe failure behavior:
@@ -532,7 +533,7 @@ Agent-safe failure behavior:
 | GitHub folder does not contain `SKILL.md` or cannot be fetched | `3` |
 | One or more destination installs fail | `1` |
 
-JSON output includes the skill name, source URL, cache path, selected platforms, concrete targets, mode, and installed/skipped/failed counts. Full DX guide: [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md).
+JSON output includes the skill name, source URL, cache path, selected platforms, concrete targets, mode, and installed/skipped/failed counts. The shell loop above installs every current Octocode skill folder from `https://github.com/bgauryy/octocode/tree/main/skills`. Full DX guide: [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md).
 
 ### install
 

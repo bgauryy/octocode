@@ -1,5 +1,6 @@
 import { c, bold, dim } from '../../utils/colors.js';
-import { loadInquirer, select, Separator, input } from '../../utils/prompts.js';
+import { loadInquirer, select, input } from '../../utils/prompts.js';
+import { separatorChoice } from '../../utils/prompt-separator.js';
 import {
   dirExists,
   listSubdirectories,
@@ -177,11 +178,11 @@ async function showSkillsMenu(
     description: 'Community skills • installs on your behalf',
   });
   choices.push(
-    new Separator() as unknown as {
+    separatorChoice<{
       name: string;
       value: SkillsMenuChoice;
       description?: string;
-    }
+    }>()
   );
   choices.push({
     name: `${c('dim', '- Back to main menu')}`,
@@ -247,9 +248,7 @@ async function selectInstalledSkill(
     });
   }
 
-  choices.push(
-    new Separator() as unknown as { name: string; value: ManageSkillsChoice }
-  );
+  choices.push(separatorChoice<{ name: string; value: ManageSkillsChoice }>());
   choices.push({
     name: `${c('dim', '- Back to skills menu')}`,
     value: 'back',
@@ -296,7 +295,7 @@ async function showSkillActions(
       name: `- Open skill location`,
       value: 'view',
     },
-    new Separator() as unknown as { name: string; value: SkillActionChoice },
+    separatorChoice<{ name: string; value: SkillActionChoice }>(),
     {
       name: `${c('dim', '- Back')}`,
       value: 'back',
@@ -346,7 +345,7 @@ async function removeSkill(skill: InstalledSkill): Promise<boolean> {
       name: `${c('red', 'Delete')} Yes, remove this skill`,
       value: true,
     },
-    new Separator() as unknown as { name: string; value: boolean },
+    separatorChoice<{ name: string; value: boolean }>(),
     {
       name: `${c('dim', '- Cancel')}`,
       value: false,

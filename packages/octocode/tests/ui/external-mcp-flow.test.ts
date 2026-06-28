@@ -17,7 +17,7 @@ vi.mock('../../src/utils/mcp-paths.js', () => ({
 }));
 
 import { readMCPConfig, writeMCPConfig } from '../../src/utils/mcp-io.js';
-import type { MCPRegistryEntry } from '../../src/configs/mcp-registry.js';
+import type { MCPRegistryEntry } from '../../src/utils/mcp-config.js';
 
 function createMockMCP(
   overrides: Partial<MCPRegistryEntry> = {}
@@ -175,94 +175,6 @@ describe('External MCP Flow - Argument Validation', () => {
       dangerousArgs.forEach(arg => {
         expect(dangerousPattern.test(arg)).toBe(true);
       });
-    });
-  });
-
-  describe('MCP Registry Entries Validation', () => {
-    it('should validate all registry entries have safe args (excluding placeholders)', async () => {
-      const { MCP_REGISTRY } =
-        await import('../../src/configs/mcp-registry.js');
-
-      const safeFlagPattern = /^--?[a-zA-Z][a-zA-Z0-9-]*(=\S+)?$/;
-      const containsPlaceholderPattern = /\$\{[A-Z_][A-Z0-9_]*\}/;
-      const dangerousPatterns = [
-        /[;&|`$]/,
-        /[(){}[\]]/,
-        /[<>]/,
-        /[!^]/,
-        /\\(?!["'\\])/,
-        /[\n\r\x00]/,
-        /'.*'/,
-        /".*\$.*"/,
-      ];
-
-      for (const mcp of MCP_REGISTRY) {
-        for (const arg of mcp.installConfig.args) {
-          if (safeFlagPattern.test(arg)) {
-            continue;
-          }
-
-          if (containsPlaceholderPattern.test(arg)) {
-            continue;
-          }
-
-          for (const pattern of dangerousPatterns) {
-            const isMatch = pattern.test(arg);
-            if (isMatch) {
-              expect(
-                isMatch,
-                `MCP "${mcp.id}" has potentially unsafe arg "${arg}" matching pattern ${pattern}`
-              ).toBe(false);
-            }
-          }
-        }
-      }
-    });
-
-    it('should have allowed commands in all registry entries', async () => {
-      const { MCP_REGISTRY } =
-        await import('../../src/configs/mcp-registry.js');
-
-      const allowedCommands = [
-        'npx',
-        'node',
-        'python',
-        'python3',
-        'uvx',
-        'uv',
-        'docker',
-        'deno',
-        'bun',
-        'bunx',
-        'pnpm',
-        'yarn',
-        'npm',
-        'pip',
-      ];
-
-      const mcpsWithNonAllowedCommands: string[] = [];
-
-      for (const mcp of MCP_REGISTRY) {
-        const command = mcp.installConfig.command;
-        const baseCommand = command.split(/[/\\]/).pop()?.split(/\s+/)[0] || '';
-
-        if (!allowedCommands.includes(baseCommand)) {
-          mcpsWithNonAllowedCommands.push(`${mcp.id}: ${baseCommand}`);
-        }
-      }
-
-      if (mcpsWithNonAllowedCommands.length > 0) {
-        console.log(
-          'MCPs with non-standard commands (may be source installs):',
-          mcpsWithNonAllowedCommands
-        );
-      }
-
-      const totalMcps = MCP_REGISTRY.length;
-      const nonStandardCount = mcpsWithNonAllowedCommands.length;
-      const standardCount = totalMcps - nonStandardCount;
-
-      expect(standardCount / totalMcps).toBeGreaterThan(0.9);
     });
   });
 

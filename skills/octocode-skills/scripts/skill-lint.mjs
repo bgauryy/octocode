@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // skill-lint — lint Agent Skill folders against the octocode-skills standard.
 // Usage:  node skill-lint.mjs [skill-dir ...] [--json]
-//         no args  -> lint every SKILL.md folder under the repo's skills/ root
+//         no args  -> lint every SKILL.md folder under the nearest parent skills/ root
 // Exit:   0 = no errors, 1 = at least one ERROR finding (warnings never fail).
 // Rules documented in ../references/skill-lint.md.
 
@@ -15,6 +15,7 @@ const DESC_LEAD_BLOAT = /\b(this skill|the skill|the following|in order to|assis
 const GENERIC = new Set(['reference', 'doc', 'docs', 'notes', 'misc', 'stuff', 'temp', 'tmp', 'readme', 'index', 'file', 'data']);
 // references.md is the canonical research-audit-trail filename a created skill must carry — not a generic content ref.
 const NAME_EXEMPT = new Set(['references.md', 'references-template.md']);
+const REFERENCE_MENTION_EXEMPT = new Set(['references/references.md', 'references/references-template.md']);
 const COND = /\b(when|whenever|if|before|after|during|while|for )\b/i;
 // Agents read only name+description at discovery; allowed-tools/license affect install; hooks are
 // functional (the harness installs them). Anything else in frontmatter is authoring/repo metadata
@@ -26,7 +27,7 @@ const META_HEADING = /^#{1,6}\s+(change\s?log|version\s?history|versions?|histor
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
 if (args.includes('--help') || args.includes('-h')) {
-  console.log('skill-lint [skill-dir ...] [--json]\n  Lints SKILL.md folders. No dirs => scans the repo skills/ root.\n  ERROR fails (exit 1); WARN is advisory. Rules: references/skill-lint.md');
+  console.log('skill-lint [skill-dir ...] [--json]\n  Lints SKILL.md folders. No dirs => scans the nearest parent skills/ root.\n  ERROR fails (exit 1); WARN is advisory. Rules: references/skill-lint.md');
   process.exit(0);
 }
 
@@ -101,6 +102,21 @@ function stripStructuralLines(str) {
     .join('\n');
 }
 
+function stripFencedLines(str) {
+  let inFence = false;
+  return str
+    .split('\n')
+    .map((ln) => {
+      if (/^\s*```/.test(ln)) { inFence = !inFence; return ''; }
+      return inFence ? '' : ln;
+    })
+    .join('\n');
+}
+
+function referenceMentions(content) {
+  return [...stripFencedLines(content).matchAll(/references\/([A-Za-z0-9._-]+\.md)/g)].map((m) => m[1]);
+}
+
 function lintSkill(skillDir) {
   const findings = [];
   const add = (sev, rule, msg) => findings.push({ sev, rule, msg });
@@ -151,7 +167,7 @@ function lintSkill(skillDir) {
     add('WARN', 'skill-too-long', `SKILL.md is ${lines.length} lines > ${LIMITS.skillMd}; move conditional detail into references/`);
 
   // W: must use references
-  const refLinks = [...text.matchAll(/references\/([A-Za-z0-9._-]+\.md)/g)].map((m) => m[1]);
+  const refLinks = referenceMentions(text);
   if (refLinks.length === 0)
     add('WARN', 'no-references', 'SKILL.md links no references/*.md; lean skills push conditional detail into references');
 
@@ -186,21 +202,25 @@ function lintSkill(skillDir) {
       add('WARN', 'reference-name', `${label} is a generic name; use an indicative one`);
   }
 
-  // E: linked references that do not exist
-  for (const r of new Set(refLinks))
-    if (!existsSync(join(refsDir, r)))
-      add('ERROR', 'missing-reference', `SKILL.md links references/${r} but the file is missing`);
-
   // --- All-files collection for cross-file checks ---
   const allMdFiles = [
     { label: 'SKILL.md', content: text },
     ...refContents.map((r) => ({ label: r.label, content: r.content })),
   ];
 
+  // E: linked or mentioned references that do not exist. Ignore fenced examples.
+  for (const { label, content } of allMdFiles) {
+    if (REFERENCE_MENTION_EXEMPT.has(label)) continue;
+    for (const r of new Set(referenceMentions(content))) {
+      if (!existsSync(join(refsDir, r)))
+        add('ERROR', 'missing-reference', `${label} mentions references/${r} but the file is missing`);
+    }
+  }
+
   // E: links that escape the skill folder (must use GitHub URLs instead)
   const mdLinkRe = /\[([^\]]*)\]\(([^)]+)\)/g;
   for (const { label, content } of allMdFiles) {
-    content.split('\n').forEach((ln, i) => {
+    stripFencedLines(content).split('\n').forEach((ln, i) => {
       for (const m of ln.matchAll(mdLinkRe)) {
         const href = m[2].split(/[#?]/)[0].trim();
         if (href.startsWith('../') || /^[/~]/.test(href) || href.startsWith('file://'))
@@ -232,7 +252,7 @@ function lintSkill(skillDir) {
       add('WARN', 'rigid', `${label}: ${rigidHits.length} rigid modals (MUST/NEVER/ALWAYS/FORBIDDEN) in ${bodyLines.length} lines — prefer defaults with escape hatches; reserve these for fragile/destructive steps`);
 
     // W-verbose: filler phrases
-    const FILLER = /\b(in order to|it is important|make sure to|please note|note that|as mentioned|be sure to|ensure that you|take care to)\b/gi;
+    const FILLER = /\b(in order to|it is important|make sure to|please note|note that|as mentioned|be sure to|ensure that you|take care to)\b/i;
     let fillerCount = 0;
     content.split('\n').forEach((ln, i) => {
       if (FILLER.test(ln) && ++fillerCount <= 3)
