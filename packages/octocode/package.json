@@ -61,7 +61,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
-    "@octocodeai/octocode-core": "^16.6.0",
+    "@octocodeai/octocode-core": "^16.6.1",
     "@octocodeai/octocode-engine": "^16.6.0",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",

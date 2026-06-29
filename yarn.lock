@@ -1579,7 +1579,7 @@ __metadata:
   resolution: "@octocodeai/mcp@workspace:packages/octocode-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-core": "npm:^16.6.0"
+    "@octocodeai/octocode-core": "npm:^16.6.1"
     "@octocodeai/octocode-engine": "npm:^16.6.1"
     "@octocodeai/octocode-tools-core": "npm:^16.6.1"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -1609,12 +1609,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^16.6.0":
-  version: 16.6.0
-  resolution: "@octocodeai/octocode-core@npm:16.6.0"
+"@octocodeai/octocode-core@npm:^16.6.1":
+  version: 16.6.1
+  resolution: "@octocodeai/octocode-core@npm:16.6.1"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/4a6889f649cfbffbcba2dbf43376ad9dec78db1cf9b4a97c48aaa804f416b4f32ab1933b7b14ac1a2ed196fa60db6437a716a3c0dce4342b64452e04c467b808
+  checksum: 10c0/9d47d7bab9336b3568ab41f0d76d559c93dc651bf0160d1488efc9f81b899d3a7b1fcbb35774a403ca92412ed4dc50b9b4cb81e7684e79cbd4fa8f72d91b6239
   languageName: node
   linkType: hard
 
@@ -1698,7 +1698,7 @@ __metadata:
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
-    "@octocodeai/octocode-core": "npm:^16.6.0"
+    "@octocodeai/octocode-core": "npm:^16.6.1"
     "@octocodeai/octocode-engine": "npm:^16.6.2"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -6409,7 +6409,7 @@ __metadata:
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
-    "@octocodeai/octocode-core": "npm:^16.6.0"
+    "@octocodeai/octocode-core": "npm:^16.6.1"
     "@octocodeai/octocode-engine": "npm:^16.6.0"
     "@octocodeai/octocode-tools-core": "npm:^16.6.1"
     "@octokit/auth-oauth-device": "npm:^8.0.3"
