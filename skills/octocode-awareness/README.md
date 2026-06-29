@@ -1,110 +1,112 @@
 # Octocode Awareness
 
-`octocode-awareness` gives agents situational awareness in a real local repo. It stores local memory, file claims, handoffs, peer messages, and verification records in SQLite so separate runs can coordinate instead of starting cold or colliding silently.
+`octocode-awareness` gives coding agents situational awareness in a real local repo. It stores memories, file claims, handoffs, peer messages, and verification records in a local SQLite database so separate runs can coordinate instead of starting cold or colliding silently.
 
-The core loop is simple: attend to current state, focus the working set, claim files before editing, verify before saying done, then consolidate and clean up.
+Use it alongside engineering work whenever the repo state matters.
+
+## When to use
+
+- A task will create, edit, or delete files in a dirty or shared workspace.
+- Multiple agents or sessions may touch overlapping files.
+- Work should leave a handoff for the next run.
+- A lesson, failure, decision, or gotcha should be remembered.
+- The user asks what other agents are doing, what is pending, or what remains unverified.
+- You need a local viewer for awareness data.
+
+Do not use this as a search or test runner. It coordinates work, records lessons, and makes verification visible.
+
+## Features
+
+- Global reusable memories for lessons, workflows, gotchas, decisions, and recurring failures.
+- Workspace, repo, and branch-scoped refinements for handoffs and unfinished work.
+- File locks with owner, rationale, test plan, acquisition time, and expiry.
+- Agent-to-agent notifications for claims, questions, blockers, decisions, replies, and handoffs.
+- Verification records that connect an edit intent to the test or review that actually ran.
+- Reflection and weakness-mining commands for turning failures into reusable lessons.
+- Optional semantic memory recall with local embeddings.
+- Curated Markdown corpus notes under `~/.octocode/awareness/corpus/**/*.md`.
+- HTML viewer for memories, locks, intents, notifications, and refinements.
+- Hook helpers for automatic pre-edit claims, post-edit release, notification delivery, session capture, and unverified-work checks.
 
 ## How it works
 
-The skill starts by recalling relevant memories, refinements, active locks, and unread peer messages for the current workspace. Before edits it records a pre-flight intent for the target files, then after the work it records verification, releases locks, and saves reusable lessons or handoffs when the next agent would benefit.
-
-For harder calls, `reflect --judgment-note ... --duo` keeps the nuance visible and emits two advisory reflection-agent prompts: one checks whether the outcome is really verified, and one asks whether the task revealed a reusable harness or skill improvement. When another skill emits structured eval failures, pass them through `--eval-failure-json` so failed ids and signatures stay mineable without becoming a rigid pass/fail checklist.
-
-## Thinking flow
+The skill uses one shared local store:
 
 ```text
-attend -> focus -> claim -> work -> verify -> encode -> sleep
+~/.octocode/memory/awareness.sqlite3
 ```
 
-- **Attend:** read memories, handoffs, active locks, and messages.
-- **Focus:** keep the current prompt, files, and test plan in working memory.
-- **Claim/work:** lock intended files, then make the change.
-- **Verify:** run the declared check and record the result.
-- **Encode:** choose the right layer: refinement, memory, or corpus note.
-- **Sleep:** audit idle state, reflect, mark handoffs done, supersede stale memories, prune resolved messages, and release locks.
+Records are scoped by workspace, repo, branch/ref, file path, state, and agent id rather than by separate per-repo databases. The main CLI is `scripts/awareness.py`; helper scripts validate schemas, install hooks, render the viewer, prune stale locks, and smoke-test multi-agent behavior.
 
-Sleep is not a timer. The agent sleeps when work is ending, a session is ending, or the user asks for cleanup. It is considered idle only after an audit shows no live locks or active intents for that agent, no missing verification for its work, and no unresolved blocker messages it must answer.
+The normal loop is:
 
-## Brain-like layers
+```text
+ATTEND -> FOCUS -> CLAIM -> WORK -> VERIFY -> ENCODE -> SLEEP
+```
 
-Awareness uses a brain-inspired operating model without adding a new storage layer:
+- Attend: read status, relevant memories, refinements, and unread notifications.
+- Focus: identify target files, rationale, and test plan.
+- Claim: create a pre-flight intent and file locks before editing.
+- Work: make the scoped change.
+- Verify: run the declared check and record the verification event.
+- Encode: save reusable lessons as memories and repo-specific work state as refinements.
+- Sleep: release locks, resolve or prune stale state, reflect, and leave the next run clean.
 
-- **Attention:** `status`, active locks, and unread messages show what is live now.
-- **Working memory:** the current prompt, file reads, and claimed files stay focused on the task.
-- **Episodic memory:** refinements preserve what happened in this repo or branch.
-- **Semantic memory:** reusable lessons become global memories with salience, recall, and supersession.
-- **Long-term docs:** the corpus turns repeated high-value lessons into browsable Markdown.
-- **Sleep:** verification, reflection, stale-memory cleanup, message pruning, corpus updates, and lock release turn messy work traces into durable knowledge.
+## Internal flow
 
 ```mermaid
 flowchart TD
-  Prompt["Current prompt + repo state"] --> Attention["Attention<br/>status, locks, messages"]
-  Attention --> Working["Working memory<br/>focused files + test plan"]
-  Working --> Motor["Motor control<br/>pre-flight intent + file lock"]
-  Motor --> Verify["Reward / error signal<br/>run checks + verify"]
-  Verify --> Encode{"Encode useful trace?"}
-
-  Encode -->|repo state| Episodic["Episodic memory<br/>refinements"]
-  Encode -->|reusable lesson| Semantic["Semantic memory<br/>memories + salience"]
-  Encode -->|stable knowledge| Corpus["Long-term docs<br/>corpus notes"]
-
-  Verify --> Sleep["Sleep cleanup<br/>audit, reflect, prune, release"]
-  Sleep --> Episodic
-  Sleep --> Semantic
-  Sleep --> Corpus
-
-  Episodic --> Recall["Future recall<br/>refine-get + get-memory"]
-  Semantic --> Recall
-  Corpus --> Recall
-  Recall --> Attention
+  Prompt["Prompt + workspace state"] --> Attend["Attend: status, memory, refinements, notifications"]
+  Attend --> Claim["Claim files: pre-flight intent + lock"]
+  Claim --> Work["Do scoped work"]
+  Work --> Verify["Run test plan + record verification"]
+  Verify --> Encode{"Keep the trace?"}
+  Encode -->|general lesson| Memory["Memory: reusable knowledge"]
+  Encode -->|repo handoff| Refinement["Refinement: workspace state"]
+  Encode -->|live coordination| Notify["Notification: peer message"]
+  Verify --> Release["Release lock or leave pending verification"]
+  Memory --> Recall["Future recall"]
+  Refinement --> Recall
+  Notify --> Recall
 ```
 
-The detailed checklist lives in `references/brain-model.md`.
-
-## Good asks
-
-- "Use awareness before changing this repo."
-- "Check whether another agent is working on these files."
-- "Remember the lesson from this failed test for next time."
-- "Leave a handoff for the next agent on this branch."
-- "Show me the awareness data."
+Lifecycle hooks can automate parts of this flow in hosts that support them. Without hooks, the same operations are available through explicit `awareness.py` commands.
 
 ## Installation
 
-Install the skill with the Octocode skill installer:
+Install the published skill:
 
 ```bash
 npx octocode skill --name octocode-awareness
 ```
 
-After installing, run readiness checks from the installed source with `node ~/.octocode/skills/octocode-awareness/scripts/install.mjs --check-only`. For always-on Claude file-lock hooks, inspect first with `node ~/.octocode/skills/octocode-awareness/scripts/install-hooks.mjs --check --global` and install only after reviewing `--dry-run`.
+Install from a GitHub path or fork:
 
-## Features
+```bash
+npx octocode skill --add bgauryy/octocode/skills/octocode-awareness
+```
 
-- Reusable memories for lessons, gotchas, workflows, and decisions.
-- Repo and branch-specific handoffs for unfinished work.
-- File locks that say who claimed a file, why, and when the claim expires.
-- Agent-to-agent messages for blockers, questions, decisions, and handoffs.
-- Verification records tying an edit intent to the test or review plan that actually ran.
-- A curated Markdown corpus at `~/.octocode/awareness/corpus/**/*.md` for concise engineering knowledge and learning ideas.
-- A "sleep" cleanup pass that records what mattered, removes stale state, and leaves the workspace easier for the next run.
-- Audit-first cleanup: destructive actions are previewed with dry-run style checks before old memories or messages are removed.
-- A local HTML viewer when a human wants to inspect the stored state.
+After installing, run a readiness check from the installed skill folder:
 
-## Where it fits
+```bash
+node ~/.octocode/skills/octocode-awareness/scripts/install.mjs --check-only
+```
 
-Use Awareness alongside editing or investigation skills when the repo is dirty, the task is long-running, multiple agents may touch the same files, or the user wants durable lessons. It is not a code-search skill and it does not replace tests; it makes coordination and verification visible.
+Always-on Claude file-lock hooks are optional. Inspect first and preview writes before installing:
 
-## Hook-aware behavior
+```bash
+node ~/.octocode/skills/octocode-awareness/scripts/install-hooks.mjs --check --global
+node ~/.octocode/skills/octocode-awareness/scripts/install-hooks.mjs --dry-run --global
+```
 
-In hosts that support lifecycle hooks, Awareness can automatically claim files before edits, release locks afterward, surface unread messages, capture session handoffs, and flag unverified "done" claims. Without hooks, agents can run the same commands manually through `scripts/awareness.py`; the data model stays the same.
+## Benefits
 
-For the full composition map across manual skill behavior, automatic hooks, subagent handoffs, reflection, harness learning, and sleep cleanup, see `references/agentic-flows.md`.
+- Fewer hidden file collisions in shared or long-running work.
+- Less rediscovery across agent runs.
+- Clearer handoffs when a task pauses or moves between agents.
+- Success claims backed by recorded verification.
+- A durable, inspectable history of lessons and decisions without committing secrets.
 
 ## For developers
 
-Keep the agent-facing map in `SKILL.md`, the data model and coordination details in focused `references/`, and repeatable behavior in `scripts/awareness.py` or the hook helpers. When changing memory fields, lock semantics, hooks, or verification flow, update the CLI, README examples, schema helpers, viewer, and smoke tests together.
-
-## User value
-
-The user gets calmer multi-agent work: fewer hidden collisions, less repeated rediscovery, clearer handoffs, and success claims backed by recorded verification instead of good intentions.
+Keep the agent-facing map in `SKILL.md`, data-model and coordination semantics in focused `references/`, and deterministic behavior in `scripts/awareness.py` plus hook helpers. When changing memory fields, lock behavior, notification semantics, hooks, or verification flow, update schema helpers, README examples, viewer rendering, smoke tests, and relevant references together.

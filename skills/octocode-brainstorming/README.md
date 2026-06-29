@@ -1,46 +1,72 @@
 # Octocode Brainstorming
 
-`octocode-brainstorming` turns a fuzzy idea into an evidence-grounded decision brief. It is for "is this worth building?", "has anyone built this?", "what are the angles?", and "should we add this?" moments.
+`octocode-brainstorming` turns fuzzy ideas into evidence-grounded decisions. It is for "is this worth building?", "has anyone built this?", "what are the angles?", and "should we add this to our product or codebase?" moments.
 
-It does not write code or design the final system. It decides whether the idea deserves that next step.
+The skill does not write code or design the final system. It decides whether the idea deserves that next step.
 
-## How it works
+## When to use
 
-The skill reframes the idea into testable claims, then checks the local workspace when relevant, GitHub, packages, and the web for prior art and contrary evidence. It groups signals into crowded, partial, abandoned, contested, or open-space buckets, debates objections against opportunities, and ends with a decision brief plus a handoff when an RFC is warranted.
+- Validate a feature, product, library, workflow, or developer-tool idea before investing.
+- Find prior art and adjacent approaches across local code, GitHub, packages, and the web.
+- Turn an early hunch into several sharper framings.
+- Identify white space, crowded areas, abandoned attempts, and contested assumptions.
+- Decide whether the next move should be an RFC, prototype, narrower experiment, or pause.
 
-## Good asks
-
-- "Validate this idea before I build it."
-- "Has anyone already solved this?"
-- "Brainstorm product directions for this technical area."
-- "Find prior art and white space for this feature."
-- "Should this become an RFC?"
+Use `octocode-research` when the question is already technical and needs code evidence or changes. Use `octocode-rfc-generator` when the decision is made and the user needs a design plan.
 
 ## Features
 
-- A reframed problem statement so the search is not trapped by the first wording.
-- A surface plan covering local code when relevant, GitHub, packages, and the web.
-- Prior art grouped into crowded, partial, abandoned, contested, or open-space signals.
-- Evidence-backed objections and opportunity angles.
-- A verdict such as worth prototyping, narrow first, park, or do not build.
-- A handoff packet for `octocode-rfc-generator` when the idea is ready for a design plan.
+- Divergent framing before convergence, so the search is not trapped by the first wording.
+- A surface plan that states which evidence sources are active or skipped and why.
+- Local workspace checks when the idea touches the user's repo.
+- GitHub, package, and web prior-art mapping with cross-pollinated search terms.
+- A claim ledger that tracks claim, source, confidence, and next query.
+- Perspective review through critical, entrepreneurial, and product lenses.
+- A concise decision brief with confidence, risks, and next step.
+- Optional saved brief and RFC handoff once the idea is ready.
 
-## Use another skill when
+## How it works
 
-- The user already knows what to build, wants code work, or needs repeated proof loops: use `octocode-research`.
-- The question is technical research rather than idea validation: use `octocode-research`.
-- The decision is made and needs a proposal: use `octocode-rfc-generator`.
+The skill follows this flow:
 
-## User value
+```text
+FRAME -> DIVERGE -> RESEARCH -> CROSS-POLLINATE -> STRESS-TEST -> SYNTHESIZE -> DECIDE
+```
 
-This skill protects users from building the first plausible idea. It widens the frame, checks reality across multiple surfaces, then compresses the result into a brief that supports a decision.
+It first reframes the idea into testable claims. Then it searches the most relevant surfaces, using names and clues from one surface to query the next. Signals are grouped into practical buckets such as crowded, partial, abandoned, contested, and open space. The final answer states what survived review and recommends one decision.
 
-## For developers
+## Internal flow
 
-`SKILL.md` should stay as the concise router: modes, gates, reference map, scripts, and output contract. Keep the detailed tool commands in `references/tools.md`, presentation rules in `references/output.md`, and saved-report shape in `references/brief-template.md`. The `scripts/brainstorm-run.mjs` ledger is for deterministic run bookkeeping; web scripts are optional adapters and should not replace source verification.
+1. Frame the user's idea and list alternative framings.
+2. Declare a surface plan: local, GitHub, packages, and web.
+3. Gather evidence and mark weak claims instead of overstating search snippets.
+4. Cross-pollinate clues between surfaces.
+5. Run objection and opportunity review.
+6. Deliver a brief with verdict, confidence, risks, and next action.
+
+The `scripts/brainstorm-run.mjs` helper can record run state, claims, sources, and decisions. Optional Serper and Tavily adapters normalize web results when credentials are configured.
 
 ## Installation
+
+Install the published skill:
 
 ```bash
 npx octocode skill --name octocode-brainstorming
 ```
+
+Install from a GitHub path or fork:
+
+```bash
+npx octocode skill --add bgauryy/octocode/skills/octocode-brainstorming
+```
+
+## Benefits
+
+- Avoids building the first plausible idea.
+- Makes assumptions visible before they become roadmap or architecture debt.
+- Combines creative ideation with evidence and structured pushback.
+- Produces a decision that is easy to hand to research, RFC, or implementation work.
+
+## For developers
+
+Keep `SKILL.md` as the concise router for flow, gates, references, scripts, and output. Put search mechanics in `references/tools.md`, presentation rules in `references/output.md`, debate behavior in `references/debate.md`, and saved-report structure in `references/brief-template.md`. Run `scripts/eval-brainstorm.mjs` after changing prompts, references, or output shape.

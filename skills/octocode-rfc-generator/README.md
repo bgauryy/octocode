@@ -4,44 +4,65 @@
 
 Use it when the cost of being wrong is higher than the cost of writing the decision down.
 
-## How it works
+## When to use
 
-The skill gathers current-state evidence first, then turns the decision into alternatives with explicit tradeoffs. It recommends one path, documents risks and rollback options, orders implementation steps by dependency, and leaves open questions visible instead of hiding weak assumptions inside the plan.
+- A change touches shared contracts, multiple packages, infrastructure, security, data migration, or public behavior.
+- The user wants alternatives compared before implementation.
+- A refactor or migration needs rollout, rollback, and risk notes.
+- Research already exists and needs to become a durable proposal.
+- The team needs an implementation plan another engineer can follow.
 
-## Good asks
-
-- "Turn this investigation into an RFC."
-- "Compare these implementation approaches."
-- "Write a migration plan with rollback notes."
-- "Validate this proposal against the current codebase."
-- "Create an implementation plan before we touch shared contracts."
+Use `octocode-brainstorming` if the idea still needs validation. Use `octocode-research` if the user wants investigation, review, or code changes now. Use `octocode-roast` for critique rather than planning.
 
 ## Features
 
-- A concise decision summary.
-- Current-state evidence with file:line or external citations.
-- At least two alternatives unless the user asks for a single path.
-- A recommendation tied to the evidence.
-- Risks, tradeoffs, migration notes, rollback options, and open questions.
-- Implementation steps ordered by dependency.
+- Current-state evidence with local `file:line`, GitHub path, PR, commit, package, or formal-source citations.
+- At least two alternatives unless the user explicitly asks for a single implementation plan.
+- Recommendation tied to evidence, constraints, and tradeoffs.
+- Risks, non-goals, unresolved questions, migration notes, and rollback options.
+- Implementation steps ordered by dependency rather than preference.
+- Optional saved RFC path under `.octocode/rfc/RFC-{meaningful-name}.md` when the user approves saving.
 
-## Use another skill when
+## How it works
 
-- The idea still needs validation: use `octocode-brainstorming`.
-- The user wants the code changed now: use `octocode-research` Change mode.
-- The request is a quick research answer, not a document: use `octocode-research`.
-- The user wants critique rather than a plan: use `octocode-roast`.
+The skill follows this flow:
 
-## User value
+```text
+UNDERSTAND -> RESEARCH -> COMPARE OPTIONS -> WRITE RFC / PLAN -> VALIDATE -> DELIVER
+```
 
-This skill converts research into a reviewable technical decision. It keeps facts cited, alternatives visible, and the rollout practical enough that another engineer can act on it.
+It starts by clarifying the decision and evidence surfaces. It gathers current-state proof, compares viable approaches, writes the chosen document shape, checks that assumptions and citations are visible, then delivers the RFC or implementation plan in chat or saves it with approval.
 
-## For developers
+## Internal flow
 
-Keep `SKILL.md` as the short router for workflow, research playbook, RFC body, and implementation sections. Put detailed decision mechanics in `references/workflow.md`, evidence collection in `references/research-playbook.md`, and document structure in `references/rfc-template.md` plus `references/rfc-implementation.md`.
+1. Decide whether full RFC mode or a lighter implementation plan is appropriate.
+2. Research current behavior, prior art, history, package details, or binary/artifact facts.
+3. Build an option table with benefits, costs, risks, and rejection reasons.
+4. Write the document using the RFC body and implementation sections.
+5. Validate citations, unresolved questions, rollout order, and rollback notes.
+6. Report the result and any remaining evidence gaps.
 
 ## Installation
+
+Install the published skill:
 
 ```bash
 npx octocode skill --name octocode-rfc-generator
 ```
+
+Install from a GitHub path or fork:
+
+```bash
+npx octocode skill --add bgauryy/octocode/skills/octocode-rfc-generator
+```
+
+## Benefits
+
+- Turns scattered research into a reviewable technical decision.
+- Keeps alternatives and tradeoffs visible instead of burying them in implementation.
+- Gives implementers a dependency-ordered plan with risks and rollback notes.
+- Reduces churn on high-cost changes by making weak assumptions explicit early.
+
+## For developers
+
+Keep `SKILL.md` as the short router for workflow, research playbook, RFC body, and implementation sections. Put detailed decision mechanics in `references/workflow.md`, evidence collection in `references/research-playbook.md`, and document structure in `references/rfc-template.md` plus `references/rfc-implementation.md`. Run `scripts/eval-rfc.mjs --self-test` after prompt or reference changes.

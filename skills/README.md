@@ -1,59 +1,78 @@
 # Octocode Skills
 
-This directory contains 8 user-installable Agent Skills for Octocode workflows. `octocode-research` is the main skill for technical research, code work, review, refactor, architecture analysis, and evidence loops. A README is for humans: it explains why a skill exists, what features it provides, how it works for users and developers, and how to install it. A `SKILL.md` is for agents: it holds activation rules and execution steps.
+This directory contains the user-installable Agent Skills that turn Octocode from a tool catalog into task-specific workflows. Each skill is a self-contained folder with `SKILL.md` for agents, optional `references/`, `scripts/`, `assets/`, and this human-facing README pattern.
 
-Use this page as the chooser. Open an individual README when you want to understand what that skill does for you before installing or invoking it.
+Use this page as the chooser. Open an individual skill README when you want the full user guide, install command, workflow, internals, and maintainer notes for that skill.
 
-## Choose by user need
+## Skills at a glance
 
-| You want the agent to... | Use | What it does for you |
+| Skill | Use when | Main result |
 |---|---|---|
-| Use Octocode for a quick lookup | `octocode` | Routes the agent to Octocode MCP or CLI for focused search, reads, symbols, repos, packages, PRs, and artifacts. |
-| Coordinate work across runs or agents | `octocode-awareness` | Adds memory, file locks, handoffs, peer messages, and verify-before-done discipline. |
-| Explore whether an idea is worth pursuing | `octocode-brainstorming` | Turns a fuzzy idea into a decision brief using prior art, market/code evidence, and structured pushback. |
-| Investigate, review, refactor, or implement code | `octocode-research` | Gives the agent architecture-aware code research and change workflow with exact evidence. |
-| Iterate on a clear research question | `octocode-research` | Keeps the agent in Act -> Observe -> Learn loops until evidence converges or a budget stops it. |
-| Run broad technical research or planning | `octocode-research` | Maps, validates, investigates, reviews, changes, or plans from local code, GitHub, npm, history, artifacts, and formal sources. |
-| Write an RFC or implementation plan | `octocode-rfc-generator` | Converts evidence and alternatives into a reviewable technical decision document. |
-| Get blunt code-quality critique | `octocode-roast` | Finds real code smells with humor, severity, citations, and repair paths. |
-| Work on Agent Skills themselves | `octocode-skills` | Finds, evaluates, installs, creates, lints, and improves `SKILL.md` folders. |
-| See Octocode usage savings | `octocode-stats` | Builds a local dashboard from Octocode MCP stats. |
+| `octocode` | You need a quick Octocode-powered code, repo, package, PR, symbol, or artifact lookup. | A focused answer with paths, refs, and proof anchors. |
+| `octocode-awareness` | Work happens in a dirty repo, across runs, or with multiple agents. | Memory, file locks, handoffs, peer messages, and verification records. |
+| `octocode-brainstorming` | An idea needs validation, prior art, white-space mapping, or structured challenge. | A decision brief: build, prototype, narrow, park, or reject. |
+| `octocode-research` | Technical work needs evidence-first research, code review, implementation, refactor, or loops. | Proof-backed findings, plans, patches, or reviews with verification. |
+| `octocode-rfc-generator` | A risky or cross-cutting change needs a written RFC, design doc, migration, or implementation plan. | A reviewable proposal with evidence, alternatives, risks, and steps. |
+| `octocode-roast` | The user explicitly wants blunt, entertaining code-quality critique. | Severity-ranked findings with humor, citations, and repair paths. |
+| `octocode-skills` | The task is about Agent Skills, `SKILL.md`, installation, quality, or publishing. | Skill discovery, review, linting, creation, install, or refactor guidance. |
+| `octocode-stats` | The user wants Octocode usage, savings, cache, error, or rate-limit stats. | A local HTML dashboard plus key numbers. |
 
-## Smart routing
+## When to use which skill
 
-- Fuzzy idea or product hunch: start with `octocode-brainstorming`.
-- Clear technical question, repeated evidence loop, code change, review, refactor, bug hunt, or architecture investigation: use `octocode-research`.
-- Decision needs a written proposal before coding: use `octocode-rfc-generator`.
-- Quick one-off lookup: use `npx octocode`.
-- Shared dirty repo, long task, handoff, or concurrent agents: add `octocode-awareness`.
-- Skill authoring or skill cleanup: use `octocode-skills`.
+- Start with `octocode` for quick, bounded lookups.
+- Use `octocode-research` for normal engineering work: investigate, review, change, refactor, plan, or iterate until proof.
+- Use `octocode-brainstorming` when the idea itself is still fuzzy or market/product-shaped.
+- Use `octocode-rfc-generator` after enough evidence exists and the output should be a document.
+- Add `octocode-awareness` whenever work is stateful, long-running, concurrent, or worth remembering.
+- Use `octocode-skills` for this directory, third-party skills, install targets, linting, trigger tuning, and README quality.
+- Use `octocode-stats` only for stats dashboards and telemetry interpretation.
 
-## Documentation standard
+## Installation
 
-Every skill folder has a README with:
-
-- High-level purpose and when to ask for the skill.
-- User-visible features and expected result shape.
-- How the skill works, including references, scripts, or hooks when they matter.
-- Developer notes for keeping `SKILL.md`, `references/`, and `scripts/` aligned.
-- Installation via `npx octocode skill --name <skill>`.
-
-## Install
-
-List available skills:
+List skills:
 
 ```bash
 npx octocode skill --list
 ```
 
-Install one skill:
+Install a published skill:
 
 ```bash
 npx octocode skill --name octocode-research
 ```
 
-Agent Skills are separate from MCP or IDE setup; use `npx octocode install --ide <client>` for that.
+Install from a GitHub path or fork:
 
-## What good skill output looks like
+```bash
+npx octocode skill --add bgauryy/octocode/skills/octocode-research
+```
 
-The exact artifact changes by skill, but the standard is the same: a concise user-facing answer, evidence behind important claims, honest confidence, and a next step that fits the task. Raw tool output stays behind the curtain unless it is needed for proof.
+Agent Skills are separate from MCP or IDE setup. Use `npx octocode install --ide <client>` when you want to configure the Octocode MCP server for an editor or agent host.
+
+## How the skills work internally
+
+All skills follow progressive disclosure:
+
+1. The agent sees only skill names and descriptions during discovery.
+2. When a user task matches a description, the agent reads that skill's `SKILL.md`.
+3. `SKILL.md` routes conditional detail into focused `references/` files.
+4. Deterministic or repeatable work lives in `scripts/`.
+5. The final response gives the user a concise result, evidence, confidence, and a practical next step.
+
+This split keeps activation context lean while still shipping deep workflows, examples, evals, hooks, and deterministic helpers.
+
+## README standard
+
+Every skill README should explain:
+
+- What the skill does and who should use it.
+- When to use it, and when to choose a different skill.
+- User-visible features and expected output.
+- The internal flow the agent follows.
+- Installation with `npx octocode skill ...`.
+- Benefits for users.
+- Notes for developers and maintainers.
+
+## Publishing notes
+
+The README is the user guide. `SKILL.md` is the agent contract. Keep duplicated facts minimal: put user-facing concepts here, activation-critical rules in `SKILL.md`, detailed workflows in `references/`, and mechanical checks in `scripts/`.
