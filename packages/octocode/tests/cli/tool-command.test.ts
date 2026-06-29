@@ -236,7 +236,7 @@ describe('toolCommand', () => {
     expect(output).toContain('Command Patterns');
     expect(output).toContain('"keywords":"runCLI"');
     expect(output).toContain('"pattern":"eval($X)"');
-    expect(output).toContain('prefer absolute paths');
+    expect(output).toContain('absolute path');
   });
 
   it('rejects legacy --input usage and points to the canonical contract', async () => {
@@ -625,7 +625,7 @@ describe('toolCommand', () => {
     );
     expect(parsed.commands.runCompact).toContain('--compact');
     expect(parsed.commands.runEnvelope).toContain('tools localSearchCode');
-    expect(parsed.guidance?.join('\n')).toContain('prefer absolute paths');
+    expect(parsed.guidance?.join('\n')).toContain('absolute path');
   });
 
   it('deduplicates prose in compact tool schemas', async () => {
@@ -654,6 +654,6 @@ describe('toolCommand', () => {
     expect(parsed.fields).toBeUndefined();
     expect(parsed.fullDescription).toBeUndefined();
     expect(parsed.fieldNames).toContain('path');
-    expect(parsed.guidance?.join('\n')).toContain('prefer absolute paths');
+    expect(parsed.guidance?.join('\n')).toContain('absolute path');
   });
 });

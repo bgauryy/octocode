@@ -7,6 +7,31 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const awareness = join(scriptDir, "awareness.py");
+const args = process.argv.slice(2);
+const allowed = new Set(["--help", "-h"]);
+
+function printHelp() {
+  console.log(`Usage: node scripts/smoke-multi-agent.mjs [--help]
+
+Run an end-to-end smoke test for two agents sharing the awareness store.
+The script creates a temporary workspace and database, then exercises claim,
+conflict, notify, wait, verify, release, stale-prune, and final status flows.
+
+Options:
+  --help, -h  Show this help.`);
+}
+
+const unknown = args.filter((arg) => !allowed.has(arg));
+if (args.includes("--help") || args.includes("-h")) {
+  printHelp();
+  process.exit(0);
+}
+if (unknown.length) {
+  console.error(`Unknown option(s): ${unknown.join(", ")}`);
+  printHelp();
+  process.exit(2);
+}
+
 const workspace = await mkdtemp(join(tmpdir(), "octocode-awareness-agents-"));
 const db = join(workspace, "awareness.sqlite3");
 const target = join(workspace, "shared.txt");

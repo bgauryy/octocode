@@ -218,48 +218,50 @@ The CLI writes the config file automatically. Then confirm the result:
 
 **Ask the user:**
 
-> "Would you like to install all Octocode skills? These add research, planning, code review, documentation, and more to your AI assistant."
+> "Would you like to install all Octocode skills? These add research, planning, code review, coordination, skill work, stats, and more to your AI assistant."
 
 - **No** → skip to Step 6
 - **Yes** → ask which targets:
 
 > "Which AI clients should skills be installed into?"
 > - **Current IDE only** (detected in Step 0)
-> - **All supported platforms** (cursor, claude-code, claude-desktop, codex, opencode)
+> - **All supported platforms** (`all`)
 
 | Target | Skills directory |
 |--------|----------------|
-| `claude-code` | `~/.claude/skills/` |
-| `claude-desktop` | `~/.claude-desktop/skills/` |
+| `common` | `~/.agents/skills/` |
+| `claude` | `~/.claude/skills/` and `~/.claude-desktop/skills/` |
 | `cursor` | `~/.cursor/skills/` |
-| `codex` | `~/.codex/skills/` |
-| `opencode` | `~/.opencode/skills/` |
+| `codex` | `~/.agents/skills/` |
+| `opencode` | `~/.config/opencode/skills/` |
+| `pi` | `~/.pi/agent/skills/` |
+| `copilot` | `~/.copilot/skills/` |
+| `gemini` | `~/.gemini/skills/` |
 
 Then run:
 ```bash
-npx octocode skills install --targets <selected-targets> --force
+npx octocode skill --install-all --platform <selected-platforms> --force
 ```
 
-This installs 10 bundled skills:
+This installs the bundled Octocode skills:
 
 | Skill | What it does |
 |-------|-------------|
-| `octocode-engineer` | Deep code exploration & discovery |
-| `octocode-research` | Multi-source research orchestration |
-| `octocode-engineer` | System-aware implementation & refactoring |
+| `octocode` | Quick Octocode MCP or CLI code lookup |
+| `octocode-awareness` | Memory, file locks, handoffs, and verify-before-done |
+| `octocode-brainstorming` | Idea validation and prior-art decision briefs |
+| `octocode-research` | Code exploration, multi-source research, implementation, refactoring, PR review, and evidence loops |
 | `octocode-rfc-generator` | Technical design documents, RFCs, and research-backed plans |
-| `octocode-documentation-writer` | Codebase documentation generation |
-| `octocode-engineer` | PR review & analysis |
 | `octocode-roast` | Brutally honest code review |
-| `octocode-prompt-optimizer` | Agent prompt & SKILL.md optimization |
-| `octocode-install` | This installer |
+| `octocode-skills` | Search, evaluate, install, create, lint, and update Agent Skills |
+| `octocode-stats` | Local Octocode usage, savings, cache, error, and rate-limit dashboard |
 
 After install, verify:
 ```bash
-npx octocode skills list
+npx octocode skill --list
 ```
 
-Expected: all skills show `installed` for each target.
+Expected: every official skill appears in the named-skill catalog.
 
 ---
 
@@ -267,11 +269,11 @@ Expected: all skills show `installed` for each target.
 
 ```bash
 npx octocode status       # auth check
-npx octocode skills list  # skills install check
+npx octocode skill --list # skills catalog check
 ```
 
 Then open the IDE and test:
-> "Use octocode-engineer to find the main entry point of this project"
+> "Use octocode-research to find the main entry point of this project"
 
 Tools responding = setup complete.
 
@@ -289,7 +291,7 @@ Tools responding = setup complete.
 | Roast | "Roast my code" |
 
 - Local tools require `ENABLE_LOCAL=true` in MCP config
-- Skill not triggering? Name it explicitly: "use octocode-engineer to..."
+- Skill not triggering? Name it explicitly: "use octocode-research to..."
 - More skills: `npx octocode` → Manage Skills → Browse Marketplace
 
 ---

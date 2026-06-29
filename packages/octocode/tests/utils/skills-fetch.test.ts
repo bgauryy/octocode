@@ -1223,6 +1223,62 @@ Body.
       expect(skills[0].name).toBe('with-skill');
     });
 
+    it('should only discover direct child skill folders in skill-folders libraries', async () => {
+      const treeWithNestedDocs = {
+        sha: 'abc123',
+        url: 'https://api.github.com/repos/test/test/git/trees/main',
+        tree: [
+          {
+            path: 'skills/with-skill',
+            mode: '040000',
+            type: 'tree' as const,
+            sha: 'dir1',
+            url: 'https://api.github.com/repos/test/test/git/trees/dir1',
+          },
+          {
+            path: 'skills/with-skill/SKILL.md',
+            mode: '100644',
+            type: 'blob' as const,
+            sha: 'sha1',
+            size: 100,
+            url: 'https://api.github.com/repos/test/test/git/blobs/sha1',
+          },
+          {
+            path: 'skills/with-skill/references',
+            mode: '040000',
+            type: 'tree' as const,
+            sha: 'dir2',
+            url: 'https://api.github.com/repos/test/test/git/trees/dir2',
+          },
+          {
+            path: 'skills/with-skill/references/SKILL.md',
+            mode: '100644',
+            type: 'blob' as const,
+            sha: 'sha2',
+            size: 100,
+            url: 'https://api.github.com/repos/test/test/git/blobs/sha2',
+          },
+        ],
+        truncated: false,
+      };
+
+      vi.mocked(global.fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => treeWithNestedDocs,
+      } as Response);
+
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: true,
+        text: async () => mockSkillContent,
+      } as Response);
+
+      const skills = await fetchMarketplaceSkills(mockFolderSource, {
+        skipCache: true,
+      });
+
+      expect(skills.map(skill => skill.path)).toEqual(['skills/with-skill']);
+    });
+
     it('should use extractFirstParagraph when frontmatter has no description (skill-folders)', async () => {
       const folderTreeOne = {
         sha: 'abc123',

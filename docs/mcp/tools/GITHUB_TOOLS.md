@@ -35,7 +35,7 @@ Key fields:
 
 | Field | Meaning |
 |-------|---------|
-| `keywordsToSearch` | Required search terms. Terms are AND-combined; split phrases into separate words only when each word must match. |
+| `keywords` | Search terms. Terms are AND-combined; split phrases into separate words only when each word must match. |
 | `owner`, `repo` | Scope to an owner or repository. Use both for one repo. |
 | `extension` | Extension without a dot, such as `ts`. |
 | `filename` | Filename filter. |
@@ -46,9 +46,9 @@ Key fields:
 Examples:
 
 ```json
-{ "keywordsToSearch": ["useReducer"], "owner": "facebook", "repo": "react" }
-{ "keywordsToSearch": ["middleware"], "extension": "ts", "owner": "vercel", "repo": "next.js" }
-{ "keywordsToSearch": ["config"], "match": "path", "owner": "facebook" }
+{ "keywords": ["useReducer"], "owner": "facebook", "repo": "react" }
+{ "keywords": ["middleware"], "extension": "ts", "owner": "vercel", "repo": "next.js" }
+{ "keywords": ["config"], "match": "path", "owner": "facebook" }
 ```
 
 Rules:
@@ -71,7 +71,7 @@ Key fields:
 | `fullContent` | Read the whole file. Use only for small files. |
 | `startLine`, `endLine` | Read a line range. |
 | `matchString` | Return matching slices. |
-| `matchStringContextLines` | Context around `matchString`. |
+| `contextLines` | Context around `matchString`. |
 | `matchStringIsRegex`, `matchStringCaseSensitive` | Match behavior. |
 | `charOffset`, `charLength` | File-content pagination. |
 | `minify` | `standard` (default, strips comments/blank lines), `none` (exact raw text), or `symbols` (structural skeleton only). |
@@ -102,15 +102,15 @@ Key fields:
 | `owner`, `repo` | Required repository. |
 | `branch` | Branch, tag, or commit SHA. |
 | `path` | Directory path. Use `""` or `"."` for root. |
-| `depth` | Recursion depth. |
+| `maxDepth` | Recursion depth. |
 | `page` | Result page. |
 | `itemsPerPage` | Entries per page, max 200. |
 
 Examples:
 
 ```json
-{ "owner": "vercel", "repo": "next.js", "path": "", "depth": 1 }
-{ "owner": "facebook", "repo": "react", "path": "packages", "depth": 2, "itemsPerPage": 100 }
+{ "owner": "vercel", "repo": "next.js", "path": "", "maxDepth": 1 }
+{ "owner": "facebook", "repo": "react", "path": "packages", "maxDepth": 2, "itemsPerPage": 100 }
 ```
 
 ## `ghSearchRepos`
@@ -121,7 +121,7 @@ Key fields:
 
 | Field | Meaning |
 |-------|---------|
-| `keywordsToSearch` | Name/description/readme terms. |
+| `keywords` | Name/description/readme terms. |
 | `topicsToSearch` | GitHub topics. Useful but sparse. |
 | `owner` | Scope to one owner, or enumerate owner repos when no keywords are supplied. |
 | `language` | Primary language filter. |
@@ -134,7 +134,7 @@ Key fields:
 Examples:
 
 ```json
-{ "keywordsToSearch": ["auth"], "language": "TypeScript", "stars": ">1000" }
+{ "keywords": ["auth"], "language": "TypeScript", "stars": ">1000" }
 { "owner": "openai" }
 ```
 
@@ -195,7 +195,7 @@ Key fields:
 |-------|---------|
 | `owner`, `repo` | Required repository. |
 | `branch` | Branch to clone. Omit to use default branch. |
-| `sparse_path` | Optional subdirectory sparse checkout. |
+| `sparsePath` | Optional subdirectory sparse checkout. |
 
 Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` with ready-to-use `localSearch` and `viewStructure` query params — pass `next.localSearch.query` or `next.viewStructure.query` directly to the respective tool.
 
@@ -203,12 +203,12 @@ Examples:
 
 ```json
 { "owner": "facebook", "repo": "react", "branch": "main" }
-{ "owner": "microsoft", "repo": "TypeScript", "sparse_path": "src/compiler" }
+{ "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler" }
 ```
 
 Rules:
 
-- Use `sparse_path` for large monorepos.
+- Use `sparsePath` for large monorepos.
 - Use `ghGetFileContent` when you only need one file.
 - Cached clones are reused.
 - `next.localSearch.query.path` and `next.viewStructure.query.path` equal `localPath` — use them as-is.

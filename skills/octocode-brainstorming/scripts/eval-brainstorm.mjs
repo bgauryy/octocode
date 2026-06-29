@@ -20,6 +20,7 @@ function parseArgs(argv) {
     list: false,
     json: false,
     selfTest: false,
+    agentic: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -28,6 +29,7 @@ function parseArgs(argv) {
     if (arg === '--list') { opts.list = true; continue; }
     if (arg === '--json') { opts.json = true; continue; }
     if (arg === '--self-test') { opts.selfTest = true; continue; }
+    if (arg === '--agentic') { opts.agentic = true; continue; }
     if (arg === '--input' || arg === '-i') { opts.input = argv[++i] || ''; continue; }
     if (arg === '--case') { opts.caseId = argv[++i] || ''; continue; }
     die(`Unknown argument: ${arg}`);
@@ -64,7 +66,95 @@ function checkPattern(text, check) {
   return compile(check.pattern).test(text);
 }
 
-function evaluateCase(testCase, text) {
+const STOP_WORDS = new Set([
+  'about', 'after', 'again', 'answer', 'before', 'build', 'could', 'does', 'from',
+  'have', 'idea', 'into', 'local', 'mode', 'more', 'only', 'prompt', 'should',
+  'that', 'their', 'there', 'this', 'what', 'when', 'where', 'which', 'while',
+  'with', 'without', 'would',
+]);
+
+function extractIntentTerms(text, limit = 8) {
+  const counts = new Map();
+  for (const raw of String(text || '').toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []) {
+    const term = raw.replace(/^-+|-+$/g, '');
+    if (!term || STOP_WORDS.has(term)) continue;
+    counts.set(term, (counts.get(term) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([term]) => term);
+}
+
+function modeQuestion(testCase) {
+  if (testCase.mode === 'Map') {
+    return 'Did the answer map who has tried this, what worked, and where the gaps remain?';
+  }
+  if (testCase.mode === 'Generate') {
+    return 'Did the answer expand the space before narrowing to the most promising directions?';
+  }
+  return 'Did the answer test whether this is worth pursuing for a specific user, pain, and success signal?';
+}
+
+function buildAgenticEval(testCase, text) {
+  const prompt = testCase.prompt || `${testCase.mode || 'Brainstorm'} request`;
+  const rubric = Array.isArray(testCase.rubric) ? testCase.rubric.join(' ') : '';
+  const intentTerms = extractIntentTerms(`${prompt} ${rubric}`, 6);
+  const answerSignals = extractIntentTerms(text, 6);
+  const generatedQuestions = [
+    {
+      id: 'agentic-user-problem-fit',
+      dimension: 'intent',
+      question: `For the request "${prompt}", did the answer identify the user, painful situation, and desired outcome well enough to judge the idea?`,
+    },
+    {
+      id: 'agentic-mode-fit',
+      dimension: 'framing',
+      question: modeQuestion(testCase),
+    },
+    {
+      id: 'agentic-evidence-to-decision',
+      dimension: 'decision',
+      question: 'Did the verdict follow from the strongest evidence and concessions, rather than from enthusiasm or template compliance?',
+    },
+    {
+      id: 'agentic-scope-razor',
+      dimension: 'scope',
+      question: 'Did the answer choose a scope razor or next experiment that would actually change the decision?',
+    },
+  ];
+  if (intentTerms.length) {
+    generatedQuestions.splice(1, 0, {
+      id: 'agentic-intent-terms',
+      dimension: 'intent',
+      question: `Did the answer engage the salient intent terms (${intentTerms.join(', ')}) as context for judgment, without reducing the evaluation to keyword matching?`,
+    });
+  }
+  return {
+    advisoryOnly: true,
+    affectsScore: false,
+    intent: prompt,
+    intentTerms,
+    answerSignals,
+    generatedQuestions,
+    evaluatorPrompt: [
+      'You are an eval agent for brainstorming, not a fixed checklist. Create 3-5 binary questions from the user intent, the case mode, and the answer.',
+      'Use the generatedQuestions as seeds only: rewrite, add, or drop questions when the idea demands it.',
+      'Use answerSignals only to notice what the answer emphasized; do not require those terms.',
+      'Prefer questions about user/problem/success signal, evidence quality, differentiated wedge, scope, and decision usefulness.',
+      'Answer each question yes/no/uncertain with evidence and a suggested lesson. Do not use advisory questions as a rigid gate.',
+    ].join(' '),
+    answerShape: {
+      question: 'string',
+      verdict: 'yes | no | uncertain',
+      evidence: 'short quote or file/URL anchor from the answer',
+      suggestedLesson: 'one reusable improvement, if any',
+      failureSignature: 'mechanism:<area>|cause:<reason> when verdict is no',
+    },
+  };
+}
+
+function evaluateCase(testCase, text, opts = {}) {
   const required = (testCase.required || []).map(check => ({
     name: check.name,
     passed: checkPattern(text, check),
@@ -75,11 +165,38 @@ function evaluateCase(testCase, text) {
     passed: !checkPattern(text, check),
     pattern: check.pattern,
   }));
+  const binaryQuestions = (testCase.binaryQuestions || []).map(question => {
+    const passPattern = question.passPattern || question.pattern || '';
+    const failPattern = question.failPattern || '';
+    const matchedPass = passPattern ? compile(passPattern).test(text) : false;
+    const matchedFail = failPattern ? compile(failPattern).test(text) : false;
+    return {
+      id: question.id,
+      dimension: question.dimension || 'general',
+      question: question.question,
+      passed: matchedPass && !matchedFail,
+      matchedPass,
+      matchedFail,
+      passPattern,
+      failPattern,
+      failureSignature: question.failureSignature,
+      suggestedLesson: question.suggestedLesson,
+    };
+  });
+  const dimensionScores = {};
+  for (const question of binaryQuestions) {
+    const bucket = dimensionScores[question.dimension] || { passed: 0, total: 0, score: 0 };
+    bucket.total += 1;
+    if (question.passed) bucket.passed += 1;
+    bucket.score = Number((bucket.passed / bucket.total).toFixed(3));
+    dimensionScores[question.dimension] = bucket;
+  }
   const citationCount = countCitations(text);
   const citationPassed = citationCount >= (testCase.minCitationCount || 0);
   const checks = [
     ...required,
     ...forbidden,
+    ...binaryQuestions.map(question => ({ name: `binary:${question.id}`, passed: question.passed })),
     {
       name: `citations >= ${testCase.minCitationCount || 0}`,
       passed: citationPassed,
@@ -97,6 +214,15 @@ function evaluateCase(testCase, text) {
     citationCount,
     required,
     forbidden,
+    binaryQuestions,
+    dimensionScores,
+    failedBinaryQuestions: binaryQuestions.filter(question => !question.passed).map(question => ({
+      id: question.id,
+      dimension: question.dimension,
+      failureSignature: question.failureSignature,
+      suggestedLesson: question.suggestedLesson,
+    })),
+    ...(opts.agentic ? { agenticEval: buildAgenticEval(testCase, text) } : {}),
     failedChecks: checks.filter(check => !check.passed).map(check => check.name),
   };
 }
@@ -105,6 +231,9 @@ function renderText(results) {
   const lines = [];
   for (const result of results) {
     lines.push(`${result.passed ? 'PASS' : 'FAIL'} ${result.id}: ${result.score}/${result.minScore}`);
+    if (result.agenticEval) {
+      lines.push(`  agentic: ${result.agenticEval.generatedQuestions.length} advisory intent questions`);
+    }
     if (result.failedChecks.length) {
       lines.push(`  failed: ${result.failedChecks.join(', ')}`);
     }
@@ -118,6 +247,7 @@ function usage() {
 Usage:
   node scripts/eval-brainstorm.mjs --list
   node scripts/eval-brainstorm.mjs --case idea-validation --input answer.md --json
+  node scripts/eval-brainstorm.mjs --case idea-validation --input answer.md --agentic --json
   cat answer.md | node scripts/eval-brainstorm.mjs --case idea-validation
   node scripts/eval-brainstorm.mjs --self-test
 
@@ -126,6 +256,7 @@ Options:
   --case <id>     Evaluate only one case
   --input, -i     Answer file. Omit to read stdin
   --json          Emit JSON result
+  --agentic       Include advisory eval-agent question seeds derived from the case intent; does not affect score
   --self-test     Run evaluator smoke checks
 
 Cases file: ${CASES_PATH}`;
@@ -163,10 +294,16 @@ function weakSample() {
 function runSelfTest(cases) {
   const idea = cases.find(testCase => testCase.id === 'idea-validation');
   if (!idea) throw new Error('missing idea-validation case');
-  const good = evaluateCase(idea, strongSample());
-  const bad = evaluateCase(idea, weakSample());
+  const good = evaluateCase(idea, strongSample(), { agentic: true });
+  const bad = evaluateCase(idea, weakSample(), { agentic: true });
   if (!good.passed) {
     throw new Error(`strong sample should pass: ${good.failedChecks.join(', ')}`);
+  }
+  if (good.failedBinaryQuestions.length) {
+    throw new Error(`strong sample has failed binary questions: ${good.failedBinaryQuestions.map(q => q.id).join(', ')}`);
+  }
+  if (good.agenticEval.generatedQuestions.length < 3) {
+    throw new Error('strong sample should emit advisory agentic questions');
   }
   if (bad.passed) {
     throw new Error('weak sample should fail');
@@ -230,7 +367,7 @@ async function main() {
     return;
   }
 
-  const results = selected.map(testCase => evaluateCase(testCase, answer));
+  const results = selected.map(testCase => evaluateCase(testCase, answer, { agentic: opts.agentic }));
   const passed = results.every(result => result.passed);
   const payload = {
     ok: passed,

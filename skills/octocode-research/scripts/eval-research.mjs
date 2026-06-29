@@ -9,13 +9,14 @@ const SKILL_DIR = resolve(__dirname, '..');
 const CASES_PATH = resolve(SKILL_DIR, 'evals', 'cases.json');
 
 function parseArgs(argv) {
-  const opts = { caseId: '', input: '', json: false, list: false, selfTest: false, help: false };
+  const opts = { caseId: '', input: '', json: false, list: false, selfTest: false, agentic: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') { opts.help = true; continue; }
     if (arg === '--list') { opts.list = true; continue; }
     if (arg === '--json') { opts.json = true; continue; }
     if (arg === '--self-test') { opts.selfTest = true; continue; }
+    if (arg === '--agentic') { opts.agentic = true; continue; }
     if (arg === '--case') { opts.caseId = argv[++i] || ''; continue; }
     if (arg === '--input' || arg === '-i') { opts.input = argv[++i] || ''; continue; }
     throw new Error(`Unknown argument: ${arg}`);
@@ -40,7 +41,98 @@ function runPattern(pattern, text) {
   return new RegExp(pattern, 'ims').test(text);
 }
 
-function evaluateCase(testCase, text) {
+const STOP_WORDS = new Set([
+  'about', 'after', 'again', 'answer', 'before', 'could', 'current', 'does', 'from',
+  'have', 'into', 'local', 'mode', 'more', 'only', 'prompt', 'research', 'safe',
+  'should', 'that', 'their', 'there', 'this', 'what', 'when', 'where', 'which',
+  'while', 'with', 'without', 'would',
+]);
+
+function extractIntentTerms(text, limit = 8) {
+  const counts = new Map();
+  for (const raw of String(text || '').toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []) {
+    const term = raw.replace(/^-+|-+$/g, '');
+    if (!term || STOP_WORDS.has(term)) continue;
+    counts.set(term, (counts.get(term) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([term]) => term);
+}
+
+function modeQuestion(testCase) {
+  if (testCase.mode === 'Map') {
+    return 'Did the answer discover and cluster the landscape before judging what matters?';
+  }
+  if (testCase.mode === 'Validate') {
+    return 'Did the answer test both the upside and the strongest reason not to proceed?';
+  }
+  if (testCase.mode === 'Plan') {
+    return 'Did the answer turn evidence into a bounded, reversible next step?';
+  }
+  return 'Did the answer investigate competing explanations before settling on a finding?';
+}
+
+function buildAgenticEval(testCase, text) {
+  const prompt = testCase.prompt || `${testCase.mode || 'Research'} answer`;
+  const rubric = Array.isArray(testCase.rubric) ? testCase.rubric.join(' ') : '';
+  const intentTerms = extractIntentTerms(`${prompt} ${rubric}`, 6);
+  const answerSignals = extractIntentTerms(text, 6);
+  const generatedQuestions = [
+    {
+      id: 'agentic-intent-fit',
+      dimension: 'intent',
+      question: `For the actual request "${prompt}", did the answer solve the user's intent rather than merely matching the output template?`,
+    },
+    {
+      id: 'agentic-mode-fit',
+      dimension: 'reasoning',
+      question: modeQuestion(testCase),
+    },
+    {
+      id: 'agentic-evidence-fit',
+      dimension: 'evidence',
+      question: 'Did the answer choose evidence strong enough for the claim it makes, and mark uncertainty where evidence is thin?',
+    },
+    {
+      id: 'agentic-next-step-fit',
+      dimension: 'decision',
+      question: 'Did the final next step follow from the intent and evidence rather than from a canned workflow?',
+    },
+  ];
+  if (intentTerms.length) {
+    generatedQuestions.splice(1, 0, {
+      id: 'agentic-intent-terms',
+      dimension: 'intent',
+      question: `Did the answer engage the salient intent terms (${intentTerms.join(', ')}) in context, without treating keyword mentions as proof?`,
+    });
+  }
+  return {
+    advisoryOnly: true,
+    affectsScore: false,
+    intent: prompt,
+    intentTerms,
+    answerSignals,
+    generatedQuestions,
+    evaluatorPrompt: [
+      'You are an eval agent, not a fixed rubric. Create 3-5 binary questions from the user intent, the case mode, and the answer.',
+      'Use the generatedQuestions as seeds only: rewrite, add, or drop questions if the intent demands it.',
+      'Use answerSignals only to notice what the answer emphasized; do not require those terms.',
+      'Each question must be answerable yes/no/uncertain from the answer text and should change guidance if it fails.',
+      'Answer each question with verdict, evidence from the answer, and a suggested lesson. Do not fail the answer just because a seed was not relevant.',
+    ].join(' '),
+    answerShape: {
+      question: 'string',
+      verdict: 'yes | no | uncertain',
+      evidence: 'short quote or file/URL anchor from the answer',
+      suggestedLesson: 'one reusable improvement, if any',
+      failureSignature: 'mechanism:<area>|cause:<reason> when verdict is no',
+    },
+  };
+}
+
+function evaluateCase(testCase, text, opts = {}) {
   const required = (testCase.required || []).map(check => ({
     name: check.name,
     passed: runPattern(check.pattern, text),
@@ -51,9 +143,40 @@ function evaluateCase(testCase, text) {
     passed: !runPattern(check.pattern, text),
     pattern: check.pattern,
   }));
+  const binaryQuestions = (testCase.binaryQuestions || []).map(question => {
+    const passPattern = question.passPattern || question.pattern || '';
+    const failPattern = question.failPattern || '';
+    const matchedPass = passPattern ? runPattern(passPattern, text) : false;
+    const matchedFail = failPattern ? runPattern(failPattern, text) : false;
+    return {
+      id: question.id,
+      dimension: question.dimension || 'general',
+      question: question.question,
+      passed: matchedPass && !matchedFail,
+      matchedPass,
+      matchedFail,
+      passPattern,
+      failPattern,
+      failureSignature: question.failureSignature,
+      suggestedLesson: question.suggestedLesson,
+    };
+  });
+  const dimensionScores = {};
+  for (const question of binaryQuestions) {
+    const bucket = dimensionScores[question.dimension] || { passed: 0, total: 0, score: 0 };
+    bucket.total += 1;
+    if (question.passed) bucket.passed += 1;
+    bucket.score = Number((bucket.passed / bucket.total).toFixed(3));
+    dimensionScores[question.dimension] = bucket;
+  }
   const citationCount = countEvidenceAnchors(text);
   const citationPassed = citationCount >= (testCase.minCitationCount || 0);
-  const checks = [...required, ...forbidden, { name: `evidence anchors >= ${testCase.minCitationCount || 0}`, passed: citationPassed }];
+  const checks = [
+    ...required,
+    ...forbidden,
+    ...binaryQuestions.map(question => ({ name: `binary:${question.id}`, passed: question.passed })),
+    { name: `evidence anchors >= ${testCase.minCitationCount || 0}`, passed: citationPassed },
+  ];
   const score = checks.length ? checks.filter(c => c.passed).length / checks.length : 1;
   const passed = score >= (testCase.minScore || 1);
   return {
@@ -65,6 +188,15 @@ function evaluateCase(testCase, text) {
     citationCount,
     required,
     forbidden,
+    binaryQuestions,
+    dimensionScores,
+    failedBinaryQuestions: binaryQuestions.filter(question => !question.passed).map(question => ({
+      id: question.id,
+      dimension: question.dimension,
+      failureSignature: question.failureSignature,
+      suggestedLesson: question.suggestedLesson,
+    })),
+    ...(opts.agentic ? { agenticEval: buildAgenticEval(testCase, text) } : {}),
     failedChecks: checks.filter(c => !c.passed).map(c => c.name),
   };
 }
@@ -82,6 +214,7 @@ function printResult(result, asJson) {
   const rows = Array.isArray(result.results) ? result.results : [result];
   for (const row of rows) {
     console.log(`${row.id}: ${row.passed ? 'pass' : 'fail'} score=${row.score} citations=${row.citationCount}`);
+    if (row.agenticEval) console.log(`  agentic: ${row.agenticEval.generatedQuestions.length} advisory intent questions`);
     if (row.failedChecks?.length) console.log(`  failed: ${row.failedChecks.join(', ')}`);
   }
 }
@@ -126,11 +259,19 @@ function weakSample() {
 function selfTest() {
   const data = loadCases();
   const results = data.cases.map(testCase => {
-    const strong = evaluateCase(testCase, strongSample(testCase.id));
-    const weak = evaluateCase(testCase, weakSample());
-    return { id: testCase.id, strongPassed: strong.passed, weakPassed: weak.passed, strong, weak };
+    const strong = evaluateCase(testCase, strongSample(testCase.id), { agentic: true });
+    const weak = evaluateCase(testCase, weakSample(), { agentic: true });
+    return {
+      id: testCase.id,
+      strongPassed: strong.passed,
+      strongBinaryClean: strong.failedBinaryQuestions.length === 0,
+      strongAgenticQuestions: strong.agenticEval.generatedQuestions.length,
+      weakPassed: weak.passed,
+      strong,
+      weak,
+    };
   });
-  const ok = results.every(r => r.strongPassed && !r.weakPassed);
+  const ok = results.every(r => r.strongPassed && r.strongBinaryClean && r.strongAgenticQuestions >= 3 && !r.weakPassed);
   return { ok, casesPath: CASES_PATH, results };
 }
 
@@ -140,6 +281,7 @@ function usage() {
 Usage:
   node scripts/eval-research.mjs --list
   node scripts/eval-research.mjs --case code-investigation --input answer.md --json
+  node scripts/eval-research.mjs --case code-investigation --input answer.md --agentic --json
   cat answer.md | node scripts/eval-research.mjs --case prior-art-map
   node scripts/eval-research.mjs --self-test
 
@@ -148,6 +290,7 @@ Options:
   --case <id>     Evaluate one case
   --input, -i     Answer file. Omit to read stdin
   --json          Emit JSON result
+  --agentic       Include advisory eval-agent question seeds derived from the case intent; does not affect score
   --self-test     Run evaluator smoke checks
 
 Cases file: ${CASES_PATH}`;
@@ -170,7 +313,7 @@ async function main() {
   const selected = opts.caseId ? data.cases.filter(c => c.id === opts.caseId) : data.cases;
   if (!selected.length) throw new Error(`No eval case found for ${opts.caseId}`);
   const answer = readAnswer(opts.input);
-  const results = selected.map(c => evaluateCase(c, answer));
+  const results = selected.map(c => evaluateCase(c, answer, { agentic: opts.agentic }));
   const result = selected.length === 1 ? results[0] : { ok: results.every(r => r.passed), results };
   printResult(result, opts.json);
   process.exitCode = Array.isArray(result.results)

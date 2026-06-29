@@ -49,6 +49,8 @@ export const SKILL_INSTALL_TARGETS = [
   'codex',
   'opencode',
   'pi',
+  'copilot',
+  'gemini',
   'agents',
 ] as const;
 export type SkillInstallTarget = (typeof SKILL_INSTALL_TARGETS)[number];
@@ -59,6 +61,8 @@ export const USER_SKILL_PLATFORMS = [
   'codex',
   'opencode',
   'pi',
+  'copilot',
+  'gemini',
 ] as const;
 export type UserSkillPlatform = (typeof USER_SKILL_PLATFORMS)[number];
 export const DEFAULT_SKILL_INSTALL_TARGETS: readonly SkillInstallTarget[] = [
@@ -75,9 +79,11 @@ export const USER_SKILL_PLATFORM_TARGETS: Record<
   common: ['agents'],
   cursor: ['cursor'],
   claude: CLAUDE_SKILL_INSTALL_TARGETS,
-  codex: ['codex'],
+  codex: ['agents'],
   opencode: ['opencode'],
   pi: ['pi'],
+  copilot: ['copilot'],
+  gemini: ['gemini'],
 };
 export type SkillInstallResult = 'installed' | 'skipped' | 'failed';
 
@@ -90,6 +96,11 @@ const SKILL_TARGET_IDS: Record<string, SkillInstallTarget> = {
   opencode: 'opencode',
   pi: 'pi',
   'pi-agent': 'pi',
+  copilot: 'copilot',
+  'github-copilot': 'copilot',
+  'vscode-copilot': 'copilot',
+  gemini: 'gemini',
+  'gemini-cli': 'gemini',
   agents: 'agents',
   agent: 'agents',
   common: 'agents',
@@ -168,11 +179,15 @@ export function getSkillsDirForTarget(
       case 'cursor':
         return join(HOME, '.cursor', 'skills');
       case 'codex':
-        return join(HOME, '.codex', 'skills');
+        return join(HOME, '.agents', 'skills');
       case 'opencode':
-        return join(HOME, '.opencode', 'skills');
+        return join(appData, 'opencode', 'skills');
       case 'pi':
         return join(HOME, '.pi', 'agent', 'skills');
+      case 'copilot':
+        return join(HOME, '.copilot', 'skills');
+      case 'gemini':
+        return join(HOME, '.gemini', 'skills');
       case 'agents':
         return join(HOME, '.agents', 'skills');
     }
@@ -184,11 +199,15 @@ export function getSkillsDirForTarget(
     case 'cursor':
       return join(HOME, '.cursor', 'skills');
     case 'codex':
-      return join(HOME, '.codex', 'skills');
+      return join(HOME, '.agents', 'skills');
     case 'opencode':
-      return join(HOME, '.opencode', 'skills');
+      return join(HOME, '.config', 'opencode', 'skills');
     case 'pi':
       return join(HOME, '.pi', 'agent', 'skills');
+    case 'copilot':
+      return join(HOME, '.copilot', 'skills');
+    case 'gemini':
+      return join(HOME, '.gemini', 'skills');
     case 'agents':
       return join(HOME, '.agents', 'skills');
   }

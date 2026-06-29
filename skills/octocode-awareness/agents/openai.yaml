@@ -1,4 +1,4 @@
 interface:
   display_name: "Octocode Awareness"
   short_description: "Durable agent experience, memory recall, and file-edit coordination."
-  default_prompt: "Use octocode-awareness to recall SQLite memories, read/write workspace refinements, register file-edit intent, acquire/release locks, prune stale locks, coordinate through notifications, verify declared test plans, and record lessons after work."
+  default_prompt: "Use octocode-awareness to recall SQLite memories, read/write workspace refinements, register file-edit intent, acquire/release locks, prune stale locks, coordinate through notifications, verify declared test plans, and record lessons after work; use reflect --judgment-note and --duo for substantial outcomes, and --eval-failure-json to preserve structured eval evidence without rigid gating."

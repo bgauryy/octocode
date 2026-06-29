@@ -8,6 +8,14 @@ This mode is a structured repo ecosystem pass: discover broadly, rank cheaply, d
 
 End with:
 
+```text
+Repo clusters
+Ranked repo table
+Top repo deep-dive notes
+Integration blueprint
+Proof still needed
+```
+
 - repo clusters: active, partial, abandoned, research-only, production-ready, or not relevant
 - a ranked repo database
 - deep-dive notes for the top few repos

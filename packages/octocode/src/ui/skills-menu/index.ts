@@ -15,11 +15,7 @@ import open from 'open';
 import { Spinner } from '../../utils/spinner.js';
 import { runMarketplaceFlow } from './marketplace.js';
 
-const RECOMMENDED_SKILLS = new Set([
-  'octocode-research',
-  'octocode-engineer',
-  'octocode-engineer',
-]);
+const RECOMMENDED_SKILLS = new Set(['octocode-research']);
 
 interface InstalledSkill {
   name: string;

@@ -29,9 +29,11 @@ vi.mock('../../src/utils/skills.js', () => ({
     common: ['agents'],
     cursor: ['cursor'],
     claude: ['claude-code', 'claude-desktop'],
-    codex: ['codex'],
+    codex: ['agents'],
     opencode: ['opencode'],
     pi: ['pi'],
+    copilot: ['copilot'],
+    gemini: ['gemini'],
   },
 }));
 
@@ -90,15 +92,25 @@ describe('features/skills', () => {
 
   it('expands all user-facing platforms', () => {
     expect(parseUserSkillPlatformList('all')).toEqual({
-      platforms: ['common', 'cursor', 'claude', 'codex', 'opencode', 'pi'],
+      platforms: [
+        'common',
+        'cursor',
+        'claude',
+        'codex',
+        'opencode',
+        'pi',
+        'copilot',
+        'gemini',
+      ],
       targets: [
         'agents',
         'cursor',
         'claude-code',
         'claude-desktop',
-        'codex',
         'opencode',
         'pi',
+        'copilot',
+        'gemini',
       ],
     });
   });

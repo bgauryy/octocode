@@ -18,7 +18,7 @@ Default output location when saving is approved: `.octocode/rfc/RFC-{meaningful-
 | "migration plan" | Migration | Current state, target state, compatibility, rollout, rollback, phases |
 | "validate this RFC/design" | Validation | Claim-by-claim verdict with evidence and gaps |
 
-If the task is a trivial one-file edit with no design choice, say an RFC is unnecessary and suggest using `octocode-engineer` directly.
+If the task is a trivial one-file edit with no design choice, say an RFC is unnecessary and suggest using `octocode-research` Change mode directly.
 
 ## Understand
 

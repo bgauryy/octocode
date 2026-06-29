@@ -34,4 +34,4 @@ In **serve** mode the delete button calls back into `awareness.py` — memory de
 
 - The server binds `127.0.0.1` by default — do not expose it; it can delete records. Override `--host` only on a trusted machine.
 - The viewer is read-mostly: it never edits content, only deletes whole records through the canonical CLI path.
-- It honors the same store locations as the CLI, so what you see is exactly what agents recall.
+- The viewer honors the same store locations as the CLI, so what you see is exactly what agents recall.

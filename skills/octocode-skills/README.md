@@ -17,7 +17,7 @@ The skill identifies the target skill folders, reads `SKILL.md` and the relevant
 - "Refactor these skill instructions and run the lint."
 - "Compare two skill candidates and recommend one."
 
-## What you get
+## Features
 
 - Filtered recommendations instead of raw search dumps.
 - Candidate identity by repo/path or local path.
@@ -25,9 +25,23 @@ The skill identifies the target skill folders, reads `SKILL.md` and the relevant
 - An explicit gate before installs, overwrites, symlinks, config changes, or file writes.
 - Verification with `scripts/skill-lint.mjs` after skill edits.
 
+## For developers
+
+Developers maintain behavior in `SKILL.md`, focused references, and deterministic scripts. `scripts/skill-lint.mjs` is the quality gate for structure, prompt hygiene, README coverage, scripts, hooks, routing, and installation docs. Keep repeated procedures in scripts, keep conditional detail in `references/`, and keep `SKILL.md` under the lint line budget.
+
+## Installation
+
+Install the published Octocode skill with the CLI:
+
+```bash
+npx octocode skill --name octocode-skills
+```
+
+For a fork or local skill library on GitHub, use `npx octocode skill --add owner/repo/skills/octocode-skills`.
+
 ## Use another skill when
 
-- The task is normal code research: route to the `octocode`, `octocode-research`, or `octocode-engineer` skill.
+- The task is normal code research: route to the `octocode` or `octocode-research` skill.
 - The task is package discovery, not Agent Skills: use the appropriate Octocode package or repo search.
 - The user wants to improve a prompt that is not a skill folder: use a prompt-specific workflow instead.
 

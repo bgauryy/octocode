@@ -62,7 +62,7 @@ Clones and API-fetched trees use separate tmp buckets with the same 24-hour TTL 
 **Rule of thumb:**
 - Need a **single directory**? → `ghGetFileContent` with `type: "directory"` (no git required)
 - Need **semantic analysis** (definitions, references, call hierarchy)? → `ghCloneRepo` first
-- Need a **large subtree or full project context**? → `ghCloneRepo` with `sparse_path`
+- Need a **large subtree or full project context**? → `ghCloneRepo` with `sparsePath`
 
 ---
 
@@ -114,7 +114,7 @@ Best for large monorepos where you only need one package/directory. Dramatically
 ghCloneRepo:
   owner: "microsoft"
   repo: "TypeScript"
-  sparse_path: "src/compiler"
+  sparsePath: "src/compiler"
 ```
 
 **Result:**
@@ -123,7 +123,7 @@ owner: microsoft
 repo: TypeScript
 branch: main
 localPath: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
-sparse_path: "src/compiler"
+sparsePath: "src/compiler"
 location:
   kind: tree
   localPath: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
@@ -144,7 +144,7 @@ next:
       path: <octocode-home>/tmp/clone/microsoft/TypeScript/main__sp_a3f8c1
 ```
 
-> **Note:** LSP may have limited cross-file resolution in sparse checkouts since not all source files are present. If you need full project context, clone without `sparse_path`.
+> **Note:** LSP may have limited cross-file resolution in sparse checkouts since not all source files are present. If you need full project context, clone without `sparsePath`.
 
 ### Mode 3: Directory Fetch (ghGetFileContent type:"directory")
 
@@ -213,7 +213,7 @@ Step 3: Drill into a directory
 
 ```
 Step 1: Clone the repo
-  ghCloneRepo(owner="vercel", repo="next.js", sparse_path="packages/next/src")
+  ghCloneRepo(owner="vercel", repo="next.js", sparsePath="packages/next/src")
   → localPath
 
 Step 2: Search for the function
@@ -235,7 +235,7 @@ Step 4: Trace callers
 
 ```
 Step 1: Browse on GitHub first (quick)
-  ghViewRepoStructure(owner="pallets", repo="flask", depth=2)
+  ghViewRepoStructure(owner="pallets", repo="flask", maxDepth=2)
   → See the tree, find interesting directory "src/flask"
 
 Step 2: Clone for deep analysis
@@ -257,11 +257,11 @@ Step 4: Use LSP
 
 ```
 Step 1: Browse the monorepo structure on GitHub (quick discovery)
-  ghViewRepoStructure(owner="microsoft", repo="TypeScript", path="src", depth=1)
+  ghViewRepoStructure(owner="microsoft", repo="TypeScript", path="src", maxDepth=1)
   → See packages: compiler, services, harness, ...
 
 Step 2: Clone only the compiler
-  ghCloneRepo(owner="microsoft", repo="TypeScript", sparse_path="src/compiler")
+  ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
   → localPath (only downloads src/compiler, much faster)
 
 Step 3: Search within the fetched subtree
@@ -318,7 +318,7 @@ For TypeScript/JavaScript LSP:
 |--------|------|---------------|
 | Clone entire repo | `ghCloneRepo` | `owner`, `repo` (branch auto-detected) |
 | Clone specific branch | `ghCloneRepo` | `owner`, `repo`, `branch` |
-| Clone one folder | `ghCloneRepo` | `owner`, `repo`, `sparse_path` (branch auto-detected) |
+| Clone one folder | `ghCloneRepo` | `owner`, `repo`, `sparsePath` (branch auto-detected) |
 | Force re-clone | `ghCloneRepo` | `forceRefresh: true` (bypasses valid cache) |
 | Browse cloned tree | `localViewStructure` | `path` = `localPath` |
 | Search cloned code | `localSearchCode` | `path` = `localPath` |

@@ -55,7 +55,6 @@ Design notes for the unified `npx octocode search` / OQL language.
 | Doc | When to read |
 |-----|--------------|
 | [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) | Typed query language behind `npx octocode search` |
-| [Octocode Query Language Plan](https://github.com/bgauryy/octocode/blob/main/docs/context/OCTOCODE_QUERY_LANGUAGE_PLAN.md) | Implementation plan, prerequisites, package split, milestones, tests, and risks |
 | [OQL Research Graph Flow](https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md) | Research/graph proof flow and next-step continuations |
 
 ---

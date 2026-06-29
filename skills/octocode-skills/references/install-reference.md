@@ -31,14 +31,18 @@ Most agents load skills from at least two scopes: a user-level scope (applies ev
 
 Use this matrix as a default — verify with the active runtime when the user is unsure.
 
-| Provider       | User scope (global)                            | Project scope (per-repo)   | Custom override                    |
-|----------------|------------------------------------------------|----------------------------|------------------------------------|
-| claude-code    | `~/.claude/skills/`                            | `<repo>/.claude/skills/`   | env or config `skillsDestDir`      |
-| claude-desktop | `~/.claude-desktop/skills/`                    | n/a                        | runtime config dir                 |
-| cursor         | `~/.cursor/skills/`                            | `<repo>/.cursor/skills/`   | runtime config                     |
-| codex          | `~/.codex/skills/`                             | `<repo>/.codex/skills/`    | runtime config                     |
-| opencode       | `~/.opencode/skills/`                          | `<repo>/.opencode/skills/` | runtime config                     |
-| other / custom | any directory the runtime scans                | any in-repo path           | user-supplied absolute path        |
+| Provider       | User scope (global)                            | Project scope (per-repo)    | Custom override                    |
+|----------------|------------------------------------------------|-----------------------------|------------------------------------|
+| shared agents  | `~/.agents/skills/`                            | `<repo>/.agents/skills/`    | user-supplied absolute path        |
+| claude-code    | `~/.claude/skills/`                            | `<repo>/.claude/skills/`    | env or config `skillsDestDir`      |
+| claude-desktop | `~/.claude-desktop/skills/`                    | n/a                         | runtime config dir                 |
+| cursor         | `~/.cursor/skills/`                            | `<repo>/.cursor/skills/`    | runtime config                     |
+| codex          | `~/.agents/skills/`                            | `<repo>/.agents/skills/`    | admin `/etc/codex/skills`          |
+| opencode       | `~/.config/opencode/skills/`                   | `<repo>/.opencode/skills/`  | runtime config                     |
+| pi             | `~/.pi/agent/skills/`                          | `<repo>/.pi/skills/`        | runtime config                     |
+| copilot        | `~/.copilot/skills/`                           | `<repo>/.github/skills/`    | `/skills add` in Copilot CLI       |
+| gemini         | `~/.gemini/skills/` or `~/.agents/skills/`     | `<repo>/.gemini/skills/` or `<repo>/.agents/skills/` | `/skills link` / `gemini skills` |
+| other / custom | any directory the runtime scans                | any in-repo path            | user-supplied absolute path        |
 
 Windows equivalents replace `~` with `%USERPROFILE%` (or `%APPDATA%` for desktop apps). Project-scope paths are identical relative to the repo root.
 
@@ -51,7 +55,7 @@ Before any write, ask the user the four destination questions. Skip a question o
 1. Which provider(s)? — one, several, or "all agents". Multi-select is allowed; each target may end up in a different folder.
 2. Which scope for each provider? — user (global) vs project (per-repo) vs custom path. Ask per provider; do not assume one answer covers all.
 3. If project scope: which project root? — confirm the absolute path; never guess from `cwd` alone if the workspace is ambiguous.
-4. Install mode? — copy (default) or symlink (only when the source is a stable local folder the user controls).
+4. Install mode? — symlink (default for the Octocode CLI when the source is stable) or copy (portable snapshot when symlinks are unsuitable).
 
 If the source has `scripts/`, install hooks, postinstall logic, or executable helpers, also ask: "Inspect scripts before install?" Default yes for third-party sources.
 

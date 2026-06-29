@@ -22,11 +22,7 @@ type SkillMenuChoice = MarketplaceSkill | 'back';
 type InstallChoice = 'install' | 'delete' | 'back';
 type OfficialFlowChoice = 'install-all' | 'browse' | 'back';
 
-const RECOMMENDED_SKILLS = new Set([
-  'octocode-research',
-  'octocode-engineer',
-  'octocode-engineer',
-]);
+const RECOMMENDED_SKILLS = new Set(['octocode-research']);
 
 async function pressEnterToContinue(): Promise<void> {
   console.log();

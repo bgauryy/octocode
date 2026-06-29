@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Machine-checkable smoke evals for octocode-research final answers. These checks verify observable output structure and guardrails; human review still judges evidence quality.",
+  "description": "Machine-checkable smoke evals for octocode-research final answers. These checks verify observable output structure and guardrails; human review still judges evidence quality. Run the evaluator with --agentic to emit advisory intent-derived question seeds that guide a semantic eval agent without affecting pass/fail.",
   "rubric": [
     "Declares the research mode and active/skipped surfaces.",
     "Keeps more than one hypothesis alive for investigations.",
@@ -24,6 +24,32 @@
         { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
         { "name": "next action", "pattern": "\\bNext:|\\bRecommended next step\\b" }
       ],
+      "binaryQuestions": [
+        {
+          "id": "keeps-alternatives-open",
+          "dimension": "method",
+          "question": "Does the answer keep an alternate hypothesis or disconfirming path alive before deciding?",
+          "passPattern": "\\bhypothes(?:is|es)\\b|\\balternate\\b|\\bdisconfirm",
+          "failureSignature": "mechanism:research-answer|cause:single-hypothesis",
+          "suggestedLesson": "Research answers should keep at least one alternate or disconfirming path alive until exact evidence resolves it."
+        },
+        {
+          "id": "uses-exact-evidence",
+          "dimension": "evidence",
+          "question": "Does the answer anchor the finding in exact file/line evidence rather than raw search snippets?",
+          "passPattern": "\\bExact evidence\\b|\\bEvidence:\\b|[A-Za-z0-9_./-]+:\\d+",
+          "failureSignature": "mechanism:research-answer|cause:snippet-as-proof",
+          "suggestedLesson": "Upgrade search hits to exact reads, file:line anchors, AST/LSP facts, or tests before calling a finding confirmed."
+        },
+        {
+          "id": "confidence-drives-next-step",
+          "dimension": "decision",
+          "question": "Does the answer pair confidence with a concrete next action?",
+          "passPattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b[\\s\\S]*\\bNext:",
+          "failureSignature": "mechanism:research-answer|cause:no-decision-action",
+          "suggestedLesson": "Close research answers with honest confidence and one next action."
+        }
+      ],
       "forbidden": [
         { "name": "empty means absence", "pattern": "\\bempty result means absence\\b|\\bzero matches prove absence\\b" }
       ]
@@ -40,6 +66,24 @@
         { "name": "package health", "pattern": "\\blast publish\\b|\\bmaintainer\\b|\\bissue\\b|\\brelease cadence\\b|\\bdependency freshness\\b" },
         { "name": "landscape clusters", "pattern": "\\bLandscape\\b|\\bPrior Art\\b|\\bclusters?\\b|\\bactive\\b.*\\babandoned\\b" },
         { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b|`(strong|moderate|weak)`" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "checks-package-health",
+          "dimension": "evidence",
+          "question": "Does the map inspect package health beyond popularity?",
+          "passPattern": "\\blast publish\\b|\\bmaintainer\\b|\\bissue\\b|\\brelease cadence\\b|\\bdependency freshness\\b",
+          "failureSignature": "mechanism:prior-art-map|cause:popularity-only",
+          "suggestedLesson": "Prior-art maps should weigh package freshness, maintainers, issues, release cadence, and dependency health."
+        },
+        {
+          "id": "clusters-with-confidence",
+          "dimension": "synthesis",
+          "question": "Does the answer cluster the landscape and mark confidence?",
+          "passPattern": "(\\bLandscape\\b|\\bPrior Art\\b|\\bclusters?\\b)[\\s\\S]*(\\bConfidence:\\s*(confirmed|likely|uncertain)\\b|`(strong|moderate|weak)`)",
+          "failureSignature": "mechanism:prior-art-map|cause:unclustered-list",
+          "suggestedLesson": "Turn source lists into clusters with confidence markers so the decision is scannable."
+        }
       ],
       "forbidden": [
         { "name": "downloads alone", "pattern": "\\bdownloads alone (?:prove|validate)\\b" }
@@ -58,6 +102,24 @@
         { "name": "upgrade proof", "pattern": "\\bLSP\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b" },
         { "name": "gate broad deletion", "pattern": "\\bgate\\b|\\bdo not delete\\b|\\bbroad removals?\\b" }
       ],
+      "binaryQuestions": [
+        {
+          "id": "reads-scheme-first",
+          "dimension": "tool-use",
+          "question": "Does the answer read the OQL/search scheme before constructing JSON graph proof?",
+          "passPattern": "\\bsearch --scheme --compact\\b|\\bsearch --scheme\\b",
+          "failureSignature": "mechanism:oql-research|cause:scheme-skipped",
+          "suggestedLesson": "Read `search --scheme` before OQL JSON so fields are not guessed."
+        },
+        {
+          "id": "upgrades-candidates-to-proof",
+          "dimension": "evidence",
+          "question": "Does the answer distinguish candidates from deletion proof and name the proof upgrade path?",
+          "passPattern": "(\\bcandidate\\b.*\\bproof\\b|\\bcandidate rows?\\b|\\bnot safe to delete\\b)[\\s\\S]*(\\bLSP\\b|\\bexact read\\b|\\bimport\\b|\\bAST\\b|\\btests?\\b)",
+          "failureSignature": "mechanism:oql-research|cause:candidate-as-proof",
+          "suggestedLesson": "Treat OQL graph rows as candidates until exact reads, imports, LSP, AST checks, or tests confirm safety."
+        }
+      ],
       "forbidden": [
         { "name": "delete from candidate only", "pattern": "\\bsafe to delete\\b(?![^\\n]*(LSP|exact|test|import|AST|confirmed))" }
       ]
@@ -73,6 +135,24 @@
         { "name": "fallback path", "pattern": "\\brg\\b|\\bfile reads?\\b|\\bweb\\b" },
         { "name": "does not block", "pattern": "\\bcontinue\\b|\\bwithout blocking\\b|\\bnot required\\b" },
         { "name": "install or auth only if needed", "pattern": "\\bnpx octocode\\b|\\bnpx octocode auth\\b|\\bonly if needed\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "marks-degraded-confidence",
+          "dimension": "decision",
+          "question": "Does the answer explicitly degrade confidence when Octocode transport is unavailable?",
+          "passPattern": "\\bconfidence degraded\\b|\\bdegraded transport\\b|\\bConfidence:\\s*uncertain\\b",
+          "failureSignature": "mechanism:transport-fallback|cause:overconfident-without-tool",
+          "suggestedLesson": "When Octocode transport is unavailable, continue with fallback evidence but mark confidence degraded."
+        },
+        {
+          "id": "continues-with-fallback",
+          "dimension": "resilience",
+          "question": "Does the answer continue with `rg`, file reads, or web instead of blocking unnecessarily?",
+          "passPattern": "(\\brg\\b|\\bfile reads?\\b|\\bweb\\b)[\\s\\S]*(\\bcontinue\\b|\\bwithout blocking\\b|\\bnot required\\b)|(\\bcontinue\\b|\\bwithout blocking\\b|\\bnot required\\b)[\\s\\S]*(\\brg\\b|\\bfile reads?\\b|\\bweb\\b)",
+          "failureSignature": "mechanism:transport-fallback|cause:unnecessary-block",
+          "suggestedLesson": "Use local fallback tools when enough evidence can still answer the question."
+        }
       ],
       "forbidden": [
         { "name": "pretends full confidence", "pattern": "\\bConfidence:\\s*confirmed\\b" }

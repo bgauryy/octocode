@@ -18,7 +18,7 @@ Run these with local tools first:
 - `localFindFiles`: locate `package.json`, CSS files, Tailwind config, theme files
 - `localSearchCode`: find `--color`, `font-family`, spacing patterns, component variants
 
-Also run `octocode-engineer` mindset:
+Also run `octocode-research` mindset:
 - system first
 - map ownership and blast radius
 - avoid one-file assumptions

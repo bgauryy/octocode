@@ -16,7 +16,7 @@ The skill gathers current-state evidence first, then turns the decision into alt
 - "Validate this proposal against the current codebase."
 - "Create an implementation plan before we touch shared contracts."
 
-## What you get
+## Features
 
 - A concise decision summary.
 - Current-state evidence with file:line or external citations.
@@ -28,10 +28,20 @@ The skill gathers current-state evidence first, then turns the decision into alt
 ## Use another skill when
 
 - The idea still needs validation: use `octocode-brainstorming`.
-- The user wants the code changed now: use `octocode-engineer`.
+- The user wants the code changed now: use `octocode-research` Change mode.
 - The request is a quick research answer, not a document: use `octocode-research`.
 - The user wants critique rather than a plan: use `octocode-roast`.
 
 ## User value
 
 This skill converts research into a reviewable technical decision. It keeps facts cited, alternatives visible, and the rollout practical enough that another engineer can act on it.
+
+## For developers
+
+Keep `SKILL.md` as the short router for workflow, research playbook, RFC body, and implementation sections. Put detailed decision mechanics in `references/workflow.md`, evidence collection in `references/research-playbook.md`, and document structure in `references/rfc-template.md` plus `references/rfc-implementation.md`.
+
+## Installation
+
+```bash
+npx octocode skill --name octocode-rfc-generator
+```

@@ -74,7 +74,7 @@ on npm before publishing any interface package that depends on the engine.
 | `octocode-mcp-vscode` | VS Code extension bundle | VS Code runtime APIs |
 
 > The `octocode` tarball ships the repo-root `skills/` directory verbatim (every
-> skill under `skills/`, e.g. `octocode`, `octocode-engineer`, `octocode-rfc-generator`),
+> skill under `skills/`, e.g. `octocode`, `octocode-research`, `octocode-rfc-generator`),
 > bundled by `packages/octocode/scripts/prepack.mjs`. Before publishing `octocode`,
 > make sure those skills are current — stale CLI examples, tool names, or modes in a
 > skill ship to every user. `docs/` does **not** ship in the tarball (`files` is

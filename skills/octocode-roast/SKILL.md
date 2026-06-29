@@ -1,93 +1,46 @@
 ---
 name: octocode-roast
-description: Use when the user asks to "roast my code", "review code brutally", "find code sins", "what's wrong with my code", "shame my code", "critique this code", "find antipatterns", or "code quality roast" — entertaining but actionable code criticism with severity-ranked fixes. Delivers brutally honest roasts with file:line citations and redemption paths.
+description: "Use when the user explicitly asks for a code roast or brutally honest critique: roast my code, find code sins, shame this code, find antipatterns, brutal review, code quality roast, or what's wrong with this code. Outputs sharp, evidence-backed findings with file:line citations and fix paths."
 ---
 
 # Octocode Roast
 
-**Sharp, evidence-backed code roasting with Octocode MCP.**
+Sharp, evidence-backed code critique with roast tone. Target patterns, never people. Every major jab needs a `file:line`, real impact, and a fix path. Flow: `TARGET -> INSPECT -> INVENTORY -> AUTOPSY -> CHECKPOINT -> REDEEM`.
 
-Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+## Laws
 
-## Prime Directive
+- Cite or drop it: no evidence-free roasts.
+- Punch the code, not the coder; avoid insults about ability, identity, or experience.
+- Redact secrets and switch to restrained mode for security or production-sensitive findings.
+- Calibrate tone: default medium, gentle for unclear context, savage/nuclear only on explicit request.
+- Wait for consent before fixes; present findings and let the user choose repairs.
 
-```
-DESTROY → DOCUMENT → REDEEM
-```
+## Tooling
 
-**Four Laws**:
-1. **Cite or Die**: No roast without `file:line`. Vague roasts are coward roasts.
-2. **Punch the Code, Not the Coder**: Mock patterns mercilessly, never personally.
-3. **Never Leak Secrets**: When flagging hardcoded credentials, NEVER output the actual secret values. Report the pattern, file, and line — but redact the value (e.g., `API_KEY = "sk-live-****"`).
-4. **Wait for Consent**: Present the carnage, let them choose what to fix.
+Prefer Octocode MCP tools when exposed; otherwise use `npx octocode` after checking help/schemas. If local Octocode is unavailable, continue with normal repo tools and mark reduced coverage.
 
-## Production Guardrails
+## Severity
 
-- **Default severity**: `medium`. Use `gentle` for unclear context, newcomer code, or mixed-quality repos.
-- **Escalation rule**: Use `savage` or `nuclear` only when the user explicitly asks for that level.
-- **Humor rule**: Humor is optional. Clarity, evidence, and safety outrank jokes.
-- **FORBIDDEN**: Personal humiliation, profanity aimed at people, inventing incidents, destructive command recommendations, or telling users to throw work away.
-- **FORBIDDEN**: Mocking accessibility, language ability, experience level, or protected characteristics.
-- **REQUIRED**: Switch to restrained mode for real security findings, suspected leaked secrets, or sensitive production code.
+- Capital offenses: security issues, data loss, god functions, dangerous coupling.
+- Felonies: broad type abuse, N+1 queries, brittle async, tangled ownership.
+- Crimes: magic numbers, nested ternaries, hidden state, poor errors.
+- Slop: AI-ish verbosity, duplicate ceremony, unclear naming.
+- Misdemeanors: TODO fossils, console logs, formatting noise.
 
-## Tone Calibration
+If there are 20+ issues, triage the top 10 by impact and confidence.
 
-**Channel**: Battle-hardened staff engineer with sharp humor and strong standards. **NOT**: HR violation territory or personal attacks. **Energy**: Direct, funny when useful, but professionally safe to paste into a work thread. For named personas, severity-level tones, and awkward targets, read [references/tone-personas.md](references/tone-personas.md) when adjusting voice.
+## Reference Map
 
-## Execution Flow
+- `references/octocode.md` — when choosing transport, auth, install, or CLI/MCP fallback behavior.
+- `references/roast-playbook.md` — when running the full inspection, autopsy, output template, and verification checklist.
+- `references/sin-catalog.md` — when ranking generic sin tiers and common critique lines.
+- `references/language-sins.md` — when using language-specific smells, AST patterns, or detection queries.
+- `references/tone-personas.md` — when adjusting severity level, persona, audience, or awkward targets.
+- `references/redemption-flow.md` — when the user asks what to fix or picks a repair path.
+- `references/parallel-roasting.md` — when roasting a large codebase, monorepo, or many categories.
 
-```
-TARGET → OBLITERATE → INVENTORY → AUTOPSY → [USER PICKS] → RESURRECT
-         └── If 20+ sins: TRIAGE first (pick top 10)
-```
+## Output
 
-Before running a roast, follow the six-phase procedure, output templates, and verification checklist in [references/roast-playbook.md](references/roast-playbook.md).
+Use: `Top roast`, `Findings by severity`, `Autopsy`, `Redemption paths`, `Fix checkpoint`. Each finding includes `file:line`, impact, and repair move.
 
-<mcp_discovery>
-Before starting, detect available research tools.
-
-**Check**: Is Octocode available as an MCP server? Look for Octocode MCP tools (e.g., `localSearchCode`, `lspGetSemantics`, `ghSearchCode`, `npmSearch`).
-
-**If Octocode MCP exists but local tools return no results**:
-> Suggest: "For local codebase research, add `ENABLE_LOCAL=true` to your Octocode MCP config."
-
-**If Octocode MCP is not installed**:
-> Suggest: "Install Octocode MCP for deeper research using the config in `references/octocode.md`, then restart your editor."
-
-Proceed with whatever tools are available — do not block on setup.
-</mcp_discovery>
-
-## Tools
-
-**Octocode Local**: `localViewStructure` (survey the crime scene), `localSearchCode` (hunt antipatterns), `localGetFileContent` (examine the evidence), `localFindFiles` (find bodies by metadata).
-
-**Octocode LSP**: `lspGetSemantics(type=definition)` (trace imports to their shameful origins), `lspGetSemantics(type=references)` (find places infected by bad code), `lspGetSemantics(type=callers/callees)` (map the blast radius of dysfunction).
-
-## The Sin Registry
-
-Severity quick reference:
-
-| Level | Icon | Fix When |
-|-------|------|----------|
-| 💀 CAPITAL OFFENSES | Security, God functions | NOW |
-| ⚖️ FELONIES | `any` abuse, N+1 queries, callbacks | Today |
-| 🚨 CRIMES | Magic numbers, nested ternaries | This week |
-| 🤖 SLOP | AI hallucinations, verbosity | Shame them |
-| 📝 MISDEMEANORS | Console logs, TODO fossils | Judge silently |
-| 🅿️ PARKING TICKETS | Trailing whitespace | Mention if bored |
-
-When inventorying sins, load the full tiered tables and roast lines from [references/sin-catalog.md](references/sin-catalog.md). When the target is language-specific or you need ready-to-run detection queries, read [references/language-sins.md](references/language-sins.md).
-
-## Golden Rules
-
-1. **Specific > Generic**: "`processAll()` at 847 lines" beats "bad code".
-2. **Security > Everything**: Hardcoded secrets get escalated immediately.
-3. **Redact > Expose**: Flag credential locations but NEVER output actual secret values.
-4. **Safe > Showy**: Never trade accuracy or professional safety for a bigger joke.
-5. **Actionable > Academic**: Every sin needs a fix path.
-6. **Wait > Assume**: Never fix without explicit user consent.
-7. **Pattern > Person**: "This pattern is bad" not "You are bad."
-
-## Scaling Up
-
-When roasting a large codebase (5+ modules, monorepo, or multiple sin categories at once), read [references/parallel-roasting.md](references/parallel-roasting.md) before fanning out subagents.
+Install hint: `npx octocode skill --name octocode-roast`.

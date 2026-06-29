@@ -59,7 +59,7 @@ python3 scripts/awareness.py wait-for-lock --agent-id codex \
   --target-file /abs/path/src/auth/router.ts --wait-seconds 120 --retry-interval 5
 ```
 
-It checks the same conflict rules as `pre-flight-intent` for the requested `--lock-type` (default `EXCLUSIVE`) but never acquires a lock. It sleeps outside SQLite transactions and always has a bounded deadline: `0` means clear/released, `2` means timed out and returns `conflicts[]` with the current holder data. After it returns clear, immediately run `pre-flight-intent` before editing; another agent could claim the file between the wait and your edit.
+The `wait-for-lock` command checks the same conflict rules as `pre-flight-intent` for the requested `--lock-type` (default `EXCLUSIVE`) but never acquires a lock. It sleeps outside SQLite transactions and always has a bounded deadline: `0` means clear/released, `2` means timed out and returns `conflicts[]` with the current holder data. After it returns clear, immediately run `pre-flight-intent` before editing; another agent could claim the file between the wait and your edit.
 
 ## `prune-stale-locks`
 

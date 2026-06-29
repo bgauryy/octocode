@@ -32,11 +32,13 @@ vi.mock('../../../src/utils/skills.js', async importOriginal => {
 const fetchMocks = vi.hoisted(() => ({
   readSkillFromGitHub: vi.fn().mockResolvedValue('# Skill'),
   installMarketplaceSkill: vi.fn().mockResolvedValue({ success: true }),
+  fetchMarketplaceSkills: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../../../src/utils/skills-fetch.js', () => ({
   readSkillFromGitHub: fetchMocks.readSkillFromGitHub,
   installMarketplaceSkill: fetchMocks.installMarketplaceSkill,
+  fetchMarketplaceSkills: fetchMocks.fetchMarketplaceSkills,
 }));
 
 const fsMocks = vi.hoisted(() => ({
@@ -57,6 +59,8 @@ vi.mock('../../../src/utils/spinner.js', () => ({
       start: vi.fn(),
       succeed: vi.fn(),
       fail: vi.fn(),
+      stop: vi.fn(),
+      warn: vi.fn(),
       update: vi.fn(),
     };
     instance.start.mockImplementation(() => instance);
@@ -92,6 +96,7 @@ describe('skillCommand', () => {
     setStdoutTTY(false);
     fetchMocks.readSkillFromGitHub.mockResolvedValue('# Skill');
     fetchMocks.installMarketplaceSkill.mockResolvedValue({ success: true });
+    fetchMocks.fetchMarketplaceSkills.mockResolvedValue([]);
     skillMocks.installSkillToDestination.mockReturnValue('installed');
     fsMocks.fileExists.mockReturnValue(true);
   });
@@ -145,26 +150,47 @@ describe('skillCommand', () => {
           branch: 'main',
         }),
       }),
-      expect.stringContaining('/octocode-home/skill-sources/')
+      '/octocode-home/skills'
     );
     expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
       expect.objectContaining({
         destinationPath: '/targets/cursor/review',
-        mode: 'copy',
+        mode: 'symlink',
       })
     );
     expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
       expect.objectContaining({
-        destinationPath: '/targets/codex/review',
-        mode: 'copy',
+        destinationPath: '/targets/agents/review',
+        mode: 'symlink',
       })
     );
-    expect(jsonOutput()).toMatchObject({
+    const output = jsonOutput();
+    expect(output).toMatchObject({
       success: true,
-      skill: 'review',
       platforms: ['cursor', 'codex'],
-      installed: 2,
+      summary: {
+        installed: 2,
+        skipped: 0,
+        failed: 0,
+      },
     });
+    expect(output).not.toHaveProperty('skill');
+    expect(output).not.toHaveProperty('source');
+    expect(output).not.toHaveProperty('sourcePath');
+    expect(output).not.toHaveProperty('cachePath');
+    expect(output).not.toHaveProperty('targets');
+    expect(output).not.toHaveProperty('installed');
+    expect(output.skills).toMatchObject([
+      {
+        name: 'review',
+        sourcePath: '/octocode-home/skills/review',
+        summary: {
+          installed: 2,
+          skipped: 0,
+          failed: 0,
+        },
+      },
+    ]);
   });
 
   it('adds a named Octocode skill from the canonical skills path', async () => {
@@ -174,7 +200,7 @@ describe('skillCommand', () => {
       command: 'skill',
       args: [],
       options: {
-        name: 'octocode-engineer',
+        name: 'octocode-research',
         platform: 'common',
         json: true,
       },
@@ -183,13 +209,13 @@ describe('skillCommand', () => {
     expect(fetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
       'bgauryy',
       'octocode',
-      'skills/octocode-engineer',
+      'skills/octocode-research',
       'main'
     );
     expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: 'octocode-engineer',
-        path: 'skills/octocode-engineer',
+        name: 'octocode-research',
+        path: 'skills/octocode-research',
         source: expect.objectContaining({
           owner: 'bgauryy',
           repo: 'octocode',
@@ -197,22 +223,43 @@ describe('skillCommand', () => {
           skillsPath: 'skills',
         }),
       }),
-      expect.stringContaining('/octocode-home/skill-sources/')
+      '/octocode-home/skills'
     );
     expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
       expect.objectContaining({
-        destinationPath: '/targets/agents/octocode-engineer',
-        mode: 'copy',
+        destinationPath: '/targets/agents/octocode-research',
+        mode: 'symlink',
       })
     );
-    expect(jsonOutput()).toMatchObject({
+    const output = jsonOutput();
+    expect(output).toMatchObject({
       success: true,
-      skill: 'octocode-engineer',
-      source:
-        'https://github.com/bgauryy/octocode/tree/main/skills/octocode-engineer',
       platforms: ['common'],
-      installed: 1,
+      summary: {
+        installed: 1,
+        skipped: 0,
+        failed: 0,
+      },
     });
+    expect(output).not.toHaveProperty('skill');
+    expect(output).not.toHaveProperty('source');
+    expect(output).not.toHaveProperty('sourcePath');
+    expect(output).not.toHaveProperty('cachePath');
+    expect(output).not.toHaveProperty('targets');
+    expect(output).not.toHaveProperty('installed');
+    expect(output.skills).toMatchObject([
+      {
+        name: 'octocode-research',
+        source:
+          'https://github.com/bgauryy/octocode/tree/main/skills/octocode-research',
+        sourcePath: '/octocode-home/skills/octocode-research',
+        summary: {
+          installed: 1,
+          skipped: 0,
+          failed: 0,
+        },
+      },
+    ]);
   });
 
   it('defaults to the common platform when none is given', async () => {
@@ -233,15 +280,245 @@ describe('skillCommand', () => {
     expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
       expect.objectContaining({
         destinationPath: '/targets/agents/review',
-        mode: 'copy',
+        mode: 'symlink',
       })
     );
     expect(jsonOutput()).toMatchObject({
       success: true,
-      skill: 'review',
       platforms: ['common'],
-      installed: 1,
+      summary: {
+        installed: 1,
+        skipped: 0,
+        failed: 0,
+      },
     });
+  });
+
+  it('prints non-redundant dry-run JSON', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        add: 'owner/repo/skills/review',
+        'dry-run': true,
+        json: true,
+      },
+    });
+
+    expect(fetchMocks.installMarketplaceSkill).not.toHaveBeenCalled();
+    expect(skillMocks.installSkillToDestination).not.toHaveBeenCalled();
+
+    const output = jsonOutput();
+    expect(output).toMatchObject({
+      dryRun: true,
+      mode: 'symlink',
+      platforms: ['common'],
+      skills: [
+        {
+          name: 'review',
+          sourcePath: '/octocode-home/skills/review',
+          targets: [
+            {
+              target: 'agents',
+              path: '/targets/agents/review',
+              action: 'install',
+            },
+          ],
+        },
+      ],
+    });
+    expect(output).not.toHaveProperty('skill');
+    expect(output).not.toHaveProperty('source');
+    expect(output).not.toHaveProperty('sourcePath');
+    expect(output).not.toHaveProperty('targets');
+  });
+
+  it('prints mode, platforms, source, and destination paths for human output', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        name: 'octocode-research',
+        platform: 'pi',
+      },
+    });
+
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Mode:');
+    expect(output).toContain('symlink');
+    expect(output).toContain('Platforms:');
+    expect(output).toContain('pi');
+    expect(output).toContain('Source:');
+    expect(output).toContain('/octocode-home/skills/octocode-research');
+    expect(output).toContain('/targets/pi/octocode-research');
+  });
+
+  it('adds every skill from a GitHub skills library path', async () => {
+    fetchMocks.readSkillFromGitHub.mockRejectedValueOnce(
+      new Error('SKILL.md not found')
+    );
+    const librarySource = {
+      id: 'github-owner-repo-main-skills',
+      name: 'owner/repo',
+      type: 'github',
+      owner: 'owner',
+      repo: 'repo',
+      branch: 'main',
+      skillsPath: 'skills',
+      skillPattern: 'skill-folders',
+      description: 'GitHub skills library',
+      url: 'https://github.com/owner/repo/tree/main/skills',
+    };
+    fetchMocks.fetchMarketplaceSkills.mockResolvedValueOnce([
+      {
+        name: 'code-review',
+        displayName: 'Code Review',
+        description: 'Review code',
+        path: 'skills/code-review',
+        source: librarySource,
+      },
+      {
+        name: 'planning',
+        displayName: 'Planning',
+        description: 'Plan work',
+        path: 'skills/planning',
+        source: librarySource,
+      },
+    ]);
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        add: 'owner/repo/skills',
+        json: true,
+      },
+    });
+
+    expect(fetchMocks.fetchMarketplaceSkills).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'owner',
+        repo: 'repo',
+        branch: 'main',
+        skillsPath: 'skills',
+      }),
+      { skipCache: true }
+    );
+    expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalledTimes(2);
+    expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'code-review' }),
+      '/octocode-home/skills'
+    );
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourcePath: '/octocode-home/skills/code-review',
+        destinationPath: '/targets/agents/code-review',
+        mode: 'symlink',
+      })
+    );
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourcePath: '/octocode-home/skills/planning',
+        destinationPath: '/targets/agents/planning',
+        mode: 'symlink',
+      })
+    );
+
+    const output = jsonOutput();
+    expect(output).toMatchObject({
+      success: true,
+      platforms: ['common'],
+      summary: {
+        installed: 2,
+        skipped: 0,
+        failed: 0,
+      },
+    });
+    expect(output).not.toHaveProperty('installed');
+    expect(output.skills as unknown[]).toHaveLength(2);
+  });
+
+  it('installs all Octocode skills with the selected platform', async () => {
+    const source = {
+      id: 'github-bgauryy-octocode-main-skills',
+      name: 'bgauryy/octocode',
+      type: 'github',
+      owner: 'bgauryy',
+      repo: 'octocode',
+      branch: 'main',
+      skillsPath: 'skills',
+      skillPattern: 'skill-folders',
+      description: 'Official Octocode skills',
+      url: 'https://github.com/bgauryy/octocode/tree/main/skills',
+    };
+    fetchMocks.fetchMarketplaceSkills.mockResolvedValueOnce([
+      {
+        name: 'octocode-research',
+        displayName: 'Octocode Research',
+        description: 'Research',
+        path: 'skills/octocode-research',
+        source,
+      },
+      {
+        name: 'octocode-rfc-generator',
+        displayName: 'Octocode RFC Generator',
+        description: 'RFC Generator',
+        path: 'skills/octocode-rfc-generator',
+        source,
+      },
+    ]);
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        'install-all': true,
+        platform: 'pi',
+        json: true,
+      },
+    });
+
+    expect(fetchMocks.readSkillFromGitHub).not.toHaveBeenCalled();
+    expect(fetchMocks.fetchMarketplaceSkills).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'bgauryy',
+        repo: 'octocode',
+        skillsPath: 'skills',
+      }),
+      { skipCache: true }
+    );
+    expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalledTimes(2);
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/pi/octocode-rfc-generator',
+        mode: 'symlink',
+      })
+    );
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/pi/octocode-research',
+        mode: 'symlink',
+      })
+    );
+
+    const output = jsonOutput();
+    expect(output).toMatchObject({
+      success: true,
+      platforms: ['pi'],
+      summary: {
+        installed: 2,
+        skipped: 0,
+        failed: 0,
+      },
+    });
+    expect(output).not.toHaveProperty('installed');
+    expect(output.skills as unknown[]).toHaveLength(2);
   });
 
   it('expands Claude to Claude Code and Claude Desktop targets', async () => {
@@ -279,7 +556,7 @@ describe('skillCommand', () => {
       command: 'skill',
       args: [],
       options: {
-        name: 'octocode-engineer',
+        name: 'octocode-research',
         platform: 'pi',
         json: true,
       },
@@ -287,15 +564,55 @@ describe('skillCommand', () => {
 
     expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
       expect.objectContaining({
-        destinationPath: '/targets/pi/octocode-engineer',
-        mode: 'copy',
+        destinationPath: '/targets/pi/octocode-research',
+        mode: 'symlink',
       })
     );
     expect(jsonOutput()).toMatchObject({
       success: true,
-      skill: 'octocode-engineer',
       platforms: ['pi'],
-      installed: 1,
+      skills: [{ name: 'octocode-research' }],
+      summary: {
+        installed: 1,
+        skipped: 0,
+        failed: 0,
+      },
+    });
+  });
+
+  it('adds a skill to GitHub Copilot and Gemini platforms', async () => {
+    const command = await loadCommand();
+
+    await command.handler({
+      command: 'skill',
+      args: [],
+      options: {
+        add: 'owner/repo/skills/review',
+        platform: 'github-copilot,gemini-cli',
+        json: true,
+      },
+    });
+
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/copilot/review',
+        mode: 'symlink',
+      })
+    );
+    expect(skillMocks.installSkillToDestination).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destinationPath: '/targets/gemini/review',
+        mode: 'symlink',
+      })
+    );
+    expect(jsonOutput()).toMatchObject({
+      success: true,
+      platforms: ['copilot', 'gemini'],
+      summary: {
+        installed: 2,
+        skipped: 0,
+        failed: 0,
+      },
     });
   });
 
@@ -347,7 +664,7 @@ describe('skillCommand', () => {
       args: [],
       options: {
         add: 'owner/repo/skills/review',
-        name: 'octocode-engineer',
+        name: 'octocode-research',
         platform: 'common',
         json: true,
       },
@@ -359,7 +676,7 @@ describe('skillCommand', () => {
     expect(jsonOutput()).toMatchObject({
       success: false,
       error:
-        'Use either --add <github-folder> or --name <octocode-skill>, not both',
+        'Use only one of --add <github-path>, --name <octocode-skill>, or --install-all',
     });
   });
 

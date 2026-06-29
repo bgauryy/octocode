@@ -35,7 +35,7 @@ Skip the public surfaces only for local-only or org/private scopes (Octocode CLI
 - Search composite filenames `*.skill.md` for skills not using the canonical name.
 - Bias toward well-formatted skills: `filename: "SKILL.md" "name:" "description:"`.
 - Discover repos via topics: `topicsToSearch: ["agent-skills"]`, `["claude-code-skills"]`, `["claude-skill"]`, `["cursor-skills"]`, `["codex-skills"]`; combine with `agent`, `skills`, `SKILL.md`.
-- Inspect likely paths: `skills/<name>/SKILL.md`, `skills/<category>/<name>/SKILL.md`, `<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md`, `.cursor/skills/<name>/SKILL.md`, `.codex/skills/<name>/SKILL.md`, `.opencode/skills/<name>/SKILL.md`, `.agents/skills/<name>/SKILL.md`.
+- Inspect likely paths: `skills/<name>/SKILL.md`, `skills/<category>/<name>/SKILL.md`, `<name>/SKILL.md`, `.agents/skills/<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md`, `.cursor/skills/<name>/SKILL.md`, `.opencode/skills/<name>/SKILL.md`, `.github/skills/<name>/SKILL.md`, `.gemini/skills/<name>/SKILL.md`.
 - Probe manifests: `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`, per-catalog `llms.txt` / `llms-full.txt`.
 
 ## Skills.sh registry API

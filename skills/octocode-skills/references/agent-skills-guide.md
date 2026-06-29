@@ -35,7 +35,7 @@ Agents load skills in three stages:
 2. Activation: when the user task matches the description, the agent reads full `SKILL.md`.
 3. Execution: the agent follows `SKILL.md`, loading bundled resources or running scripts only when needed.
 
-Design implication: every token in `SKILL.md` competes with conversation and system context. Put always-needed instructions in `SKILL.md`; move conditional details to `references/`, `scripts/`, or `assets/` and state when to load them.
+Design implication: every token in `SKILL.md` competes with conversation and system context. Treat it as the agent's efficient map: briefly summarize how the skill works, then route each major capability to the right `references/`, `scripts/`, or `assets/`. Put always-needed instructions in `SKILL.md`; move conditional details out and state when to load them.
 
 ## Source Material For Good Skills
 
@@ -60,7 +60,7 @@ Ask for each instruction: "Would the agent likely get this wrong without the ski
 
 Good skills are coherent units of work. Avoid scopes that are too narrow and force many skills to load, or too broad and trigger imprecisely.
 
-Aim for moderate detail: concise, stepwise guidance with a working example usually beats exhaustive documentation. Keep `SKILL.md` under 500 lines and 5,000 tokens; for most skills, prefer under 300 lines when practical.
+Aim for moderate detail: concise, stepwise guidance with a working example usually beats exhaustive documentation. Keep `SKILL.md` within the lint target of 50 lines; split anything conditional into `references/` and route deterministic work to `scripts/`.
 
 ## Progressive Reference Files
 
@@ -73,6 +73,8 @@ Read `references/api-errors.md` if the API returns a non-200 response.
 ```
 
 A generic "see references/" is too weak because the agent may not know which file matters.
+
+Each reference file should describe one issue or capability well. Give it one short H1, keep the file single-purpose, and cross-link to the next related reference when the agent may need to continue.
 
 Keep non-obvious gotchas in `SKILL.md` if the agent must know them before it can recognize the trigger. Otherwise put them in a reference file with an explicit load condition.
 

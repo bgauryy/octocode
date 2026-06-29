@@ -70,6 +70,11 @@ const USER_SKILL_PLATFORM_IDS: Record<string, UserSkillPlatform | 'all'> = {
   'open-code': 'opencode',
   pi: 'pi',
   'pi-agent': 'pi',
+  copilot: 'copilot',
+  'github-copilot': 'copilot',
+  'vscode-copilot': 'copilot',
+  gemini: 'gemini',
+  'gemini-cli': 'gemini',
   all: 'all',
 };
 

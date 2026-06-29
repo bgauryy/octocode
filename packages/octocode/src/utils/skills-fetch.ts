@@ -352,13 +352,23 @@ export async function fetchMarketplaceSkills(
   } else {
     const prefix = source.skillsPath ? `${source.skillsPath}/` : '';
 
-    const skillDirs = tree.filter(
-      item =>
-        item.type === 'tree' &&
-        (prefix === '' || item.path.startsWith(prefix)) &&
-        !item.path.includes('.') &&
-        !item.path.startsWith('.')
-    );
+    const skillDirs = tree.filter(item => {
+      if (
+        item.type !== 'tree' ||
+        (prefix !== '' && !item.path.startsWith(prefix))
+      ) {
+        return false;
+      }
+
+      const relativePath =
+        prefix === '' ? item.path : item.path.slice(prefix.length);
+      return (
+        relativePath.length > 0 &&
+        !relativePath.includes('/') &&
+        !relativePath.includes('.') &&
+        !relativePath.startsWith('.')
+      );
+    });
 
     const results = await Promise.all(
       skillDirs.slice(0, 50).map(async dir => {

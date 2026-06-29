@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Machine-checkable smoke evals for octocode-brainstorming final answers. These checks verify observable output structure and guardrails; human review still judges research quality.",
+  "description": "Machine-checkable smoke evals for octocode-brainstorming final answers. These checks verify observable output structure and guardrails; human review still judges research quality. Run the evaluator with --agentic to emit advisory intent-derived question seeds that guide a semantic eval agent without affecting pass/fail.",
   "rubric": [
     "Declares mode and surface plan when research is required.",
     "Shows divergence before convergence.",
@@ -24,6 +24,40 @@
         { "name": "decision label", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" },
         { "name": "next step", "pattern": "\\bRecommended Next Step\\b|\\bNext step:\\b" }
       ],
+      "binaryQuestions": [
+        {
+          "id": "declares-surface-plan",
+          "dimension": "research-setup",
+          "question": "Does the answer declare which surfaces are active or skipped before judging the idea?",
+          "passPattern": "\\bSurface Plan\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:surface-plan-missing",
+          "suggestedLesson": "Brainstorming answers should declare Local, GitHub/packages, and Web surface status before research claims."
+        },
+        {
+          "id": "diverges-before-converging",
+          "dimension": "framing",
+          "question": "Does the answer show framings before choosing a verdict?",
+          "passPattern": "\\bFramings? Considered\\b|\\bframing slate\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:anchored-framing",
+          "suggestedLesson": "Run visible divergence first so the first user framing does not anchor the whole search."
+        },
+        {
+          "id": "review-concedes-weak-claims",
+          "dimension": "stress-test",
+          "question": "Does the perspective review include concessions rather than only pro/con theater?",
+          "passPattern": "\\bPerspective Review\\b[\\s\\S]*\\bConceded\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:no-concession",
+          "suggestedLesson": "Perspective review should drop or concede unsupported claims before the final verdict."
+        },
+        {
+          "id": "decision-has-next-step",
+          "dimension": "decision",
+          "question": "Does the answer pair a decision label with one next step?",
+          "passPattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b[\\s\\S]*(\\bRecommended Next Step\\b|\\bNext step:\\b)",
+          "failureSignature": "mechanism:brainstorm-answer|cause:no-actionable-decision",
+          "suggestedLesson": "Every brainstorm verdict should end with a decision label and one concrete next step."
+        }
+      ],
       "forbidden": [
         { "name": "raw transcript", "pattern": "\\braw transcript\\b|\\bfull transcript\\b" },
         { "name": "uncited strong claim", "pattern": "\\bclearly proven\\b(?![^\\n]*(https?://|[A-Za-z0-9_./-]+:\\d+))" }
@@ -41,6 +75,25 @@
         { "name": "secret safety", "pattern": "\\bsecret\\b|\\bAPI key\\b|\\b\\.env\\b" },
         { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
       ],
+      "binaryQuestions": [
+        {
+          "id": "orients-locally-first",
+          "dimension": "workspace-awareness",
+          "question": "Does repo-aware validation inspect the workspace before external claims?",
+          "passPattern": "\\bAlready in the Workspace\\b|\\bLocal first\\b|\\borient(?:ed)? locally\\b",
+          "failureSignature": "mechanism:repo-aware-brainstorm|cause:local-first-skipped",
+          "suggestedLesson": "When an idea targets this repo, orient locally before prior-art or market claims."
+        },
+        {
+          "id": "protects-search-secrets",
+          "dimension": "safety",
+          "question": "Does the answer preserve API-key and `.env` safety?",
+          "passPattern": "\\bsecret\\b|\\bAPI key\\b|\\b\\.env\\b",
+          "failPattern": "\\bcommit\\b[^\\n]*(API key|secret)|\\bprint\\b[^\\n]*(API key|secret)",
+          "failureSignature": "mechanism:repo-aware-brainstorm|cause:secret-safety-missing",
+          "suggestedLesson": "Web-search integration recommendations must keep keys in ignored `.env` files and avoid printing or committing secrets."
+        }
+      ],
       "forbidden": [
         { "name": "stores key", "pattern": "\\bcommit\\b[^\\n]*(API key|secret)|\\bprint\\b[^\\n]*(API key|secret)" }
       ]
@@ -57,6 +110,24 @@
         { "name": "confidence markers", "pattern": "`(strong|moderate|weak)`|\\b(strong|moderate|weak)\\b" },
         { "name": "formal sources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bspec\\b|\\bdocs\\b" }
       ],
+      "binaryQuestions": [
+        {
+          "id": "maps-prior-art-with-confidence",
+          "dimension": "landscape",
+          "question": "Does the answer map prior art and mark evidence confidence?",
+          "passPattern": "(\\bPrior Art\\b|\\bLandscape\\b)[\\s\\S]*(`(strong|moderate|weak)`|\\b(strong|moderate|weak)\\b)",
+          "failureSignature": "mechanism:prior-art-brainstorm|cause:no-confidence-markers",
+          "suggestedLesson": "Prior-art maps should separate landscape evidence from opinion and mark confidence."
+        },
+        {
+          "id": "prefers-formal-sources",
+          "dimension": "evidence",
+          "question": "Does the answer prioritize formal sources before marketing or forum claims?",
+          "passPattern": "\\bofficial\\b|\\bpaper\\b|\\bspec\\b|\\bdocs\\b",
+          "failureSignature": "mechanism:prior-art-brainstorm|cause:weak-source-quality",
+          "suggestedLesson": "Use official docs, papers, specs, or code/data before treating a web claim as validated."
+        }
+      ],
       "forbidden": [
         { "name": "marketing as proof", "pattern": "\\bmarketing\\b[^\\n]*\\bproof\\b" }
       ]
@@ -71,6 +142,24 @@
         { "name": "hard gate", "pattern": "\\bHard Gate\\b|\\btoo broad\\b|\\bcontradictory\\b|\\bself-contradictory\\b" },
         { "name": "no perspective review", "pattern": "\\bstop(?:ped)? before perspective review\\b|\\bskip(?:ped)? perspective review\\b|\\bno perspective review\\b" },
         { "name": "one question or options", "pattern": "\\?$|\\bpick\\b|\\bchoose\\b|\\bnarrow\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "honors-hard-gate",
+          "dimension": "control-flow",
+          "question": "Does the answer stop at a hard gate instead of fabricating research?",
+          "passPattern": "\\bHard Gate\\b|\\btoo broad\\b|\\bcontradictory\\b|\\bself-contradictory\\b",
+          "failureSignature": "mechanism:brainstorm-gate|cause:gate-skipped",
+          "suggestedLesson": "When the idea is too broad or self-contradictory, stop before review and ask one narrowing question."
+        },
+        {
+          "id": "skips-review-after-gate",
+          "dimension": "control-flow",
+          "question": "Does the answer skip perspective review after the hard gate fires?",
+          "passPattern": "\\bstop(?:ped)? before perspective review\\b|\\bskip(?:ped)? perspective review\\b|\\bno perspective review\\b",
+          "failureSignature": "mechanism:brainstorm-gate|cause:review-after-gate",
+          "suggestedLesson": "Do not run perspective review after a hard gate; resolve the gate first."
+        }
       ],
       "forbidden": [
         { "name": "fake citations", "pattern": "\\bsource:\\s*unknown\\b|\\bI found evidence\\b" },
@@ -89,6 +178,33 @@
         { "name": "rfc handoff packet", "pattern": "\\bRFC Handoff\\b|\\bhandoff packet\\b" },
         { "name": "handoff fields", "pattern": "\\bproblem\\b.*\\bframing\\b.*\\bevidence\\b.*\\balternatives\\b.*\\brisks\\b" },
         { "name": "no implementation", "pattern": "\\bdo not start implementation\\b|\\bnot editing code\\b|\\bRFC\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "tracks-worker-budget",
+          "dimension": "coordination",
+          "question": "Does the answer account for the worker ceiling before handing off?",
+          "passPattern": "\\b5-worker\\b|\\bworker ceiling\\b|\\bperspective review shortened\\b",
+          "failureSignature": "mechanism:rfc-handoff|cause:worker-budget-hidden",
+          "suggestedLesson": "Brainstorming handoffs should note worker-budget limits when the run uses or shortens the perspective review."
+        },
+        {
+          "id": "handoff-has-fields",
+          "dimension": "handoff",
+          "question": "Does the RFC handoff include problem, framing, evidence, alternatives, and risks?",
+          "passPattern": "\\bRFC Handoff\\b|\\bhandoff packet\\b[\\s\\S]*\\bproblem\\b.*\\bframing\\b.*\\bevidence\\b.*\\balternatives\\b.*\\brisks\\b",
+          "failureSignature": "mechanism:rfc-handoff|cause:thin-handoff",
+          "suggestedLesson": "Only hand off to RFC when the packet includes problem, framing, evidence, alternatives, risks, MVP slice, questions, and success signal."
+        },
+        {
+          "id": "does-not-implement",
+          "dimension": "scope-control",
+          "question": "Does the answer avoid implementation during brainstorming?",
+          "passPattern": "\\bdo not start implementation\\b|\\bnot editing code\\b|\\bRFC\\b",
+          "failPattern": "\\bI implemented\\b|\\bopened a PR\\b|\\bchanged the code\\b",
+          "failureSignature": "mechanism:rfc-handoff|cause:implementation-creep",
+          "suggestedLesson": "Brainstorming can prepare an RFC handoff, but should not start implementation."
+        }
       ],
       "forbidden": [
         { "name": "auto implementation", "pattern": "\\bI implemented\\b|\\bopened a PR\\b|\\bchanged the code\\b" }

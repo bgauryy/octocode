@@ -16,7 +16,7 @@ The skill reframes the idea into testable claims, then checks the local workspac
 - "Find prior art and white space for this feature."
 - "Should this become an RFC?"
 
-## What you get
+## Features
 
 - A reframed problem statement so the search is not trapped by the first wording.
 - A surface plan covering local code when relevant, GitHub, packages, and the web.
@@ -27,11 +27,20 @@ The skill reframes the idea into testable claims, then checks the local workspac
 
 ## Use another skill when
 
-- The user already knows what to build and wants code work: use `octocode-engineer`.
+- The user already knows what to build, wants code work, or needs repeated proof loops: use `octocode-research`.
 - The question is technical research rather than idea validation: use `octocode-research`.
-- The goal is clear and needs repeated proof loops: use `octocode-loop`.
 - The decision is made and needs a proposal: use `octocode-rfc-generator`.
 
 ## User value
 
 This skill protects users from building the first plausible idea. It widens the frame, checks reality across multiple surfaces, then compresses the result into a brief that supports a decision.
+
+## For developers
+
+`SKILL.md` should stay as the concise router: modes, gates, reference map, scripts, and output contract. Keep the detailed tool commands in `references/tools.md`, presentation rules in `references/output.md`, and saved-report shape in `references/brief-template.md`. The `scripts/brainstorm-run.mjs` ledger is for deterministic run bookkeeping; web scripts are optional adapters and should not replace source verification.
+
+## Installation
+
+```bash
+npx octocode skill --name octocode-brainstorming
+```

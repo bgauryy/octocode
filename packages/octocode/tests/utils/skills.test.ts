@@ -242,9 +242,11 @@ describe('Skills Utilities', () => {
     it('maps user-facing skill platforms to install targets', () => {
       expect(USER_SKILL_PLATFORM_TARGETS.common).toEqual(['agents']);
       expect(USER_SKILL_PLATFORM_TARGETS.cursor).toEqual(['cursor']);
-      expect(USER_SKILL_PLATFORM_TARGETS.codex).toEqual(['codex']);
+      expect(USER_SKILL_PLATFORM_TARGETS.codex).toEqual(['agents']);
       expect(USER_SKILL_PLATFORM_TARGETS.opencode).toEqual(['opencode']);
       expect(USER_SKILL_PLATFORM_TARGETS.pi).toEqual(['pi']);
+      expect(USER_SKILL_PLATFORM_TARGETS.copilot).toEqual(['copilot']);
+      expect(USER_SKILL_PLATFORM_TARGETS.gemini).toEqual(['gemini']);
       expect(USER_SKILL_PLATFORM_TARGETS.claude).toEqual([
         'claude-code',
         'claude-desktop',
@@ -298,7 +300,7 @@ describe('Skills Utilities', () => {
     it('should filter out non-octocode prefixed directories', () => {
       vi.mocked(dirExists).mockReturnValue(true);
       vi.mocked(listSubdirectories).mockReturnValue([
-        'octocode-engineer',
+        'octocode-research',
         '.git',
         'node_modules',
         'octocode-test',
@@ -306,7 +308,7 @@ describe('Skills Utilities', () => {
 
       const result = getAvailableSkills();
 
-      expect(result).toEqual(['octocode-engineer', 'octocode-test']);
+      expect(result).toEqual(['octocode-research', 'octocode-test']);
       expect(result).toHaveLength(2);
     });
 
@@ -335,7 +337,7 @@ describe('Skills Utilities', () => {
         'octocode-research',
         'octocode-rfc-generator',
         'octocode-generate',
-        'octocode-engineer',
+        'octocode-stats',
       ]);
       vi.mocked(copyDirectory).mockReturnValue(true);
 
@@ -711,13 +713,16 @@ describe('getSkillsDirForTarget — all targets', () => {
     expect(result).toContain('skills');
   });
 
-  it('returns HOME-based path for codex', () => {
+  it('returns Codex shared agents skills path', () => {
     const result = getSkillsDirForTarget('codex', '/custom/dest');
+    expect(result).toContain('.agents');
     expect(result).toContain('skills');
   });
 
   it('returns HOME-based path for opencode', () => {
     const result = getSkillsDirForTarget('opencode', '/custom/dest');
+    expect(result).toContain('.config');
+    expect(result).toContain('opencode');
     expect(result).toContain('skills');
   });
 
@@ -725,6 +730,18 @@ describe('getSkillsDirForTarget — all targets', () => {
     const result = getSkillsDirForTarget('pi', '/custom/dest');
     expect(result).toContain('.pi');
     expect(result).toContain('agent');
+    expect(result).toContain('skills');
+  });
+
+  it('returns HOME-based path for GitHub Copilot skills', () => {
+    const result = getSkillsDirForTarget('copilot', '/custom/dest');
+    expect(result).toContain('.copilot');
+    expect(result).toContain('skills');
+  });
+
+  it('returns HOME-based path for Gemini CLI skills', () => {
+    const result = getSkillsDirForTarget('gemini', '/custom/dest');
+    expect(result).toContain('.gemini');
     expect(result).toContain('skills');
   });
 

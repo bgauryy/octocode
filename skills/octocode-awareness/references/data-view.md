@@ -1,4 +1,4 @@
-# data-view — show ALL awareness data in one HTML view
+# Awareness Data Viewer
 
 **Call this whenever the user asks to *show / view / see / browse / open* their awareness data** (memories, refinements, notifications, locks, intents, harness/verify status, "show awareness", "show my memory"). Do **not** hand-dump rows into chat — render the viewer and open it in the browser. Use `get-memory` (text) only for programmatic recall *mid-task*, never when the user wants to *look at* the data.
 
@@ -14,7 +14,7 @@ Everything lives in the **single shared store** `~/.octocode/memory/awareness.sq
 | **Intents & Harness** | `agent_intents` + `intent_events` | Pre-flight intents + **verify-before-conclude** status: per-intent `status` and whether its declared test-plan was **✓ verified** (from a `VERIFIED` event) |
 | **File Locks** | `file_locks` | Files currently claimed by agents — agent, file, lock type, acquired/expires |
 
-That is **all** awareness data — self-awareness (memories + refinements), files-awareness (locks), peer messaging (notifications), and the self-harness lane (intents/verify + mined weaknesses).
+The viewer covers **all** awareness data — self-awareness (memories + refinements), files-awareness (locks), peer messaging (notifications), and the self-harness lane (intents/verify + mined weaknesses).
 
 ## Two-file design
 
@@ -46,4 +46,4 @@ Useful flags: `--memory-db <path>` / `--workspace-db <path>` (point at a differe
 
 - Memories are global; refinements/notifications/intents/locks are scoped by columns (`repo`/`ref`, `workspace_path`) but live in the same file — the viewer shows them all regardless of cwd.
 - Intents/locks panels are read-only in the UI (no delete button) — intents close via `release-file-lock`/`verify`; locks via `release-file-lock`.
-- See [[show-memories.md]] for older notes; this doc supersedes the storage details there.
+- See `references/show-memories.md` when auditing older viewer notes; this doc supersedes the storage details there.

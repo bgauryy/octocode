@@ -173,8 +173,8 @@ A PR with 100+ changed files with `content.patches.mode: "all"` (or legacy `type
 |------------------|-------------|
 | `owner` only | All repos in that org (bypasses 1000-result cap) |
 | `topicsToSearch` only | Repos tagged with that topic |
-| `keywordsToSearch` only | Repos whose name/description matches |
-| `topicsToSearch` + `keywordsToSearch` | Two parallel searches, deduplicated, `totalMatches` double-counted |
+| `keywords` only | Repos whose name/description matches |
+| `topicsToSearch` + `keywords` | Two parallel searches, deduplicated, `totalMatches` double-counted |
 | `language` | Filtered by primary language |
 | `stars: ">500"`, `updated: ">=2025-01-01"` | GitHub range filters |
 
@@ -183,9 +183,9 @@ Each result includes: `owner`, `repo`, `stars`, `forks`, `language`, `descriptio
 ### Known behaviors
 
 **B1 — `language` is a dedicated field, not a keyword.**  
-Do not pass `keywordsToSearch: ["language:TypeScript"]` — that searches for the literal string "language:TypeScript" in names and descriptions. Use `language: "TypeScript"` as its own field.
+Do not pass `keywords: ["language:TypeScript"]` — that searches for the literal string "language:TypeScript" in names and descriptions. Use `language: "TypeScript"` as its own field.
 
-**B2 — `totalMatches` is double-counted when both `topicsToSearch` and `keywordsToSearch` are set.**  
+**B2 — `totalMatches` is double-counted when both `topicsToSearch` and `keywords` are set.**  
 Two separate GitHub API calls run in parallel and their totals are summed. A repo matching both will count twice. The hint says "upper bound... counted twice." The deduplicated repository list is correct; only the count is inflated.
 
 **B3 — `sort: "created"` is missing from the schema.**  
@@ -201,19 +201,19 @@ Private repo visibility requires the org-scoped listing endpoint, not the search
 { "topicsToSearch": ["mcp"], "language": "TypeScript", "stars": ">=500",
   "updated": ">=2025-01-01", "sort": "stars" }
 ```
-> Not `keywordsToSearch: ["language:TypeScript"]`.
+> Not `keywords: ["language:TypeScript"]`.
 
 **Enumerate all repos in an org (no 1000-result cap):**
 ```json
 { "owner": "vercel", "sort": "stars" }
 ```
-> Omitting `keywordsToSearch` uses the listing endpoint, not search.
+> Omitting `keywords` uses the listing endpoint, not search.
 
 **Get deduplicated count when using both topics and keywords:**
 ```json
 // The displayed repository list is accurate.
 // Ignore totalMatches; trust the count of returned repos × pages.
-{ "topicsToSearch": ["vite-plugin"], "keywordsToSearch": ["plugin"],
+{ "topicsToSearch": ["vite-plugin"], "keywords": ["plugin"],
   "owner": "vitejs", "sort": "stars" }
 ```
 
@@ -262,7 +262,7 @@ When `weeklyDownloads` is absent from the response, no hint is emitted. The fiel
 **When `npmSearch` times out — fall back to GitHub:**
 ```json
 // ghSearchRepos with the package name
-{ "keywordsToSearch": ["hono"], "sort": "stars", "limit": 3 }
+{ "keywords": ["hono"], "sort": "stars", "limit": 3 }
 // Then read package.json from the repo for version:
 { "owner": "honojs", "repo": "hono", "path": "package.json" }
 ```
@@ -283,7 +283,7 @@ When `weeklyDownloads` is absent from the response, no hint is emitted. The fiel
 
 | Goal | Cheapest approach |
 |------|------------------|
-| Find if a function exists in a file | `ghSearchCode` with `keywordsToSearch: ["functionName"]` |
+| Find if a function exists in a file | `ghSearchCode` with `keywords: ["functionName"]` |
 | Read one function body | `ghGetFileContent` with `matchString: "function name"` + small `contextLines` |
 | Scan a whole file's structure | `ghGetFileContent` with `minify: "symbols"` |
 | Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |

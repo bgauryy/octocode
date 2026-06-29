@@ -4,7 +4,6 @@
 >
 > Octocode intends to make sufficient simplified research using minimal resources to gather data with minimal noise.
 
-
 ## Overview
 This document serves as the **Manifest of Octocode for Research Driven Development (RDD)**. It introduces the methodology, the concept of **"Vibe-Research"**, the definition of **"Smart Research"**, and the **Process Context Oriented Flows** that drive high-quality software development. By leveraging Octocode's research capabilities, we shift from "guess-driven" to "research-driven" development without breaking your flow.
 

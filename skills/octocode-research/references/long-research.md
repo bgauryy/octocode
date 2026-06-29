@@ -15,44 +15,32 @@ Do not use it for quick lookups, narrow code questions, or small prior-art maps.
 
 ## Campaign Spec
 
-Freeze the scope before deep work. A campaign spec can be a short markdown block in chat or a saved `research_campaign.json` only when the user wants artifacts.
+Freeze scope before deep work. Use a short chat block, or save `research_campaign.json` only when the user wants artifacts.
 
-Minimal fields:
+| Field | Purpose |
+|---|---|
+| `question` | Exact decision or research question. |
+| `mode` | `map`, `validate`, `investigate`, `plan`, `review`, `change`, or `loop`. |
+| `surfaces` | Active/skipped sources with a reason for each skip. |
+| `budget` | Time, max deep dives, and max search passes. |
+| `stopGates` | Conditions that end or pause the campaign. |
+| `nonGoals` | Work explicitly out of scope. |
 
 ```json
 {
   "question": "What are the best options for structural TypeScript search?",
   "mode": "map",
-  "surfaces": {
-    "local": "skip: external landscape",
-    "github": "active",
-    "npm": "active",
-    "web": "active for formal docs only",
-    "history": "active for top repos if needed",
-    "artifacts": "skip"
-  },
-  "budget": {
-    "timeMinutes": 30,
-    "maxReposDeepDived": 5,
-    "maxSearchPasses": 3
-  },
-  "stopGates": [
-    "top candidates have exact source evidence",
-    "next search is unlikely to change ranking",
-    "evidence conflict requires user weighting"
-  ],
-  "nonGoals": [
-    "install packages",
-    "make code changes"
-  ]
+  "surfaces": {"local":"skip: external landscape","github":"active","npm":"active","web":"formal docs only"},
+  "budget": {"timeMinutes":30,"maxReposDeepDived":5,"maxSearchPasses":3},
+  "stopGates": ["top candidates have exact source evidence","next search will not change ranking"],
+  "nonGoals": ["install packages","make code changes"]
 }
 ```
 
 Rules:
-
-- Keep the campaign tiny. If a field is not useful, omit it.
+- Omit fields that do not help the decision.
 - Update the spec only when scope changes, not after every search.
-- Call out skipped surfaces so later readers know absence was a choice, not an oversight.
+- Call out skipped surfaces so absence is traceable.
 - Gate if the next step exceeds the budget or changes the public contract.
 
 ## Evidence Ledger

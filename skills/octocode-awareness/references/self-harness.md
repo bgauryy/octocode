@@ -14,18 +14,33 @@ These surfaces make the skill enforce its own stated philosophy.
 ```bash
 reflect --agent-id <a> --task "<what I did>" --outcome worked|partial|failed \
   [--worked "..."] [--didnt-work "..."] \
+  [--judgment-note "<evidence checked + uncertainty>"] \
   [--lesson "<reusable learning>" --failure-signature "<sig>"] \
+  [--eval-failure-json '[{"id":"...","dimension":"...","failure_signature":"mechanism:...|cause:...","suggested_lesson":"..."}]'] \
   [--fix-repo "<fix this in the code>" --fix-file <path>] \
-  [--fix-harness "<improve this skill>"]
+  [--fix-harness "<improve this skill>"] [--duo]
 ```
 
-It records nothing new of its own — it **routes** the reflection into the existing surfaces so the right reader acts on each piece:
+The `reflect` command records nothing new of its own — it **routes** the reflection into the existing surfaces so the right reader acts on each piece:
 
 - **Learning** (`--lesson`) → a general memory (§3 recall, §2 `mine-weakness` when given `--failure-signature`).
 - **Repo/code fix** (`--fix-repo`) → an open, `quality:bad` refinement the next agent sees via `refine-get` — your durable *"fix this here"* indication, stored with the repo.
 - **Harness improvement** (`--fix-harness`) → a `harness`-tagged memory that §4 `export-harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
 
 So the everyday flow is: **do the work → `verify` it (§1) → `reflect` on it (worked/didn't) → fixes land where they'll be picked up → a human merges (§4).** Everything in §1–4 below is what `reflect` feeds.
+
+Use `--judgment-note` when the conclusion needs nuance: name what evidence was checked, what uncertainty remains, and why any eval/checklist prompt mattered or did not. Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness. It adds a `reflection_duo` packet with two advisory reviewer roles: an evidence/verification reviewer and a harness/skill improver. The packet is not stored, scored, or enforced; it gives a later eval agent seed questions to rewrite, answer, or discard from the actual task intent.
+
+### Binary-question eval failures
+
+Some skills emit BinEval-style `binaryQuestions` in their eval output: each failed question should carry a question id, dimension, failure signature, and suggested lesson. Treat that as a diagnostic packet, not as an auto-patch instruction.
+
+- Record high-signal recurring failures with `reflect --lesson ... --failure-signature <failed-question.failureSignature>`.
+- Mention the failed question ids in the lesson so future agents can trace the eval back to the violated criterion.
+- Prefer `reflect --eval-failure-json '[...]'` when the eval output is structured. Each entry keeps `id`, optional `dimension`, `failure_signature`, and `suggested_lesson`; `reflect` tags the memory as `eval` and uses the first provided signature for `mine-weakness` when `--failure-signature` is omitted.
+- If an eval emits `agenticEval`, use its generated questions as seed prompts for a semantic eval agent. The eval agent may rewrite, add, or drop questions based on the actual intent; these questions guide judgment and should not become a fixed pass/fail checklist.
+- Use `--fix-harness` only for proposed prompt/skill improvements. The proposal still goes through the human-merged harness path below.
+- Do not blindly append every suggested lesson to `SKILL.md`; collapse duplicates, separate promptable failures from missing capability/tooling, and cap update loops before prompt bloat.
 
 ## 1. Validate before you conclude
 
@@ -113,33 +128,17 @@ Propose an improvement — **to the repo's code, or to this harness/skill itself
 Discipline: **mine → propose-as-note → a human merges.** Surface the proposal (and,
 for standing lessons, the `export-harness` preview); let the user decide.
 
-### Applying a harness fix — `harness-apply` (gated, branch-only)
-
-An agent **may** edit the skill itself (prompts, hooks, checks, `awareness.py`,
-references) — but only through a gate, never unattended:
-
-1. **Human opens the gate**: a person exports `OCTOCODE_ALLOW_HARNESS_APPLY=1` for
-   the session (the approval signal).
-2. **Dedicated branch**: the skill's repo must be on a branch that is not
-   `main`/`master` (override with `OCTOCODE_HARNESS_BRANCH_OK=1` for unusual setups),
-   so the change is isolated and reversible.
-3. **Announce + audit**: run `harness-apply --agent-id <a> --approved-by <human>
-   --change "<summary>" --file <skill file…>`. It records a `HARNESS_APPLY` audit
-   event, **broadcasts a `decision` notification** so the human and other agents know
-   it's happening, and returns a `humanMessage` to surface.
-4. **Edit on the branch, verify, open a diff/PR.** A human reviews and merges.
-
-The **`harness-guard` PreToolUse hook enforces this**: it blocks any `Write`/`Edit`
-to a file inside the skill's own directory (exit 2) unless the gate is open and the
-branch check passes — the same mechanism `pre-edit.sh` uses for file locks, turned on
-the harness itself. So "an agent can fix its own harness" is true *and* safe: gated,
-branch-isolated, announced, human-merged.
+When the user explicitly approves editing this skill/harness itself, follow
+`references/harness-apply.md`.
 
 ## Hard NOs
 
 - No **unattended** self-modifying loop. An agent may edit the skill **only** via the
-  gated `harness-apply` path above (human-approved env + dedicated branch + announced
-  + human-merged) — never silently, never on `main`, never auto-merged.
+  gated `harness-apply` path in `references/harness-apply.md` — never silently,
+  never on `main`, never auto-merged.
+- No automatic prompt rewrite from failed binary questions or advisory `agenticEval`
+  prompts. They are evidence for `reflect`, `mine-weakness`, and human-reviewed
+  harness proposals.
 - No numeric regression-gate infrastructure (held-in/held-out splits + verifier
   services) — out of scope for a service-free local skill. Capture the conservative
   spirit by flagging regressions in notes, not by building a benchmark harness.

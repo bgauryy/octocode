@@ -17,7 +17,7 @@ The skill resolves the stats source from an explicit path, `${OCTOCODE_HOME}/sta
 - "Render this specific stats file."
 - "Review Octocode tool errors from the stats data."
 
-## What you get
+## Features
 
 - A generated dashboard path.
 - The stats source path.
@@ -33,9 +33,19 @@ The skill resolves stats from `${OCTOCODE_HOME}/stats.json`, then `~/.octocode/s
 ## Use another skill when
 
 - The user is asking about credentials, MCP install, or configuration: use regular Octocode setup guidance.
-- The user wants research about a codebase: route to the `octocode` or `octocode-engineer` skill.
+- The user wants research about a codebase: route to the `octocode` or `octocode-research` skill.
 - The user wants durable memory or handoff data: use `octocode-awareness`.
 
 ## User value
 
 This skill turns a raw telemetry file into a readable local dashboard and a short summary, so users can understand Octocode's practical savings and failure patterns at a glance.
+
+## For developers
+
+Keep all deterministic parsing, calculation, and HTML generation inside `scripts/build_dashboard.mjs`. `SKILL.md` should only route when to run it, which stats path to resolve, and which caveats to load from `references/measurement-notes.md`.
+
+## Installation
+
+```bash
+npx octocode skill --name octocode-stats
+```

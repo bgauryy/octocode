@@ -1,63 +1,47 @@
 ---
 name: octocode
-description: Use when code research should leverage Octocode through the best available transport: Octocode MCP tools if this host exposes them, otherwise the `npx octocode` CLI. Covers local/GitHub/npm search, exact file reads, AST/LSP navigation, PR/history, package lookup, archives, and raw tool calls.
+description: "Use when a task needs Octocode-powered code research: local or GitHub search, exact file reads, npm/package lookup, PR or commit history, AST/LSP navigation, binary/archive inspection, or raw Octocode tool calls. Trigger when the user asks to use Octocode, inspect code with evidence, or choose MCP vs CLI transport."
 ---
 
 # Octocode
 
-Use Octocode for evidence-driven code research across local files, GitHub, npm, PR/history, archives, and LSP/AST semantics.
+Use Octocode for evidence-driven code research across local files, GitHub, npm, PR/history, archives, and LSP/AST semantics. Read schemas/help before raw calls and carry returned paths, refs, lines, pages, and `location.localPath` forward.
 
-Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
+Flow: `ORIENT -> SEARCH -> READ EXACT -> PROVE -> ANSWER`.
 
-## 1. Pick the transport
+## Transport
 
-- **MCP first when available.** Scan the active tool list, and any host-provided tool discovery, for an Octocode MCP server or namespaced tools such as `mcp__octocode...__localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `localViewStructure`, `lspGetSemantics`, `npmSearch`, or `localBinaryInspect`. Use those directly when present; read the tool/schema text before inputs, batch independent queries, and carry returned paths/lines/pages forward.
-- **CLI fallback.** If MCP tools are not exposed, use `npx octocode` for all CLI commands. Run `npx octocode --help` when flags are uncertain.
-- **MCP setup reference.** For the canonical config and CLI probes, read `references/octocode.md`.
-- If neither MCP nor CLI works, ask the user to install/run `npx octocode` or enable the Octocode MCP server. Do not silently replace Octocode research with plain `rg`/`grep`.
+Prefer Octocode MCP tools when exposed. Otherwise use `npx octocode`; run `npx octocode --help`, `<command> --help`, or `tools <name> --scheme` before uncertain inputs. If neither transport works, say so and continue with degraded confidence only when Octocode is not essential.
 
-Use `OC` below as shorthand for `npx octocode`.
+## Quick Map
 
-## 2. Work smart
+- Tree/files: `npx octocode search <path|owner/repo> --tree`; `search <query> <path> --search path`.
+- Text/code: `npx octocode search <term> <path|owner/repo> --view discovery`.
+- Exact read: `npx octocode search <file|owner/repo/path> --match-string <anchor> --content-view exact`.
+- Symbols/LSP: `npx octocode search <file> --symbols`; `--op references|callers|callees|definition --symbol <name> --line <hint>`.
+- AST: `npx octocode search <path> --pattern '<shape>' --lang <lang>` or `--rule '<yaml>'`.
+- Prior art: `npx octocode search <query> --target repositories|packages`.
+- PR/history: `npx octocode search owner/repo#123 --target pullRequests`; `--target commits`.
+- Artifacts: `npx octocode search <file> --target artifacts --inspect|--list|--strings`; `npx octocode unzip <archive>`.
+- Remote as local: `npx octocode search <term> <subdir> --repo owner/repo --json`; then continue on returned local path.
 
-- Flow: orient cheap, search, read the smallest exact slice, then prove. Snippets are leads, not proof.
-- Prefer quick commands; use raw `tools` only when quick commands cannot express the selector.
-- Use `--json` when a later step depends on returned paths, line numbers, refs, pagination, or `location.*`. Use `--compact`/`--concise` for triage.
-- Follow `next.*`, page, offset, and `location.localPath` hints. Never invent paths, line numbers, offsets, branches, or raw-tool fields.
-- For remote work spanning several files, AST, or LSP, materialize first with `search --repo`, `cache fetch`, or `clone`, then continue against the returned local path.
+Use `--json` when another step depends on machine anchors; use `--compact` for triage. Raw tools: `npx octocode tools`, `tools <name> --scheme`, then `tools <name> --queries '<json>'`.
 
-## 3. Quick command map
+## Reference Map
 
-| Need | CLI | MCP tool family |
-|---|---|---|
-| Map a tree | `OC search <path\|owner/repo> --tree --depth 2` | `localViewStructure` / `ghViewRepoStructure` |
-| Find files | `OC search auth . --search path --ext ts` | `localFindFiles` |
-| Search text/code | `OC search executeDirectTool . --lang ts` | `localSearchCode` / `ghSearchCode` |
-| Read exact content | `OC search file.ts --content-view exact --match-string 'anchor'` | `localGetFileContent` / `ghGetFileContent` |
-| Orient by symbols | `OC search file.ts --symbols` or `--op documentSymbols` | `lspGetSemantics` / content symbols |
-| Trace a symbol | `OC search file.ts --op references --symbol runCLI --line 42` | `lspGetSemantics` |
-| AST/code shape | `OC search . --pattern 'eval($X)' --lang js` or `--rule '<yaml>'` | `localSearchCode` structural mode |
-| GitHub PRs/history | `OC search owner/repo#123 --target pullRequests --deep`; `--target commits` | `ghHistoryResearch` |
-| Repos/packages | `OC search 'query' --target repositories`; `OC search zod --target packages` | `ghSearchRepos` / `npmSearch` |
-| Archives/binaries | `OC search file.zip --target artifacts --list`; `OC unzip file.zip` | `localBinaryInspect` |
-| Remote as local | `OC search term subdir --repo owner/repo --json`; `OC cache fetch owner/repo path`; `OC clone owner/repo` | `ghCloneRepo` plus local tools |
+- `references/octocode.md` — when choosing transport, installing/configuring Octocode, checking auth, or explaining CLI/MCP behavior.
+- `references/recipes.md` — when a task needs short command sequences beyond the quick map.
 
-Quick commands auto-route existing paths as local and `owner/repo[/path][@ref]` or GitHub URLs as remote. Per-command truth lives in `OC <command> --help`.
+## Installation
 
-## 4. Raw CLI tools
+For users: install or run the CLI with `npx octocode`. For skill installation use the Octocode skill CLI, for example:
 
 ```bash
-OC tools
-OC tools <name> --scheme
-OC tools <name> --queries '<json>' --json
+npx octocode skill --name octocode
 ```
 
-Read `--scheme` before every raw call. `id`, `mainResearchGoal`, `researchGoal`, and `reasoning` are auto-filled by the CLI; do not pass them. `--queries` accepts one object, an array of up to 5, or `{"queries":[...]}`.
+## Escalation
 
-## 5. When deeper workflow matters
+Use `octocode-research` for large investigations, reviews, refactors, AST/LSP-heavy work, repeated loops, or code changes. Use `octocode-rfc-generator` for formal proposals.
 
-Read `references/recipes.md` for tiny command sequences. For large investigations, PR/local review, dead-code, architecture, or AST/LSP-heavy work, use the `octocode-engineer` skill and its references.
-
-## Failure and auth
-
-Bad input exits `2` and prints valid flags; `3` means not found; `4` auth; `5` tool error; `7` rate limited. Humans can run `OC auth login`; agents should check `OC auth status --json` or `OC status --json` and use `GITHUB_TOKEN`, `OCTOCODE_TOKEN`, or `GH_TOKEN` when available. Deep protocol: `OC context [--full]`. Docs: https://github.com/bgauryy/octocode/tree/main/docs
+Bad input exits `2`; not found `3`; auth `4`; tool error `5`; rate limit `7`. Check `npx octocode auth status --json` or `status --json` and use available `GITHUB_TOKEN`, `OCTOCODE_TOKEN`, or `GH_TOKEN`.

@@ -80,6 +80,23 @@ const refIds = z
   .max(50)
   .default([])
   .describe("Ids this message is about: intent_id / refinement_id / memory_id / notification_id — makes it actionable.");
+const evalFailure = z
+  .object({
+    id: z.string().trim().min(1).max(128).describe("Failed eval question/check id."),
+    dimension: z.string().trim().min(1).max(128).optional().describe("Rubric or reasoning dimension."),
+    failure_signature: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe("Clusterable recurring-failure signature for mine-weakness."),
+    suggested_lesson: z.string().trim().min(1).max(1000).optional().describe("Reusable lesson suggested by the eval."),
+  })
+  .strict()
+  .refine((d) => d.failure_signature !== undefined || d.suggested_lesson !== undefined, {
+    message: "eval failure needs failure_signature or suggested_lesson.",
+  });
 
 export const schemas = {
   tell_memory: z
@@ -442,6 +459,7 @@ export const schemas = {
       outcome: z.enum(["worked", "partial", "failed"]).describe("Did it work?"),
       worked: nonEmptyText("What worked.", 2000).optional(),
       didnt_work: nonEmptyText("What didn't work.", 2000).optional(),
+      judgment_note: nonEmptyText("Advisory note naming checked evidence, remaining uncertainty, and why eval prompts mattered or did not.", 2000).optional(),
       lesson: nonEmptyText("Reusable lesson → recorded as a general memory (feeds recall + mine-weakness).", 4000).optional(),
       failure_signature: z
         .string()
@@ -450,6 +468,11 @@ export const schemas = {
         .max(256)
         .optional()
         .describe("Clusterable recurring-failure signature for mine-weakness."),
+      eval_failures: z
+        .array(evalFailure)
+        .max(20)
+        .default([])
+        .describe("Structured failed eval questions/checks preserved in the reflection memory; advisory evidence, not an auto-patch."),
       fix_repo: nonEmptyText("Indication to fix something in the repo/code → an open 'bad' refinement for the next agent.", 2000).optional(),
       fix_file: fileList,
       fix_harness: nonEmptyText("Improvement to this skill/harness itself → a 'harness'-tagged memory that export-harness surfaces.", 2000).optional(),
@@ -457,6 +480,10 @@ export const schemas = {
       ref: z.string().trim().min(1).max(256).optional(),
       workspace_path: z.string().trim().min(1).max(1024).optional(),
       importance: importanceScore.optional().describe("Override the outcome-derived importance (failed 8 / partial 6 / worked 5)."),
+      duo: z
+        .boolean()
+        .optional()
+        .describe("Request an advisory two-agent reflection packet. It guides semantic review and does not affect storage."),
     })
     .strict()
     .describe("Post-task self-reflection: record what worked/didn't as learning, plus actionable fix indications for the repo and/or the harness."),
@@ -607,10 +634,19 @@ export const examples = {
     outcome: "partial",
     worked: "Equality predicates now push down to ghSearchCode.",
     didnt_work: "Glob/size filters still force materialization — slower than hoped.",
+    judgment_note: "Verified equality pushdown with planner tests; glob behavior remains intentionally unresolved.",
     lesson: "OQL pushdown only covers field equality today; document the residual-filter fallback.",
     fix_repo: "Teach planner.ts to push basename glob patterns down as path prefixes.",
     fix_file: ["src/oql/planner.ts"],
-    failure_signature: "mechanism:oql-pushdown|cause:glob-materializes",
+    eval_failures: [
+      {
+        id: "binary-glob-pushdown",
+        dimension: "planning",
+        failure_signature: "mechanism:oql-pushdown|cause:glob-materializes",
+        suggested_lesson: "Keep residual-filter fallbacks visible when pushdown is incomplete.",
+      },
+    ],
+    duo: true,
   },
   harness_apply: {
     agent_id: "codex-local",

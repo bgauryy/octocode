@@ -7,9 +7,6 @@ implementation logic.
 Authoritative contract:
 https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md
 
-Implementation plan:
-https://github.com/bgauryy/octocode/blob/main/docs/context/OCTOCODE_QUERY_LANGUAGE_PLAN.md
-
 ## Replacement Rule
 
 `npx octocode search` may replace another Octocode surface only when all of these
@@ -39,7 +36,7 @@ Non-goal: `search` should not replace management/meta commands such as
 |---|---|---|
 | `@octocodeai/octocode-core` | Public descriptions, schema text, command/tool guidance | Execution or interface-specific parsing |
 | `packages/octocode-tools-core/src/oql` | OQL schema, normalization, shorthand lowering, planning, adapters, result envelope | CLI rendering or terminal argv concerns |
-| `packages/octocode-tools-core/src/tools/*` | The existing 13 tool runners and security wrappers | OQL-specific presentation |
+| `packages/octocode-tools-core/src/tools/*` | The direct tool runners and security wrappers, including the `oqlSearch` wrapper around `packages/octocode-tools-core/src/oql` | OQL-specific presentation |
 | `packages/octocode/src/cli` | argv parsing, local-vs-GitHub target classification, rendering | Search semantics, routing, backend field mapping |
 | `packages/octocode-mcp` | MCP registration and transport | Tool behavior or OQL planning |
 
@@ -56,7 +53,9 @@ Evidence anchors:
 
 ## Live Inventory Checked
 
-Last verified from the built CLI on 2026-06-22.
+Command and tool inventory last checked from the built CLI on 2026-06-29. The
+parity scorecard and gap log below keep their original verification dates unless
+an entry says otherwise.
 
 Raw tools checked with `npx octocode tools <name> --scheme`:
 
@@ -66,21 +65,21 @@ Raw tools checked with `npx octocode tools <name> --scheme`:
 | Local | `localSearchCode`, `localViewStructure`, `localFindFiles`, `localGetFileContent`, `localBinaryInspect` |
 | LSP | `lspGetSemantics` |
 | Package | `npmSearch` |
+| Other | `oqlSearch` |
 
 CLI commands checked with `npx octocode <command> --help`:
 
 | Surface | Commands |
 |---|---|
-| Search/research | `search`, `grep`, `cat`, `ls`, `find`, `lsp`, `repo`, `pkg`, `pr`, `history`, `binary`, `unzip`, `clone`, `cache`, `diff` |
+| Search/research | `search`, `unzip`, `clone`, `cache fetch` |
 | Raw/meta | `tools`, `context`, top-level `--help` |
-| Management | `install`, `auth login`, `auth logout`, `auth status` |
+| Management | `skill`, `install`, `auth login`, `auth logout`, `auth refresh`, `auth status`, top-level `login`, top-level `logout`, `status`, `lsp-server` |
 
 Current `search --scheme` target inventory:
 
 | Type | Targets |
 |---|---|
-| Active | `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`, `materialize` |
-| Reserved | `fixes`, `dataflow` |
+| Active | `code`, `content`, `structure`, `files`, `semantics`, `repositories`, `packages`, `pullRequests`, `commits`, `artifacts`, `diff`, `research`, `graph`, `materialize` |
 
 Parity rule: if a target or command is not in this inventory, do not claim
 `search` replaces it. If the CLI adds a command, this checklist must be updated
@@ -106,6 +105,7 @@ for the fields most likely to break agent research.
 | `localBinaryInspect` | modes `inspect|list|extract|decompress|strings|unpack`, archive entry paging, string scan offset, char window, format override, offsets, `localPath` for derived output. |
 | `lspGetSemantics` | all semantic types, `uri`, `symbolName`, `lineHint`, `orderHint`, `workspaceRoot`, `depth`, `includeDeclaration`, `groupByFile`, `format`, pagination, context lines. |
 | `npmSearch` | exact package vs keyword search, `mode:lean|full`, `page`, repository handoff. |
+| `oqlSearch` | canonical `target/from/where/fetch/params/materialize`, batch envelopes, `explain`, diagnostics, evidence, and `next.*` continuations. |
 
 ## Raw Tool Parity Matrix
 
@@ -124,6 +124,7 @@ for the fields most likely to break agent research.
 | `ghSearchRepos` | `repositories` | `target:"repositories"`, optional GitHub `from`, `params` | Partial | `params` is opaque; row payload is generic. Need typed schema docs and OQL continuations. |
 | `ghHistoryResearch` | `pullRequests`, `commits`, `diff` | GitHub `from`, `params` for PR/commit/diff selectors | Partial | PR list/detail, merged state, patch selectors, comments/reviews, commit diffs, history pagination must match raw tool. `diff` now has two typed lanes (PR-patch vs direct-file `{baseRef,headRef,path}` + repair). `symbols` view on PR/commit/diff now flagged `signatureUnsupported`. |
 | `npmSearch` | `packages` | `target:"packages"`, `from:{kind:"npm"}` default, `params` | Partial | Package rows exist, but raw `data.next` is legacy handoff, not first-class OQL `next`. |
+| `oqlSearch` | all OQL targets | canonical OQL query or batch envelope | Strong | Direct MCP `oqlSearch` and CLI `search --query` must execute the same OQL runner, produce the same diagnostics/evidence, and preserve `next.*` continuations. |
 
 Status meanings:
 
@@ -146,7 +147,7 @@ built CLI and raw schemas on 2026-06-22, not the desired final design.
 | Scope | Rating | Meaning |
 |---|---:|---|
 | Overall OQL readiness | 8/10 | Strong V1 basics + all coverage gaps closed (continuations, capability diagnostics, diff lanes, materialize checkpoint, typed V2 params/rows, structural captures). Remaining drag is human rendering + live-network golden breadth. |
-| Backend/tool reuse | 9/10 | Search delegates through `octocode-tools-core`; no second implementation of the 13 tool runners was found. |
+| Backend/tool reuse | 9/10 | Search delegates through `octocode-tools-core`; no second implementation of the direct tool runners was found. |
 | Agent JSON workflow | 8.5/10 | `--json`/`--explain`/raw-schema fallback plus typed params, typed record-row contracts, and universal `next.*` continuations. |
 | Human CLI replacement | 5.5/10 | Plain rendering is not yet enough for V2 record targets; agents should prefer `--json` for those. |
 | Replace-all confidence | 8/10 | Strong for `code`/`content`/`structure`/`files`/`diff`/`materialize` and now typed repo/pkg/PR/commit/artifact rows; LSP remote + live human rendering remain the soft spots. |
@@ -192,7 +193,10 @@ Rating rule for future audits:
 - `5-6`: Adapter is present; require raw-schema fallback before relying on it.
 - `<5`: Do not market or document as a replacement yet.
 
-## CLI Command Parity Matrix
+## Removed Quick Command Replacement Matrix
+
+These command names were earlier quick-command surfaces. They are removed from
+the current CLI; use `search` with the mapped target or flag shape instead.
 
 | CLI command | Should `search` replace it? | OQL mapping | Current parity check |
 |---|---|---|---|
@@ -200,7 +204,7 @@ Rating rule for future audits:
 | `cat` | Yes | `target:"content"` | Exact/standard/symbols views, line/char/match ranges, `--repo` materialization, raw vs minified rendering. |
 | `ls` | Yes | `target:"structure"` or symbols | Tree browsing plus `--symbols`/file outline. Raw LSP `documentSymbols` remains the authoritative semantic outline path. |
 | `find` | Yes | `target:"files"` | Field predicates, metadata, content-contained queries, negative queries, `--repo` materialization. |
-| `lsp` | Yes | `target:"semantics"` | Local and remote-as-local LSP; quick command omits `documentSymbols`, so cover that through `ls --symbols` and raw `lspGetSemantics`. |
+| `lsp` | Yes | `target:"semantics"` | Local and remote-as-local LSP; use `search <file> --op documentSymbols` or `search <file> --symbols` for outline coverage, and raw `lspGetSemantics` for schema-exact parity probes. |
 | `repo` | Yes | `target:"repositories"` | Repo discovery rows, sorting/filter params, pagination. |
 | `pkg` | Yes | `target:"packages"` | Package metadata, repository handoff, npm fallback diagnostics. |
 | `pr` | Yes | `target:"pullRequests"` or `diff` | PR list/detail modes, comments/reviews/patch selectors. |
@@ -210,7 +214,7 @@ Rating rule for future audits:
 | `clone` | Yes | `target:"materialize"` | `target:"materialize"` returns a first-class checkpoint row + continuations; `npx octocode cache status` / `npx octocode cache clear` remain management. |
 | `cache fetch` | Yes | `target:"materialize"` | Returns materialized `localPath`/`repoRoot`/`cache`/`complete` + `next.structure`/`next.files`; `npx octocode cache status` / `npx octocode cache clear` remain management. |
 | `diff` | Yes | `target:"diff"` | Two typed lanes: PR patch (`{prNumber}`) and direct file (`{baseRef,headRef,path}`); neither → repair diagnostic. |
-| `search` | Already | OQL runner | Must stay a thin wrapper over tools-core. |
+| `search` | Already | OQL runner | Current read-only quick surface. Must stay a thin wrapper over tools-core. |
 | `tools` | No | Raw tool runner | Keep for schema-exact debug, parity probes, and compatibility. |
 | `context` | No | Protocol/help surface | Keep for agent bootstrapping and schema discovery. |
 | `install`, `auth login`, `auth logout`, `auth status` | No | Management | Keep outside OQL. |
@@ -223,8 +227,8 @@ behavior, not just flag names.
 | Surface | Control | Values | Audit note |
 |---|---|---|---|
 | Raw content tools | `minify` | `none`, `standard`, `symbols` | `none` is exact text for quotes/diffs; `standard` is the default compact read; `symbols` is the smallest orienting skeleton. |
-| Quick `cat` | `--mode` / `--minify` | `none`, `standard`, `symbols` | Quick flags are kebab-case; raw fields are camelCase. Read help before copying examples. |
-| `search` content | `fetch.content.view` / `contentView` | Exact/compact/symbol-oriented equivalent | Must report the view used and preserve exact text when proof requires it. |
+| CLI `search` content | `--content-view` | `exact`, `compact`, `symbols` | Current quick flags are kebab-case; raw and OQL fields are camelCase. Read help before copying examples. |
+| OQL `search` content | `fetch.content.contentView` / `contentView` | Exact/compact/symbol-oriented equivalent | Must report the view used and preserve exact text when proof requires it. |
 | PR content | `minify` | `none`, `standard` | PR bodies/diffs do not expose `symbols`; keep this limitation visible. |
 | Search snippets | `matchContentLength`, context, `onlyMatching` | Tool-specific | Snippets are discovery. Re-read content with exact mode before quoting or diffing. |
 
@@ -257,7 +261,8 @@ raw `data.next`, mark the parity grade `adapter-present` or `replace-json-only`.
 
 Structural search parity is required for local/materialized code:
 
-- Quick command: `grep --pattern <code-shape>` or `grep --rule <yaml-rule>`.
+- CLI quick route: `search --pattern <code-shape> <path> --lang <lang>` or
+  `search --rule <yaml-rule> <path> --lang <lang>`.
 - Raw tool: `localSearchCode mode:"structural"` with exactly one of `pattern` or
   `rule`.
 - Pattern metavariables: `$X` matches one node; `$$$` or named variadic forms
@@ -287,8 +292,8 @@ Raw `lspGetSemantics` supports all of these `type` values:
 
 Parity checks:
 
-- `documentSymbols` exists in the raw LSP tool. The quick `lsp` command help does
-  not expose it; quick outline coverage is through `ls --symbols`/file `ls`.
+- `documentSymbols` exists in the raw LSP tool. Current CLI outline coverage is
+  through `search <file> --op documentSymbols` or `search <file> --symbols`.
 - `symbolName` and `lineHint` are identity anchors, not optional decoration, for
   most semantic operations.
 - `workspaceRoot` must point at the real local or materialized project root, not
@@ -307,11 +312,11 @@ remote provider or materialize code and continue locally.
 |---|---|
 | `ghCloneRepo` / `clone` | Clone repo or sparse subtree, honor `branch`/`sparsePath`, `forceRefresh`, clone enablement, and return absolute local path. |
 | `cache fetch` | Materialize file/tree/clone into Octocode cache, return `localPath`, `repoRoot`, `source`, `complete`, `cached`. |
-| `grep --repo` | Materialize remote repo/subtree, then run local text/regex/structural search. |
-| `cat --repo` | Materialize or fetch remote file, then read with local content controls. |
-| `ls --repo` / `find --repo` | Materialize remote scope, then run local structure/file tools. |
-| `lsp --repo` | Materialize remote file/project before semantic navigation. |
-| `unzip` / binary `unpack` | Produce a new local directory and continue with local `ls`/`grep`/`find`/`cat`/`lsp`. |
+| `search --repo <owner/repo>` with code flags | Materialize remote repo/subtree, then run local text/regex/structural search. |
+| `search <file> --repo <owner/repo>` with content flags | Materialize or fetch remote file, then read with local content controls. |
+| `search <path> --repo <owner/repo> --tree` / `--search path` | Materialize remote scope, then run local structure/file tools. |
+| `search <file> --repo <owner/repo> --op ...` | Materialize remote file/project before semantic navigation. |
+| `unzip` / binary `unpack` | Produce a new local directory and continue with local `search`, `--tree`, `--search path`, content reads, or LSP operations. |
 
 Required diagnostics: stale cache, force refresh, clone disabled, sparse path not
 found, full-repo materialization risk, auth/rate failure, and any mismatch
@@ -495,12 +500,12 @@ Status legend: ✅ closed · 🟡 partial · ⬜ open. Last updated 2026-06-22.
 9. ✅ `unzip`/`unpack` extracted-localPath follow-up continuations — done.
    `record:artifact` rows with a derived `localPath` emit `next.structure`/
    `next.files` rooted at it (`run.ts` continuation registry).
-10. ✅ `lsp` vs raw `documentSymbols` parity narrative — done. Local code rows
+10. ✅ LSP outline vs raw `documentSymbols` parity narrative — done. Local code rows
     emit `next.semantic` (`type:"documentSymbols"`) + `next.fetch`; semantics rows
     emit `next.fetch`. Parity: `documentSymbols` is reachable via
-    `target:"semantics",params:{type:"documentSymbols"}` or raw `lspGetSemantics`;
-    `ls --symbols` is the quick-command outline (the quick `lsp` command stays
-    relational-only — see `packages/octocode/src/cli/commands/lsp.ts`).
+    `target:"semantics",params:{type:"documentSymbols"}`, raw
+    `lspGetSemantics`, `search <file> --op documentSymbols`, or
+    `search <file> --symbols`.
 11. ✅ PR content `none|standard`-only (no `symbols`) visibility — done.
     `checkOutputFeatures` emits `signatureUnsupported` + repair when a `symbols`
     view is requested for `pullRequests`/`commits`/`diff` (`features.ts`).

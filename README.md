@@ -215,7 +215,7 @@ npx octocode --help       # full usage
 - **GitHub & npm** — `npx octocode search <…> --target repositories|packages|pullRequests|commits|artifacts|diff`
 - **LSP** — `npx octocode search <file> --op definition|references|callers|callees|hover|diagnostic|callHierarchy` (`--symbol`, `--line` to narrow)
 - **Cache & clone** — `npx octocode clone`, `npx octocode unzip`, `npx octocode cache fetch|status|clear`
-- **Skills** — `npx octocode skill --list | --name <skill> | --add <github-folder>`
+- **Skills** — `npx octocode skill --list | --name <skill> | --add <github-path> | --install-all`
 - **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
 - **Setup & introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode tools`, `npx octocode context`
 
@@ -340,35 +340,35 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp) · Skills index: [skills/README.md](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
 
-These are the skills the Octocode team itself uses to build Octocode. **10 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table mirrors the [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md). ⭐ **[Engineer](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer)** is the recommended starting skill for code work.
+These are the skills the Octocode team itself uses to build Octocode. **8 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table mirrors the [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md). ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
 
-Install them with the Octocode CLI through `npx octocode`; no global install is required. Pick the platform your agent reads from, or use `common` for the shared `~/.agents/skills` folder.
+Each skill folder includes a human README with purpose, features, workflow, developer notes, and `npx octocode skill` installation. `SKILL.md` stays the compact agent-facing router.
+
+Install them with the Octocode CLI through `npx octocode`; no global install is required. Octocode refreshes the canonical source in `~/.octocode/skills/<skill>` and links it into the platform location by default. Pick the platform your agent reads from, or use `common` for the shared `~/.agents/skills` folder.
 
 ```bash
 npx octocode skill --list                                      # browse available Octocode skills
-npx octocode skill --name octocode-engineer                    # install to ~/.agents/skills (common)
-npx octocode skill --name octocode-engineer --platform codex   # install for Codex
-npx octocode skill --name octocode-engineer --platform claude  # install for Claude Code + Claude Desktop
-npx octocode skill --name octocode-engineer --platform pi      # install for Pi
-npx octocode skill --name octocode-engineer --all --dry-run    # preview before installing everywhere
+npx octocode skill --name octocode-research                    # install to ~/.agents/skills (common)
+npx octocode skill --name octocode-research --platform pi      # install for Pi
+npx octocode skill --name octocode-research --platform all --dry-run  # preview before installing everywhere
 npx octocode skill --add owner/repo/skills/my-skill            # install any GitHub skill folder
+npx octocode skill --add owner/repo/skills                     # install every skill in a GitHub skills library
+npx octocode skill --install-all                               # install every official Octocode skill to ~/.agents/skills
 npx octocode skill --help                                      # read live flags
 ```
 
-Platforms: `common` (default, `~/.agents/skills`), `cursor`, `claude`, `codex`, `opencode`, `pi` (`~/.pi/agent/skills`), `all` · Modes: `copy` (default), `symlink`, `hybrid` · bulk installs are covered in the [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
+Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`), `claude` (`~/.claude/skills` and `~/.claude-desktop/skills`), `codex` (`~/.agents/skills`), `opencode` (`~/.config/opencode/skills`), `pi` (`~/.pi/agent/skills`), `copilot` (`~/.copilot/skills`), `gemini` (`~/.gemini/skills`), `all` · Modes: `symlink` (default), `copy`, `hybrid` · full platform table and bulk installs: [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
 
-| Skill | Directory | Use it when | How it works |
-|-------|-----------|-------------|--------------|
-| [**Octocode**](https://www.skills.sh/bgauryy/octocode-mcp/octocode) | `octocode/` | You want a quick code-research answer through MCP or the `npx octocode` CLI. | Chooses the best transport, orients cheaply, reads exact evidence, and returns file/repo/package/PR anchors. |
-| ⭐ [**Engineer**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer) | `octocode-engineer/` | You need to understand, implement, review, refactor, or audit code. | Frames scope, searches local or remote code, proves with AST/LSP/history/tests, then patches or reports with verification. |
-| [**Loop**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-loop) | `octocode-loop/` | The goal is clear but one search is not enough to trust the answer. | Runs Act -> Observe -> Learn -> Repeat loops, carrying anchors forward until evidence converges or a stop rule is hit. |
-| [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | `octocode-brainstorming/` | The idea is fuzzy and needs prior-art or opportunity validation. | Reframes the idea, checks workspace/GitHub/packages/web, weighs objections, and returns a decision brief. |
-| [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | You need evidence-first technical research without starting an edit. | Runs map, validate, investigate, or plan mode across selected evidence surfaces and marks confidence explicitly. |
-| [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | `octocode-rfc-generator/` | You need a design doc, RFC, architecture proposal, migration plan, or rollout plan before coding. | Gathers current-state proof, compares alternatives, recommends a path, and writes risks, rollback, and ordered steps. |
-| [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | You want blunt but actionable code critique. | Finds cited issues, ranks severity, calibrates humor to the ask, and gives each major issue a repair path. |
-| [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | You are working on Agent Skills themselves. | Inspects real `SKILL.md` folders, judges quality, gates installs or writes, and verifies with `skill-lint`. |
-| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | You need memory, file locks, handoffs, or verify-before-conclude in a shared repo. | Stores memories, refinements, locks, notifications, and verification records in a local SQLite database. |
-| [**Stats**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-stats) | `octocode-stats/` | You want to visualize Octocode usage, savings, cache hits, errors, or rate limits. | Resolves `stats.json`, renders a local HTML dashboard, and summarizes measured calls and failure patterns. |
+| Skill | Directory | Install with `npx octocode` | Use it when |
+|-------|-----------|-----------------------------|-------------|
+| [**Octocode**](https://www.skills.sh/bgauryy/octocode-mcp/octocode) | `octocode/` | `npx octocode skill --name octocode` | You want a quick code-research answer through MCP or the `npx octocode` CLI. |
+| [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | `octocode-brainstorming/` | `npx octocode skill --name octocode-brainstorming` | The idea is fuzzy and needs prior-art or opportunity validation. |
+| ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
+| [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | `octocode-rfc-generator/` | `npx octocode skill --name octocode-rfc-generator` | You need a design doc, RFC, architecture proposal, migration plan, or rollout plan before coding. |
+| [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | `npx octocode skill --name octocode-roast` | You want blunt but actionable code critique. |
+| [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | `npx octocode skill --name octocode-skills` | You are working on Agent Skills themselves. |
+| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need memory, file locks, handoffs, or verify-before-conclude in a shared repo. |
+| [**Stats**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-stats) | `octocode-stats/` | `npx octocode skill --name octocode-stats` | You want to visualize Octocode usage, savings, cache hits, errors, or rate limits. |
 
 ---
 
@@ -457,10 +457,10 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 
 [Pi](https://github.com/earendil-works/pi) is a fast, local-first coding agent whose stated philosophy is *"CLI tools with READMEs (Skills) over MCP."* Pairing it with Octocode gives a lean, evidence-driven dev loop — **Pi edits, Octocode researches**. Two routes, pick by how much surface you need:
 
-- **Skill route — recommended, leanest.** Drop the [`octocode-engineer`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-engineer) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
+- **Skill route — recommended, leanest.** Drop the [`octocode-research`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
 
   ```bash
-  npx octocode skill --name octocode-engineer --platform pi
+  npx octocode skill --name octocode-research --platform pi
   ```
 
 - **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose all 14 Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is actually called. Enable clone tools with `ENABLE_CLONE=true`.

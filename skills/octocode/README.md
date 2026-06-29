@@ -16,7 +16,7 @@ The skill first chooses the best live transport: Octocode MCP tools when they ar
 - "Look up the PR or commit history for this behavior."
 - "Inspect this archive or binary enough to tell me what it contains."
 
-## What you get
+## Features
 
 - The transport used: MCP or `npx octocode`.
 - Cheap orientation before exact reads.
@@ -26,11 +26,19 @@ The skill first chooses the best live transport: Octocode MCP tools when they ar
 
 ## Use another skill when
 
-- The task needs a review, refactor, architecture assessment, or implementation: use `octocode-engineer`.
-- The answer needs iterative convergence across several tool calls: use `octocode-loop`.
-- The request is broad technical research with no code edits: use `octocode-research`.
+- The task needs research, review, refactor, architecture assessment, implementation, or iterative convergence: use `octocode-research`.
 - The user needs an RFC or proposal: use `octocode-rfc-generator`.
 
 ## User value
 
 This skill keeps small code questions small. It avoids a long playbook, reads live Octocode schemas when raw tools are needed, and returns only the evidence a user needs to trust the answer.
+
+## For developers
+
+Keep `SKILL.md` as the short transport and command router. Put longer command recipes in `references/recipes.md` and setup/auth details in `references/octocode.md` so agents load them only when needed.
+
+## Installation
+
+```bash
+npx octocode skill --name octocode
+```

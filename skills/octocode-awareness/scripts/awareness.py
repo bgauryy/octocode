@@ -87,6 +87,7 @@ REFLECTION_IMPORTANCE = {"failed": 8, "partial": 6, "worked": 5}
 DEFAULT_HARNESS_BRANCHES = ("main", "master")
 MEMORY_EXPORT_NAME = "memories.jsonl"
 MAX_GIT_CHANGE_ENTRIES = 200
+EVAL_FAILURE_FIELDS = ("id", "dimension", "failure_signature", "suggested_lesson")
 
 # 1.2 Decay / salience re-ranking — local-SQLite peer-group pattern (exponential
 # decay keyed off last USE, so re-use keeps a memory salient). Computed in Python
@@ -1522,6 +1523,13 @@ def release_file_lock(args: argparse.Namespace) -> int:
         conn.execute(f"DELETE FROM file_locks WHERE {where}", params)
 
         intent_ids = sorted({row["intent_id"] for row in locks})
+        if args.intent_id and args.intent_id not in intent_ids:
+            lockless_intent = conn.execute(
+                "SELECT intent_id FROM agent_intents WHERE intent_id = ? AND agent_id = ?",
+                (args.intent_id, args.agent_id),
+            ).fetchone()
+            if lockless_intent:
+                intent_ids.append(args.intent_id)
         for intent_id in intent_ids:
             remaining = conn.execute(
                 "SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1",
@@ -1545,7 +1553,11 @@ def release_file_lock(args: argparse.Namespace) -> int:
                     "evt_" + uuid.uuid4().hex,
                     intent_id,
                     args.agent_id,
-                    f"Released {len([row for row in locks if row['intent_id'] == intent_id])} lock(s)",
+                    (
+                        f"Released {len([row for row in locks if row['intent_id'] == intent_id])} lock(s)"
+                        if any(row["intent_id"] == intent_id for row in locks)
+                        else "Closed intent with no live locks"
+                    ),
                     now,
                 ),
             )
@@ -2502,6 +2514,116 @@ def _run_self(args: argparse.Namespace, extra: list[str]) -> tuple[int, dict[str
     return out.returncode, payload
 
 
+def parse_eval_failure_json(raw: str | None) -> list[dict[str, str]]:
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AwarenessError(f"--eval-failure-json must be valid JSON: {exc}") from exc
+    if isinstance(parsed, dict) and isinstance(parsed.get("failures"), list):
+        parsed = parsed["failures"]
+    if not isinstance(parsed, list):
+        raise AwarenessError("--eval-failure-json must be a JSON array or an object with failures[]")
+    failures: list[dict[str, str]] = []
+    for i, item in enumerate(parsed, start=1):
+        if not isinstance(item, dict):
+            raise AwarenessError(f"--eval-failure-json entry {i} must be an object")
+        normalized = {}
+        for field in EVAL_FAILURE_FIELDS:
+            value = item.get(field)
+            normalized[field] = "" if value is None else str(value).strip()
+        if not normalized["id"]:
+            raise AwarenessError(f"--eval-failure-json entry {i} is missing id")
+        if not (normalized["failure_signature"] or normalized["suggested_lesson"]):
+            raise AwarenessError(
+                f"--eval-failure-json entry {i} needs failure_signature or suggested_lesson"
+            )
+        failures.append({k: v for k, v in normalized.items() if v})
+    return failures
+
+
+def format_eval_failure_summary(failures: list[dict[str, str]]) -> str:
+    if not failures:
+        return ""
+    chunks = []
+    for failure in failures:
+        bits = [failure["id"]]
+        if failure.get("dimension"):
+            bits.append(f"dimension={failure['dimension']}")
+        if failure.get("failure_signature"):
+            bits.append(f"sig={failure['failure_signature']}")
+        if failure.get("suggested_lesson"):
+            bits.append(f"lesson={failure['suggested_lesson']}")
+        chunks.append("{" + "; ".join(bits) + "}")
+    return "eval failures: " + " ".join(chunks)
+
+
+def build_reflection_duo(args: argparse.Namespace, memory_id: str | None, refinement_id: str | None) -> dict[str, Any]:
+    """Return advisory prompts for two independent reflection passes.
+
+    This is deliberately not another gate. The stored memory/refinement remains the
+    source of record; the duo packet gives a later semantic reviewer sharper
+    questions to rewrite, answer, or discard based on the actual task.
+    """
+    context = {
+        "task": args.task,
+        "outcome": args.outcome,
+        "worked": args.worked,
+        "didnt_work": args.didnt_work,
+        "judgment_note": args.judgment_note,
+        "lesson": args.lesson,
+        "failure_signature": args.failure_signature,
+        "eval_failures": getattr(args, "parsed_eval_failures", []),
+        "fix_repo": args.fix_repo,
+        "fix_harness": args.fix_harness,
+        "learning_memory_id": memory_id,
+        "repo_fix_refinement_id": refinement_id,
+    }
+    return {
+        "advisory_only": True,
+        "affects_storage": False,
+        "context": {k: v for k, v in context.items() if v not in (None, "", [])},
+        "agents": [
+            {
+                "id": "verification-reflector",
+                "role": "Evidence and verification reviewer",
+                "mission": "Check whether the outcome is supported by concrete verification, not just confidence.",
+                "questions": [
+                    "Did the stated outcome match what actually happened?",
+                    "Was the declared verification plan run, and is the result named precisely?",
+                    "Is any uncertainty or partial failure preserved instead of rounded up to success?",
+                    "Would a future agent know which command, artifact, or file proves the claim?",
+                ],
+            },
+            {
+                "id": "harness-reflector",
+                "role": "Harness and skill improver",
+                "mission": "Decide whether this task reveals a reusable process, code, or skill improvement.",
+                "questions": [
+                    "Is the lesson reusable beyond this one task?",
+                    "Should the lesson become memory, a repo refinement, a harness proposal, or no durable record?",
+                    "Does the failure signature name the mechanism and cause clearly enough for mining?",
+                    "Would changing the skill guide future agents without limiting their judgment?",
+                ],
+            },
+        ],
+        "evaluator_prompt": (
+            "Use these two roles as seed perspectives only. Rewrite, add, or drop questions "
+            "based on the actual user intent and task evidence. Answer each surviving question "
+            "yes/no/uncertain with evidence and one suggested next action. Do not treat this "
+            "packet as a pass/fail checklist."
+        ),
+        "answer_shape": {
+            "agent_id": "verification-reflector | harness-reflector",
+            "question": "string",
+            "verdict": "yes | no | uncertain",
+            "evidence": "short command/file/event/memory/refinement anchor",
+            "suggested_action": "record memory | create refinement | propose harness fix | do nothing",
+        },
+    }
+
+
 def reflect(args: argparse.Namespace) -> int:
     """Post-task self-reflection: record what worked/didn't as a learning memory,
     plus optional actionable fixes — a repo/code fix indication (→ an open 'bad'
@@ -2514,6 +2636,12 @@ def reflect(args: argparse.Namespace) -> int:
         bits.append(f"worked: {args.worked}")
     if args.didnt_work:
         bits.append(f"didn't work: {args.didnt_work}")
+    if args.judgment_note:
+        bits.append(f"judgment: {args.judgment_note}")
+    eval_failures = parse_eval_failure_json(args.eval_failure_json)
+    args.parsed_eval_failures = eval_failures
+    if eval_failures:
+        bits.append(format_eval_failure_summary(eval_failures))
     if args.fix_harness:
         bits.append(f"harness fix: {args.fix_harness}")
     narrative = " | ".join(bits)
@@ -2525,7 +2653,11 @@ def reflect(args: argparse.Namespace) -> int:
     tags = ["reflection", outcome]
     if args.fix_harness:
         tags.append("harness")
+    if eval_failures:
+        tags.append("eval")
     sig = args.failure_signature
+    if sig is None and eval_failures:
+        sig = next((failure.get("failure_signature") for failure in eval_failures if failure.get("failure_signature")), None)
     if sig is None and outcome == "failed" and args.fix_harness:
         sig = "harness:reflection|outcome:failed"
 
@@ -2563,15 +2695,18 @@ def reflect(args: argparse.Namespace) -> int:
             return emit({"ok": False, "error": "reflect: failed to record repo fix", "detail": ref}, 1)
         refinement_id = (ref.get("refinement") or {}).get("refinement_id")
 
-    return emit(
-        {
-            "outcome": outcome,
-            "learning_memory_id": memory_id,
-            "repo_fix_refinement_id": refinement_id,
-            "harness_fix": bool(args.fix_harness),
-            "next": "refine-get → repo fixes for the next agent · mine-weakness → recurring failures · export-harness → preview harness improvements. A human merges.",
-        }
-    )
+    payload = {
+        "outcome": outcome,
+        "learning_memory_id": memory_id,
+        "repo_fix_refinement_id": refinement_id,
+        "harness_fix": bool(args.fix_harness),
+        "eval_failure_count": len(eval_failures),
+        "eval_failure_ids": [failure["id"] for failure in eval_failures],
+        "next": "refine-get → repo fixes for the next agent · mine-weakness → recurring failures · export-harness → preview harness improvements. A human merges.",
+    }
+    if args.duo:
+        payload["reflection_duo"] = build_reflection_duo(args, memory_id, refinement_id)
+    return emit(payload)
 
 
 def _harness_gate() -> tuple[bool, str | None, dict[str, Any]]:
@@ -3660,13 +3795,39 @@ def self_test(args: argparse.Namespace) -> int:
             "reflect", "--agent-id", "agent-a", "--task", "demo task",
             "--outcome", "failed", "--lesson", "reflection-lesson-marker about the demo",
             "--didnt-work", "the thing broke", "--fix-repo", "patch the demo module",
-            "--fix-file", "src/demo.ts", "--failure-signature", "mechanism:demo|cause:self-test",
+            "--fix-file", "src/demo.ts", "--judgment-note", "verified the demo failed by self-test",
+            "--eval-failure-json",
+            '[{"id":"binary-demo","dimension":"verification","failure_signature":"mechanism:demo|cause:self-test","suggested_lesson":"name the verification evidence"}]',
+            "--duo",
         ])
         if not refl.get("learning_memory_id") or not refl.get("repo_fix_refinement_id"):
             return emit({"ok": False, "error": "reflect did not record both learning + repo fix", "stdout": refl}, 1)
+        if refl.get("eval_failure_count") != 1:
+            return emit({"ok": False, "error": "reflect did not parse eval failure evidence", "stdout": refl}, 1)
+        duo = refl.get("reflection_duo") or {}
+        if not duo.get("advisory_only") or duo.get("affects_storage") is not False:
+            return emit({"ok": False, "error": "reflect --duo should emit advisory non-storage packet", "stdout": refl}, 1)
+        if len(duo.get("agents") or []) != 2:
+            return emit({"ok": False, "error": "reflect --duo should emit two reflection agents", "stdout": refl}, 1)
         recall = run_json(["get-memory", "--query", "reflection-lesson-marker", "--tag", "reflection", "--limit", "5"])
         if not recall.get("memories"):
             return emit({"ok": False, "error": "reflection memory not recalled by tag", "stdout": recall}, 1)
+        eval_recall = run_json(["get-memory", "--query", "binary-demo", "--tag", "eval", "--limit", "5"])
+        if not eval_recall.get("memories"):
+            return emit({"ok": False, "error": "eval failure evidence not recalled by tag", "stdout": eval_recall}, 1)
+        mined_eval = run_json(["mine-weakness"])
+        if not any(w["failure_signature"] == "mechanism:demo|cause:self-test" for w in mined_eval.get("weaknesses", [])):
+            return emit({"ok": False, "error": "eval failure signature not visible to mine-weakness", "stdout": mined_eval}, 1)
+        bad_eval = subprocess.run(
+            base + [
+                "reflect", "--agent-id", "agent-a", "--task", "bad eval json",
+                "--outcome", "partial", "--eval-failure-json", "{}",
+            ],
+            text=True, capture_output=True, check=False,
+        )
+        if bad_eval.returncode == 0:
+            return emit({"ok": False, "error": "reflect should reject malformed eval failure JSON",
+                         "stdout": bad_eval.stdout}, 1)
         fixes = run_json(["refine-get", "--quality", "bad", "--state", "open"])
         if not any(r["refinement_id"] == refl["repo_fix_refinement_id"] for r in fixes.get("refinements", [])):
             return emit({"ok": False, "error": "repo-fix refinement not in handoff view", "stdout": fixes}, 1)
@@ -4132,8 +4293,17 @@ def build_parser() -> argparse.ArgumentParser:
     reflect_parser.add_argument("--outcome", required=True, choices=list(REFLECTION_OUTCOMES), help="Did it work?")
     reflect_parser.add_argument("--worked", help="What worked.")
     reflect_parser.add_argument("--didnt-work", dest="didnt_work", help="What didn't work.")
+    reflect_parser.add_argument(
+        "--judgment-note",
+        dest="judgment_note",
+        help="Advisory note naming checked evidence, remaining uncertainty, and why eval prompts mattered or did not.",
+    )
     reflect_parser.add_argument("--lesson", help="Reusable lesson to remember (recorded as a general memory).")
     reflect_parser.add_argument("--failure-signature", help="Clusterable signature for mine-weakness.")
+    reflect_parser.add_argument(
+        "--eval-failure-json",
+        help="JSON array of eval failure entries with id, dimension, failure_signature, and suggested_lesson.",
+    )
     reflect_parser.add_argument(
         "--fix-repo", help="Indication to fix something in the repo/code (→ an open 'bad' refinement for the next agent).",
     )
@@ -4145,6 +4315,11 @@ def build_parser() -> argparse.ArgumentParser:
     reflect_parser.add_argument("--ref", help="Branch/commit for the repo fix (auto-filled from git if omitted).")
     reflect_parser.add_argument("--workspace", help="Workspace root for the repo fix; default current directory.")
     reflect_parser.add_argument("--importance", type=importance, help="Override the outcome-derived importance (1-10).")
+    reflect_parser.add_argument(
+        "--duo",
+        action="store_true",
+        help="Emit an advisory two-agent reflection packet; does not affect storage or pass/fail state.",
+    )
     reflect_parser.set_defaults(func=reflect)
 
     harness_apply_parser = subcommands.add_parser(

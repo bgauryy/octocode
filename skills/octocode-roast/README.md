@@ -16,7 +16,7 @@ The skill calibrates tone to the user's ask, inspects the code with the same evi
 - "What are the code sins here?"
 - "Make the critique memorable, then tell me how to fix it."
 
-## What you get
+## Features
 
 - Specific findings with file:line citations.
 - Severity-ranked issues instead of vague insults.
@@ -28,10 +28,20 @@ The skill calibrates tone to the user's ask, inspects the code with the same evi
 
 ## Use another skill when
 
-- You need a sober PR or diff review: use `octocode-engineer`.
+- You need a sober PR or diff review: use `octocode-research` Review mode.
 - You want broad research rather than critique: use `octocode-research`.
 - You need a plan or RFC after the critique: use `octocode-rfc-generator`.
 
 ## User value
 
 This skill makes code-quality feedback harder to ignore without making it careless. The user gets a vivid critique backed by real evidence and concrete repair moves.
+
+## For developers
+
+Keep `SKILL.md` focused on trigger, safety rules, reference routing, and output shape. The detailed inspection sequence belongs in `references/roast-playbook.md`, reusable issue taxonomy in `references/sin-catalog.md`, language-specific searches in `references/language-sins.md`, and fix follow-up in `references/redemption-flow.md`.
+
+## Installation
+
+```bash
+npx octocode skill --name octocode-roast
+```

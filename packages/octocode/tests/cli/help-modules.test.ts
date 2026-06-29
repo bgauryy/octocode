@@ -167,8 +167,11 @@ describe('command-help-specs', () => {
       '--backup-path <path>'
     );
     expect(findStaticCommandHelp('skill')!.usage).toContain(
-      '--add <github-folder>'
+      '--add <github-path>'
     );
+    expect(findStaticCommandHelp('skill')!.usage).toContain('--install-all');
+    expect(findStaticCommandHelp('skill')!.usage).toContain('copilot');
+    expect(findStaticCommandHelp('skill')!.usage).toContain('gemini');
     expect(findStaticCommandHelp('auth')!.usage).toContain('--hostname <host>');
     expect(findStaticCommandHelp('context')!.usage).toContain('--context');
   });

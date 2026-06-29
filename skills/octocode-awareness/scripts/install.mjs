@@ -10,6 +10,26 @@ const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check-only");
 const skipDeps = args.has("--skip-deps");
 
+function printHelp() {
+  console.log(`Usage: node scripts/install.mjs [--check-only] [--skip-deps] [--help]
+
+Check the octocode-awareness standalone runtime and run smoke tests.
+
+Options:
+  --check-only  Do not install missing npm dependencies.
+  --skip-deps   Skip npm dependency installation.
+  --help, -h    Show this help.
+
+Examples:
+  node scripts/install.mjs --check-only
+  node scripts/install.mjs`);
+}
+
+if (args.has("--help") || args.has("-h")) {
+  printHelp();
+  process.exit(0);
+}
+
 function run(command, commandArgs, options = {}) {
   const result = spawnSync(command, commandArgs, {
     cwd: options.cwd || scriptsDir,

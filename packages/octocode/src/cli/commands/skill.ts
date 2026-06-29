@@ -1,6 +1,9 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import type { MarketplaceSource } from '../../configs/skills-marketplace.js';
+import type {
+  MarketplaceSkill,
+  MarketplaceSource,
+} from '../../configs/skills-marketplace.js';
 import {
   getSkillTargetDestinations,
   parseUserSkillPlatformList,
@@ -57,19 +60,18 @@ const OCTOCODE_SKILLS_SOURCE: MarketplaceSource = {
 };
 
 const KNOWN_OCTOCODE_SKILLS = [
-  'octocode-engineer',
-  'octocode-roast',
+  'octocode',
+  'octocode-awareness',
   'octocode-brainstorming',
+  'octocode-roast',
   'octocode-research',
   'octocode-rfc-generator',
-  'octocode-loop',
-  'octocode-awareness',
   'octocode-skills',
   'octocode-stats',
-  'octocode',
 ];
 
-const RECOMMENDED_SKILL = 'octocode-engineer';
+const RECOMMENDED_SKILL = 'octocode-research';
+const DEFAULT_INSTALL_MODE: SkillInstallStrategy = 'symlink';
 
 function stripSkillMd(input: string): string {
   return input
@@ -203,7 +205,7 @@ function slugify(input: string): string {
 
 function buildMarketplaceSkill(
   ref: GithubSkillFolder
-): import('../../configs/skills-marketplace.js').MarketplaceSkill | null {
+): MarketplaceSkill | null {
   const skillName = path.posix.basename(ref.skillPath || ref.repo);
   if (!isSafeSkillName(skillName)) {
     return null;
@@ -235,6 +237,223 @@ function buildMarketplaceSkill(
   };
 }
 
+type SkillInstallRequest = {
+  skill: MarketplaceSkill;
+  sourceUrl: string;
+};
+
+type DestinationInstallResult = {
+  target: SkillInstallTarget;
+  destPath: string;
+  result: SkillInstallResult;
+};
+
+type SkillCommandResult = {
+  skill: MarketplaceSkill;
+  source: string;
+  sourcePath: string;
+  targets: DestinationInstallResult[];
+  installed: number;
+  skipped: number;
+  failed: number;
+  error?: string;
+};
+
+function getCanonicalSkillSourceRoot(): string {
+  return path.join(paths.home, 'skills');
+}
+
+function getSkillSourcePath(skillName: string): string {
+  return path.join(getCanonicalSkillSourceRoot(), skillName);
+}
+
+function buildGitHubSourceUrl(skill: MarketplaceSkill): string {
+  const source = skill.source;
+  return `https://github.com/${source.owner}/${source.repo}/tree/${source.branch}/${skill.path}`;
+}
+
+function buildOctocodeSkillsSource(branchOverride?: string): MarketplaceSource {
+  const branch = branchOverride ?? OCTOCODE_SKILLS_GITHUB.branch;
+  return {
+    ...OCTOCODE_SKILLS_SOURCE,
+    branch,
+    id: `github-${OCTOCODE_SKILLS_GITHUB.owner}-${OCTOCODE_SKILLS_GITHUB.repo}-${branch}-${OCTOCODE_SKILLS_GITHUB.skillsPath}`,
+    url: `https://github.com/${OCTOCODE_SKILLS_GITHUB.owner}/${OCTOCODE_SKILLS_GITHUB.repo}/tree/${branch}/${OCTOCODE_SKILLS_GITHUB.skillsPath}`,
+  };
+}
+
+function buildGitHubLibrarySource(ref: GithubSkillFolder): MarketplaceSource {
+  const sourceId = slugify(
+    ['github', ref.owner, ref.repo, ref.branch, ref.skillPath || 'root'].join(
+      '-'
+    )
+  );
+
+  return {
+    id: sourceId,
+    name: `${ref.owner}/${ref.repo}`,
+    type: 'github',
+    owner: ref.owner,
+    repo: ref.repo,
+    branch: ref.branch,
+    skillsPath: ref.skillPath,
+    skillPattern: 'skill-folders',
+    description: `GitHub skills library ${ref.owner}/${ref.repo}/${ref.skillPath}`,
+    url: ref.url,
+  };
+}
+
+function buildKnownOctocodeSkillRequests(
+  branchOverride?: string
+): SkillInstallRequest[] {
+  return KNOWN_OCTOCODE_SKILLS.map(skillName =>
+    buildOctocodeSkillFolder(skillName, branchOverride)
+  )
+    .map(ref => (ref ? buildMarketplaceSkill(ref) : null))
+    .filter((skill): skill is MarketplaceSkill => skill !== null)
+    .map(skill => ({
+      skill,
+      sourceUrl: buildGitHubSourceUrl(skill),
+    }));
+}
+
+async function resolveGitHubSkillRequests(
+  ref: GithubSkillFolder,
+  namedSkill: string | undefined
+): Promise<
+  | { requests: SkillInstallRequest[] }
+  | { error: string; status: typeof EXIT.NOT_FOUND | typeof EXIT.USAGE }
+> {
+  const skill = buildMarketplaceSkill(ref);
+  if (!skill) {
+    return {
+      error: 'GitHub path does not resolve to a safe skill name',
+      status: EXIT.USAGE,
+    };
+  }
+
+  let readError: string | null = null;
+  try {
+    await readSkillFromGitHub(ref.owner, ref.repo, ref.skillPath, ref.branch);
+  } catch (error) {
+    readError = error instanceof Error ? error.message : String(error);
+    if (namedSkill && readError.toLowerCase().includes('not found')) {
+      readError = `Octocode skill not found: ${namedSkill} (${ref.url})`;
+    }
+  }
+
+  if (!readError) {
+    return {
+      requests: [
+        {
+          skill,
+          sourceUrl: ref.url,
+        },
+      ],
+    };
+  }
+
+  if (namedSkill) {
+    return { error: readError, status: EXIT.NOT_FOUND };
+  }
+
+  const librarySource = buildGitHubLibrarySource(ref);
+  try {
+    const librarySkills = await fetchMarketplaceSkills(librarySource, {
+      skipCache: true,
+    });
+    if (librarySkills.length > 0) {
+      return {
+        requests: librarySkills
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(librarySkill => ({
+            skill: librarySkill,
+            sourceUrl: buildGitHubSourceUrl(librarySkill),
+          })),
+      };
+    }
+  } catch {
+    // Keep the original specific-skill error; it is the most helpful path hint.
+  }
+
+  return { error: readError, status: EXIT.NOT_FOUND };
+}
+
+async function resolveOctocodeAllSkillRequests(
+  branchOverride?: string
+): Promise<SkillInstallRequest[]> {
+  const source = buildOctocodeSkillsSource(branchOverride);
+  try {
+    const skills = await fetchMarketplaceSkills(source, { skipCache: true });
+    if (skills.length > 0) {
+      return skills
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(skill => ({
+          skill,
+          sourceUrl: buildGitHubSourceUrl(skill),
+        }));
+    }
+  } catch {
+    // Fall through to the embedded names so offline/rate-limited installs still
+    // have a deterministic official skill set to try.
+  }
+
+  return buildKnownOctocodeSkillRequests(branchOverride);
+}
+
+function countResult(
+  results: { installed: number; skipped: number; failed: number },
+  result: SkillInstallResult
+): void {
+  if (result === 'installed') results.installed++;
+  else if (result === 'skipped') results.skipped++;
+  else results.failed++;
+}
+
+function resultSummary(result: {
+  installed: number;
+  skipped: number;
+  failed: number;
+}): { installed: number; skipped: number; failed: number } {
+  return {
+    installed: result.installed,
+    skipped: result.skipped,
+    failed: result.failed,
+  };
+}
+
+function targetResults(targets: DestinationInstallResult[]): {
+  target: SkillInstallTarget;
+  path: string;
+  result: SkillInstallResult;
+}[] {
+  return targets.map(target => ({
+    target: target.target,
+    path: target.destPath,
+    result: target.result,
+  }));
+}
+
+function skillJsonResult(result: SkillCommandResult): {
+  name: string;
+  displayName: string;
+  source: string;
+  sourcePath: string;
+  error?: string;
+  targets: ReturnType<typeof targetResults>;
+  summary: ReturnType<typeof resultSummary>;
+} {
+  return {
+    name: result.skill.name,
+    displayName: result.skill.displayName,
+    source: result.source,
+    sourcePath: result.sourcePath,
+    error: result.error,
+    targets: targetResults(result.targets),
+    summary: resultSummary(result),
+  };
+}
+
 function printUsageError(message: string, jsonOutput: boolean): void {
   if (jsonOutput) {
     console.log(JSON.stringify({ success: false, error: message }));
@@ -242,15 +461,13 @@ function printUsageError(message: string, jsonOutput: boolean): void {
     console.log();
     console.log(`  ${c('red', '✗')} ${message}`);
     console.log(
-      `  ${dim('Usage:')} skill (--add <github-folder> | --name <octocode-skill>) [--platform common|cursor|claude|codex|opencode|pi|all] [--mode copy|symlink|hybrid] [--force|--update] [--dry-run]`
+      `  ${dim('Usage:')} skill (--add <github-path> | --name <octocode-skill> | --install-all) [--platform common|cursor|claude|codex|opencode|pi|copilot|gemini|all] [--mode symlink|copy|hybrid] [--force|--update] [--dry-run]`
     );
     console.log(`  ${dim('List:  ')} skill --list`);
-    console.log(`  ${dim('Example:')} skill --name octocode-engineer`);
+    console.log(`  ${dim('Example:')} skill --name octocode-research`);
+    console.log(`  ${dim('Example:')} skill --install-all --platform common`);
     console.log(
-      `  ${dim('Example:')} skill --name octocode-engineer --platform all --mode hybrid`
-    );
-    console.log(
-      `  ${dim('Example:')} skill --add https://github.com/owner/repo/tree/main/skills/my-skill --platform cursor`
+      `  ${dim('Example:')} skill --add owner/repo/skills --platform cursor`
     );
     console.log();
   }
@@ -269,12 +486,14 @@ export const skillCommand: CLICommand = {
     { name: 'platform', hasValue: true },
     { name: 'target', hasValue: true },
     { name: 'branch', hasValue: true },
-    { name: 'mode', hasValue: true, default: 'copy' },
+    { name: 'mode', hasValue: true, default: DEFAULT_INSTALL_MODE },
     { name: 'force' },
     { name: 'update' },
     { name: 'dry-run' },
     { name: 'list' },
     { name: 'all' },
+    { name: 'install-all' },
+    { name: 'all-skills' },
     { name: 'verbose' },
     { name: 'json' },
   ],
@@ -344,11 +563,12 @@ export const skillCommand: CLICommand = {
       }
       console.log();
       console.log(`  ${dim('Install:')}  octocode skill --name <skill-name>`);
+      console.log(`  ${dim('Install all:')}  octocode skill --install-all`);
       console.log(
-        `  ${dim('Example:')}  octocode skill --name octocode-engineer`
+        `  ${dim('Example:')}  octocode skill --name octocode-research`
       );
       console.log(
-        `  ${dim('Example:')}  octocode skill --name octocode-engineer --platform all`
+        `  ${dim('Example:')}  octocode skill --add owner/repo/skills --platform common`
       );
       console.log();
       return;
@@ -365,18 +585,26 @@ export const skillCommand: CLICommand = {
       typeof rawAdd === 'string' && rawAdd.trim().length > 0
         ? rawAdd.trim()
         : args.args[0];
+    const installAll = Boolean(
+      args.options['install-all'] || args.options['all-skills']
+    );
 
-    if (!githubFolder && !namedSkill) {
+    if (!githubFolder && !namedSkill && !installAll) {
       printUsageError(
-        'Missing GitHub skill folder or Octocode skill name  (try --list to browse)',
+        'Missing GitHub skill path, Octocode skill name, or --install-all  (try --list to browse)',
         jsonOutput
       );
       return;
     }
 
-    if (githubFolder && namedSkill) {
+    const sourceChoices = [
+      Boolean(githubFolder),
+      Boolean(namedSkill),
+      installAll,
+    ].filter(Boolean).length;
+    if (sourceChoices > 1) {
       printUsageError(
-        'Use either --add <github-folder> or --name <octocode-skill>, not both',
+        'Use only one of --add <github-path>, --name <octocode-skill>, or --install-all',
         jsonOutput
       );
       return;
@@ -387,7 +615,7 @@ export const skillCommand: CLICommand = {
     const mode =
       typeof rawMode === 'string' && rawMode.trim().length > 0
         ? rawMode.trim().toLowerCase()
-        : 'copy';
+        : DEFAULT_INSTALL_MODE;
     if (mode !== 'copy' && mode !== 'symlink' && mode !== 'hybrid') {
       printUsageError(
         'Invalid --mode value. Use copy, symlink, or hybrid.',
@@ -411,7 +639,7 @@ export const skillCommand: CLICommand = {
     const parsedPlatforms = parseUserSkillPlatformList(rawPlatform);
     if (parsedPlatforms.error) {
       printUsageError(
-        `${parsedPlatforms.error}. Valid platforms: common, cursor, claude, codex, opencode, pi, all`,
+        `${parsedPlatforms.error}. Valid platforms: common, cursor, claude, codex, opencode, pi, copilot, gemini, all`,
         jsonOutput
       );
       return;
@@ -419,60 +647,97 @@ export const skillCommand: CLICommand = {
     const platforms = parsedPlatforms.platforms;
     const targets = parsedPlatforms.targets;
 
-    // ── Resolve skill ref ─────────────────────────────────────────────────────
+    // ── Resolve source skill(s) ───────────────────────────────────────────────
     const branchOverride =
       typeof args.options['branch'] === 'string' &&
       args.options['branch'].trim().length > 0
         ? args.options['branch'].trim()
         : undefined;
-    const ref = namedSkill
-      ? buildOctocodeSkillFolder(namedSkill, branchOverride)
-      : parseGitHubSkillFolder(githubFolder, branchOverride);
-    if (!ref) {
-      printUsageError(
-        namedSkill
-          ? 'Invalid Octocode skill name'
-          : 'Expected a GitHub folder URL or owner/repo/path shorthand',
-        jsonOutput
-      );
-      return;
+
+    let requests: SkillInstallRequest[] = [];
+    if (installAll) {
+      const spinner = jsonOutput
+        ? null
+        : new Spinner('Fetching Octocode skills list...').start();
+      requests = await resolveOctocodeAllSkillRequests(branchOverride);
+      spinner?.stop();
+    } else {
+      const ref = namedSkill
+        ? buildOctocodeSkillFolder(namedSkill, branchOverride)
+        : parseGitHubSkillFolder(githubFolder, branchOverride);
+      if (!ref) {
+        printUsageError(
+          namedSkill
+            ? 'Invalid Octocode skill name'
+            : 'Expected a GitHub path URL or owner/repo/path shorthand',
+          jsonOutput
+        );
+        return;
+      }
+
+      const spinner = jsonOutput
+        ? null
+        : new Spinner(`Resolving ${namedSkill ?? githubFolder}...`).start();
+      const resolved = await resolveGitHubSkillRequests(ref, namedSkill);
+      spinner?.stop();
+      if ('error' in resolved) {
+        if (jsonOutput) {
+          const skill = buildMarketplaceSkill(ref);
+          console.log(
+            JSON.stringify({
+              success: false,
+              skill: skill?.name,
+              source: ref.url,
+              error: resolved.error,
+            })
+          );
+        } else {
+          console.log();
+          console.log(`  ${c('red', '✗')} ${resolved.error}`);
+          console.log();
+        }
+        process.exitCode = resolved.status;
+        return;
+      }
+      requests = resolved.requests;
     }
 
-    const skill = buildMarketplaceSkill(ref);
-    if (!skill) {
-      printUsageError(
-        'GitHub folder does not resolve to a safe skill name',
-        jsonOutput
-      );
+    if (requests.length === 0) {
+      printUsageError('No installable skills were found', jsonOutput);
       return;
     }
 
     // ── Resolve destinations ──────────────────────────────────────────────────
     const destinations = getSkillTargetDestinations(targets, undefined);
-    const sourceRoot = path.join(paths.home, 'skill-sources', skill.source.id);
-    const sourcePath = path.join(sourceRoot, skill.name);
+    const sourceRoot = getCanonicalSkillSourceRoot();
     const force =
       Boolean(args.options['force']) || Boolean(args.options['update']);
 
-    // ── --dry-run: preview without fetching or installing ─────────────────────
+    // ── --dry-run: preview without installing ─────────────────────────────────
     if (dryRun) {
+      const dryRunSkills = requests.map(request => ({
+        name: request.skill.name,
+        displayName: request.skill.displayName,
+        source: request.sourceUrl,
+        sourcePath: getSkillSourcePath(request.skill.name),
+        targets: destinations.map(d => {
+          const destPath = path.join(d.destDir, request.skill.name);
+          const exists = existsSync(destPath);
+          return {
+            target: d.target,
+            path: destPath,
+            action: exists ? (force ? 'overwrite' : 'skip') : 'install',
+          };
+        }),
+      }));
+
       if (jsonOutput) {
         console.log(
           JSON.stringify({
             dryRun: true,
-            skill: skill.name,
-            source: ref.url,
+            skills: dryRunSkills,
             mode,
             platforms,
-            targets: destinations.map(d => {
-              const destPath = path.join(d.destDir, skill.name);
-              const exists = existsSync(destPath);
-              return {
-                target: d.target,
-                path: destPath,
-                action: exists ? (force ? 'overwrite' : 'skip') : 'install',
-              };
-            }),
           })
         );
         return;
@@ -481,26 +746,29 @@ export const skillCommand: CLICommand = {
       console.log();
       console.log(`  ${c('cyan', 'DRY RUN')} ${dim('— nothing will change')}`);
       console.log();
-      console.log(`  Skill:   ${bold(skill.displayName)}`);
-      console.log(`  Source:  ${dim(ref.url)}`);
-      console.log(`  Mode:    ${mode}`);
-      console.log();
-      console.log(`  ${dim('Destinations:')}`);
-      for (const dest of destinations) {
-        const destPath = path.join(dest.destDir, skill.name);
-        const exists = existsSync(destPath);
-        if (!exists) {
-          console.log(
-            `  ${c('green', '+')}  ${dest.target.padEnd(14)} ${short(destPath)}`
-          );
-        } else if (force) {
-          console.log(
-            `  ${c('yellow', '↺')}  ${dest.target.padEnd(14)} ${short(destPath)}  ${dim('(overwrite)')}`
-          );
-        } else {
-          console.log(
-            `  ${c('yellow', '~')}  ${dest.target.padEnd(14)} ${short(destPath)}  ${dim('(already installed — add --force to overwrite)')}`
-          );
+      console.log(`  Mode:   ${mode}`);
+      console.log(`  Skills: ${dryRunSkills.length}`);
+      for (const skillPreview of dryRunSkills) {
+        console.log();
+        console.log(`  ${bold(skillPreview.displayName)}`);
+        console.log(`  ${dim('Source:')} ${short(skillPreview.sourcePath)}`);
+        if (verbose) {
+          console.log(`  ${dim(skillPreview.source)}`);
+        }
+        for (const target of skillPreview.targets) {
+          if (target.action === 'install') {
+            console.log(
+              `  ${c('green', '+')}  ${target.target.padEnd(14)} ${short(target.path)}`
+            );
+          } else if (target.action === 'overwrite') {
+            console.log(
+              `  ${c('yellow', '↺')}  ${target.target.padEnd(14)} ${short(target.path)}  ${dim('(overwrite)')}`
+            );
+          } else {
+            console.log(
+              `  ${c('yellow', '~')}  ${target.target.padEnd(14)} ${short(target.path)}  ${dim('(already installed — add --force to overwrite)')}`
+            );
+          }
         }
       }
       console.log();
@@ -510,130 +778,109 @@ export const skillCommand: CLICommand = {
     // ── Fetch from GitHub ─────────────────────────────────────────────────────
     const spinner = jsonOutput
       ? null
-      : new Spinner(`Fetching ${skill.name}...`).start();
-
-    let readError: string | null = null;
-    try {
-      await readSkillFromGitHub(ref.owner, ref.repo, ref.skillPath, ref.branch);
-    } catch (error) {
-      readError = error instanceof Error ? error.message : String(error);
-      if (namedSkill && readError.toLowerCase().includes('not found')) {
-        readError = `Octocode skill not found: ${namedSkill} (${ref.url})`;
-      }
-    }
-
-    if (readError) {
-      spinner?.fail(`Could not fetch ${skill.name}`);
-      if (jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            skill: skill.name,
-            source: ref.url,
-            error: readError,
-          })
-        );
-      } else {
-        console.log();
-        console.log(`  ${c('red', '✗')} ${readError}`);
-        console.log();
-      }
-      process.exitCode = EXIT.NOT_FOUND;
-      return;
-    }
-
-    const fetchResult = await installMarketplaceSkill(skill, sourceRoot);
-    if (
-      !fetchResult.success ||
-      !fileExists(path.join(sourcePath, 'SKILL.md'))
-    ) {
-      const error =
-        fetchResult.error ??
-        `Fetched folder did not contain a SKILL.md file: ${ref.skillPath}`;
-      spinner?.fail(`Could not fetch ${skill.name}`);
-      if (jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            skill: skill.name,
-            source: ref.url,
-            error,
-          })
-        );
-      } else {
-        console.log();
-        console.log(`  ${c('red', '✗')} ${error}`);
-        console.log();
-      }
-      process.exitCode = EXIT.GENERAL;
-      return;
-    }
+      : new Spinner(`Installing ${requests.length} skill(s)...`).start();
 
     // ── Install per destination ───────────────────────────────────────────────
-    spinner?.update(`Installing ${skill.name}...`);
+    const results: SkillCommandResult[] = [];
+    const totals = { installed: 0, skipped: 0, failed: 0 };
 
-    type DestResult = {
-      target: SkillInstallTarget;
-      destPath: string;
-      result: SkillInstallResult;
-    };
-    const installResults: DestResult[] = [];
-    let installed = 0,
-      skipped = 0,
-      failed = 0;
+    for (const request of requests) {
+      const { skill } = request;
+      const sourcePath = getSkillSourcePath(skill.name);
+      spinner?.update(`Fetching ${skill.name}...`);
 
-    for (const dest of destinations) {
-      const destinationPath = resolveSkillDestination(dest.destDir, skill.name);
-      const effectiveMode = resolveModeForTarget(
-        mode as SkillInstallStrategy,
-        dest.target
-      );
-      const result = destinationPath
-        ? installSkillToDestination({
-            sourcePath,
-            destinationPath,
-            mode: effectiveMode,
-            force,
-          })
-        : 'failed';
+      const fetchResult = await installMarketplaceSkill(skill, sourceRoot);
+      if (
+        !fetchResult.success ||
+        !fileExists(path.join(sourcePath, 'SKILL.md'))
+      ) {
+        const error =
+          fetchResult.error ??
+          `Fetched folder did not contain a SKILL.md file: ${skill.path}`;
+        const failedTargets = destinations.map(dest => ({
+          target: dest.target,
+          destPath:
+            resolveSkillDestination(dest.destDir, skill.name) ??
+            path.join(dest.destDir, skill.name),
+          result: 'failed' as SkillInstallResult,
+        }));
 
-      installResults.push({
-        target: dest.target,
-        destPath: destinationPath ?? path.join(dest.destDir, skill.name),
-        result,
-      });
-      if (result === 'installed') installed++;
-      else if (result === 'skipped') skipped++;
-      else failed++;
+        for (const failedTarget of failedTargets) {
+          countResult(totals, failedTarget.result);
+        }
+
+        results.push({
+          skill,
+          source: request.sourceUrl,
+          sourcePath,
+          targets: failedTargets,
+          installed: 0,
+          skipped: 0,
+          failed: failedTargets.length,
+          error,
+        });
+        continue;
+      }
+
+      spinner?.update(`Linking ${skill.name}...`);
+      const skillResult: SkillCommandResult = {
+        skill,
+        source: request.sourceUrl,
+        sourcePath,
+        targets: [],
+        installed: 0,
+        skipped: 0,
+        failed: 0,
+      };
+
+      for (const dest of destinations) {
+        const destinationPath = resolveSkillDestination(
+          dest.destDir,
+          skill.name
+        );
+        const effectiveMode = resolveModeForTarget(
+          mode as SkillInstallStrategy,
+          dest.target
+        );
+        const result = destinationPath
+          ? installSkillToDestination({
+              sourcePath,
+              destinationPath,
+              mode: effectiveMode,
+              force,
+            })
+          : 'failed';
+
+        skillResult.targets.push({
+          target: dest.target,
+          destPath: destinationPath ?? path.join(dest.destDir, skill.name),
+          result,
+        });
+        countResult(skillResult, result);
+        countResult(totals, result);
+      }
+
+      results.push(skillResult);
     }
 
-    if (failed > 0) {
-      spinner?.fail(`Installed ${skill.name} with errors`);
+    if (totals.failed > 0) {
+      spinner?.fail(`Installed ${requests.length} skill(s) with errors`);
       process.exitCode = EXIT.GENERAL;
-    } else if (skipped > 0 && installed === 0) {
-      spinner?.warn?.(`${skill.name} already installed`);
+    } else if (totals.skipped > 0 && totals.installed === 0) {
+      spinner?.warn?.(`${requests.length} skill(s) already installed`);
     } else {
-      spinner?.succeed(`Installed ${skill.name}`);
+      spinner?.succeed(`Installed ${requests.length} skill(s)`);
     }
 
     // ── JSON output ───────────────────────────────────────────────────────────
     if (jsonOutput) {
       console.log(
         JSON.stringify({
-          success: failed === 0,
-          skill: skill.name,
-          source: ref.url,
-          cachePath: sourcePath,
+          success: totals.failed === 0,
+          skills: results.map(skillJsonResult),
           platforms,
-          targets: installResults.map(r => ({
-            target: r.target,
-            path: r.destPath,
-            result: r.result,
-          })),
           mode,
-          installed,
-          skipped,
-          failed,
+          summary: resultSummary(totals),
         })
       );
       return;
@@ -641,27 +888,38 @@ export const skillCommand: CLICommand = {
 
     // ── Human output ──────────────────────────────────────────────────────────
     console.log();
-    console.log(`  ${bold(skill.displayName)}`);
-    if (verbose) {
-      console.log(`  ${dim(ref.url)}`);
-      console.log(`  ${dim('Cache:')} ${short(sourcePath)}`);
-    }
+    console.log(`  ${dim('Mode:')} ${mode}`);
+    console.log(`  ${dim('Platforms:')} ${platforms.join(', ')}`);
     console.log();
-    for (const r of installResults) {
-      if (r.result === 'installed') {
-        console.log(
-          `  ${c('green', '✓')}  ${r.target.padEnd(14)} ${short(r.destPath)}`
-        );
-      } else if (r.result === 'skipped') {
-        console.log(
-          `  ${c('yellow', '~')}  ${r.target.padEnd(14)} ${dim('already installed')}  ${dim('(use --force to overwrite)')}`
-        );
-      } else {
-        console.log(
-          `  ${c('red', '✗')}  ${r.target.padEnd(14)} ${dim('failed')}  ${dim('(valid targets: ' + formatSkillInstallTargets() + ')')}`
-        );
+    for (const result of results) {
+      console.log(`  ${bold(result.skill.displayName)}`);
+      console.log(`  ${dim('Source:')} ${short(result.sourcePath)}`);
+      if (verbose) {
+        console.log(`  ${dim(result.source)}`);
       }
+      if (result.error) {
+        console.log(`  ${c('red', '✗')}  ${dim(result.error)}`);
+      }
+      for (const r of result.targets) {
+        if (r.result === 'installed') {
+          console.log(
+            `  ${c('green', '✓')}  ${r.target.padEnd(14)} ${short(r.destPath)}`
+          );
+        } else if (r.result === 'skipped') {
+          console.log(
+            `  ${c('yellow', '~')}  ${r.target.padEnd(14)} ${short(r.destPath)}  ${dim('(already installed — use --force to overwrite)')}`
+          );
+        } else {
+          console.log(
+            `  ${c('red', '✗')}  ${r.target.padEnd(14)} ${short(r.destPath)}  ${dim('(valid targets: ' + formatSkillInstallTargets() + ')')}`
+          );
+        }
+      }
+      console.log();
     }
+    console.log(
+      `  ${dim('Summary:')} ${totals.installed} installed, ${totals.skipped} skipped, ${totals.failed} failed`
+    );
     console.log();
   },
 };
