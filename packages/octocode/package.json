@@ -1,6 +1,6 @@
 {
   "name": "octocode",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
   "keywords": [
     "ai-coding",
