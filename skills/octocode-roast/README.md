@@ -1,68 +1,49 @@
 # Octocode Roast
 
-`octocode-roast` is for blunt, memorable code-quality critique. It lets an agent be sharp, funny, and hard to ignore while still staying cited, useful, and professionally safe.
+`octocode-roast` gives an agent permission to make code critique memorable without making it careless. It is blunt, funny, evidence-backed, and aimed at code patterns rather than people.
 
-The target is always the code pattern, never the person who wrote it.
+Use it when the user explicitly wants a roast, brutal review, code-quality critique, or a sharp explanation of what is wrong with a codebase.
 
-## When to use
+## The Problem
 
-- The user explicitly asks to "roast my code", "find code sins", "give me a brutal review", or "tell me what is wrong with this".
-- A normal review has not landed and the user wants the critique to be memorable.
-- The goal is to expose the worst maintainability, safety, performance, or architecture smells.
-- The user wants fix paths, but not automatic fixes yet.
+Normal review can be too polite to land. But harsh feedback without citations is just noise. A roast needs both edge and receipts: every major jab should point to code, explain impact, and offer a repair path.
 
-Use `octocode-research` Review mode for sober PR review, normal diff review, or implementation. Use `octocode-rfc-generator` when the repair needs a formal plan.
+This skill gives the agent a tone-controlled critique mode that stays useful, safe, and fixable.
 
-## Features
+## Capabilities
 
 - Evidence-backed findings with `file:line` citations.
-- Severity tiers for major risks, design damage, brittle code, and cosmetic mess.
-- Tone calibration from gentle to savage based on the user's request and code sensitivity.
+- Severity tiers for security, data loss, design damage, brittle async, type abuse, duplication, naming, and noise.
+- Tone calibration from gentle to savage based on the user's wording and the sensitivity of the code.
 - Secret-safe handling for credentials, security findings, and production-sensitive paths.
-- Language-specific smell patterns and AST/search prompts.
+- Language-specific smell patterns and code-search strategies.
 - A top-offender autopsy when one pattern explains many issues.
-- Redemption paths and a checkpoint before fixes are made.
+- Redemption paths and a checkpoint before edits are made.
 
-## How it works
+## Operating Model
 
-The skill follows this flow:
+The workflow is:
 
 ```text
 TARGET -> INSPECT -> INVENTORY -> AUTOPSY -> CHECKPOINT -> REDEEM
 ```
 
-It scopes the target, inspects code with Octocode or local tools, builds an issue inventory, ranks the most damaging patterns, and turns those into a sharp but actionable critique. Humor is added after evidence, not instead of evidence.
+The agent scopes the target, inspects enough code to cite major issues, builds an issue inventory, ranks the most damaging patterns, and writes the roast after the evidence is in. The humor is seasoning, not the proof.
 
-## Internal flow
+## User Experience
 
-1. Confirm the target and tone from the user's wording.
-2. Search and read enough code to cite major findings.
-3. Classify issues by severity and confidence.
-4. Write the roast using code-focused language only.
-5. Offer repair paths for the highest-impact issues.
-6. Wait for the user's fix checkpoint before changing files.
+Users get critique that is hard to ignore and easy to act on. The answer should lead with the strongest roast, then group findings by severity, explain why they matter, and show repair paths.
+
+The skill waits at a fix checkpoint. It can point toward remediation, but it should not silently switch from roast mode into edit mode without the user choosing that path.
 
 ## Installation
 
-Install the published skill:
+Install the published skill with:
 
 ```bash
 npx octocode skill --name octocode-roast
 ```
 
-Install from a GitHub path or fork:
+## Maintainer Notes
 
-```bash
-npx octocode skill --add bgauryy/octocode/skills/octocode-roast
-```
-
-## Benefits
-
-- Makes technical debt memorable without turning feedback into personal insult.
-- Keeps entertainment tied to real code evidence.
-- Helps users see which issues matter most and how to start fixing them.
-- Provides a bridge from critique to concrete remediation.
-
-## For developers
-
-Keep `SKILL.md` focused on trigger, safety rules, reference routing, and output shape. Put the inspection sequence in `references/roast-playbook.md`, reusable issue taxonomy in `references/sin-catalog.md`, language-specific searches in `references/language-sins.md`, tone calibration in `references/tone-personas.md`, and follow-up repair flow in `references/redemption-flow.md`.
+Keep this README focused on the balance: memorable critique, real citations, tone safety, and repairability. Keep detailed issue catalogs, tone personas, language-specific checks, and redemption flow in the agent-facing skill file and references.

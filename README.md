@@ -219,7 +219,7 @@ npx octocode --help       # full usage
 - **Language servers** — `npx octocode lsp-server list|install|status|uninstall|clean`
 - **Setup & introspection** — `npx octocode install`, `npx octocode auth`, `npx octocode status`, `npx octocode tools`, `npx octocode context`
 
-Full syntax, flags, and exit codes: [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
+Full syntax, flags, and exit codes: [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
 
 ---
 
@@ -421,7 +421,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 
 **Docs map**
 - [`docs/mcp/`](https://github.com/bgauryy/octocode/tree/main/docs/mcp): MCP server configuration, authentication, tools, workflows, architecture
-- [`docs/cli/`](https://github.com/bgauryy/octocode/tree/main/docs/cli): CLI commands, flags, and reference material
+- [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md): CLI commands, user workflows, and MCP tool alignment
 - [`docs/`](https://github.com/bgauryy/octocode/tree/main/docs): guides for development, security, and Pi setup
 - [`packages/octocode-benchmark/`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark): benchmark methodology, support matrix, unified eval, recipes, output schema, and run artifacts
 
@@ -446,7 +446,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 
 **Security, CLI & Skills**
 - [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md)
-- [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
+- [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
 - [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
 - [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
 

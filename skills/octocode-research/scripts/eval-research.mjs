@@ -248,6 +248,25 @@ Fallback path: continue with rg and file reads, plus web only if local files can
 This does not block the answer; npx octocode, or npx octocode auth login, is only needed if GitHub/private data is required.
 Confidence: uncertain
 Next: install/run npx octocode only if local evidence is insufficient.`,
+    'long-decision-brief': `Mode: Validate
+Long research: read long-research.md because this is a durable decision brief with contested scope.
+Campaign scope: question=adopt claim-level evidence ledger; surfaces=local docs active, web optional; budget=30 minutes and 3 source passes; stop gates=claims have proof or next pass will not change verdict; non-goals=do not build storage yet.
+Evidence ledger: ev1 skills/octocode-research/references/long-research.md:47 says evidence rows stay standalone; ev2 https://example.com/evals says traceable claims improve review.
+Claim ledger: cl1 supported by ev1; cl2 unverified because vendor cost is unknown.
+Unsupported gaps: exact UI storage shape remains unverified.
+Vendor adapters are optional; they enrich web/paper surfaces but do not replace local proof.
+Verdict: Prototype First
+Recommended next step: add the ledger only to long research runs.`,
+    'github-landscape': `Mode: Map
+GitHub Landscape
+Repo clusters: active, partial, abandoned.
+Ranked repo table / repo DB: fields include fit, activity, evidence, reuse, and risk.
+Repositories and packages: ast-grep repository plus npm package; tree-sitter repository plus packages.
+Exact reads: README and source were exact-read for top candidates: https://github.com/ast-grep/ast-grep and https://github.com/tree-sitter/tree-sitter.
+Stars and downloads are tiebreakers, not proof.
+Integration blueprint: reuse parser-facing ideas, avoid unverified service dependencies, proof still needed is a local prototype against our TypeScript files.
+Confidence: likely
+Next: run one prototype command before adopting.`,
   };
   return base[caseId] || '';
 }

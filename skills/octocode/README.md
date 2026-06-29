@@ -1,69 +1,49 @@
 # Octocode
 
-`octocode` is the quick-start skill for using Octocode itself. It helps an agent pick the best available Octocode transport, run focused code or package research, read exact files, inspect symbols, check PR/history context, and look inside artifacts without turning a small lookup into a full investigation.
+`octocode` gives an agent a fast path into Octocode itself. It is the quick lookup skill for code, repositories, packages, pull requests, symbols, and artifacts when the user needs a focused answer rather than a full investigation.
 
-Use it when you want a fast, evidence-backed answer from live code or public sources.
+The skill is small on purpose. It helps the agent choose the right Octocode surface, read the exact thing behind a lead, and answer with anchors the user can follow.
 
-## When to use
+## The Problem
 
-- Find where a local option, command, schema field, or symbol is implemented.
-- Read the exact implementation behind a search hit.
-- Check a GitHub repo, package, PR, commit, or file path.
-- Inspect an archive, native binary, generated artifact, or text strings.
-- Ask the agent to choose between Octocode MCP tools and the CLI.
+Small code questions can become noisy. An agent may search too broadly, guess a raw tool schema, or paste a pile of results instead of reading the file that matters.
 
-Use `octocode-research` instead when the task needs root-cause investigation, code changes, review, refactor, architecture analysis, or repeated evidence loops. Use `octocode-rfc-generator` when the result should become a written proposal.
+This skill keeps quick lookups quick. It orients cheaply, carries returned paths and refs forward, promotes only exact evidence to proof, and escalates to deeper skills when the task grows.
 
-## Features
+## Capabilities
 
-- Transport selection between exposed Octocode MCP tools and `npx octocode`.
-- Cheap orientation with tree, discovery, package, repo, or symbol probes before expensive reads.
-- Exact file reads using anchors such as paths, refs, line hints, match strings, package ids, PR numbers, and local clone paths.
-- Local and GitHub code search, npm/package lookup, PR/commit history, AST/LSP navigation, and binary/archive inspection.
-- Schema-aware raw tool calls when the quick command surface is not enough.
+- Transport choice between exposed Octocode MCP tools and the CLI.
+- Local and GitHub code search with exact file reads.
+- Repository, package, pull request, commit, and history lookup.
+- Symbol and semantic navigation through AST or LSP-backed surfaces.
+- Archive, binary, generated-artifact, and string inspection.
+- Schema-aware raw tool use when the quick command surface is not enough.
 - Concise answers that separate leads from proof.
 
-## How it works
+## Operating Model
 
-The skill follows this flow:
+The workflow is:
 
 ```text
 ORIENT -> SEARCH -> READ EXACT -> PROVE -> ANSWER
 ```
 
-It first checks whether Octocode MCP tools are exposed. If not, it falls back to the CLI and reads live help or tool schemas before raw calls. The agent starts with the cheapest useful query, carries returned anchors forward, deep-reads only the relevant slice, and answers with evidence rather than raw search output.
+The agent begins with the cheapest useful orientation: a tree, a path search, a repository lookup, a package result, or a symbol listing. It then deep-reads only the relevant source and carries anchors such as `file:line`, repo ref, package id, PR number, or local clone path into the final answer.
 
-## Internal flow
+## User Experience
 
-1. Choose transport: MCP when available, otherwise `npx octocode`.
-2. Use discovery commands first: tree, path search, repo/package search, or symbol listings.
-3. Promote a lead only after an exact source read, schema read, LSP result, PR/commit link, or artifact fact.
-4. Preserve anchors for follow-up work: `file:line`, repo/ref, package id, PR number, or `location.localPath`.
-5. Escalate to a deeper skill when the quick lookup reveals broader engineering work.
+For users, `octocode` should feel like asking a precise codebase question and getting a precise answer. It is best for "where is this implemented?", "what does this package expose?", "show me the file behind this behavior", or "inspect this artifact."
+
+When the answer reveals a deeper root-cause, refactor, review, or implementation task, the agent should move to `octocode-research` instead of stretching this quick lookup mode too far.
 
 ## Installation
 
-Install the published skill:
+Install the published skill with:
 
 ```bash
 npx octocode skill --name octocode
 ```
 
-Install from a GitHub path or fork:
+## Maintainer Notes
 
-```bash
-npx octocode skill --add bgauryy/octocode/skills/octocode
-```
-
-Octocode itself can also be used directly with `npx octocode`. MCP/editor setup is separate from skill installation.
-
-## Benefits
-
-- Keeps small code questions small.
-- Makes the agent read schemas before guessing raw tool fields.
-- Gives users proof anchors they can follow.
-- Reduces noisy searches by carrying paths, refs, and matches forward.
-
-## For developers
-
-Keep `SKILL.md` as the lean transport and command router. Put setup/auth details in `references/octocode.md` and longer command recipes in `references/recipes.md`. When Octocode CLI flags or MCP schemas change, update the references and README examples together.
+Keep this README focused on the quick-lookup experience and evidence anchors. Keep detailed transport setup, command recipes, and edge-case routing in the agent-facing skill file and references.

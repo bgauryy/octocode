@@ -187,7 +187,7 @@ The CLI offers **three ways in**, increasingly raw:
 
 **Management:** `install --ide <client>` · `login` · `logout` · `status [--sync]`.
 
-**Global flags:** `--json` (raw envelope) · `--compact` (leanest) · `--no-color`. **Exit codes:** `0` ok · `2` bad-input · `3` not-found · `4` auth · `5` tool-error · `7` rate-limited. Agents pass `GITHUB_TOKEN`/`OCTOCODE_TOKEN`/`GH_TOKEN` via env. Full surface: [CLI REFERENCE](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md).
+**Global flags:** `--json` (raw envelope) · `--compact` (leanest) · `--no-color`. **Exit codes:** `0` ok · `2` bad-input · `3` not-found · `4` auth · `5` tool-error · `7` rate-limited. Agents pass `GITHUB_TOKEN`/`OCTOCODE_TOKEN`/`GH_TOKEN` via env. Full surface: [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md).
 
 ## Documentation
 
@@ -201,5 +201,5 @@ All monorepo docs live in [`docs/`](docs) (no per-package `docs/`). **Documentat
 | [PI_SETUP_GUIDE](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md) | Octocode inside earendil-works/pi |
 | **MCP:** [README](https://github.com/bgauryy/octocode/blob/main/docs/mcp/README.md) · [CONFIGURATION](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) · [AUTHENTICATION](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [CREDENTIALS](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) · [SESSION](https://github.com/bgauryy/octocode/blob/main/docs/mcp/SESSION.md) · [CLONE_WORKFLOW](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) · [TOOL_VERIFICATION](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Configure, auth, sessions, verification |
 | **MCP tools:** [GITHUB](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/GITHUB_TOOLS.md) · [LOCAL](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LOCAL_TOOLS.md) · [BINARY](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/BINARY_TOOLS.md) · [LSP](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LSP_TOOLS.md) · [TOOL_BEHAVIOR](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/TOOL_BEHAVIOR.md) | Per-tool inputs, behavior, tradeoffs |
-| **CLI:** [README](https://github.com/bgauryy/octocode/blob/main/docs/cli/README.md) · [REFERENCE](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md) | All commands, flags, tool runner |
+| **CLI:** [OCTOCODE_CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) | All commands, flags, tool runner, and MCP alignment |
 | **Release:** [release/RELEASE_GUIDE](https://github.com/bgauryy/octocode/blob/main/release/RELEASE_GUIDE.md) | Versioning + publish |

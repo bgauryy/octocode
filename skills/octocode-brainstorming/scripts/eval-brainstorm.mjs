@@ -291,6 +291,10 @@ function weakSample() {
   return 'This is clearly proven. I implemented the code. Full transcript follows.';
 }
 
+function readFixture(relativePath) {
+  return readFileSync(resolve(SKILL_DIR, relativePath), 'utf8');
+}
+
 function runSelfTest(cases) {
   const idea = cases.find(testCase => testCase.id === 'idea-validation');
   if (!idea) throw new Error('missing idea-validation case');
@@ -308,11 +312,51 @@ function runSelfTest(cases) {
   if (bad.passed) {
     throw new Error('weak sample should fail');
   }
+  const conflict = cases.find(testCase => testCase.id === 'conflicting-evidence');
+  if (!conflict) throw new Error('missing conflicting-evidence case');
+  const conflictGood = evaluateCase(conflict, readFixture(conflict.fixtures.passing), { agentic: true });
+  const conflictBad = evaluateCase(conflict, readFixture(conflict.fixtures.failing), { agentic: true });
+  if (!conflictGood.passed) {
+    throw new Error(`conflict fixture should pass: ${conflictGood.failedChecks.join(', ')}`);
+  }
+  if (conflictGood.failedBinaryQuestions.length) {
+    throw new Error(`conflict fixture has failed binary questions: ${conflictGood.failedBinaryQuestions.map(q => q.id).join(', ')}`);
+  }
+  if (conflictBad.passed) {
+    throw new Error('conflict fixture without concession should fail');
+  }
+  if (!conflictBad.failedBinaryQuestions.some(question => question.id === 'concedes-unsupported-side')) {
+    throw new Error('conflict failing fixture should mark the missing concession');
+  }
+  const resourceFirst = cases.find(testCase => testCase.id === 'resource-first-research');
+  if (!resourceFirst) throw new Error('missing resource-first-research case');
+  const resourceFirstGood = evaluateCase(resourceFirst, readFixture(resourceFirst.fixtures.passing), { agentic: true });
+  const resourceFirstBad = evaluateCase(resourceFirst, readFixture(resourceFirst.fixtures.failing), { agentic: true });
+  if (!resourceFirstGood.passed) {
+    throw new Error(`resource-first fixture should pass: ${resourceFirstGood.failedChecks.join(', ')}`);
+  }
+  if (resourceFirstGood.failedBinaryQuestions.length) {
+    throw new Error(`resource-first fixture has failed binary questions: ${resourceFirstGood.failedBinaryQuestions.map(q => q.id).join(', ')}`);
+  }
+  if (resourceFirstBad.passed) {
+    throw new Error('resource-first fixture without top-resource loop should fail');
+  }
+  if (!resourceFirstBad.failedBinaryQuestions.some(question => question.id === 'starts-from-top-resources')) {
+    throw new Error('resource-first failing fixture should mark the missing top-resource start');
+  }
   return {
     ok: true,
     casesPath: CASES_PATH,
     strongSample: good,
     weakSample: bad,
+    resourceFirst: {
+      passingFixture: resourceFirstGood,
+      failingFixture: resourceFirstBad,
+    },
+    conflictingEvidence: {
+      passingFixture: conflictGood,
+      failingFixture: conflictBad,
+    },
   };
 }
 

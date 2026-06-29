@@ -4,7 +4,7 @@ Load when a brainstorm is substantial, uses subagents, spans turns, or needs a h
 
 ## Run ledger
 
-Start a ledger when the user asks for best results, RFC follow-up, multiple perspectives, or a saved brief:
+Start a ledger when the user asks for best results, RFC follow-up, multiple perspectives, a saved brief, or when the run spans multiple active surfaces. The ledger is the durable claim ledger: every material claim should eventually appear as a checkpoint with source and confidence, especially when evidence conflicts.
 
 ```bash
 node skills/octocode-brainstorming/scripts/brainstorm-run.mjs start \
@@ -12,7 +12,7 @@ node skills/octocode-brainstorming/scripts/brainstorm-run.mjs start \
   --surface-plan '{"local":"active if repo-relevant","githubPackages":"active","web":"active"}'
 ```
 
-Record checkpoints at the three communication points:
+Record checkpoints at the three communication points and whenever a material claim changes confidence:
 
 ```bash
 node skills/octocode-brainstorming/scripts/brainstorm-run.mjs checkpoint \
@@ -29,6 +29,8 @@ node skills/octocode-brainstorming/scripts/brainstorm-run.mjs finish \
 ```
 
 Run files live in `.octocode/brainstorming/runs/` by default, so start a ledger only when local writes are acceptable. Override with `OCTOCODE_BRAINSTORM_RUN_DIR` for tests.
+
+When evidence conflicts, record both sides as separate checkpoints and add a final checkpoint naming the concession or unresolved decision point. This prevents the perspective review from becoming theater: the final answer must be able to point back to the ledger entries that survived and the ones that were dropped.
 
 ## Hook entrypoint
 

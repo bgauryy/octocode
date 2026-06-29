@@ -157,6 +157,97 @@
       "forbidden": [
         { "name": "pretends full confidence", "pattern": "\\bConfidence:\\s*confirmed\\b" }
       ]
+    },
+    {
+      "id": "long-decision-brief",
+      "mode": "Validate",
+      "prompt": "Prepare a decision brief on whether we should adopt a claim-level evidence ledger for long research tasks.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "validate or plan mode", "pattern": "\\bMode:\\s*(Validate|Plan)\\b|\\b(Validate|Plan) mode\\b" },
+        { "name": "long research", "pattern": "\\blong-research\\.md\\b|\\bdurable decision brief\\b|\\blong research\\b" },
+        { "name": "campaign scope", "pattern": "\\bCampaign scope\\b|\\bcampaign spec\\b" },
+        { "name": "budget and stop gates", "pattern": "\\bbudget\\b[\\s\\S]*\\bstop gates?\\b|\\bstop gates?\\b[\\s\\S]*\\bbudget\\b" },
+        { "name": "claim ledger", "pattern": "\\bclaim ledger\\b|\\bclaims?\\.jsonl\\b" },
+        { "name": "evidence ledger", "pattern": "\\bevidence ledger\\b|\\bevidence\\.jsonl\\b" },
+        { "name": "unsupported gaps", "pattern": "\\bunsupported\\b|\\bgaps?\\b|\\bunverified\\b" },
+        { "name": "decision", "pattern": "\\bVerdict\\b|\\bDecision\\b|\\bRecommended next step\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "freezes-campaign-scope",
+          "dimension": "scope",
+          "question": "Does the brief freeze question, surfaces, budget, stop gates, and non-goals before deep work?",
+          "passPattern": "\\bCampaign scope\\b[\\s\\S]*\\bsurfaces\\b[\\s\\S]*\\bbudget\\b[\\s\\S]*\\bstop gates?\\b[\\s\\S]*\\bnon-?goals?\\b",
+          "failureSignature": "mechanism:long-research|cause:scope-not-frozen",
+          "suggestedLesson": "Long research briefs should freeze scope, surfaces, budget, stop gates, and non-goals before deep work."
+        },
+        {
+          "id": "separates-claims-from-evidence",
+          "dimension": "evidence",
+          "question": "Does the brief track atomic claims separately from proof-grade evidence?",
+          "passPattern": "\\bclaim ledger\\b[\\s\\S]*\\bevidence ledger\\b|\\bevidence ledger\\b[\\s\\S]*\\bclaim ledger\\b",
+          "failureSignature": "mechanism:long-research|cause:claims-evidence-blurred",
+          "suggestedLesson": "Separate claim rows from evidence rows so long research can drop unsupported claims without losing source facts."
+        },
+        {
+          "id": "keeps-vendors-optional",
+          "dimension": "tool-use",
+          "question": "Does the brief keep vendor research adapters optional rather than mandatory?",
+          "passPattern": "\\bvendor\\b[\\s\\S]*\\boptional\\b|\\boptional\\b[\\s\\S]*\\bvendor\\b",
+          "failureSignature": "mechanism:long-research|cause:vendor-tool-required",
+          "suggestedLesson": "Vendor research adapters can enrich web/paper surfaces, but should not replace Octocode proof or block the campaign."
+        }
+      ],
+      "forbidden": [
+        { "name": "vendor required", "pattern": "\\bmust use\\b[^\\n]*(Firecrawl|Tavily|Parallel|Perplexity)|\\bvendor\\b[^\\n]*\\brequired\\b" }
+      ]
+    },
+    {
+      "id": "github-landscape",
+      "mode": "Map",
+      "prompt": "Map GitHub repos that implement structural TypeScript search and recommend what we could reuse.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "map mode", "pattern": "\\bMode:\\s*Map\\b|\\bMap mode\\b|\\bGitHub Landscape\\b" },
+        { "name": "repo db", "pattern": "\\brepo db\\b|\\brepo_db\\.jsonl\\b|\\branked repo table\\b" },
+        { "name": "ranking dimensions", "pattern": "\\bfit\\b[\\s\\S]*\\bactivity\\b[\\s\\S]*\\bevidence\\b[\\s\\S]*\\breuse\\b[\\s\\S]*\\brisk\\b" },
+        { "name": "repositories and packages", "pattern": "\\brepositor(?:y|ies)\\b.*\\bpackage|\\bpackage\\b.*\\brepositor(?:y|ies)\\b" },
+        { "name": "exact reads", "pattern": "\\bexact(?:-read| read| reads)\\b|\\bREADME\\b|[A-Za-z0-9_./-]+:\\d+" },
+        { "name": "stars/downloads tiebreakers", "pattern": "\\bstars?\\b[\\s\\S]*\\btiebreakers?\\b|\\bdownloads?\\b[\\s\\S]*\\btiebreakers?\\b" },
+        { "name": "integration blueprint", "pattern": "\\bIntegration blueprint\\b|\\breusable pieces\\b|\\bproof still needed\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "builds-repo-db",
+          "dimension": "synthesis",
+          "question": "Does the answer build a repo DB or ranked table with fit/activity/evidence/reuse/risk?",
+          "passPattern": "(\\brepo db\\b|\\branked repo table\\b)[\\s\\S]*\\bfit\\b[\\s\\S]*\\bactivity\\b[\\s\\S]*\\bevidence\\b[\\s\\S]*\\breuse\\b[\\s\\S]*\\brisk\\b",
+          "failureSignature": "mechanism:github-landscape|cause:no-repo-db",
+          "suggestedLesson": "GitHub landscapes should rank repos with fit, activity, evidence, reuse potential, and risk."
+        },
+        {
+          "id": "exact-reads-top-candidates",
+          "dimension": "evidence",
+          "question": "Does the answer exact-read top candidate repos before recommending reuse?",
+          "passPattern": "\\bexact(?:-read| read| reads)\\b[\\s\\S]*(\\bREADME\\b|\\bsource\\b|https?://|[A-Za-z0-9_./-]+:\\d+)",
+          "failureSignature": "mechanism:github-landscape|cause:no-exact-read",
+          "suggestedLesson": "Do not recommend reuse from search snippets alone; exact-read README/source/tests for top candidates."
+        },
+        {
+          "id": "outputs-integration-blueprint",
+          "dimension": "decision",
+          "question": "Does the answer end with an integration blueprint and proof still needed?",
+          "passPattern": "\\bIntegration blueprint\\b[\\s\\S]*(\\bproof still needed\\b|\\bNext\\b|\\bprototype\\b)",
+          "failureSignature": "mechanism:github-landscape|cause:no-integration-blueprint",
+          "suggestedLesson": "A reuse landscape should end with what to reuse, what to avoid, risks, proof still needed, and the next command/prototype."
+        }
+      ],
+      "forbidden": [
+        { "name": "popularity as proof", "pattern": "\\bstars?\\b[^\\n]*(?:prove|validate)|\\bdownloads?\\b[^\\n]*(?:prove|validate)" }
+      ]
     }
   ]
 }

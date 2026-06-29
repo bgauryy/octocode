@@ -42,9 +42,7 @@ Install, run, and manage Octocode from the terminal.
 
 | Doc | When to read |
 |-----|--------------|
-| [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md) | All `octocode` commands, flags, and tool runner |
-| [CLI Quick Start](https://github.com/bgauryy/octocode/blob/main/docs/cli/README.md) | First commands for humans and agents |
-| [GitHub API Benchmark](https://github.com/bgauryy/octocode/blob/main/docs/cli/GITHUB_API_BENCHMARK.md) | GitHub API benchmark notes |
+| [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) | User-facing CLI guide: commands, workflows, flags, tool runner, and MCP alignment |
 
 ---
 

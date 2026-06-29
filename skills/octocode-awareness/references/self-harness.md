@@ -31,6 +31,8 @@ So the everyday flow is: **do the work → `verify` it (§1) → `reflect` on it
 
 Use `--judgment-note` when the conclusion needs nuance: name what evidence was checked, what uncertainty remains, and why any eval/checklist prompt mattered or did not. Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness. It adds a `reflection_duo` packet with two advisory reviewer roles: an evidence/verification reviewer and a harness/skill improver. The packet is not stored, scored, or enforced; it gives a later eval agent seed questions to rewrite, answer, or discard from the actual task intent.
 
+For subagent-heavy work, pair `--judgment-note` with the compact evidence receipt from `agentic-flows.md`: scope, claims, evidence anchors, verification status, decision impact, and open questions. Receipts are evidence summaries, not transcripts. Turn them into eval targets only when a repeated failure signature shows up across receipts or verification events.
+
 ### Binary-question eval failures
 
 Some skills emit BinEval-style `binaryQuestions` in their eval output: each failed question should carry a question id, dimension, failure signature, and suggested lesson. Treat that as a diagnostic packet, not as an auto-patch instruction.
@@ -48,8 +50,8 @@ The flagship failure class is declaring success without checking the artifact.
 
 - At `pre-flight-intent` you already declare a `--test-plan`. After doing the work,
   **run it and record that it ran**:
-  - `verify --agent-id <a> --intent-id <id> --message "yarn test: 273 passed"`, or
-  - `verify --agent-id <a> --workspace "$PWD" --all-pending --message "yarn test: 273 passed"` after hook-managed edits, or
+  - `verify --agent-id <a> --intent-id <id> --message "command=yarn test exit=0 artifact=skill docs result=273 passed evidence=<log/ref>"`, or
+  - `verify --agent-id <a> --workspace "$PWD" --all-pending --message "command=... exit=0 artifact=... result=... evidence=..."` after hook-managed edits, or
   - `release-file-lock ... --status SUCCESS --verified --verified-note "ran it"`.
 - A `VERIFIED` event is written to `intent_events`. If you release `--status SUCCESS`
   on an intent that declared a test-plan but recorded no verification, the response

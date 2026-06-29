@@ -1,6 +1,17 @@
 # Tools — research surfaces
 
-Load when starting research (step 4) or whenever you need the exact command/flag for a surface. Covers GitHub/packages (Octocode CLI), the local workspace, web engines, and cross-surface query craft.
+Load when starting research (step 4) or whenever you need the exact command/flag for a surface. Covers top resources/web engines, GitHub/packages/code (Octocode CLI), the local workspace, and cross-surface query craft.
+
+## Default external loop — resources first
+
+For external validation, prior-art mapping, method claims, or market/technical landscapes, start with top resources before repository/package/code search:
+
+1. Search/read top resources: official docs, papers, standards, canonical industry articles, credible practitioner writeups, and dated announcements.
+2. Extract project, repo, package, author, technique, and failure-term leads from those resources.
+3. Search GitHub/packages/code from those leads, then exact-read READMEs, source files, issues, PRs, and package metadata.
+4. Loop back to web/resources to reconcile contradictions, stale repos, unsupported claims, and missing context.
+
+Only skip this order when the user explicitly asks for local-only/no-web work, web access is unavailable, or the idea is purely about this workspace. For repo-targeted ideas, do a quick local orientation first or in parallel so resource queries use the real stack.
 
 ## GitHub & packages — Octocode CLI
 
@@ -15,7 +26,7 @@ Run `npx octocode <command> ... --no-color`. Prefer quick commands; use raw tool
 | `search owner/repo/path --content-view exact` / raw `ghGetFileContent` | Read key files for specific answers |
 | `search --target pullRequests` / `search --target commits` / raw `ghHistoryResearch` | How similar features shipped in PRs/commits |
 
-Default flow: `search --target repositories` (discover) → `search --target packages` (resolve packages) → `search --tree`/text search (orient) → `search --content-view exact` (exact evidence) → `search --target commits` / `search --target pullRequests` (change history).
+Code follow-up flow after resource leads: `search --target repositories` (resolve named projects/terms) → `search --target packages` (resolve packages) → `search --tree`/text search (orient) → `search --content-view exact` (exact evidence) → `search --target commits` / `search --target pullRequests` (change history).
 
 ## Local workspace — orient here first when the idea touches the user's own repo
 
@@ -33,7 +44,7 @@ The `search` command auto-routes local paths: use `search <path> --tree`, `searc
 
 Local orient flow: `search <workspace> --tree` (structure) → `search <concept> <workspace>` / `search <workspace> --search path` (does it exist already?) → `search <file> --content-view symbols` (how it works) → `search <file> --op ...` (who depends on it / blast radius). Carry the real lib names, framework, and constraints you find into the GitHub/npm/web queries — local findings sharpen external search the same way cross-pollination does.
 
-## Web — search → read → follow
+## Web/top resources — search → read → follow
 
 Two interchangeable engines in `scripts/` (same CLI: `--query --max-results --time-range --check --presence-only --help`; same JSON `{engine,answer,results[{title,url,content}]}`):
 
@@ -43,7 +54,7 @@ Two interchangeable engines in `scripts/` (same CLI: `--query --max-results --ti
 | `tavily-search.mjs` | `TAVILY_API_KEY` | AI-curated answers, deep research |
 
 - **Check once at startup:** `node <skill_dir>/scripts/<engine>-search.mjs --check`. Use whichever exits 0; if both, Serper for breadth + Tavily for depth. `--check` performs a live authorization check; add `--presence-only` only when offline. Both exit 1 → tell user once: add `SERPER_API_KEY` (serper.dev) and/or `TAVILY_API_KEY` (app.tavily.com) to `<absolute skill_dir>/.env`.
-- **Loop:** run engine → fetch/open the best formal URLs with the runtime web reader (`WebFetch` in Claude; web/open tool or Browser in Codex) → chase leads → repeat to bedrock. Search snippets are leads; cite only fetched/opened sources.
+- **Loop:** run engine → fetch/open the best formal URLs with the runtime web reader (`WebFetch` in Claude; web/open tool or Browser in Codex) → extract repo/package/code leads → read exact code → return to resources for contradictions and context. Search snippets are leads; cite only fetched/opened sources.
 - Engine flags: Tavily `--depth basic|advanced|fast|ultra-fast`, `--topic general|news|finance`, `--include-domains`/`--exclude-domains` (comma-separated), `--start-date`/`--end-date` (YYYY-MM-DD), `--auto-parameters`, `--max-results` (0–20); Serper `--gl`, `--hl`, `--time-range`.
 - **Worker brief** (per web slice): research <slice> → run engine → read the best **formal/validated** URLs → report who's doing it, what's right/wrong, gaps, best URLs with author/date notes; cite all.
 

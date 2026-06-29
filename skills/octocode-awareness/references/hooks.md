@@ -6,14 +6,16 @@ Read this to understand, tune, or disable the bundled hooks, or to make file-cla
 
 `SKILL.md` frontmatter defines several skill-scoped hooks (active only while this skill is loaded, auto-removed after):
 
-| Event | Matcher | Script | Effect |
-|-------|---------|--------|--------|
-| `PreToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit` | `scripts/hooks/pre-edit.sh` | Claims the target file via `pre-flight-intent`. **Blocks the edit (exit 2)** if another agent holds it. |
-| `PreToolUse` | same | `scripts/hooks/harness-guard.sh` | **Harness self-fix gate.** For edits to files inside the skill's own directory, **blocks (exit 2)** unless a human opened the gate (`OCTOCODE_ALLOW_HARNESS_APPLY=1`) and the skill repo is on a dedicated branch (not `main`/`master`; override `OCTOCODE_HARNESS_BRANCH_OK=1`). No-op for any file outside the skill. See `harness-apply` in `self-harness.md`. |
-| `PostToolUse` | same | `scripts/hooks/post-edit.sh` | Releases this agent's lock on the file just written as `PENDING` verification. |
-| `Stop` / `SubagentStop` | — | `scripts/hooks/stop-verify.sh` | Runs `audit-unverified`; **blocks the conclusion once (exit 2)** if an active or pending intent declared a test-plan but recorded no verification. Loop-guarded (`stop_hook_active`); opt out with `OCTOCODE_NO_VERIFY_GATE=1`. |
-| `SessionEnd` | — | `scripts/hooks/session-end.sh` | Runs `session-capture` to auto-write a work-handoff refinement from this session's locks + dirty git tree. Non-blocking, fail-open; no-ops on a clean tree; opt out with `OCTOCODE_NO_SESSION_CAPTURE=1`. |
-| `UserPromptSubmit` | — | `scripts/hooks/notify-deliver.sh` | Runs `notify-get --format hook` for this agent against the prompt's `cwd`, injecting unread repo messages (addressed to me or broadcast) into context via `additionalContext`, then advances the read cursor. Non-blocking, fail-open; emits nothing when the inbox is clear; opt out with `OCTOCODE_NO_NOTIFY=1`. |
+| Lifecycle event | Script | Side effect | Verify/audit command |
+|-----------------|--------|-------------|----------------------|
+| `PreToolUse` on `Write\|Edit\|MultiEdit\|NotebookEdit` | `scripts/hooks/pre-edit.sh` | Claims the target file via `pre-flight-intent`; **blocks the edit (exit 2)** if another agent holds it. | `python3 scripts/awareness.py status --workspace "$PWD"` should show the lock or conflict. |
+| `PreToolUse` on the same matcher | `scripts/hooks/harness-guard.sh` | **Harness self-fix gate.** Blocks skill self-edits unless a human opened `OCTOCODE_ALLOW_HARNESS_APPLY=1` and the repo is on a dedicated branch. | Try `OCTOCODE_ALLOW_HARNESS_APPLY=1 python3 scripts/awareness.py harness-apply --help`; see `self-harness.md` before real edits. |
+| `PostToolUse` on the same matcher | `scripts/hooks/post-edit.sh` | Releases this agent's lock on the written file as `PENDING` verification. | `python3 scripts/awareness.py audit-unverified --agent-id <id> --workspace "$PWD"` should list pending verification. |
+| `Stop` / `SubagentStop` | `scripts/hooks/stop-verify.sh` | Runs `audit-unverified`; **blocks the conclusion once (exit 2)** when an active or pending intent has no `VERIFIED` event. | `python3 scripts/awareness.py verify --agent-id <id> --workspace "$PWD" --all-pending --message "<check>"`, then rerun `audit-unverified`. |
+| `SessionEnd` | `scripts/hooks/session-end.sh` | Runs `session-capture` to write a work-handoff refinement from this session's locks and dirty git tree. | `python3 scripts/awareness.py refine-get --workspace "$PWD" --limit 5`. |
+| `UserPromptSubmit` | `scripts/hooks/notify-deliver.sh` | Runs `notify-get --format hook`, injects unread repo messages into context, then advances this agent's read cursor. | `python3 scripts/awareness.py notify-get --agent-id <id> --workspace "$PWD" --all --limit 5`. |
+
+Use this table as the hook audit story before installing, debugging, or copying the skill. It names the lifecycle event, exact script, durable side effect, and the command that proves the hook did what it said.
 
 Behavior details:
 - **agent id** = `OCTOCODE_AGENT_ID` if set, else the hook's `session_id`, so concurrent Claude sessions are distinct agents and never block themselves (same-agent re-edits pass). Export `OCTOCODE_AGENT_ID` to give the hooks and your manual `pre-flight-intent`/`release-file-lock` calls one shared identity, so the two mechanisms never treat you as two agents.

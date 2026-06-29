@@ -1,76 +1,50 @@
 # Octocode Skills
 
-`octocode-skills` helps agents work on Agent Skills themselves: finding, evaluating, installing, creating, linting, refactoring, and improving `SKILL.md` folders.
+`octocode-skills` gives an agent the ability to work on Agent Skills as first-class artifacts. It can find, inspect, evaluate, improve, install, author, and explain `SKILL.md` folders without treating them like ordinary markdown.
 
-Use it when the task is about a skill, a skill marketplace, install target, trigger description, README, reference map, script helper, or skill publication quality.
+Use it whenever the task is about a skill's trigger, workflow, references, README, installation target, publication quality, or marketplace fit.
 
-## When to use
+## The Problem
 
-- Find or compare skills for a task.
-- Evaluate a third-party `SKILL.md` before installing it.
-- Install a skill into a provider or project scope.
-- Create a local skill from researched patterns.
-- Refactor a skill into a lean `SKILL.md` plus focused references.
-- Tune a skill description so it triggers at the right time.
-- Add or improve README documentation for publication.
-- Run structural linting before shipping a skill.
+Skills are small, but they are operational. A weak description can trigger at the wrong time. A bloated `SKILL.md` can waste context. A missing gate can make install behavior risky. A nice README can still fail to explain what the agent actually does.
 
-Use `octocode` or `octocode-research` for normal code research. Use a prompt-specific workflow when the target is not an Agent Skill folder.
+This skill gives the agent a rubric and workflow for judging skill quality from real files instead of summaries.
 
-## Features
+## Capabilities
 
 - Skill discovery across local paths, GitHub paths, and marketplace-style sources.
-- Candidate inspection from real `SKILL.md` files instead of summaries alone.
-- Quality rubric for trigger clarity, workflow, evidence, gates, output UX, specificity, portability, and risk.
-- Description tuning for better activation without keyword stuffing.
-- Install planning across provider, scope, copy-vs-symlink mode, conflicts, and verification.
-- Skill creation from evidence with references and audit trail.
-- Mechanical linting through `scripts/skill-lint.mjs`.
-- README checks for overview, features, how-it-works, audience, and `npx octocode skill ...` installation.
-- Explicit gates before installs, overwrites, symlinks, config changes, or file writes.
+- Inspection of real `SKILL.md` content before recommending or installing.
+- Quality review for trigger clarity, workflow, evidence, gates, output UX, specificity, portability, and risk.
+- Description tuning so a skill activates at the right time without keyword stuffing.
+- Install planning across provider, scope, destination, copy-vs-symlink mode, and conflict handling.
+- Skill creation from evidence, with references and an audit trail.
+- README review for user value, capabilities, operating model, installation, and maintainer clarity.
+- Gates before installs, overwrites, symlinks, config changes, or file writes.
 
-## How it works
+## Operating Model
 
-The skill follows this flow:
+The workflow is:
 
 ```text
 UNDERSTAND -> DISCOVER -> INSPECT -> JUDGE -> RECOMMEND -> USER GATE -> ACT -> VERIFY
 ```
 
-It first identifies the target skill or search space, inspects real files, applies the quality rubric, asks for approval before risky writes or installs, performs the smallest useful action, and verifies with the linter or target-specific checks.
+The agent resolves the skill identity, reads the real files, applies the rubric, asks before risky actions, performs the smallest useful change, and verifies the result with the repo's quality checks.
 
-## Internal flow
+## User Experience
 
-1. Resolve the skill identity by absolute path, repo/path, marketplace result, or install input.
-2. Read `SKILL.md` and only the behavior-affecting references or scripts needed for the request.
-3. Judge progressive disclosure, trigger fit, gates, output shape, scripts, hooks, README coverage, and install risk.
-4. For installs, confirm provider, scope, destination, mode, conflicts, and script inspection before writing.
-5. For edits, preserve the skill's intent while moving conditional detail into references and deterministic work into scripts.
-6. Re-run `scripts/skill-lint.mjs` and report residual warnings or risks.
+Users can ask whether a skill is worth installing, why it fails to trigger, how to rewrite it, or how to publish it cleanly. The answer should be concrete: what is strong, what is risky, what should change, and what gate is needed before writing or installing.
+
+For authors, the skill keeps `SKILL.md` lean while moving conditional depth into references and keeping the README friendly to humans.
 
 ## Installation
 
-Install the published skill:
+Install the published skill with:
 
 ```bash
 npx octocode skill --name octocode-skills
 ```
 
-Install from a GitHub path or fork:
+## Maintainer Notes
 
-```bash
-npx octocode skill --add bgauryy/octocode/skills/octocode-skills
-```
-
-When installing third-party skills, inspect `SKILL.md`, bundled scripts, hooks, and destination conflicts before copying or symlinking.
-
-## Benefits
-
-- Avoids blind skill installs and stale marketplace assumptions.
-- Helps authors keep `SKILL.md` lean enough for agents to load reliably.
-- Makes published skills easier for users to understand before installation.
-- Provides a deterministic lint gate for structure, prompt hygiene, routing, scripts, hooks, and README coverage.
-
-## For developers
-
-Developers maintain behavior in `SKILL.md`, focused `references/`, and deterministic `scripts/`. `scripts/skill-lint.mjs` is the quality gate for structure, prompt hygiene, README coverage, script routing, hook handling, and installation docs. Keep repeated procedures in scripts, keep conditional detail in references, and keep `SKILL.md` within the lint line budget.
+Keep this README focused on skill quality as a user-facing workflow. Keep deeper rubric rules, discovery surfaces, install details, creation templates, and recovery behavior in the agent-facing skill file and references.

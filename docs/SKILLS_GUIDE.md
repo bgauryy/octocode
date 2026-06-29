@@ -153,6 +153,6 @@ Human output always prints the selected mode, selected platforms, canonical sour
 
 ## Related Docs
 
-- [CLI Reference](https://github.com/bgauryy/octocode/blob/main/docs/cli/REFERENCE.md)
+- [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
 - [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
 - [Pi Setup Guide](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md)

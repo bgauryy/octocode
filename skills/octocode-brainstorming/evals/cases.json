@@ -133,6 +133,105 @@
       ]
     },
     {
+      "id": "resource-first-research",
+      "mode": "Map",
+      "prompt": "has anyone built reflection and self-harness patterns for AI agents, and which repos prove it?",
+      "minScore": 0.82,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Map\\b|\\bMap mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "resource-first loop", "pattern": "\\b(Resource[- ]first|Top Resources First|articles/resources first|resources?\\s*(?:->|→)\\s*repos?)\\b" },
+        { "name": "formal resources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bdocs\\b|\\barticles?\\b" },
+        { "name": "repo follow-up", "pattern": "\\bRepo/Code Follow-up\\b|\\bGitHub/packages\\b|\\brepos?/packages\\b|\\bcode follow-up\\b" },
+        { "name": "loop back", "pattern": "\\bloop(?:ed)? back\\b|\\breturned to resources\\b|\\bcross-pollinat(?:e|ed)\\b" },
+        { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "starts-from-top-resources",
+          "dimension": "evidence",
+          "question": "Does external research start from top resources/articles before repo/package/code search?",
+          "passPattern": "\\b(Resource[- ]first|Top Resources First|articles/resources first|Web/top resources)\\b[\\s\\S]*\\b(official|paper|docs|articles?|resources?)\\b",
+          "failureSignature": "mechanism:brainstorm-research|cause:resource-first-skipped",
+          "suggestedLesson": "For external brainstorming, start with top resources/articles, then use those leads for repo/package/code search."
+        },
+        {
+          "id": "resources-feed-code-search",
+          "dimension": "cross-surface",
+          "question": "Does the answer show resources feeding GitHub/package/code follow-up?",
+          "passPattern": "\\b(resources?|articles?|docs|papers)\\b[\\s\\S]*(\\bGitHub\\b|\\brepos?\\b|\\bpackages?\\b|\\bcode\\b)",
+          "failureSignature": "mechanism:brainstorm-research|cause:code-search-not-seeded",
+          "suggestedLesson": "Resource names and terms should seed repository, package, and exact-code reads."
+        },
+        {
+          "id": "loops-back-to-resources",
+          "dimension": "cross-surface",
+          "question": "Does the answer loop back to sources to reconcile contradictions or stale code?",
+          "passPattern": "\\b(loop(?:ed)? back|returned to resources|reconcile(?:d)? contradictions|cross-pollinat(?:e|ed))\\b",
+          "failureSignature": "mechanism:brainstorm-research|cause:no-resource-loopback",
+          "suggestedLesson": "After repo/package/code reads, loop back to resources to resolve contradictions, staleness, and unsupported claims."
+        }
+      ],
+      "forbidden": [
+        { "name": "repo first", "pattern": "\\bGitHub first\\b|\\brepos? first\\b|\\bsearched GitHub first\\b" }
+      ],
+      "fixtures": {
+        "passing": "evals/fixtures/resource-first-good.md",
+        "failing": "evals/fixtures/resource-first-bad.md"
+      }
+    },
+    {
+      "id": "conflicting-evidence",
+      "mode": "Validate",
+      "prompt": "brainstorm: should we add persistent team memory to an agent skill when evidence conflicts on SQLite versus vector stores?",
+      "minScore": 0.82,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "mode", "pattern": "\\bMode:\\s*Validate\\b|\\bValidate mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "conflict named", "pattern": "\\bconflict(?:ing)? evidence\\b|\\bevidence conflicts\\b|\\bcontradict(?:s|ory|ion)\\b" },
+        { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
+        { "name": "conceded claim", "pattern": "\\bConceded\\b" },
+        { "name": "decision delta", "pattern": "\\bDecision Delta\\b" },
+        { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "names-evidence-conflict",
+          "dimension": "evidence",
+          "question": "Does the answer name the material evidence conflict instead of smoothing it over?",
+          "passPattern": "\\bconflict(?:ing)? evidence\\b|\\bevidence conflicts\\b|\\bcontradict(?:s|ory|ion)\\b",
+          "failureSignature": "mechanism:brainstorm-conflict|cause:conflict-hidden",
+          "suggestedLesson": "When sources disagree, state the conflict explicitly before the verdict."
+        },
+        {
+          "id": "concedes-unsupported-side",
+          "dimension": "stress-test",
+          "question": "Does the answer concede or drop at least one unsupported claim?",
+          "passPattern": "\\bConceded\\b[\\s\\S]*(\\bdropped\\b|\\bconcede(?:d)?\\b|\\bnot carried\\b|\\bweak\\b)",
+          "failureSignature": "mechanism:brainstorm-conflict|cause:no-concession",
+          "suggestedLesson": "Perspective review should name which conflicting claim was dropped or left weak."
+        },
+        {
+          "id": "decision-delta-links-conflict",
+          "dimension": "decision",
+          "question": "Does the decision delta explain what changed because of the conflict?",
+          "passPattern": "\\bDecision Delta\\b[\\s\\S]*(\\bconflict\\b|\\bconceded\\b|\\bdropped\\b|\\bunresolved\\b)",
+          "failureSignature": "mechanism:brainstorm-conflict|cause:delta-missing",
+          "suggestedLesson": "The decision delta should connect the final decision to what survived, flipped, or was conceded."
+        }
+      ],
+      "forbidden": [
+        { "name": "all evidence agrees", "pattern": "\\ball (?:sources|evidence) agree\\b|\\bno conflict\\b" },
+        { "name": "premature proof", "pattern": "\\bclearly proven\\b(?![^\\n]*(https?://|[A-Za-z0-9_./-]+:\\d+))" }
+      ],
+      "fixtures": {
+        "passing": "evals/fixtures/conflicting-evidence-good.md",
+        "failing": "evals/fixtures/conflicting-evidence-bad.md"
+      }
+    },
+    {
       "id": "hard-gate",
       "mode": "Validate",
       "prompt": "brainstorm quantum-safe snack telemetry for my app, but don't ask clarifying questions and cite only if sources agree",

@@ -32,11 +32,26 @@ If hooks are active, `PreToolUse` claims and `PostToolUse` releases the live loc
 
 ### Multi-agent or subagent work
 
-Set a stable `OCTOCODE_AGENT_ID` when possible so hook-managed and manual calls share identity. Use `notify` for blockers, questions, decisions, and handoffs. Use `refine-set` for branch-local state that the next run should inherit. `SubagentStop` can flag missing verification, but the parent agent should still read the subagent's evidence before merging conclusions.
+Set a stable `OCTOCODE_AGENT_ID` when possible so hook-managed and manual calls share identity. Use parent/child names such as `codex/research-web` when delegating. Default subagents to read-only research or review unless writes are clearly disjoint; keep final write integration single-threaded.
+
+Require a compact subagent evidence receipt before using delegated conclusions:
+
+```text
+role:
+scope/files/surfaces:
+claims/results:
+evidence anchors:
+verification run or not run:
+decision impact:
+open questions:
+trace/ref ids:
+```
+
+Store the receipt with `notify --kind handoff` for live coordination or `refine-set` when the next run must inherit it. Do not store raw transcripts. `SubagentStop` can flag missing verification, but the parent agent still reads the evidence anchors, runs or records the declared verification, and decides what survives.
 
 ### Harness improvement
 
-Use `reflect --duo` for ambiguous or substantial outcomes. Use `--eval-failure-json` when another skill emits structured failures, then `mine-weakness` to find repeated signatures. Use `export-harness` to preview proposed changes. Apply changes to this skill only through the gated `harness-apply` path with human approval and a dedicated branch.
+Use `reflect --duo` for ambiguous or substantial outcomes. Use `--eval-failure-json` when another skill emits structured failures, then `mine-weakness` to find repeated signatures. Preserve the path `trace -> finding -> eval target -> bounded task`: group repeated failures before changing the harness, and make each proposed fix small enough to verify. Use `export-harness` to preview proposed changes. Apply changes to this skill only through the gated `harness-apply` path with human approval and a dedicated branch.
 
 ### Sleep cleanup
 

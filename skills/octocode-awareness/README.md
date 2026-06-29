@@ -1,112 +1,57 @@
 # Octocode Awareness
 
-`octocode-awareness` gives coding agents situational awareness in a real local repo. It stores memories, file claims, handoffs, peer messages, and verification records in a local SQLite database so separate runs can coordinate instead of starting cold or colliding silently.
+`octocode-awareness` gives the agent awareness. It lets one agent know what has happened in a workspace, what files are being touched, what another run already learned, what still needs verification, and what should be handed to the next agent.
 
-Use it alongside engineering work whenever the repo state matters.
+The skill is especially useful when several agents work together in the same repo, even when those agents come from different vendors or hosts. They do not need to share raw chat logs to coordinate; they share a local awareness layer.
 
-## When to use
+## The Problem
 
-- A task will create, edit, or delete files in a dirty or shared workspace.
-- Multiple agents or sessions may touch overlapping files.
-- Work should leave a handoff for the next run.
-- A lesson, failure, decision, or gotcha should be remembered.
-- The user asks what other agents are doing, what is pending, or what remains unverified.
-- You need a local viewer for awareness data.
+Coding agents are usually stateless between runs. One agent may edit a file while another is reading stale context. A later run may rediscover a lesson that was already learned. A handoff can be buried in chat, and a success claim can be made without a recorded check.
 
-Do not use this as a search or test runner. It coordinates work, records lessons, and makes verification visible.
+`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the memory, lock, handoff, notification, and verification layer around engineering work.
 
-## Features
+## Capabilities
 
-- Global reusable memories for lessons, workflows, gotchas, decisions, and recurring failures.
-- Workspace, repo, and branch-scoped refinements for handoffs and unfinished work.
-- File locks with owner, rationale, test plan, acquisition time, and expiry.
-- Agent-to-agent notifications for claims, questions, blockers, decisions, replies, and handoffs.
-- Verification records that connect an edit intent to the test or review that actually ran.
-- Reflection and weakness-mining commands for turning failures into reusable lessons.
-- Optional semantic memory recall with local embeddings.
-- Curated Markdown corpus notes under `~/.octocode/awareness/corpus/**/*.md`.
-- HTML viewer for memories, locks, intents, notifications, and refinements.
-- Hook helpers for automatic pre-edit claims, post-edit release, notification delivery, session capture, and unverified-work checks.
+- Shared memory for reusable lessons, failure signatures, decisions, and gotchas.
+- Workspace and branch-scoped handoffs for unfinished or ongoing work.
+- File claims so agents can see overlapping edits before they collide.
+- Verification records that connect a work intent to the check that actually ran.
+- Agent-to-agent notifications for blockers, questions, claims, replies, and handoffs.
+- Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
+- Reflection and weakness-mining flows that turn repeated failures into better future behavior.
+- Optional local semantic recall while keeping SQLite and text search as the dependable default.
+- A local viewer for inspecting memories, locks, intents, refinements, and notifications.
 
-## How it works
+## Operating Model
 
-The skill uses one shared local store:
+The skill uses a shared local SQLite store under the user's Octocode state directory. Records are scoped by workspace, repo, branch/ref, file path, state, and agent id, so the same memory layer can support multiple projects without needing a separate database per repo.
 
-```text
-~/.octocode/memory/awareness.sqlite3
-```
-
-Records are scoped by workspace, repo, branch/ref, file path, state, and agent id rather than by separate per-repo databases. The main CLI is `scripts/awareness.py`; helper scripts validate schemas, install hooks, render the viewer, prune stale locks, and smoke-test multi-agent behavior.
-
-The normal loop is:
+The mental model is:
 
 ```text
 ATTEND -> FOCUS -> CLAIM -> WORK -> VERIFY -> ENCODE -> SLEEP
 ```
 
-- Attend: read status, relevant memories, refinements, and unread notifications.
-- Focus: identify target files, rationale, and test plan.
-- Claim: create a pre-flight intent and file locks before editing.
-- Work: make the scoped change.
-- Verify: run the declared check and record the verification event.
-- Encode: save reusable lessons as memories and repo-specific work state as refinements.
-- Sleep: release locks, resolve or prune stale state, reflect, and leave the next run clean.
+An agent attends to the current state, focuses the intended work, claims files when editing, does the work, records verification, encodes reusable lessons or repo handoffs, then leaves the workspace clean for the next run.
 
-## Internal flow
+Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
 
-```mermaid
-flowchart TD
-  Prompt["Prompt + workspace state"] --> Attend["Attend: status, memory, refinements, notifications"]
-  Attend --> Claim["Claim files: pre-flight intent + lock"]
-  Claim --> Work["Do scoped work"]
-  Work --> Verify["Run test plan + record verification"]
-  Verify --> Encode{"Keep the trace?"}
-  Encode -->|general lesson| Memory["Memory: reusable knowledge"]
-  Encode -->|repo handoff| Refinement["Refinement: workspace state"]
-  Encode -->|live coordination| Notify["Notification: peer message"]
-  Verify --> Release["Release lock or leave pending verification"]
-  Memory --> Recall["Future recall"]
-  Refinement --> Recall
-  Notify --> Recall
-```
+## User Experience
 
-Lifecycle hooks can automate parts of this flow in hosts that support them. Without hooks, the same operations are available through explicit `awareness.py` commands.
+For users, the value is less drama in shared workspaces. The agent can say which files are claimed, what remains unverified, what a previous run learned, and what handoff is waiting. The user gets a clearer answer to "what is going on here?" before another agent starts editing.
+
+The skill also makes collaboration more honest. A conclusion can carry a recorded verification trail, and a future agent can distinguish "someone thought about this" from "someone proved this."
 
 ## Installation
 
-Install the published skill:
+Install the published skill with:
 
 ```bash
 npx octocode skill --name octocode-awareness
 ```
 
-Install from a GitHub path or fork:
+Optional hooks can make awareness more automatic, but the README deliberately focuses on the concept. Users can start with manual coordination and add host-specific automation later.
 
-```bash
-npx octocode skill --add bgauryy/octocode/skills/octocode-awareness
-```
+## Maintainer Notes
 
-After installing, run a readiness check from the installed skill folder:
-
-```bash
-node ~/.octocode/skills/octocode-awareness/scripts/install.mjs --check-only
-```
-
-Always-on Claude file-lock hooks are optional. Inspect first and preview writes before installing:
-
-```bash
-node ~/.octocode/skills/octocode-awareness/scripts/install-hooks.mjs --check --global
-node ~/.octocode/skills/octocode-awareness/scripts/install-hooks.mjs --dry-run --global
-```
-
-## Benefits
-
-- Fewer hidden file collisions in shared or long-running work.
-- Less rediscovery across agent runs.
-- Clearer handoffs when a task pauses or moves between agents.
-- Success claims backed by recorded verification.
-- A durable, inspectable history of lessons and decisions without committing secrets.
-
-## For developers
-
-Keep the agent-facing map in `SKILL.md`, data-model and coordination semantics in focused `references/`, and deterministic behavior in `scripts/awareness.py` plus hook helpers. When changing memory fields, lock behavior, notification semantics, hooks, or verification flow, update schema helpers, README examples, viewer rendering, smoke tests, and relevant references together.
+Keep this README centered on the awareness story: cross-run memory, cross-agent coordination, lock visibility, handoff quality, and verification discipline. Keep implementation details in the agent-facing skill file and focused references so users are not forced through operational plumbing before understanding the value.

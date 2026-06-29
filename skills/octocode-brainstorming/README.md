@@ -1,72 +1,50 @@
 # Octocode Brainstorming
 
-`octocode-brainstorming` turns fuzzy ideas into evidence-grounded decisions. It is for "is this worth building?", "has anyone built this?", "what are the angles?", and "should we add this to our product or codebase?" moments.
+`octocode-brainstorming` gives an agent a disciplined way to explore fuzzy ideas before anyone commits to a feature, library, workflow, or product direction.
 
-The skill does not write code or design the final system. It decides whether the idea deserves that next step.
+The skill is built for the moment when a user asks, "Is this worth building?", "Has anyone already tried this?", or "What is the sharper version of this idea?" It keeps the conversation creative, but it makes the final answer answerable to evidence.
 
-## When to use
+## The Problem
 
-- Validate a feature, product, library, workflow, or developer-tool idea before investing.
-- Find prior art and adjacent approaches across local code, GitHub, packages, and the web.
-- Turn an early hunch into several sharper framings.
-- Identify white space, crowded areas, abandoned attempts, and contested assumptions.
-- Decide whether the next move should be an RFC, prototype, narrower experiment, or pause.
+Early ideas are fragile. If the agent searches only for the user's first wording, it may miss better framings. If it jumps straight to enthusiasm, it can turn a vague hunch into roadmap debt. If it only lists prior art, it can still avoid the harder question: what should we do next?
 
-Use `octocode-research` when the question is already technical and needs code evidence or changes. Use `octocode-rfc-generator` when the decision is made and the user needs a design plan.
+This skill makes the agent diverge before it converges. It frames the idea several ways, checks evidence across the right surfaces, notices conflict, and then recommends one practical next move.
 
-## Features
+## Capabilities
 
-- Divergent framing before convergence, so the search is not trapped by the first wording.
-- A surface plan that states which evidence sources are active or skipped and why.
-- Local workspace checks when the idea touches the user's repo.
-- GitHub, package, and web prior-art mapping with cross-pollinated search terms.
-- A claim ledger that tracks claim, source, confidence, and next query.
+- Alternative framings that prevent the first wording from anchoring the whole search.
+- A surface plan that explains which sources matter: local code, web resources, GitHub, packages, and exact code reads.
+- Top-resource-first prior-art mapping, so articles, docs, papers, and official sources seed repo and package research.
+- Claim tracking, with confidence and next-query thinking instead of unsupported assertions.
+- Cross-surface loops where web findings lead to code reads and code findings send the agent back to resources.
 - Perspective review through critical, entrepreneurial, and product lenses.
-- A concise decision brief with confidence, risks, and next step.
-- Optional saved brief and RFC handoff once the idea is ready.
+- Conflict handling that concedes weak or contradictory evidence before the verdict.
+- A final decision shape such as build RFC, prototype, narrow, park, or do not build.
 
-## How it works
+## Operating Model
 
-The skill follows this flow:
+The workflow is:
 
 ```text
 FRAME -> DIVERGE -> RESEARCH -> CROSS-POLLINATE -> STRESS-TEST -> SYNTHESIZE -> DECIDE
 ```
 
-It first reframes the idea into testable claims. Then it searches the most relevant surfaces, using names and clues from one surface to query the next. Signals are grouped into practical buckets such as crowded, partial, abandoned, contested, and open space. The final answer states what survived review and recommends one decision.
+The agent first turns the idea into testable framings. It then researches the strongest surfaces, follows leads from one surface into another, and stress-tests the emerging thesis. The answer is not complete until the agent has stated what survived review, what was weakened, and what next step would change the decision.
 
-## Internal flow
+## User Experience
 
-1. Frame the user's idea and list alternative framings.
-2. Declare a surface plan: local, GitHub, packages, and web.
-3. Gather evidence and mark weak claims instead of overstating search snippets.
-4. Cross-pollinate clues between surfaces.
-5. Run objection and opportunity review.
-6. Deliver a brief with verdict, confidence, risks, and next action.
+For users, this skill feels like a product-minded technical partner. It does not merely say "yes" or "no." It names the better angle, shows which evidence supports it, marks uncertainty, and gives a next action that is small enough to be useful.
 
-The `scripts/brainstorm-run.mjs` helper can record run state, claims, sources, and decisions. Optional Serper and Tavily adapters normalize web results when credentials are configured.
+The output is a decision brief rather than code or design. When the idea becomes ready for architecture or implementation planning, it can hand off cleanly to research or RFC work.
 
 ## Installation
 
-Install the published skill:
+Install the published skill with:
 
 ```bash
 npx octocode skill --name octocode-brainstorming
 ```
 
-Install from a GitHub path or fork:
+## Maintainer Notes
 
-```bash
-npx octocode skill --add bgauryy/octocode/skills/octocode-brainstorming
-```
-
-## Benefits
-
-- Avoids building the first plausible idea.
-- Makes assumptions visible before they become roadmap or architecture debt.
-- Combines creative ideation with evidence and structured pushback.
-- Produces a decision that is easy to hand to research, RFC, or implementation work.
-
-## For developers
-
-Keep `SKILL.md` as the concise router for flow, gates, references, scripts, and output. Put search mechanics in `references/tools.md`, presentation rules in `references/output.md`, debate behavior in `references/debate.md`, and saved-report structure in `references/brief-template.md`. Run `scripts/eval-brainstorm.mjs` after changing prompts, references, or output shape.
+Keep the README focused on the reasoning model: divergent framing, resource-first research, surface loops, conflict concessions, and decision usefulness. Keep operational details, eval mechanics, and web adapter behavior in the agent-facing skill file and references.
