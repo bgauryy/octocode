@@ -94,17 +94,6 @@ export default tseslint.config(
   },
 
   {
-    files: [
-      'packages/octocode-security-utils/src/**/*.ts',
-      'packages/octocode-security-utils/tests/**/*.ts',
-    ],
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'error',
-      'no-console': 'error',
-    },
-  },
-
-  {
     files: ['**/tests/**/*.ts', '**/tests/**/*.tsx'],
     languageOptions: {
       globals: {
