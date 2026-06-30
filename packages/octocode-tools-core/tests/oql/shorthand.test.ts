@@ -162,12 +162,72 @@ describe('buildShorthandInput (CLI shorthand lowering, owned by tools-core)', ()
       target: 'repositories',
       from: { kind: 'github' },
       params: {
-        keywords: ['mcp server'],
+        keywords: ['mcp', 'server'],
         language: 'TypeScript',
         sort: 'stars',
       },
     });
     expect(query.controls).toBeUndefined();
+  });
+
+  it('repositories multi-word text splits into separate AND keywords', () => {
+    const query = input(
+      buildShorthandInput({
+        target: 'repositories',
+        text: 'next.js state management',
+        corpus: { kind: 'github', repo: '' },
+      })
+    );
+    expect(query).toMatchObject({
+      target: 'repositories',
+      params: { keywords: ['next.js', 'state', 'management'] },
+    });
+  });
+
+  it('repositories single-word text stays as one-element keyword array', () => {
+    const query = input(
+      buildShorthandInput({
+        target: 'repositories',
+        text: 'zustand',
+        corpus: { kind: 'github', repo: '' },
+      })
+    );
+    expect(query).toMatchObject({
+      target: 'repositories',
+      params: { keywords: ['zustand'] },
+    });
+  });
+
+  it('--fixed with --regex produces a text predicate (literal match)', () => {
+    const query = input(
+      buildShorthandInput({
+        regex: 'some.path.ts',
+        fixedString: true,
+        corpus: { kind: 'local', path: '.' },
+      })
+    );
+    expect(query.where).toMatchObject({ kind: 'text', value: 'some.path.ts' });
+  });
+
+  it('--regex without --fixed stays as a regex predicate', () => {
+    const query = input(
+      buildShorthandInput({
+        regex: 'foo.*bar',
+        corpus: { kind: 'local', path: '.' },
+      })
+    );
+    expect(query.where).toMatchObject({ kind: 'regex', value: 'foo.*bar' });
+  });
+
+  it('--fixed with plain text stays as text predicate (no-op case)', () => {
+    const query = input(
+      buildShorthandInput({
+        text: 'foo bar',
+        fixedString: true,
+        corpus: { kind: 'local', path: '.' },
+      })
+    );
+    expect(query.where).toMatchObject({ kind: 'text', value: 'foo bar' });
   });
 
   it('search controls lower into canonical controls', () => {

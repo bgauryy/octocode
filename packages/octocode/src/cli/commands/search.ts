@@ -532,12 +532,14 @@ function resolveGithubDiffShortcut(
  *   search --rule '<json|yaml>' [target] --lang t -> structural rule
  */
 /**
- * Warn (to stderr, never fatal) about two silently-ignored shorthand mistakes:
+ * Warn (to stderr, never fatal) about silently-ignored shorthand mistakes:
  *  • Extra path positionals — `search` takes ONE corpus, so `search t a.ts b.ts`
  *    quietly searched only `a.ts`. Conservative: text/diff lanes consume 2
  *    positionals, flag/target-only lanes consume 1, so we only flag the surplus.
  *  • A grep-style `\|` in a LITERAL text term — it matches verbatim (a no-op for
  *    alternation); point at `--regex`, which is what the user meant.
+ *  • A plain-word second positional for corpus-optional targets (repositories,
+ *    packages) — these never use a corpus, so the arg is silently discarded.
  * stderr keeps stdout (YAML/JSON results) clean, so this is safe in every mode.
  */
 function emitSearchInputWarnings(o: {
@@ -546,6 +548,8 @@ function emitSearchInputWarnings(o: {
   fromFlag: boolean;
   targetOnly: boolean;
   hasDiff: boolean;
+  explicitTarget: string | undefined;
+  positionalTargetArg: string | undefined;
 }): void {
   const consumed = o.hasDiff ? 2 : o.fromFlag || o.targetOnly ? 1 : 2;
   const ignored = o.positionals.slice(consumed);
@@ -559,6 +563,23 @@ function emitSearchInputWarnings(o: {
     const asRegex = o.text.replace(/\\\|/g, '|');
     process.stderr.write(
       `  ${c('yellow', '!')} ${dim(`'${o.text}' is matched literally — \`\\|\` is not alternation. For OR-matching use`)} ${c('cyan', `--regex '${asRegex}'`)}${dim('.')}\n`
+    );
+  }
+  // Corpus-optional targets (repositories, packages) never use a positional
+  // corpus — it gets silently dropped. Warn when the second positional looks like
+  // a keyword (no `/`), not a real owner/repo or path reference.
+  if (
+    (o.explicitTarget === 'repositories' || o.explicitTarget === 'packages') &&
+    !o.fromFlag &&
+    !o.targetOnly &&
+    o.positionalTargetArg !== undefined &&
+    !o.positionalTargetArg.includes('/')
+  ) {
+    const combined = [o.text, o.positionalTargetArg].filter(Boolean).join(' ');
+    process.stderr.write(
+      `  ${c('yellow', '!')} ${dim(
+        `'${o.positionalTargetArg}' was treated as a corpus and ignored — ${o.explicitTarget} search has no corpus. To AND-match both words, quote them:`
+      )} ${c('cyan', `'${combined}'`)}${dim('.')}\n`
     );
   }
 }
@@ -619,14 +640,15 @@ function buildSugar(args: ParsedArgs): Resolved {
       : positionals[fromFlag || targetOnly ? 0 : 1];
   const targetArg = positionalTargetArg ?? pathOption;
 
-  // Surface two otherwise-silent input mistakes (same "guide, don't drop" rule
-  // as the stray-arg / --target alias fixes) instead of quietly ignoring them.
+  // Surface otherwise-silent input mistakes instead of quietly ignoring them.
   emitSearchInputWarnings({
     positionals,
     text,
     fromFlag,
     targetOnly,
     hasDiff: Boolean(diffPath),
+    explicitTarget,
+    positionalTargetArg,
   });
 
   if (

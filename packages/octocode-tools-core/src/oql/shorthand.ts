@@ -172,8 +172,7 @@ export interface SearchShorthand {
 }
 
 export type ShorthandResult =
-  | { input: OqlInputQuery | OqlInputBatch }
-  | { error: string };
+  { input: OqlInputQuery | OqlInputBatch } | { error: string };
 
 /**
  * Lower shorthand parts into the OQL sugar object. Predicate precedence:
@@ -503,6 +502,17 @@ function predicateFromSearchTerm(
     };
   }
   if (parts.regex !== undefined) {
+    if (parts.fixedString) {
+      // --fixed wins over --regex: treat the pattern as a literal text term
+      return {
+        where: {
+          kind: 'text',
+          value: parts.regex,
+          ...caseControl(parts),
+          ...(parts.wholeWord ? { wholeWord: true } : {}),
+        },
+      };
+    }
     return {
       where: {
         kind: 'regex',
@@ -679,7 +689,11 @@ function targetParams(parts: SearchShorthand): Record<string, unknown> {
       });
     case 'repositories':
       return clean({
-        keywords: parts.text ? [parts.text] : undefined,
+        keywords: parts.text
+          ? parts.text.includes(' ')
+            ? parts.text.split(/\s+/).filter(Boolean)
+            : [parts.text]
+          : undefined,
         topicsToSearch: parts.topic?.length ? parts.topic : undefined,
         language: parts.lang,
         owner: parts.owner,
