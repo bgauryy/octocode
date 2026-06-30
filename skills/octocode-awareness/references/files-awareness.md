@@ -43,7 +43,7 @@ Use `prune-stale-locks --older-than-minutes 20 --dry-run` when a lock may be aba
 
 - **`env`** — your first orient command in a new session. Reports the running environment (OS/platform, Python/Node versions, cwd), the detected **git repo / branch / dirty** state, changed-file metadata, the **open work-handoff for this repo** (`open`/`ongoing` refinements), and any **unverified intents**. Use it to answer "where am I, what's pending here, and what env am I in."
 - `env.git.changed_files` is the exact dirty-file count. `env.git.changes[]` is a bounded list (first 200) of `{path,status,index_status,worktree_status,branch,github_url}` plus `previous_path` for renames/copies; `github_url` is `null` when origin is not GitHub, the branch is detached/unknown, or the path is new/untracked/renamed/copied and may not exist on the current GitHub branch yet.
-- Refinements **capture the running env at write time** (`env_json` → surfaced as `env`), and auto-fill `repo`/`ref` from git when you don't pass them — so the next agent sees whether the environment differs (different OS, Node version, branch, file-change list) before trusting a handoff. Pass absolute paths or run from the repo root so file correlation holds.
+- Refinements **capture the running env at write time** (`env_json` → `env` summary by default), and auto-fill `repo`/`ref` from git when you don't pass them — so the next agent sees whether the environment differs before trusting a handoff. Use `refine-get --include-env` only when the full file-change list matters. Pass absolute paths or run from the repo root so file correlation holds.
 
 ## Observability
 

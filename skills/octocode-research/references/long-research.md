@@ -94,6 +94,7 @@ Drop claims that are only plausible but unsupported. Keep contradicted claims wh
 5. Update claims after each decisive observation.
 6. Run Advocate vs Critic over claims, not raw notes.
 7. Produce the brief from supported and partial claims only.
+8. Produce at most one awareness capture packet from final supported/partial claims, using evidence locators as `memoryReferences[]`; if no reusable lesson survived, record `doNotCaptureReason` instead of storing memory.
 
 ## Vendor Adapters
 

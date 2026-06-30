@@ -80,8 +80,12 @@ def load_memories(db: Path) -> list[dict]:
             "importance_score": r["importance_score"],
             "state": r["state"] if "state" in k else "ACTIVE",
             "label": r["label"] if "label" in k and r["label"] else "OTHER",
+            "workspace_path": r["workspace_path"] if "workspace_path" in k else None,
+            "repo": r["repo"] if "repo" in k else None,
+            "ref": r["ref"] if "ref" in k else None,
             "file": r["file"] if "file" in k else None,
             "tags": json.loads(r["tags_json"]) if "tags_json" in k and r["tags_json"] else [],
+            "references": json.loads(r["references_json"]) if "references_json" in k and r["references_json"] else [],
             "failure_signature": r["failure_signature"] if "failure_signature" in k else None,
             "created_at": r["created_at"],
             "updated_at": r["updated_at"] if "updated_at" in k else None,
@@ -203,9 +207,12 @@ def render(data: dict) -> str:
     # "</script>" or "<", so escape the HTML-significant chars to \uXXXX — valid
     # JS string escapes that the HTML parser cannot mistake for markup. Prevents
     # stored XSS from a poisoned memory breaking out of the data block.
+    # NOTE: the last two keys MUST be written as \u escape sequences, never as the
+    # literal U+2028/U+2029 bytes — editors/linters silently strip those invisible
+    # separators, leaving "" keys and corrupting every payload (str.replace("", x)).
     payload = json.dumps(data)
     for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
-                    (" ", "\\u2028"), (" ", "\\u2029")):
+                    (chr(0x2028), "\\u2028"), (chr(0x2029), "\\u2029")):
         payload = payload.replace(ch, esc)
     return tpl.replace("__AWARENESS_DATA__", payload)
 

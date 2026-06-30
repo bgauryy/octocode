@@ -44,6 +44,6 @@ Useful flags: `--memory-db <path>` / `--workspace-db <path>` (point at a differe
 
 ## Notes
 
-- Memories are global; refinements/notifications/intents/locks are scoped by columns (`repo`/`ref`, `workspace_path`) but live in the same file — the viewer shows them all regardless of cwd.
+- Memories are global by default and can optionally carry `workspace_path`/`repo`/`ref` applicability scope; refinements/notifications/intents/locks are scoped by columns too, and everything lives in the same file — the viewer shows them all regardless of cwd.
 - Intents/locks panels are read-only in the UI (no delete button) — intents close via `release-file-lock`/`verify`; locks via `release-file-lock`.
 - See `references/show-memories.md` when auditing older viewer notes; this doc supersedes the storage details there.

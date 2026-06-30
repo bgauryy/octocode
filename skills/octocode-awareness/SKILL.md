@@ -17,12 +17,13 @@ Local SQLite-backed memory, file locks, notifications, and verify-before-conclud
 1. Attend: run `status`, `get-memory`, `refine-get`, and `notify-get`; validate recalled code facts against current files.
 2. Focus and claim: before writes, call `pre-flight-intent` with absolute `--target-file`; if exit `2`, stop or wait with `wait-for-lock`.
 3. Verify: run the declared `--test-plan`, then `verify --workspace "$PWD" --all-pending` or `release-file-lock --verified`.
-4. Encode: memories are global lessons; refinements are repo handoffs; notifications are live repo messages; durable repo guidance belongs in `AGENTS.md`/`CLAUDE.md` and must be reported to the user.
-5. Sleep: release locks on failure too, prune stale/resolved data deliberately, and use `reflect --task ... --outcome ...` to record lessons or proposed harness fixes.
+4. Encode: memories are concise reusable lessons with a reason (global by default, optionally workspace/repo/ref scoped); refinements are repo handoffs; notifications are live repo messages; durable repo guidance belongs in `AGENTS.md`/`CLAUDE.md` and must be reported to the user.
+5. Sleep: release locks on failure too, prune stale data deliberately, and use `reflect --task ... --outcome ...` for lessons or reasoned harness proposals; ask before applying AGENTS/docs/standing-memory/skill-code harness changes.
 
 ## References
 - `references/brain-model.md` — when tuning recall, cleanup, salience, corpus notes, or sleep behavior.
 - `references/memory-recall.md` — when recording, recalling, labeling, superseding, or semantically indexing memories.
+- `references/learning-capture.md` — when a research/brainstorm/investigation produces a durable insight: store it with `--reference` sources so the next agent recalls the conclusion and its provenance instead of re-researching.
 - `references/coordination-protocol.md` — when writing lock, wait, release, refinement, or notification payloads.
 - `references/files-awareness.md` — when a dirty repo or concurrent agents create collision risk.
 - `references/self-harness.md` — when using verify gates, weakness mining, reflection, or harness refinements.

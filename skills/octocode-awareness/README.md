@@ -19,6 +19,7 @@ Coding agents are usually stateless between runs. One agent may edit a file whil
 - Agent-to-agent notifications for blockers, questions, claims, replies, and handoffs.
 - Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
 - Reflection and weakness-mining flows that turn repeated failures into better future behavior.
+- Reasoned self-harness proposals for `AGENTS.md`, docs, standing memory-corpus changes, and the skill code itself, always behind user approval before edits.
 - Optional local semantic recall while keeping SQLite and text search as the dependable default.
 - A local viewer for inspecting memories, locks, intents, refinements, and notifications.
 
@@ -41,6 +42,8 @@ Hooks can automate parts of this lifecycle in hosts that support them. Manual us
 For users, the value is less drama in shared workspaces. The agent can say which files are claimed, what remains unverified, what a previous run learned, and what handoff is waiting. The user gets a clearer answer to "what is going on here?" before another agent starts editing.
 
 The skill also makes collaboration more honest. A conclusion can carry a recorded verification trail, and a future agent can distinguish "someone thought about this" from "someone proved this."
+
+When repeated evidence shows the harness itself should improve, the agent may propose updates to project instructions, docs, standing memory guidance, or the awareness skill. Those proposals must explain why the change is needed and wait for user approval before files or standing memories are changed.
 
 ## Installation
 

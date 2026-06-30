@@ -111,27 +111,29 @@ migrate automatically.
 
 ## 4. Refine the harness — the loop's last step
 
-A lesson that keeps recurring should stop being "might recall" and become a standing
-instruction. `export-harness [--min-importance N] [--limit N]` previews the top
-recurring **general** (file-less) lessons as a Markdown block for `AGENTS.md` /
-`CLAUDE.md`. It is **preview-only** — it prints the block and never writes harness
-files.
+A recurring lesson should stop being "might recall" and become standing guidance.
+`export-harness [--min-importance N] [--limit N]` previews top recurring **general**
+(file-less) lessons for `AGENTS.md` / `CLAUDE.md`. It is preview-only and never writes.
 
-### When to propose a refinement
+### Harness improvement gate
 
-Propose an improvement — **to the repo's code, or to this harness/skill itself**
-(prompts, hooks, checks, references, the `awareness.py` surfaces) — in either case:
+Valid surfaces include `AGENTS.md`/`CLAUDE.md`, docs/READMEs/reference files, standing
+memory-corpus changes, and this skill's prompts, hooks, scripts, schemas, and tests.
+Propose changes when the user asks, or when evidence shows a repeated failure/opportunity:
+`mine-weakness`, user correction, eval failure, unverified intent, recurring gotcha, or a missing check.
 
-- **The user asks** for it, or
-- **You sense one is needed** — e.g. `mine-weakness` shows a recurring mechanism, a
-  check is missing, a step is flaky, the same gotcha keeps biting, or a lesson is
-  important and general enough to belong in `AGENTS.md`.
+Before applying any harness change, ask the user with a concrete fix request:
+- Target surface/files.
+- Observed correction or opportunity.
+- Why future agents need it; name the failure or decision it changes.
+- Evidence source: memory/refinement/eval/user correction/file.
+- Proposed change, risk/rollback, and verification plan.
 
-Discipline: **mine → propose-as-note → a human merges.** Surface the proposal (and,
-for standing lessons, the `export-harness` preview); let the user decide.
-
-When the user explicitly approves editing this skill/harness itself, follow
-`references/harness-apply.md`.
+Until approved, keep the proposal in conversation or a proposal-only refinement; do not
+edit files or add/supersede/prune standing harness memories. Use `reflect --fix-harness`
+only when the user asks for or approves durable proposal capture. After approval for
+skill edits, follow `references/harness-apply.md`. One approval covers only the scoped
+change being discussed; never treat it as blanket permission.
 
 ## Hard NOs
 

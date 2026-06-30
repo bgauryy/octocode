@@ -28,6 +28,10 @@ node skills/octocode-brainstorming/scripts/brainstorm-run.mjs finish \
   --summary "one-sentence result"
 ```
 
+At finish, produce one awareness capture packet from the final surviving verdict, or record a
+`doNotCaptureReason` when nothing durable survived. Use the awareness learning-capture reference
+for the packet fields and reference grammar; do not write one memory per checkpoint.
+
 Run files live in `.octocode/brainstorming/runs/` by default, so start a ledger only when local writes are acceptable. Override with `OCTOCODE_BRAINSTORM_RUN_DIR` for tests.
 
 When evidence conflicts, record both sides as separate checkpoints and add a final checkpoint naming the concession or unresolved decision point. This prevents the perspective review from becoming theater: the final answer must be able to point back to the ledger entries that survived and the ones that were dropped.

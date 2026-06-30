@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -23,6 +24,8 @@ from urllib.parse import quote
 
 DEFAULT_DB_NAME = "awareness.sqlite3"
 MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME"
+FTS_INDEX_VERSION = "2"
+REFERENCES_INDEX_VERSION = "1"
 CONFLICT_EXIT = 2
 MEMORY_STATES = ("ACTIVE", "SUPERSEDED")
 MEMORY_LABELS = (
@@ -95,6 +98,8 @@ EVAL_FAILURE_FIELDS = ("id", "dimension", "failure_signature", "suggested_lesson
 DEFAULT_HALF_LIFE_DAYS = 30.0
 ACCESS_SATURATION = 50.0
 DECAY_WEIGHTS = {"importance": 0.25, "recency": 0.30, "access": 0.15, "lexical": 0.30}
+SEMANTIC_MAX_CANDIDATES = 1000
+COMPACT_OUTPUT = False
 
 
 class AwarenessError(Exception):
@@ -127,7 +132,10 @@ def resolve_db_path(db_arg: str | None) -> Path:
 def emit(payload: dict[str, Any], exit_code: int = 0) -> int:
     payload.setdefault("ok", exit_code == 0)
     payload.setdefault("schema_version", 1)
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    if COMPACT_OUTPUT or os.environ.get("OCTOCODE_AWARENESS_COMPACT") == "1":
+        print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
     return exit_code
 
 
@@ -156,8 +164,21 @@ def init_db(conn: sqlite3.Connection) -> None:
             superseded_by TEXT,
             tags_json TEXT NOT NULL DEFAULT '[]',
             tags_text TEXT NOT NULL DEFAULT ',',
+            references_json TEXT NOT NULL DEFAULT '[]',
+            workspace_path TEXT,
+            repo TEXT,
+            ref TEXT,
             file_tree_fingerprint TEXT,
             file TEXT,
+            last_accessed_at TEXT,
+            access_count INTEGER NOT NULL DEFAULT 0,
+            decay_half_life_days REAL,
+            failure_signature TEXT,
+            valid_from TEXT,
+            valid_to TEXT,
+            expired_at TEXT,
+            embedding BLOB,
+            embedding_model TEXT,
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             updated_at TEXT
         );
@@ -193,6 +214,19 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_file_locks_expires_at ON file_locks(expires_at);
         CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
         CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
+
+        CREATE TABLE IF NOT EXISTS memory_references (
+            memory_id TEXT NOT NULL,
+            reference TEXT NOT NULL,
+            kind TEXT,
+            ordinal INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (memory_id, reference),
+            FOREIGN KEY(memory_id) REFERENCES agent_memories(memory_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_references_reference ON memory_references(reference);
+        CREATE INDEX IF NOT EXISTS idx_memory_references_kind ON memory_references(kind);
 
         CREATE TABLE IF NOT EXISTS intent_events (
             event_id TEXT PRIMARY KEY,
@@ -247,6 +281,11 @@ def init_db(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
         CREATE INDEX IF NOT EXISTS idx_notifications_to ON notifications(to_agent);
 
+        CREATE TABLE IF NOT EXISTS awareness_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         -- Per-agent read cursor so each agent is delivered each message once.
         CREATE TABLE IF NOT EXISTS notification_reads (
             notification_id TEXT NOT NULL,
@@ -259,6 +298,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     ensure_memory_columns(conn)
     ensure_intent_columns(conn)
     ensure_refinement_columns(conn)
+    ensure_memory_references_version(conn)
     try:
         conn.execute(
             """
@@ -268,6 +308,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
     except sqlite3.OperationalError:
         pass
+    if has_fts(conn):
+        ensure_memory_fts_version(conn)
     conn.commit()
 
 
@@ -312,6 +354,20 @@ def ensure_memory_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN valid_to TEXT")
     if "expired_at" not in cols:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN expired_at TEXT")
+    # Provenance: where the lesson came from — URLs, PRs, repos, npm pkgs, docs — as a JSON list.
+    # Lets research/brainstorm capture a learning with its sources, recallable later for the same issue.
+    if "references_json" not in cols:
+        conn.execute(
+            "ALTER TABLE agent_memories ADD COLUMN references_json TEXT NOT NULL DEFAULT '[]'"
+        )
+    # Optional memory scope: omit for global developer/harness gotchas; fill for
+    # repo/file-specific lessons that should be recalled with workspace context.
+    if "workspace_path" not in cols:
+        conn.execute("ALTER TABLE agent_memories ADD COLUMN workspace_path TEXT")
+    if "repo" not in cols:
+        conn.execute("ALTER TABLE agent_memories ADD COLUMN repo TEXT")
+    if "ref" not in cols:
+        conn.execute("ALTER TABLE agent_memories ADD COLUMN ref TEXT")
     # 3.1 Optional local semantic recall (float32 vector blob; absent until indexed).
     if "embedding" not in cols:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN embedding BLOB")
@@ -319,6 +375,13 @@ def ensure_memory_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agent_memories ADD COLUMN embedding_model TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_memories_scope "
+        "ON agent_memories(workspace_path, repo, ref)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model)")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig "
         "ON agent_memories(failure_signature)"
@@ -340,6 +403,92 @@ def has_fts(conn: sqlite3.Connection) -> bool:
     return row is not None
 
 
+def reference_kind(reference: str) -> str:
+    if re.match(r"^https?://", reference):
+        return "url"
+    match = re.match(r"^([a-zA-Z][a-zA-Z0-9_.-]*):", reference)
+    return match.group(1).lower() if match else "other"
+
+
+def replace_memory_references(conn: sqlite3.Connection, memory_id: str, references: list[str]) -> None:
+    conn.execute("DELETE FROM memory_references WHERE memory_id = ?", (memory_id,))
+    for ordinal, reference in enumerate(references):
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO memory_references(memory_id, reference, kind, ordinal)
+            VALUES (?, ?, ?, ?)
+            """,
+            (memory_id, reference, reference_kind(reference), ordinal),
+        )
+
+
+def backfill_memory_references(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("SELECT memory_id, references_json FROM agent_memories").fetchall()
+    for row in rows:
+        references = parse_json_list(row["references_json"])
+        if references:
+            replace_memory_references(conn, row["memory_id"], references)
+
+
+def ensure_memory_references_version(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT value FROM awareness_meta WHERE key = 'memory_references_version'").fetchone()
+    if row and row["value"] == REFERENCES_INDEX_VERSION:
+        return
+    backfill_memory_references(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_references_version', ?)",
+        (REFERENCES_INDEX_VERSION,),
+    )
+
+
+def fts_terms_for_row(row: sqlite3.Row | dict[str, Any]) -> str:
+    if isinstance(row, sqlite3.Row):
+        keys = set(row.keys())
+
+        def get(name: str, default: Any = None) -> Any:
+            return row[name] if name in keys else default
+    else:
+        get = row.get
+    tags = parse_json_list(get("tags_json"))
+    references = parse_json_list(get("references_json"))
+    return memory_index_terms(
+        tags,
+        references,
+        str(get("label") or "OTHER").lower(),
+        file=get("file"),
+        failure_signature=get("failure_signature"),
+        workspace_path=get("workspace_path"),
+        repo=get("repo"),
+        ref=get("ref"),
+    )
+
+
+def rebuild_memory_fts(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM memory_fts")
+    rows = conn.execute("SELECT * FROM agent_memories").fetchall()
+    for row in rows:
+        conn.execute(
+            "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)",
+            (
+                row["memory_id"],
+                row["task_context"],
+                row["observation"],
+                fts_terms_for_row(row),
+            ),
+        )
+
+
+def ensure_memory_fts_version(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT value FROM awareness_meta WHERE key = 'memory_fts_version'").fetchone()
+    if row and row["value"] == FTS_INDEX_VERSION:
+        return
+    rebuild_memory_fts(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_fts_version', ?)",
+        (FTS_INDEX_VERSION,),
+    )
+
+
 def normalize_tags(tags: list[str] | None, tags_csv: str | None = None) -> list[str]:
     raw_tags: list[str] = []
     if tags:
@@ -355,6 +504,101 @@ def normalize_tags(tags: list[str] | None, tags_csv: str | None = None) -> list[
             normalized.append(cleaned)
             seen.add(cleaned)
     return normalized
+
+
+def normalize_references(references: list[str] | None) -> list[str]:
+    """Provenance strings — trimmed and deduped but case/slash preserved (URLs, PRs, repos).
+
+    Convention (free-form, not enforced): a bare URL, or a typed prefix such as
+    `pr:owner/repo#123`, `repo:owner/repo`, `npm:pkg`, `doc:<title>`, `file:<abs-path>`.
+    """
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for ref in references or []:
+        cleaned = (ref or "").strip()[:512]
+        if cleaned and cleaned not in seen:
+            normalized.append(cleaned)
+            seen.add(cleaned)
+    return normalized[:20]
+
+
+def parse_json_list(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if str(item)]
+
+
+def json_list_text(items: list[str]) -> str:
+    return json.dumps(items, ensure_ascii=False)
+
+
+def memory_index_terms(
+    tags: list[str],
+    references: list[str],
+    label: str | None,
+    *,
+    file: str | None = None,
+    failure_signature: str | None = None,
+    workspace_path: str | None = None,
+    repo: str | None = None,
+    ref: str | None = None,
+) -> str:
+    file_terms = [file or ""]
+    if file:
+        file_terms.append(os.path.basename(file))
+    parts = [
+        *tags,
+        *references,
+        (label or "OTHER").lower(),
+        *file_terms,
+        failure_signature or "",
+        workspace_path or "",
+        repo or "",
+        ref or "",
+    ]
+    return " ".join(part for part in parts if part).strip()
+
+
+def memory_search_text(memory: dict[str, Any]) -> str:
+    return " ".join(
+        [
+            memory.get("task_context") or "",
+            memory.get("observation") or "",
+            " ".join(memory.get("tags") or []),
+            " ".join(memory.get("references") or []),
+            memory.get("label") or "",
+            memory.get("workspace_path") or "",
+            memory.get("repo") or "",
+            memory.get("ref") or "",
+            memory.get("file") or "",
+            memory.get("failure_signature") or "",
+        ]
+    )
+
+
+def memory_scope_from_args(
+    args: argparse.Namespace,
+    *,
+    autodetect_git: bool = False,
+) -> tuple[str | None, str | None, str | None]:
+    workspace_arg = getattr(args, "workspace", None)
+    workspace_path = str(resolve_workspace(workspace_arg)) if workspace_arg else None
+    repo = getattr(args, "repo", None) or None
+    ref = getattr(args, "ref", None) or None
+    if autodetect_git and workspace_path and (not repo or not ref):
+        git = detect_git(workspace_path)
+        if git.get("is_repo"):
+            repo = repo or git.get("repo")
+            ref = ref or git.get("branch")
+    return workspace_path, repo, ref
 
 
 def normalize_memory_label(value: str | None) -> str:
@@ -510,7 +754,11 @@ def row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
         "state": col(row, "state", "ACTIVE"),
         "label": col(row, "label", "OTHER") or "OTHER",
         "superseded_by": col(row, "superseded_by"),
-        "tags": json.loads(row["tags_json"]),
+        "tags": parse_json_list(row["tags_json"]),
+        "references": parse_json_list(col(row, "references_json")),
+        "workspace_path": col(row, "workspace_path"),
+        "repo": col(row, "repo"),
+        "ref": col(row, "ref"),
         "file": col(row, "file"),
         "failure_signature": col(row, "failure_signature"),
         "access_count": col(row, "access_count", 0),
@@ -596,12 +844,84 @@ def bump_access(conn: sqlite3.Connection, memory_ids: list[str]) -> None:
         )
 
 
+def configured_embedding_model_name() -> str:
+    if os.environ.get("OCTOCODE_AWARENESS_FAKE_EMBEDDER") == "1":
+        return "fake-test-embedder"
+    src = os.environ.get("OCTOCODE_EMBED_MODEL")
+    vendored = Path(__file__).resolve().parent / "models" / "potion-base-8M"
+    target = src or (str(vendored) if vendored.exists() else "minishlab/potion-base-8M")
+    return os.path.basename(str(target))
+
+
+def model2vec_importable() -> bool:
+    if os.environ.get("OCTOCODE_AWARENESS_FAKE_EMBEDDER") == "1":
+        return True
+    try:
+        import model2vec  # type: ignore  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def semantic_coverage(conn: sqlite3.Connection) -> dict[str, Any]:
+    model_name = configured_embedding_model_name()
+    rows = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN state = 'ACTIVE' THEN 1 ELSE 0 END) AS active_total,
+          SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) AS embedded_any,
+          SUM(CASE WHEN embedding IS NOT NULL AND embedding_model = ? THEN 1 ELSE 0 END) AS embedded,
+          SUM(CASE WHEN state = 'ACTIVE' AND embedding IS NOT NULL AND embedding_model = ? THEN 1 ELSE 0 END) AS active_embedded,
+          SUM(CASE WHEN embedding IS NOT NULL AND (embedding_model IS NULL OR embedding_model <> ?) THEN 1 ELSE 0 END) AS stale_model
+        FROM agent_memories
+        """,
+        (model_name, model_name, model_name),
+    ).fetchone()
+    models = {
+        row["embedding_model"]: row["count"]
+        for row in conn.execute(
+            """
+            SELECT embedding_model, COUNT(*) AS count
+            FROM agent_memories
+            WHERE embedding IS NOT NULL
+            GROUP BY embedding_model
+            ORDER BY count DESC
+            """
+        ).fetchall()
+        if row["embedding_model"]
+    }
+    total = rows["total"] or 0
+    active_total = rows["active_total"] or 0
+    embedded = rows["embedded"] or 0
+    active_embedded = rows["active_embedded"] or 0
+    embedded_any = rows["embedded_any"] or 0
+    stale_model = rows["stale_model"] or 0
+    return {
+        "storage": "agent_memories.embedding / embedding_model in the shared SQLite store",
+        "available": model2vec_importable(),
+        "configured_model": model_name,
+        "total": total,
+        "active_total": active_total,
+        "embedded": embedded,
+        "active_embedded": active_embedded,
+        "embedded_any_model": embedded_any,
+        "missing": max(0, total - embedded),
+        "stale_model": stale_model,
+        "coverage": round(embedded / total, 3) if total else 0.0,
+        "active_coverage": round(active_embedded / active_total, 3) if active_total else 0.0,
+        "models": models,
+    }
+
+
 def tell_memory(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
     memory_id = "mem_" + uuid.uuid4().hex
     tags = normalize_tags(args.tag, args.tags)
+    references = normalize_references(getattr(args, "reference", None))
     label = normalize_memory_label(getattr(args, "label", None))
+    workspace_path, repo, ref = memory_scope_from_args(args, autodetect_git=True)
     created_at = utc_now()
     # A memory correlates to at most ONE file (normalized like locks), or none for general lessons.
     memory_file = normalize_file_path(args.file) if getattr(args, "file", None) else None
@@ -618,10 +938,11 @@ def tell_memory(args: argparse.Namespace) -> int:
             """
             INSERT INTO agent_memories (
                 memory_id, agent_id, task_context, observation, importance_score,
-                label, tags_json, tags_text, file_tree_fingerprint, file, created_at, updated_at,
+                label, tags_json, tags_text, references_json, workspace_path, repo, ref,
+                file_tree_fingerprint, file, created_at, updated_at,
                 last_accessed_at, access_count, failure_signature, valid_from, valid_to
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             """,
             (
                 memory_id,
@@ -632,6 +953,10 @@ def tell_memory(args: argparse.Namespace) -> int:
                 label,
                 json.dumps(tags),
                 tags_text(tags),
+                json.dumps(references),
+                workspace_path,
+                repo,
+                ref,
                 args.file_tree_fingerprint,
                 memory_file,
                 created_at,
@@ -642,13 +967,30 @@ def tell_memory(args: argparse.Namespace) -> int:
                 valid_to,
             ),
         )
+        replace_memory_references(conn, memory_id, references)
         if has_fts(conn):
+            # References ride in the FTS `tags` column so a plain --query (a pkg name, PR
+            # number, repo) still surfaces the lesson that cited it.
             conn.execute(
                 """
                 INSERT INTO memory_fts(memory_id, task_context, observation, tags)
                 VALUES (?, ?, ?, ?)
                 """,
-                (memory_id, args.task_context, args.observation, " ".join([*tags, label.lower()])),
+                (
+                    memory_id,
+                    args.task_context,
+                    args.observation,
+                    memory_index_terms(
+                        tags,
+                        references,
+                        label,
+                        file=memory_file,
+                        failure_signature=failure_signature,
+                        workspace_path=workspace_path,
+                        repo=repo,
+                        ref=ref,
+                    ),
+                ),
             )
         for old_id in supersedes:
             # Supersede also closes the bi-temporal window: the old fact stops being
@@ -675,6 +1017,10 @@ def tell_memory(args: argparse.Namespace) -> int:
                 "importance_score": args.importance_score,
                 "label": label,
                 "tags": tags,
+                "references": references,
+                "workspace_path": workspace_path,
+                "repo": repo,
+                "ref": ref,
                 "file": memory_file,
                 "state": "ACTIVE",
                 "created_at": created_at,
@@ -721,6 +1067,41 @@ def file_filter_sql(files: list[str], params: list[Any]) -> str:
     return f" AND m.file IN ({placeholders})"
 
 
+def reference_filter_sql(references: list[str], params: list[Any]) -> str:
+    clauses = []
+    for ref in references:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM memory_references mr "
+            "WHERE mr.memory_id = m.memory_id AND mr.reference = ?)"
+        )
+        params.append(ref)
+    return (" AND " + " AND ".join(clauses)) if clauses else ""
+
+
+def scope_filter_sql(
+    workspace_path: str | None,
+    repo: str | None,
+    ref: str | None,
+    params: list[Any],
+    *,
+    strict_scope: bool = False,
+    global_only: bool = False,
+) -> str:
+    if global_only:
+        return " AND m.workspace_path IS NULL AND m.repo IS NULL AND m.ref IS NULL"
+    clauses = []
+    if workspace_path:
+        clauses.append("m.workspace_path = ?" if strict_scope else "(m.workspace_path IS NULL OR m.workspace_path = ?)")
+        params.append(workspace_path)
+    if repo:
+        clauses.append("m.repo = ?" if strict_scope else "(m.repo IS NULL OR m.repo = ?)")
+        params.append(repo)
+    if ref:
+        clauses.append("m.ref = ?" if strict_scope else "(m.ref IS NULL OR m.ref = ?)")
+        params.append(ref)
+    return (" AND " + " AND ".join(clauses)) if clauses else ""
+
+
 def state_filter_sql(states: list[str], params: list[Any]) -> str:
     if not states:
         return ""
@@ -743,24 +1124,19 @@ def filter_memory_regexes(
     memories: list[dict[str, Any]],
     regexes: list[re.Pattern[str]],
     file_regexes: list[re.Pattern[str]],
+    references: list[str],
 ) -> list[dict[str, Any]]:
-    if not regexes and not file_regexes:
+    if not regexes and not file_regexes and not references:
         return memories
     filtered: list[dict[str, Any]] = []
     for memory in memories:
         file_value = memory.get("file") or ""
         if file_regexes and not all(pattern.search(file_value) for pattern in file_regexes):
             continue
-        haystack = "\n".join(
-            [
-                memory.get("task_context") or "",
-                memory.get("observation") or "",
-                " ".join(memory.get("tags") or []),
-                memory.get("label") or "",
-                file_value,
-                memory.get("failure_signature") or "",
-            ]
-        )
+        memory_refs = set(memory.get("references") or [])
+        if references and not all(ref in memory_refs for ref in references):
+            continue
+        haystack = memory_search_text(memory)
         if regexes and not all(pattern.search(haystack) for pattern in regexes):
             continue
         filtered.append(memory)
@@ -823,12 +1199,59 @@ def valid_at(memory: dict[str, Any], as_of: datetime | None) -> bool:
     return (vf is None or vf <= as_of) and (vt is None or vt > as_of)
 
 
+def semantic_candidate_count(
+    conn: sqlite3.Connection,
+    min_importance: int,
+    tags: list[str],
+    labels: list[str],
+    files: list[str],
+    references: list[str],
+    workspace_path: str | None,
+    repo: str | None,
+    ref: str | None,
+    states: list[str],
+    model_name: str,
+    strict_scope: bool = False,
+    global_only: bool = False,
+) -> int:
+    params: list[Any] = [model_name, min_importance]
+    where_tags = tag_filter_sql(tags, params)
+    where_labels = label_filter_sql(labels, params)
+    where_files = file_filter_sql(files, params)
+    where_references = reference_filter_sql(references, params)
+    where_scope = scope_filter_sql(
+        workspace_path, repo, ref, params, strict_scope=strict_scope, global_only=global_only
+    )
+    where_states = state_filter_sql(states, params)
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS count
+        FROM agent_memories m
+        WHERE m.embedding IS NOT NULL
+          AND m.embedding_model = ?
+          AND m.importance_score >= ?
+          {where_tags}
+          {where_labels}
+          {where_files}
+          {where_references}
+          {where_scope}
+          {where_states}
+        """,
+        params,
+    ).fetchone()
+    return int(row["count"] or 0)
+
+
 def get_memory(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
     tags = normalize_tags(args.tag, args.tags)
     labels = [normalize_memory_label(label) for label in (getattr(args, "label", None) or [])]
     files = [normalize_file_path(path) for path in (getattr(args, "file", None) or [])]
+    references = normalize_references(getattr(args, "reference", None))
+    workspace_path, repo, ref = memory_scope_from_args(args)
+    strict_scope = getattr(args, "strict_scope", False)
+    global_only = getattr(args, "global_only", False)
     states = args.state or ["ACTIVE"]
     decay = not getattr(args, "no_decay", False)
     as_of = _parse_ts(getattr(args, "as_of", None))
@@ -862,25 +1285,54 @@ def get_memory(args: argparse.Namespace) -> int:
         mode = "lexical"
         found: list[dict[str, Any]] = []
         if use_semantic:
-            encode, name = load_embedder()
-            if encode is not None:
-                mode = f"semantic:{name}"
-                found = semantic_search(
-                    conn, encode, query_text, args.limit, min_importance,
-                    query_tags, query_labels, files, query_states, regexes, file_regexes,
-                    weights, getattr(args, "half_life", None), as_of, sort,
-                    explain=getattr(args, "explain", False),
-                )
+            configured_model = configured_embedding_model_name()
+            indexed = bool(query_text.strip()) and semantic_candidate_count(
+                conn,
+                min_importance,
+                query_tags,
+                query_labels,
+                files,
+                references,
+                workspace_path,
+                repo,
+                ref,
+                query_states,
+                configured_model,
+                strict_scope,
+                global_only,
+            )
+            if not query_text.strip():
+                mode = "lexical (semantic skipped — empty query)"
+            elif not indexed:
+                mode = f"lexical (semantic unavailable — no indexed {configured_model} embeddings)"
             else:
-                mode = "lexical (semantic unavailable — model2vec/model missing)"
-        if not found and not mode.startswith("semantic"):
-            found = search_memory(
+                encode, name = load_embedder()
+                if encode is None:
+                    mode = "lexical (semantic unavailable — model2vec/model missing)"
+                else:
+                    mode = f"semantic:{name}"
+                    found = semantic_search(
+                        conn, encode, name, query_text, args.limit, min_importance,
+                        query_tags, query_labels, files, references, workspace_path, repo, ref,
+                        query_states, regexes, file_regexes,
+                        weights, getattr(args, "half_life", None), as_of, sort,
+                        strict_scope=strict_scope,
+                        global_only=global_only,
+                        explain=getattr(args, "explain", False),
+                    )
+        if not found:
+            lexical_found = search_memory(
                 conn, query_text, args.limit, min_importance, query_tags, query_labels,
-                files, query_states, regexes, file_regexes, decay=decay,
+                files, references, workspace_path, repo, ref, query_states, regexes, file_regexes,
+                strict_scope, global_only, decay=decay,
                 half_life=getattr(args, "half_life", None),
                 explain=getattr(args, "explain", False), weights=weights, as_of=as_of,
                 sort=sort,
             )
+            if lexical_found:
+                found = lexical_found
+                if mode.startswith("semantic"):
+                    mode = f"{mode} + lexical fallback"
         return mode, found
 
     mode, memories = recall_once(
@@ -946,9 +1398,27 @@ def get_memory(args: argparse.Namespace) -> int:
             add_smart_attempt("drop-label-filter", query_labels=[], min_importance=1)
         if tags:
             add_smart_attempt("drop-tag-filter", query_tags=[], min_importance=1)
-        if query and (regexes or file_regexes or files):
+        if query and (regexes or file_regexes or files or references):
             add_smart_attempt("regex-or-file-only", query_text="", min_importance=1)
-        if not getattr(args, "semantic", False):
+        if (
+            not getattr(args, "semantic", False)
+            and query.strip()
+            and semantic_candidate_count(
+                conn,
+                1,
+                tags,
+                labels,
+                files,
+                references,
+                workspace_path,
+                repo,
+                ref,
+                states,
+                configured_embedding_model_name(),
+                strict_scope,
+                global_only,
+            )
+        ):
             add_smart_attempt("semantic-if-indexed", min_importance=1, use_semantic=True)
 
         sort_memories(memories, sort)
@@ -959,6 +1429,12 @@ def get_memory(args: argparse.Namespace) -> int:
         "db_path": str(db_path),
         "states": states,
         "labels": labels,
+        "references": references,
+        "workspace_path": workspace_path,
+        "repo": repo,
+        "ref": ref,
+        "strict_scope": strict_scope,
+        "global_only": global_only,
         "sort": sort,
         "decay": decay,
         "mode": mode,
@@ -985,12 +1461,17 @@ def get_memory(args: argparse.Namespace) -> int:
 def semantic_search(
     conn: sqlite3.Connection,
     encode,
+    model_name: str,
     query: str,
     limit: int,
     min_importance: int,
     tags: list[str],
     labels: list[str],
     files: list[str],
+    references: list[str],
+    workspace_path: str | None,
+    repo: str | None,
+    ref: str | None,
     states: list[str],
     regexes: list[re.Pattern[str]],
     file_regexes: list[re.Pattern[str]],
@@ -998,19 +1479,39 @@ def semantic_search(
     half_life: float | None,
     as_of: datetime | None,
     sort: str,
+    strict_scope: bool = False,
+    global_only: bool = False,
     explain: bool = False,
 ) -> list[dict[str, Any]]:
     """3.1 Embedding recall: cosine over stored vectors, blended with decay signals."""
     qvec = encode(query)
-    params: list[Any] = [min_importance]
+    candidate_limit = min(max(limit * 50, 100), SEMANTIC_MAX_CANDIDATES)
+    params: list[Any] = [model_name, min_importance]
     where_tags = tag_filter_sql(tags, params)
     where_labels = label_filter_sql(labels, params)
     where_files = file_filter_sql(files, params)
+    where_references = reference_filter_sql(references, params)
+    where_scope = scope_filter_sql(
+        workspace_path, repo, ref, params, strict_scope=strict_scope, global_only=global_only
+    )
     where_states = state_filter_sql(states, params)
     rows = conn.execute(
-        f"SELECT m.* FROM agent_memories m WHERE m.embedding IS NOT NULL "
-        f"AND m.importance_score >= ? {where_tags} {where_labels} {where_files} {where_states}",
-        params,
+        f"""
+        SELECT m.*
+        FROM agent_memories m
+        WHERE m.embedding IS NOT NULL
+          AND m.embedding_model = ?
+          AND m.importance_score >= ?
+          {where_tags}
+          {where_labels}
+          {where_files}
+          {where_references}
+          {where_scope}
+          {where_states}
+        ORDER BY m.importance_score DESC, COALESCE(m.last_accessed_at, m.created_at) DESC
+        LIMIT ?
+        """,
+        (*params, candidate_limit),
     ).fetchall()
     raw: list[tuple[dict[str, Any], float]] = []
     for row in rows:
@@ -1033,7 +1534,7 @@ def semantic_search(
             memory["score_components"] = {**comp, "semantic": round(cos, 4),
                                           "semantic_norm": round(rel, 4)}
         scored.append(memory)
-    scored = filter_memory_regexes(scored, regexes, file_regexes)
+    scored = filter_memory_regexes(scored, regexes, file_regexes, references)
     sort_memories(scored, sort)
     return scored[:limit]
 
@@ -1046,9 +1547,15 @@ def search_memory(
     tags: list[str],
     labels: list[str],
     files: list[str],
+    references: list[str],
+    workspace_path: str | None,
+    repo: str | None,
+    ref: str | None,
     states: list[str],
     regexes: list[re.Pattern[str]],
     file_regexes: list[re.Pattern[str]],
+    strict_scope: bool = False,
+    global_only: bool = False,
     decay: bool = True,
     half_life: float | None = None,
     explain: bool = False,
@@ -1068,6 +1575,10 @@ def search_memory(
         where_tags = tag_filter_sql(tags, params)
         where_labels = label_filter_sql(labels, params)
         where_files = file_filter_sql(files, params)
+        where_references = reference_filter_sql(references, params)
+        where_scope = scope_filter_sql(
+            workspace_path, repo, ref, params, strict_scope=strict_scope, global_only=global_only
+        )
         where_states = state_filter_sql(states, params)
         try:
             rows = conn.execute(
@@ -1080,6 +1591,8 @@ def search_memory(
                   {where_tags}
                   {where_labels}
                   {where_files}
+                  {where_references}
+                  {where_scope}
                   {where_states}
                 ORDER BY lexical_score DESC
                 LIMIT ?
@@ -1102,6 +1615,10 @@ def search_memory(
         where_tags = tag_filter_sql(tags, params)
         where_labels = label_filter_sql(labels, params)
         where_files = file_filter_sql(files, params)
+        where_references = reference_filter_sql(references, params)
+        where_scope = scope_filter_sql(
+            workspace_path, repo, ref, params, strict_scope=strict_scope, global_only=global_only
+        )
         where_states = state_filter_sql(states, params)
         rows = conn.execute(
             f"""
@@ -1111,6 +1628,8 @@ def search_memory(
               {where_tags}
               {where_labels}
               {where_files}
+              {where_references}
+              {where_scope}
               {where_states}
             ORDER BY m.importance_score DESC, m.created_at DESC
             LIMIT 1000
@@ -1122,21 +1641,20 @@ def search_memory(
         scratch: list[dict[str, Any]] = []
         for row in rows:
             memory = row_to_memory(row)
-            haystack = " ".join(
-                [memory["task_context"], memory["observation"], " ".join(memory["tags"])]
-            ).lower()
+            haystack = memory_search_text(memory).lower()
             hits = sum(haystack.count(term) for term in lowered_terms)
             if hits > 0 or not lowered_terms:
                 memory["_hits"] = hits
                 max_hits = max(max_hits, hits)
                 scratch.append(memory)
         for memory in scratch:
-            memory["_lexical"] = memory.pop("_hits") / max_hits if lowered_terms else 0.0
+            hits = memory.pop("_hits", 0)
+            memory["_lexical"] = hits / max_hits if lowered_terms else 0.0
             candidates.append(memory)
 
     if as_of is not None:
         candidates = [m for m in candidates if valid_at(m, as_of)]
-    candidates = filter_memory_regexes(candidates, regexes, file_regexes)
+    candidates = filter_memory_regexes(candidates, regexes, file_regexes, references)
 
     if not decay:
         for memory in candidates:
@@ -1154,6 +1672,7 @@ def search_memory(
     for memory in results:
         memory.pop("_lexical", None)
         memory.pop("_rank", None)
+        memory.pop("_hits", None)
     return results
 
 
@@ -2038,7 +2557,39 @@ def resolve_refine_db(args: argparse.Namespace) -> tuple[Path, Path]:
     return (memory_home() / DEFAULT_DB_NAME).resolve(strict=False), workspace
 
 
-def row_to_refinement(row: sqlite3.Row) -> dict[str, Any]:
+def summarize_env(env: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not env:
+        return None
+    git = env.get("git") or {}
+    git_summary = {
+        key: git.get(key)
+        for key in (
+            "is_repo",
+            "repo",
+            "branch",
+            "commit",
+            "dirty",
+            "changed_files",
+            "changes_truncated",
+            "remote",
+            "github_repo",
+            "root",
+        )
+        if key in git
+    }
+    if "changes" in git:
+        git_summary["changes_omitted"] = len(git.get("changes") or [])
+    summary = {
+        key: env.get(key)
+        for key in ("captured_at", "cwd", "platform", "python", "node")
+        if key in env
+    }
+    summary["git"] = git_summary
+    return summary
+
+
+def row_to_refinement(row: sqlite3.Row, *, include_env: bool = False) -> dict[str, Any]:
+    env = json.loads(col(row, "env_json") or "null")
     return {
         "refinement_id": row["refinement_id"],
         "agent_id": row["agent_id"],
@@ -2052,7 +2603,7 @@ def row_to_refinement(row: sqlite3.Row) -> dict[str, Any]:
         "remember": row["remember"],
         "quality": row["quality"],
         "state": row["state"],
-        "env": json.loads(col(row, "env_json") or "null"),
+        "env": env if include_env else summarize_env(env),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -2177,12 +2728,13 @@ def refine_get(args: argparse.Namespace) -> int:
         """,
         (*params, args.limit),
     ).fetchall()
-    refinements = [row_to_refinement(row) for row in rows]
+    refinements = [row_to_refinement(row, include_env=args.include_env) for row in rows]
     return emit(
         {
             "db_path": str(db_path),
             "workspace_path": str(workspace),
             "states": states,
+            "env_detail": "full" if args.include_env else "summary",
             "count": len(refinements),
             "refinements": refinements,
         }
@@ -2753,7 +3305,11 @@ def harness_apply(args: argparse.Namespace) -> int:
     conn = connect(db_path)
     event_id = "evt_" + uuid.uuid4().hex
     files = list(args.file or [])
-    msg = f"approved-by={args.approved_by}; branch={branch}; files={','.join(files)}; change={args.change}"
+    msg = (
+        f"approved-by={args.approved_by}; branch={branch}; files={','.join(files)}; "
+        f"change={args.change}; why={args.why_needed}; evidence={args.evidence}; "
+        f"risk={args.risk}; verification={args.verification_plan}"
+    )
     with conn:
         conn.execute(
             "INSERT INTO intent_events (event_id, intent_id, agent_id, event_type, message, created_at) "
@@ -2761,8 +3317,17 @@ def harness_apply(args: argparse.Namespace) -> int:
             (event_id, args.agent_id or "agent", msg, utc_now()),
         )
     # Announce to other agents on this repo (best-effort; never blocks the apply).
-    note = ["notify", "--agent-id", args.agent_id or "agent", "--kind", "decision",
-            "--subject", f"Applying harness fix on {branch}", "--body", args.change]
+    note = [
+        "notify",
+        "--agent-id",
+        args.agent_id or "agent",
+        "--kind",
+        "decision",
+        "--subject",
+        f"Applying harness fix on {branch}",
+        "--body",
+        f"{args.change}\n\nWhy: {args.why_needed}\nEvidence: {args.evidence}\nRisk: {args.risk}\nVerify: {args.verification_plan}",
+    ]
     if getattr(args, "workspace", None):
         note += ["--workspace", args.workspace]
     for f in files:
@@ -2774,7 +3339,8 @@ def harness_apply(args: argparse.Namespace) -> int:
     human = (
         f"⚠️ HARNESS SELF-FIX — agent '{args.agent_id or 'agent'}' is editing the skill itself on "
         f"branch '{branch}' (approved-by {args.approved_by}). Files: {', '.join(files) or '(unspecified)'}. "
-        f"Change: {args.change}. Branch-only and reversible — review the diff before merging."
+        f"Change: {args.change}. Why: {args.why_needed}. Verify: {args.verification_plan}. "
+        f"Branch-only and reversible — review the diff before merging."
     )
     return emit(
         {
@@ -2782,6 +3348,11 @@ def harness_apply(args: argparse.Namespace) -> int:
             "approved": True,
             "branch": branch,
             "files": files,
+            "change": args.change,
+            "why_needed": args.why_needed,
+            "evidence": args.evidence,
+            "risk": args.risk,
+            "verification_plan": args.verification_plan,
             "event_id": event_id,
             "humanMessage": human,
             "next": "Edit only on this branch, verify, then open a diff/PR for human review. Never merge unattended.",
@@ -2795,13 +3366,28 @@ def memory_export(args: argparse.Namespace) -> int:
     embedding blobs (rebuildable via embed-index)."""
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
-    where = "state = 'ACTIVE'"
+    where = "m.state = 'ACTIVE'"
     params: list[Any] = []
     if getattr(args, "min_importance", None):
-        where += " AND importance_score >= ?"
+        where += " AND m.importance_score >= ?"
         params.append(args.min_importance)
+    workspace_path, repo, ref = memory_scope_from_args(args)
+    where += scope_filter_sql(
+        workspace_path,
+        repo,
+        ref,
+        params,
+        strict_scope=getattr(args, "strict_scope", False),
+        global_only=getattr(args, "global_only", False),
+    )
     rows = conn.execute(
-        f"SELECT * FROM agent_memories WHERE {where} ORDER BY importance_score DESC, created_at DESC", params
+        f"""
+        SELECT m.*
+        FROM agent_memories m
+        WHERE {where}
+        ORDER BY m.importance_score DESC, m.created_at DESC
+        """,
+        params,
     ).fetchall()
     records: list[dict[str, Any]] = []
     for r in rows:
@@ -2816,7 +3402,16 @@ def memory_export(args: argparse.Namespace) -> int:
     with out_path.open("w", encoding="utf-8") as fh:
         for d in records:
             fh.write(json.dumps(d, sort_keys=True) + "\n")
-    return emit({"out": str(out_path), "exported": len(records), "format": "jsonl"})
+    return emit({
+        "out": str(out_path),
+        "exported": len(records),
+        "format": "jsonl",
+        "workspace_path": workspace_path,
+        "repo": repo,
+        "ref": ref,
+        "strict_scope": getattr(args, "strict_scope", False),
+        "global_only": getattr(args, "global_only", False),
+    })
 
 
 def memory_import(args: argparse.Namespace) -> int:
@@ -2843,24 +3438,49 @@ def memory_import(args: argparse.Namespace) -> int:
             if not mid:
                 invalid += 1
                 continue
+            required = ("agent_id", "task_context", "observation", "importance_score")
+            if any(obj.get(name) in (None, "") for name in required):
+                invalid += 1
+                continue
             exists = conn.execute("SELECT 1 FROM agent_memories WHERE memory_id = ?", (mid,)).fetchone()
             if exists and args.mode == "skip":
                 skipped += 1
                 continue
             keep = {k: v for k, v in obj.items() if k in cols}
+            tags = normalize_tags(parse_json_list(keep.get("tags_json") or obj.get("tags")))
+            references = normalize_references(
+                parse_json_list(keep.get("references_json") or obj.get("references"))
+            )
+            keep["tags_json"] = json_list_text(tags)
+            keep["tags_text"] = "," + ",".join(tags) + ","
+            keep["references_json"] = json_list_text(references)
             keys = list(keep.keys())
             verb = "INSERT OR REPLACE" if args.mode == "replace" else "INSERT OR IGNORE"
             conn.execute(
                 f"{verb} INTO agent_memories ({','.join(keys)}) VALUES ({','.join('?' for _ in keys)})",
                 [keep[k] for k in keys],
             )
+            replace_memory_references(conn, mid, references)
             if has_fts(conn):
                 conn.execute("DELETE FROM memory_fts WHERE memory_id = ?", (mid,))
-                tags = " ".join(json.loads(keep.get("tags_json") or "[]")) if keep.get("tags_json") else ""
                 label = str(keep.get("label") or "OTHER").lower()
                 conn.execute(
                     "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)",
-                    (mid, keep.get("task_context", ""), keep.get("observation", ""), f"{tags} {label}".strip()),
+                    (
+                        mid,
+                        keep.get("task_context", ""),
+                        keep.get("observation", ""),
+                        memory_index_terms(
+                            tags,
+                            references,
+                            label,
+                            file=keep.get("file"),
+                            failure_signature=keep.get("failure_signature"),
+                            workspace_path=keep.get("workspace_path"),
+                            repo=keep.get("repo"),
+                            ref=keep.get("ref"),
+                        ),
+                    ),
                 )
             imported += 1
     return emit(
@@ -2932,6 +3552,7 @@ def status(args: argparse.Namespace) -> int:
             "fts_enabled": has_fts(conn),
             "memory_count": memory_count,
             "memory_states": memory_states,
+            "semantic": semantic_coverage(conn),
             "active_intent_count": active_intent_count,
             "locks": [dict(row) for row in locks],
             "unverified_intents": unverified,
@@ -3006,6 +3627,7 @@ def stats(args: argparse.Namespace) -> int:
     return emit({
         "db_path": str(db_path),
         "memories": {"by_state": by_state, "by_importance": by_importance, "by_label": by_label},
+        "semantic": semantic_coverage(conn),
         "supersede_churn": round(superseded / total, 3),
         "stale_active": stale_active,
         "stale_days": stale_days,
@@ -3046,9 +3668,24 @@ def memory_index(args: argparse.Namespace) -> int:
     """
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
+    params: list[Any] = [args.min_importance]
+    workspace_path, repo, ref = memory_scope_from_args(args)
+    scope_sql = scope_filter_sql(
+        workspace_path,
+        repo,
+        ref,
+        params,
+        strict_scope=getattr(args, "strict_scope", False),
+        global_only=getattr(args, "global_only", False),
+    )
     rows = conn.execute(
-        "SELECT * FROM agent_memories WHERE state='ACTIVE' AND importance_score >= ?",
-        (args.min_importance,),
+        f"""
+        SELECT m.*
+        FROM agent_memories m
+        WHERE m.state='ACTIVE' AND m.importance_score >= ?
+          {scope_sql}
+        """,
+        params,
     ).fetchall()
     mems = [row_to_memory(r) for r in rows]
     # Rank by salience (importance + recency-of-use + access), no query term.
@@ -3066,14 +3703,29 @@ def memory_index(args: argparse.Namespace) -> int:
         "",
     ]
     for m in top:
-        loc = f" `{os.path.basename(m['file'])}`" if m.get("file") else ""
+        scope_parts = []
+        if m.get("repo"):
+            scope_parts.append(str(m["repo"]))
+        if m.get("ref"):
+            scope_parts.append("@" + str(m["ref"]))
+        scope = "".join(scope_parts)
+        if not scope and m.get("workspace_path"):
+            scope = os.path.basename(str(m["workspace_path"]))
+        loc = f" `{scope}`" if scope else ""
+        if m.get("file"):
+            loc += f" `{os.path.basename(m['file'])}`"
         label = f" `{m.get('label') or 'OTHER'}`"
         obs = " ".join((m["observation"] or "").split())
         if len(obs) > 160:
             obs = obs[:157] + "..."
         tags = " ".join(f"#{t}" for t in (m.get("tags") or [])[:4])
+        refs = " ".join(f"source:{source}" for source in (m.get("references") or [])[:2])
         sig = f" ⚠{m['failure_signature']}" if m.get("failure_signature") else ""
-        out.append(f"- **[{m['importance_score']}]**{label}{loc} {obs}{(' ' + tags) if tags else ''}{sig}  `{m['memory_id']}`")
+        suffix = " ".join(part for part in (tags, refs) if part)
+        out.append(
+            f"- **[{m['importance_score']}]**{label}{loc} {obs}"
+            f"{(' ' + suffix) if suffix else ''}{sig}  `{m['memory_id']}`"
+        )
     if not top:
         out.append("_(no active memories yet)_")
     markdown = "\n".join(out) + "\n"
@@ -3091,6 +3743,11 @@ def memory_index(args: argparse.Namespace) -> int:
             "written": written,
             "count": len(top),
             "total_active": len(mems),
+            "workspace_path": workspace_path,
+            "repo": repo,
+            "ref": ref,
+            "strict_scope": getattr(args, "strict_scope", False),
+            "global_only": getattr(args, "global_only", False),
             "markdown": markdown,
         }
     )
@@ -3160,6 +3817,15 @@ def ensure_model2vec(install: bool) -> tuple[bool, str | None]:
 
 def load_embedder():
     """Return (encode_fn, model_name) or (None, None) if model2vec/model unavailable."""
+    if os.environ.get("OCTOCODE_AWARENESS_FAKE_EMBEDDER") == "1":
+        def fake_encode(text: str) -> list[float]:
+            vec = [0.0] * 32
+            for term in query_terms(text) or [text.lower()[:64]]:
+                digest = hashlib.sha256(term.encode("utf-8")).digest()
+                vec[digest[0] % len(vec)] += 1.0 if digest[1] % 2 == 0 else -1.0
+            return vec
+
+        return fake_encode, "fake-test-embedder"
     # Keep stdout a clean JSON channel: HuggingFace otherwise prints fetch progress
     # bars and an unauthenticated-requests warning that corrupt captured output.
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -3217,21 +3883,22 @@ def index_embeddings(args: argparse.Namespace) -> int:
                      "or vendor a model at scripts/models/ or set OCTOCODE_EMBED_MODEL",
                      "install_note": install_note}, 1)
     rows = conn.execute(
-        f"SELECT memory_id, task_context, observation, tags_text FROM agent_memories "
+        f"SELECT * FROM agent_memories "
         f"{'' if args.rebuild else 'WHERE embedding IS NULL OR embedding_model <> ?'}",
         () if args.rebuild else (name,),
     ).fetchall()
     n = 0
     with conn:
         for r in rows:
-            text = f"{r['task_context']} {r['observation']} {r['tags_text']}"
+            memory = row_to_memory(r)
+            text = memory_search_text(memory)
             vec = encode(text)
             conn.execute(
                 "UPDATE agent_memories SET embedding=?, embedding_model=? WHERE memory_id=?",
                 (_to_blob(vec), name, r["memory_id"]),
             )
             n += 1
-    return emit({"db_path": str(db_path), "model": name, "embedded": n})
+    return emit({"db_path": str(db_path), "model": name, "embedded": n, "semantic": semantic_coverage(conn)})
 
 
 def init_command(args: argparse.Namespace) -> int:
@@ -3394,8 +4061,20 @@ def self_test(args: argparse.Namespace) -> int:
                         "error": "self-test refinement not returned by default refine-get",
                         "stdout": parsed_stdout,
                     },
-                    1,
-                )
+                        1,
+                    )
+            if index == 11:
+                first = (parsed_stdout.get("refinements") or [{}])[0]
+                changes = (((first.get("env") or {}).get("git") or {}).get("changes"))
+                if changes is not None:
+                    return emit(
+                        {
+                            "ok": False,
+                            "error": "self-test refine-get default returned verbose git changes",
+                            "stdout": parsed_stdout,
+                        },
+                        1,
+                    )
             if index == 12 and parsed_stdout.get("count", 1) != 0:
                 return emit(
                     {
@@ -3530,14 +4209,72 @@ def self_test(args: argparse.Namespace) -> int:
         run_json(["release-file-lock", "--agent-id", "agent-legacy", "--intent-id", legacy_iid, "--status", "FAILED"])
         results.append({"command": ["+legacy workspace intent checks"], "returncode": 0})
 
+        legacy_db = Path(tmp_dir) / "legacy-awareness.sqlite3"
+        legacy_file = normalize_file_path(str(Path(tmp_dir) / "legacy_widget.py"))
+        with sqlite3.connect(str(legacy_db)) as legacy_conn:
+            legacy_conn.execute(
+                """
+                CREATE TABLE agent_memories (
+                    memory_id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    task_context TEXT NOT NULL,
+                    observation TEXT NOT NULL,
+                    importance_score INTEGER NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'ACTIVE',
+                    label TEXT NOT NULL DEFAULT 'OTHER',
+                    superseded_by TEXT,
+                    tags_json TEXT NOT NULL DEFAULT '[]',
+                    tags_text TEXT NOT NULL DEFAULT ',',
+                    file_tree_fingerprint TEXT,
+                    file TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT
+                )
+                """
+            )
+            legacy_conn.execute(
+                "CREATE VIRTUAL TABLE memory_fts USING fts5(memory_id UNINDEXED, task_context, observation, tags)"
+            )
+            legacy_conn.execute(
+                """
+                INSERT INTO agent_memories(memory_id, agent_id, task_context, observation,
+                  importance_score, tags_json, tags_text, file, created_at, updated_at)
+                VALUES ('mem_legacy_fts', 'agent-old', 'legacy fts', 'old row before expanded FTS',
+                  6, '["legacy"]', ',legacy,', ?, ?, ?)
+                """,
+                (legacy_file, utc_now(), utc_now()),
+            )
+            legacy_conn.execute(
+                "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES "
+                "('mem_legacy_fts', 'legacy fts', 'old row before expanded FTS', 'legacy')"
+            )
+        legacy_lookup = subprocess.run(
+            [sys.executable, str(script), "--db", str(legacy_db), "get-memory", "--query", "legacy_widget", "--limit", "5"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if legacy_lookup.returncode != 0:
+            return emit({"ok": False, "error": "legacy FTS migration lookup failed",
+                         "stdout": legacy_lookup.stdout, "stderr": legacy_lookup.stderr}, 1)
+        legacy_payload = json.loads(legacy_lookup.stdout)
+        if not any(m["memory_id"] == "mem_legacy_fts" for m in legacy_payload.get("memories", [])):
+            return emit({"ok": False, "error": "versioned FTS rebuild missed legacy file term",
+                         "stdout": legacy_payload}, 1)
+        results.append({"command": ["+legacy FTS rebuild checks"], "returncode": 0})
+
         # Memory correlates to ONE file: store with --file, confirm it round-trips.
         filed = run_json([
             "tell-memory", "--agent-id", "agent-a", "--task-context", "file-scoped",
             "--observation", "This lesson is about a specific file.", "--importance-score", "5",
-            "--label", "GOTCHA", "--file", "src/widget.ts", "--tag", "filemem",
+            "--label", "GOTCHA", "--workspace", tmp_dir, "--repo", "demo-repo",
+            "--ref", "feature-scope", "--file", "src/widget.ts", "--tag", "filemem",
         ])
         if not filed["memory"].get("file", "").endswith("src/widget.ts"):
             return emit({"ok": False, "error": "memory --file not stored", "stdout": filed}, 1)
+        if filed["memory"].get("workspace_path") != str(Path(tmp_dir).resolve(strict=False)) or \
+           filed["memory"].get("repo") != "demo-repo" or filed["memory"].get("ref") != "feature-scope":
+            return emit({"ok": False, "error": "memory scope not stored", "stdout": filed}, 1)
         if filed["memory"].get("label") != "GOTCHA":
             return emit({"ok": False, "error": "memory --label not stored", "stdout": filed}, 1)
         label_path = run_json([
@@ -3547,12 +4284,67 @@ def self_test(args: argparse.Namespace) -> int:
         if not any(m["memory_id"] == filed["memory"]["memory_id"] for m in label_path["memories"]):
             return emit({"ok": False, "error": "label/file-regex recall missed stored memory",
                          "stdout": label_path}, 1)
+        scope_path = run_json([
+            "get-memory", "--query", "", "--workspace", tmp_dir, "--repo", "demo-repo",
+            "--ref", "feature-scope", "--limit", "5",
+        ])
+        if not any(m["memory_id"] == filed["memory"]["memory_id"] for m in scope_path["memories"]):
+            return emit({"ok": False, "error": "workspace/repo/ref recall missed stored memory",
+                         "stdout": scope_path}, 1)
+        globald = run_json([
+            "tell-memory", "--agent-id", "agent-a", "--task-context", "global scope",
+            "--observation", "global-scope-marker applies everywhere.", "--importance-score", "6",
+            "--tag", "scopeglobal",
+        ])
+        broad_scope = run_json([
+            "get-memory", "--query", "global-scope-marker", "--workspace", tmp_dir,
+            "--repo", "demo-repo", "--limit", "5",
+        ])
+        if not any(m["memory_id"] == globald["memory"]["memory_id"] for m in broad_scope["memories"]):
+            return emit({"ok": False, "error": "scoped recall should include global memories by default",
+                         "stdout": broad_scope}, 1)
+        strict_scope = run_json([
+            "get-memory", "--query", "global-scope-marker", "--workspace", tmp_dir,
+            "--repo", "demo-repo", "--strict-scope", "--limit", "5",
+        ])
+        if any(m["memory_id"] == globald["memory"]["memory_id"] for m in strict_scope["memories"]):
+            return emit({"ok": False, "error": "strict scoped recall included global memory",
+                         "stdout": strict_scope}, 1)
+        global_only = run_json([
+            "get-memory", "--query", "global-scope-marker", "--global-only", "--limit", "5",
+        ])
+        if not any(m["memory_id"] == globald["memory"]["memory_id"] for m in global_only["memories"]):
+            return emit({"ok": False, "error": "global-only recall missed global memory",
+                         "stdout": global_only}, 1)
+        file_query = run_json(["get-memory", "--query", "widget.ts", "--limit", "5"])
+        if not any(m["memory_id"] == filed["memory"]["memory_id"] for m in file_query["memories"]):
+            return emit({"ok": False, "error": "FTS filename query missed stored memory",
+                         "stdout": file_query}, 1)
         smart = run_json([
             "get-memory", "--query", "specific file", "--label", "BUG", "--smart", "--limit", "5",
         ])
         if not any(m["memory_id"] == filed["memory"]["memory_id"] for m in smart["memories"]):
             return emit({"ok": False, "error": "smart recall failed to broaden label filter",
                          "stdout": smart}, 1)
+        ref_source = "repo:octocode/ref-only-source-123"
+        refd = run_json([
+            "tell-memory", "--agent-id", "agent-a", "--task-context", "source capture",
+            "--observation", "Provenance-only lesson body.", "--importance-score", "9",
+            "--label", "DECISION", "--reference", ref_source,
+        ])
+        if ref_source not in refd["memory"].get("references", []):
+            return emit({"ok": False, "error": "memory --reference not stored", "stdout": refd}, 1)
+        ref_query = run_json(["get-memory", "--query", "ref-only-source-123", "--limit", "5"])
+        if not any(m["memory_id"] == refd["memory"]["memory_id"] for m in ref_query["memories"]):
+            return emit({"ok": False, "error": "reference token query missed stored memory",
+                         "stdout": ref_query}, 1)
+        ref_exact = run_json(["get-memory", "--query", "", "--reference", ref_source, "--limit", "5"])
+        if not any(m["memory_id"] == refd["memory"]["memory_id"] for m in ref_exact["memories"]):
+            return emit({"ok": False, "error": "exact --reference recall missed stored memory",
+                         "stdout": ref_exact}, 1)
+        if any(key.startswith("_") for m in ref_exact["memories"] for key in m):
+            return emit({"ok": False, "error": "get-memory leaked private result keys",
+                         "stdout": ref_exact}, 1)
         blank_label = run_json([
             "tell-memory", "--agent-id", "agent-a", "--task-context", "blank label",
             "--observation", "Blank labels become OTHER.", "--importance-score", "4",
@@ -3564,6 +4356,9 @@ def self_test(args: argparse.Namespace) -> int:
         label_stats = run_json(["stats"])
         if label_stats.get("memories", {}).get("by_label", {}).get("GOTCHA", 0) < 1:
             return emit({"ok": False, "error": "stats missing memory labels",
+                         "stdout": label_stats}, 1)
+        if "semantic" not in label_stats or "embedded" not in label_stats["semantic"]:
+            return emit({"ok": False, "error": "stats missing semantic coverage",
                          "stdout": label_stats}, 1)
         viewer_out = str(Path(tmp_dir) / "awareness.html")
         viewer = subprocess.run(
@@ -3581,6 +4376,12 @@ def self_test(args: argparse.Namespace) -> int:
                          "stdout": viewer.stdout, "stderr": viewer.stderr}, 1)
         if "GOTCHA" not in Path(viewer_out).read_text(encoding="utf-8"):
             return emit({"ok": False, "error": "show-memories missing memory label",
+                         "stdout": json.loads(viewer.stdout or "{}")}, 1)
+        if "demo-repo" not in Path(viewer_out).read_text(encoding="utf-8"):
+            return emit({"ok": False, "error": "show-memories missing memory scope",
+                         "stdout": json.loads(viewer.stdout or "{}")}, 1)
+        if ref_source not in Path(viewer_out).read_text(encoding="utf-8"):
+            return emit({"ok": False, "error": "show-memories missing memory references",
                          "stdout": json.loads(viewer.stdout or "{}")}, 1)
 
         # refine-delete: create, dry-run, delete, confirm gone.
@@ -3715,6 +4516,67 @@ def self_test(args: argparse.Namespace) -> int:
         sem = run_json(["get-memory", "--query", "config", "--semantic", "--limit", "3"])
         if "mode" not in sem:
             return emit({"ok": False, "error": "get-memory missing mode field", "stdout": sem}, 1)
+        if sem.get("count", 0) < 1 or not any("config" in memory_search_text(m).lower() for m in sem.get("memories", [])):
+            return emit({"ok": False, "error": "semantic recall failed to fall back to lexical",
+                         "stdout": sem}, 1)
+
+        sem_a = run_json([
+            "tell-memory", "--agent-id", "agent-a", "--task-context", "semantic alpha",
+            "--observation", "semantic-alpha-marker belongs to the target memory",
+            "--importance-score", "7",
+        ])["memory"]["memory_id"]
+        sem_b = run_json([
+            "tell-memory", "--agent-id", "agent-a", "--task-context", "semantic beta",
+            "--observation", "semantic-beta-marker belongs to the stale memory",
+            "--importance-score", "7",
+        ])["memory"]["memory_id"]
+        fake_env = os.environ.copy()
+        fake_env["OCTOCODE_AWARENESS_FAKE_EMBEDDER"] = "1"
+        embedded = subprocess.run(
+            base + ["embed-index", "--rebuild"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=fake_env,
+        )
+        if embedded.returncode != 0:
+            return emit({"ok": False, "error": "fake embed-index failed",
+                         "stdout": embedded.stdout, "stderr": embedded.stderr}, 1)
+        embedded_payload = json.loads(embedded.stdout)
+        if embedded_payload.get("semantic", {}).get("embedded", 0) < 1:
+            return emit({"ok": False, "error": "embed-index missing semantic coverage",
+                         "stdout": embedded_payload}, 1)
+        with connect(Path(db_path)) as conn:
+            conn.execute(
+                "UPDATE agent_memories SET embedding_model = 'stale-model' WHERE memory_id = ?",
+                (sem_b,),
+            )
+        semantic_ranked = subprocess.run(
+            base + ["get-memory", "--query", "semantic-alpha-marker", "--semantic", "--explain", "--limit", "5"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=fake_env,
+        )
+        if semantic_ranked.returncode != 0:
+            return emit({"ok": False, "error": "fake semantic recall failed",
+                         "stdout": semantic_ranked.stdout, "stderr": semantic_ranked.stderr}, 1)
+        semantic_payload = json.loads(semantic_ranked.stdout)
+        semantic_ids = [m["memory_id"] for m in semantic_payload.get("memories", [])]
+        if sem_a not in semantic_ids or sem_b in semantic_ids or not semantic_payload.get("mode", "").startswith("semantic:fake-test-embedder"):
+            return emit({"ok": False, "error": "semantic recall did not filter/rank by current model",
+                         "stdout": semantic_payload}, 1)
+        fake_stats = subprocess.run(
+            base + ["stats"],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=fake_env,
+        )
+        fake_stats_payload = json.loads(fake_stats.stdout)
+        if fake_stats_payload.get("semantic", {}).get("stale_model", 0) < 1:
+            return emit({"ok": False, "error": "semantic stats missing stale model count",
+                         "stdout": fake_stats_payload}, 1)
 
         # memory-index writes a MEMORY.md next to the store and lists active memories.
         idx = run_json(["memory-index", "--limit", "10"])
@@ -3725,6 +4587,13 @@ def self_test(args: argparse.Namespace) -> int:
             return emit({"ok": False, "error": "memory-index file missing on disk", "stdout": idx}, 1)
         if "`GOTCHA`" not in idx.get("markdown", "") and "`OTHER`" not in idx.get("markdown", ""):
             return emit({"ok": False, "error": "memory-index missing labels", "stdout": idx}, 1)
+        if f"source:{ref_source}" not in idx.get("markdown", ""):
+            return emit({"ok": False, "error": "memory-index missing references", "stdout": idx}, 1)
+        scoped_idx = run_json([
+            "memory-index", "--repo", "demo-repo", "--strict-scope", "--stdout", "--limit", "20",
+        ])
+        if "demo-repo@feature-scope" not in scoped_idx.get("markdown", "") or "global-scope-marker" in scoped_idx.get("markdown", ""):
+            return emit({"ok": False, "error": "memory-index scope filter failed", "stdout": scoped_idx}, 1)
         results.append({"command": ["+bitemporal/stats/graph/semantic/memory-index checks"], "returncode": 0})
 
         # Notifications: a broadcast reaches another agent once, a directed reply
@@ -3838,7 +4707,11 @@ def self_test(args: argparse.Namespace) -> int:
         import os as _os
         env_closed = dict(_os.environ); env_closed.pop("OCTOCODE_ALLOW_HARNESS_APPLY", None)
         closed = subprocess.run(
-            base + ["harness-apply", "--agent-id", "agent-a", "--approved-by", "tester", "--change", "x"],
+            base + [
+                "harness-apply", "--agent-id", "agent-a", "--approved-by", "tester",
+                "--change", "x", "--why-needed", "prove gate refusal", "--evidence", "self-test",
+                "--risk", "none", "--verification-plan", "self-test",
+            ],
             text=True, capture_output=True, check=False, env=env_closed,
         )
         if closed.returncode != CONFLICT_EXIT:
@@ -3846,26 +4719,70 @@ def self_test(args: argparse.Namespace) -> int:
         env_open = dict(_os.environ, OCTOCODE_ALLOW_HARNESS_APPLY="1", OCTOCODE_HARNESS_BRANCH_OK="1")
         opened = subprocess.run(
             base + ["harness-apply", "--agent-id", "agent-a", "--approved-by", "tester",
-                    "--change", "tweak a hook", "--file", "scripts/hooks/pre-edit.sh"],
+                    "--change", "tweak a hook", "--why-needed", "prove audit detail survives",
+                    "--evidence", "self-test", "--risk", "none", "--verification-plan", "self-test",
+                    "--file", "scripts/hooks/pre-edit.sh"],
             text=True, capture_output=True, check=False, env=env_open,
         )
         if opened.returncode != 0 or "humanMessage" not in opened.stdout:
             return emit({"ok": False, "error": "harness-apply should pass when gate open", "stdout": opened.stdout}, 1)
 
         # Memory export → import round-trip (team-shared, file-based).
+        export_ref = "repo:octocode/export-only-source-456"
         run_json(["tell-memory", "--agent-id", "agent-a", "--task-context", "share",
-                  "--observation", "exportable-memory-marker for the team", "--importance-score", "7", "--tag", "shareme"])
+                  "--observation", "team-share provenance-only lesson", "--importance-score", "7",
+                  "--tag", "shareme", "--reference", export_ref])
         export_path = str(Path(tmp_dir) / "memories.jsonl")
         exp = run_json(["memory-export", "--out", export_path, "--min-importance", "5"])
         if exp.get("exported", 0) < 1:
             return emit({"ok": False, "error": "memory-export wrote nothing", "stdout": exp}, 1)
+        scoped_export_ref = "repo:octocode/scoped-export-source-789"
+        run_json(["tell-memory", "--agent-id", "agent-a", "--task-context", "scoped share",
+                  "--observation", "team-share scoped lesson", "--importance-score", "7",
+                  "--workspace", tmp_dir, "--repo", "export-demo", "--ref", "main",
+                  "--tag", "scopedshare", "--reference", scoped_export_ref])
+        scoped_export_path = str(Path(tmp_dir) / "scoped-memories.jsonl")
+        scoped_exp = run_json([
+            "memory-export", "--out", scoped_export_path, "--repo", "export-demo",
+            "--strict-scope", "--min-importance", "5",
+        ])
+        scoped_text = Path(scoped_export_path).read_text(encoding="utf-8")
+        if scoped_exp.get("exported", 0) < 1 or scoped_export_ref not in scoped_text or export_ref in scoped_text:
+            return emit({"ok": False, "error": "memory-export scope filter failed",
+                         "stdout": scoped_exp, "file": scoped_text}, 1)
         run_json(["forget", "--tag", "shareme"])
         imp = run_json(["memory-import", export_path, "--mode", "skip"])
         if imp.get("imported", 0) < 1:
             return emit({"ok": False, "error": "memory-import imported nothing", "stdout": imp}, 1)
-        back = run_json(["get-memory", "--query", "exportable-memory-marker", "--limit", "5"])
-        if not any("exportable-memory-marker" in m["observation"] for m in back.get("memories", [])):
+        back = run_json(["get-memory", "--query", "export-only-source-456", "--limit", "5"])
+        if not any(export_ref in m.get("references", []) for m in back.get("memories", [])):
             return emit({"ok": False, "error": "imported memory not recallable", "stdout": back}, 1)
+        back_ref = run_json(["get-memory", "--query", "", "--reference", export_ref, "--limit", "5"])
+        if not any(export_ref in m.get("references", []) for m in back_ref.get("memories", [])):
+            return emit({"ok": False, "error": "imported memory not exact-reference recallable",
+                         "stdout": back_ref}, 1)
+        bad_import_path = Path(tmp_dir) / "bad-import.jsonl"
+        bad_import_path.write_text(
+            json.dumps(
+                {
+                    "memory_id": "mem_bad_import_json",
+                    "agent_id": "agent-bad",
+                    "task_context": "bad import; reason: prove malformed json cannot poison fetch",
+                    "observation": "malformed-import-marker should still be fetchable after import.",
+                    "importance_score": 6,
+                    "tags_json": "{not-json",
+                    "references_json": "{also-not-json",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        bad_imp = run_json(["memory-import", str(bad_import_path), "--mode", "replace"])
+        if bad_imp.get("imported", 0) != 1:
+            return emit({"ok": False, "error": "malformed-json import was not sanitized/imported", "stdout": bad_imp}, 1)
+        bad_back = run_json(["get-memory", "--query", "malformed-import-marker", "--limit", "5"])
+        if not any(m.get("memory_id") == "mem_bad_import_json" for m in bad_back.get("memories", [])):
+            return emit({"ok": False, "error": "malformed-json import poisoned fetch", "stdout": bad_back}, 1)
         results.append({"command": ["+harness-apply gate + memory export/import checks"], "returncode": 0})
 
     return emit({"self_test": "passed", "commands": results})
@@ -3876,6 +4793,16 @@ def positive_int(value: str) -> int:
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be >= 1")
     return parsed
+
+
+def bounded_int(min_value: int, max_value: int, label: str):
+    def parse(value: str) -> int:
+        parsed = int(value)
+        if parsed < min_value or parsed > max_value:
+            raise argparse.ArgumentTypeError(f"{label} must be between {min_value} and {max_value}")
+        return parsed
+
+    return parse
 
 
 def non_negative_int(value: str) -> int:
@@ -3895,6 +4822,7 @@ def importance(value: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="SQLite-backed local awareness for agents.")
     parser.add_argument("--db", help="Override the SQLite database path.")
+    parser.add_argument("--compact", action="store_true", help="Emit minified JSON for token-efficient agent use.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subcommands.add_parser("init", help="Create or migrate the awareness database.")
@@ -3902,7 +4830,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subcommands.add_parser("status", help="Show memory and active lock status.")
     status_parser.add_argument("--workspace", help="Filter displayed locks under this workspace path.")
-    status_parser.add_argument("--limit", type=positive_int, default=20)
+    status_parser.add_argument("--limit", type=bounded_int(1, 200, "limit"), default=20)
     status_parser.set_defaults(func=status)
 
     tell_parser = subcommands.add_parser(
@@ -3922,6 +4850,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tell_parser.add_argument("--tag", action="append", default=[])
     tell_parser.add_argument("--tags")
+    tell_parser.add_argument(
+        "--reference",
+        action="append",
+        default=[],
+        help="Source this lesson came from — URL, 'pr:owner/repo#123', 'repo:owner/repo', "
+        "'npm:pkg', 'doc:<title>', 'file:<abs-path>'. Repeatable. Recallable later via --query, --reference, or --regex.",
+    )
+    tell_parser.add_argument(
+        "--workspace",
+        help="Optional workspace root this memory belongs to. Omit for global developer/harness lessons.",
+    )
+    tell_parser.add_argument("--repo", help="Optional repository name/scope; auto-filled from --workspace git when omitted.")
+    tell_parser.add_argument("--ref", help="Optional branch/commit scope; auto-filled from --workspace git when omitted.")
     tell_parser.add_argument(
         "--file",
         help="The ONE file this memory correlates to (normalized to an absolute path). Omit for a general lesson.",
@@ -3948,7 +4889,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Recall relevant memories.",
     )
     get_parser.add_argument("--query", default="", help="Recall query. May be empty when using filters.")
-    get_parser.add_argument("--limit", type=positive_int, default=3)
+    get_parser.add_argument("--limit", type=bounded_int(1, 50, "limit"), default=3)
     get_parser.add_argument("--min-importance", type=importance, default=1)
     get_parser.add_argument(
         "--label",
@@ -3972,10 +4913,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Regex filter against the stored memory file path; repeatable.",
     )
     get_parser.add_argument(
+        "--reference",
+        action="append",
+        default=[],
+        help="Filter by exact stored provenance reference; repeatable. Use --regex for partial/source-family matches.",
+    )
+    get_parser.add_argument("--workspace", help="Recall memories applicable to this workspace root (includes unscoped unless --strict-scope).")
+    get_parser.add_argument("--repo", help="Recall memories applicable to this repository (includes unscoped unless --strict-scope).")
+    get_parser.add_argument("--ref", help="Recall memories applicable to this branch/commit (includes unscoped unless --strict-scope).")
+    get_parser.add_argument(
+        "--strict-scope",
+        action="store_true",
+        help="Require exact workspace/repo/ref matches instead of including broader global/applicable memories.",
+    )
+    get_parser.add_argument(
+        "--global-only",
+        action="store_true",
+        help="Return only memories with no workspace/repo/ref scope.",
+    )
+    get_parser.add_argument(
         "--regex",
         action="append",
         default=[],
-        help="Regex filter against task, observation, tags, label, file, and failure signature; repeatable.",
+        help="Regex filter against task, observation, tags, references, label, workspace/repo/ref, file, and failure signature; repeatable.",
     )
     get_parser.add_argument(
         "--sort",
@@ -4016,7 +4976,7 @@ def build_parser() -> argparse.ArgumentParser:
     get_parser.add_argument(
         "--semantic",
         action="store_true",
-        help="Use local embedding recall (model2vec); falls back to lexical if unavailable.",
+        help="Use local embedding recall (model2vec); falls back to lexical if unavailable or if semantic finds no hit.",
     )
     get_parser.add_argument(
         "--as-of",
@@ -4036,9 +4996,9 @@ def build_parser() -> argparse.ArgumentParser:
     intent_parser.add_argument("--target-file", action="append", required=True)
     intent_parser.add_argument("--test-plan", required=True)
     intent_parser.add_argument("--lock-type", choices=["SHARED", "EXCLUSIVE"], default="EXCLUSIVE")
-    intent_parser.add_argument("--wait-seconds", type=non_negative_int, default=0)
-    intent_parser.add_argument("--retry-interval", type=positive_int, default=5)
-    intent_parser.add_argument("--ttl-minutes", type=positive_int, default=240)
+    intent_parser.add_argument("--wait-seconds", type=bounded_int(0, 3600, "wait-seconds"), default=0)
+    intent_parser.add_argument("--retry-interval", type=bounded_int(1, 300, "retry-interval"), default=5)
+    intent_parser.add_argument("--ttl-minutes", type=bounded_int(1, 10080, "ttl-minutes"), default=240)
     intent_parser.set_defaults(func=pre_flight_intent)
 
     wait_parser = subcommands.add_parser(
@@ -4049,8 +5009,8 @@ def build_parser() -> argparse.ArgumentParser:
     wait_parser.add_argument("--agent-id", required=True)
     wait_parser.add_argument("--target-file", action="append", required=True)
     wait_parser.add_argument("--lock-type", choices=["SHARED", "EXCLUSIVE"], default="EXCLUSIVE")
-    wait_parser.add_argument("--wait-seconds", type=non_negative_int, default=60)
-    wait_parser.add_argument("--retry-interval", type=positive_int, default=5)
+    wait_parser.add_argument("--wait-seconds", type=bounded_int(0, 3600, "wait-seconds"), default=60)
+    wait_parser.add_argument("--retry-interval", type=bounded_int(1, 300, "retry-interval"), default=5)
     wait_parser.set_defaults(func=wait_for_lock)
 
     prune_locks_parser = subcommands.add_parser(
@@ -4060,7 +5020,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prune_locks_parser.add_argument(
         "--older-than-minutes",
-        type=positive_int,
+        type=bounded_int(1, 10080, "older-than-minutes"),
         default=20,
         help="Treat locks acquired at least this many minutes ago as stale (default 20).",
     )
@@ -4187,7 +5147,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Filter by state; repeatable. Default: open + ongoing.",
     )
-    refine_get_parser.add_argument("--limit", type=positive_int, default=20)
+    refine_get_parser.add_argument("--limit", type=bounded_int(1, 200, "limit"), default=20)
+    refine_get_parser.add_argument(
+        "--include-env",
+        action="store_true",
+        help="Include the full captured env, including git.changes[]. Default returns a concise summary.",
+    )
     refine_get_parser.set_defaults(func=refine_get)
 
     refine_delete_parser = subcommands.add_parser(
@@ -4251,7 +5216,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--format", choices=["json", "hook"], default="json",
         help="'hook' emits a UserPromptSubmit additionalContext payload (used by the delivery hook).",
     )
-    notify_get_parser.add_argument("--limit", type=positive_int, default=20)
+    notify_get_parser.add_argument("--limit", type=bounded_int(1, 200, "limit"), default=20)
     notify_get_parser.set_defaults(func=notify_get)
 
     notify_resolve_parser = subcommands.add_parser(
@@ -4279,7 +5244,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--resolved", action="store_true", help="Delete only messages already marked resolved.",
     )
     notify_prune_parser.add_argument(
-        "--older-than-days", type=positive_int, help="Delete messages created more than N days ago.",
+        "--older-than-days", type=bounded_int(1, 3650, "older-than-days"), help="Delete messages created more than N days ago.",
     )
     notify_prune_parser.add_argument("--dry-run", action="store_true", help="Report matches without deleting.")
     notify_prune_parser.set_defaults(func=notify_prune)
@@ -4332,6 +5297,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--approved-by", dest="approved_by", required=True, help="Human who approved this harness change.",
     )
     harness_apply_parser.add_argument("--change", required=True, help="One-line summary of the harness change.")
+    harness_apply_parser.add_argument("--why-needed", required=True, help="Why future agents need this harness change.")
+    harness_apply_parser.add_argument("--evidence", required=True, help="Evidence source: user correction, memory, eval, file, or command.")
+    harness_apply_parser.add_argument("--risk", required=True, help="Risk and rollback/review note for this scoped change.")
+    harness_apply_parser.add_argument("--verification-plan", required=True, help="Checks that will prove the harness change.")
     harness_apply_parser.add_argument("--file", action="append", default=[], help="Skill file to be edited; repeatable.")
     harness_apply_parser.add_argument("--workspace", help="Workspace root for the announcement notification.")
     harness_apply_parser.set_defaults(func=harness_apply)
@@ -4342,7 +5311,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export ACTIVE memories to a committable JSONL file (default <workspace>/.octocode/memories.jsonl).",
     )
     memory_export_parser.add_argument("--out", help="Output JSONL path.")
-    memory_export_parser.add_argument("--workspace", help="Workspace root (for the default --out path).")
+    memory_export_parser.add_argument("--workspace", help="Workspace root (also scopes export unless omitted).")
+    memory_export_parser.add_argument("--repo", help="Repository scope to export.")
+    memory_export_parser.add_argument("--ref", help="Branch/commit scope to export.")
+    memory_export_parser.add_argument(
+        "--strict-scope",
+        action="store_true",
+        help="Export only exact workspace/repo/ref matches instead of including broader global/applicable memories.",
+    )
+    memory_export_parser.add_argument(
+        "--global-only",
+        action="store_true",
+        help="Export only memories with no workspace/repo/ref scope.",
+    )
     memory_export_parser.add_argument(
         "--min-importance", type=importance, help="Only export memories at or above this importance.",
     )
@@ -4364,15 +5345,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show running env + git repo/branch/dirty state, open handoff for this repo, and unverified intents.",
     )
     env_parser.add_argument("--workspace", help="Workspace root; default current directory.")
-    env_parser.add_argument("--limit", type=positive_int, default=10)
+    env_parser.add_argument("--limit", type=bounded_int(1, 200, "limit"), default=10)
     env_parser.set_defaults(func=env_command)
 
     stats_parser = subcommands.add_parser(
         "stats", help="Harness-health ledger: states, supersede churn, stale ACTIVE, top weaknesses."
     )
     stats_parser.add_argument("--workspace", help="Workspace root; default current directory.")
-    stats_parser.add_argument("--stale-days", type=positive_int, default=60)
-    stats_parser.add_argument("--top", type=positive_int, default=5)
+    stats_parser.add_argument("--stale-days", type=bounded_int(1, 3650, "stale-days"), default=60)
+    stats_parser.add_argument("--top", type=bounded_int(1, 100, "top"), default=5)
     stats_parser.set_defaults(func=stats)
 
     graph_parser = subcommands.add_parser(
@@ -4388,8 +5369,21 @@ def build_parser() -> argparse.ArgumentParser:
         aliases=["memory_index"],
         help="Regenerate a concise Claude-Code-style MEMORY.md index of top memories under the memory home (zero deps).",
     )
-    memidx_parser.add_argument("--limit", type=positive_int, default=30)
+    memidx_parser.add_argument("--limit", type=bounded_int(1, 500, "limit"), default=30)
     memidx_parser.add_argument("--min-importance", type=importance, default=1)
+    memidx_parser.add_argument("--workspace", help="Workspace root for scoped index generation.")
+    memidx_parser.add_argument("--repo", help="Repository scope for scoped index generation.")
+    memidx_parser.add_argument("--ref", help="Branch/commit scope for scoped index generation.")
+    memidx_parser.add_argument(
+        "--strict-scope",
+        action="store_true",
+        help="Index only exact workspace/repo/ref matches instead of including broader global/applicable memories.",
+    )
+    memidx_parser.add_argument(
+        "--global-only",
+        action="store_true",
+        help="Index only memories with no workspace/repo/ref scope.",
+    )
     memidx_parser.add_argument("--out", help="Override output path (default <memory_home>/MEMORY.md).")
     memidx_parser.add_argument("--stdout", action="store_true", help="Print the index only; do not write the file.")
     memidx_parser.set_defaults(func=memory_index)
@@ -4422,8 +5416,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global COMPACT_OUTPUT
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if "--compact" in raw_args:
+        COMPACT_OUTPUT = True
+        raw_args = [arg for arg in raw_args if arg != "--compact"]
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_args)
+    COMPACT_OUTPUT = COMPACT_OUTPUT or bool(getattr(args, "compact", False))
     try:
         return args.func(args)
     except sqlite3.Error as exc:

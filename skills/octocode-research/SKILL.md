@@ -24,7 +24,7 @@ Default to Investigate for concrete behavior, Validate for ambiguous research, P
 - Use MCP tools when exposed; otherwise use `npx octocode`; read schemas/help before raw calls.
 - Start cheap with tree/path/package/repo discovery; deep-read exact slices only after anchors appear.
 - Cross-pollinate surfaces: local clues feed GitHub/npm/web, and external claims feed code reads.
-- Keep a claim ledger; promote snippets to proof only after exact source, AST/LSP, history, artifact, or test evidence.
+- Keep a claim ledger; promote snippets to proof only after exact source, AST/LSP, history, artifact, or test evidence. Before researching, recall prior lessons with octocode-awareness (`get-memory --smart --query <question>`); on zero results retry synonyms/source locators and validate recalled code facts. When a durable finding converges, emit one awareness capture packet (or a `doNotCaptureReason`) using `learning-capture.md` so it is not re-researched later.
 - Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
 - For code edits, make the smallest scoped patch and report actual verification.
 

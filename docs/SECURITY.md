@@ -85,7 +85,7 @@ The canonical lists are `IGNORED_FILE_PATTERNS` and `IGNORED_PATH_PATTERNS` in t
 - GitHub auth resolves in priority order: `OCTOCODE_TOKEN` → `GH_TOKEN` → `GITHUB_TOKEN`, then encrypted on-disk Octocode OAuth credentials, then the `gh` CLI token.
 - On-disk OAuth credentials are stored **AES-256-GCM encrypted** under `OCTOCODE_HOME`.
 - Tokens are read from the environment / secure store at request time and are themselves subject to output masking — they are never echoed in results.
-- See [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) and [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md).
+- See [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) and [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#credential-architecture-api).
 
 ---
 

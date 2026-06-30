@@ -94,7 +94,7 @@
 | `@octocodeai/octocode-engine` | Native engine gate | `yarn build && yarn pack:check` | Rust native engine wrappers, generated security patterns, or platform package contracts regress. |
 | `@octocodeai/octocode-tools-core` | Package gate | `yarn verify` | Shared config, credential, platform, session, or tool-core boundaries regress. |
 
-For package-specific references, see the consolidated [docs index](https://github.com/bgauryy/octocode/blob/main/docs/README.md) — tools-core API/credentials/session docs and `octocode` reference all live there.
+For package-specific references, see the consolidated [documentation index](https://github.com/bgauryy/octocode/blob/main/README.md#documentation) — tools-core API/credentials/session docs and `octocode` reference all live there.
 
 ### Structure
 ```
@@ -111,11 +111,11 @@ packages/<name>/tests/
 
 For detailed research workflows including local discovery, LSP navigation, and external research patterns, see the canonical references:
 
-- [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LOCAL_TOOLS.md) — Local filesystem discovery, search, and file reading
-- [LSP Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LSP_TOOLS.md) — Semantic navigation, diagnostics, and flow tracing
-- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/GITHUB_TOOLS.md) — External research and package discovery
-- [Advanced MCP Tool Verification](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) — Release-grade tool contract, pagination, hints, empty-state, and research-quality checks
-- [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) — Bridging GitHub repos with local + LSP tools
+- [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference) — Local filesystem discovery, search, and file reading
+- [LSP Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference) — Semantic navigation, diagnostics, and flow tracing
+- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#github-tools-reference) — External research and package discovery
+- [Advanced MCP Tool Verification](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#tool-verification-playbook) — Release-grade tool contract, pagination, hints, empty-state, and research-quality checks
+- [Clone & Local Tools Workflow](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#clone-and-local-tools-workflow) — Bridging GitHub repos with local + LSP tools
 
 ## Skills System
 
@@ -126,7 +126,7 @@ Skills are markdown-based instruction sets that teach AI assistants specific tas
 
 ## Package Documentation
 
-For the complete package documentation index, see [docs/README.md](https://github.com/bgauryy/octocode/blob/main/docs/README.md).
+For the complete package documentation index, see [README.md#documentation](https://github.com/bgauryy/octocode/blob/main/README.md#documentation).
 
 
 ## Agent Compatibility
@@ -140,5 +140,5 @@ For the complete package documentation index, see [docs/README.md](https://githu
 
 ## See Also
 
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) — All env vars and `.octocoderc` options
+- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) — All env vars and `.octocoderc` options
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) — GitHub auth

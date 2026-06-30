@@ -2,7 +2,7 @@
 
 This folder is the durable question catalog for live Octocode CLI, raw tool, and OQL evaluation. It splits live checks into local, external, and workflow lanes.
 
-These docs define what to ask and how to score it. Reported runs still write artifacts under `packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/` and must follow the agent benchmark runbook at https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md.
+These docs define what to ask and how to score it. Reported runs still write artifacts under `packages/octocode-benchmark/output/<benchmark-name>-<YYYYMMDDTHHMMSSZ>/` and must follow the [agent benchmark runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md).
 
 ## Automated Smoke
 

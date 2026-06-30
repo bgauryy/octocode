@@ -83,7 +83,7 @@ Every tool accepts **1–N bulk queries**; each query carries research context (
 
 > **Full verified format matrix** — every extension's exact AST / signature / LSP / minify support (151 extensions) is machine-generated from the shipped engine binary into [`docs/LSP_SERVER_LIFECYCLE.md` → Full format support matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) (regenerate/verify with `yarn workspace @octocodeai/octocode-benchmark matrix:check`).
 
-> **Benchmark flows** — Octocode flow benchmarks and structural grep comparison recipes live in [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark).
+> **Benchmark flows** — Octocode flow benchmarks and structural grep comparison recipes live in [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark).
 
 ## Flows
 
@@ -110,7 +110,7 @@ request → interface registers tool (schema from octocode-core)
 
 **CLI:** `main() → runCLI() → [tool runner | management command] | interactive menu`. Tools auto-discovered from core.
 
-**Clone → local → LSP:** `ghCloneRepo` (with `ENABLE_CLONE`) pulls a repo/subtree into `~/.octocode/`, then local + LSP tools analyze it. See [Clone Workflow](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md).
+**Clone → local → LSP:** `ghCloneRepo` (with `ENABLE_CLONE`) pulls a repo/subtree into `~/.octocode/`, then local + LSP tools analyze it. See [Clone Workflow](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#clone-and-local-tools-workflow).
 
 ## Working in this repo
 
@@ -193,13 +193,13 @@ The CLI offers **three ways in**, increasingly raw:
 
 All monorepo docs live in [`docs/`](docs) (no per-package `docs/`). **Documentation links must use absolute GitHub URLs**, base `https://github.com/bgauryy/octocode/blob/main/` — never relative paths.
 
-**Index:** [docs/README.md](https://github.com/bgauryy/octocode/blob/main/docs/README.md)
+**Index:** [README.md#documentation](https://github.com/bgauryy/octocode/blob/main/README.md#documentation)
 
 | Doc | Read for |
 |---|---|
 | [SKILLS_GUIDE](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md) | Install/build/browse skills marketplace |
 | [PI_SETUP_GUIDE](https://github.com/bgauryy/octocode/blob/main/docs/PI/PI_SETUP_GUIDE.md) | Octocode inside earendil-works/pi |
-| **MCP:** [README](https://github.com/bgauryy/octocode/blob/main/docs/mcp/README.md) · [CONFIGURATION](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) · [AUTHENTICATION](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [CREDENTIALS](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) · [SESSION](https://github.com/bgauryy/octocode/blob/main/docs/mcp/SESSION.md) · [CLONE_WORKFLOW](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CLONE_WORKFLOW.md) · [TOOL_VERIFICATION](https://github.com/bgauryy/octocode/blob/main/docs/mcp/TOOL_VERIFICATION.md) | Configure, auth, sessions, verification |
-| **MCP tools:** [GITHUB](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/GITHUB_TOOLS.md) · [LOCAL](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LOCAL_TOOLS.md) · [BINARY](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/BINARY_TOOLS.md) · [LSP](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LSP_TOOLS.md) · [TOOL_BEHAVIOR](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/TOOL_BEHAVIOR.md) | Per-tool inputs, behavior, tradeoffs |
+| **MCP:** [OCTOCODE_MCP](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CONFIGURATION](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [AUTHENTICATION](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) | MCP overview, config, auth, sessions |
+| **Tools:** [OCTOCODE_TOOLS](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) | All MCP/CLI tools, clone workflow, behavior notes, verification |
 | **CLI:** [OCTOCODE_CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) | All commands, flags, tool runner, and MCP alignment |
 | **Release:** [release/RELEASE_GUIDE](https://github.com/bgauryy/octocode/blob/main/release/RELEASE_GUIDE.md) | Versioning + publish |

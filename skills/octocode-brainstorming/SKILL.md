@@ -19,6 +19,7 @@ Stop and ask before passing these gates: idea maps to 3+ unrelated spaces; all a
 ## Research Rules
 
 - Defer judgment during divergence; converge only after the framing slate is captured.
+- Recall first, capture last: at FRAME, when octocode-awareness is available, check prior decisions and prior art with `get-memory --smart --query <idea/question>`; on zero results retry synonyms or source locators and validate recalled code facts before use. At DECIDE, emit one awareness capture packet (or a `doNotCaptureReason`) using `learning-capture.md`.
 - Treat snippets and search summaries as leads; cite fetched pages, exact files, repos, packages, PRs, metrics, or mark claims `weak`.
 - Default external loop: top articles/docs/papers -> repos/packages/code -> exact reads -> loop back to sources for contradictions. Cross-pollinate at least once per active surface.
 - Keep a claim ledger: `claim -> source -> confidence -> next query`; for substantial, multi-surface, or high-confidence runs, start `scripts/brainstorm-run.mjs` via `references/hook-communication.md`.

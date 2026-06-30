@@ -1,6 +1,6 @@
 /**
  * Validates every configuration claim documented in the repo README and
- * docs/mcp/CONFIGURATION.md against the actual resolver. This is the single
+ * docs/CONFIGURATION.md against the actual resolver. This is the single
  * config pipeline that BOTH the MCP server and the CLI read (via getConfig /
  * resolveConfigSync), so validating it here validates both flows.
  *

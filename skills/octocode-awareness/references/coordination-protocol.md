@@ -80,7 +80,7 @@ Run at the end of the work. Pass `--status SUCCESS` after verification passes, `
 
 A **refinement** is a structured record of work state for one workspace — distinct from a **memory** (a general, reusable lesson). Refinements answer "what is the state of *this* work and what should the next agent do here." They are **workspace-scoped** but stored in the **one shared store** (`~/.octocode/memory/awareness.sqlite3`), keyed by `repo`/`ref` columns — no per-repo `.octocode/` database is created. `--workspace` selects the root used for `repo`/`ref` auto-detection (default cwd); `--db` overrides the store directly (tests). For a *committable* cross-machine handoff, use `memory-export` (writes `<workspace>/.octocode/memories.jsonl` on purpose) rather than copying a live store.
 
-Record shape: `refinement_id` (generated `ref_…`), `agent_id`, `workspace_path`, `repo`, `ref` (branch or commit), `files[]` (related paths, may be empty), `reasoning` (why saved for the next agent), `remember` (the good or bad lesson), `quality` (`good`/`bad`), `state`, `created_at`/`updated_at`. The captured `env` also includes `git.changes[]` with per-file status, current branch, and a GitHub URL when one can be resolved. State lifecycle: `open` (identified) → `ongoing` (in progress) → `done` (finished); transition with `refine-set --refinement-id <id> --state <state>`.
+Record shape: `refinement_id` (generated `ref_…`), `agent_id`, `workspace_path`, `repo`, `ref` (branch or commit), `files[]` (related paths, may be empty), `reasoning` (why saved for the next agent), `remember` (the good or bad lesson), `quality` (`good`/`bad`), `state`, `created_at`/`updated_at`. `refine-get` returns a compact captured-`env` summary by default; add `--include-env` only when you need the full `git.changes[]` list. State lifecycle: `open` (identified) → `ongoing` (in progress) → `done` (finished); transition with `refine-set --refinement-id <id> --state <state>`.
 
 Read at the start of work and write during/after. `refine-get` defaults to the **handoff view** (`open` + `ongoing`) so finished work doesn't clutter pickup; pass `--state done` to audit. A new refinement requires `--reasoning` and `--remember`; updates need `--refinement-id` and change only the flags you pass. Keep `reasoning`/`remember` specific (name the file, command, gotcha); set `quality bad` for a dead end; mark `done` when finished. Treat refinements as evidence to verify against current code, not orders.
 
@@ -89,7 +89,7 @@ Read at the start of work and write during/after. `refine-get` defaults to the *
 - Update an existing record with `--refinement-id`; only the flags you pass are overwritten.
 
 `refine-get` reads them, defaulting to the unfinished-work handoff view:
-- Filters: `--repo`, `--ref`, `--quality`, `--refinement-id`, repeatable `--state` (default `open` + `ongoing`), `--limit`.
+- Filters: `--repo`, `--ref`, `--quality`, `--refinement-id`, repeatable `--state` (default `open` + `ongoing`), `--limit`, `--include-env` for full captured environment.
 - Results are ordered `ongoing` → `open` → `done`, newest first.
 
 ## `refine-delete`
@@ -103,9 +103,12 @@ The script owns these SQLite tables.
 One shared DB (`~/.octocode/memory/awareness.sqlite3`) holds **all** tables. Memories, intents, locks:
 
 ```sql
-agent_memories(memory_id, agent_id, task_context, observation, importance_score, state, superseded_by, tags_json, tags_text, file_tree_fingerprint, file, created_at, updated_at)
-  -- state IN ('ACTIVE','SUPERSEDED'); `file` is the ONE correlated file (normalized, nullable); older databases are migrated in place by ALTER TABLE on connect
+agent_memories(memory_id, agent_id, task_context, observation, importance_score, state, superseded_by, tags_json, tags_text, references_json, workspace_path, repo, ref, file_tree_fingerprint, file, created_at, updated_at, last_accessed_at, access_count, decay_half_life_days, failure_signature, valid_from, valid_to, expired_at, embedding, embedding_model)
+  -- state IN ('ACTIVE','SUPERSEDED'); `workspace_path`/`repo`/`ref` are optional applicability scope; `file` is the ONE correlated file; `references_json` is structured provenance; `embedding`/`embedding_model` are optional inline semantic recall columns
+memory_references(memory_id, reference, kind, ordinal)
+  -- normalized exact-reference index mirrored from references_json; JSON remains the export/import/display shape
 memory_fts(memory_id, task_context, observation, tags) -- optional FTS5 table
+awareness_meta(key, value) -- local migration/index versions, e.g. expanded FTS terms
 agent_intents(intent_id, agent_id, plan_doc_ref, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
   -- files_json snapshots claimed files so released/stale-pruned pending intents keep ownership context
 file_locks(lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
@@ -124,4 +127,4 @@ notifications(notification_id, workspace_path, repo, ref, from_agent, to_agent, 
 notification_reads(notification_id, agent_id, read_at)  -- per-agent read cursor; PRIMARY KEY (notification_id, agent_id)
 ```
 
-Every DB is initialized with all tables; each store only uses the ones relevant to it. Keep this as the stable local contract. Add vector embeddings later as an optional table, not as a v1 dependency.
+Every DB is initialized with all tables; each store only uses the ones relevant to it. Keep this as the stable local contract. Semantic recall currently uses optional inline embedding columns in the shared SQLite DB; introduce a separate vector table/index only if scale or retention needs justify it.

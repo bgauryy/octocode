@@ -38,7 +38,7 @@ The skill is system-level, not only visual. It covers:
 
 See:
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md)
+- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 
 ---
 

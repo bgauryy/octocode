@@ -45,7 +45,7 @@ Audit records should preserve evidence, decisions, and judgment notes. Do not st
 ## Memory hygiene
 
 - Prefer several small layers over one giant note. A handoff, a reusable lesson, and a corpus doc answer different future questions.
-- Record memories only when they change a future decision. Routine progress belongs in the conversation or a refinement, not global memory.
+- Record memories only when they change a future decision. Routine progress belongs in the conversation or a refinement, not a reusable memory.
 - Supersede stale memories instead of letting old conclusions compete with better ones.
 - Promote repeated high-value memories into corpus docs when an agent would benefit from reading the whole pattern, not just recalling one row.
 - Prune notifications after threads are resolved; they are collaboration traces, not permanent knowledge.

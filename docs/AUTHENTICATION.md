@@ -276,6 +276,44 @@ Hostname normalization:
 
 So `https://GitHub.com/` and `github.com` map to the same cache entry.
 
+## Credential Architecture API
+
+`@octocodeai/octocode-tools-core/credentials` is the shared GitHub auth layer for the MCP server and CLI. Its public operations are:
+
+| API | Behavior |
+|-----|----------|
+| `resolveTokenFull()` | Full resolution chain including env, encrypted storage refresh, and `gh` CLI fallback. |
+| `resolveToken()` | Env + encrypted storage only, no `gh` fallback. |
+| `resolveTokenWithRefresh()` | Env + encrypted storage with refresh metadata. |
+| `storeCredentials(credentials)` | Normalizes host, writes encrypted store, invalidates cache. |
+| `getCredentials(hostname)` | Reads cached or encrypted stored credentials. |
+| `getCredentialsSync(hostname)` | Synchronous stored-credential read. |
+| `deleteCredentials(hostname)` | Removes credentials for one host. |
+| `listStoredHosts()` | Lists hosts present in encrypted storage. |
+| `hasCredentials(hostname)` | Checks encrypted storage. |
+| `updateToken(hostname, token)` | Replaces token and updates `updatedAt`. |
+| `refreshAuthToken(hostname, clientId?)` | Refreshes stored OAuth credentials. |
+| `getTokenWithRefresh(hostname, clientId?)` | Returns stored token or refreshes if needed. |
+
+## Credential Failure Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| Missing credentials file | Return an empty store. |
+| Invalid encrypted payload or JSON | Warn and return an empty store. |
+| Invalid store schema | Warn and return an empty store. |
+| Expired stored token with no refresh token | Return no token with refresh error. |
+| Expired refresh token | Return refresh failure and require login. |
+| `gh` command failure | Ignore fallback and return no token if no prior source succeeded. |
+
+## Credential Security Notes
+
+- File permissions are tightened to owner-only.
+- AES-GCM auth tags detect tampering.
+- Error messages mask GitHub-token-like strings.
+- The encryption key is file-based, so this is for single-user workstations and CI contexts, not multi-tenant secret custody.
+- Consumers must never expose raw tokens.
+
 ## GitHub Enterprise
 
 Set `GITHUB_API_URL` to the Enterprise API endpoint:
@@ -320,7 +358,7 @@ This can also be set in `~/.octocode/.octocoderc`. Local tools stay enabled by d
 
 ## Related
 
-- [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) — encryption, storage APIs, cache details
-- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CONFIGURATION.md) — all env vars and config file options
-- [GitHub Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/GITHUB_TOOLS.md)
+- [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) — all env vars and config file options
+- [Octocode MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md)
+- [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
 - [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)

@@ -142,9 +142,12 @@ const MCOLS=[
   {k:"state",label:"state",type:"str",cell:m=>`<span class="badge b-${(m.state||'').toLowerCase()}">${esc(m.state)}</span>`},
   {k:"label",label:"label",type:"str",cell:m=>`<span class="chip">${esc(m.label||"OTHER")}</span>`},
   {k:"agent_id",label:"agent",type:"str",cell:m=>`<span class="mono">${esc(m.agent_id)}</span>`},
+  {k:"repo",label:"repo",type:"str",cell:m=>esc(m.repo||"—")},
+  {k:"ref",label:"ref",type:"str",cell:m=>`<span class="mono">${esc(m.ref||"—")}</span>`},
   {k:"file",label:"file",type:"str",cell:m=>fileCell(m.file)},
   {k:"observation",label:"observation",type:"str",cls:"txt",cell:m=>esc(m.observation)},
   {k:"tags",label:"tags / weakness",type:"str",get:m=>((m.tags||[]).join(" ")+" "+(m.failure_signature||"")),cell:m=>((m.failure_signature?`<span class="chip warn" title="${esc(m.failure_signature)}">⚠ ${esc(m.failure_signature)}</span>`:"")+((m.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join("")))||"—"},
+  {k:"references",label:"references / source",type:"str",get:m=>((m.references||[]).join(" ")),cell:m=>((m.references||[]).map(r=>(/^https?:\/\//.test(r)?`<a class="chip" href="${esc(r)}" target="_blank" rel="noopener">${esc(r)}</a>`:`<span class="chip">${esc(r)}</span>`)).join(""))||"—"},
   {k:"created_at",label:"created",type:"date",cell:m=>`<span title="${esc(m.created_at)}">${esc(rel(m.created_at))}</span>`},
   {k:"_del",label:"",type:null,cell:m=>`<button class="del" data-del="memory" data-id="${esc(m.memory_id)}">delete</button>`},
 ];

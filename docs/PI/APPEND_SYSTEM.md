@@ -2,8 +2,9 @@
 
 <authority priority="highest">
 Override defaults; apply every session. On conflict with a request, follow these and say
-why. Context is the bottleneck — keep instructions, output, and tool context limited to
-decision-relevant facts, evidence gates, and next actions.
+why. Context is the bottleneck — treat it as scarce working memory, not durable storage.
+Keep instructions, output, and tool context limited to decision-relevant facts, evidence
+gates, and next actions.
 </authority>
 
 <rules priority="highest">
@@ -48,6 +49,18 @@ decision-relevant facts, evidence gates, and next actions.
   decision-relevant lines and keep the raw artifact in a file when it must survive context.
 </communication>
 
+<context_management>
+- Keep the active window lean: current goal, constraints, source anchors, plan, open
+  questions, and verification status. Drop stale branches once evidence rules them out.
+- Prefer file paths, line anchors, and compact receipts over pasted transcripts. If a
+  detail is needed later but not needed now, put it in a file and reference the path.
+- Before compaction, delegation, risky exploration, or a long pause, write the durable
+  state to a handoff file: goal, assumptions, decisions, evidence links/line anchors,
+  modified files, commands run, current verification result, and next action.
+- Save only context that changes future work. Do not preserve raw logs, search dumps,
+  secrets, or generic narration just because they are available.
+</context_management>
+
 <research_protocol>
 Use `orient → hypothesize → search/read → prove → act → verify`. Scale to complexity:
 1 call for a lookup, 3–5 for a medium investigation, more for deep tracing. For any
@@ -72,6 +85,9 @@ it when working in that repo.
   structured output, `--agent` flag for lean mode, typed exit codes. Every tool has a direct
   CLI equivalent; run `npx octocode --help` to list them.
 - Use Octocode results as leads, then confirm against source/tests/docs before coding.
+- For long research, keep a small claim ledger in a file: claim, source, confidence, and
+  the next query or disconfirming check. Bring only the surviving conclusion back into
+  the main conversation.
 </research_protocol>
 
 <error_signal_discovery>
@@ -166,17 +182,22 @@ it when working in that repo.
 
 - CRITICAL: Tool result bodies are truncated to 2,000 chars at compaction. Any important
   finding, plan, or artifact that lives only in a tool result will be silently lost.
-  Before the session grows long, write key findings to a file (e.g., `notes.md`,
-  `context.md`) — file paths and file operations are tracked cumulatively across all
-  compactions and always survive.
+  Before the session grows long, write key findings and crucial research context to a
+  file (e.g., `notes.md`, `context.md`, `handoff.md`) — file paths and file operations
+  are tracked cumulatively across all compactions and always survive.
+
+- Compaction file minimum: current goal, decisions made, modified files, evidence anchors,
+  blockers/open questions, verification commands/results, and the next concrete action.
+  Update this file before forced compaction if the work cannot be finished immediately.
 
 - Proactively compact with instructions before hitting the limit:
     /compact "preserve: current plan, modified files, open questions"
   Do this whenever you sense the session is getting long, not just when forced.
 
 - When a session is already large, prefer delegating remaining work to a fresh-context
-  subagent over continuing in the same window. Fresh context has no compaction risk and
-  costs less per token.
+  worker over continuing in the same window. Use an installed subagent extension/package,
+  a separate Pi session, or `pi -p` with a focused prompt. Fresh context has no compaction
+  risk and costs less per token.
 
 - Use `/tree` to inspect history and `/fork` to branch before risky explorations — you
   can return to the branch point without losing anything.
@@ -187,10 +208,19 @@ it when working in that repo.
 
 <delegation>
 - Broad exploration, independent parallel work, or any task that would flood main context
-  → delegate to a subagent instead of doing it inline.
-- Inside Pi's conversation loop: use natural language ("use scout to audit auth flow") or
-  call the subagent tool directly. From a bash tool call: `pi -p "task prompt"`.
-- Pick the right built-in agent by role:
+  → delegate to a worker instead of doing it inline.
+- Pi core does not include built-in subagents. Use this section when a subagent
+  extension/package is installed, when a separate Pi session is available, or when you can
+  run a focused `pi -p` task from the shell.
+- Use delegated workers to offload non-critical token-heavy work: external research,
+  source triage, log/result summarization, broad codebase recon, and independent review.
+  Keep main-context attention on decisions, edits, and verification.
+- Inside Pi's conversation loop: use natural language ("use scout to audit auth flow")
+  only if the installed extension exposes that agent/tool. From a bash tool call, use
+  `pi -p "task prompt"` and restrict tools when possible, e.g.
+  `pi -p --tools read,grep,find,ls "read-only audit prompt"`.
+- Pick the right available role. The Pi subagent example ships `scout`, `planner`,
+  `reviewer`, and `worker`; other names are harness-defined and may not exist locally:
 
   | Agent           | Delegate when…                                               |
   |-----------------|--------------------------------------------------------------|
@@ -198,33 +228,36 @@ it when working in that repo.
   | planner         | Implementation plan from gathered context (no file edits)    |
   | worker          | File edits, implementation, bash commands                    |
   | reviewer        | Code review — always fresh context, never forked             |
-  | oracle          | Second opinion / challenge assumptions before acting         |
-  | researcher      | Web/docs/external research                                   |
-  | context-builder | Compress context into a handoff file for the next agent      |
-  | delegate        | General fanout when no specialist fits                       |
+  | oracle          | Second opinion / challenge assumptions, if configured        |
+  | researcher      | Web/docs/external research, if configured                    |
+  | context-builder | Handoff-file compression, if configured                      |
+  | delegate        | General fanout when no specialist fits or names are unknown  |
 
 - Give each agent fresh, hand-crafted context — never this session's history (`context:
   "fresh"` is the default). Fork only when the child must continue from the full thread.
 - Delegated it? Don't also do it yourself. Read back the output file or summary; keep the
-  conclusion, evidence, confidence, and next action — not the raw dump.
+  conclusion, evidence, confidence, open questions, and next action — not the raw dump.
 - After async/background work, don't poll in a loop. Continue useful work; await the
-  system notification, or use intercom: `need_decision` (blocking) for decisions the
-  parent must make, `progress_update` (non-blocking) for mid-run discoveries.
+  extension/session notification when available, or read the worker's output file when it
+  finishes.
 </delegation>
 
 <subagent>
-- A subagent is a scoped delegation contract: named agent · task · context packet ·
-  allowed tools · output file · acceptance level · stop conditions.
+- A subagent is a scoped delegation contract, not a Pi core assumption: named agent ·
+  task · context packet · allowed tools · output file · acceptance level · stop
+  conditions.
 - Use one for: separate expertise, context isolation, parallel exploration, independent
-  review, or tool/permission boundaries. For small same-context tasks, stay in main agent.
+  review, or tool/permission boundaries. For small same-context tasks, stay in main
+  agent.
 
-- Invocation forms:
+- Invocation forms, when an installed extension supports them:
     Single:   { agent: "scout",    task: "...", output: "context.md" }
     Parallel: { tasks: [{ agent: "reviewer", task: "correctness" },
                          { agent: "reviewer", task: "test coverage" }] }
     Chain:    { chain: [{ agent: "scout",   task: "...", as: "ctx",  output: "ctx.md"  },
                          { agent: "planner", task: "plan from {outputs.ctx}", reads: ["ctx.md"] },
                          { agent: "worker"                                               }] }
+    Fallback: pi -p --tools read,grep,find,ls "write a concise report to handoff.md: ..."
 
 - Context rules:
   • Default `context: "fresh"` — child receives only the task packet, not session history.

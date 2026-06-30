@@ -20,7 +20,7 @@ Flags: `--memory-db`, `--workspace`, `--workspace-db` (override the refinement D
 
 ## What you get
 
-- **Memories panel** (global): importance (color-graded), state badge (`ACTIVE`/`SUPERSEDED`), agent, **file**, observation, tags, created. Sorted by importance by default.
+- **Memories panel**: importance (color-graded), state badge (`ACTIVE`/`SUPERSEDED`), label, agent, optional repo/ref scope, **file**, observation, tags, references, created. Unscoped memories are global lessons; scoped rows apply to a workspace/repo/ref. Sorted by importance by default.
 - **Refinements panel** (workspace): state badge (`open`/`ongoing`/`done`), quality (`good`/`bad`), agent, repo, ref, **file**, reasoning (next-agent note), remember, updated. Sorted by most-recent.
 - **Notifications, intents, and locks panels**: live repo messages, verification debt, and current/expired file claims from the same shared store.
 - **Sort** any column by clicking its header (toggles asc/desc). **Filter** all rows with the search box. **Refresh** reloads from disk (server mode) without losing your place. The page renders rows from embedded JSON via JavaScript, so it needs a JS-capable browser — the `--no-serve` snapshot is a portable interactive file, not a grep-able/diff-able static table.
@@ -28,7 +28,7 @@ Flags: `--memory-db`, `--workspace`, `--workspace-db` (override the refinement D
 
 ## Delete buttons
 
-In **serve** mode the delete button calls back into `awareness.py` — memory delete runs `forget --memory-id` (so the FTS index is cleaned too), refinement delete runs `refine-delete --refinement-id`. The endpoints (`POST /api/delete-memory`, `POST /api/delete-refinement`) are bound to localhost only. In **static** mode there is no server, so the button instead surfaces the exact CLI command to run.
+In **serve** mode the delete button calls back into `awareness.py` — memory delete runs `forget --memory-id` (so the FTS and exact-reference indexes are cleaned too), refinement delete runs `refine-delete --refinement-id`, and notification delete runs `notify-prune --notification-id`. The endpoints (`POST /api/delete-memory`, `POST /api/delete-refinement`, `POST /api/delete-notification`) are bound to localhost only. In **static** mode there is no server, so the button instead surfaces the exact CLI command to run.
 
 ## Security notes
 

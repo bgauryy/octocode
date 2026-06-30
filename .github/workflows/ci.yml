@@ -47,14 +47,19 @@ jobs:
       - name: Lint
         run: yarn lint
 
-      - name: Typecheck
-        run: yarn typecheck
-
+      # Build must run before Typecheck: packages consume their siblings'
+      # compiled output (e.g. @octocodeai/octocode-engine subpath exports map to
+      # ./dist/*, which is gitignored). `yarn typecheck` only runs `tsc --noEmit`
+      # and never emits that dist, so on a fresh checkout typecheck would fail to
+      # resolve those modules unless the workspace is built first.
       - name: Build
         run: yarn build
 
       - name: Verify build outputs
         run: node scripts/workspace-health.mjs check-outputs
+
+      - name: Typecheck
+        run: yarn typecheck
 
       - name: Test
         run: yarn test

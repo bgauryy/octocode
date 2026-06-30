@@ -149,7 +149,7 @@ All state lives under Octocode home, a fixed per-platform directory (macOS `~/.o
 | `tmp/unzip/` | Archive unpack output from `localBinaryInspect` / `unzip`. |
 | `lsp-servers.json` | User-level LSP server config. |
 
-Architecture details: [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/mcp/CREDENTIALS.md) · [Session](https://github.com/bgauryy/octocode/blob/main/docs/mcp/SESSION.md)
+Architecture details: [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#credential-architecture-api) · [Session](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence)
 
 ## Project `.octocode/` Folder
 
@@ -212,5 +212,5 @@ Common fixes:
 
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
 - [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
-- [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LOCAL_TOOLS.md)
-- [LSP Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/mcp/tools/LSP_TOOLS.md)
+- [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
+- [LSP Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)

@@ -11,6 +11,17 @@ const tag = z
   .max(64)
   .regex(/^[a-zA-Z0-9_.:-]+$/, "tags may contain letters, numbers, underscore, dot, colon, or dash");
 const tags = z.array(tag).max(32).default([]).describe("Fast filtering keywords.");
+const workspacePath = z.string().trim().min(1).max(1024).describe("Local workspace root.");
+const repoScope = z.string().trim().min(1).max(256).describe("Repository name or project slug.");
+const refScope = z.string().trim().min(1).max(256).describe("Branch name, tag, or commit hash.");
+const references = z
+  .array(z.string().trim().min(1).max(512))
+  .max(20)
+  .default([])
+  .describe(
+    "Provenance — where this lesson came from. Free-form, conventionally a URL or typed prefix " +
+      "(pr:owner/repo#123, repo:owner/repo, npm:pkg, doc:<title>, file:<abs-path>). Recallable later via query, exact reference filter, or regex."
+  );
 const MEMORY_LABELS = [
   "BUG",
   "FEATURE",
@@ -107,6 +118,12 @@ export const schemas = {
       importance_score: importanceScore,
       label: memoryLabel,
       tags,
+      references,
+      workspace_path: workspacePath
+        .optional()
+        .describe("Optional memory scope. Omit for global developer/harness gotchas; set for repo-specific lessons."),
+      repo: repoScope.optional().describe("Optional repository scope; auto-fill from workspace git when omitted by the CLI."),
+      ref: refScope.optional().describe("Optional branch/commit scope; auto-fill from workspace git when omitted by the CLI."),
       file: z
         .string()
         .trim()
@@ -160,7 +177,16 @@ export const schemas = {
         .array(z.string().trim().min(1).max(512))
         .max(20)
         .default([])
-        .describe("Regex patterns matched against task, observation, tags, label, file, and failure signature."),
+        .describe("Regex patterns matched against task, observation, tags, references, label, file, and failure signature."),
+      references: references.describe("Exact stored provenance references to match; all provided references must be present."),
+      workspace_path: workspacePath.optional().describe("Exact stored workspace root to match."),
+      repo: repoScope.optional().describe("Exact stored repository scope to match."),
+      ref: refScope.optional().describe("Exact stored branch/commit scope to match."),
+      strict_scope: z
+        .boolean()
+        .default(false)
+        .describe("Require exact workspace/repo/ref matches instead of including broader global/applicable memories."),
+      global_only: z.boolean().default(false).describe("Return only memories with no workspace/repo/ref scope."),
       sort: memorySort,
       smart: z
         .boolean()
@@ -186,7 +212,7 @@ export const schemas = {
       semantic: z
         .boolean()
         .default(false)
-        .describe("Use local embedding recall (model2vec); falls back to lexical if unavailable."),
+        .describe("Use local embedding recall (model2vec); falls back to lexical when unavailable, empty, unindexed for the configured model, or no semantic hit exists."),
       as_of: z
         .string()
         .trim()
@@ -197,6 +223,46 @@ export const schemas = {
     })
     .strict()
     .describe("Query shared memory; default ranking blends importance, recency-of-use, access, and lexical match."),
+
+  status: z
+    .object({
+      workspace_path: workspacePath.optional().describe("Filter displayed locks/unverified intents under this workspace path."),
+      limit: z.number().int().min(1).max(200).default(20),
+    })
+    .strict()
+    .describe("Show shared DB health: FTS, memory states, semantic embedding coverage, active locks, and unverified intents."),
+
+  stats: z
+    .object({
+      workspace_path: workspacePath.optional().describe("Workspace root used for refinement/env scoping by the CLI."),
+      stale_days: z.number().int().min(1).max(3650).default(60).describe("Age threshold for stale ACTIVE memories."),
+      top: z.number().int().min(1).max(100).default(5).describe("Maximum recurring weakness clusters to return."),
+    })
+    .strict()
+    .describe("Show harness-health counts: memory labels/states, semantic coverage, stale active memories, weaknesses, and refinements."),
+
+  embed_index: z
+    .object({
+      install: z.boolean().default(false).describe("Install model2vec from scripts/requirements.txt if unavailable."),
+      rebuild: z.boolean().default(false).describe("Re-embed every memory even when an embedding already exists for the configured model."),
+    })
+    .strict()
+    .describe("Build or refresh inline semantic embeddings for get_memory --semantic."),
+
+  memory_index: z
+    .object({
+      limit: z.number().int().min(1).max(500).default(30),
+      min_importance: importanceScore.optional().describe("Only include active memories at or above this importance."),
+      workspace_path: workspacePath.optional().describe("Workspace scope for the generated index."),
+      repo: repoScope.optional().describe("Repository scope for the generated index."),
+      ref: refScope.optional().describe("Branch/commit scope for the generated index."),
+      strict_scope: z.boolean().default(false).describe("Index exact scope matches only."),
+      global_only: z.boolean().default(false).describe("Index only memories with no workspace/repo/ref scope."),
+      out: z.string().trim().min(1).max(1024).optional().describe("Output path. Default: MEMORY.md next to the shared store."),
+      stdout: z.boolean().default(false).describe("Print the index without writing it."),
+    })
+    .strict()
+    .describe("Regenerate the read-first MEMORY.md index from top ACTIVE memories."),
 
   pre_flight_intent: z
     .object({
@@ -340,6 +406,10 @@ export const schemas = {
         .default(["open", "ongoing"])
         .describe("States to read. Default: open + ongoing (the unfinished-work handoff view)."),
       limit: z.number().int().min(1).max(200).default(20),
+      include_env: z
+        .boolean()
+        .default(false)
+        .describe("Return full captured env including git.changes[]. Default false returns a concise summary."),
     })
     .strict()
     .describe("Read workspace refinements, defaulting to the unfinished-work handoff view."),
@@ -493,6 +563,10 @@ export const schemas = {
       agent_id: agentId,
       approved_by: nonEmptyText("Human who approved this harness change (the gate).", 128),
       change: nonEmptyText("One-line summary of the skill/harness change.", 2000),
+      why_needed: nonEmptyText("Why future agents need this change; name the failure or decision it changes.", 2000),
+      evidence: nonEmptyText("Evidence source: user correction, memory, eval, file, or command.", 2000),
+      risk: nonEmptyText("Risk plus rollback/review note for this scoped change.", 2000),
+      verification_plan: nonEmptyText("Checks that will prove the harness change.", 2000),
       file: fileList.describe("Skill files to be edited."),
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace for the announcement notification."),
     })
@@ -506,6 +580,10 @@ export const schemas = {
     .object({
       out: z.string().trim().min(1).max(1024).optional().describe("Output JSONL path. Default: <workspace>/.octocode/memories.jsonl."),
       workspace_path: z.string().trim().min(1).max(1024).optional(),
+      repo: repoScope.optional().describe("Repository scope to export."),
+      ref: refScope.optional().describe("Branch/commit scope to export."),
+      strict_scope: z.boolean().default(false).describe("Export exact scope matches only."),
+      global_only: z.boolean().default(false).describe("Export only memories with no workspace/repo/ref scope."),
       min_importance: importanceScore.optional().describe("Only export memories at or above this importance."),
     })
     .strict()
@@ -523,12 +601,17 @@ export const schemas = {
 export const examples = {
   tell_memory: {
     agent_id: "codex-local",
-    task_context: "Refactoring auth router validation",
+    task_context:
+      "Refactoring auth router validation; reason: future agents need to preserve lookup order without rediscovering the tenant bug",
     observation:
       "The auth router normalizes tenant IDs before policy lookup; keep that order or cross-tenant tests fail.",
     importance_score: 8,
     label: "GOTCHA",
     tags: ["auth", "routing"],
+    references: ["pr:acme/auth#482", "https://docs.acme.dev/tenancy", "file:src/auth/router.ts"],
+    workspace_path: "/repo",
+    repo: "octocode-mcp",
+    ref: "support-OQL",
     file: "src/auth/router.ts",
     file_tree_fingerprint: "git:HEAD",
     failure_signature: "mechanism:retry-loop|cause:test-timeout",
@@ -539,8 +622,32 @@ export const examples = {
     min_importance: 4,
     labels: ["GOTCHA"],
     tags: ["auth"],
+    references: ["file:src/auth/router.ts"],
+    workspace_path: "/repo",
+    repo: "octocode-mcp",
+    strict_scope: false,
     sort: "smart",
     smart: true,
+  },
+  status: {
+    workspace_path: "/repo",
+    limit: 20,
+  },
+  stats: {
+    workspace_path: "/repo",
+    stale_days: 60,
+    top: 5,
+  },
+  embed_index: {
+    install: false,
+    rebuild: false,
+  },
+  memory_index: {
+    limit: 30,
+    min_importance: 4,
+    repo: "octocode-mcp",
+    strict_scope: false,
+    stdout: false,
   },
   pre_flight_intent: {
     agent_id: "codex-local",
@@ -598,6 +705,7 @@ export const examples = {
     repo: "octocode-mcp",
     ref: "support-OQL",
     states: ["open", "ongoing"],
+    include_env: false,
   },
   refine_delete: {
     refinement_id: ["ref_abc123"],
@@ -652,10 +760,16 @@ export const examples = {
     agent_id: "codex-local",
     approved_by: "guy",
     change: "Add a reflect step to the agent loop in SKILL.md",
+    why_needed: "Future agents were finishing harness edits without recording why the change prevents a repeated failure.",
+    evidence: "user correction in current thread plus memory:mem_verify_gate",
+    risk: "Prompt bloat; rollback by reverting the scoped SKILL.md/reference diff.",
+    verification_plan: "skill-lint plus awareness self-test and git diff --check",
     file: ["SKILL.md"],
   },
   memory_export: {
     min_importance: 5,
+    repo: "octocode-mcp",
+    strict_scope: false,
   },
   memory_import: {
     file: ".octocode/memories.jsonl",

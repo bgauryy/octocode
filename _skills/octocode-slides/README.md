@@ -302,6 +302,6 @@ For step reveal slides, load scripts in this exact order:
 ## References
 
 - [Gemini API key](https://aistudio.google.com/apikey) · [uv](https://astral.sh/uv) · [Nano Banana 2 model docs](https://ai.google.dev/gemini-api/docs/image-generation)
-- [Image generation reference](https://github.com/bgauryy/octocode/blob/main/skills/octocode-slides/references/image-generation.md)
-- [Animation reference](https://github.com/bgauryy/octocode/blob/main/skills/octocode-slides/references/animation.md) · [Libraries/resources](https://github.com/bgauryy/octocode/blob/main/skills/octocode-slides/references/resources.md)
-- [SKILL.md](https://github.com/bgauryy/octocode/blob/main/skills/octocode-slides/SKILL.md) · [slide-rules.md](https://github.com/bgauryy/octocode/blob/main/skills/octocode-slides/references/slide-rules.md)
+- [Image generation reference](https://github.com/bgauryy/octocode/blob/main/_skills/octocode-slides/references/image-generation.md)
+- [Animation reference](https://github.com/bgauryy/octocode/blob/main/_skills/octocode-slides/references/animation.md) · [Libraries/resources](https://github.com/bgauryy/octocode/blob/main/_skills/octocode-slides/references/resources.md)
+- [SKILL.md](https://github.com/bgauryy/octocode/blob/main/_skills/octocode-slides/SKILL.md) · [slide-rules.md](https://github.com/bgauryy/octocode/blob/main/_skills/octocode-slides/references/slide-rules.md)
