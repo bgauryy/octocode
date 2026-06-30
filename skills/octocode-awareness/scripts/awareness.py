@@ -2260,7 +2260,10 @@ def intent_matches_workspace(
         return True
     wanted = resolve_workspace(str(workspace))
     if workspace_path:
-        return resolve_workspace(workspace_path) == wanted
+        # Match if the stored workspace_path equals OR is a sub-path of the wanted
+        # root. Hooks can store a sub-directory as the workspace (e.g. src/assets)
+        # while the caller scopes the query to the repo root.
+        return path_belongs_to_workspace(str(resolve_workspace(workspace_path)), wanted)
     return any(path_belongs_to_workspace(file_path, wanted) for file_path in files)
 
 
@@ -2270,11 +2273,44 @@ def audit_unverified(args: argparse.Namespace) -> int:
     Drives the Stop hook (warn before concluding) and the viewer. Released PENDING
     intents still count so automatic post-edit lock release cannot erase the
     verification obligation.
+
+    With --abandon: dismiss all found PENDING intents as orphaned regardless of
+    agent ownership. Inserts a VERIFIED event and sets status to FAILED so they
+    drop out of the unverified query. Safe to run when the original agent session
+    is gone and the intents will never be verified.
     """
     db_path = resolve_db_path(args.db)
     conn = connect(db_path)
     workspace = getattr(args, "workspace", None)
     pending = unverified_intents(conn, args.agent_id, workspace=workspace)
+
+    if getattr(args, "abandon", False):
+        now = utc_now()
+        abandoned = 0
+        for item in pending:
+            intent_id = item["intent_id"]
+            record_verification(
+                conn,
+                intent_id,
+                "auto-cleared",
+                "orphaned: stale session, abandoned via audit-unverified --abandon",
+            )
+            with conn:
+                conn.execute(
+                    "UPDATE agent_intents SET status = 'FAILED', updated_at = ? WHERE intent_id = ?",
+                    (now, intent_id),
+                )
+            abandoned += 1
+        remaining = unverified_intents(conn, args.agent_id, workspace=workspace)
+        return emit(
+            {
+                "db_path": str(db_path),
+                "workspace_path": str(resolve_workspace(workspace)) if workspace else None,
+                "abandoned": abandoned,
+                "remaining": len(remaining),
+            }
+        )
+
     return emit(
         {
             "db_path": str(db_path),
@@ -5075,6 +5111,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audit_parser.add_argument("--agent-id", help="Restrict to one agent's intents.")
     audit_parser.add_argument("--workspace", help="Restrict pending verification to one workspace path.")
+    audit_parser.add_argument(
+        "--abandon",
+        action="store_true",
+        help=(
+            "Dismiss all found PENDING intents as orphaned regardless of agent ownership. "
+            "Inserts a VERIFIED event and sets status to FAILED. "
+            "Use to clear stale intents left by terminated sessions."
+        ),
+    )
     audit_parser.set_defaults(func=audit_unverified)
 
     weakness_parser = subcommands.add_parser(

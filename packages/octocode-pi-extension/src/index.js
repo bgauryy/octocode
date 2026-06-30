@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const PACKAGE_NAME = '@octocodeai/pi-extension';
@@ -17,6 +18,10 @@ export function getAssetPaths(baseDir = extensionDir) {
     skillsDir: path.join(baseDir, 'skills'),
     systemPrompt: path.join(baseDir, 'system', 'APPEND_SYSTEM.md'),
   };
+}
+
+export function getAwarenessScriptPath(baseDir = extensionDir) {
+  return path.join(getAssetPaths(baseDir).skillsDir, 'octocode-awareness', 'scripts', 'awareness.py');
 }
 
 export function readTextIfExists(filePath) {
@@ -108,17 +113,190 @@ export function getAppendSystemTarget(scope, cwd = process.cwd(), homeDir = os.h
   return path.join(cwd, '.pi', 'APPEND_SYSTEM.md');
 }
 
+export function getInstallSource(baseDir = extensionDir) {
+  const packageRoot = path.dirname(baseDir);
+  // npm installs land inside node_modules/@octocodeai/pi-extension
+  if (packageRoot.includes(path.join('node_modules', '@octocodeai', 'pi-extension'))) {
+    return 'npm:@octocodeai/pi-extension';
+  }
+  return packageRoot;
+}
+
+export function getAwarenessBridgeStatus(baseDir = extensionDir) {
+  return fs.existsSync(getAwarenessScriptPath(baseDir)) ? 'available' : 'missing';
+}
+
 export function formatStatus(baseDir = extensionDir) {
   const paths = getAssetPaths(baseDir);
   const skills = listBundledSkills(baseDir);
   const promptStatus = fs.existsSync(paths.systemPrompt) ? 'found' : 'missing';
+  const awarenessStatus = getAwarenessBridgeStatus(baseDir);
 
   return [
     'Octocode Pi extension',
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
+    `awareness file locks: ${awarenessStatus}`,
     `package assets: ${baseDir}`,
   ].join('\n');
+}
+
+function addPathValue(paths, value) {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    paths.push(value.trim());
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      addPathValue(paths, item);
+    }
+  }
+}
+
+export function extractWriteTargetPaths(toolName, input = {}) {
+  if (toolName !== 'write' && toolName !== 'edit') {
+    return [];
+  }
+
+  const paths = [];
+  addPathValue(paths, input.path);
+  addPathValue(paths, input.filePath);
+  addPathValue(paths, input.file_path);
+  addPathValue(paths, input.paths);
+  addPathValue(paths, input.filePaths);
+  addPathValue(paths, input.file_paths);
+
+  return [...new Set(paths)];
+}
+
+export function getAwarenessAgentId(ctx) {
+  if (process.env.OCTOCODE_AGENT_ID) {
+    return process.env.OCTOCODE_AGENT_ID;
+  }
+
+  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+  if (sessionFile) {
+    return `pi:${path.basename(sessionFile, path.extname(sessionFile))}`;
+  }
+
+  return `pi:${process.pid}`;
+}
+
+function defaultRunCommand(command, args, options = {}) {
+  return new Promise((resolve) => {
+    execFile(command, args, options, (error, stdout, stderr) => {
+      resolve({
+        error,
+        status: error ? (Number.isInteger(error.code) ? error.code : 1) : 0,
+        stderr: stderr ?? '',
+        stdout: stdout ?? '',
+      });
+    });
+  });
+}
+
+function targetFileArgs(files) {
+  return files.flatMap((file) => ['--target-file', file]);
+}
+
+function formatAwarenessConflict(result) {
+  const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
+  return detail.length > 0 ? `Octocode awareness blocked this edit:\n${detail}` : 'Octocode awareness blocked this edit.';
+}
+
+function notifyAwarenessWarning(ctx, result) {
+  const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
+  const suffix = detail.length > 0 ? `: ${detail}` : '';
+  notify(ctx, `Octocode awareness warning; continuing${suffix}`, 'warning');
+}
+
+async function runAwareness(args, ctx, options = {}) {
+  const baseDir = options.baseDir ?? extensionDir;
+  const scriptPath = getAwarenessScriptPath(baseDir);
+  if (!fs.existsSync(scriptPath)) {
+    return { skipped: true, status: 0, stdout: '', stderr: `Missing ${scriptPath}` };
+  }
+
+  return (options.runCommand ?? defaultRunCommand)(process.env.PYTHON ?? 'python3', [scriptPath, ...args], {
+    cwd: ctx?.cwd ?? process.cwd(),
+    env: process.env,
+    timeout: 20000,
+  });
+}
+
+export function createAwarenessBridge(options = {}) {
+  const pendingToolFiles = options.pendingToolFiles ?? new Map();
+
+  return {
+    pendingToolFiles,
+
+    async handleToolCall(event, ctx) {
+      const targetFiles = extractWriteTargetPaths(event?.toolName, event?.input);
+      if (targetFiles.length === 0) {
+        return undefined;
+      }
+
+      const agentId = getAwarenessAgentId(ctx);
+      const result = await runAwareness(
+        [
+          'pre-flight-intent',
+          '--agent-id',
+          agentId,
+          '--workspace',
+          ctx?.cwd ?? process.cwd(),
+          '--rationale',
+          'auto: Pi write/edit tool call via octocode-pi-extension',
+          '--test-plan',
+          'post-edit verification',
+          '--ttl-minutes',
+          '15',
+          ...targetFileArgs(targetFiles),
+        ],
+        ctx,
+        options
+      );
+
+      if (result.status === 2) {
+        return { block: true, reason: formatAwarenessConflict(result) };
+      }
+
+      if (result.status !== 0) {
+        notifyAwarenessWarning(ctx, result);
+        return undefined;
+      }
+
+      if (!result.skipped && event?.toolCallId) {
+        pendingToolFiles.set(event.toolCallId, targetFiles);
+      }
+
+      return undefined;
+    },
+
+    async handleToolResult(event, ctx) {
+      const targetFiles = pendingToolFiles.get(event?.toolCallId);
+      if (!targetFiles) {
+        return undefined;
+      }
+
+      pendingToolFiles.delete(event.toolCallId);
+      const result = await runAwareness(
+        [
+          'release-file-lock',
+          '--agent-id',
+          getAwarenessAgentId(ctx),
+          '--status',
+          'PENDING',
+          ...targetFileArgs(targetFiles),
+        ],
+        ctx,
+        options
+      );
+
+      if (result.status !== 0) {
+        notifyAwarenessWarning(ctx, result);
+      }
+
+      return undefined;
+    },
+  };
 }
 
 function notify(ctx, message, level = 'info') {
@@ -157,29 +335,12 @@ async function installAppendSystem(args, ctx) {
 
   const existing = readTextIfExists(targetPath);
   const nextContent = mergeManagedAppendSystem(existing, prompt);
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, nextContent, 'utf8');
-  notify(ctx, `Octocode APPEND_SYSTEM.md installed at ${targetPath}`, 'info');
-}
-
-async function runWithConfirmation(pi, ctx, title, message, command, args) {
-  const ok = await confirm(ctx, title, message);
-  if (!ok) {
-    notify(ctx, 'Command cancelled.', 'info');
-    return;
-  }
-
-  if (!pi?.exec) {
-    notify(ctx, `Pi exec API is unavailable. Run manually: ${[command, ...args].join(' ')}`, 'error');
-    return;
-  }
-
-  const result = await pi.exec(command, args, {});
-  const status = result?.status ?? result?.exitCode ?? 0;
-  if (status === 0) {
-    notify(ctx, `Finished: ${[command, ...args].join(' ')}`, 'info');
-  } else {
-    notify(ctx, `Command failed (${status}): ${[command, ...args].join(' ')}`, 'error');
+  try {
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, nextContent, 'utf8');
+    notify(ctx, `Octocode APPEND_SYSTEM.md installed at ${targetPath}`, 'info');
+  } catch (error) {
+    notify(ctx, `Failed to write ${targetPath}: ${error?.message ?? String(error)}`, 'error');
   }
 }
 
@@ -189,6 +350,8 @@ function existingDirectory(filePath) {
 
 export default function octocodePiExtension(pi) {
   if (pi?.on) {
+    const awarenessBridge = createAwarenessBridge();
+
     pi.on('resources_discover', async () => {
       const paths = getAssetPaths();
       const skillPath = existingDirectory(paths.skillsDir);
@@ -205,6 +368,9 @@ export default function octocodePiExtension(pi) {
         systemPrompt: `${event.systemPrompt}\n\n${renderSystemPromptAddendum(prompt)}`,
       };
     });
+
+    pi.on('tool_call', async (event, ctx) => awarenessBridge.handleToolCall(event, ctx));
+    pi.on('tool_result', async (event, ctx) => awarenessBridge.handleToolResult(event, ctx));
   }
 
   if (!pi?.registerCommand) {
@@ -229,29 +395,27 @@ export default function octocodePiExtension(pi) {
     description: 'Run the Octocode MCP installer after confirmation.',
     handler: async (args, ctx) => {
       const extraArgs = splitArgs(args);
-      await runWithConfirmation(
-        pi,
-        ctx,
-        'Run Octocode MCP installer?',
-        `Execute: npx octocode install ${extraArgs.join(' ')}`.trim(),
-        'npx',
-        ['octocode', 'install', ...extraArgs]
-      );
+      const cmdStr = ['npx', 'octocode', 'install', ...extraArgs].join(' ').trim();
+      const ok = await confirm(ctx, 'Run Octocode MCP installer?', `Execute: ${cmdStr}`);
+      if (!ok) {
+        notify(ctx, 'Command cancelled.', 'info');
+        return;
+      }
+      pi.sendUserMessage(cmdStr, { deliverAs: 'followUp' });
     },
   });
 
   pi.registerCommand('octocode-skills-update', {
     description: 'Update this Pi package, then reload Pi resources.',
     handler: async (_args, ctx) => {
-      await runWithConfirmation(
-        pi,
-        ctx,
-        'Update Octocode Pi package?',
-        'Execute: pi update npm:@octocodeai/pi-extension',
-        'pi',
-        ['update', 'npm:@octocodeai/pi-extension']
-      );
-
+      const source = getInstallSource();
+      const cmdStr = `pi update ${source}`;
+      const ok = await confirm(ctx, 'Update Octocode Pi package?', `Execute: ${cmdStr}`);
+      if (!ok) {
+        notify(ctx, 'Command cancelled.', 'info');
+        return;
+      }
+      pi.sendUserMessage(cmdStr, { deliverAs: 'followUp' });
       if (ctx?.reload) {
         await ctx.reload();
       }

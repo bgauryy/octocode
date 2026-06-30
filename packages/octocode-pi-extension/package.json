@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/pi-extension",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Official Octocode Pi package: system prompt, skills, harness docs, and setup commands for coding agents.",
   "keywords": [
     "ai-coding",

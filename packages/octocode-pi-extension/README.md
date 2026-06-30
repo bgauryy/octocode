@@ -58,6 +58,8 @@ The extension:
 - appends the bundled Octocode system prompt to Pi agent turns;
 - exposes bundled Octocode skills to Pi through package metadata and
   `resources_discover`;
+- bridges Pi `write`/`edit` tool calls to bundled `octocode-awareness` file
+  locks when the awareness script is available;
 - provides setup/status/update commands;
 - keeps MCP optional, because Pi core is intentionally lean and does not ship
   native MCP as a baseline requirement.
@@ -77,6 +79,10 @@ Python caches, but keeps `.env.example` files.
 
 The package already loads the bundled skills. Use `/octocode-setup` when you
 also want a durable `APPEND_SYSTEM.md` file on disk.
+
+`/octocode-status` reports whether the Pi-native awareness file-lock bridge can
+find the bundled `octocode-awareness` script. If it is missing, Pi continues
+normally and the awareness skill can still be used manually.
 
 ## Skill Cookbook
 
