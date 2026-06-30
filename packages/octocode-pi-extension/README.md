@@ -1,6 +1,24 @@
 # @octocodeai/pi-extension
 
+<div align="center">
+  <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
+</div>
+
 > The research, memory, and operating model layer for Pi coding agents — powered by a bundled Octocode CLI.
+
+---
+
+## Motivation
+
+**One leading tool for everything the agent needs to understand — local *and* external.** Instead of a scatter of `grep`/`find`/`cat`/`gh`/`npm`, the agent reaches for a single research surface: locally it reads files, trees, symbols, and structure with full-text search, LSP semantics, and AST matching (token-lean `symbols → compact → exact` reads); externally it researches GitHub code, PRs, history, repos, and npm packages through the same interface. Local clues feed external prior-art search and external findings feed exact local reads — one tool, both directions.
+
+**Quality comes from the combination, not any single piece:**
+
+- **Bundled Octocode CLI** — the leading instrument for discovery, on disk the moment `pi install` finishes. No `npx` cold start, no version drift between the CLI, the skills, and the prompt.
+- **Skills** — tested research workflows (investigate, review, brainstorm, RFC, memory) the agent activates instead of reinventing a research loop every session.
+- **System prompt** — an evidence-first operating model enforced on every turn: search results are leads, proof is an exact read or a passing test, and Octocode leads all discovery.
+
+Each layer alone is partial. Together they make a blank-slate agent research, reason, and verify like a senior engineer by default — which is where the quality comes from.
 
 ---
 
