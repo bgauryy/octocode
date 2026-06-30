@@ -66,7 +66,7 @@
     "build": "yarn readme:sync && yarn clean && node build.mjs && yarn build:types",
     "build:publish": "yarn build",
     "build:types": "tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
-    "build:dev": "yarn readme:sync && OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types",
+    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && OCTOCODE_RUNTIME_PLATFORMS=native node build.mjs && yarn build:types",
     "build:bin": "bun build ./src/index.ts --compile --minify --sourcemap --outfile dist/octocode-mcp && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-engine.mjs darwin-arm64 dist",
     "build:bin:all": "bun run build:bin:linux-x64 && bun run build:bin:linux-arm64 && bun run build:bin:linux-x64-musl && bun run build:bin:darwin-arm64 && bun run build:bin:darwin-x64 && bun run build:bin:windows-x64",
     "build:bin:darwin-arm64": "bun build ./src/index.ts --compile --minify --sourcemap --target=bun-darwin-arm64 --outfile dist/octocode-mcp-darwin-arm64 && node scripts/bundle-security.mjs darwin-arm64 dist && node scripts/bundle-engine.mjs darwin-arm64 dist",

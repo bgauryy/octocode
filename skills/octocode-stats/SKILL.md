@@ -5,7 +5,7 @@ description: "Use when the user asks for Octocode usage stats or a dashboard: to
 
 # Octocode Stats Dashboard
 
-Generate a local HTML dashboard from Octocode usage stats. The build script owns parsing, calculations, rendering, and browser opening; do not reimplement the math in chat.
+Generate a local HTML dashboard from Octocode usage stats. The build script owns parsing, calculations, rendering, and optional browser opening; do not reimplement the math in chat.
 
 Flow: `RESOLVE STATS -> RUN BUILDER -> REPORT PATH + KEY NUMBERS`.
 
@@ -20,10 +20,10 @@ Skip credentials, MCP install, and unrelated configuration questions.
 
 1. Resolve stats path: user `--stats`, then `${OCTOCODE_HOME}/stats.json`, then `~/.octocode/stats.json`.
 2. If missing, say `No stats yet - run any Octocode MCP tool first, then re-run this skill.`
-3. Run `node skills/octocode-stats/scripts/build_dashboard.mjs`.
+3. Run `node skills/octocode-stats/scripts/build_dashboard.mjs`. Add `--open` only when the user asked to view it immediately.
 4. Report dashboard path, stats source, total calls, estimated savings, cache hits, and errors.
 
-Common flags: `--stats <path>`, `--output <path>`, `--no-open`, `--allow-empty`, `--help`.
+Common flags: `--stats <path>`, `--output <path>`, `--open`, `--no-open`, `--allow-empty`, `--help`.
 
 ## Reference Map
 
@@ -32,7 +32,7 @@ Common flags: `--stats <path>`, `--output <path>`, `--no-open`, `--allow-empty`,
 
 ## Scripts
 
-- `scripts/build_dashboard.mjs` — deterministic dashboard builder for stats parsing, calculations, HTML rendering, and browser open.
+- `scripts/build_dashboard.mjs` — deterministic dashboard builder for stats parsing, calculations, HTML rendering, and optional browser open.
 
 ## Installation
 

@@ -55,18 +55,20 @@ Recall modes (default ranking blends importance + recency-of-use + access + lexi
 - `--as-of <ISO>`: **bi-temporal** point-in-time recall — only memories whose valid window (`valid_from`/`valid_to`) contains that instant. Default (omitted) = now-behavior. Set `--valid-from`/`--valid-to` on `tell-memory`; superseding a memory closes its window (`valid_to`) and stamps `expired_at`.
 - `--semantic`: **local embedding** recall via `model2vec` — paraphrase-tolerant, finds lessons whose wording differs from the query. Falls back to lexical and reports `mode` when the model isn't installed/vendored, when the query is empty, when the current model has no indexed rows for the active filters, or when no semantic hit exists. Cosine is min-max normalized across the candidate pool, filtered by `embedding_model`, then blended with decay (see `self-harness.md`); `--explain` shows `semantic` (raw cosine) and `semantic_norm`.
 
-  Semantic is **opt-in and self-provisioning** — a shipped skill is just a folder, so build the vectors on first use:
+  Semantic is **opt-in and self-provisioning** — a shipped skill is just a folder, so build the vectors on first use and whenever `status.semantic.active_coverage` is below `1.0`:
 
   ```bash
   # One command: pip-install model2vec from scripts/requirements.txt, then embed every memory.
   python3 <skill_root>/scripts/awareness.py embed-index --install
   # Thereafter (deps present): refresh new/changed rows, or --rebuild to re-embed all.
   python3 <skill_root>/scripts/awareness.py embed-index
+  # Check coverage; --compact is easiest for agents to parse.
+  python3 <skill_root>/scripts/awareness.py status --compact
   # Then recall semantically:
   python3 <skill_root>/scripts/awareness.py get-memory --query "..." --semantic
   ```
 
-  First `embed-index` downloads the default model (`minishlab/potion-base-8M`, ~30 MB) from HuggingFace. For offline/air-gapped installs, vendor it at `scripts/models/potion-base-8M` or point `OCTOCODE_EMBED_MODEL` at a local path. Re-run `embed-index` after `memory-import` (export/import drops embedding blobs). `status` and `stats` report semantic coverage, active coverage, stale-model rows, and the configured model; there is no separate semantic DB.
+  First `embed-index` downloads the default model (`minishlab/potion-base-8M`, ~30 MB) from HuggingFace. For offline/air-gapped installs, vendor it at `scripts/models/potion-base-8M` or point `OCTOCODE_EMBED_MODEL` at a local path. Re-run `embed-index` after `memory-import` (export/import drops embedding blobs) and after large capture batches. `status` and `stats` report semantic coverage, active coverage, stale-model rows, and the configured model. There is no separate semantic DB: embeddings live inline in `agent_memories.embedding` / `agent_memories.embedding_model` in the shared SQLite store.
 
 **A zero-result recall is not proof of absence.** Default recall is lexical (FTS keyword match), so a paraphrased query can miss a real lesson whose wording differs. When `count` is `0`, `get-memory` returns a `hint`: retry with fewer / broader / synonymous terms (or the symbol or file name), use `--smart`, and drop `--tag`/`--label`/`--min-importance`, before concluding nothing is known. Enable `--semantic` (after `embed-index`) for paraphrase-tolerant recall.
 

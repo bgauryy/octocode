@@ -42,46 +42,38 @@ Per-language sin tables plus copy-paste detection queries. Pair with the tiered 
 
 ## Search Patterns
 
+Run these against the roast target path. Add `--json` when you need exact anchors for follow-up reads.
+
 ```bash
-# CAPITAL: Security
-localSearchCode pattern="password\s*=|api_key\s*=|secret\s*=|token\s*="
-localSearchCode pattern="eval\(|new Function\("
-localSearchCode pattern="innerHTML\s*=|dangerouslySetInnerHTML"
-localSearchCode pattern="verify\s*=\s*False|rejectUnauthorized:\s*false"
+TARGET=./src
 
-# CAPITAL: Architecture
-localSearchCode pattern="import.*from.*\.\/" --follow to detect cycles
+# CAPITAL: security
+npx octocode search 'password\s*=|api_key\s*=|secret\s*=|token\s*=' "$TARGET" --regex --view discovery
+npx octocode search 'eval\(|new Function\(' "$TARGET" --regex --view discovery
+npx octocode search 'innerHTML\s*=|dangerouslySetInnerHTML' "$TARGET" --regex --view discovery
+npx octocode search 'verify\s*=\s*False|rejectUnauthorized:\s*false' "$TARGET" --regex --view discovery
 
-# FELONY: Types & Safety
-localSearchCode pattern=": any|as any" type="ts"
-localSearchCode pattern="!\." type="ts"
-localSearchCode pattern="catch\s*\([^)]*\)\s*\{\s*\}"
-localSearchCode pattern="\bvar\s+" type="ts,js"
+# Architecture and size
+npx octocode search "$TARGET" --tree --depth 2
+npx octocode search "from\\s+['\\\"]\\.\\./\\.\\." "$TARGET" --regex --ext ts,tsx,js,jsx --files-only
+find "$TARGET" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) -print0 | xargs -0 wc -l | sort -rn | head -20
 
-# FELONY: Performance
-localSearchCode pattern="readFileSync|writeFileSync" type="ts"
-localSearchCode pattern="SELECT \* FROM"
-localSearchCode pattern="\.forEach\(async"
+# Type safety and error handling
+npx octocode search ': any|as any|@ts-ignore' "$TARGET" --regex --ext ts,tsx --view discovery
+npx octocode search '!\.' "$TARGET" --regex --ext ts,tsx --view discovery
+npx octocode search 'catch\s*\([^)]*\)\s*\{\s*\}|except\s+[^:]+:\s*pass' "$TARGET" --regex --view discovery
+npx octocode search 'panic!|unwrap\(\)' "$TARGET" --regex --ext rs --view discovery
 
-# CRIME: Code Quality
-localSearchCode pattern="\?\s*[^:]+\?\s*[^:]+:"        # nested ternary
-localSearchCode pattern="eslint-disable"
-localSearchCode pattern="TODO|FIXME|HACK|XXX"
-localSearchCode pattern="sleep\(|setTimeout.*await"
+# Performance and data access
+npx octocode search 'readFileSync|writeFileSync' "$TARGET" --regex --view discovery
+npx octocode search 'SELECT\s+\*' "$TARGET" --regex --view discovery
+npx octocode search '\.forEach\(async|await\s+.*\.forEach' "$TARGET" --regex --view discovery
 
-# CRIME: Concurrency
-localSearchCode pattern="async.*\{[^}]*\}" --no-catch  # unhandled async
-
-# CRIME: Frontend
-localSearchCode pattern="!important" type="css,scss"
-localSearchCode pattern="z-index:\s*\d{4,}"
-localSearchCode pattern="useEffect\(\s*\(\)\s*=>"
-
-# SLOP: AI Residue
-localSearchCode pattern="In today's.*landscape|delve into|rich tapestry|meticulous|robust framework" type="md,ts,js,py"
-localSearchCode pattern="I hope this helps|As an AI"
-
-# MISDEMEANOR
-localSearchCode pattern="console\.(log|debug|warn|error)"
-localSearchCode pattern="<<<<<<<|>>>>>>>"
+# Quality, frontend, and AI residue
+npx octocode search 'TODO|FIXME|HACK|XXX' "$TARGET" --regex --view discovery
+npx octocode search 'eslint-disable|ts-ignore|type:\s*ignore' "$TARGET" --regex --view discovery
+npx octocode search '!important|z-index\s*:\s*[0-9]{4,}' "$TARGET" --regex --view discovery
+npx octocode search 'console\.log|debugger|<<<<<<<|>>>>>>>' "$TARGET" --regex --view discovery
 ```
+
+For raw MCP `localSearchCode`, read the host schema first and translate the regex strings into its input fields rather than copying CLI flags.

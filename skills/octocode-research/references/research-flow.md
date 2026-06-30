@@ -1,8 +1,5 @@
 # Research Flow
-
-Read this when executing an Octocode research workflow. The front door picks the mode; this file gives compact command chains and proof rules.
-
-Start each workflow with a **surface plan**: local, GitHub, packages, PR/history, artifacts, web, and any skipped surfaces with reasons. Update it when cross-pollination changes the route.
+Read this when executing an Octocode research workflow. The front door picks the mode; this file gives compact command chains and proof rules. Start each workflow with a **surface plan**: local, GitHub, packages, PR/history, artifacts, web, and any skipped surfaces with reasons. Update it when cross-pollination changes the route.
 For long, contested, or public-facing decision briefs, read `references/long-research.md` before deep work. For repo ecosystem comparisons or "which implementation should we reuse?" questions, read `references/github-landscape.md`.
 
 ## Mode Flows
@@ -17,7 +14,6 @@ frame terms: literal + 2 synonyms
 -> search <owner/repo/path> --match-string <anchor> --content-view exact --json
 -> cluster: active, abandoned, solved, partial, white-space
 ```
-
 Package evidence = last publish, maintainers, cadence, issue/PR ratio, dependency freshness; downloads alone are not validation.
 
 ### Validate: should this exist / should we add it?
@@ -32,7 +28,6 @@ light diverge: reframe, invert, analogize, decompose
 -> advocate vs critic
 -> verdict: build, do not build, narrow, or prototype hardest unknown
 ```
-
 Hypothesis map: `Crowded if...` / `Underserved if...` / `Blocked if...` / `Worth prototyping if...`.
 
 ### Investigate: behavior / bug / root cause
@@ -45,7 +40,6 @@ search <path> --tree --depth 1 --json
 -> search <path> --pattern '<shape>' --lang <lang> --json when shape matters
 -> search <owner/repo/path> --target commits or pullRequests when intent matters
 ```
-
 Keep two plausible explanations alive until a command disconfirms one.
 
 ### Plan: implementation / refactor
@@ -58,13 +52,11 @@ current behavior + invariants
 -> existing pattern to copy
 -> options and safest next step
 ```
-
 Gate before public contract changes, cross-package edits, deletes/renames, or broad consumer impact.
 
 ## Surface Recipes
 
 Local:
-
 ```text
 search <path> --tree --depth 1
 search <query> <path> --search path
@@ -75,7 +67,6 @@ search <file> --op references|callers|callees --symbol <name> --line <lineHint>
 ```
 
 Remote/package:
-
 ```text
 search <package> --target packages
 search <keywords> --target repositories --lang <language> --stars ">100" --concise
@@ -85,7 +76,6 @@ search <owner/repo/path> --match-string <anchor> --content-view exact
 ```
 
 Remote as local:
-
 ```text
 cache fetch <owner/repo> <path> --depth tree --json
 clone <owner/repo[/path][@ref]>
@@ -93,7 +83,6 @@ search <repo-relative-path> --repo <owner/repo[@ref]> --pattern '<shape>' --lang
 ```
 
 PR/change intent:
-
 ```text
 search <owner/repo#N> --target pullRequests --json
 search <owner/repo#N> --target pullRequests --comments --json
@@ -102,7 +91,6 @@ search <owner/repo[/path]> --target commits --since <iso> --json
 ```
 
 Dead code / reachability / drift:
-
 ```text
 search --scheme --compact
 -> search --query '{"target":"research","from":{"kind":"local","path":"."},"params":{"goal":"find unused exports, transitive dead code, unused files, and package drift","mode":"analyze"}}' --json
@@ -112,7 +100,6 @@ search --scheme --compact
 ```
 
 Artifacts:
-
 ```text
 search <artifact> --target artifacts --inspect|--list|--strings
 search <artifact> --target artifacts --extract <entry>
@@ -147,3 +134,16 @@ search <file> --content-view exact
 - `target:"research"` and `target:"graph"` rows are candidates until upgraded.
 - Follow `next.*`, pagination, char offsets, match/file/comment/commit pages.
 - Cite local evidence as `path:line`; cite remote evidence as full URL or PR/commit id.
+
+## Before Answering
+
+Confirm:
+
+1. The corpus is explicit: local path, package, owner/repo, branch/ref, PR number, artifact path, or materialized `localPath`.
+2. The surface is justified: MCP, `search`, OQL, raw tool, local shell, web, or skipped surface with reason.
+3. Raw-tool fields came from the active `--scheme`; OQL JSON came after `search --scheme`.
+4. Candidate results were converted into exact evidence when the claim depends on them.
+5. Pagination and continuations were followed or declared unnecessary.
+6. Diagnostics and provider limitations were handled.
+7. Claims distinguish syntax proof, semantic proof, history proof, binary proof, and runtime/test proof.
+8. Fallbacks are named when used.

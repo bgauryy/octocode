@@ -159,6 +159,32 @@ describe('OQL transformers: GitHub code search query', () => {
     expect(transformed.diagnostics[0]?.blocksAnswer).toBe(true);
   });
 
+  it('splits a multi-word text term into separate AND keywords for GitHub (CLI parity with MCP)', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'code',
+        from: { kind: 'github', repo: 'vercel/next.js' },
+        where: { kind: 'text', value: 'output export static' },
+      })
+    );
+    expect(transformed.ok).toBe(true);
+    if (!transformed.ok) throw new Error('expected transform to succeed');
+    expect(transformed.query.keywords).toEqual(['output', 'export', 'static']);
+  });
+
+  it('does not split a regex term even when it contains spaces', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'code',
+        from: { kind: 'github', repo: 'facebook/react' },
+        where: { kind: 'regex', value: 'foo bar' },
+      })
+    );
+    expect(transformed.ok).toBe(true);
+    if (!transformed.ok) throw new Error('expected transform to succeed');
+    expect(transformed.query.keywords).toEqual(['foo bar']);
+  });
+
   it('blocks lossy multi-scope mappings instead of silently dropping values', () => {
     const transformed = toGithubCodeSearchToolQuery(
       githubCodeQuery({

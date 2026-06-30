@@ -9,6 +9,7 @@ const skillRoot = dirname(scriptsDir);
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has("--check-only");
 const skipDeps = args.has("--skip-deps");
+const nodeBin = process.execPath;
 
 function printHelp() {
   console.log(`Usage: node scripts/install.mjs [--check-only] [--skip-deps] [--help]
@@ -64,8 +65,8 @@ function fail(message, details = {}) {
 }
 
 function ensureRuntime() {
-  if (!ok("node", ["--version"])) {
-    fail("Node.js is required for scripts/schema.mjs.");
+  if (!ok(nodeBin, ["--version"])) {
+    fail("Node.js runtime is not executable for scripts/schema.mjs.", { node: nodeBin });
   }
   if (!ok("python3", ["--version"])) {
     fail("python3 is required for scripts/awareness.py.");
@@ -76,7 +77,7 @@ function ensureRuntime() {
 }
 
 function schemaWorks() {
-  return ok("node", [join(scriptsDir, "schema.mjs"), "list"]);
+  return ok(nodeBin, [join(scriptsDir, "schema.mjs"), "list"]);
 }
 
 function installDependencies() {
@@ -109,7 +110,7 @@ function installDependencies() {
 }
 
 function runSmokeChecks() {
-  const schema = run("node", [join(scriptsDir, "schema.mjs"), "example", "tell_memory"], {
+  const schema = run(nodeBin, [join(scriptsDir, "schema.mjs"), "example", "tell_memory"], {
     cwd: scriptsDir,
     capture: true,
   });
@@ -118,7 +119,7 @@ function runSmokeChecks() {
   }
 
   const validate = spawnSync(
-    "node",
+    nodeBin,
     [join(scriptsDir, "schema.mjs"), "validate", "tell_memory", "-"],
     {
       cwd: scriptsDir,
@@ -156,9 +157,10 @@ console.log(
       ok: true,
       skillRoot,
       scriptsDir,
+      node: nodeBin,
       dependencyResult,
       commands: {
-        schema: "node scripts/schema.mjs list",
+        schema: `${nodeBin} scripts/schema.mjs list`,
         awareness: "python3 scripts/awareness.py status",
       },
     },

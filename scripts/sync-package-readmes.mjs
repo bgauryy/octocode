@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +25,12 @@ for (const packageDir of packageDirsFromArgs(requestedTargets).sort()) {
 
   if (!existsSync(packageJsonPath) || !statSync(packageDir).isDirectory()) {
     throw new Error(`Expected a package directory with package.json: ${packageDir}`);
+  }
+
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  if (packageJson.octocode?.readmeSync === false) {
+    console.log(`✓ README.md preserved for ${relative(rootDir, packageDir)}`);
+    continue;
   }
 
   copyFileSync(rootReadme, join(packageDir, 'README.md'));

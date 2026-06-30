@@ -39,5 +39,7 @@ devScripts
 .agents
 # Generated from root README.md during package build/prepack
 /packages/*/README.md
+!/packages/octocode-pi-extension/README.md
+/packages/octocode-pi-extension/skills/
 output
 __pycache__

@@ -24,7 +24,7 @@ const DEFAULTS = {
       : join(homedir(), '.octocode', 'stats.json'),
   output: join(process.cwd(), '.octocode', 'stats', 'dashboard.html'),
   template: resolve(__dirname, '..', 'assets', 'template.html'),
-  open: true,
+  open: false,
   allowEmpty: false,
 };
 
@@ -42,6 +42,9 @@ function parseArgs(argv) {
         break;
       case '--template':
         opts.template = absolutize(args[++i]);
+        break;
+      case '--open':
+        opts.open = true;
         break;
       case '--no-open':
         opts.open = false;
@@ -79,7 +82,8 @@ Options:
                        (default: ./.octocode/stats/dashboard.html)
   --template <path>  HTML template
                        (default: <skill>/assets/template.html)
-  --no-open          Do not auto-open the dashboard in the default browser
+  --open             Open the dashboard in the default browser after generation
+  --no-open          Keep the browser closed (default; accepted for explicitness)
   --allow-empty      Render an empty-state dashboard if stats.json is missing
   -h, --help         Show this help
 `);
@@ -383,6 +387,8 @@ function main() {
         `open the file manually: file://${opts.output}\n`
       );
     }
+  } else {
+    process.stdout.write(`open manually: file://${opts.output}\n`);
   }
 }
 

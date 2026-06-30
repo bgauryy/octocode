@@ -161,7 +161,10 @@ export function toGithubCodeSearchToolQuery(
     query: {
       ...(owner ? { owner } : {}),
       ...(repo ? { repo } : {}),
-      keywords: [keyword],
+      keywords:
+        compiled.match?.fixedString === true && keyword.includes(' ')
+          ? keyword.split(/\s+/).filter(Boolean)
+          : [keyword],
       ...languageParams,
       ...(firstScopePath(query.scope)
         ? { path: firstScopePath(query.scope) }

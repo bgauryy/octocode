@@ -1718,6 +1718,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@octocodeai/pi-extension@workspace:packages/octocode-pi-extension":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/pi-extension@workspace:packages/octocode-pi-extension"
+  languageName: unknown
+  linkType: soft
+
 "@octokit/app@npm:^16.1.2":
   version: 16.1.2
   resolution: "@octokit/app@npm:16.1.2"

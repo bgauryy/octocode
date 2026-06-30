@@ -40,7 +40,7 @@
   },
   "scripts": {
     "build": "yarn readme:sync && yarn lint && node build.mjs",
-    "build:dev": "yarn readme:sync && node build.mjs",
+    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
     "clean": "rm -rf out/",
     "lint": "eslint src tests",
     "lint:fix": "eslint src tests --fix",
