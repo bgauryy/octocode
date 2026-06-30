@@ -1,6 +1,6 @@
 {
   "name": "octocode",
-  "version": "2.2.3",
+  "version": "2.2.4",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
   "keywords": [
     "ai-coding",
@@ -73,7 +73,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@octocodeai/octocode-tools-core": "^16.6.1",
+    "@octocodeai/octocode-tools-core": "^16.6.2",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "^0.28.1",

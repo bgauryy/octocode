@@ -37,12 +37,7 @@ async function pressEnterToContinue(): Promise<void> {
 }
 
 type MenuChoice =
-  | 'octocode'
-  | 'octocode-skills'
-  | 'skills'
-  | 'auth'
-  | 'terminal'
-  | 'exit';
+  'octocode' | 'octocode-skills' | 'skills' | 'auth' | 'terminal' | 'exit';
 
 type OctocodeMenuChoice = 'configure' | 'install' | 'back';
 

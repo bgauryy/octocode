@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/mcp",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publishConfig": {
     "access": "public"
   },
@@ -114,7 +114,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@octocodeai/octocode-tools-core": "^16.6.1",
+    "@octocodeai/octocode-tools-core": "^16.6.2",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "@vitest/ui": "^4.1.9",
