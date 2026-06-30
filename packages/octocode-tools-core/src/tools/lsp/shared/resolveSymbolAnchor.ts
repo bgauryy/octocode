@@ -26,8 +26,7 @@ export type SymbolAnchor = FileAnchor & {
 };
 
 export type AnchorResolutionResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: Record<string, unknown> };
+  { ok: true; value: T } | { ok: false; error: Record<string, unknown> };
 
 export async function resolveFileAnchor(
   query: { uri?: string },

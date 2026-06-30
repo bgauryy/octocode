@@ -43,8 +43,7 @@ function extractClone(result: CallToolResult): {
     | undefined;
   const first = sc?.results?.[0];
   const data = first?.data as
-    | { localPath?: string; cached?: boolean; error?: string }
-    | undefined;
+    { localPath?: string; cached?: boolean; error?: string } | undefined;
   const localPath =
     data?.localPath && sc?.base && !path.isAbsolute(data.localPath)
       ? path.join(sc.base, data.localPath)

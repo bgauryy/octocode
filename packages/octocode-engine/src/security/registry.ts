@@ -22,11 +22,17 @@ const REDOS_TIMEOUT_MS = 50;
 const REDOS_TEST_INPUT = 'a'.repeat(100);
 
 function isReDoSSafe(regex: RegExp): boolean {
+  // Reset lastIndex so a global/sticky regex doesn't skip the test input.
+  // Note: this is a timing heuristic, not a structural guarantee — it catches
+  // obvious exponential backtracking patterns but may miss subtler ones.
+  regex.lastIndex = 0;
   const start = performance.now();
   try {
     regex.test(REDOS_TEST_INPUT);
   } catch {
     return false;
+  } finally {
+    regex.lastIndex = 0;
   }
   return performance.now() - start < REDOS_TIMEOUT_MS;
 }

@@ -225,11 +225,7 @@ async function searchGitHubPullRequestsAPIInternal(
     const searchResult = await octokit.rest.search.issuesAndPullRequests({
       q: searchQuery,
       sort: sortValue as
-        | 'comments'
-        | 'reactions'
-        | 'created'
-        | 'updated'
-        | undefined,
+        'comments' | 'reactions' | 'created' | 'updated' | undefined,
       order: params.order || 'desc',
       per_page: perPage,
       page: currentPage,

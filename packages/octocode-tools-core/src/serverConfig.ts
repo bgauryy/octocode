@@ -130,6 +130,9 @@ export function isCloneEnabled(): boolean {
 }
 
 export async function getTokenSource(): Promise<TokenSourceType> {
+  if (config !== null) {
+    return config.tokenSource;
+  }
   const result = await resolveGitHubToken();
   return result.source;
 }

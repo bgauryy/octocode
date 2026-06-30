@@ -6,7 +6,7 @@ import {
 import { LspClientPool, type PoolKey } from './lspClientPool.js';
 import { manifestInstallHint } from './serverManifest.js';
 import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
-import type { LspServerSource } from './types.js';
+import type { LanguageServerConfig, LspServerSource } from './types.js';
 
 export async function isLanguageServerAvailable(
   filePath: string,
@@ -100,13 +100,25 @@ function readyTimeoutForLanguage(languageId: string): number {
   return SERVER_READY_TIMEOUT_MS[languageId] ?? DEFAULT_READY_TIMEOUT_MS;
 }
 
+// Eliminates the double getLanguageServerForFile call that would otherwise
+// happen once in poolKeyForFile (to build the key) and again inside the factory
+// (to create the client). poolKeyForFile deposits the already-resolved config
+// here before calling sharedPool.acquire; the factory reads and clears it.
+// Key format mirrors lspClientPool.ts serializeKey: `${serverId}\u0000${workspaceRoot}`.
+const _pendingConfigs = new Map<string, LanguageServerConfig>();
+
+function serializePoolKey(key: PoolKey): string {
+  return `${key.serverId ?? key.languageId}\u0000${key.workspaceRoot}`;
+}
+
 const sharedPool = new LspClientPool<LSPClient>({
   idleTimeoutMs: POOL_IDLE_TIMEOUT_MS,
   factory: async key => {
-    const serverConfig = await getLanguageServerForFile(
-      synthesizeFilePathForKey(key),
-      key.workspaceRoot
-    );
+    const cacheKey = serializePoolKey(key);
+    const serverConfig =
+      _pendingConfigs.get(cacheKey) ??
+      (await getLanguageServerForFile(synthesizeFilePathForKey(key), key.workspaceRoot));
+    _pendingConfigs.delete(cacheKey);
     if (!serverConfig) return null;
     const client = new LSPClient(serverConfig);
     try {
@@ -219,11 +231,14 @@ async function poolKeyForFile(
 ): Promise<PoolKey | null> {
   const serverConfig = await getLanguageServerForFile(filePath, workspaceRoot);
   if (!serverConfig) return null;
-  return {
+  const key: PoolKey = {
     workspaceRoot,
     filePath,
     languageId: serverConfig.languageId ?? 'unknown',
     serverId:
       `${serverConfig.command} ${(serverConfig.args ?? []).join(' ')}`.trim(),
   };
+  // Deposit the config so the factory can use it without a second resolution.
+  _pendingConfigs.set(serializePoolKey(key), serverConfig);
+  return key;
 }

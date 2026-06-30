@@ -89,8 +89,7 @@ function shouldIncludeBotComments(
   params: GitHubPullRequestsSearchParams
 ): boolean {
   const content = params.content as
-    | { comments?: { includeBots?: boolean } }
-    | undefined;
+    { comments?: { includeBots?: boolean } } | undefined;
   return Boolean(content?.comments?.includeBots);
 }
 

@@ -39,6 +39,24 @@ type DirectToolRuntimeDefinition = DirectToolDefinition & {
 let serverRuntimeInitPromise: Promise<void> | null = null;
 let providerRuntimeInitPromise: Promise<void> | null = null;
 
+// ---------------------------------------------------------------------------
+// Test hooks (prefixed with _ per project convention — not part of public API)
+// ---------------------------------------------------------------------------
+type InitializeFn = () => Promise<void>;
+let _initialize: InitializeFn = initialize;
+
+/** Inject a stub initialize() for unit tests that need to simulate init failure. */
+export function _overrideInitialize(fn: InitializeFn): void {
+  _initialize = fn;
+}
+
+/** Restore the real initialize() and clear all cached init promises. */
+export function _resetInitialize(): void {
+  _initialize = initialize;
+  serverRuntimeInitPromise = null;
+  providerRuntimeInitPromise = null;
+}
+
 function wrapExecution(
   fn: ToolConfig['direct']['executionFn']
 ): (input: DirectToolInput) => Promise<CallToolResult> {
@@ -114,14 +132,24 @@ async function ensureDirectToolRuntimeReady(
 ): Promise<void> {
   if (tool.requiresServerRuntime) {
     if (!serverRuntimeInitPromise) {
-      serverRuntimeInitPromise = initialize();
+      // Self-heal: clear the cached promise on rejection so the next call
+      // retries instead of re-awaiting a stale rejected promise.
+      serverRuntimeInitPromise = _initialize().catch(err => {
+        serverRuntimeInitPromise = null;
+        throw err;
+      });
     }
     await serverRuntimeInitPromise;
   }
 
   if (tool.requiresProviders) {
     if (!providerRuntimeInitPromise) {
-      providerRuntimeInitPromise = initializeProviders().then(() => undefined);
+      providerRuntimeInitPromise = initializeProviders()
+        .then(() => undefined)
+        .catch(err => {
+          providerRuntimeInitPromise = null;
+          throw err;
+        });
     }
     await providerRuntimeInitPromise;
   }

@@ -174,16 +174,10 @@ export interface NotPredicate {
 }
 
 export type LeafPredicate =
-  | TextPredicate
-  | RegexPredicate
-  | StructuralPredicate
-  | FieldPredicate;
+  TextPredicate | RegexPredicate | StructuralPredicate | FieldPredicate;
 
 export type Predicate =
-  | AllPredicate
-  | AnyPredicate
-  | NotPredicate
-  | LeafPredicate;
+  AllPredicate | AnyPredicate | NotPredicate | LeafPredicate;
 
 export interface MaterializePolicy {
   mode: 'never' | 'auto' | 'required';
@@ -227,12 +221,7 @@ export interface QueryControls {
     maxMatchesPerFile?: number;
     matchPage?: number;
     sort?:
-      | 'relevance'
-      | 'matchCount'
-      | 'path'
-      | 'modified'
-      | 'accessed'
-      | 'created';
+      'relevance' | 'matchCount' | 'path' | 'modified' | 'accessed' | 'created';
     sortReverse?: boolean;
     rankingProfile?: string;
     debugRanking?: boolean;
@@ -425,12 +414,7 @@ export interface OqlExplainPlan {
 /* --------------------------- result envelope ---------------------------- */
 
 export type OqlProofGrade =
-  | 'candidate'
-  | 'text'
-  | 'structural'
-  | 'semantic'
-  | 'graph'
-  | 'missing';
+  'candidate' | 'text' | 'structural' | 'semantic' | 'graph' | 'missing';
 
 interface OqlProofGradedRow {
   /**

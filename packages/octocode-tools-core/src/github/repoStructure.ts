@@ -326,8 +326,7 @@ async function viewGitHubRepositoryStructureAPIInternal(
     const sortedStructure = buildStructureTree(paginatedItems, cleanPath);
 
     const cachedFileSizeMap:
-      | Record<string, Record<string, number>>
-      | undefined =
+      Record<string, Record<string, number>> | undefined =
       params.includeSizes === true
         ? buildFileSizeMap(filteredItems, cleanPath)
         : undefined;

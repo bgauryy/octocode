@@ -98,7 +98,7 @@ export function handleCatchError(
     ? `${contextMessage}: ${errorMessage}`
     : errorMessage;
 
-  void toolName;
-
-  return createErrorResult(fullErrorMessage, query) as ToolErrorResult;
+  return createErrorResult(fullErrorMessage, query, {
+    toolName,
+  }) as ToolErrorResult;
 }

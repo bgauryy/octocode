@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, constants, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { nativeBinding } from './native.js';
@@ -68,6 +68,13 @@ function toSymbolResolutionError(
   );
 }
 
+// Overload 1 (async): resolves a symbol position by reading from disk.
+// Overload 2 (sync): resolves from a content string already in memory.
+// Discriminant: second arg is `string` (symbol name) → async/file path;
+//               second arg is `FuzzyPosition` object → sync/content.
+// Note: this function is internal (not re-exported from index.ts). External
+// callers should use SymbolResolver.resolvePositionFromContent (sync) or
+// SymbolResolver.resolvePosition (async via file path).
 export async function resolveSymbolPosition(
   filePath: string,
   symbolName: string,
@@ -259,7 +266,7 @@ async function resolveLocalModulePath(
 
   for (const candidate of candidates) {
     try {
-      await readFile(candidate, 'utf-8');
+      await access(candidate, constants.R_OK);
       return candidate;
     } catch {
       // Try the next TypeScript/JavaScript resolution candidate.

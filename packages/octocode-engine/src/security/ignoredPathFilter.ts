@@ -27,8 +27,11 @@ function getCompiledPathRegex(): RegExp {
       extra.length > 0
         ? [...IGNORED_PATH_PATTERNS, ...extra]
         : IGNORED_PATH_PATTERNS;
+    // Wrap each source in a non-capturing group so alternation precedence is
+    // correct: `a|b` joined with `c|d` must be `(?:a|b)|(?:c|d)`, not
+    // `a|b|c|d` which re-associates differently once combined.
     _compiledPathRegex = new RegExp(
-      all.map(r => stripNamedGroups(r.source)).join('|')
+      all.map(r => `(?:${stripNamedGroups(r.source)})`).join('|')
     );
   }
   return _compiledPathRegex;
@@ -43,7 +46,7 @@ function getCompiledFileRegex(): RegExp {
         ? [...IGNORED_FILE_PATTERNS, ...extra]
         : IGNORED_FILE_PATTERNS;
     _compiledFileRegex = new RegExp(
-      all.map(r => stripNamedGroups(r.source)).join('|')
+      all.map(r => `(?:${stripNamedGroups(r.source)})`).join('|')
     );
   }
   return _compiledFileRegex;

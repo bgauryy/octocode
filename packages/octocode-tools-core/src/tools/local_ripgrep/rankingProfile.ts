@@ -36,12 +36,7 @@ export type RankingProfileId =
 
 /** TS-level result orderings. `relevance` is the language-aware scorer. */
 export type RankSort =
-  | 'relevance'
-  | 'matchCount'
-  | 'path'
-  | 'created'
-  | 'modified'
-  | 'accessed';
+  'relevance' | 'matchCount' | 'path' | 'created' | 'modified' | 'accessed';
 
 export const RANKING_PROFILE_IDS = [
   'typescript',
@@ -58,13 +53,7 @@ export const RANKING_PROFILE_IDS = [
 ] as const satisfies readonly RankingProfileId[];
 
 type PathRole =
-  | 'source'
-  | 'test'
-  | 'docs'
-  | 'config'
-  | 'generated'
-  | 'fixture'
-  | 'unknown';
+  'source' | 'test' | 'docs' | 'config' | 'generated' | 'fixture' | 'unknown';
 
 /**
  * All ranking weights in one place. Tuning happens here and in the golden

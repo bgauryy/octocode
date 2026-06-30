@@ -26,7 +26,10 @@ export class PathValidator {
       this.addAllowedRoot(opts.workspaceRoot);
     }
 
-    if (opts.includeHomeDir !== false) {
+    // Home dir is opt-in. Local tools intentionally include it (users search
+    // ~/projects, ~/Documents, etc.) and rely on ignoredPathFilter as the
+    // second layer to block .ssh, .aws, .kube, etc. within it.
+    if (opts.includeHomeDir === true) {
       const homeDir = os.homedir();
       if (homeDir && !this.allowedRoots.includes(homeDir)) {
         this.allowedRoots.push(homeDir);
@@ -79,24 +82,15 @@ export class PathValidator {
   }
 
   private isResolvedPathAllowed(
-    absolutePath: string,
+    _absolutePath: string,
     resolvedPath: string
   ): boolean {
-    return this.allowedRoots.some(root => {
-      if (resolvedPath === root || resolvedPath.startsWith(root + path.sep)) {
-        return true;
-      }
-
-      try {
-        const realRoot = fs.realpathSync(root);
-        if (absolutePath === root) {
-          return resolvedPath === realRoot;
-        }
-        return resolvedPath.startsWith(realRoot + path.sep);
-      } catch {
-        return false;
-      }
-    });
+    // addAllowedRoot already resolves both path.resolve() and realpathSync()
+    // and pushes both into allowedRoots, so a plain string comparison is
+    // sufficient here — no need for another realpathSync per validate() call.
+    return this.allowedRoots.some(
+      root => resolvedPath === root || resolvedPath.startsWith(root + path.sep)
+    );
   }
 
   validate(inputPath: string): PathValidationResult {
@@ -273,12 +267,18 @@ export class PathValidator {
   }
 }
 
-export const pathValidator = new PathValidator();
+// The production singleton explicitly opts in to the home dir because local
+// tools are expected to search ~/projects, ~/Documents, etc. Security within
+// the home directory is provided by ignoredPathFilter (.ssh, .aws, .kube, etc.).
+export const pathValidator = new PathValidator({ includeHomeDir: true });
 
 export function resetPathValidator(
   options?: PathValidatorOptions
 ): PathValidator {
-  const newValidator = new PathValidator(options);
+  // When called with no arguments (e.g. in afterEach tear-down), restore the
+  // same includeHomeDir state the singleton starts with.
+  const effective: PathValidatorOptions = options ?? { includeHomeDir: true };
+  const newValidator = new PathValidator(effective);
   pathValidator.replaceAllowedRoots(newValidator.getAllowedRoots());
   return pathValidator;
 }

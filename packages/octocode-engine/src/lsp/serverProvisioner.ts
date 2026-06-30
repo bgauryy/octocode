@@ -174,6 +174,9 @@ function extractFromZip(zipBuffer: Buffer, targetPath: string): Buffer | null {
       .replace(/^\.?\//u, '');
 
     const dataOffset = offset + 30 + filenameLen + extraLen;
+    // Guard against a malformed or truncated ZIP with bogus size fields —
+    // compressedSize is UInt32 and could overflow past the buffer.
+    if (dataOffset + compressedSize > zipBuffer.length) break;
 
     if (filename === normalizedTarget) {
       const compressed = zipBuffer.subarray(dataOffset, dataOffset + compressedSize);

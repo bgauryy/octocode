@@ -95,9 +95,10 @@ export class LspClientPool<T extends PooledClient> {
       this.entries.delete(k);
       void safeStop(entry.client);
     }, this.options.idleTimeoutMs);
-    if (typeof timer === 'object' && 'unref' in timer) {
-      timer.unref();
-    }
+    // This package is Node-only (napi-rs). The timer is always a NodeJS.Timeout
+    // with an unref() method; calling it keeps the idle timer from preventing
+    // a clean process exit when no real work is in flight.
+    (timer as NodeJS.Timeout).unref?.();
     return timer;
   }
 }

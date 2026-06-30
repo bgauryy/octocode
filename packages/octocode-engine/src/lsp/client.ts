@@ -56,14 +56,6 @@ export class LSPClient {
     position: ExactPosition,
     content?: string
   ): Promise<CodeSnippet[]> {
-    return this.getDefinition(filePath, position, content);
-  }
-
-  async getDefinition(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CodeSnippet[]> {
     await this.openDocument(filePath, content);
     return (await this.nativeClient.getDefinition(
       filePath,
@@ -87,7 +79,7 @@ export class LSPClient {
     )) as CodeSnippet[];
   }
 
-  async getHover(
+  async hover(
     filePath: string,
     position: ExactPosition,
     content?: string
@@ -100,15 +92,7 @@ export class LSPClient {
     );
   }
 
-  async hover(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<unknown> {
-    return this.getHover(filePath, position, content);
-  }
-
-  async getTypeDefinition(
+  async typeDefinition(
     filePath: string,
     position: ExactPosition,
     content?: string
@@ -121,15 +105,7 @@ export class LSPClient {
     )) as CodeSnippet[];
   }
 
-  async typeDefinition(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CodeSnippet[]> {
-    return this.getTypeDefinition(filePath, position, content);
-  }
-
-  async getImplementation(
+  async implementation(
     filePath: string,
     position: ExactPosition,
     content?: string
@@ -142,24 +118,9 @@ export class LSPClient {
     )) as CodeSnippet[];
   }
 
-  async implementation(
-    filePath: string,
-    position: ExactPosition,
-    content?: string
-  ): Promise<CodeSnippet[]> {
-    return this.getImplementation(filePath, position, content);
-  }
-
-  async getDocumentSymbols(
-    filePath: string,
-    content?: string
-  ): Promise<unknown> {
+  async documentSymbols(filePath: string, content?: string): Promise<unknown> {
     await this.openDocument(filePath, content);
     return this.nativeClient.getDocumentSymbols(filePath);
-  }
-
-  async documentSymbols(filePath: string, content?: string): Promise<unknown> {
-    return this.getDocumentSymbols(filePath, content);
   }
 
   async prepareCallHierarchy(
@@ -220,10 +181,10 @@ export class LSPClient {
     return this.nativeClient.getDiagnostics(filePath);
   }
 
-  hasCapability(_capability: string): boolean {
+  hasCapability(capability: string): boolean {
     return (
       this.initialized &&
-      (this.nativeClient.hasCapability?.(_capability) ?? true)
+      (this.nativeClient.hasCapability?.(capability) ?? true)
     );
   }
 
@@ -232,16 +193,6 @@ export class LSPClient {
   }
 
   async openDocument(filePath: string, content?: string): Promise<void> {
-    await this.ensureDocumentSynced(
-      filePath,
-      content ?? (await fs.readFile(filePath, 'utf8'))
-    );
-  }
-
-  async ensureDocumentSynced(
-    filePath: string,
-    content?: string
-  ): Promise<void> {
     await this.nativeClient.openDocument(
       filePath,
       content ?? (await fs.readFile(filePath, 'utf8'))

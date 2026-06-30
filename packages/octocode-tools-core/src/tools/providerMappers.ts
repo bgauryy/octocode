@@ -329,12 +329,7 @@ export function mapRepoSearchToolQuery(
     goodFirstIssues: extra.goodFirstIssues as string | undefined,
     match: query.match,
     sort: query.sort as
-      | 'stars'
-      | 'forks'
-      | 'updated'
-      | 'created'
-      | 'best-match'
-      | undefined,
+      'stars' | 'forks' | 'updated' | 'created' | 'best-match' | undefined,
     limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
@@ -346,21 +341,6 @@ export function mapRepoSearchToolQuery(
 export function mapRepoSearchProviderRepositories(
   repositories: ProviderRepoSearchResult['repositories']
 ): GitHubRepositoryOutput[] {
-  const splitRepositoryPath = (repositoryPath: string) => {
-    const slashIdx = repositoryPath.lastIndexOf('/');
-    if (slashIdx <= 0) {
-      return {
-        owner: '',
-        repo: repositoryPath,
-      };
-    }
-
-    return {
-      owner: repositoryPath.substring(0, slashIdx),
-      repo: repositoryPath.substring(slashIdx + 1),
-    };
-  };
-
   return repositories.map(repo => {
     const { owner, repo: repoName } = splitRepositoryPath(repo.fullPath);
     return {
@@ -438,8 +418,7 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     teamMentions: query['team-mentions'],
     project: query.project,
     archived: (query as Record<string, unknown>).archived as
-      | boolean
-      | undefined,
+      boolean | undefined,
     content: (query as { content?: unknown }).content,
     reviewMode: (query as { reviewMode?: 'summary' | 'full' }).reviewMode,
     filePage: (query as { filePage?: number }).filePage,
@@ -461,22 +440,6 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     mainResearchGoal: query.mainResearchGoal,
     researchGoal: query.researchGoal,
     reasoning: query.reasoning,
-  };
-}
-
-function capFileChanges(
-  fileChanges: ProviderPullRequestSearchResult['items'][number]['fileChanges']
-): {
-  capped: typeof fileChanges;
-  totalCount: number;
-  wasTruncated: boolean;
-} {
-  if (!fileChanges)
-    return { capped: undefined, totalCount: 0, wasTruncated: false };
-  return {
-    capped: fileChanges,
-    totalCount: fileChanges.length,
-    wasTruncated: false,
   };
 }
 
@@ -549,8 +512,8 @@ export function mapPullRequestProviderResultData(
 ) {
   const { includeFileChanges = true } = options;
   const pullRequests = data.items.map(pr => {
-    const { capped: cappedFileChanges, totalCount: originalFileChangeCount } =
-      capFileChanges(pr.fileChanges);
+    const fileChanges = pr.fileChanges;
+    const originalFileChangeCount = fileChanges?.length ?? 0;
     const comments = Array.isArray(pr.comments) ? pr.comments : undefined;
     const reviewSummary = buildReviewSummary(comments);
     return {
@@ -588,9 +551,7 @@ export function mapPullRequestProviderResultData(
       ...(pr.reviews && { reviews: pr.reviews }),
       ...(pr.commits && { commits: pr.commits }),
       ...(reviewSummary && { reviewSummary }),
-      ...(cappedFileChanges && includeFileChanges
-        ? { fileChanges: cappedFileChanges }
-        : {}),
+      ...(fileChanges && includeFileChanges ? { fileChanges } : {}),
       ...(Array.isArray(pr.sanitizationWarnings) &&
       pr.sanitizationWarnings.length > 0
         ? { sanitizationWarnings: pr.sanitizationWarnings }

@@ -44,8 +44,7 @@ function firstQueryData<T = Record<string, unknown>>(
   result: CallToolResult
 ): { data?: T; status?: string } {
   const sc = result.structuredContent as
-    | { results?: Array<{ status?: string; data?: unknown }> }
-    | undefined;
+    { results?: Array<{ status?: string; data?: unknown }> } | undefined;
   const first = sc?.results?.[0];
   return { data: first?.data as T | undefined, status: first?.status };
 }
@@ -63,13 +62,11 @@ function ghFileContentResult(result: CallToolResult): {
   error?: unknown;
 } {
   const sc = result.structuredContent as
-    | { results?: Array<Record<string, unknown>> }
-    | undefined;
+    { results?: Array<Record<string, unknown>> } | undefined;
   const row = sc?.results?.[0];
   if (!row) return {};
   const data = ('data' in row ? row.data : row) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   const fileRow =
     (data?.files as Array<Record<string, unknown>> | undefined)?.[0] ??
     (data?.results as Array<Record<string, unknown>> | undefined)?.[0] ??
@@ -943,8 +940,7 @@ async function proveSymbolPacketWithLsp(
       };
     }
     const lsp = data?.lsp as
-      | { serverAvailable?: boolean; source?: string }
-      | undefined;
+      { serverAvailable?: boolean; source?: string } | undefined;
     if (lsp?.serverAvailable === false) {
       return {
         status: 'unavailable',
@@ -962,8 +958,7 @@ async function proveSymbolPacketWithLsp(
         ? (data.payload as Record<string, unknown>)
         : undefined;
     const pagination = data?.pagination as
-      | { hasMore?: boolean; totalItems?: number }
-      | undefined;
+      { hasMore?: boolean; totalItems?: number } | undefined;
     const totalReferences =
       numberFrom(data?.totalReferences) ??
       numberFrom(payload?.totalReferences) ??
@@ -1255,8 +1250,7 @@ function semanticDiagnostics(
 ): OqlDiagnostic[] {
   const diagnostics: OqlDiagnostic[] = [];
   const lsp = data?.lsp as
-    | { serverAvailable?: boolean; source?: string }
-    | undefined;
+    { serverAvailable?: boolean; source?: string } | undefined;
   if (lsp?.serverAvailable === false) {
     diagnostics.push(
       diagnostic(

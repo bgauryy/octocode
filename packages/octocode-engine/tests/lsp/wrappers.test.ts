@@ -105,35 +105,20 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       expect(client.hasCapability('definitionProvider')).toBe(false);
       await client.waitForReady(10);
       await expect(
-        client.getDefinition(filePath, position)
-      ).resolves.toHaveLength(1);
-      await expect(
         client.gotoDefinition(filePath, position)
       ).resolves.toHaveLength(1);
       await expect(
         client.findReferences(filePath, position, false)
       ).resolves.toHaveLength(1);
-      await expect(client.getHover(filePath, position)).resolves.toEqual({
-        contents: 'hover',
-      });
       await expect(client.hover(filePath, position)).resolves.toEqual({
         contents: 'hover',
       });
       await expect(
-        client.getTypeDefinition(filePath, position)
-      ).resolves.toHaveLength(1);
-      await expect(
         client.typeDefinition(filePath, position)
-      ).resolves.toHaveLength(1);
-      await expect(
-        client.getImplementation(filePath, position)
       ).resolves.toHaveLength(1);
       await expect(
         client.implementation(filePath, position)
       ).resolves.toHaveLength(1);
-      await expect(client.getDocumentSymbols(filePath)).resolves.toEqual([
-        { name: 'symbol' },
-      ]);
       await expect(client.documentSymbols(filePath)).resolves.toEqual([
         { name: 'symbol' },
       ]);
@@ -154,7 +139,6 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       ]);
       mock.client.outgoingCalls.mockResolvedValueOnce(null);
       await expect(client.getOutgoingCalls(item)).resolves.toEqual([]);
-      await client.ensureDocumentSynced(filePath, 'content');
       await client.openDocument(filePath, 'content');
       await expect(client.closeDocument(filePath)).resolves.toBeUndefined();
       await client.stop();
@@ -219,21 +203,16 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       const position = { line: 0, character: 16 };
       const cachedContent = 'from cached anchor\n';
 
-      await client.getDefinition(filePath, position, cachedContent);
       await client.gotoDefinition(filePath, position, cachedContent);
       await client.findReferences(filePath, position, false, cachedContent);
-      await client.getHover(filePath, position, cachedContent);
       await client.hover(filePath, position, cachedContent);
-      await client.getTypeDefinition(filePath, position, cachedContent);
       await client.typeDefinition(filePath, position, cachedContent);
-      await client.getImplementation(filePath, position, cachedContent);
       await client.implementation(filePath, position, cachedContent);
-      await client.getDocumentSymbols(filePath, cachedContent);
       await client.documentSymbols(filePath, cachedContent);
       await client.prepareCallHierarchy(filePath, position, cachedContent);
 
       expect(mock.client.openDocument.mock.calls).toEqual(
-        Array.from({ length: 12 }, () => [filePath, cachedContent])
+        Array.from({ length: 7 }, () => [filePath, cachedContent])
       );
       await rm(root, { recursive: true, force: true });
     });
