@@ -256,3 +256,34 @@ describe('plan/exec agreement per leaf shape (github, materialize:never)', () =>
     });
   }
 });
+
+describe('inapplicable controls.search.sort warns instead of silently dropping', () => {
+  const CASES: Array<{ target: string; sort: string; warns: boolean }> = [
+    { target: 'files', sort: 'relevance', warns: true },
+    { target: 'files', sort: 'size', warns: false },
+    { target: 'code', sort: 'size', warns: true },
+    { target: 'code', sort: 'relevance', warns: false },
+  ];
+  for (const c of CASES) {
+    it(`${c.target} + sort:${c.sort} -> ${c.warns ? 'warning' : 'clean'}`, () => {
+      const { plan: p } = plan({
+        target: c.target,
+        from: { kind: 'local', path: './src' },
+        where: { kind: 'text', value: 'pagination' },
+        controls: { search: { sort: c.sort } },
+      });
+      const warn = p.diagnostics.find(
+        d =>
+          d.code === 'lossyTransform' && d.queryPath === 'controls.search.sort'
+      );
+      if (c.warns) {
+        expect(warn).toBeDefined();
+        expect(warn?.severity).toBe('warning');
+        expect(warn?.blocksAnswer).toBe(false);
+        expect(warn?.message).toContain(`"${c.sort}"`);
+      } else {
+        expect(warn).toBeUndefined();
+      }
+    });
+  }
+});

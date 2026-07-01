@@ -36,6 +36,7 @@ import type {
   Predicate,
   QuerySource,
 } from './types.js';
+import { SEARCH_SORTS_BY_TARGET } from './types.js';
 
 interface WalkResult {
   nodes: OqlPlanNode[];
@@ -488,6 +489,7 @@ export function planQuery(query: OqlQuery, rawInput: unknown): PlanQueryResult {
   }
 
   out.diagnostics.push(...adapterValidationDiagnostics(query, out.nodes));
+  out.diagnostics.push(...sortApplicabilityDiagnostics(query));
 
   // Output-feature capability check (content view / select projections). Emits
   // non-blocking diagnostics so a requested-but-unbackable feature is explicit,
@@ -553,6 +555,33 @@ function collapseDoubleNegation(where: Predicate): Predicate {
     return collapseDoubleNegation(where.predicate.predicate);
   }
   return where;
+}
+
+/**
+ * A `controls.search.sort` value outside the target lane's executable set is
+ * IGNORED by the backend (files: localFindFiles sortBy; code: search ranking).
+ * Warn instead of silently returning default ordering — non-blocking because
+ * ordering never changes WHICH rows exist, only their sequence.
+ */
+function sortApplicabilityDiagnostics(query: OqlQuery): OqlDiagnostic[] {
+  const sort = query.controls?.search?.sort;
+  if (!sort) return [];
+  const lane =
+    query.target === 'code' || query.target === 'files'
+      ? SEARCH_SORTS_BY_TARGET[query.target]
+      : undefined;
+  if (!lane || (lane as readonly string[]).includes(sort)) return [];
+  return [
+    diagnostic(
+      'lossyTransform',
+      `controls.search.sort:"${sort}" has no ${query.target}-lane equivalent and is ignored (default ordering applies). Sorts for target:"${query.target}": ${lane.join('|')}.`,
+      {
+        queryPath: 'controls.search.sort',
+        severity: 'warning',
+        blocksAnswer: false,
+      }
+    ),
+  ];
 }
 
 function adapterValidationDiagnostics(

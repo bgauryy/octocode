@@ -367,3 +367,41 @@ describe('buildShorthandInput (CLI shorthand lowering, owned by tools-core)', ()
     });
   });
 });
+
+describe('sort forwarding (no silent drop)', () => {
+  it('forwards a valid-but-inapplicable sort so the planner can warn', () => {
+    const query = input(
+      buildShorthandInput({
+        target: 'files',
+        text: 'pagination',
+        sort: 'relevance',
+        corpus: { kind: 'local', path: './src' },
+      })
+    ) as { controls?: { search?: { sort?: string } } };
+    expect(query.controls?.search?.sort).toBe('relevance');
+  });
+
+  it('forwards applicable files sorts unchanged', () => {
+    const query = input(
+      buildShorthandInput({
+        target: 'files',
+        text: 'pagination',
+        sort: 'size',
+        corpus: { kind: 'local', path: './src' },
+      })
+    ) as { controls?: { search?: { sort?: string } } };
+    expect(query.controls?.search?.sort).toBe('size');
+  });
+
+  it('rejects an unknown sort value loudly at normalize', () => {
+    const lowered = input(
+      buildShorthandInput({
+        target: 'files',
+        text: 'pagination',
+        sort: 'banana',
+        corpus: { kind: 'local', path: './src' },
+      })
+    );
+    expect(() => normalizeQuery(lowered as never)).toThrow();
+  });
+});

@@ -593,6 +593,9 @@ function queryControls(parts: SearchShorthand): QueryControls | undefined {
   if (parts.maxMatchesPerFile !== undefined)
     search.maxMatchesPerFile = parts.maxMatchesPerFile;
   if (parts.matchPage !== undefined) search.matchPage = parts.matchPage;
+  // Forward the sort as-is for search-sort targets: an unknown value fails
+  // loudly at normalize (schema enum) and a valid-but-inapplicable value gets
+  // a planner warning (sortApplicabilityDiagnostics) — never a silent drop.
   if (usesSearchSortControls(parts.target) && parts.sort) {
     search.sort = parts.sort as NonNullable<typeof search.sort>;
   }
@@ -650,8 +653,13 @@ function fetchInstructions(
   // maxDepth (parts.maxDepth comes from the file-discovery `--max-depth` flag).
   if (parts.maxDepth !== undefined) tree.maxDepth = parts.maxDepth;
   else if (parts.tree && parts.depth !== undefined) tree.maxDepth = parts.depth;
-  if (parts.pattern || parts.filename) {
-    tree.pattern = parts.pattern ?? parts.filename;
+  if (parts.filename) {
+    tree.pattern = parts.filename;
+  } else if (parts.pattern && (parts.tree || parts.target === 'structure')) {
+    // --pattern doubles as the AST shape for code search; only a tree/structure
+    // query treats it as a name filter. Copying an AST pattern here would leak
+    // a stray fetch.tree.pattern into code-target queries and continuations.
+    tree.pattern = parts.pattern;
   }
   if (parts.includeSizes) tree.includeSizes = true;
   if (parts.extension) tree.extensions = listFromComma(parts.extension);

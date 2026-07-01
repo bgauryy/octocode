@@ -61,6 +61,17 @@ export const CORPUS_OPTIONAL_TARGETS: readonly OqlActiveTarget[] = [
   'repositories',
 ];
 
+/**
+ * Which `controls.search.sort` values each lane can actually execute
+ * (files: localFindFiles sortBy; code: code-search ranking sorts). Single
+ * source for shorthand lowering and the planner's inapplicable-sort warning —
+ * a value outside the target's set is IGNORED by the backend, never an error.
+ */
+export const SEARCH_SORTS_BY_TARGET = {
+  code: ['relevance', 'matchCount', 'path', 'modified', 'accessed', 'created'],
+  files: ['size', 'name', 'path', 'modified'],
+} as const;
+
 export type PredicateId = string;
 
 export type QuerySource =

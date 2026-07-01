@@ -236,6 +236,9 @@ export const QueryControlsSchema = z.strictObject({
           'modified',
           'accessed',
           'created',
+          // files-target sorts, lowered to localFindFiles sortBy
+          'size',
+          'name',
         ])
         .optional(),
       sortReverse: z.boolean().optional(),
