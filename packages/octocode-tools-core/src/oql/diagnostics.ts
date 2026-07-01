@@ -30,7 +30,14 @@ const BLOCKING_CODES = new Set<DiagnosticCode>([
   'materializationFailed',
   'parserFailed',
   'lspUnavailable',
+  // A semantic query anchored on a symbol that does not exist at the hint
+  // resolved nothing — an empty result must not read as "no references" proof.
+  'symbolNotFound',
   'budgetExhausted',
+  // Provider auth/rate failures prove nothing about the queried corpus: the
+  // call never evaluated the predicate, so the result must not read as proof.
+  'rateLimited',
+  'authRequired',
   // contentTruncated still blocks: a partial content read has no page key that
   // hasOpenPages recognizes. matchTruncated does NOT block — it always emits a
   // next.matchPage continuation, so hasOpenPages drives partial-ness from the
@@ -51,6 +58,10 @@ const ERROR_CODES = new Set<DiagnosticCode>([
   'responseShapeMismatch',
   'materializationNotAllowed',
   'materializationFailed',
+  // Deterministic failure (bad/missing credentials) — retrying won't help
+  // without operator action, unlike the transient (warning) rateLimited.
+  'authRequired',
+  'symbolNotFound',
 ]);
 
 export interface DiagnosticOptions {

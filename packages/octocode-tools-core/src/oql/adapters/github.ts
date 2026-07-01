@@ -281,8 +281,7 @@ async function githubFiles(query: OqlQuery): Promise<AdapterResult> {
     results: rows,
     ...(pagination ? { pagination } : {}),
     diagnostics: [
-      ...statusDiagnostics(result, 'ghSearchCode'),
-      ...emptyProviderDiag(rows.length, 'ghSearchCode'),
+      ...providerDiagnostics(result, rows.length, 'ghSearchCode'),
       ...(rows.length > 0
         ? [
             diagnostic(
@@ -358,8 +357,7 @@ async function githubCode(query: OqlQuery): Promise<AdapterResult> {
     results: rows,
     ...(pagination ? { pagination } : {}),
     diagnostics: [
-      ...statusDiagnostics(result, 'ghSearchCode'),
-      ...emptyProviderDiag(rows.length, 'ghSearchCode'),
+      ...providerDiagnostics(result, rows.length, 'ghSearchCode'),
       // GitHub code search is path-level and (for regex) approximate; the
       // planner/capabilities layer owns the providerSemanticsApproximate
       // diagnostic, so the adapter only notes the missing line locality.
@@ -465,8 +463,7 @@ async function githubContent(query: OqlQuery): Promise<AdapterResult> {
         }
       : {}),
     diagnostics: [
-      ...statusDiagnostics(result, 'ghGetFileContent'),
-      ...emptyProviderDiag(rows.length, 'ghGetFileContent'),
+      ...providerDiagnostics(result, rows.length, 'ghGetFileContent'),
     ],
     provenance: [{ backend: 'ghGetFileContent', source: ghFrom(query) }],
   };
@@ -532,8 +529,11 @@ async function githubStructure(query: OqlQuery): Promise<AdapterResult> {
         : filteredRows,
     ...(pagination ? { pagination } : {}),
     diagnostics: [
-      ...statusDiagnostics(result, 'ghViewRepoStructure'),
-      ...emptyProviderDiag(filteredRows.length, 'ghViewRepoStructure'),
+      ...providerDiagnostics(
+        result,
+        filteredRows.length,
+        'ghViewRepoStructure'
+      ),
     ],
     provenance: [{ backend: 'ghViewRepoStructure', source: ghFrom(query) }],
   };
@@ -549,20 +549,124 @@ function normalizeContentRange(
   return { startLine, endLine };
 }
 
+type ProviderErrorInfo = {
+  message: string;
+  status?: number;
+  retryAfterSeconds?: number;
+  rateLimitRemaining?: number;
+};
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+/**
+ * Read a provider failure from BOTH result shapes:
+ * - default bulk path: `results[0].status === 'error'` with `data.error`
+ *   carrying the structured provider error (or a plain string);
+ * - finalized tools (ghSearchCode/ghGetFileContent): errored results are
+ *   stripped into top-level `errors[]`. OQL sends exactly one query per
+ *   runDirect call, so `errors[0]` is that query's failure — without this
+ *   read, a 403/429 used to fire no status diagnostic at all and surfaced
+ *   as the misleading providerUnindexed.
+ */
+function providerErrorInfo(
+  result: CallToolResult
+): ProviderErrorInfo | undefined {
+  if (extractStatus(result) === 'error') {
+    const err = extractData<{ error?: unknown }>(result)?.error;
+    if (typeof err === 'string' && err) return { message: err };
+    if (err && typeof err === 'object') {
+      const o = err as Record<string, unknown>;
+      return {
+        message:
+          typeof o.error === 'string' && o.error
+            ? o.error
+            : 'GitHub backend error',
+        status: finiteNumber(o.status),
+        retryAfterSeconds: finiteNumber(o.retryAfter),
+        rateLimitRemaining: finiteNumber(o.rateLimitRemaining),
+      };
+    }
+    return { message: 'GitHub backend error' };
+  }
+  const sc = result.structuredContent as
+    | {
+        errors?: Array<{
+          error?: unknown;
+          status?: unknown;
+          retryAfterSeconds?: unknown;
+          rateLimitRemaining?: unknown;
+        }>;
+      }
+    | undefined;
+  const e = sc?.errors?.[0];
+  if (!e) return undefined;
+  return {
+    message:
+      typeof e.error === 'string' && e.error ? e.error : 'GitHub backend error',
+    status: finiteNumber(e.status),
+    retryAfterSeconds: finiteNumber(e.retryAfterSeconds),
+    rateLimitRemaining: finiteNumber(e.rateLimitRemaining),
+  };
+}
+
+function classifyProviderError(
+  info: ProviderErrorInfo,
+  backend: string
+): OqlDiagnostic {
+  const rateLimitLike = /rate limit|secondary rate/i.test(info.message);
+  const authLike =
+    /bad credentials|requires authentication|saml|not accessible by/i.test(
+      info.message
+    );
+  if (
+    info.status === 429 ||
+    (info.status === 403 &&
+      (info.rateLimitRemaining === 0 ||
+        info.retryAfterSeconds !== undefined ||
+        rateLimitLike)) ||
+    (info.status === undefined && rateLimitLike)
+  ) {
+    const wait =
+      info.retryAfterSeconds !== undefined
+        ? ` Retry after ~${info.retryAfterSeconds}s.`
+        : '';
+    // Transient → warning severity, but still blocks proof via BLOCKING_CODES:
+    // a rate-limited call evaluated nothing.
+    return diagnostic('rateLimited', `${info.message}${wait}`, {
+      backend,
+      severity: 'warning',
+      repair: {
+        message:
+          'Wait for the rate-limit window to reset and re-run the same query, or authenticate (OCTOCODE_TOKEN/GH_TOKEN/GITHUB_TOKEN) to raise limits.',
+      },
+    });
+  }
+  if (
+    info.status === 401 ||
+    ((info.status === 403 || info.status === undefined) && authLike)
+  ) {
+    return diagnostic('authRequired', info.message, {
+      backend,
+      repair: {
+        message:
+          'Provide a valid token (OCTOCODE_TOKEN/GH_TOKEN/GITHUB_TOKEN) with access to this repo, then re-run the same query.',
+      },
+    });
+  }
+  return diagnostic('invalidQuery', info.message, { backend });
+}
+
 function statusDiagnostics(
   result: CallToolResult,
   backend: string
 ): OqlDiagnostic[] {
-  const status = extractStatus(result);
-  if (status === 'error') {
-    const data = extractData<{ error?: string }>(result);
-    return [
-      diagnostic('invalidQuery', data?.error ?? 'GitHub backend error', {
-        backend,
-      }),
-    ];
-  }
-  if (status === 'empty') {
+  const info = providerErrorInfo(result);
+  if (info) return [classifyProviderError(info, backend)];
+  if (extractStatus(result) === 'empty') {
     return [
       diagnostic('zeroMatches', 'Query ran and matched nothing.', {
         backend,
@@ -572,4 +676,19 @@ function statusDiagnostics(
     ];
   }
   return [];
+}
+
+/**
+ * Status + gated empty-provider diagnostics. A provider failure (rate limit,
+ * auth, invalid query) already explains the empty result — emitting
+ * providerUnindexed on top would misread a 403/429 as "repo not indexed".
+ */
+function providerDiagnostics(
+  result: CallToolResult,
+  rowCount: number,
+  backend: string
+): OqlDiagnostic[] {
+  const status = statusDiagnostics(result, backend);
+  if (status.some(d => d.severity !== 'info')) return status;
+  return [...status, ...emptyProviderDiag(rowCount, backend)];
 }

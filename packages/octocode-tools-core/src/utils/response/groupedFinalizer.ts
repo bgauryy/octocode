@@ -11,40 +11,74 @@ export type QueryWithPagination = {
   charOffset?: unknown;
 };
 
+export type FlatErrorEntry = {
+  id: string;
+  error: string;
+  status?: number;
+  retryAfterSeconds?: number;
+  rateLimitRemaining?: number;
+  rateLimitReset?: number;
+};
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
 function unwrapProviderError(value: unknown): {
   message: string;
   status?: number;
+  retryAfterSeconds?: number;
+  rateLimitRemaining?: number;
+  rateLimitReset?: number;
 } {
   if (typeof value === 'string') return { message: value };
   if (typeof value === 'object' && value !== null) {
-    const obj = value as { error?: unknown; status?: unknown };
+    const obj = value as {
+      error?: unknown;
+      status?: unknown;
+      retryAfter?: unknown;
+      rateLimitRemaining?: unknown;
+      rateLimitReset?: unknown;
+    };
     const message =
       typeof obj.error === 'string' && obj.error.length > 0
         ? obj.error
         : 'Provider error';
-    const status =
-      typeof obj.status === 'number' && Number.isFinite(obj.status)
-        ? obj.status
-        : undefined;
-    return { message, status };
+    return {
+      message,
+      status: finiteNumber(obj.status),
+      retryAfterSeconds: finiteNumber(obj.retryAfter),
+      rateLimitRemaining: finiteNumber(obj.rateLimitRemaining),
+      rateLimitReset: finiteNumber(obj.rateLimitReset),
+    };
   }
   return { message: 'Provider error' };
 }
 
 export function collectFlatErrors(
   results: readonly FlatQueryResult[]
-): Array<{ id: string; error: string }> {
-  const errors: Array<{ id: string; error: string }> = [];
+): FlatErrorEntry[] {
+  const errors: FlatErrorEntry[] = [];
   for (const result of results) {
     if (result.status !== 'error') continue;
-    const { message, status } = unwrapProviderError(
-      (result.data as { error?: unknown }).error
-    );
+    const {
+      message,
+      status,
+      retryAfterSeconds,
+      rateLimitRemaining,
+      rateLimitReset,
+    } = unwrapProviderError((result.data as { error?: unknown }).error);
     const errorMessage =
       status !== undefined ? `${message} (HTTP ${status})` : message;
     errors.push({
       id: result.id,
       error: errorMessage,
+      ...(status !== undefined ? { status } : {}),
+      ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      ...(rateLimitRemaining !== undefined ? { rateLimitRemaining } : {}),
+      ...(rateLimitReset !== undefined ? { rateLimitReset } : {}),
     });
   }
   return errors;

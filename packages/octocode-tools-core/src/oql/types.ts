@@ -220,8 +220,17 @@ export interface QueryControls {
     matchContentLength?: number;
     maxMatchesPerFile?: number;
     matchPage?: number;
+    // 'size' and 'name' apply to target:"files" only (lowered to
+    // localFindFiles sortBy); the rest are code-search sorts.
     sort?:
-      'relevance' | 'matchCount' | 'path' | 'modified' | 'accessed' | 'created';
+      | 'relevance'
+      | 'matchCount'
+      | 'path'
+      | 'modified'
+      | 'accessed'
+      | 'created'
+      | 'size'
+      | 'name';
     sortReverse?: boolean;
     rankingProfile?: string;
     debugRanking?: boolean;
@@ -353,7 +362,9 @@ export type DiagnosticCode =
   | 'staleCache'
   | 'sanitized'
   | 'rateLimited'
-  | 'zeroMatches';
+  | 'authRequired'
+  | 'zeroMatches'
+  | 'symbolNotFound';
 
 export interface OqlDiagnostic {
   code: DiagnosticCode;
