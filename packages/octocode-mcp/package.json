@@ -104,7 +104,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/config": "workspace:*",
     "@octocodeai/octocode-core": "^16.1.1",
     "@octocodeai/octocode-engine": "workspace:*",
     "@octokit/oauth-methods": "^6.0.2",
@@ -115,6 +114,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@octocodeai/config": "workspace:*",
     "@octocodeai/octocode-tools-core": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",

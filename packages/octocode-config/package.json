@@ -20,10 +20,11 @@
   "type": "module",
   "main": "./src/index.mjs",
   "types": "./src/index.d.mts",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./src/index.d.mts",
-      "default": "./src/index.mjs"
+      "import": "./src/index.mjs"
     }
   },
   "bin": {

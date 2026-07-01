@@ -12,7 +12,7 @@ export class SymbolResolutionError extends Error {
     public readonly searchRadius = 5
   ) {
     super(
-      `Could not find symbol '${symbolName}' at or near line ${lineHint}. ${reason}`
+      `Could not find symbol '${symbolName}' at or near line ${lineHint}.${reason ? ` ${reason}` : ''}`
     );
     this.name = 'SymbolResolutionError';
   }
@@ -59,7 +59,13 @@ function toSymbolResolutionError(
   searchRadius = 5
 ): SymbolResolutionError {
   if (error instanceof SymbolResolutionError) return error;
-  const reason = error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  // The native resolver already emits the canonical "Could not find symbol …"
+  // sentence; strip it so the wrapper message doesn't repeat it.
+  const prefix = `Could not find symbol '${fuzzy.symbolName}' at or near line ${fuzzy.lineHint ?? 0}`;
+  const reason = raw.startsWith(prefix)
+    ? raw.slice(prefix.length).replace(/^[.\s]+/, '')
+    : raw;
   return new SymbolResolutionError(
     fuzzy.symbolName,
     fuzzy.lineHint ?? 0,

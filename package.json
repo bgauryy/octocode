@@ -8,6 +8,7 @@
   "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
   "license": "MIT",
   "type": "module",
+  "packageManager": "yarn@4.9.1",
   "engines": {
     "node": ">=20.0.0"
   },

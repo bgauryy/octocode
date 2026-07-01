@@ -15,6 +15,7 @@ import { runDirect, firstQueryData, stringFrom } from './runner.js';
 import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
 import { diagnostic } from '../diagnostics.js';
 import { classifyDiffLane } from '../diffLanes.js';
+import { spawnWithTimeout } from '../../utils/exec/spawn.js';
 import { toGithubRepositoryLanguage } from '../transformers/language.js';
 import { analyzeResearchFlow } from '../research/analyze.js';
 import { buildResearchPackets } from '../research/packets.js';
@@ -353,23 +354,35 @@ function stableId(
     case 'repository':
       return (
         s('fullName') ??
-        (s('owner') && s('repo') ? `${s('owner')}/${s('repo')}` : s('url'))
+        (s('owner') && s('repo') ? `${s('owner')}/${s('repo')}` : s('url')) ??
+        valueLeadingToken(d)
       );
     case 'package': {
       const name = s('name') ?? s('packageName');
       const ver = s('version');
-      return name ? (ver ? `${name}@${ver}` : name) : undefined;
+      return name ? (ver ? `${name}@${ver}` : name) : valueLeadingToken(d);
     }
     case 'pullRequest':
-      return s('number') ? `#${s('number')}` : s('url');
+      return s('number')
+        ? `#${s('number')}`
+        : (s('url') ?? valueLeadingToken(d));
     case 'commit':
-      return s('sha')?.slice(0, 12) ?? s('oid')?.slice(0, 12);
+      return (
+        s('sha')?.slice(0, 12) ??
+        s('oid')?.slice(0, 12) ??
+        valueLeadingToken(d)
+      );
     case 'artifact':
       return s('localPath') ?? s('path');
     case 'materialized':
       return s('localPath') ?? s('repoRoot');
     case 'diff':
-      return s('path') ?? s('filename');
+      // Whole-PR patch rows have no single path — cite the PR number instead.
+      return (
+        s('path') ??
+        s('filename') ??
+        (s('number') ? `#${s('number')}` : valueLeadingToken(d))
+      );
     case 'semantics': {
       const uri = s('uri');
       const line = s('line') ?? s('startLine');
@@ -380,7 +393,18 @@ function stableId(
     case 'graph':
       return s('intent') ? `graph:${s('intent')}` : 'graph';
   }
-  return undefined;
+  return valueLeadingToken(d);
+}
+
+/**
+ * Concise lanes flatten rows to `{ value: "<id> <title…>" }` (e.g. PR rows
+ * become "#3536 chore(...)"); keep a citeable identity from the leading token
+ * instead of dropping the id entirely.
+ */
+function valueLeadingToken(d: Record<string, unknown>): string | undefined {
+  return typeof d.value === 'string' && d.value.trim()
+    ? d.value.trim().split(/\s+/, 1)[0]
+    : undefined;
 }
 
 function statusDiagnostics(
@@ -500,6 +524,17 @@ function finishRecords(
   };
 }
 
+// references/callers are bounded by the server's open-file set. The tool
+// auto-opens a bounded set of name-matching consumer files before relation
+// queries, but a zero is still candidate evidence, not deletion-grade proof.
+function zeroSemanticResultDiagnostic(): OqlDiagnostic {
+  return diagnostic(
+    'partialResult',
+    'Zero LSP results after bounded consumer warm-up — still not proof of unused. Cross-check with a text search (target:"code") for dynamic, re-exported, or string-based usage before concluding.',
+    { backend: 'lspGetSemantics', blocksAnswer: true }
+  );
+}
+
 function semanticDiagnostics(
   data: Record<string, unknown> | undefined,
   query: OqlQuery
@@ -517,6 +552,48 @@ function semanticDiagnostics(
         { backend: 'lspGetSemantics' }
       )
     );
+  }
+
+  const payload = data?.payload as
+    | {
+        kind?: string;
+        category?: string;
+        reason?: string;
+        totalReferences?: number;
+        incomingCalls?: number;
+        outgoingCalls?: number;
+      }
+    | undefined;
+  if (payload?.kind === 'empty') {
+    if (
+      payload.category === 'symbolNotFound' ||
+      payload.category === 'anchorFailed'
+    ) {
+      // The anchor never resolved: this is a miss, not an empty answer. It
+      // must not surface as "0 references" proof — a typo'd symbolName would
+      // be indistinguishable from provably-unreferenced.
+      diagnostics.push(
+        diagnostic(
+          'symbolNotFound',
+          `${payload.reason ?? 'Symbol anchor resolution failed.'} Refresh the lineHint from a search/AST anchor and retry.`,
+          { backend: 'lspGetSemantics' }
+        )
+      );
+    } else if (
+      payload.category === 'noReferences' ||
+      payload.category === 'noCalls'
+    ) {
+      diagnostics.push(zeroSemanticResultDiagnostic());
+    }
+  } else if (
+    (payload?.kind === 'references' && payload.totalReferences === 0) ||
+    (payload?.kind === 'callers' && payload.incomingCalls === 0) ||
+    (payload?.kind === 'callees' && payload.outgoingCalls === 0) ||
+    (payload?.kind === 'callHierarchy' &&
+      payload.incomingCalls === 0 &&
+      payload.outgoingCalls === 0)
+  ) {
+    diagnostics.push(zeroSemanticResultDiagnostic());
   }
 
   const pag = data?.pagination as
@@ -610,12 +687,49 @@ export async function executeRepositories(
     ...(owner ? { owner } : {}),
     ...forwarded,
   });
-  return finishRecords(
+  const finished = finishRecords(
     result,
     'repository',
     'ghSearchRepos',
     query.from ?? { kind: 'github' }
   );
+  // GitHub repo search ANDs every term across name/description/readme, so a
+  // multi-term zero is usually over-constraint, not absence — say so instead
+  // of letting "0 results, proof" read as a settled answer.
+  if (finished.results.length === 0 && multiTermRepoQuery(forwarded)) {
+    finished.diagnostics.push(
+      diagnostic(
+        'zeroMatches',
+        'GitHub repository search requires EVERY term to match (AND semantics). Zero results for a multi-term query usually means over-constraint, not absence.',
+        {
+          backend: 'ghSearchRepos',
+          severity: 'info',
+          blocksAnswer: false,
+          repair: {
+            message:
+              'Retry with the single most distinctive term (e.g. the project name), or move concepts to topic:"..." filters.',
+          },
+        }
+      )
+    );
+  }
+  return finished;
+}
+
+function multiTermRepoQuery(forwarded: Record<string, unknown>): boolean {
+  // Shorthand lowers the positional text to `keywords` (term-split); raw
+  // callers may pass `keywordsToSearch`. Either way, >1 term (or one term
+  // containing spaces) means provider-AND over-constraint is in play.
+  const terms = forwarded.keywords ?? forwarded.keywordsToSearch;
+  if (Array.isArray(terms)) {
+    return (
+      terms.length > 1 ||
+      (terms.length === 1 &&
+        typeof terms[0] === 'string' &&
+        terms[0].trim().includes(' '))
+    );
+  }
+  return typeof terms === 'string' && terms.trim().includes(' ');
 }
 
 export async function executePackages(query: OqlQuery): Promise<AdapterResult> {
@@ -890,6 +1004,10 @@ export async function executeDiff(query: OqlQuery): Promise<AdapterResult> {
 }
 
 /** Direct two local files via two content reads + a pure local line diff. */
+// Git refs the diff lane will pass to `git show` — conservative shape, and
+// never starting with '-' so a ref can't be parsed as an option.
+const SAFE_GIT_REF = /^[A-Za-z0-9][A-Za-z0-9._/@^~-]*$/;
+
 async function executeLocalDirectFileDiff(
   query: OqlQuery,
   refs: { baseRef: string; headRef: string; path: string }
@@ -913,55 +1031,59 @@ async function executeLocalDirectFileDiff(
     };
   }
 
-  const read = (path: string) =>
-    runDirect('localGetFileContent', {
-      path,
-      fullContent: true,
-      minify: 'none',
-    });
+  const invalid = (message: string): AdapterResult => ({
+    results: [],
+    diagnostics: [diagnostic('invalidQuery', message, { backend: 'git' })],
+    provenance: [{ backend: 'git', source: query.from }],
+  });
 
-  const [baseRes, headRes] = await Promise.all([
-    read(basePath),
-    read(refs.path),
-  ]);
-  const base = firstQueryData<{ content?: unknown; error?: unknown }>(baseRes);
-  const head = firstQueryData<{ content?: unknown; error?: unknown }>(headRes);
-  const baseContent =
-    typeof base.data?.content === 'string' ? base.data.content : undefined;
-  const headContent =
-    typeof head.data?.content === 'string' ? head.data.content : undefined;
-
-  // Guard against a missing read (status error OR absent content) so an
-  // unresolved file can't silently diff empty-vs-empty and report "identical".
-  if (
-    base.status === 'error' ||
-    head.status === 'error' ||
-    baseContent === undefined ||
-    headContent === undefined
-  ) {
-    const err = errorText(
-      base.data?.error ?? head.data?.error,
-      'Could not read local file.'
+  // The lane contract is "path at baseRef vs path at headRef", so both sides
+  // come from git object storage — not from files on disk (the worktree may
+  // hold neither ref's version).
+  const gitCwd = isExistingDirectory(basePath)
+    ? basePath
+    : nodePath.dirname(basePath);
+  const rel = nodePath.isAbsolute(refs.path)
+    ? nodePath.relative(gitCwd, refs.path)
+    : refs.path;
+  if (!rel || rel.startsWith('..') || rel.startsWith('-')) {
+    return invalid(
+      `params.path must resolve inside from.path for a local ref diff (got "${refs.path}").`
     );
-    return {
-      results: [],
-      diagnostics: [
-        diagnostic('invalidQuery', err, { backend: 'localGetFileContent' }),
-      ],
-      provenance: [{ backend: 'localGetFileContent', source: query.from }],
-    };
+  }
+  if (!SAFE_GIT_REF.test(refs.baseRef) || !SAFE_GIT_REF.test(refs.headRef)) {
+    return invalid(
+      'baseRef/headRef must be plain git revisions (branch, tag, sha, HEAD~N).'
+    );
   }
 
-  const diff = computeLineDiff(baseContent, headContent);
+  // `ref:path` is repo-root-relative in git; the `./` prefix makes it
+  // cwd-relative so from.path anchors the lookup as documented.
+  const relPosix = `./${rel.split(nodePath.sep).join('/')}`;
+  const show = (ref: string) =>
+    spawnWithTimeout('git', ['-C', gitCwd, 'show', `${ref}:${relPosix}`], {
+      timeout: 15_000,
+    });
+  const [base, head] = await Promise.all([
+    show(refs.baseRef),
+    show(refs.headRef),
+  ]);
+  if (!base.success || !head.success) {
+    const failed = !base.success ? base : head;
+    const ref = !base.success ? refs.baseRef : refs.headRef;
+    return invalid(
+      `git show ${ref}:${relPosix} failed: ${failed.stderr.trim().split('\n')[0] || failed.error?.message || `exit ${failed.exitCode}`}. from.path must be inside a git repository and the path must exist at both refs.`
+    );
+  }
+
+  const diff = computeLineDiff(base.stdout, head.stdout);
   const row: OqlRecordResultRow = {
     kind: 'record',
     recordType: 'diff',
-    id: `${basePath}..${refs.path}`,
+    id: `${refs.baseRef}..${refs.headRef}:${rel}`,
     ...(query.from ? { source: query.from } : {}),
     data: {
-      path: refs.path,
-      basePath,
-      headPath: refs.path,
+      path: rel,
       baseRef: refs.baseRef,
       headRef: refs.headRef,
       additions: diff.additions,
@@ -976,14 +1098,14 @@ async function executeLocalDirectFileDiff(
     diagnostics:
       diff.additions === 0 && diff.deletions === 0
         ? [
-            diagnostic('zeroMatches', 'Files are identical.', {
-              backend: 'localGetFileContent',
-              severity: 'info',
-              blocksAnswer: false,
-            }),
+            diagnostic(
+              'zeroMatches',
+              `${rel} is identical at ${refs.baseRef} and ${refs.headRef}.`,
+              { backend: 'git', severity: 'info', blocksAnswer: false }
+            ),
           ]
         : [],
-    provenance: [{ backend: 'localGetFileContent', source: query.from }],
+    provenance: [{ backend: 'git', source: query.from }],
   };
 }
 

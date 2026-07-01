@@ -61,7 +61,6 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
-    "@octocodeai/config": "workspace:*",
     "@octocodeai/octocode-core": "^16.1.1",
     "@octocodeai/octocode-engine": "workspace:*",
     "@octokit/auth-oauth-device": "^8.0.3",
@@ -74,6 +73,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@octocodeai/config": "workspace:*",
     "@octocodeai/octocode-tools-core": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",

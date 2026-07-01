@@ -141,7 +141,10 @@ export async function searchContentStructural(
       matches: file.matches.map(match => ({
         line: match.startLine,
         endLine: match.endLine,
-        value: match.text.split('\n', 1)[0],
+        // A match can span lines (e.g. a chained call); collapse it to one
+        // normalized line so the row shows the whole matched node instead of
+        // its first physical line (often just the receiver of a chain).
+        value: match.text.replace(/\s+/g, ' ').trim().slice(0, 300),
         column: match.startCol,
         endColumn: match.endCol,
         metavars: match.metavars,

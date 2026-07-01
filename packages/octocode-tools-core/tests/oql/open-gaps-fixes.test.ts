@@ -204,35 +204,51 @@ describe('gap 8: diff with neither prNumber nor base/head refs -> repair', () =>
     expect(d?.repair?.message).toMatch(/prNumber|baseRef/);
   });
 
-  it('executes local direct-file diff with localGetFileContent reads', async () => {
-    const basePath = path.resolve(here, 'open-gaps-fixes.test.ts');
-    const headPath = path.resolve(here, 'v2-targets.test.ts');
+  it('executes local ref diff via git show (same ref -> identical)', async () => {
+    // The lane contract is "path at baseRef vs path at headRef" — both sides
+    // come from git object storage, so from.path is the repo/workdir anchor
+    // and params.path is repo-relative. Same ref twice must report identical.
     const res = await executeDiff({
       schema: 'oql',
       target: 'diff',
-      from: { kind: 'local', path: basePath },
-      params: { baseRef: 'base', headRef: 'head', path: headPath },
+      from: { kind: 'local', path: here },
+      params: {
+        baseRef: 'HEAD',
+        headRef: 'HEAD',
+        path: 'open-gaps-fixes.test.ts',
+      },
     } as OqlQuery);
     expect(res.diagnostics.map(d => d.code)).not.toContain('invalidQuery');
-    expect(res.provenance[0]).toMatchObject({ backend: 'localGetFileContent' });
+    expect(res.provenance[0]).toMatchObject({ backend: 'git' });
     expect(res.results[0]).toMatchObject({
       kind: 'record',
       recordType: 'diff',
+      id: 'HEAD..HEAD:open-gaps-fixes.test.ts',
       data: {
-        basePath,
-        headPath,
-        baseRef: 'base',
-        headRef: 'head',
+        path: 'open-gaps-fixes.test.ts',
+        baseRef: 'HEAD',
+        headRef: 'HEAD',
+        additions: 0,
+        deletions: 0,
       },
     });
-    // Two different files MUST produce a real (non-empty) diff — a regression
-    // guard for the content-extraction bug that previously diffed empty-vs-empty
-    // and silently reported "identical".
-    const data = res.results[0]?.data as {
-      additions: number;
-      deletions: number;
-    };
-    expect(data.additions + data.deletions).toBeGreaterThan(0);
+    expect(res.diagnostics.some(d => d.code === 'zeroMatches')).toBe(true);
+  });
+
+  it('rejects option-shaped git refs instead of passing them to git', async () => {
+    const res = await executeDiff({
+      schema: 'oql',
+      target: 'diff',
+      from: { kind: 'local', path: here },
+      params: {
+        baseRef: '--help',
+        headRef: 'HEAD',
+        path: 'open-gaps-fixes.test.ts',
+      },
+    } as OqlQuery);
+    expect(res.results).toHaveLength(0);
+    expect(res.diagnostics[0]?.code).toBe('invalidQuery');
+    expect(res.diagnostics[0]?.message).toMatch(/plain git revisions/);
   });
 });
 

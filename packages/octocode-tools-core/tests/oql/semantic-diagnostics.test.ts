@@ -118,19 +118,23 @@ describe('semanticDiagnostics branches', () => {
     expect(env.diagnostics.some(x => x.code === 'symbolNotFound')).toBe(false);
     expect(
       env.diagnostics.some(
-        x => x.code === 'partialResult' && /not proof of unused/i.test(x.message)
+        x =>
+          x.code === 'partialResult' && /not proof of unused/i.test(x.message)
       )
     ).toBe(false);
   });
 
   it('callHierarchy with only incoming zero but outgoing present does not warn', async () => {
     const env = await runSemantics(
-      { payload: { kind: 'callHierarchy', incomingCalls: 0, outgoingCalls: 4 } },
+      {
+        payload: { kind: 'callHierarchy', incomingCalls: 0, outgoingCalls: 4 },
+      },
       'callHierarchy'
     );
     expect(
       env.diagnostics.some(
-        x => x.code === 'partialResult' && /not proof of unused/i.test(x.message)
+        x =>
+          x.code === 'partialResult' && /not proof of unused/i.test(x.message)
       )
     ).toBe(false);
   });

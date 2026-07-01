@@ -1,6 +1,8 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { searchContentRipgrep } from '../../local_ripgrep/searchContentRipgrep.js';
 import { executeBulkOperation } from '../../../utils/response/bulk.js';
 import {
   attachRawResponseChars,
@@ -481,6 +483,59 @@ function oneLine(value: string, maxLength: number): string {
     : singleLine;
 }
 
+// Relation queries (references/calls) are bounded by the server's open-file
+// set. Before running one, open a bounded set of files that mention the
+// symbol by name so cross-file relations are visible — otherwise a fresh
+// server reports only same-file results and a zero reads as "unused".
+const CONSUMER_SCOPED_TYPES: ReadonlySet<string> = new Set([
+  'references',
+  'callers',
+  'callees',
+  'callHierarchy',
+  'implementation',
+]);
+const WARM_MAX_FILES = 12;
+const WARM_MAX_BYTES = 512 * 1024;
+const JS_TS_FAMILY = ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'];
+
+async function warmLikelyConsumers(
+  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>,
+  anchor: SymbolAnchor,
+  workspaceRoot: string
+): Promise<void> {
+  if (typeof client.openDocument !== 'function') return;
+  try {
+    const ext = path.extname(anchor.uri).slice(1);
+    const family = JS_TS_FAMILY.includes(ext) ? JS_TS_FAMILY : [ext];
+    const result = await searchContentRipgrep({
+      path: workspaceRoot,
+      keywords: anchor.resolvedSymbol.name,
+      fixedString: true,
+      wholeWord: true,
+      filesOnly: true,
+      maxFiles: WARM_MAX_FILES,
+      include: family.filter(Boolean).map(e => `*.${e}`),
+    } as Parameters<typeof searchContentRipgrep>[0]);
+    for (const file of result.files ?? []) {
+      const filePath = typeof file.path === 'string' ? file.path : undefined;
+      if (!filePath) continue;
+      const abs = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(workspaceRoot, filePath);
+      if (path.resolve(abs) === path.resolve(anchor.uri)) continue;
+      try {
+        const content = await readFile(abs, 'utf-8');
+        if (content.length > WARM_MAX_BYTES) continue;
+        await client.openDocument(abs, content);
+      } catch {
+        // best-effort warm: unreadable candidates are skipped
+      }
+    }
+  } catch {
+    // best-effort warm: the relation query still runs on the anchor alone
+  }
+}
+
 async function getSemanticContent(
   query: LspGetSemanticsQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
@@ -519,6 +574,10 @@ async function getSemanticContent(
   const client = await acquirePooledClient(workspaceRoot, anchor.value.uri);
   if (!client) {
     throwLspUnavailable(anchor.value.uri, query.type);
+  }
+
+  if (CONSUMER_SCOPED_TYPES.has(query.type)) {
+    await warmLikelyConsumers(client, anchor.value, workspaceRoot);
   }
 
   switch (query.type) {

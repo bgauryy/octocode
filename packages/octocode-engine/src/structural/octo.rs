@@ -229,6 +229,16 @@ impl CaptureEnv {
         }
     }
 
+    /// Bookkeeping capture for relational rules (`has`/`inside` record the
+    /// related node as "secondary"). Unlike user metavars, it carries no
+    /// backreference semantics: nested relations each match a different node,
+    /// so consistency-checking it (capture_one) rejects valid matches — the
+    /// nearest relation simply wins.
+    fn capture_replace(&mut self, name: &str, text: String, range: RawRange) {
+        self.values.insert(name.to_owned(), vec![text]);
+        self.ranges.insert(name.to_owned(), vec![range]);
+    }
+
     fn capture_many(&mut self, name: &str, texts: Vec<String>, ranges: Vec<RawRange>) -> bool {
         match self.values.get(name) {
             Some(existing) => existing == &texts,
@@ -962,13 +972,11 @@ fn matches_descendant_candidate(
     if rule.matches_candidate(child) {
         let mut branch = captures.clone();
         if rule.matches(child, document, &mut branch) {
-            if !branch.capture_one(
+            branch.capture_replace(
                 "secondary",
                 node_text(child, document.content).to_owned(),
                 raw_range(child),
-            ) {
-                return rule.stop_by_end && matches_descendant(rule, child, document, captures);
-            }
+            );
             *captures = branch;
             return true;
         }
@@ -990,14 +998,11 @@ fn matches_ancestor(
         if rule.matches_candidate(node) {
             let mut branch = captures.clone();
             if rule.matches(node, document, &mut branch) {
-                if !branch.capture_one(
+                branch.capture_replace(
                     "secondary",
                     node_text(node, document.content).to_owned(),
                     raw_range(node),
-                ) {
-                    parent = node.parent();
-                    continue;
-                }
+                );
                 *captures = branch;
                 return true;
             }
@@ -1395,5 +1400,19 @@ mod tests {
         let matches = run_rule("foo(a);\nconst b = a;\n", "ts", rule);
 
         assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn inside_with_nested_has_does_not_collide_on_secondary_capture() {
+        // Both relational walks record the related node under the internal
+        // "secondary" capture. An `inside` whose sub-rule contains `has` used
+        // to collide on it (different node texts) and reject valid matches.
+        let src = "mod tests { fn t() { let v = w.unwrap(); } }\n\
+                   mod other { fn o() { let x = y.unwrap(); } }\n";
+        let rule = "rule:\n  pattern: $X.unwrap()\n  inside:\n    kind: mod_item\n    stopBy: end\n    has:\n      kind: identifier\n      regex: ^tests$\n";
+        let matches = run_rule(src, "rs", rule);
+
+        assert_eq!(matches.len(), 1, "only the unwrap inside `mod tests`");
+        assert_eq!(matches[0].metavars.get("X").map(Vec::as_slice), Some(&["w".to_string()][..]));
     }
 }

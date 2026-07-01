@@ -35,7 +35,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "octocode": "workspace:*"
+    "octocode": "workspace:*",
+    "@octocodeai/octocode-core": ">=16.6.1"
   },
   "devDependencies": {
     "@octocodeai/config": "workspace:*"
@@ -55,7 +56,9 @@
     "test": "yarn build && node --test tests/*.test.mjs",
     "typecheck": "yarn lint",
     "verify": "yarn lint && yarn test && yarn build",
-    "prepack": "yarn build",
+    "check:no-workspace": "node scripts/check-no-workspace-protocol.mjs",
+    "prepack": "node scripts/check-no-workspace-protocol.mjs && yarn build",
+    "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs ."
   },
   "pi": {

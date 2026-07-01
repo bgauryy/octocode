@@ -43,7 +43,10 @@
     "lint": "node --check bin/octocode-agent.mjs && node --check bin/launcher.mjs && node --check tests/launcher.test.mjs",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "yarn lint",
-    "verify": "yarn lint && yarn test"
+    "verify": "yarn lint && yarn test",
+    "check:no-workspace": "node scripts/check-no-workspace-protocol.mjs",
+    "prepack": "node scripts/check-no-workspace-protocol.mjs",
+    "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs"
   },
   "publishConfig": {
     "access": "public"

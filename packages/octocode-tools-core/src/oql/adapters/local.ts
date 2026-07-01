@@ -422,6 +422,7 @@ async function executeFiles(
   };
   applyFindFilesScope(toolQuery, query.scope);
   applyFindFilesPagination(toolQuery, query);
+  applyFindFilesSort(toolQuery, query);
 
   const fieldDiags: OqlDiagnostic[] = [];
   if (where) {
@@ -438,6 +439,24 @@ async function executeFiles(
     ],
     provenance: [provenance('localFindFiles', source, where)],
   };
+}
+
+// localFindFiles orders by sortBy modified|name|path|size; other
+// controls.search.sort values are code-search sorts with no files-lane
+// equivalent and are left to the default ordering.
+function applyFindFilesSort(
+  toolQuery: Record<string, unknown>,
+  query: OqlQuery
+): void {
+  const sort = query.controls?.search?.sort;
+  if (
+    sort === 'size' ||
+    sort === 'name' ||
+    sort === 'path' ||
+    sort === 'modified'
+  ) {
+    toolQuery.sortBy = sort;
+  }
 }
 
 function isBooleanPredicate(p: Predicate): boolean {
@@ -465,7 +484,7 @@ async function executeFilesBoolean(
     provenance,
     diagnostics
   );
-  const rows = [...set.values()].sort((a, b) => a.path.localeCompare(b.path));
+  const rows = [...set.values()].sort(fileRowComparator(query));
   if (rows.length === 0 && !diagnostics.some(d => d.severity === 'error')) {
     diagnostics.push(
       diagnostic('zeroMatches', 'Boolean file query matched no files.', {
@@ -476,6 +495,29 @@ async function executeFilesBoolean(
     );
   }
   return { results: rows, diagnostics, provenance };
+}
+
+// Order boolean-combined file rows like localFindFiles would: size and
+// modified descending (largest/newest first), name/path ascending. Set
+// algebra loses backend ordering, so the sort re-applies here.
+function fileRowComparator(
+  query: OqlQuery
+): (a: OqlFileResultRow, b: OqlFileResultRow) => number {
+  const sort = query.controls?.search?.sort;
+  const byPath = (a: OqlFileResultRow, b: OqlFileResultRow) =>
+    a.path.localeCompare(b.path);
+  if (sort === 'size') {
+    return (a, b) => (b.size ?? 0) - (a.size ?? 0) || byPath(a, b);
+  }
+  if (sort === 'modified') {
+    return (a, b) =>
+      (b.modified ?? '').localeCompare(a.modified ?? '') || byPath(a, b);
+  }
+  if (sort === 'name') {
+    const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+    return (a, b) => base(a.path).localeCompare(base(b.path)) || byPath(a, b);
+  }
+  return byPath;
 }
 
 async function evalFilesPredicate(

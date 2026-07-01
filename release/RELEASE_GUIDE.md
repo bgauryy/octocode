@@ -9,8 +9,12 @@
 ```
 npm install graph (what a user gets)              publish? build input?
 ─────────────────────────────────────────────────────────────────────
-@octocodeai/config                                ✅ publish  (zero deps)
-  └─ (none — Node builtins only)
+@octocodeai/config                                ❌ NOT published — zero-dep internal
+  └─ (none — Node builtins only)                     env/config loader. Bundled by esbuild
+                                                     into octocode/octocode-mcp, inlined into
+                                                     @octocodeai/pi-extension (dist/env.js +
+                                                     skill octocode-config.mjs). devDependency
+                                                     everywhere. Users never install it.
 
 @octocodeai/octocode-engine                       ✅ publish
   ├─ optional: @octocodeai/octocode-engine-darwin-arm64    ✅ publish  ← contains one .node binary
@@ -25,19 +29,17 @@ npm install graph (what a user gets)              publish? build input?
        vscode-langservers-extracted, yaml-language-server
 
 @octocodeai/mcp (octocode-mcp)                    ✅ publish
-  ├─ @octocodeai/config
   ├─ @octocodeai/octocode-engine  ──▶  platform .node
   ├─ @octocodeai/octocode-core    (external, sibling repo ^16.1.1)
   ├─ @modelcontextprotocol/sdk
   ├─ @octokit/*, octokit, node-cache, zod
-  └─ @octocodeai/octocode-tools-core  ← BUNDLED by esbuild, NOT a runtime dep
+  └─ @octocodeai/octocode-tools-core + @octocodeai/config  ← BUNDLED by esbuild (devDeps), NOT runtime deps
 
 octocode (CLI)                                    ✅ publish
-  ├─ @octocodeai/config
   ├─ @octocodeai/octocode-engine  ──▶  platform .node
   ├─ @octocodeai/octocode-core    (external, sibling repo ^16.1.1)
   ├─ @inquirer/prompts, @octokit/*, octokit, node-cache, open, zod
-  └─ @octocodeai/octocode-tools-core  ← BUNDLED by esbuild, NOT a runtime dep
+  └─ @octocodeai/octocode-tools-core + @octocodeai/config  ← BUNDLED by esbuild (devDeps), NOT runtime deps
 
 @octocodeai/pi-extension                          ✅ publish
   ├─ octocode                                        (runtime dep — bundled CLI + version)
@@ -73,18 +75,19 @@ octocode-mcp-vscode (VS Code extension)           ✅ publish  (separate release
 Must exist on npm **before** dependents. Publish in this order:
 
 ```
-1. @octocodeai/config                                    (no internal deps)
-2. @octocodeai/octocode-engine-{platform}  × 6          (platform .node files)
-3. @octocodeai/octocode-engine                           (root loader)
-4. @octocodeai/mcp                                       (MCP server)
-5. octocode                                              (CLI)
-6. @octocodeai/pi-extension                              (Pi harness)
-7. octocode-mcp-vscode                                   (VS Code — separate release)
+1. @octocodeai/octocode-engine-{platform}  × 6          (platform .node files)
+2. @octocodeai/octocode-engine                           (root loader)
+3. @octocodeai/mcp                                       (MCP server)
+4. octocode                                              (CLI)
+5. @octocodeai/pi-extension                              (Pi harness)
+6. octocode-mcp-vscode                                   (VS Code — separate release)
 ```
 
-> `@octocodeai/octocode-tools-core` is **never published** — bundled into steps 4 & 5.  
-> `@octocodeai/octocode-core` EXTERNAL  
-> `@octocodeai/config` (step 1) is a **runtime** dep of `octocode` / `octocode-mcp` (they externalize declared deps), but is **bundled** into `@octocodeai/pi-extension` at build — not a runtime dep there.
+> **Never published — bundled at build (devDependencies):**
+> `@octocodeai/octocode-tools-core` (esbuild → steps 3 & 4) and
+> `@octocodeai/config` (esbuild → octocode/mcp; inlined into pi-extension `dist/env.js` + skill `octocode-config.mjs`).  
+> `@octocodeai/octocode-core` EXTERNAL (sibling repo).  
+> **Every publishable package runs `check-no-workspace-protocol.mjs` on `prepack`/`prepublishOnly`** — publish aborts if an unpinned `workspace:` ref would ship in a runtime dep field. Pin first with `yarn sync:version:publish`.
 
 ---
 
@@ -200,13 +203,20 @@ node -e "
 # Pin internal workspace:* refs to exact versions:
 node release/sync-packages-version.mjs --pin-for-publish
 
-# Check no workspace: or file: refs leaked into runtime deps:
+# Check no workspace: or file: refs leaked into runtime deps (every publishable package
+# also runs this automatically on prepack/prepublishOnly — this is the manual pre-check):
 node packages/octocode-mcp/scripts/check-no-workspace-protocol.mjs
 node packages/octocode/scripts/check-no-workspace-protocol.mjs
+node packages/octocode-pi-extension/scripts/check-no-workspace-protocol.mjs
+node packages/octocode-agent/scripts/check-no-workspace-protocol.mjs
 
 # Full test + lint gate:
 yarn verify
 ```
+
+> The guard only flags `workspace:` in **published** dep fields (`dependencies`/`optional`/`peer`/`bundled`).
+> `workspace:` in `devDependencies` is intentional and allowed — that is how bundled-not-published
+> packages (`@octocodeai/config`, `@octocodeai/octocode-tools-core`) are linked at build time.
 
 ---
 
@@ -214,9 +224,6 @@ yarn verify
 
 ```bash
 npm whoami   # confirm auth
-
-# ── @octocodeai/config ──────────────────────────────────────────────
-npm publish packages/octocode-config --access public --provenance
 
 # ── Engine platform packages (6) ────────────────────────────────────
 for dir in packages/octocode-engine/npm/*/; do

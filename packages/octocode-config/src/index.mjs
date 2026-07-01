@@ -124,7 +124,8 @@ export function loadOctocoderc(home = getOctocodeHome()) {
       .replace(/(^|[^:])\/\/.*$/gm, '$1')
       .replace(/,(\s*[}\]])/g, '$1');
     return JSON.parse(stripped);
-  } catch {
+  } catch (e) {
+    process.stderr.write(`[octocode-config] Failed to parse .octocoderc: ${e.message}\n`);
     return {};
   }
 }

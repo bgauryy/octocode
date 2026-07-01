@@ -222,6 +222,9 @@ function formatForOutput(
     const result: LocalFindFilesEntry = { path: f.path, type: f.type };
     if (f.size !== undefined && f.type !== 'directory') {
       result.sizeFormatted = formatFileSize(f.size);
+      // Numeric size rides along in details mode so downstream consumers
+      // (e.g. OQL files-lane sorting) can order without parsing the label.
+      if (details) result.size = f.size;
     }
     if (details && f.permissions) result.permissions = f.permissions;
     if (f.modified) result.modified = f.modified;

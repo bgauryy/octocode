@@ -227,7 +227,7 @@ function shellQuote(value: string): string {
 function renderRow(row: OqlResultEnvelope['results'][number]): string {
   switch (row.kind) {
     case 'code':
-      return `  ${c('green', row.path)}${row.line !== undefined ? `:${row.line}` : ''}${row.snippet ? `  ${dim(row.snippet.trim().slice(0, 200))}` : ''}`;
+      return `  ${c('green', row.path)}${row.line !== undefined ? `:${row.line}` : ''}${row.snippet ? `  ${dim(row.snippet.replace(/\s+/g, ' ').trim().slice(0, 200))}` : ''}`;
     case 'file':
       return `  ${c('green', row.path)}${row.entryType === 'directory' ? '/' : ''}`;
     case 'tree':
@@ -305,6 +305,9 @@ function renderRecord(row: {
       detail = renderResearchRecord(d);
       break;
   }
+  // Concise lanes flatten rows to { value: "…" }; show it rather than a bare
+  // record head.
+  if (!detail) detail = get('value') ?? '';
   return detail ? `${head}  ${dim(detail.slice(0, 200))}` : head;
 }
 

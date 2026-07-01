@@ -1439,6 +1439,10 @@ function exitCodeFor(result: OqlRunResult): number {
   for (const env of envelopes) {
     if (env.diagnostics.some(d => d.code === 'rateLimited'))
       return EXIT.RATE_LIMIT;
+    // Semantic miss (symbol not found at the anchor) honors the documented
+    // exit-3 contract so scripts fail fast instead of reading refs=0 as proof.
+    if (env.diagnostics.some(d => d.code === 'symbolNotFound'))
+      return EXIT.NOT_FOUND;
     // Classify the error-bearing diagnostics by message text the same way the
     // direct-tool path does, so genuine not-found (3) / auth (4) / rate-limit
     // (7) failures are reachable through `search`. A diagnostic that carries no
