@@ -792,20 +792,23 @@ function validatePredicate(p: Predicate, path: string): void {
 function validatePredicateIds(
   p: Predicate,
   path: string,
-  seen: Map<string, string>
+  seen: Map<string, { path: string; node: Predicate }>
 ): void {
   if (typeof p.id === 'string') {
-    const firstPath = seen.get(p.id);
-    if (firstPath !== undefined) {
+    const first = seen.get(p.id);
+    // Sugar expansion (oneOf/xor) legitimately places the SAME predicate
+    // object at multiple tree paths — only two DISTINCT nodes sharing an id
+    // are a user error.
+    if (first !== undefined && first.node !== p) {
       fail(
         diagnostic(
           'invalidQuery',
-          `Duplicate predicate id "${p.id}" at ${firstPath} and ${path}; ids must be unique across \`where\`.`,
+          `Duplicate predicate id "${p.id}" at ${first.path} and ${path}; ids must be unique across \`where\`.`,
           { queryPath: path, predicateId: p.id }
         )
       );
     }
-    seen.set(p.id, path);
+    if (first === undefined) seen.set(p.id, { path, node: p });
   }
   if (p.kind === 'all' || p.kind === 'any') {
     p.of.forEach((c, i) => validatePredicateIds(c, `${path}.of[${i}]`, seen));

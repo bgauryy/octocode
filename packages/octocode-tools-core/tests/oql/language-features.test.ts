@@ -156,6 +156,36 @@ describe('predicate id uniqueness', () => {
     } as never);
     expect(q).toBeDefined();
   });
+
+  // oneOf/xor expansion re-places the SAME predicate object at multiple tree
+  // paths; that must NOT read as a duplicate id (regression: unique ids in
+  // oneOf/xor were spuriously rejected).
+  it('allows unique ids through oneOf expansion', () => {
+    for (const sugar of ['oneOf', 'xor'] as const) {
+      const q = normalizeQuery({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        [sugar]: [
+          { kind: 'text', value: 'a', id: 'p1' },
+          { kind: 'text', value: 'b', id: 'p2' },
+        ],
+      } as never);
+      expect(q).toBeDefined();
+    }
+  });
+
+  it('still rejects genuinely duplicate ids inside oneOf', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        oneOf: [
+          { kind: 'text', value: 'a', id: 'p1' },
+          { kind: 'text', value: 'b', id: 'p1' },
+        ],
+      } as never)
+    ).toThrowError(/Duplicate predicate id "p1"/);
+  });
 });
 
 describe('scope.exclude forwarding', () => {
