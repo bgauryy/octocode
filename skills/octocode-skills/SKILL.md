@@ -9,13 +9,13 @@ Evaluate, lint, install, and author Agent Skills: folders with `SKILL.md` plus o
 
 Flow: `UNDERSTAND -> DISCOVER -> INSPECT -> JUDGE -> RECOMMEND -> USER GATE -> ACT -> VERIFY`.
 
-Hard rules: inspect real `SKILL.md` content before recommending, adapting, installing, or quoting it; identify candidates by repo/path or absolute path; gate installs, writes, overwrites, symlinks, and config changes; filter results instead of handing the user raw search dumps.
+Hard rules: inspect real `SKILL.md` content before recommending, adapting, installing, or quoting; identify candidates by repo/path or absolute path; gate installs, writes, overwrites, symlinks, and config changes; filter results, never hand over raw search dumps.
 
 Stop when one inspected recommendation fits, two High-quality candidates establish a clear top pick, three search angles add nothing new, or a user gate is pending.
 
 ## Tooling
 
-Use Octocode for skill research: MCP tools if available, otherwise the CLI. Read `references/octocode.md` when choosing transport or schema-exact calls. For public skill queries, also run web search in parallel, then confirm any lead by inspecting the real `SKILL.md`.
+Use Octocode for skill research: MCP tools if available, else the CLI. Read `references/octocode.md` when choosing transport or schema-exact calls. For public queries, run web search in parallel, then confirm each lead against the real `SKILL.md`.
 
 ## Reference Map
 

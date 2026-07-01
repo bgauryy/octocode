@@ -1,10 +1,12 @@
 # Install Reference
 
-Use only after the user chooses to install a skill. This reference is provider-agnostic and tool-agnostic. Treat the steps below as a checklist, not a script — skip what does not apply, deepen what does.
+Use only after the user chooses to install a skill. This reference is provider-agnostic and tool-agnostic. Treat the steps below as a checklist, not a script: apply what fits, deepen what matters.
 
 ## What An Install Is
 
-A skill install is: copy or symlink a folder that contains `SKILL.md` (plus any `references/`, `scripts/`, `assets/`) into a destination that an agent runtime loads at startup. There is no "official" installer. Any method that produces a valid skill folder at a destination the runtime scans is a valid install.
+A skill install is: copy or symlink a folder containing `SKILL.md` (plus any `references/`, `scripts/`, `assets/`) into a destination an agent runtime loads at startup.
+
+There is no "official" installer. Any method that produces a valid skill folder at a destination the runtime scans is a valid install.
 
 ## Inputs Accepted
 
@@ -27,7 +29,9 @@ Rules:
 
 ## Destinations: Provider Scopes
 
-Most agents load skills from at least two scopes: a user-level scope (applies everywhere) and a project-level scope (applies to one repo / workspace). Some agents also honor a custom path via env var or config.
+Most agents load skills from at least two scopes: a user-level scope (applies everywhere) and a project-level scope (applies to one repo / workspace).
+
+Some agents also honor a custom path via env var or config.
 
 Use this matrix as a default — verify with the active runtime when the user is unsure.
 
@@ -118,7 +122,7 @@ Run only the items that fit the situation; do not force every step.
 
 Use symlinks only when all of these hold:
 
-- Source is a stable local path the user controls (not a temp clone, not a remote download).
+- Source is a stable local path the user controls (excludes temp clones and remote downloads).
 - User explicitly wants edits in source to reflect immediately.
 - Destination runtime supports symlinked skill folders.
 

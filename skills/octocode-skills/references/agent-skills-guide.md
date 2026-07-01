@@ -6,7 +6,7 @@ Use this reference when evaluating, improving, or creating Agent Skills. Keep `S
 
 Agent Skills are a lightweight, open folder format for extending AI agents with specialized knowledge and workflows.
 
-At minimum, a skill is a folder containing `SKILL.md`. That file includes frontmatter metadata (`name` and `description`) plus instructions for a specific class of tasks. Skills may also bundle scripts, reference materials, templates, and other resources.
+At minimum, a skill is a folder containing `SKILL.md`. That file holds frontmatter metadata (`name` and `description`) plus instructions for a class of tasks. Skills may also bundle scripts, references, templates, and other resources.
 
 ```text
 my-skill/
@@ -35,7 +35,9 @@ Agents load skills in three stages:
 2. Activation: when the user task matches the description, the agent reads full `SKILL.md`.
 3. Execution: the agent follows `SKILL.md`, loading bundled resources or running scripts only when needed.
 
-Design implication: every token in `SKILL.md` competes with conversation and system context. Treat it as the agent's efficient map: briefly summarize how the skill works, then route each major capability to the right `references/`, `scripts/`, or `assets/`. Put always-needed instructions in `SKILL.md`; move conditional details out and state when to load them.
+Design implication: every token in `SKILL.md` competes with conversation and system context. Treat it as the agent's efficient map.
+
+Summarize how the skill works, then route each capability to the right `references/`, `scripts/`, or `assets/`. Put always-needed instructions in `SKILL.md`; move conditional details out and state when to load them.
 
 ## Source Material For Good Skills
 
@@ -56,7 +58,7 @@ Avoid skills that only say vague things like "handle errors appropriately" or "f
 
 Add what the agent lacks; omit what the agent already knows.
 
-Ask for each instruction: "Would the agent likely get this wrong without the skill?" If not, cut it. If unsure, test it. If the agent already performs the task well without the skill, the skill may not add value.
+Ask for each instruction: "Would the agent likely get this wrong without the skill?" If not, cut it; if unsure, test it. If the agent already does it well unaided, the skill may add little.
 
 Good skills are coherent units of work. Avoid scopes that are too narrow and force many skills to load, or too broad and trigger imprecisely.
 
@@ -115,7 +117,9 @@ Use plan-validate-execute for batch, stateful, or destructive operations. The pl
 
 ## Bundling Scripts
 
-**Prefer deterministic scripts over agentic prose.** If a step is mechanical, repeatable, or expensive to describe, a script is more reliable and far more token-efficient than instructions the agent re-interprets each run — it executes identically every time and keeps the activation context lean. Reserve natural-language steps for judgment calls; hand procedure to `scripts/`.
+**Prefer deterministic scripts over agentic prose.** For a mechanical, repeatable, or hard-to-describe step, a script beats instructions the agent re-interprets each run.
+
+A script is more reliable, far more token-efficient, executes identically every time, and keeps the activation context lean. Reserve natural-language steps for judgment calls; hand procedure to `scripts/`.
 
 Use one-off commands when an existing tool already does the job and the command is simple. Pin versions when reproducibility matters, and state prerequisites.
 

@@ -237,6 +237,7 @@ READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT
 | **Emoji as Instructions** | Emojis used as commands instead of strong words | Medium |
 | **Redundancy** | Same example repeated, unnecessary variations | Low |
 | **Low Density** | Explanations that don't constrain behavior | Low |
+| **Wordy/Indirect Phrasing** | Nominalizations, passive voice, expletive openers ("there is/it is"), double negatives, compound sentences >~25 words — see Conciseness & Clarity Toolkit | Low |
 
 ### Rating Output (REQUIRED)
 ```markdown
@@ -308,6 +309,12 @@ READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT
 | Stop | STOP, HALT, DO NOT proceed, WAIT | Gates/checkpoints |
 | Required | REQUIRED, MANDATORY | Essential steps |
 | Soft | should, prefer | Optional guidance only |
+
+### Conciseness Pass (shorten without losing logic)
+Apply when a line is wordy or indirect (RATE "Wordy/Indirect Phrasing"). Use the **Conciseness & Clarity Toolkit** (reference below) for the specific moves.
+- **Density over length:** Minimal ≠ short. Cut only tokens that carry no signal; keep every token that changes behavior.
+- **IF** a sentence packs more than one directive or exceeds ~20-25 words → **THEN** split into one instruction per sentence.
+- **IF** a line uses a nominalization, passive voice, expletive opener, or double negative → **THEN** rewrite per the toolkit, preserving exact logic.
 
 ### Triple Lock Pattern (REQUIRED for Critical Rules)
 ```
@@ -403,6 +410,7 @@ Before making changes (when required), produce a `<reasoning>` block:
 - [ ] No conflicting instructions
 - [ ] Logical flow preserved
 - [ ] Original intent preserved
+- [ ] Shortened lines preserve all original logic (no dropped signal words, no new ambiguity)
 - [ ] Triple Lock applied to critical rules
 - [ ] Line count target met (<10%) OR justified exception documented
 - [ ] Any >10% increase includes one-line reason linked to required gate/clarity fixes
@@ -585,7 +593,39 @@ Use concise summaries only when needed to preserve context:
 | FORBIDDEN/ALLOWED lists | Long paragraphs that can be tables |
 | IF/THEN decision rules | Hedging language in critical rules |
 | Markdown default + optional XML for attention control | Emoji used as instructions (unless required by output) |
+| Exact commands, versions, flags, trigger phrases (signal) | Nominalizations, passive voice, expletive openers, double negatives |
 </content_guide>
+
+---
+
+## Reference: Conciseness & Clarity Toolkit
+
+<conciseness_toolkit>
+Load during FIX when a line is wordy, indirect, or over ~20-25 words. Goal: fewer tokens, identical logic. Grounded in Anthropic agent guidance, plain-language rules, and psycholinguistics.
+
+**Frame — density over length:** Minimal ≠ short. Cut tokens that carry no signal; keep every token that changes behavior. Aim for high signal-per-token, not raw brevity.
+
+### Compression moves (shorten AND keep logic)
+| Move | Before → After | Why it helps an agent |
+|------|----------------|----------------------|
+| De-nominalize | "make a decision" → "decide" | Verb carries the action; drops the empty light-verb |
+| Active voice, name the actor | "it must be done" → "you must do it" | Shorter; assigns responsibility unambiguously |
+| Cut expletive openers | "there is a check that runs" → "a check runs" | Removes placeholder + relative pronoun |
+| Strong verb over periphrasis | "provide validation of" → "validate" | One precise verb replaces a weak-verb chunk |
+| Positive over negative | "do not omit the flag" → "include the flag" | Negation adds processing cost; flip double negatives |
+| One instruction per sentence | split compound commands; cap ~20 words | Prevents dropped steps and costly re-parsing |
+| Front-load | known/context first, new/emphasis last | Reader links back before absorbing the new claim |
+| Parallel structure | match grammatical form across list items | Structural priming speeds reading and comparison |
+| Prose → table / bullets / snippet | dense paragraph → structured rows | One real snippet beats three prose paragraphs |
+| Offload | move conditional detail to `references/` | Keeps the always-loaded core lean (progressive disclosure) |
+| Consistent vocabulary | one term per concept, throughout | Removes synonym-driven ambiguity; lowers decode load |
+
+### Guardrails — do NOT over-compress
+- **Keep signal:** never cut exact commands, versions, flags, or trigger phrases to save length.
+- **Keep structure:** never drop subject/verb/article — ellipsis creates garden-path ambiguity that costs more than it saves.
+- **Keep prohibitions for hard boundaries:** prefer positive framing, but reserve NEVER/FORBIDDEN for destructive, fragile, or order-dependent rules (three tiers: always do / ask first / never do).
+- **Match style to output:** a terse prompt biases terse agent output; a verbose prompt biases verbose output.
+</conciseness_toolkit>
 
 ---
 
@@ -612,6 +652,7 @@ Use this only as a mnemonic; gate sections are source of truth.
 | Using "it/this/that" | Agent loses context, applies fix to wrong element | Name every entity explicitly |
 | Changing working logic | User trusted original behavior | FORBIDDEN: If the logic works, don't touch it |
 | Overusing XML tags | Noise and style drift without reliability gain | Keep Markdown default; use XML only for attention control |
+| Over-compressing to look short | Dropped signal or structural words create ambiguity/garden-paths | Density over length: cut only no-signal tokens; keep exact commands, versions, and structure |
 </common_mistakes>
 
 ---

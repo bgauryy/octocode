@@ -557,6 +557,18 @@ function lintSkill(skillDir) {
     }
   }
 
+  // E: skill declares protocols/schemes in SKILL.md → scripts/scheme.js must exist and expose them all.
+  // Only SKILL.md is scanned: it is the author's stated intent. References are secondary documentation and
+  // may mention "protocol" descriptively (e.g. install-protocol notes) without the skill owning a protocol.
+  // Match only structural declarations: a heading named "protocol/scheme", an explicit "- protocol:" key,
+  // or a direct reference to scripts/scheme.js — not casual prose mentions of the word.
+  const PROTOCOL_DECL = /(?:^#{1,6}\s+(?:protocols?|schemes?|scheme\.js)\b|^\s*[-*+]\s+protocols?\s*:|scripts\/scheme\.js)/im;
+  const schemeScriptPath = join(skillDir, 'scripts', 'scheme.js');
+  if (PROTOCOL_DECL.test(stripFencedLines(text)) && !existsSync(schemeScriptPath))
+    add('ERROR', 'missing-scheme-script',
+      'SKILL.md declares a protocol/scheme section or references scripts/scheme.js but scripts/scheme.js is missing; ' +
+      'every skill that uses protocols MUST declare all its schemes and protocols in scripts/scheme.js');
+
   // E: links that escape the skill folder (must use GitHub URLs instead)
   const mdLinkRe = /\[([^\]]*)\]\(([^)]+)\)/g;
   for (const { label, content } of allMdFiles) {
@@ -636,6 +648,34 @@ function lintSkill(skillDir) {
         add('WARN', 'decision-clarity', `${label} line ${i + 1}: decision rule uses IF without THEN; use IF/THEN for agent branches`);
       if (REFERENTIAL_START.test(ln) && !REFERENTIAL_EXPLICIT.test(ln) && ++referentialCount <= 3)
         add('WARN', 'referential-ambiguity', `${label} line ${i + 1}: starts with an ambiguous referent; name the object/section explicitly`);
+    });
+
+    // W-clarity: can this be described more clearly?
+    // Three signals: (1) nominalization — verb buried in a noun phrase, (2) double negative,
+    // (3) overlong prose line that strains comprehension. Code spans and links are stripped
+    // before analysis so inline examples do not inflate word counts or trigger false matches.
+    const CLARITY_NOMINALIZE = /\b(?:make|provide|give|perform|conduct|carry\s+out)\s+(?:a|an|the)\s+\w+(?:tion|sion|ment|ance|ence)\b/i;
+    const CLARITY_DOUBLE_NEG = /\bnot\b.{1,60}\bnot\b|\bnever\b.{1,60}\bnot\b|\bnot\b.{1,60}\bwithout\b/i;
+    const CLARITY_LINE_WORDS = 35;
+    let clarityCount = 0;
+    stripFencedLines(content).split('\n').forEach((ln, i) => {
+      if (clarityCount >= 3 || isRuleDocLine(ln)) return;
+      const clean = ln.replace(/`[^`]*`/g, '').replace(/\[[^\]]*\]\([^)]*\)/g, '').trim();
+      if (!clean || /^#{1,6}\s/.test(clean) || /^\|/.test(clean)) return;
+      if (CLARITY_NOMINALIZE.test(clean)) {
+        const m = clean.match(CLARITY_NOMINALIZE);
+        add('WARN', 'clarity', `${label} line ${i + 1}: nominalization ("${m[0]}") — can this be stated more directly? rewrite as a direct verb`);
+        clarityCount++;
+      } else if (CLARITY_DOUBLE_NEG.test(clean)) {
+        add('WARN', 'clarity', `${label} line ${i + 1}: double negative — can this be stated more directly? rewrite as a positive statement`);
+        clarityCount++;
+      } else {
+        const wordCount = clean.split(/\s+/).filter(Boolean).length;
+        if (wordCount > CLARITY_LINE_WORDS) {
+          add('WARN', 'clarity', `${label} line ${i + 1}: ${wordCount}-word prose line — can this be stated more directly? split into shorter, focused statements`);
+          clarityCount++;
+        }
+      }
     });
 
     // W-tautology: adjacent sentences with high token overlap (narrative prose only —

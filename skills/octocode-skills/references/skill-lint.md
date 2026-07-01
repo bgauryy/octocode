@@ -1,6 +1,8 @@
 # Skill Lint
 
-Load when the user asks to lint, audit, or check a skill's structure/prompt hygiene, or after creating/editing a `SKILL.md`. For deeper quality scoring (workflow, gates, evidence) pair with `agent-skills-guide.md`; this file is the mechanical structure check.
+Load when the user asks to lint, audit, or check a skill's structure/prompt hygiene, or after creating/editing a `SKILL.md`.
+
+For deeper quality scoring (workflow, gates, evidence) pair with `agent-skills-guide.md`; this file is the mechanical structure check.
 
 ## Run it
 
@@ -22,6 +24,7 @@ ERROR — fix:
 - `missing-readme` — the skill folder has no `README.md`. Every skill needs a human-facing overview, features, how-it-works, and install guide.
 - `missing-reference` — every `references/<file>.md` mentioned in `SKILL.md` or behavior references actually exists; fenced examples and `references/references*.md` audit-trail files are ignored.
 - `missing-script` — every `scripts/<file>` mentioned from `SKILL.md` or frontmatter hooks exists in the bundled `scripts/` folder. Deterministic helpers are part of the skill contract; broken paths mean the installed skill cannot run as described.
+- `missing-scheme-script` — when `SKILL.md` **declares** a protocol or scheme — via a `## Protocol`, `## Scheme`, or `## scheme.js` heading, an explicit `- protocol:` bullet key, or a direct `scripts/scheme.js` reference — a `scripts/scheme.js` file MUST exist. It is the single source of truth that exposes all schemes and protocols the skill uses. Missing it means consumers cannot discover the skill's interface contracts. (Only `SKILL.md` is scanned; references may mention "protocol" descriptively without triggering this rule.)
 - `link-outside-skill` — markdown links in `SKILL.md` or any `references/*.md` must not point outside the skill folder via `../`, absolute local paths (`/`, `~/`), or `file://` URLs. Fenced examples are ignored. A skill is installed as a self-contained folder; relative escapes break on install. Use a GitHub URL instead (e.g. `https://github.com/owner/repo/blob/main/path/to/file.md`).
 
 WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and say why):
@@ -53,7 +56,8 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 - `frontmatter-metadata` — frontmatter holds only keys the agent or installer needs (`name`, `description`, `allowed-tools`, `license`). Agents read just `name`+`description` at discovery, so authoring/repo keys (`version`, `author`, `tags`, `created`/`updated`, `category`, …) are dead weight in the activation context. Drop them or track them in the repo, not in `SKILL.md`.
 - `metadata-section` — a body heading is authoring/repo metadata rather than a task instruction (`## Changelog`, `## Version History`, `## Author(s)`, `## Credits`, `## License`, `## Metadata`, `## Table of Contents`, `## TODO`, `## Maintainers`, …). The agent never acts on these; they only spend tokens. Keep changelogs, credits, and version notes in the repo README, not the skill.
 - `rigid` — density of imperative modals exceeds 12% of content lines. Rigid prompts break on legitimate edge cases. Prefer defaults with escape hatches; reserve strict modal keywords for genuinely fragile, destructive, or order-dependent steps.
-- `verbose` — filler phrases detected. They consume tokens without adding information; rewrite concisely.
+- `verbose` — filler phrases detected.
+- `clarity` — a prose line asks "can this be stated more directly?": three signals trigger it — (1) **nominalization**: a verb buried in a noun phrase (`provide an explanation` → `explain`, `make a decision` → `decide`, `perform an evaluation` → `evaluate`); (2) **double negative**: two negating terms in one clause, rewrite as a positive statement; (3) **overlong line**: > 35 words in a single prose line, split into shorter focused statements. Up to 3 findings per file; capped to avoid noise on intentionally dense sections. They consume tokens without adding information; rewrite concisely.
 - `weak-critical-language` — weak words (`should`, `could`, `may`, `consider`, `as needed`, etc.) appear inside a critical rule line. Critical rules need `MUST`/`REQUIRED`, or the action must be explicitly optional.
 - `ambiguous-action` — vague phrases such as `do some`, `as needed`, or `handle ... appropriately` appear outside an example/anti-pattern. Name the action, command, or IF/THEN condition.
 - `decision-clarity` — uppercase/bold `IF` appears without `THEN`. Agent branch rules should use explicit `IF ... THEN ...` structure.
@@ -76,16 +80,20 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 - Not rigid, not verbose: prefer defaults with escape hatches over exhaustive menus; reserve strict modal language for fragile, destructive, or order-dependent steps.
 - Prompt optimization: preserve working intent, strengthen only critical rules, add gates/output formats where behavior depends on them, and validate that changes did not bloat or conflict.
 - No duplication: each fact lives in one place. Cross-link instead of repeating.
-- No redundant data for agents: ship only what the agent reads to do the task. Authoring/repo metadata (extra frontmatter keys, changelogs, author/license/version sections) belongs in the repo, not in `SKILL.md` or `references/` where it burns activation tokens.
+- No redundant data for agents: ship only what the agent reads. Authoring/repo metadata (extra frontmatter keys, changelogs, author/license/version sections) burns activation tokens in `SKILL.md` or `references/`; keep it in the repo instead.
 - Smart routing: `references/` files may link other `references/` files so an agent loads only the next file it needs — the lint counts these cross-links. Keep each reference single-purpose with a short indicative name.
 - Complete main map: every bundled non-audit reference and every agent-facing script must be discoverable from `SKILL.md` with a short same-line description.
 - Reference files are issue-focused: one topic per file, short H1, and cross-links only to the next related reference an agent may need.
 - Runnable logic lives in `scripts/`, invoked from `SKILL.md` by relative path (`scripts/x.mjs`), never pasted inline.
-- Deterministic over agentic: when a step is mechanical, repeatable, or token-heavy to spell out in prose, ship a `scripts/` helper and have `SKILL.md` *call* it. A script runs the same way every time and costs near-zero activation tokens; narrated steps get re-interpreted (and drift) on every run. Hand procedure to scripts; reserve natural-language instructions for genuine judgment. When reviewing or authoring a skill, flag any multi-step deterministic prose block that should be a script.
+- Deterministic over agentic: when a step is mechanical, repeatable, or token-heavy to spell out in prose, ship a `scripts/` helper and have `SKILL.md` *call* it.
+  - A script runs the same way every time and costs near-zero activation tokens; narrated steps get re-interpreted (and drift) on every run.
+  - Hand procedure to scripts; reserve natural-language instructions for genuine judgment. When reviewing or authoring a skill, flag any multi-step deterministic prose block that should be a script.
 
 ## Hooks Handling
 
-Hooks are behavior, not metadata decoration. If a skill defines frontmatter `hooks:` or bundles hook helpers, `SKILL.md` must briefly say what lifecycle they affect, when an agent should inspect them, and what verification proves they behaved. Hook commands should be thin launchers to bundled helpers (`scripts/hooks/x.sh`, `scripts/x.mjs`, or `hooks/x.sh`) with a timeout. Do not hide install-impacting behavior in long inline shell.
+Hooks are behavior, not metadata decoration. If a skill defines frontmatter `hooks:` or bundles hook helpers, `SKILL.md` must briefly say what lifecycle they affect, when an agent should inspect them, and what verification proves they behaved.
+
+Hook commands should be thin launchers to bundled helpers (`scripts/hooks/x.sh`, `scripts/x.mjs`, or `hooks/x.sh`) with a timeout. Do not hide install-impacting behavior in long inline shell.
 
 When copying, installing, or auditing third-party skills, inspect hooks before writing them into a user/project scope. Report what they run, whether they touch files, and whether they are optional, required, or unsafe.
 
@@ -94,19 +102,21 @@ When copying, installing, or auditing third-party skills, inspect hooks before w
 1. Run the lint; group findings ERROR-first.
 2. For `missing-readme`: add `README.md` with overview, features, how-it-works, developer notes, and `npx octocode skill` installation.
 3. For `missing-reference`/`missing-script`: fix the filename, create the missing helper, or keep illustrative paths inside fenced examples/prose that does not look like a real bundled path.
-4. For README warnings: add concise human docs for high-level purpose, all major features, workflow/internals, user/developer audience, and installation via `npx octocode skill --name <skill>` or `--add <github-path>`.
-5. For `skill-too-long`/`no-references`/`skill-map-summary`: keep only the operational map in `SKILL.md`; extract conditional sections into short `references/*.md` with explicit load conditions.
-6. For `capability-routing`/`script-routing`/`reference-map-complete`/`script-map-complete`: add a compact routing list in `SKILL.md` that maps each bundled reference/script to a concise purpose.
-7. For `orphan-reference`: route the file from `SKILL.md` or another reference, or remove/split it if it is stale.
-8. For `route-description`: add a same-line 3-28 word purpose or load condition; move extra explanation into the target file.
-9. For `installation-section`: add `## Installation` to `SKILL.md` for skills with install scripts/references, covering approval gates and verification.
-10. For `reference-too-long`/`reference-focus`: split by sub-topic, keep one H1, and cross-link related references.
-11. For `duplicate-content`: move the sentence to the canonical file; replace the other occurrence with a cross-link.
-12. For `script-quality`: add `--help`/usage, explicit input flags/env/stdin, bounded output, and noninteractive failure messages.
-13. For `hooks-handling`/`hook-script-routing`/`hook-timeout`: document hook scope in `SKILL.md`, route commands to bundled helpers, and add bounded timeouts.
-14. For `deterministic-prose`: turn repeatable command sequences into scripts; keep prose for judgment.
-15. For prompt optimization findings (`weak-critical-language`, `ambiguous-action`, `decision-clarity`, `referential-ambiguity`, `missing-output-format`, `gate-structure`, `low-density-section`, `xml-overuse`): preserve intent, strengthen critical wording, add explicit IF/THEN branches, output templates, and complete gates only where needed.
-16. For `rigid`/`verbose`/`tautology`/`contradiction`: edit the offending lines directly; the lint message quotes the exact text.
-17. For `frontmatter-metadata`/`metadata-section`: delete the agent-irrelevant frontmatter keys and metadata headings (changelog/author/license/version); if the data is worth keeping, move it to the repo README.
-18. For `description-concise`: rewrite the frontmatter `description` so chars 1–50 are `Use when <triggers>`; keep the rest trigger-rich and ≤1024 chars total (don't strip useful triggers to chase brevity).
-19. Re-run until ERRORs clear; treat residual WARNs as a gated decision with the user.
+4. For `missing-scheme-script`: create `scripts/scheme.js` documenting every scheme and protocol the skill uses (input/output shapes, tool call contracts, structured interfaces). Remove protocol/scheme references from prose if they belong purely in the scheme file.
+5. For README warnings: add concise human docs for high-level purpose, all major features, workflow/internals, user/developer audience, and installation via `npx octocode skill --name <skill>` or `--add <github-path>`.
+6. For `skill-too-long`/`no-references`/`skill-map-summary`: keep only the operational map in `SKILL.md`; extract conditional sections into short `references/*.md` with explicit load conditions.
+7. For `capability-routing`/`script-routing`/`reference-map-complete`/`script-map-complete`: add a compact routing list in `SKILL.md` that maps each bundled reference/script to a concise purpose.
+8. For `orphan-reference`: route the file from `SKILL.md` or another reference, or remove/split it if it is stale.
+9. For `route-description`: add a same-line 3-28 word purpose or load condition; move extra explanation into the target file.
+10. For `installation-section`: add `## Installation` to `SKILL.md` for skills with install scripts/references, covering approval gates and verification.
+11. For `reference-too-long`/`reference-focus`: split by sub-topic, keep one H1, and cross-link related references.
+12. For `duplicate-content`: move the sentence to the canonical file; replace the other occurrence with a cross-link.
+13. For `script-quality`: add `--help`/usage, explicit input flags/env/stdin, bounded output, and noninteractive failure messages.
+14. For `hooks-handling`/`hook-script-routing`/`hook-timeout`: document hook scope in `SKILL.md`, route commands to bundled helpers, and add bounded timeouts.
+15. For `deterministic-prose`: turn repeatable command sequences into scripts; keep prose for judgment.
+16. For prompt optimization findings (`weak-critical-language`, `ambiguous-action`, `decision-clarity`, `referential-ambiguity`, `missing-output-format`, `gate-structure`, `low-density-section`, `xml-overuse`): preserve intent, strengthen critical wording, add explicit IF/THEN branches, output templates, and complete gates only where needed.
+17. For `rigid`/`verbose`/`tautology`/`contradiction`/`clarity`: edit the offending lines directly; the lint message quotes the exact text.
+    - For `clarity` specifically: replace nominalizations with the direct verb form (`make a decision` → `decide`), flip double negatives to a positive statement, and split any prose line over 35 words into two focused statements.
+18. For `frontmatter-metadata`/`metadata-section`: delete the agent-irrelevant frontmatter keys and metadata headings (changelog/author/license/version); if the data is worth keeping, move it to the repo README.
+19. For `description-concise`: rewrite the frontmatter `description` so chars 1–50 are `Use when <triggers>`; keep the rest trigger-rich and ≤1024 chars total (don't strip useful triggers to chase brevity).
+20. Re-run until ERRORs clear; treat residual WARNs as a gated decision with the user.

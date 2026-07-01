@@ -4,7 +4,9 @@ Load when presenting results, building result cards, gating the next step, or ru
 
 ## Present results
 
-Lead with the recommendation in one sentence. Group only when useful: `Best matches`, `Useful alternatives`, `Explore if...`. Few results → compact cards; many → list confirmed names/sources compactly and give detailed cards only for the strongest candidates. Keep prose short; never paste raw search dumps or large excerpts.
+Lead with the recommendation in one sentence. Group only when useful: `Best matches`, `Useful alternatives`, `Explore if...`.
+
+Few results → compact cards; many → list confirmed names/sources compactly and give detailed cards only for the strongest candidates. Keep prose short; never paste raw search dumps or large excerpts.
 
 Card shape (label layout, not literal Markdown):
 

@@ -26,11 +26,15 @@ Read: the full target `SKILL.md` and all behavior-affecting referenced files; no
 
 Map intent: preserve the skill's core job, trigger domain, and user-facing promises; identify what behavior must become more reliable (activation, research quality, safety gates, tool routing, output shape, recovery).
 
-Rate issues: run the lint, then check weak rules in critical sections, vague actions, raw-search handoff, missing gates, unsafe writes, missing verification, stale references, line-count bloat. Group by `Critical`/`High`/`Medium`/`Low`, cite `file:line`. Score per dimension using `quality-rubric.md`.
+Rate issues: run the lint, then check weak rules in critical sections, vague actions, raw-search handoff, missing gates, unsafe writes, missing verification, stale references, line-count bloat.
+
+Group by `Critical`/`High`/`Medium`/`Low`, cite `file:line`. Score per dimension using `quality-rubric.md`.
 
 Rewrite (skip in Rate-only): fix Critical+High first; keep `SKILL.md` lean (the lint targets ≤100 lines); move long examples/schemas/static refs into `references/` with explicit load conditions; keep `description` trigger-rich (see `description-tuning.md`) without keyword stuffing.
 
-Validate (skip in Rate-only): valid `name`+`description`; clear steps, gates, recovery, output UX; referenced files exist (or missing ones documented as risks); critical actions use strong modal language only where needed; no write/install bypasses a user gate. Re-run `scripts/skill-lint.mjs` until errors clear.
+Validate (skip in Rate-only): valid `name`+`description`; clear steps, gates, recovery, output UX; referenced files exist (or missing ones flagged as risks); critical actions use strong modals only where needed; no write/install bypasses a user gate.
+
+Re-run `scripts/skill-lint.mjs` until errors clear.
 
 ## Report
 

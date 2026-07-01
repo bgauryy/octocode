@@ -1,6 +1,8 @@
 # Discovery Surfaces
 
-Use when the user wants to shop for skills beyond raw GitHub code search — marketplaces, registries, leaderboards, manifest formats, and CLI installers. Cross-check at least two surfaces before recommending a candidate, and prefer surfaces that show evidence of activity (installs, recent updates, audit status).
+Use when the user wants to shop for skills beyond raw GitHub code search — marketplaces, registries, leaderboards, manifest formats, and CLI installers.
+
+Cross-check at least two surfaces before recommending a candidate, and prefer surfaces that show evidence of activity (installs, recent updates, audit status).
 
 ## Quick Routing
 

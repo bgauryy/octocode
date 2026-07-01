@@ -24,4 +24,4 @@ Load when a search, fetch, install, or marketplace surface fails or returns noth
 
 ## Tooling
 
-- Tool or API unavailable: state what evidence is missing, map the failed verb to an alternative runtime tool when one exists, and ask the user whether to switch source, drop to a fallback, or stop.
+- Tool or API unavailable: state what evidence is missing, map the failed verb to an alternative runtime tool if one exists, and ask whether to switch source, use a fallback, or stop.
