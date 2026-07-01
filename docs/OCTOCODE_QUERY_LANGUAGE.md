@@ -637,6 +637,14 @@ Field/op pairings (what each field is for):
 Use symbolic ops like `=`; aliases such as `eq` are invalid. There is no
 `contains` op — use `op:"glob"` with `value:"*term*"`, or `op:"regex"`.
 
+Field predicates evaluate **file attributes**, so they run on `target:"files"`
+(alone or mixed into files-lane booleans). A bare field predicate on
+`target:"code"` is rejected with `unsupportedPredicate` — code content is
+matched with `text`/`regex`/`structural`; switch to `target:"files"` for file
+discovery. Over a GitHub source, only path-like equality (`path`/`basename`/
+`extension` with `op:"="`) pushes down to the provider; other field shapes
+materialize.
+
 ### Boolean
 
 ```json
@@ -660,6 +668,35 @@ Forms:
 Negation needs a complete universe. Local and materialized sources can prove
 negative predicates. Provider search often cannot prove absence unless the query
 materializes a bounded corpus.
+
+### Boolean Sugar
+
+Top-level sugar keys are accepted beside `where` and lower to canonical
+booleans at normalize time:
+
+| Sugar | Lowers to |
+|---|---|
+| `and: [P1, P2, …]` | `{ kind:"all", of:[…] }` |
+| `or: [P1, P2, …]` | `{ kind:"any", of:[…] }` |
+| `noneOf: [P1, P2, …]` | `{ kind:"not", predicate:{ kind:"any", of:[…] } }` |
+| `xor: [P1, P2]` (exactly two) | `any(all(P1, not P2), all(not P1, P2))` |
+| `oneOf: [P1, …, Pn]` | exactly-one expansion (bounded by `controls.budget.maxBooleanExpansion`, default 64) |
+| `invert: true` | wraps the whole predicate in `not` |
+
+```json
+{
+  "target": "code",
+  "from": { "kind": "local", "path": "./src" },
+  "and": [
+    { "kind": "text", "value": "useEffect" },
+    { "kind": "text", "value": "useState" }
+  ]
+}
+```
+
+Prefer canonical `all`/`any`/`not` in programmatic queries; sugar is for terse
+hand-written ones. `oneOf`/`xor` expansions count against the boolean-expansion
+budget and fail with `budgetExhausted` when exceeded.
 
 ## Fetch And Content Views
 

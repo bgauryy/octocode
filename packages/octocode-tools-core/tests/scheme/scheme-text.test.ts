@@ -21,6 +21,24 @@ describe('oqlSchemaText (full --scheme)', () => {
       expect(full).toContain(field);
     }
   });
+
+  it('teaches field-predicate lane scoping and boolean sugar', () => {
+    const full = oqlSchemaText();
+    // field predicates are files-lane only; agents must learn this BEFORE
+    // hitting unsupportedPredicate.
+    expect(full).toMatch(/field predicates evaluate file attributes/i);
+    expect(full).toContain('booleanSugar');
+    for (const sugar of [
+      'and:',
+      'or:',
+      'noneOf:',
+      'xor:',
+      'oneOf:',
+      'invert:true',
+    ]) {
+      expect(full).toContain(sugar);
+    }
+  });
 });
 
 describe('oqlCompactSchemeText (--scheme --compact)', () => {
