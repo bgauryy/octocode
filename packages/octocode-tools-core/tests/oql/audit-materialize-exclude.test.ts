@@ -8,7 +8,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { runDirect } = vi.hoisted(() => ({ runDirect: vi.fn() }));
 const { executeLocal } = vi.hoisted(() => ({ executeLocal: vi.fn() }));
-vi.mock('../../src/oql/adapters/runner.js', () => ({ runDirect }));
+vi.mock('../../src/oql/adapters/runner.js', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  runDirect,
+}));
 vi.mock('../../src/oql/adapters/local.js', () => ({ executeLocal }));
 
 import { executeMaterialize } from '../../src/oql/adapters/materialize.js';

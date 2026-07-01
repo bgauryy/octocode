@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { runDirect } = vi.hoisted(() => ({ runDirect: vi.fn() }));
 
-vi.mock('../../src/oql/adapters/runner.js', () => ({ runDirect }));
+vi.mock('../../src/oql/adapters/runner.js', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  runDirect,
+}));
 
 import { runOqlSearch } from '../../src/oql/run.js';
 

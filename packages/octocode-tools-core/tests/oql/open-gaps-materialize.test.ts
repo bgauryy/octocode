@@ -6,7 +6,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const { runDirect } = vi.hoisted(() => ({ runDirect: vi.fn() }));
-vi.mock('../../src/oql/adapters/runner.js', () => ({ runDirect }));
+vi.mock('../../src/oql/adapters/runner.js', async importOriginal => ({
+  ...(await importOriginal<object>()),
+  runDirect,
+}));
 
 import { runOqlSearch } from '../../src/oql/run.js';
 import {
@@ -342,7 +345,9 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
     expect(materialize?.why).toContain(
       'search useState packages/react/src --repo facebook/react --materialize required'
     );
-    expect(materialize?.why).toContain('clone facebook/react/packages/react/src');
+    expect(materialize?.why).toContain(
+      'clone facebook/react/packages/react/src'
+    );
     expect(materialize?.why).toContain(
       'cache fetch facebook/react packages/react/src --depth tree'
     );
@@ -567,8 +572,9 @@ describe('provider regressions: GitHub content/structure and proof gates', () =>
         },
       },
     });
-    expect(env.diagnostics.some(d => d.code === 'providerSemanticsApproximate'))
-      .toBe(true);
+    expect(
+      env.diagnostics.some(d => d.code === 'providerSemanticsApproximate')
+    ).toBe(true);
     expect(env.evidence.kind).toBe('candidate');
     expect(env.evidence.answerReady).toBe(false);
   });
@@ -824,8 +830,8 @@ describe('#6 per-domain continuation: binary strings nextScanOffset', () => {
     expect(env.diagnostics.map(d => d.code)).toContain('partialResult');
     expect(
       (
-        env.diagnostics.find(d => d.code === 'partialResult')
-          ?.continuation as OqlContinuation | undefined
+        env.diagnostics.find(d => d.code === 'partialResult')?.continuation as
+          OqlContinuation | undefined
       )?.query.params
     ).toMatchObject({ charOffset: 4000, charLength: 4000 });
     expect(row.next?.['next.artifactContent']?.query.params).toMatchObject({

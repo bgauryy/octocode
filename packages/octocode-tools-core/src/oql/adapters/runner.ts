@@ -27,3 +27,23 @@ export function runDirect(
     queries: [{ ...RESEARCH_META, ...query }],
   });
 }
+
+/** Pull the single query's `{data,status}` out of a bulk-shaped tool result. */
+export function firstQueryData<T = Record<string, unknown>>(
+  result: CallToolResult
+): { data?: T; status?: string } {
+  const sc = result.structuredContent as
+    { results?: Array<{ status?: string; data?: unknown }> } | undefined;
+  const first = sc?.results?.[0];
+  return { data: first?.data as T | undefined, status: first?.status };
+}
+
+export function numberFrom(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+export function stringFrom(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
