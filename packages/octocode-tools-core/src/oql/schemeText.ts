@@ -159,7 +159,7 @@ export const OQL_SCHEMA_DOC = {
     select: 'string[] projection of result/continuation fields',
     view: 'discovery | paginated | detailed',
     controls:
-      '{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?, sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxCandidates?, maxBytes?, maxMaterializedBytes?, maxPlanNodes?, maxBooleanExpansion?, timeoutMs? } } — output/cost controls',
+      '{ search?: { countLinesPerFile?, countMatchesPerFile?, onlyMatching?, unique?, countUnique?, contextLines?, invertMatch?, matchWindow?, matchContentLength?, maxMatchesPerFile?, matchPage?, sort?:"relevance"|"matchCount"|"path"|"modified"|"accessed"|"created"|"size"|"name", sortReverse?, rankingProfile?, debugRanking? }, budget?: { maxFiles?, maxCandidates?, maxBytes?, maxMaterializedBytes?, maxPlanNodes?, maxBooleanExpansion?, timeoutMs? } } — output/cost controls; sort values "size"/"name" apply to target:"files" only (lowered to localFindFiles sortBy), the rest are code-search sorts',
     limit:
       'number — total result cap where supported. Prefer itemsPerPage for paged research/graph/file-history continuations.',
     page: 'number — top-level page number for OQL windowing/continuations',
