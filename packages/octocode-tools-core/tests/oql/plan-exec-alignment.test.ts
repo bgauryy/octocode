@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';
 import type { OqlQuery } from '../../src/oql/types.js';
+import { toGithubCodeSearchToolQuery } from '../../src/oql/transformers/github/code.js';
 
 function plan(input: unknown) {
   const q = normalizeQuery(input as never) as OqlQuery;
@@ -183,4 +184,75 @@ describe('GitHub code lane: case-sensitive / whole-word text is not proof (C1)',
     expect(executable).toBe(true);
     expect(p.nodes.some(n => n.route === 'ROUTE')).toBe(true);
   });
+});
+
+describe('plan/exec agreement per leaf shape (github, materialize:never)', () => {
+  const CASES: Array<{ name: string; target: string; where: unknown }> = [
+    {
+      name: 'text content over code',
+      target: 'code',
+      where: { kind: 'text', value: 'useEffect' },
+    },
+    {
+      name: 'rust-dialect regex over code',
+      target: 'code',
+      where: { kind: 'regex', value: 'use[A-Z]\\w+' },
+    },
+    {
+      name: 'structural over code',
+      target: 'code',
+      where: {
+        kind: 'structural',
+        lang: 'ts',
+        pattern: 'function $F($$$) { $$$ }',
+      },
+    },
+    {
+      name: 'text content over files',
+      target: 'files',
+      where: { kind: 'text', value: 'useEffect' },
+    },
+    {
+      name: 'field extension = over files',
+      target: 'files',
+      where: { kind: 'field', field: 'extension', op: '=', value: 'ts' },
+    },
+    {
+      name: 'field basename = over files',
+      target: 'files',
+      where: { kind: 'field', field: 'basename', op: '=', value: 'index.ts' },
+    },
+    {
+      name: 'field path = over files',
+      target: 'files',
+      where: { kind: 'field', field: 'path', op: '=', value: 'src/index.ts' },
+    },
+    {
+      name: 'field size > over files',
+      target: 'files',
+      where: { kind: 'field', field: 'size', op: '>', value: 1024 },
+    },
+  ];
+
+  for (const c of CASES) {
+    it(`${c.name}: transformer verdict agrees with plan routing`, () => {
+      const input = {
+        target: c.target,
+        from: { kind: 'github', repo: 'facebook/react' },
+        where: c.where,
+        materialize: 'never',
+      };
+      const q = normalizeQuery(input as never) as OqlQuery;
+      const { plan: p, executable } = planQuery(q, input);
+      const transformed = toGithubCodeSearchToolQuery(q);
+
+      // Executable all-PUSHDOWN plan => the provider transformer must accept.
+      const allPushdown =
+        executable && p.nodes.every(n => n.route === 'PUSHDOWN');
+      if (allPushdown) expect(transformed.ok).toBe(true);
+      // Transformer rejection => the planner must not have claimed an
+      // executable pure-pushdown route for the same query.
+      if (!transformed.ok) expect(allPushdown).toBe(false);
+    });
+  }
 });

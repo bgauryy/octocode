@@ -6,9 +6,44 @@ import { toGithubCodeLanguageParams } from '../language.js';
 import {
   firstScopeLanguage,
   firstScopePath,
+  leafPredicates,
   requestedRowLimit,
   splitGithubSource,
 } from './common.js';
+
+const LEAF_KINDS = new Set(['text', 'regex', 'structural', 'field']);
+
+/**
+ * The compiled provider query expresses exactly one leaf: the root of `where`
+ * (booleans and negation are rejected before any ok:true return). Guard that
+ * invariant so a future edit that decomposes a boolean but forgets a branch
+ * fails closed instead of silently dropping a routed predicate.
+ */
+function consumedOk(
+  query: OqlQuery,
+  built: GithubCodeSearchToolQuery,
+  backend: string
+): TransformResult<GithubCodeSearchToolQuery> {
+  const where = query.where;
+  const leaves = where ? leafPredicates(where) : [];
+  const unconsumed =
+    where && LEAF_KINDS.has(where.kind) && leaves.length === 1
+      ? []
+      : leaves.filter(l => l !== where);
+  if (unconsumed.length > 0) {
+    return {
+      ok: false,
+      diagnostics: unconsumed.map(l =>
+        diagnostic(
+          'lossyTransform',
+          'GitHub code search compiled only part of `where`; an unconsumed predicate would be silently dropped — materialize for local proof.',
+          { backend, ...(l.id ? { predicateId: l.id } : {}) }
+        )
+      ),
+    };
+  }
+  return { ok: true, diagnostics: [], query: built };
+}
 
 export type GithubCodeSearchToolQuery = Record<string, unknown>;
 
@@ -77,10 +112,9 @@ export function toGithubCodeSearchToolQuery(
         : toGithubCodeLanguageParams(firstScopeLanguage(query.scope));
     const limit = requestedRowLimit(query);
     const scopePath = firstScopePath(query.scope);
-    return {
-      ok: true,
-      diagnostics: [],
-      query: {
+    return consumedOk(
+      query,
+      {
         ...(owner ? { owner } : {}),
         ...(repo ? { repo } : {}),
         ...languageParams,
@@ -92,7 +126,8 @@ export function toGithubCodeSearchToolQuery(
         ...(limit ? { limit } : {}),
         ...(query.page ? { page: query.page } : {}),
       },
-    };
+      options.unsupportedBackend ?? 'ghSearchCode'
+    );
   }
 
   const compiled = compileWhere(query.where);
@@ -155,10 +190,9 @@ export function toGithubCodeSearchToolQuery(
   const match =
     typeof params.match === 'string' ? params.match : options.defaultMatch;
 
-  return {
-    ok: true,
-    diagnostics: [],
-    query: {
+  return consumedOk(
+    query,
+    {
       ...(owner ? { owner } : {}),
       ...(repo ? { repo } : {}),
       keywords:
@@ -182,7 +216,8 @@ export function toGithubCodeSearchToolQuery(
       ...(limit ? { limit } : {}),
       ...(query.page ? { page: query.page } : {}),
     },
-  };
+    options.unsupportedBackend ?? 'ghSearchCode'
+  );
 }
 
 function githubCodeLossyScopeDiagnostics(

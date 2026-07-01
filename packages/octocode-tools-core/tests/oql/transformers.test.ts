@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeQuery } from '../../src/oql/normalize.js';
 import { toGithubCodeSearchToolQuery } from '../../src/oql/transformers/github/code.js';
+import { leafPredicates } from '../../src/oql/transformers/github/common.js';
 import {
   classifyLanguageSelector,
   toGithubCodeLanguageParams,
@@ -153,9 +154,7 @@ describe('OQL transformers: GitHub code search query', () => {
 
     expect(transformed.ok).toBe(false);
     if (transformed.ok) throw new Error('expected transform to fail');
-    expect(transformed.diagnostics[0]?.code).toBe(
-      'unsupportedVendorPredicate'
-    );
+    expect(transformed.diagnostics[0]?.code).toBe('unsupportedVendorPredicate');
     expect(transformed.diagnostics[0]?.blocksAnswer).toBe(true);
   });
 
@@ -202,5 +201,75 @@ describe('OQL transformers: GitHub code search query', () => {
       queryPath: 'scope.language',
       blocksAnswer: true,
     });
+  });
+});
+
+describe('OQL transformers: predicate consumption fails closed', () => {
+  it('rejects a multi-leaf boolean instead of dropping a branch', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'code',
+        from: { kind: 'github', repo: 'facebook/react' },
+        where: {
+          kind: 'all',
+          of: [
+            { kind: 'text', value: 'useEffect' },
+            { kind: 'text', value: 'useState' },
+          ],
+        },
+        materialize: 'never',
+      })
+    );
+    expect(transformed.ok).toBe(false);
+    if (transformed.ok) throw new Error('expected transform to fail');
+    expect(transformed.diagnostics[0]?.blocksAnswer).toBe(true);
+  });
+
+  it('rejects not(text) — GitHub cannot prove absence', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'code',
+        from: { kind: 'github', repo: 'facebook/react' },
+        where: {
+          kind: 'not',
+          predicate: { kind: 'text', value: 'useEffect' },
+        },
+        materialize: 'never',
+      })
+    );
+    expect(transformed.ok).toBe(false);
+    if (transformed.ok) throw new Error('expected transform to fail');
+    expect(transformed.diagnostics[0]?.code).toBe('unsupportedVendorPredicate');
+  });
+
+  it('rejects a non-equality field predicate (no provider qualifier)', () => {
+    const transformed = toGithubCodeSearchToolQuery(
+      githubCodeQuery({
+        target: 'files',
+        from: { kind: 'github', repo: 'facebook/react' },
+        where: { kind: 'field', field: 'size', op: '>', value: 1024 },
+        materialize: 'never',
+      })
+    );
+    expect(transformed.ok).toBe(false);
+    if (transformed.ok) throw new Error('expected transform to fail');
+    expect(transformed.diagnostics[0]?.blocksAnswer).toBe(true);
+  });
+
+  it('leafPredicates collects every leaf through boolean structure', () => {
+    const leaves = leafPredicates({
+      kind: 'any',
+      of: [
+        { kind: 'text', value: 'a' },
+        {
+          kind: 'all',
+          of: [
+            { kind: 'regex', value: 'b' },
+            { kind: 'not', predicate: { kind: 'text', value: 'c' } },
+          ],
+        },
+      ],
+    });
+    expect(leaves.map(l => l.kind)).toEqual(['text', 'regex', 'text']);
   });
 });

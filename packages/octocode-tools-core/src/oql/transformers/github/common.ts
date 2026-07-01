@@ -1,4 +1,22 @@
-import type { OqlQuery, QueryScope, QuerySource } from '../../types.js';
+import type {
+  OqlQuery,
+  Predicate,
+  QueryScope,
+  QuerySource,
+} from '../../types.js';
+
+/**
+ * Collect the leaf predicates (text/regex/structural/field) of a `where`
+ * tree. Mirrors the planner's walk without importing planner.ts (cycle risk);
+ * used to verify a provider transformer consumed every routed leaf.
+ */
+export function leafPredicates(where: Predicate): Predicate[] {
+  if (where.kind === 'all' || where.kind === 'any') {
+    return where.of.flatMap(leafPredicates);
+  }
+  if (where.kind === 'not') return leafPredicates(where.predicate);
+  return [where];
+}
 
 export function splitGithubSource(source: QuerySource | undefined): {
   owner?: string;
