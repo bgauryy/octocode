@@ -1,6 +1,7 @@
 # Loop Research
 
-Read this when a technical or code question needs repeated Act→Observe→Learn cycles before the answer is trustworthy. Use it for clear goals that need convergence, local code-check loops, multi-source research, dead-code proof, or "keep going until evidence converges."
+Read this when a technical or code question needs repeated Act→Observe→Learn cycles before the answer is trustworthy.
+Use it for clear goals that need convergence, local code-check loops, multi-source research, dead-code proof, or "keep going until evidence converges."
 
 ## Iteration Unit
 
@@ -11,7 +12,7 @@ Frame one question -> Act with one cheap call -> Observe status/results -> Learn
 ```
 
 - **Act:** choose the smallest call that could change the answer. Start discovery/path/symbols/concise, then spend exact reads, clone, AST/LSP, PRs, tests, or builds only on surviving leads.
-- **Observe:** read `status` first. `empty` means the call ran and matched nothing; adjust one variable before treating it as evidence. `error` means fix the call, auth, validation, rate limit, or scope; do not treat it as not-found.
+- **Observe:** read `status` first. `empty` = ran but matched nothing; adjust one variable before trusting it. `error` = broken call (auth, validation, rate limit, scope); fix it, never read it as absence.
 - **Learn:** update a small ledger: goal, anchors, hypotheses, tried query shapes, and the cheapest disconfirming step.
 
 ## Ledger

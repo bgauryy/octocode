@@ -47,6 +47,28 @@
       "forbidden": [
         { "name": "no time estimates", "pattern": "\\b\\d+\\s*(days?|weeks?|months?)\\b|\\bETA\\b" }
       ]
+    },
+    {
+      "id": "three-file-rfc",
+      "mode": "RFC",
+      "prompt": "Write a full RFC for an irreversible cross-package change as the three-file set (RFC.md, IMPLEMENTATION.md, KPI.md): goals/non-goals, reversibility, alternatives, open questions closed via research, acceptance criteria, success metrics, and a traceability matrix.",
+      "minScore": 0.85,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "RFC.md file", "pattern": "\\bRFC\\.md\\b" },
+        { "name": "IMPLEMENTATION.md file", "pattern": "\\bIMPLEMENTATION\\.md\\b" },
+        { "name": "KPI.md file", "pattern": "\\bKPI\\.md\\b" },
+        { "name": "goals and non-goals", "pattern": "\\bNon-Goals?\\b" },
+        { "name": "reversibility classification", "pattern": "\\b(reversible|irreversible|two-way door|one-way door)\\b" },
+        { "name": "open questions closed", "pattern": "\\bResolved Questions?\\b|\\bResolution\\b|closed[^\\n]*open question" },
+        { "name": "gherkin acceptance", "pattern": "\\bGiven\\b[^\\n]*\\n?[^\\n]*\\bWhen\\b[^\\n]*\\n?[^\\n]*\\bThen\\b|\\bGherkin\\b" },
+        { "name": "success metric with target", "pattern": "\\bbaseline\\b|\\bTarget\\b|\\bguardrail\\b" },
+        { "name": "decision rule or rollback", "pattern": "\\bDecision Rule\\b|\\bRoll ?back\\b" },
+        { "name": "traceability matrix", "pattern": "\\btraceability\\b" }
+      ],
+      "forbidden": [
+        { "name": "unreplaced placeholders", "pattern": "\\{[^}]+\\}|\\bTBD\\b|\\bTODO\\b" }
+      ]
     }
   ]
 }

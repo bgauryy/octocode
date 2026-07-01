@@ -1,38 +1,46 @@
 ---
 name: octocode-rfc-generator
-description: "Use when the user needs an RFC, design doc, architecture proposal, migration plan, implementation plan, or research-backed technical decision before coding. Trigger for cross-package changes, risky refactors, option comparisons, blast-radius mapping, or a written plan with citations."
+description: "Use when the user needs an RFC, design doc, architecture proposal, migration plan, or research-backed decision before coding. Triggers: cross-package changes, risky refactors, option comparisons, blast-radius mapping, or improving an existing RFC/plan."
 ---
 
 # Octocode RFC Generator
 
-Use this skill when a change needs **thinking before coding**: architecture choices, migrations, cross-package changes, risky refactors, implementation plans, or formal RFC/design docs. The output is evidence-backed and actionable, not a brainstorm.
-
-Octocode transport reference: read `references/octocode.md` when choosing, installing, or explaining Octocode MCP vs CLI usage.
-
-Core flow:
+For a change that needs **thinking before coding** — or to **improve an existing RFC/plan** (close gaps, research open questions, add verification). Output is evidence-backed and actionable, not a brainstorm.
 
 ```text
-UNDERSTAND → RESEARCH → COMPARE OPTIONS → WRITE RFC / PLAN → VALIDATE → DELIVER
+UNDERSTAND → RESEARCH (octocode) → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS (octocode) → DERIVE KPIs → VALIDATE → DELIVER
 ```
 
-For trivial one-file edits with no design choice, skip RFC mode and route to `octocode-research` Change mode.
+For trivial one-file edits with no design choice, skip RFC mode and route to `octocode-research` Change mode. Read `references/octocode.md` when choosing Octocode MCP vs CLI.
+
+## Output: a folder, not a file
+
+When a save is approved, write a folder `\.octocode/rfc/{name}/` containing **three files**:
+
+| File | Role · reader · lifecycle |
+|---|---|
+| `RFC.md` | **Decide** — reviewer-facing. **Frozen at decision. Single source of truth (SSOT) for goals/scope/decision.** |
+| `IMPLEMENTATION.md` | **Build** — implementer-facing. **Live.** Every RFC open question is **closed here with Octocode evidence**. |
+| `KPI.md` | **Verify** — outlives the ship date. Acceptance criteria + measurable success signals + how to check the RFC *and* its implementation post-ship. |
+
+**Small-feature mode:** for a small, reversible, single-package change, produce **only `RFC.md`** (plan + acceptance criteria inline) and say so. Full 3-file folder is the default for anything irreversible, cross-package, or public-contract/data/security impact.
 
 ## Reference Map
 
-- `references/workflow.md` — read first for mode selection, gates, claim ledger, validation, and delivery shape.
-- `references/research-playbook.md` — when gathering current state, prior art, package, history, or binary evidence.
-- `references/rfc-template.md` — when producing the main RFC body from Summary through Prior Art.
-- `references/rfc-implementation.md` — when adding unresolved questions, references, future possibilities, and implementation plan.
-
-For a lighter implementation plan, use the trimmed skeleton in `references/workflow.md` instead of the full RFC template.
+- `references/workflow.md` — read first for mode selection, gates, claim ledger, the 3-file structure, SSOT rule, traceability, validation, and delivery.
+- `references/research-playbook.md` — when gathering current state, prior art, package, history, or binary evidence with Octocode.
+- `references/rfc-template.md` — when producing `RFC.md` (Summary → Prior Art, Goals/Non-Goals, reversibility tag, pre-mortem).
+- `references/rfc-implementation.md` — when producing `IMPLEMENTATION.md` (open questions closed via research, dependency-ordered steps, V&V test plan, rollout/rollback).
+- `references/rfc-kpi.md` — when producing `KPI.md` (user stories, Gherkin acceptance, success metrics, decision rule, traceability matrix).
 
 ## Non-negotiables
 
-- Do not guess facts that tools can verify; cite local claims with `file:line` and external claims with a GitHub path/line or PR/commit link.
-- Always compare at least two alternatives unless the user explicitly asks for a single implementation plan.
-- Order implementation steps by dependency, not preference; avoid time estimates.
-- Default output location when saving is approved: `.octocode/rfc/RFC-{meaningful-name}.md`. Ask before saving; otherwise keep the document in chat.
-- When changing this skill, run `scripts/eval-rfc.mjs --self-test` and smoke prompts in `evals/prompts.md`.
+- Do not guess facts that tools can verify; cite local claims with `file:line` and external claims with a GitHub path/line or PR/commit link. Prefer Octocode for every claim (see `references/research-playbook.md`).
+- Always compare at least two alternatives — including do-nothing — unless the user explicitly asks for a single implementation plan.
+- **SSOT rule:** `RFC.md` owns goals, scope, and the decision. `IMPLEMENTATION.md` and `KPI.md` **reference RFC section anchors — never restate them**, so the files cannot drift apart.
+- **Close open questions in `IMPLEMENTATION.md`:** every `Unresolved Question` in `RFC.md` must be resolved with an Octocode citation, or explicitly deferred with a reason. No recommendation may rest on an `uncertain` claim.
+- **Bind the files with a traceability matrix** in `KPI.md`: `RFC requirement → user story → acceptance criteria → verification method → post-ship status`.
+- Order implementation steps by dependency, not preference; avoid time estimates. Generate all three files in **one pass from one claim ledger**, then self-check with `scripts/eval-rfc.mjs --case <id>` before delivery.
 
 ## Installation
 

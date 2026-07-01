@@ -13,3 +13,9 @@ Pass criteria: consumes the handoff explicitly; sets status/mode; builds or summ
 Prompt: `Write a migration plan for changing a public API used by multiple packages.`
 
 Pass criteria: chooses Migration or RFC mode; maps current and target state; gates public contract risk; includes compatibility, rollout, rollback trigger, owner/approver, verification commands, and dependency-ordered phases.
+
+## Eval 3 — Full Three-File RFC
+
+Prompt: `Write a full RFC for an irreversible cross-package change as the three-file set (RFC.md, IMPLEMENTATION.md, KPI.md): goals/non-goals, reversibility, alternatives, open questions closed via research, acceptance criteria, success metrics, and a traceability matrix.`
+
+Pass criteria: names all three files; classifies decision reversibility; states Goals and Non-Goals; compares alternatives; closes RFC open questions in IMPLEMENTATION.md with citations; KPI.md has user stories, Gherkin acceptance criteria, success metrics with baseline/target/guardrail, a decision rule, and a traceability matrix binding the files.

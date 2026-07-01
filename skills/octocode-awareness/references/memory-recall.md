@@ -30,7 +30,9 @@ git add .octocode/memories.jsonl && git commit -m "share agent memories"
 awareness.py memory-import .octocode/memories.jsonl    # --mode skip (default, keep local) | replace
 ```
 
-`memory-export` is schema-agnostic (`SELECT *`) and skips embedding blobs (rebuild with `embed-index` after import). It can export a scoped slice with `--workspace`/`--repo`/`--ref`; scoped exports include broader global/applicable memories unless `--strict-scope` is passed, and `--global-only` exports only unscoped lessons. `memory-import` keeps existing memories under `--mode skip` and overwrites under `--mode replace`, refreshing FTS and exact-reference indexes either way. For a **fully repo-local** memory store (every memory lives in the repo, not `~/.octocode`), point `OCTOCODE_MEMORY_HOME=<repo>/.octocode/memory` — then `tell-memory`/`get-memory` read and write inside the repo directly. Export/import is the file-based, merge-friendly path; a repo-local DB is the all-in path. Never commit secrets — the same safety rule applies to exported files.
+`memory-export` is schema-agnostic (`SELECT *`) and skips embedding blobs (rebuild with `embed-index` after import). It can export a scoped slice with `--workspace`/`--repo`/`--ref`; scoped exports include broader global/applicable memories unless `--strict-scope` is passed, and `--global-only` exports only unscoped lessons. `memory-import` keeps existing memories under `--mode skip` and overwrites under `--mode replace`, refreshing FTS and exact-reference indexes either way.
+
+For a **fully repo-local** memory store (every memory lives in the repo, not `~/.octocode`), point `OCTOCODE_MEMORY_HOME=<repo>/.octocode/memory`; then `tell-memory`/`get-memory` read and write inside the repo directly. Export/import is the file-based, merge-friendly path; a repo-local DB is the all-in path. Never commit secrets — the same safety rule applies to exported files.
 
 ## `get-memory`
 

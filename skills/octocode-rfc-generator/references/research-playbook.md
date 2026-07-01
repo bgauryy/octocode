@@ -68,6 +68,7 @@ Flow: identify/list → extract one entry or unpack all → run local tools on t
 | Library/package adoption | npm/package metadata + repo source + local integration points |
 | Refactor plan | Local structure + LSP references/callers + AST duplication/smell checks |
 | RFC validation | Map each claim to local/external evidence; mark confirmed/likely/uncertain |
+| Closing open questions (IMPLEMENTATION.md) | Per RFC open question: local `file:line` via `localSearchCode`/LSP → external via `ghSearchCode`/`ghGetFileContent` → rationale via `ghHistoryResearch`. A resolution without a citation is not resolved. |
 
 ## Evidence rules
 

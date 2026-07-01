@@ -32,6 +32,18 @@ function loadEnvFile() {
   } catch { /* .env not present */ }
 }
 
+// Unified env: octocode-config.mjs is injected alongside this script at build time
+// (from @octocodeai/config source — zero npm dependency). In source/dev the file is
+// absent and the catch falls through to the local .env file. Nothing overrides an
+// already-set var.
+async function loadEnv() {
+  try {
+    const { propagateOctocodeEnv } = await import(new URL('./octocode-config.mjs', import.meta.url).href);
+    propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
+  } catch { /* octocode-config.mjs not present (source/dev) — local .env fallback below */ }
+  loadEnvFile();
+}
+
 function splitList(v) {
   return String(v || '').split(',').map(s => s.trim()).filter(Boolean);
 }
@@ -153,7 +165,7 @@ Options:
     return;
   }
 
-  loadEnvFile();
+  await loadEnv();
   const apiKey = normalizeApiKey(process.env.TAVILY_API_KEY || process.env.TAVILY_API_TOKEN);
 
   if (opts.check) {

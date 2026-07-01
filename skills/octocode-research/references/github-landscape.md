@@ -2,7 +2,8 @@
 
 Read this when the research question asks "what repos exist?", "which implementation should we reuse?", "what open-source options implement X?", or when a prior-art map needs deeper GitHub comparison.
 
-This mode is a structured repo ecosystem pass: discover broadly, rank cheaply, deep-dive selectively, then produce an integration blueprint. It is optional; do not use it for a single known repo or a narrow code bug.
+This mode is a structured repo ecosystem pass: discover broadly, rank cheaply, deep-dive selectively, then produce an integration blueprint.
+The pass is optional; skip it for a single known repo or a narrow code bug.
 
 ## Output Goal
 

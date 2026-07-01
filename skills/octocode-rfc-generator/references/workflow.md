@@ -1,35 +1,63 @@
 # RFC / Plan Workflow
 
-The full flow, from understanding the ask to delivering the document.
+The full flow, from understanding the ask to delivering the document set.
 
 ```text
-UNDERSTAND → RESEARCH → COMPARE OPTIONS → WRITE RFC / PLAN → VALIDATE → DELIVER
+UNDERSTAND → RESEARCH (octocode) → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS (octocode) → DERIVE KPIs → VALIDATE → DELIVER
 ```
 
-Default output location when saving is approved: `.octocode/rfc/RFC-{meaningful-name}.md`.
+Default output when saving is approved: a folder `\.octocode/rfc/{name}/` with `RFC.md`, `IMPLEMENTATION.md`, and `KPI.md`. See "Output shape" below for when a single `RFC.md` is enough.
 
 ## Pick mode
 
 | User asks for | Mode | Output |
 |---|---|---|
-| "write RFC", "design doc", "proposal", "architecture decision" | RFC | Full RFC with alternatives, rationale, risks, implementation plan |
-| "plan this work", "research and build", "implementation plan" | Plan | Evidence-backed implementation plan; RFC sections included only when useful |
+| "write RFC", "design doc", "proposal", "architecture decision" | RFC | Full RFC with alternatives, rationale, risks + implementation + KPIs |
+| "plan this work", "research and build", "implementation plan" | Plan | Evidence-backed implementation plan; RFC/KPI sections included only when useful |
 | "compare approaches", "should we use X or Y" | Decision | Options matrix + recommendation + adoption/rollback notes |
 | "migration plan" | Migration | Current state, target state, compatibility, rollout, rollback, phases |
 | "validate this RFC/design" | Validation | Claim-by-claim verdict with evidence and gaps |
+| "improve/upgrade this RFC/plan", "fill the gaps", "add missing sections" | Improve | Existing doc upgraded in place: gaps closed, open questions researched, verification added |
 
 If the task is a trivial one-file edit with no design choice, say an RFC is unnecessary and suggest using `octocode-research` Change mode directly.
+
+## Improve an existing RFC/plan
+
+When the input is an existing RFC/plan/design file (or a `\.octocode/rfc/{name}/` folder), upgrade it in place — don't restart. Steps:
+
+1. Read it, then map its sections and claims against the target structure (`rfc-template.md` / `rfc-implementation.md` / `rfc-kpi.md`).
+2. Diagnose gaps: missing Goals/Non-Goals, fewer than 2 alternatives, unclosed open questions, uncited or stale `file:line` claims, no verification/KPIs.
+3. Research with octocode to close questions and re-verify claims that may have moved.
+4. Propose the upgrade (or migrate a flat `RFC-{name}.md` into the 3-file folder), preserving the author's decisions and prior reasoning.
+
+Gate before overwriting a saved file.
+
+## Output shape — folder vs single file
+
+Classify the decision first:
+
+- **Reversible + small** ⇒ single `RFC.md` with a short inline Implementation Plan + Acceptance Criteria; say why.
+- **Irreversible, cross-package, or public-contract/data/security impact** ⇒ full folder (see the SKILL.md table for each file's role):
+
+```text
+\.octocode/rfc/{name}/
+  RFC.md              # decide — SSOT for goals/scope/decision; frozen at decision
+  IMPLEMENTATION.md   # build — open questions closed via octocode; steps + test plan
+  KPI.md              # verify — acceptance criteria + success metrics + traceability
+```
+
+**SSOT / anti-drift rule (non-negotiable):** `RFC.md` is the single source of truth for goals and scope. `IMPLEMENTATION.md` and `KPI.md` **reference `RFC.md` section anchors — they never restate goals/scope.** Generate all three in one pass from one claim ledger.
 
 ## Understand
 
 Capture this before research gets broad:
 
-- Problem in one or two sentences.
-- Why this needs a decision/plan.
+- Problem in one or two sentences (solution-free — state the problem, not the fix).
+- Why this needs a decision/plan; is the decision reversible or irreversible.
 - Affected users, packages, APIs, teams, or workflows.
 - Constraints: compatibility, performance, security, rollout, tech stack.
 - What "do nothing" costs.
-- What evidence is needed to decide.
+- What evidence is needed to decide, and the observable signal that would prove success.
 
 Ask if the problem or desired output mode is unclear.
 
@@ -39,87 +67,67 @@ If input includes an `octocode-brainstorming` RFC handoff, normalize it before r
 
 | Handoff field | RFC use |
 |---|---|
-| Problem | Motivation and affected users/workflows |
-| Chosen framing + value thesis | Summary and Rationale |
-| Surviving evidence links | Evidence Summary, Current State, References |
-| Alternatives | Alternatives Considered |
-| Constraints + risks | Drawbacks, rollout, rollback, open questions |
-| Bounded MVP / first slice | Implementation Plan |
-| Success signal | Acceptance Criteria |
+| Problem | Motivation and affected users/workflows (`RFC.md`) |
+| Chosen framing + value thesis | Summary and Rationale (`RFC.md`) |
+| Surviving evidence links | Evidence Summary, Current State, References (`RFC.md`) |
+| Alternatives | Alternatives Considered (`RFC.md`) |
+| Constraints + risks | Drawbacks, rollout, rollback, open questions (`RFC.md` → closed in `IMPLEMENTATION.md`) |
+| Bounded MVP / first slice | Implementation Plan (`IMPLEMENTATION.md`) |
+| Success signal | User stories + acceptance criteria + metrics (`KPI.md`) |
 
 If no handoff exists, build the same packet from Understand. If problem, decision, constraints, or success signal are missing, ask one focused question or label the output `Draft` with the gap.
 
 ## Claim ledger
 
-Maintain a small private ledger while researching:
+Maintain one private ledger while researching — the same ledger feeds all three files:
 
 ```text
-claim | evidence | confidence | RFC section | gap / next proof
+claim | evidence | confidence | file/section | gap / next proof
 ```
 
-Use confidence `confirmed`, `likely`, or `uncertain`. Recommendations may rely only on confirmed/likely claims. Uncertain claims belong in Risks, Open Questions, or Future Possibilities.
+Use confidence `confirmed`, `likely`, or `uncertain`. Recommendations may rely only on confirmed/likely claims. Uncertain claims belong in `RFC.md` Open Questions — and each must be **closed in `IMPLEMENTATION.md` via octocode** or explicitly deferred with a reason.
 
 ## Compare options
 
-Always include at least two alternatives unless the user explicitly asks for a single implementation plan.
-
-Useful alternatives: do nothing / defer; minimal patch; incremental migration; full redesign; adopt package/library; build in-house; hybrid/phased rollout.
-
+Always include at least two alternatives (unless the user explicitly asks for a single implementation plan) — useful ones: do nothing / defer; minimal patch; incremental migration; full redesign; adopt package/library; build in-house; hybrid/phased rollout.
 Compare on: fit with current architecture; blast radius; compatibility and migration cost; operational risk; performance/security/data implications; maintenance and ownership; reversibility.
 
 ## Hard gates
 
 Stop and ask, narrow, or clearly mark `Draft` before delivery when:
 
-- Scope contains multiple independent decisions -> split into RFCs or phases.
-- Current state has no real evidence -> research more or mark as unproven.
-- Only one option is considered and the user did not ask for a single-path plan -> add do-nothing, minimal patch, or phased rollout.
+- Scope contains multiple independent decisions → split into RFCs or phases.
+- Current state has no real evidence → research more or mark as unproven.
+- Only one option is considered and the user did not ask for a single-path plan → add do-nothing, minimal patch, or phased rollout.
 - Public API/data/security/compatibility changes lack rollout, rollback trigger, and owner/approver.
+- An `RFC.md` open question is still `uncertain` and unclosed in `IMPLEMENTATION.md`.
 - Brainstorming handoff says `not ready`, `Prototype First`, `Narrow`, `Park`, or `Do Not Build`.
 
-## Write the plan
+## Write the files
 
-For full RFCs use the template references. For implementation plans, include only the sections needed for the work:
+Produce the files in dependency order — `RFC.md` first (the SSOT), then `IMPLEMENTATION.md`, then `KPI.md` — each from its own template:
 
-```markdown
-# Plan: <title>
+- `RFC.md` — see `references/rfc-template.md`.
+- `IMPLEMENTATION.md` — see `references/rfc-implementation.md`. Opens by **closing every `RFC.md` open question with an octocode citation**, then dependency-ordered steps + V&V + rollback. References `RFC.md` anchors; no restated goals.
+- `KPI.md` — see `references/rfc-kpi.md`. User stories, Gherkin criteria, metrics (never a single one), a decision rule, and the traceability matrix.
 
-## Goal
-## Evidence Summary
-## Current State
-## Proposed Approach
-## Alternatives Considered
-## Step-by-Step Implementation
-## Files / APIs / Contracts Touched
-## Test and Verification Plan
-## Rollout / Migration / Rollback
-## Risks and Open Questions
-```
-
-Implementation steps should be ordered by dependency, not preference. Avoid time estimates.
+For a lighter **Plan** in single-file mode, keep only the `rfc-template.md` sections that carry weight — typically Goal, Current State, Proposed Approach, Alternatives, Step-by-Step, Test/Verification, Rollout/Rollback, plus inline Acceptance Criteria and Open Questions.
+Order steps by dependency, not preference; avoid time estimates.
 
 ## Validate
 
 Before delivering, check:
 
-- Problem and motivation are specific.
-- Current state has real evidence.
-- Alternatives are fairly compared.
-- Recommendation follows from evidence.
-- Drawbacks and migration costs are explicit.
-- Blast radius is mapped for shared symbols/contracts.
-- Risks have mitigations or open questions.
-- Implementation plan is actionable and verifiable.
-- Every non-obvious claim, recommendation, and rejected alternative has a citation or is marked uncertain.
-- No recommendation depends on an `uncertain` ledger claim.
-- Implementation-ready docs include acceptance criteria, verification commands, success signal, and rollback trigger.
-- No claim relies on "common practice" without explaining why it applies here.
+- Problem, motivation, Goals **and** Non-Goals are specific; current state has real evidence.
+- Alternatives fairly compared, including do-nothing; recommendation depends on no `uncertain` claim.
+- Drawbacks, pre-mortem (how this fails), migration cost, and blast radius (shared symbols/contracts) are explicit.
+- **Every `RFC.md` open question is closed in `IMPLEMENTATION.md` with a citation, or deferred with a reason.**
+- Implementation plan is actionable, dependency-ordered, and verifiable.
+- `KPI.md` has user stories, testable (Gherkin) acceptance criteria, a primary success metric with baseline/target/window, guardrails, a decision rule, and a traceability matrix covering every RFC requirement.
+- SSOT holds: `IMPLEMENTATION.md`/`KPI.md` reference `RFC.md` anchors and do not restate goals/scope.
+- Every non-obvious claim has a citation or is marked uncertain; no claim relies on "common practice" without explaining why it applies here.
 
-Reasoning traps:
-- First-option bias: search for evidence against the preferred approach.
-- False dichotomy: consider hybrids/phased plans.
-- Local-vs-external conflict: local constraints usually win; document the tradeoff.
-- Metrics claims: use external tools or mark as approximation.
+Reasoning traps: **first-option bias** (search for evidence against the preferred approach); **false dichotomy** (consider hybrids/phased plans); **local-vs-external conflict** (local constraints usually win — document the tradeoff); **metrics claims** (use external tools or mark as approximation).
 
 ## Deliver
 
@@ -127,15 +135,15 @@ Start with a concise summary:
 
 ```text
 Status: <Draft|Ready for Review|Blocked>
-Decision: <recommendation>
+Decision: <recommendation>   (reversible | irreversible)
 Why: <1-2 evidence-backed reasons>
 Alternatives: <count and names>
 Risk: <low|medium|high + why>
+Success signal: <the KPI that proves it worked>
 Next step: <one action>
 ```
 
-Then ask whether to save the full RFC/plan.
+Then ask whether to save.
 
-- If yes: save to `.octocode/rfc/RFC-{meaningful-name}.md`.
-- If no: keep it in chat.
-- If user wants implementation: hand off to the agent's normal engineering/edit workflow using the implementation plan.
+- **Save (full):** create `\.octocode/rfc/{name}/` with all three files. **Save (single):** `\.octocode/rfc/{name}/RFC.md` (or flat `\.octocode/rfc/RFC-{name}.md` on request).
+- **No:** keep it in chat. **Implement:** hand off to the agent's normal engineering workflow using `IMPLEMENTATION.md`; verify against `KPI.md` after shipping.

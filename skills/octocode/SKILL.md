@@ -1,6 +1,6 @@
 ---
 name: octocode
-description: "Use when a task needs Octocode-powered code research: local or GitHub search, exact file reads, npm/package lookup, PR or commit history, AST/LSP navigation, binary/archive inspection, or raw Octocode tool calls. Trigger when the user asks to use Octocode, inspect code with evidence, or choose MCP vs CLI transport."
+description: "Use when a task needs Octocode-powered code research. Covers local or GitHub search, exact file reads, npm/package lookup, PR or commit history, AST/LSP navigation, binary/archive inspection, and raw Octocode tool calls. Trigger on asks to use Octocode, inspect code with evidence, or choose MCP vs CLI transport."
 ---
 
 # Octocode

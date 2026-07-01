@@ -1,0 +1,50 @@
+{
+  "name": "@octocodeai/config",
+  "version": "1.0.2",
+  "description": "Octocode unified env + config loader — zero deps, shared by MCP, CLI, extension, agent, and standalone skills.",
+  "keywords": [
+    "octocode",
+    "config",
+    "env",
+    "dotenv"
+  ],
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode-mcp.git",
+    "directory": "packages/octocode-config"
+  },
+  "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "types": "./src/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.mts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "bin": {
+    "octocode-config": "./src/cli.mjs"
+  },
+  "files": [
+    "src/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "lint": "node --check src/index.mjs src/cli.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:quiet": "node --test --reporter=dot tests/*.test.mjs",
+    "typecheck": "yarn lint",
+    "verify": "yarn lint && yarn test"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

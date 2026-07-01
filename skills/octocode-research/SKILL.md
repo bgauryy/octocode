@@ -5,26 +5,26 @@ description: "Use when technical or code work needs evidence-first research: inv
 
 # Octocode Research
 
-Lead evidence-first technical research and code work: investigate, plan, review, change, validate, map prior art, inspect artifacts, and loop until evidence converges. Flow: `SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY`.
+Lead evidence-first technical research and code work across the modes below, looping until evidence converges. Flow: `SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY`.
 
 ## Modes
 
 - Map: landscape or "what exists" questions.
-- Validate: "is this worth it" or "should we add X" decisions.
-- Investigate: root cause, behavior, provenance, or code explanation.
-- Plan: implementation, refactor, architecture, migration, or blast-radius planning.
+- Validate: "is this worth it" or "should we add X" decisions; default for ambiguous research.
+- Investigate: root cause, behavior, provenance, or code explanation; default for concrete behavior.
+- Plan: implementation, refactor, architecture, migration, or blast-radius planning; default before risky edits.
 - Review: PR/local diff findings ordered by severity.
-- Change: user clearly asked for code edits now.
+- Change: only when the user asks for code edits now.
 - Loop: one pass is insufficient or the user asks to iterate until proof.
-Default to Investigate for concrete behavior, Validate for ambiguous research, Plan before risky edits, and Change only when edits are requested.
 
 ## Operating Rules
 
-- State corpus, question, mode, and active/skipped surfaces in one line.
-- Use MCP tools when exposed; otherwise use `npx octocode`; read schemas/help before raw calls.
+- State corpus, question, mode, and active/skipped surfaces in one line; use MCP tools when exposed, else `npx octocode`, and read schemas/help before raw calls.
 - Start cheap with tree/path/package/repo discovery; deep-read exact slices only after anchors appear.
 - Cross-pollinate surfaces: local clues feed GitHub/npm/web, and external claims feed code reads.
-- Keep a claim ledger; promote snippets to proof only after exact source, AST/LSP, history, artifact, or test evidence. Before researching, recall prior lessons with octocode-awareness (`get-memory --smart --query <question>`); on zero results retry synonyms/source locators and validate recalled code facts. When a durable finding converges, emit one awareness capture packet (or a `doNotCaptureReason`) using `learning-capture.md` so it is not re-researched later.
+- Keep a claim ledger; promote snippets to proof only after exact source, AST/LSP, history, artifact, or test evidence.
+- Recall prior lessons first via octocode-awareness (`get-memory --smart --query <question>`); on zero results retry synonyms/locators, and validate recalled code facts before trusting them.
+- On a durable finding, emit one awareness capture packet (or a `doNotCaptureReason`) via `learning-capture.md` so it is not re-researched.
 - Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
 - For code edits, make the smallest scoped patch and report actual verification.
 

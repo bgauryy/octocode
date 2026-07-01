@@ -1,6 +1,6 @@
 {
   "name": "octocode",
-  "version": "2.2.4",
+  "version": "1.0.2",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
   "keywords": [
     "ai-coding",
@@ -61,8 +61,9 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.5.2",
-    "@octocodeai/octocode-core": "^16.6.1",
-    "@octocodeai/octocode-engine": "^16.6.0",
+    "@octocodeai/config": "workspace:*",
+    "@octocodeai/octocode-core": "^16.1.1",
+    "@octocodeai/octocode-engine": "workspace:*",
     "@octokit/auth-oauth-device": "^8.0.3",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",
@@ -73,7 +74,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@octocodeai/octocode-tools-core": "^16.6.2",
+    "@octocodeai/octocode-tools-core": "workspace:*",
     "@types/node": "^25.9.3",
     "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "^0.28.1",

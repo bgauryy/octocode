@@ -1,5 +1,6 @@
 # Research Flow
-Read this when executing an Octocode research workflow. The front door picks the mode; this file gives compact command chains and proof rules. Start each workflow with a **surface plan**: local, GitHub, packages, PR/history, artifacts, web, and any skipped surfaces with reasons. Update it when cross-pollination changes the route.
+Read this when executing an Octocode research workflow: the front door picks the mode; this file gives compact command chains and proof rules.
+Start each workflow with a **surface plan** (local, GitHub, packages, PR/history, artifacts, web, plus skipped surfaces with reasons); update it when cross-pollination changes the route.
 For long, contested, or public-facing decision briefs, read `references/long-research.md` before deep work. For repo ecosystem comparisons or "which implementation should we reuse?" questions, read `references/github-landscape.md`.
 
 ## Mode Flows
@@ -127,8 +128,7 @@ search <file> --content-view exact
 
 ## Evidence Gates
 
-- Snippets are leads, not proof.
-- Exact content, AST, LSP, PR/commit evidence, binary metadata, or tests can prove.
+- Snippets are leads, not proof; exact content, AST, LSP, PR/commit evidence, binary metadata, or tests can prove.
 - LSP needs a real `lineHint`; get it from search/symbols/AST first.
 - Empty LSP references/callers are inconclusive until likely consumers are loaded.
 - `target:"research"` and `target:"graph"` rows are candidates until upgraded.

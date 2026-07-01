@@ -1,6 +1,7 @@
 # Output — chat brief, decisions, evidence rules
 
-Load at Present (Workflow step 8), assigning confidence, or preparing an RFC handoff. Present in chat first; scale sections to real content, don't pad. When the user confirms a save, write the fuller brief with `brief-template.md` and offer: "Save this brief to `.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`?"
+Load at Present (Workflow step 8), assigning confidence, or preparing an RFC handoff. Present in chat first; scale sections to real content.
+When the user confirms a save, write the fuller brief with `brief-template.md` and offer: "Save this brief to `.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`?"
 
 ## Compact chat skeleton
 
@@ -59,7 +60,8 @@ Every prior-art entry MUST carry one; mark `weak` and note why if unsure.
 ## Evidence rules
 
 - Cite everything: GitHub → repo URL + file:line + marker; web → fetched/opened URL + author/org + date + marker. Search results/snippets are leads, not citations.
-- **Validated sources only for `strong`/`moderate`.** A claim rates `strong`/`moderate` only when backed by an official doc/spec/RFC, academic paper/indexed publisher page, established technical guide, reputable publication, or corroborating code/data. Unattributed posts, undated pages, SEO/AI-farm content, and forum opinions are `weak` and used for leads, not proof.
+- **Validated sources only for `strong`/`moderate`.** A claim rates `strong`/`moderate` only when backed by an official doc/spec/RFC, academic paper/indexed publisher page, established technical guide, reputable publication, or corroborating code/data.
+  Treat unattributed posts, undated pages, SEO/AI-farm content, and forum opinions as `weak` leads, not proof.
 - Marketing copy ≠ validation → `weak` regardless of source authority.
 - One source is a lead; **a claim is "proven" only when an independent second source or direct code/data confirms it.**
 - Contradictions → both sides, weight by recency/authority (Hard Gate 3 if it qualifies).

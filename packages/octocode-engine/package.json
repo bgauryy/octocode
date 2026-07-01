@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-engine",
-  "version": "16.6.2",
+  "version": "1.0.2",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
   "type": "module",
   "main": "index.cjs",
@@ -262,12 +262,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "16.6.2",
-    "@octocodeai/octocode-engine-darwin-x64": "16.6.2",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "16.6.2",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "16.6.2",
-    "@octocodeai/octocode-engine-linux-x64-musl": "16.6.2",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "16.6.2"
+    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
+    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
+    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*"
   },
   "engines": {
     "node": ">=20.0.0"

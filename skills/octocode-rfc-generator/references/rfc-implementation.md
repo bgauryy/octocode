@@ -1,80 +1,69 @@
-# RFC Template — Questions, References & Implementation Plan
+# IMPLEMENTATION.md Template — Build Document
 
-Continuation of rfc-template.md: the closing sections of the RFC.
+`IMPLEMENTATION.md` is the **build document**: implementer-facing and **live** during the work. Its distinctive job is to **close every open question left in `RFC.md` using Octocode research**, then lay out a dependency-ordered, verifiable plan.
+
+This file **references `RFC.md` section anchors — it does not restate goals or scope.** Steps trace back to RFC design decisions; success metrics live in `KPI.md`.
 
 ```markdown
-## Unresolved Questions
+# Implementation: {Title}
 
-**Before acceptance:**
-- [ ] {question}
+> Decision: see `RFC.md` §Summary / §Rationale. This file does not restate goals — it references them.
 
-**During implementation:**
-- [ ] {question}
+## Resolved Questions (were open in RFC.md)
 
-**Out of scope:**
-- [ ] {question}
+Every `RFC.md` open question, closed with evidence or explicitly deferred. Nothing here may stay `uncertain`.
 
-**Bikeshedding** _(cosmetic/arbitrary decisions — syntax, naming, formatting — that should not block the proposal)_:
-- [ ] {decision}
+| Open question (RFC §) | Resolution | Evidence (octocode) | Confidence |
+|---|---|---|---|
+| {question} | {answer} | [`src/x.ts:42`](https://github.com/owner/repo/blob/main/src/x.ts#L42) — {why it settles the question} | confirmed / likely |
+| {question} | Deferred — {reason}; revisit when {trigger} | — | n/a |
 
-> **Tip:** Mark inline open questions anywhere in the RFC with: `> **Open Question:** {question}`
+## Approach
 
----
+{Which recommendation from `RFC.md` §Rationale is being implemented, in one or two lines.}
 
-## Future Possibilities
+## Steps (dependency-ordered)
 
-_(Optional)_ Natural extensions of this proposal. Related ideas that are
-out of scope but worth noting. Not a reason to accept the current RFC.
+Ordered so each step is shippable and reversible where possible; foundational/riskiest pieces land where they can be validated cheaply. No time estimates.
 
----
+### Phase 1: {name}
+- [ ] Step — `path/to/file:line` (traces to `RFC.md` §Reference-Level)
+- [ ] Step — `path/to/file`
+
+### Phase 2: {name}
+- [ ] Step — `path/to/file`
+
+## Files / APIs / Contracts Touched
+
+- `path/to/file:line` — what changes and why; blast radius (callers, dependents — cite `lspGetSemantics`/`--op references` findings).
+
+## Risk Mitigations
+
+{Concrete action per risk — traces to `RFC.md` §Drawbacks / §Pre-mortem.}
+
+## Test and Verification Plan (V&V)
+
+Verification = did we build it to the design? Validation = did it move the KPIs (see `KPI.md`)?
+
+| Type | Scope | Approach | Command |
+|------|-------|----------|---------|
+| Unit | {components} | {approach} | `{command}` |
+| Integration | {flows} | {approach} | `{command}` |
+| Performance | {metrics} | {approach} | `{command}` |
+
+## Rollout / Migration / Rollback
+
+- **Sequencing:** ordered, each step with its blast radius and the observable signal that it's safe to proceed.
+- **Flags / gating:** {feature flags? canary? percentage rollout?}
+- **Rollback trigger:** {condition that reverses rollout} — mirror in `KPI.md` decision rule.
+- **Owner / approver:** {person or team}.
 
 ## References
 
-Every reference must state **how it supports the RFC thesis**.
+Every reference states **how it supports the plan**. Local claims need `file:line`; external claims need a GitHub path/line or PR/commit link.
 
-### Code References
-- [`src/auth/middleware.ts:42`](https://github.com/owner/repo/blob/main/src/auth/middleware.ts#L42) — current token validation; proves §Motivation claim that auth is coupled to HTTP layer
-- [`src/cache/store.ts:15-30`](https://github.com/owner/repo/blob/main/src/cache/store.ts#L15-L30) — existing cache pattern; supports §Reference-Level design choice to extend this abstraction
-
-### URLs
-- [Express rate-limit benchmarks](https://github.com/express-rate-limit/express-rate-limit/wiki/benchmarks) — proves §Rationale claim that middleware approach scales to 10k req/s
-- [Redis vs Memcached comparison (ByteByteGo)](https://blog.bytebytego.com/p/redis-vs-memcached) — supports §Alternatives analysis of cache backends
-
-### Related
-- {Links to related RFCs, design docs, or ADRs}
-
----
-
-## Implementation Plan
-
-### Approach
-{Which recommendation is being implemented and why — traces to §Rationale}
-
-### Steps
-#### Phase 1: {name}
-- [ ] Step — `path/to/file` (ref: §Reference-Level)
-- [ ] Step — `path/to/file`
-
-#### Phase 2: {name}
-- [ ] Step — `path/to/file`
-
-### Risk Mitigations
-{Concrete actions per risk — traces to §Drawbacks}
-
-### Testing Strategy
-| Type | Scope | Approach |
-|------|-------|----------|
-| Unit | {components} | {approach} |
-| Integration | {flows} | {approach} |
-| Performance | {metrics} | {approach} |
-
-### Acceptance Criteria
-- **Done when:** {observable end state}
-- **Verification commands:** `{command}` and expected signal
-- **Success signal:** {metric, behavior, or review outcome}
-- **Rollback trigger:** {condition that reverses rollout}
-- **Owner / approver:** {person or team}
-
-### Rollout Strategy
-{Feature flags? Gradual? Big bang? Rollback plan?}
+- [`src/auth/middleware.ts:42`](https://github.com/owner/repo/blob/main/src/auth/middleware.ts#L42) — current behavior the plan extends.
+- [owner/repo#123](https://github.com/owner/repo/pull/123) — prior change showing the rollout pattern used here.
 ```
+
+> **Tip:** When closing an open question, follow the octocode research loop in `research-playbook.md`: local `file:line` via `localSearchCode`/LSP, external via `ghSearchCode`/`ghGetFileContent`, rationale via `ghHistoryResearch`. A resolution without a citation is not resolved.

@@ -51,27 +51,29 @@ test('build copies the canonical system prompt', () => {
   assert.equal(fs.readFileSync(paths.systemPrompt, 'utf8'), fs.readFileSync(sourcePrompt, 'utf8'));
 
   const prompt = fs.readFileSync(paths.systemPrompt, 'utf8');
-  assert.match(prompt, /<context_management>/);
+  assert.match(prompt, /<operating_model>/);
   assert.match(prompt, /<how_to_build>/);
 });
 
 test('build copies bundled Octocode skills without secret env files', () => {
+  const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-stats'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
-  assert.deepEqual(skills, sourceSkills);
-  assert.deepEqual(sourceSkills, rootSkills);
+  assert.deepEqual(skills, sourceSkills, 'dist matches package skills');
+  // package/dist == root skills minus the intentionally-skipped ones (build.mjs SKIPPED_SKILLS).
+  assert.deepEqual(rootSkills.filter((s) => !SKIPPED.includes(s)), sourceSkills);
+  // octocode, octocode-awareness, and octocode-stats are intentionally excluded by
+  // build.mjs SKIPPED_SKILLS (awareness ships as native memory_* tools, not a skill).
   assert.deepEqual(
     skills,
     [
-      'octocode',
-      'octocode-awareness',
       'octocode-brainstorming',
+      'octocode-prompt-optimizer',
       'octocode-research',
       'octocode-rfc-generator',
       'octocode-roast',
       'octocode-skills',
-      'octocode-stats',
     ].sort()
   );
 

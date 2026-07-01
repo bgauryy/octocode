@@ -1,6 +1,7 @@
 # Perspective Review — evidence challenge
 
-Load at the converge step (Workflow step 5), after research and cross-pollination. The goal is not to create a transcript; it is to clarify the idea, pressure-test the evidence, and output the strongest defensible decision. The main agent is referee.
+Load at the converge step (Workflow step 5), after research and cross-pollination.
+The goal is to clarify the idea, pressure-test the evidence, and output the strongest defensible decision — not to produce a transcript. The main agent is referee.
 
 ## Inputs
 
@@ -31,7 +32,9 @@ Dispatch together when worker budget allows; otherwise run them sequentially wit
 
 ## Cross-exam
 
-After openings, the main agent picks the 1-2 claims most likely to flip the verdict. If budget remains, ask only the relevant role(s) to rebut those claims with new evidence. If budget is gone, do the rebuttal as a short main-agent pass and note `perspective review shortened (budget)`.
+After openings, the main agent picks the 1-2 claims most likely to flip the verdict.
+If budget remains, ask only the relevant role(s) to rebut those claims with new evidence.
+If budget is gone, rebut in a short main-agent pass and note `perspective review shortened (budget)`.
 
 Rebuttal must concede what it cannot refute. Repeating the same citation is not a rebuttal.
 
@@ -47,4 +50,9 @@ Decision labels:
 - `Park` — evidence is thin or timing is wrong.
 - `Do Not Build` — existing solutions or risks dominate.
 
-RFC handoff is ready only when the verdict is `worth-prototyping` or clearly `underserved`, the user/problem/success signal are specific, prior art/differentiation are grounded, the panel agrees on a bounded MVP or first implementation slice, and the biggest unknown is now an implementation/design tradeoff rather than demand.
+RFC handoff is ready only when all of these hold:
+- verdict is `worth-prototyping` or clearly `underserved`;
+- user, problem, and success signal are specific;
+- prior art and differentiation are grounded;
+- the panel agrees on a bounded MVP or first implementation slice;
+- the biggest unknown is now an implementation/design tradeoff rather than demand.

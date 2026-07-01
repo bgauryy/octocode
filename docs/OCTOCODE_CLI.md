@@ -234,9 +234,7 @@ npx octocode skill --install-all --platform all --dry-run
 ```
 
 Supported platforms include `common`, `cursor`, `claude`, `codex`, `opencode`,
-`pi`, `copilot`, `gemini`, and `all`. See the
-[Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
-for platform paths and skill workflows.
+`pi`, `copilot`, `gemini`, and `all`.
 
 ### `install`
 
@@ -421,4 +419,3 @@ Older read-only shortcut names are intentionally folded into `search`.
 - [Local Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
 - [LSP Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)
 - [Binary Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#binary-tools-reference)
-- [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)

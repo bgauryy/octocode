@@ -11,7 +11,8 @@ For external validation, prior-art mapping, method claims, or market/technical l
 3. Search GitHub/packages/code from those leads, then exact-read READMEs, source files, issues, PRs, and package metadata.
 4. Loop back to web/resources to reconcile contradictions, stale repos, unsupported claims, and missing context.
 
-Only skip this order when the user explicitly asks for local-only/no-web work, web access is unavailable, or the idea is purely about this workspace. For repo-targeted ideas, do a quick local orientation first or in parallel so resource queries use the real stack.
+Skip this order only when the user explicitly asks for local-only/no-web work, web access is unavailable, or the idea is purely about this workspace.
+For repo-targeted ideas, orient locally first or in parallel so resource queries use the real stack.
 
 ## GitHub & packages — Octocode CLI
 
@@ -40,9 +41,15 @@ The `search` command auto-routes local paths: use `search <path> --tree`, `searc
 | `search <path> --content-view symbols` / raw `localGetFileContent` | Read the exact code — signatures or full |
 | `search <file> --op …` / raw `lspGetSemantics` | Call sites, callers, references → blast radius of a change |
 
-**When to use:** the idea is grounded in *this* repo — "should we add X to **our** app", "is Y worth building into **our** codebase", "does **our** system already do Z". Then **orient locally before external research**, so you (a) don't recommend reinventing something the repo already has, and (b) frame every prior-art query with the workspace's real stack, libraries, and naming. **Skip entirely** for purely external ideas (market size, landscape, "has anyone built X out there") — local adds nothing there.
+**When to use:** the idea is grounded in *this* repo — "should we add X to **our** app", "is Y worth building into **our** codebase", "does **our** system already do Z".
+Then **orient locally before external research**. Two payoffs:
+- you avoid recommending something the repo already has;
+- you frame every prior-art query with the workspace's real stack, libraries, and naming.
 
-Local orient flow: `search <workspace> --tree` (structure) → `search <concept> <workspace>` / `search <workspace> --search path` (does it exist already?) → `search <file> --content-view symbols` (how it works) → `search <file> --op ...` (who depends on it / blast radius). Carry the real lib names, framework, and constraints you find into the GitHub/npm/web queries — local findings sharpen external search the same way cross-pollination does.
+**Skip entirely** for purely external ideas (market size, landscape, "has anyone built X out there") — local adds nothing there.
+
+Local orient flow: `search <workspace> --tree` (structure) → `search <concept> <workspace>` / `search <workspace> --search path` (does it exist already?) → `search <file> --content-view symbols` (how it works) → `search <file> --op ...` (who depends on it / blast radius).
+Carry the real lib names, framework, and constraints into the GitHub/npm/web queries — local findings sharpen external search the same way cross-pollination does.
 
 ## Web/top resources — search → read → follow
 
@@ -53,17 +60,29 @@ Two interchangeable engines in `scripts/` (same CLI: `--query --max-results --ti
 | `serper-search.mjs` | `SERPER_API_KEY` | Fast Google SERP, broad coverage |
 | `tavily-search.mjs` | `TAVILY_API_KEY` | AI-curated answers, deep research |
 
-- **Check once at startup:** `node <skill_dir>/scripts/<engine>-search.mjs --check`. Use whichever exits 0; if both, Serper for breadth + Tavily for depth. `--check` performs a live authorization check; add `--presence-only` only when offline. Both exit 1 → tell user once: add `SERPER_API_KEY` (serper.dev) and/or `TAVILY_API_KEY` (app.tavily.com) to `<absolute skill_dir>/.env`.
-- **Loop:** run engine → fetch/open the best formal URLs with the runtime web reader (`WebFetch` in Claude; web/open tool or Browser in Codex) → extract repo/package/code leads → read exact code → return to resources for contradictions and context. Search snippets are leads; cite only fetched/opened sources.
+- **Check once at startup:** `node <skill_dir>/scripts/<engine>-search.mjs --check`. Use whichever exits 0; if both, Serper for breadth + Tavily for depth.
+  `--check` runs a live authorization check; add `--presence-only` only when offline. Both exit 1 → tell user once: add `SERPER_API_KEY` (serper.dev) and/or `TAVILY_API_KEY` (app.tavily.com) to `<absolute skill_dir>/.env`.
+- **Loop:** run engine → fetch/open the best formal URLs with the runtime web reader (`WebFetch` in Claude; web/open or Browser in Codex) → extract leads → read exact code → reconcile contradictions.
+  Search snippets are leads; cite only fetched/opened sources.
 - Engine flags: Tavily `--depth basic|advanced|fast|ultra-fast`, `--topic general|news|finance`, `--include-domains`/`--exclude-domains` (comma-separated), `--start-date`/`--end-date` (YYYY-MM-DD), `--auto-parameters`, `--max-results` (0–20); Serper `--gl`, `--hl`, `--time-range`.
 - **Worker brief** (per web slice): research <slice> → run engine → read the best **formal/validated** URLs → report who's doing it, what's right/wrong, gaps, best URLs with author/date notes; cite all.
 
-**Fallback (no engine):** seed URLs from GitHub READMEs / `awesome-*` lists / package pages, then aggregators (HN, Product Hunt, alternativeto.net, dev.to), then follow leads like engine results. Flag in TL;DR: "Web research limited — no search engine." On 401/403 → key invalid, try the other engine, give the absolute `.env` path; on 429/5xx → switch engine/fallback and continue. Never block on search failure. Never print/commit keys (`.env` is gitignored); one-off user-provided keys may be passed as env vars for verification only.
+**Fallback (no engine):**
+- Seed URLs from GitHub READMEs / `awesome-*` lists / package pages, then aggregators (HN, Product Hunt, alternativeto.net, dev.to), then follow leads like engine results.
+- Flag in TL;DR: "Web research limited — no search engine."
+- On 401/403 → key invalid: try the other engine and give the absolute `.env` path. On 429/5xx → switch engine/fallback and continue. Never block on search failure.
+- Never print/commit keys (`.env` is gitignored); one-off user-provided keys may be passed as env vars for verification only.
 
 ## Smart querying (all surfaces)
 
 - **Semantic expansion** — never search only the user's words; run 2–3 synonyms/reframes in parallel (e.g. "code review" → "pull request analysis", "diff feedback", "static analysis AI"). Seed these from the Frame & Diverge slate.
 - **Recency first** — GitHub: ignore repos inactive >2y (prior art, not competition). Web: default `--time-range year`; widen only if <3 results.
-- **Quality filter — prefer validated sources.** GitHub: skip forks/skeletons/<10★ unless sole match; prefer recent commits, engaged issues, multiple contributors. **Packages (npm): downloads alone ≠ healthy** — also weigh **last-publish recency, release cadence, maintainer count, open-issue/PR ratio, and dependency freshness**. A high-download but unmaintained (last publish >1–2y, single maintainer, stale deps) package is a *risk to flag*, not validation — and is often the white-space signal (popular but abandoned = opportunity). Read `search --target packages` output and the source repo's `search --target commits`/issues, don't trust the download badge alone.
-- **Formal web ladder.** For method, technical, scientific, or safety claims, use Tavily/Serper/web search to discover, then fetch/open and cite formal sources only: official docs/reference docs, standards bodies, protocol RFCs, arXiv papers, Google Scholar/Semantic Scholar leads to papers, ScienceDirect, PubMed, IEEE Xplore, CORE/open-access copies, and canonical academic/industry papers. Community discussions, marketing pages, blogs, videos, listicles, HN/Reddit/StackOverflow, Product Hunt, and SEO/AI-farm pages are leads only unless the research question is explicitly about community/market sentiment.
+- **Quality filter — prefer validated sources.**
+  - GitHub: skip forks/skeletons/<10★ unless sole match; prefer recent commits, engaged issues, multiple contributors.
+  - **Packages (npm): downloads alone ≠ healthy** — also weigh **last-publish recency, release cadence, maintainer count, open-issue/PR ratio, and dependency freshness**.
+  - A high-download but unmaintained package (last publish >1–2y, single maintainer, stale deps) is a *risk to flag*, not validation — and is often the white-space signal (popular but abandoned = opportunity).
+  - Read `search --target packages` output and the source repo's `search --target commits`/issues; don't trust the download badge alone.
+- **Formal web ladder.** For method, technical, scientific, or safety claims, use Tavily/Serper/web search to discover, then fetch/open and cite formal sources only.
+  - Cite: official/reference docs, standards bodies, protocol RFCs, arXiv, Google Scholar/Semantic Scholar leads to papers, ScienceDirect, PubMed, IEEE Xplore, CORE/open-access copies, and canonical academic/industry papers.
+  - Leads only (not proof): community discussions, marketing pages, blogs, videos, listicles, HN/Reddit/StackOverflow, Product Hunt, SEO/AI-farm pages — unless the research question is explicitly about community/market sentiment.
 - **Tavily/Serper filters.** Prefer `--include-domains` for formal sources (`arxiv.org,semanticscholar.org,pubmed.ncbi.nlm.nih.gov,ieeexplore.ieee.org,sciencedirect.com,core.ac.uk`, plus official docs domains) and `--exclude-domains` for noisy hosts. Google Scholar is a discovery surface; cite the fetched paper/publisher page, not the Scholar result.

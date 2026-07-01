@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when the user explicitly asks for a code roast or brutally honest critique: roast my code, find code sins, shame this code, find antipatterns, brutal review, code quality roast, or what's wrong with this code. Outputs sharp, evidence-backed findings with file:line citations and fix paths."
+description: "Use when the user explicitly asks to roast code or wants brutally honest critique. Triggers: roast my code, find code sins, shame this code, find antipatterns, brutal review, code quality roast, what's wrong with this code. Outputs sharp, evidence-backed findings with file:line citations and fix paths."
 ---
 
 # Octocode Roast
@@ -9,11 +9,11 @@ Sharp, evidence-backed code critique with roast tone. Target patterns, never peo
 
 ## Laws
 
-- Cite or drop it: no evidence-free roasts.
+- Cite or drop it: no evidence-free roasts. Every major jab needs a `file:line`.
 - Punch the code, not the coder; avoid insults about ability, identity, or experience.
-- Redact secrets and switch to restrained mode for security or production-sensitive findings.
+- NEVER output a secret value. Report the pattern and location, redact the value, and switch to restrained mode for security or production-sensitive findings.
 - Calibrate tone: default medium, gentle for unclear context, savage/nuclear only on explicit request.
-- Wait for consent before fixes; present findings and let the user choose repairs.
+- MUST NOT edit files before consent: present findings, then wait for the user to pick repairs.
 
 ## Tooling
 

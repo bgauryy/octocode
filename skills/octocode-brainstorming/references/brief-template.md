@@ -1,6 +1,8 @@
 # Idea Brief Template
 
-Use this for the **saved** artifact (`.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`). The chat presentation can be lighter; this is the durable, RFC-like record. Scale sections to real content — delete any that have nothing evidence-backed to say, never pad. This is an **exploratory research brief**, not a spec or an implementation plan: it maps a space and recommends a direction, it does not design the solution.
+Use this for the **saved** artifact (`.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`). The chat presentation can be lighter; this is the durable, RFC-like record.
+Scale sections to real content: keep only sections with evidence-backed content and drop the rest.
+The brief is **exploratory research**, not a spec or an implementation plan — it maps a space and recommends a direction rather than designing the solution.
 
 ## Template
 

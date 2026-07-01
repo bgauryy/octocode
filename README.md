@@ -355,9 +355,9 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 ## Skills
 
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
-> Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp) · Skills index: [skills/README.md](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
+> Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-These are the skills the Octocode team itself uses to build Octocode. **8 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table mirrors the [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md). ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
+These are the skills the Octocode team itself uses to build Octocode. **9 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table below is the full index. ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
 
 Each skill folder includes a human README with purpose, features, workflow, developer notes, and `npx octocode skill` installation. `SKILL.md` stays the compact agent-facing router.
 
@@ -374,7 +374,7 @@ npx octocode skill --install-all                               # install every o
 npx octocode skill --help                                      # read live flags
 ```
 
-Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`), `claude` (`~/.claude/skills` and `~/.claude-desktop/skills`), `codex` (`~/.agents/skills`), `opencode` (`~/.config/opencode/skills`), `pi` (`~/.pi/agent/skills`), `copilot` (`~/.copilot/skills`), `gemini` (`~/.gemini/skills`), `all` · Modes: `symlink` (default), `copy`, `hybrid` · full platform table and bulk installs: [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md)
+Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`), `claude` (`~/.claude/skills` and `~/.claude-desktop/skills`), `codex` (`~/.agents/skills`), `opencode` (`~/.config/opencode/skills`), `pi` (`~/.pi/agent/skills`), `copilot` (`~/.copilot/skills`), `gemini` (`~/.gemini/skills`), `all` · Modes: `symlink` (default), `copy`, `hybrid`
 
 | Skill | Directory | Install with `npx octocode` | Use it when |
 |-------|-----------|-----------------------------|-------------|
@@ -386,6 +386,7 @@ Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`)
 | [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | `npx octocode skill --name octocode-skills` | You are working on Agent Skills themselves. |
 | [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need memory, file locks, handoffs, or verify-before-conclude in a shared repo. |
 | [**Stats**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-stats) | `octocode-stats/` | `npx octocode skill --name octocode-stats` | You want to visualize Octocode usage, savings, cache hits, errors, or rate limits. |
+| [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
 
 ---
 
@@ -428,6 +429,7 @@ client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize 
 | [`packages/octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) | `@octocodeai/mcp` | MCP server (stdio) that registers the tool catalog for AI assistants. |
 | [`packages/octocode-tools-core`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | Shared tool core: implementations, GitHub client, credentials and token resolution, session, pagination, security bridge. |
 | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) | `@octocodeai/octocode-engine` | Rust/napi native engine: security scanning, minification, signatures, structural AST, ripgrep/diff/YAML, LSP. |
+| [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader: `getOctocodeHome`, `.env` parsing, `.octocoderc` reading. Single source used by every package and skill. |
 | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth + multi-editor MCP install. |
 
 ---
@@ -441,9 +443,9 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 | MCP server | [Octocode MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) |
 | Tools and workflows | [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Octocode Research Skill](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) · [Search Guide](https://github.com/bgauryy/octocode/blob/main/docs/context/SEARCH_GUIDE.md) |
 | CLI and query language | [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) · [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) · [OQL Research Graph Flow](https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md) |
-| Agent harness and skills | [Octocode Pi package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/README.md) · [Skills Guide](https://github.com/bgauryy/octocode/blob/main/docs/SKILLS_GUIDE.md) · [Skills Index](https://github.com/bgauryy/octocode/blob/main/skills/README.md) |
+| Agent harness and skills | [Octocode Pi package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/README.md) · [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
 | Pi | [Pi package README](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/README.md) · [Pi APPEND_SYSTEM starter](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md) |
-| Development and security | [Development Guide](https://github.com/bgauryy/octocode/blob/main/docs/DEVELOPMENT_GUIDE.md) · [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md) |
+| Development and security | [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md) |
 | Benchmarks and evals | [Benchmark Summary](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Unified CLI/Tool/OQL Eval](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
 | Shared internals | [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#credential-architecture-api) · [Session Persistence](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence) |
 

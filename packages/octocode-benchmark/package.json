@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-benchmark",
-  "version": "16.3.0",
+  "version": "1.0.2",
   "private": true,
   "description": "Private internal benchmark suite for Octocode tools and engine behavior.",
   "type": "module",

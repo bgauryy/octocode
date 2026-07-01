@@ -15,8 +15,10 @@ This skill makes the agent capture current-state evidence, compare viable option
 - Current-state evidence from local code, GitHub paths, PRs, commits, packages, or formal sources.
 - Alternative comparison before recommendation, unless the user explicitly asks for a single plan.
 - Decision language tied to constraints, evidence, tradeoffs, and non-goals.
-- Risk, unresolved-question, migration, rollout, and rollback sections.
+- Risk, pre-mortem, unresolved-question, migration, rollout, and rollback sections.
 - Implementation steps ordered by dependency rather than preference.
+- Open questions closed with Octocode citations, not guesses.
+- Success criteria and post-ship verification derived from the RFC's goals.
 - Saved RFC flow when the user wants a durable artifact in the repo.
 
 ## Operating Model
@@ -24,14 +26,24 @@ This skill makes the agent capture current-state evidence, compare viable option
 The workflow is:
 
 ```text
-UNDERSTAND -> RESEARCH -> COMPARE OPTIONS -> WRITE RFC / PLAN -> VALIDATE -> DELIVER
+UNDERSTAND -> RESEARCH (octocode) -> COMPARE OPTIONS -> WRITE RFC -> CLOSE OPEN QUESTIONS (octocode) -> DERIVE KPIs -> VALIDATE -> DELIVER
 ```
 
-The agent first clarifies the decision and the evidence surfaces. It gathers proof, compares options, writes the right document shape, validates citations and open questions, then delivers the RFC or plan in chat or as an approved repo artifact.
+The agent first clarifies the decision and the evidence surfaces. It gathers proof with Octocode, compares options, writes the RFC, closes every open question with a citation, derives measurable success criteria, validates, then delivers in chat or as an approved repo artifact.
+
+## Output
+
+On an approved save the skill writes a folder `\.octocode/rfc/{name}/` with three files, each for a different reader and lifecycle:
+
+- **`RFC.md`** — the decision. Reviewer-facing, frozen at decision, and the single source of truth for goals and scope.
+- **`IMPLEMENTATION.md`** — the build. Closes every RFC open question via Octocode research, then a dependency-ordered plan with a test/verification plan and rollback.
+- **`KPI.md`** ("Success & Verification") — how to check the RFC and its implementation after shipping: user stories, Gherkin acceptance criteria, measurable signals, a decision rule, and a traceability matrix that binds the three files and detects drift.
+
+For a small, reversible, single-package change, the skill produces only `RFC.md` with an inline plan and acceptance criteria.
 
 ## User Experience
 
-Users should get a document that feels ready for review: summary, context, evidence, options, recommendation, risks, rollout, rollback, and implementation order. The skill is not meant to replace engineering judgment; it makes that judgment visible.
+Users should get a document set that feels ready for review: summary, goals/non-goals, evidence, options, recommendation, risks, rollout, rollback, implementation order, and a way to verify success. The skill is not meant to replace engineering judgment; it makes that judgment visible.
 
 It pairs well with `octocode-brainstorming` before the decision exists and `octocode-research` when the decision needs more proof or implementation.
 
@@ -46,3 +58,5 @@ npx octocode skill --name octocode-rfc-generator
 ## Maintainer Notes
 
 Keep this README focused on the decision-document story. Keep the detailed RFC structure, migration mechanics, and validation behavior in the agent-facing skill file and references.
+
+When changing this skill, edit the repo-root `skills/octocode-rfc-generator/` copy (canonical source), then run `node packages/octocode-pi-extension/scripts/build.mjs` to sync the pi-extension mirrors. Before reporting done, run `node scripts/eval-rfc.mjs --self-test` and the smoke prompts in `evals/prompts.md`, and run the skill linter until it reports 0 errors.

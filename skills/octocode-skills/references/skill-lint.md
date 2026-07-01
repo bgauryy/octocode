@@ -77,7 +77,7 @@ WARN — lean/prompt hygiene (fix unless the domain justifies the exception, and
 - Lean over complete: every token in `SKILL.md` competes with conversation context. Cut anything the agent already does well without the skill.
 - `SKILL.md` is the agent's context map: give the minimal "how it works" summary, then point each feature/capability to the relevant `references/*.md`, `scripts/*`, or asset. Put the reusable detail there.
 - `README.md` is the human map: explain the high-level purpose, user-facing features, developer-facing workflow/internals, and `npx octocode skill` installation path.
-- Not rigid, not verbose: prefer defaults with escape hatches over exhaustive menus; reserve strict modal language for fragile, destructive, or order-dependent steps.
+- Stay flexible and lean: prefer defaults with escape hatches over exhaustive menus; reserve strict modal language for fragile, destructive, or order-dependent steps.
 - Prompt optimization: preserve working intent, strengthen only critical rules, add gates/output formats where behavior depends on them, and validate that changes did not bloat or conflict.
 - No duplication: each fact lives in one place. Cross-link instead of repeating.
 - No redundant data for agents: ship only what the agent reads. Authoring/repo metadata (extra frontmatter keys, changelogs, author/license/version sections) burns activation tokens in `SKILL.md` or `references/`; keep it in the repo instead.

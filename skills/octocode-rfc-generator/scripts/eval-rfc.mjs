@@ -108,6 +108,29 @@ Phase 1: add wrapper and tests. Phase 2: migrate internal callers. Phase 3: remo
 Verification commands: yarn typecheck && yarn test && yarn lint.
 Rollback trigger: any downstream package fails contract tests.
 Owner / approver: Tools core maintainer.`,
+    'three-file-rfc': `Status: Ready for Review
+Mode: RFC — three-file set in .octocode/rfc/token-cache/
+
+RFC.md
+Decision type: irreversible (one-way door).
+Goals: unify the token cache across packages. Non-Goals: no change to the public API surface.
+Alternatives Considered: do nothing, minimal patch, full redesign. Prior art reviewed.
+Unresolved Questions: which default cache TTL to use.
+
+IMPLEMENTATION.md
+Resolved Questions (were open in RFC.md): TTL default resolved to 300s per packages/core/src/cache.ts:42 and confirmed at https://github.com/owner/repo/pull/128.
+Steps ordered by dependency; touches packages/core/src/cache.ts:60.
+Rollback trigger: contract tests fail.
+
+KPI.md — Success and Verification
+User Stories to Check: As a developer, I want faster lookups, so that latency drops.
+Acceptance Criteria (Gherkin):
+Given a warm cache
+When a repeated lookup runs
+Then it returns without a network call.
+Success Metrics: primary lagging latency baseline 120ms Target 60ms; guardrail error rate must not regress.
+Decision Rule: Roll back if latency stays above the target after the rollout window.
+Traceability matrix: RFC requirement to user story to acceptance criteria to verification method to status.`,
   };
   return samples[caseId] || '';
 }

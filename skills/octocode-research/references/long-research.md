@@ -1,6 +1,7 @@
 # Long Research
 
-Read this when an Octocode research task needs a durable decision brief, claim-level traceability, or a frozen campaign plan. Keep the normal chat flow for small answers; this reference is for longer, contested, public, or multi-surface research.
+Read this when an Octocode research task needs a durable decision brief, claim-level traceability, or a frozen campaign plan.
+Keep the normal chat flow for small answers; this reference is for longer, contested, public, or multi-surface research.
 
 ## When To Use
 
@@ -98,7 +99,8 @@ Drop claims that are only plausible but unsupported. Keep contradicted claims wh
 
 ## Vendor Adapters
 
-Firecrawl, Tavily, Parallel, Perplexity, and similar tools are optional adapters. Use them only when they are available, authenticated, and useful for the active surface. They should enrich the web/paper surface; they do not replace Octocode proof for local, GitHub, npm, PR/history, AST/LSP, or artifact claims.
+Firecrawl, Tavily, Parallel, Perplexity, and similar tools are optional adapters. Use them only when they are available, authenticated, and useful for the active surface.
+They enrich the web/paper surface only; they do not replace Octocode proof for local, GitHub, npm, PR/history, AST/LSP, or artifact claims.
 
 If a vendor adapter fails, continue with Octocode and runtime web search when possible. Mark the web/paper surface degraded instead of blocking the whole campaign.
 

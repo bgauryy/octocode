@@ -1,6 +1,7 @@
-# RFC Template — Body Sections
+# RFC.md Template — Decision Body
 
-Header through Prior Art. For the implementation plan and references sections, see rfc-implementation.md.
+`RFC.md` is the **decision document**: reviewer-facing, **frozen once accepted**, and the **single source of truth for goals and scope**. `IMPLEMENTATION.md` and `KPI.md` reference its sections — they never restate them.
+Keep implementation steps in `rfc-implementation.md` and success metrics in `rfc-kpi.md`.
 
 ```markdown
 # RFC: {Title}
@@ -8,15 +9,25 @@ Header through Prior Art. For the implementation plan and references sections, s
 | Field | Value |
 |-------|-------|
 | **Status** | Draft / In Review / Accepted / Rejected / Superseded |
+| **Decision type** | Reversible (two-way door) / Irreversible (one-way door) |
 | **Author(s)** | {names} |
 | **Created** | {YYYY-MM-DD} |
 | **Last Updated** | {YYYY-MM-DD} |
+
+> Reversible + small ⇒ single-file RFC is fine. Irreversible or wide blast radius ⇒ full folder (RFC + IMPLEMENTATION + KPI).
 
 ---
 
 ## Summary
 
 One paragraph. A reader understands the core idea after this section alone.
+
+---
+
+## Goals and Non-Goals
+
+- **Goals** — what this RFC commits to achieving (each should be checkable; `KPI.md` will turn these into measurable signals).
+- **Non-Goals** — what is explicitly out of scope. Bounding scope here prevents scope creep and anchors the whole document set.
 
 ---
 
@@ -37,14 +48,11 @@ accepted, the motivation should still be reusable for alternative proposals.
 
 ## Guide-Level Explanation
 
-Explain the proposal as if it was already implemented and you were teaching
-it to another engineer. New concepts, examples, migration guidance.
+Explain the proposal as if already implemented and you were teaching it to another engineer:
 
-- What names and terminology work best for these concepts and why?
-- How is this idea best presented — as a continuation of existing patterns, or wholly new?
-- If applicable, provide sample error messages, deprecation warnings, or migration guidance.
-- How should this be taught to existing users vs. new users?
-- Would documentation need to be reorganized or altered? Consider API docs, guides, blog posts, tutorials.
+- New concepts and terminology, explained by example.
+- Sample error messages, deprecation warnings, or migration guidance if applicable.
+- How to teach existing vs. new users, and what docs would need reorganizing.
 
 ---
 
@@ -65,18 +73,11 @@ Enough detail for someone familiar with the codebase to implement it.
 
 ## Drawbacks
 
-Why should we NOT do this? Consider:
+Why should we NOT do this? Consider: implementation cost and complexity; whether a simpler approach/config change suffices; maintenance and operational burden; performance impact; learning curve; migration cost (breaking change? codemod?); integration impact; risk of bugs and blast radius. Every proposal has costs — being honest about them builds trust.
 
-- Implementation cost, both in code size and complexity
-- Can this be achieved with existing tools, a simpler approach, or configuration change?
-- Maintenance burden and operational overhead
-- Performance impact
-- Learning curve and impact on teaching
-- Migration cost — is this a breaking change? Can we write a codemod?
-- Integration impact with other existing and planned features
-- Risk of bugs and blast radius
+### Pre-mortem — how this fails
 
-Every proposal has costs. Being honest about them builds trust.
+Assume it's shipped and failed. List the top failure scenarios, each with its trigger and the mitigation now baked into the design or `IMPLEMENTATION.md`. An empty pre-mortem is a red flag, not a strength.
 
 ---
 
@@ -120,4 +121,27 @@ Impact of not accepting this RFC. This is a valid alternative — give it honest
 
 What exists already — in the ecosystem, in the codebase, in the literature.
 Lessons learned from others. If no prior art, state that explicitly.
+
+---
+
+## Unresolved Questions
+
+Questions this RFC does not yet answer. Each is **closed in `IMPLEMENTATION.md` via octocode research**, or explicitly deferred there with a reason.
+
+**Before acceptance:**
+- [ ] {question}
+
+**During implementation:**
+- [ ] {question}
+
+**Out of scope:**
+- [ ] {question}
+
+> **Tip:** Mark inline open questions anywhere with: `> **Open Question:** {question}`
+
+---
+
+## Future Possibilities
+
+_(Optional)_ Natural extensions out of scope for this RFC. Not a reason to accept the current proposal.
 ```

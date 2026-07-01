@@ -4,9 +4,11 @@ Read this when multiple agents may touch the same local repo. It covers how to s
 
 ## `status` & files-awareness
 
-Run `status` to read the shared state at a glance — memory counts by lifecycle state, active intents, unverified intents, and the most recent file locks, each with `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-8601 UTC, newest first). This is how you tell what other agents in the same local repo are working on right now and which finished edits still owe verification; `--workspace` filters displayed locks/intents under one workspace path and `--limit` caps listed locks/pending intents. Expired locks are cleaned on each call and their intents become `PENDING`, so what you see is live without erasing verification debt.
+Run `status` to read the shared state at a glance: memory counts by lifecycle state, active intents, unverified intents, and the most recent file locks. Each lock shows `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-8601 UTC, newest first). This tells you what other agents in the same local repo are working on right now and which finished edits still owe verification.
 
-`status` shows memories, intents, and locks, but **not** refinements — for the work-handoff view, run `refine-get` separately. Everything is in the one shared store now, so a handoff can't "land in the wrong file"; but it is keyed by `repo`/`ref`, so a mismatched `--repo`/`--ref` (or a different cwd that auto-detects a different repo/branch) means the next agent's `refine-get` won't find it. Double-check `repo`/`ref` when a handoff "disappears."
+Flags: `--workspace` filters displayed locks/intents under one workspace path; `--limit` caps listed locks/pending intents. Expired locks are cleaned on each call and their intents become `PENDING`, so what you see is live without erasing verification debt.
+
+`status` shows memories, intents, and locks, but **not** refinements — for the work-handoff view, run `refine-get` separately. Everything lives in the one shared store now, so a handoff can't "land in the wrong file." But it is keyed by `repo`/`ref`: a mismatched `--repo`/`--ref` (or a different cwd that auto-detects a different repo/branch) means the next agent's `refine-get` won't find it. Double-check `repo`/`ref` when a handoff "disappears."
 
 To reason about task timing and ordering, combine three timestamp sources:
 - **Lock times** (`acquired_at`/`expires_at` from `status`) — when a claim was taken and when it lapses.

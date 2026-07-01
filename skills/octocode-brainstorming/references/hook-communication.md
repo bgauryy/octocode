@@ -4,7 +4,8 @@ Load when a brainstorm is substantial, uses subagents, spans turns, or needs a h
 
 ## Run ledger
 
-Start a ledger when the user asks for best results, RFC follow-up, multiple perspectives, a saved brief, or when the run spans multiple active surfaces. The ledger is the durable claim ledger: every material claim should eventually appear as a checkpoint with source and confidence, especially when evidence conflicts.
+Start a ledger when the user asks for best results, RFC follow-up, multiple perspectives, or a saved brief, or when the run spans multiple active surfaces.
+The ledger is the durable claim record: every material claim should appear as a checkpoint with source and confidence, especially when evidence conflicts.
 
 ```bash
 node skills/octocode-brainstorming/scripts/brainstorm-run.mjs start \
@@ -34,7 +35,8 @@ for the packet fields and reference grammar; do not write one memory per checkpo
 
 Run files live in `.octocode/brainstorming/runs/` by default, so start a ledger only when local writes are acceptable. Override with `OCTOCODE_BRAINSTORM_RUN_DIR` for tests.
 
-When evidence conflicts, record both sides as separate checkpoints and add a final checkpoint naming the concession or unresolved decision point. This prevents the perspective review from becoming theater: the final answer must be able to point back to the ledger entries that survived and the ones that were dropped.
+When evidence conflicts, record both sides as separate checkpoints and add a final checkpoint naming the concession or unresolved decision point.
+Separate checkpoints keep the perspective review honest: the final answer must point back to the ledger entries that survived and the ones that were dropped.
 
 ## Hook entrypoint
 
@@ -57,7 +59,8 @@ node skills/octocode-brainstorming/scripts/eval-brainstorm.mjs \
   --case idea-validation --input /tmp/answer.md --json
 ```
 
-The evaluator checks observable answer behavior: mode, surface plan, citations, perspective review, decision label, next step, and forbidden failure modes. It does not prove that the market or technical judgment is correct; human review still judges substance.
+The evaluator checks observable answer behavior: mode, surface plan, citations, perspective review, decision label, next step, and forbidden failure modes.
+The evaluator does not prove the market or technical judgment is correct — human review still judges substance.
 
 ## Communication protocol
 

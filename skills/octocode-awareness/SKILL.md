@@ -17,8 +17,8 @@ Local SQLite-backed memory, file locks, notifications, and verify-before-conclud
 1. Attend: run `status`, `get-memory`, `refine-get`, and `notify-get`; validate recalled code facts against current files.
 2. Focus and claim: before writes, call `pre-flight-intent` with absolute `--target-file`; if exit `2`, stop or wait with `wait-for-lock`.
 3. Verify: run the declared `--test-plan`, then `verify --workspace "$PWD" --all-pending` or `release-file-lock --verified`.
-4. Encode: memories are concise reusable lessons with a reason (global by default, optionally workspace/repo/ref scoped); refinements are repo handoffs; notifications are live repo messages; durable repo guidance belongs in `AGENTS.md`/`CLAUDE.md` and must be reported to the user.
-5. Sleep: release locks on failure too, prune stale data deliberately, and use `reflect --task ... --outcome ...` for lessons or reasoned harness proposals; ask before applying AGENTS/docs/standing-memory/skill-code harness changes.
+4. Encode by layer: memories = concise reusable lessons with a reason (global by default, or scope to workspace/repo/ref); refinements = repo handoffs; notifications = live repo messages. Durable repo guidance belongs in `AGENTS.md`/`CLAUDE.md` and MUST be reported to the user.
+5. Sleep: release locks even on failure; prune stale data deliberately; run `reflect --task ... --outcome ...` for lessons or harness proposals. Ask before applying AGENTS/docs/standing-memory/skill-code changes.
 
 ## References
 - `references/brain-model.md` — when tuning recall, cleanup, salience, corpus notes, or sleep behavior.

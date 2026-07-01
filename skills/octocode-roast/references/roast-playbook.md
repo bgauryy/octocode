@@ -2,8 +2,10 @@
 
 Execution flow with exact output templates for the destructive half of the roast. After the autopsy, continue with redemption-flow.md for Phases 5-6 (the user checkpoint and fixes) and the pre-delivery verification checklist.
 
+Canonical phases (match SKILL.md): TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM.
+
 ```
-TARGET → OBLITERATE → INVENTORY → AUTOPSY → [USER PICKS] → RESURRECT
+TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM
          │
          └── If 20+ sins: TRIAGE first (pick top 10)
 ```

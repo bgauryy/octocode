@@ -34,7 +34,8 @@ Search snippets, LLM judgment, and package popularity are leads. Exact reads, AS
 
 ## Dismissal
 
-Dismiss a candidate when a stronger check contradicts it. Say why, briefly: "dismissed because LSP callers show live production use" or "dismissed because exact read shows the import is type-only and erased." Do not leave dismissed candidates in the final findings list except as a short residual-risk note when useful.
+Dismiss a candidate when a stronger check contradicts it. Say why, briefly: "dismissed because LSP callers show live production use" or "dismissed because exact read shows the import is type-only and erased."
+Keep dismissed candidates out of the final findings list; surface one only as a short residual-risk note when it still matters.
 
 ## Reporting
 
