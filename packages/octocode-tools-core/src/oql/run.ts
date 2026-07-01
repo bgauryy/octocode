@@ -145,16 +145,19 @@ function applyResultRowWindow(query: OqlQuery, exec: AdapterResult): void {
   // Content has its own char-window pagination and per-row next.charRange.
   if (query.target === 'content') return;
   const limitIsHardCap = typeof query.limit === 'number' && query.limit > 0;
-  // Local code search paginates matched files and caps per-file matches; the
-  // mapped OQL rows are match rows. Slicing those rows would create `next.page`
-  // queries that advance the file page, not the hidden match row, so leave the
-  // backend pagination intact and rely on next.matchPage for noisy files.
+  // Code search paginates matched files and caps per-file matches; the mapped
+  // OQL rows are match rows (local marks this totalItemsKind:'files', GitHub
+  // itemUnit:'files'). Slicing those rows would create `next.page` queries
+  // that advance the file page, not the hidden match row — page 2 would then
+  // silently skip the tail matches of page-1 files — so leave the backend
+  // pagination intact and rely on next.matchPage for noisy files.
   // EXCEPTION: an explicit `limit` is a hard cap on the primary result-row
   // domain — the caller asked for at most N rows, so it must be honored even
   // here. Page-size paging (itemsPerPage only) still defers to backend paging.
   if (
     query.target === 'code' &&
-    exec.pagination?.totalItemsKind === 'files' &&
+    (exec.pagination?.totalItemsKind === 'files' ||
+      exec.pagination?.itemUnit === 'files') &&
     !limitIsHardCap
   ) {
     return;
@@ -334,9 +337,14 @@ function attachContinuations(
     query.target !== 'content' &&
     !hardLimitWithoutPage
   ) {
+    const filesUnit =
+      exec.pagination.totalItemsKind === 'files' ||
+      exec.pagination.itemUnit === 'files';
     next['next.page'] = exec.pagination.next ?? {
       query: { ...query, page: (query.page ?? 1) + 1 },
-      why: 'More result pages remain.',
+      why: filesUnit
+        ? `More file pages remain (page/itemsPerPage count matched files; rows are per-match — this page holds ${exec.results.length} rows).`
+        : 'More result pages remain.',
       confidence: 'exact',
     };
   }

@@ -12,6 +12,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { GitHubFileContentData } from '@octocodeai/octocode-core/types';
 import { runDirect } from './runner.js';
 import { toOqlPagination, type ToolPaginationPayload } from './pagination.js';
+import { enrichCodePagination } from './resultMap.js';
 import { diagnostic } from '../diagnostics.js';
 import { toGithubCodeSearchToolQuery } from '../transformers/github/code.js';
 import { firstScopePath } from '../transformers/github/common.js';
@@ -343,7 +344,16 @@ async function githubCode(query: OqlQuery): Promise<AdapterResult> {
       });
     }
   }
-  const pagination = toOqlPagination(data?.pagination);
+  // GitHub code search paginates FILE items while OQL code rows are per-match:
+  // mark the unit (itemUnit/rowCount) so the runner defers to backend file
+  // paging instead of slicing match rows out from under `next.page`. Do NOT
+  // overwrite totalItemsKind — it carries GitHub's lowerBound/reported
+  // exactness for the total.
+  const pagination = enrichCodePagination(
+    toOqlPagination(data?.pagination),
+    rows.length,
+    true
+  );
   return {
     results: rows,
     ...(pagination ? { pagination } : {}),

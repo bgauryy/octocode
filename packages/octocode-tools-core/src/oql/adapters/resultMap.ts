@@ -118,12 +118,19 @@ export function mapCodeResult(
   };
 }
 
-function enrichCodePagination(
+/**
+ * Mark file-unit code pagination: `page`/`itemsPerPage` count matched FILES
+ * while OQL code rows are individual matches. `filesUnit` forces the marker
+ * for providers (GitHub code search) whose totalItemsKind carries exactness
+ * (`lowerBound`/`reported`) instead of the local `'files'` unit tag.
+ */
+export function enrichCodePagination(
   pagination: Pagination | undefined,
-  rowCount: number
+  rowCount: number,
+  filesUnit = false
 ): Pagination | undefined {
   if (!pagination) return undefined;
-  if (pagination.totalItemsKind !== 'files') return pagination;
+  if (pagination.totalItemsKind !== 'files' && !filesUnit) return pagination;
   return {
     ...pagination,
     itemUnit: 'files',
