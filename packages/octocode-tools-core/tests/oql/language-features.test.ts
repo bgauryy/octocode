@@ -110,6 +110,54 @@ describe('controls.budget.maxBooleanExpansion', () => {
   });
 });
 
+describe('predicate id uniqueness', () => {
+  it('rejects duplicate user-supplied predicate ids', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: {
+          kind: 'all',
+          of: [
+            { kind: 'text', value: 'a', id: 'p1' },
+            { kind: 'text', value: 'b', id: 'p1' },
+          ],
+        },
+      } as never)
+    ).toThrowError(/Duplicate predicate id "p1"/);
+  });
+
+  it('rejects a duplicate id between a boolean node and a nested leaf', () => {
+    expect(() =>
+      normalizeQuery({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: {
+          kind: 'not',
+          id: 'p1',
+          predicate: { kind: 'text', value: 'a', id: 'p1' },
+        },
+      } as never)
+    ).toThrowError(OqlValidationError);
+  });
+
+  it('allows unique and absent ids', () => {
+    const q = normalizeQuery({
+      target: 'code',
+      from: { kind: 'local', path: OQL_SRC },
+      where: {
+        kind: 'all',
+        of: [
+          { kind: 'text', value: 'a', id: 'p1' },
+          { kind: 'text', value: 'b', id: 'p2' },
+          { kind: 'text', value: 'c' },
+        ],
+      },
+    } as never);
+    expect(q).toBeDefined();
+  });
+});
+
 describe('scope.exclude forwarding', () => {
   it('runs with an exclude glob without error', async () => {
     const env = single(
