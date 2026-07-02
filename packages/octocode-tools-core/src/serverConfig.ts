@@ -1,9 +1,6 @@
 import type { ProviderType } from './providers/types.js';
-import {
-  resolveTokenFull,
-  getConfigSync,
-  invalidateConfigCache,
-} from './shared/index.js';
+import { resolveTokenFull } from './shared/index.js';
+import { getConfigSync, invalidateConfigCache } from '@octocodeai/config';
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';

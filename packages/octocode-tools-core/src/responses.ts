@@ -1,6 +1,6 @@
 import { CallToolResult } from '@modelcontextprotocol/sdk/types';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
-import { getConfigSync } from './shared/index.js';
+import { getConfigSync } from '@octocodeai/config';
 import { contextUtils, type JsonInput } from './utils/contextUtils.js';
 import type { BulkToolResponse } from './types/bulk.js';
 import type { StructuredToolResponse } from './types/toolResults.js';

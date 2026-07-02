@@ -24,6 +24,15 @@ function readJson(filePath) {
 }
 
 function resolveWorkspaceDirs(pattern) {
+  // Direct path (e.g. "skills") — single workspace package at that directory.
+  if (!pattern.includes('*')) {
+    const dirPath = path.join(ROOT, pattern);
+    if (fs.existsSync(path.join(dirPath, 'package.json'))) {
+      return [dirPath];
+    }
+    return [];
+  }
+
   if (!pattern.endsWith('/*')) {
     throw new Error(`Unsupported workspace pattern: ${pattern}`);
   }

@@ -17,6 +17,11 @@ export function getDefaultOctocodeHome(): string {
   return getOctocodeHome(process.env);
 }
 
+/** Octocode home directory — same as OCTOCODE_HOME, exposed for tool/cache use. */
+export function getOctocodeDir(): string {
+  return OCTOCODE_HOME;
+}
+
 export const OCTOCODE_HOME = getDefaultOctocodeHome();
 
 export const paths = {

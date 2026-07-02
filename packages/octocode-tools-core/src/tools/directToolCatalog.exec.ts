@@ -8,7 +8,7 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { initialize } from '../serverConfig.js';
 import { initializeProviders } from '../providers/factory.js';
-import { getConfigSync } from '../shared/index.js';
+import { getConfigSync } from '@octocodeai/config';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import type { ToolConfig } from './toolConfig.js';
 import { ALL_TOOLS } from './toolConfig.js';

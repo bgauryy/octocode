@@ -9,8 +9,8 @@ import {
   getConfigValue,
   _resetConfigCache,
   _getCacheState,
-} from '../../../src/shared/config/resolver.js';
-import { DEFAULT_CONFIG } from '../../../src/shared/config/defaults.js';
+  DEFAULT_CONFIG,
+} from '@octocodeai/config';
 
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),

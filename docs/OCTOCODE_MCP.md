@@ -2,7 +2,7 @@
 
 The Octocode MCP server exposes Octocode's research tools to AI coding clients through the Model Context Protocol over stdio. It is intentionally thin: the server registers schemas and transports requests, while the actual tool behavior lives in `@octocodeai/octocode-tools-core` and native primitives live in `@octocodeai/octocode-engine`.
 
-Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. Use [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) for every tool, [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for settings, and [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) for GitHub tokens and encrypted credential storage.
+Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. Use [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) for every tool, [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for settings, and [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for GitHub tokens and encrypted credential storage.
 
 ## What MCP Adds
 
@@ -50,7 +50,7 @@ Or configure an MCP client directly. Pick the package that matches the version y
 }
 ```
 
-Set tokens through environment variables or run `npx octocode auth login`. Do not put tokens in `.octocoderc`; see [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md).
+Set tokens through environment variables or run `npx octocode auth login`. Do not put tokens in `.octocoderc`; see [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 ## Startup Lifecycle
 
@@ -174,12 +174,12 @@ Testing helper: `_resetSessionState()` clears cache, timer, and exit handlers.
 
 ### Related Documentation
 
-- [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#credential-architecture-api)
+- [Credentials Architecture](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token)
 - [Tools Core package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/README.md)
 
 ## See Also
 
 - [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)
 - [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
-- [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
+- [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 - [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)

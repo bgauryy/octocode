@@ -419,24 +419,21 @@ describe('Token Storage', () => {
     it('should return OCTOCODE_TOKEN when set', async () => {
       process.env.OCTOCODE_TOKEN = 'octocode-test-token';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('octocode-test-token');
     });
 
     it('should return GH_TOKEN when OCTOCODE_TOKEN is not set', async () => {
       process.env.GH_TOKEN = 'gh-test-token';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('gh-test-token');
     });
 
     it('should return GITHUB_TOKEN when others are not set', async () => {
       process.env.GITHUB_TOKEN = 'github-test-token';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('github-test-token');
     });
 
@@ -444,8 +441,7 @@ describe('Token Storage', () => {
       process.env.OCTOCODE_TOKEN = 'octocode-priority';
       process.env.GH_TOKEN = 'gh-lower-priority';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('octocode-priority');
     });
 
@@ -453,8 +449,7 @@ describe('Token Storage', () => {
       process.env.OCTOCODE_TOKEN = 'octocode-priority';
       process.env.GITHUB_TOKEN = 'github-lower-priority';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('octocode-priority');
     });
 
@@ -462,22 +457,19 @@ describe('Token Storage', () => {
       process.env.GH_TOKEN = 'gh-priority';
       process.env.GITHUB_TOKEN = 'github-lower-priority';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('gh-priority');
     });
 
     it('should return null when no env vars are set', async () => {
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBeNull();
     });
 
     it('should trim whitespace from token values', async () => {
       process.env.OCTOCODE_TOKEN = '  trimmed-token  ';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('trimmed-token');
     });
 
@@ -485,8 +477,7 @@ describe('Token Storage', () => {
       process.env.OCTOCODE_TOKEN = '   ';
       process.env.GH_TOKEN = 'fallback-token';
 
-      const { getTokenFromEnv } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getTokenFromEnv } = await import('@octocodeai/config');
       expect(getTokenFromEnv()).toBe('fallback-token');
     });
   });
@@ -508,30 +499,26 @@ describe('Token Storage', () => {
     it('should return env:OCTOCODE_TOKEN when set', async () => {
       process.env.OCTOCODE_TOKEN = 'test-token';
 
-      const { getEnvTokenSource } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getEnvTokenSource } = await import('@octocodeai/config');
       expect(getEnvTokenSource()).toBe('env:OCTOCODE_TOKEN');
     });
 
     it('should return env:GH_TOKEN when OCTOCODE_TOKEN is not set', async () => {
       process.env.GH_TOKEN = 'test-token';
 
-      const { getEnvTokenSource } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getEnvTokenSource } = await import('@octocodeai/config');
       expect(getEnvTokenSource()).toBe('env:GH_TOKEN');
     });
 
     it('should return env:GITHUB_TOKEN when others are not set', async () => {
       process.env.GITHUB_TOKEN = 'test-token';
 
-      const { getEnvTokenSource } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getEnvTokenSource } = await import('@octocodeai/config');
       expect(getEnvTokenSource()).toBe('env:GITHUB_TOKEN');
     });
 
     it('should return null when no env vars are set', async () => {
-      const { getEnvTokenSource } =
-        await import('../../../src/shared/credentials/storage.js');
+      const { getEnvTokenSource } = await import('@octocodeai/config');
       expect(getEnvTokenSource()).toBeNull();
     });
   });
@@ -553,26 +540,26 @@ describe('Token Storage', () => {
     it('should return true when OCTOCODE_TOKEN is set', async () => {
       process.env.OCTOCODE_TOKEN = 'test-token';
 
-      const { hasEnvToken } = await import('../../../src/shared/credentials/storage.js');
+      const { hasEnvToken } = await import('@octocodeai/config');
       expect(hasEnvToken()).toBe(true);
     });
 
     it('should return true when GH_TOKEN is set', async () => {
       process.env.GH_TOKEN = 'test-token';
 
-      const { hasEnvToken } = await import('../../../src/shared/credentials/storage.js');
+      const { hasEnvToken } = await import('@octocodeai/config');
       expect(hasEnvToken()).toBe(true);
     });
 
     it('should return true when GITHUB_TOKEN is set', async () => {
       process.env.GITHUB_TOKEN = 'test-token';
 
-      const { hasEnvToken } = await import('../../../src/shared/credentials/storage.js');
+      const { hasEnvToken } = await import('@octocodeai/config');
       expect(hasEnvToken()).toBe(true);
     });
 
     it('should return false when no env vars are set', async () => {
-      const { hasEnvToken } = await import('../../../src/shared/credentials/storage.js');
+      const { hasEnvToken } = await import('@octocodeai/config');
       expect(hasEnvToken()).toBe(false);
     });
   });

@@ -264,12 +264,16 @@ export {
   OCTOCODE_DIR,
   CREDENTIALS_FILE,
   KEY_FILE,
+  getGhCliToken,
+} from './shared/credentials/index.js';
+export {
   ENV_TOKEN_VARS,
+  type EnvTokenVar,
   getTokenFromEnv,
   getEnvTokenSource,
   hasEnvToken,
-  getGhCliToken,
-} from './shared/credentials/index.js';
+  resolveEnvToken,
+} from '@octocodeai/config';
 export {
   isWindows,
   isMac,
@@ -311,6 +315,7 @@ export {
   incrementToolCharSavings,
   _resetSessionState,
 } from './shared/session/index.js';
+// Config types, defaults, and resolver — sourced directly from @octocodeai/config.
 export type {
   OctocodeConfig,
   ResolvedConfig,
@@ -330,7 +335,8 @@ export type {
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
-} from './shared/config/index.js';
+  RuntimeSurface,
+} from '@octocodeai/config';
 export {
   CONFIG_SCHEMA_VERSION,
   CONFIG_FILE_NAME,
@@ -347,12 +353,10 @@ export {
   MAX_RETRIES,
   MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-  CONFIG_FILE_PATH,
+  getConfigFilePath,
   loadConfig,
   loadConfigSync,
   configExists,
-  getConfigPath,
-  getOctocodeDir,
   validateConfig,
   getConfig,
   getConfigSync,
@@ -363,11 +367,14 @@ export {
   getConfigValue,
   _resetConfigCache,
   _getCacheState,
-  OctocodeConfigSchema,
-} from './shared/config/index.js';
+  setRuntimeSurface,
+  getRuntimeSurface,
+} from '@octocodeai/config';
+export { OctocodeConfigSchema } from './shared/config/schemas.js';
 export {
   OCTOCODE_HOME,
   getDefaultOctocodeHome,
+  getOctocodeDir,
   paths,
   ensureHome,
   ensureTmp,

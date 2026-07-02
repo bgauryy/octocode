@@ -96,7 +96,7 @@ function makeStoredCredentials(opts: {
 describe('ENV_TOKEN_VARS priority order (AUTHENTICATION.md §Token Priority)', () => {
   it('has exactly 4 entries in documented priority order', async () => {
     vi.resetModules();
-    const { ENV_TOKEN_VARS } = await import('../../src/shared/credentials/envTokens.js');
+    const { ENV_TOKEN_VARS } = await import('@octocodeai/config');
     expect([...ENV_TOKEN_VARS]).toEqual([
       'OCTOCODE_TOKEN',
       'GH_TOKEN',
@@ -117,27 +117,27 @@ describe('resolveEnvToken — env-var priority (AUTHENTICATION.md §Token Priori
     process.env.GH_TOKEN = 'loses';
     process.env.GITHUB_TOKEN = 'loses';
     process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'loses';
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()).toMatchObject({ token: 'oc-wins', source: 'env:OCTOCODE_TOKEN' });
   });
 
   it('GH_TOKEN wins when OCTOCODE_TOKEN absent (priority 2)', async () => {
     process.env.GH_TOKEN = 'gh-wins';
     process.env.GITHUB_TOKEN = 'loses';
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()).toMatchObject({ source: 'env:GH_TOKEN' });
   });
 
   it('GITHUB_TOKEN wins when top two absent (priority 3)', async () => {
     process.env.GITHUB_TOKEN = 'gt-wins';
     process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'loses';
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()).toMatchObject({ source: 'env:GITHUB_TOKEN' });
   });
 
   it('GITHUB_PERSONAL_ACCESS_TOKEN used when all others absent (priority 4)', async () => {
     process.env.GITHUB_PERSONAL_ACCESS_TOKEN = 'pat-wins';
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()).toMatchObject({
       token: 'pat-wins',
       source: 'env:GITHUB_PERSONAL_ACCESS_TOKEN',
@@ -145,20 +145,20 @@ describe('resolveEnvToken — env-var priority (AUTHENTICATION.md §Token Priori
   });
 
   it('returns null when no env token is set', async () => {
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()).toBeNull();
   });
 
   it('ignores blank / whitespace-only values and falls through', async () => {
     process.env.OCTOCODE_TOKEN = '   ';
     process.env.GH_TOKEN = 'real-token';
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()).toMatchObject({ source: 'env:GH_TOKEN' });
   });
 
   it('trims whitespace from token values', async () => {
     process.env.GITHUB_TOKEN = '  trimmed  ';
-    const { resolveEnvToken } = await import('../../src/shared/credentials/envTokens.js');
+    const { resolveEnvToken } = await import('@octocodeai/config');
     expect(resolveEnvToken()?.token).toBe('trimmed');
   });
 });
@@ -266,7 +266,7 @@ describe('TokenSource label strings match documented values (AUTHENTICATION.md �
     ['GITHUB_PERSONAL_ACCESS_TOKEN', 'env:GITHUB_PERSONAL_ACCESS_TOKEN'],
   ] as const)('%s → source "%s"', async (envVar, expectedSource) => {
     process.env[envVar] = 'test-token';
-    const { getEnvTokenSource } = await import('../../src/shared/credentials/envTokens.js');
+    const { getEnvTokenSource } = await import('@octocodeai/config');
     expect(getEnvTokenSource()).toBe(expectedSource);
   });
 });

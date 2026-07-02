@@ -1,5 +1,4 @@
-import { getConfigSync } from '../../shared/index.js';
-import { DEFAULT_OUTPUT_CONFIG } from '../../shared/index.js';
+import { getConfigSync, DEFAULT_OUTPUT_CONFIG } from '@octocodeai/config';
 
 export function getOutputCharLimit(): number {
   try {

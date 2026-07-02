@@ -4,10 +4,12 @@ import {
   loadConfig,
   loadConfigSync,
   configExists,
-  getConfigPath,
-  getOctocodeDir,
-  CONFIG_FILE_PATH,
-} from '../../../src/shared/config/loader.js';
+  getConfigFilePath,
+} from '@octocodeai/config';
+import { getOctocodeDir } from '../../../src/shared/paths.js';
+
+// CONFIG_FILE_PATH was a static const; now computed via getConfigFilePath().
+const CONFIG_FILE_PATH = getConfigFilePath();
 import { paths } from '../../../src/shared/paths.js';
 
 vi.mock('node:fs', () => ({
@@ -40,9 +42,9 @@ describe('config/loader', () => {
     });
   });
 
-  describe('getConfigPath', () => {
+  describe('getConfigFilePath', () => {
     it('returns the config file path', () => {
-      const path = getConfigPath();
+      const path = getConfigFilePath();
       expect(path).toBe(CONFIG_FILE_PATH);
       expect(path).toBe(paths.config);
       expect(path.endsWith('.octocoderc')).toBe(true);
@@ -203,14 +205,16 @@ describe('config/loader', () => {
       expect(result.error).toContain('Config file has invalid structure');
     });
 
-    it('returns error when version is not an integer', () => {
+    it('succeeds parsing when version is not an integer (field validation is validateConfig\'s job)', () => {
       vi.mocked(existsSync).mockReturnValue(true);
       vi.mocked(readFileSync).mockReturnValue('{"version": 1.5}');
 
       const result = loadConfigSync();
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Config file has invalid structure');
+      // loadConfigSync only checks structure (is it an object?); field-level
+      // validation (e.g. integer version) belongs to validateConfig.
+      expect(result.success).toBe(true);
+      expect((result.config as Record<string, unknown>)?.version).toBe(1.5);
     });
 
     it('accepts config with unknown extra keys via passthrough', () => {

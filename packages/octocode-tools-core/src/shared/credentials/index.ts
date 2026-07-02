@@ -43,10 +43,6 @@ export {
   OCTOCODE_DIR,
   CREDENTIALS_FILE,
   KEY_FILE,
-  ENV_TOKEN_VARS,
-  getTokenFromEnv,
-  getEnvTokenSource,
-  hasEnvToken,
 } from './storage.js';
 
 export { getGhCliToken } from './ghCli.js';

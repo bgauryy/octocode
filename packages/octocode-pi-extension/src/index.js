@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { runWebTool, renderWebResult, pickProvider } from './web.js';
-import { propagateOctocodeEnv } from './env.js';
+import { propagateOctocodeEnv, getOctocodeHome } from './env.js';
 
 export const PACKAGE_NAME = '@octocodeai/pi-extension';
 export const SYSTEM_PROMPT_MARKER = '<!-- octocode-pi-extension:system-prompt -->';
@@ -21,29 +21,6 @@ export function getAssetPaths(baseDir = extensionDir) {
     skillsDir: path.join(baseDir, 'skills'),
     systemPrompt: path.join(baseDir, 'system', 'APPEND_SYSTEM.md'),
   };
-}
-
-/**
- * Resolve Octocode's home directory per platform, matching octocode-tools-core/src/shared/paths.ts.
- * Precedence: OCTOCODE_HOME env > platform default.
- *   macOS:   ~/.octocode
- *   Linux:   ${XDG_CONFIG_HOME:-~/.config}/.octocode
- *   Windows: %APPDATA%\.octocode
- */
-export function getOctocodeHome() {
-  const override = process.env.OCTOCODE_HOME;
-  if (override && override.trim()) return path.resolve(override.trim());
-  const home = os.homedir();
-  if (process.platform === 'win32') {
-    const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
-    return path.join(appData, '.octocode');
-  }
-  if (process.platform === 'darwin') {
-    return path.join(home, '.octocode');
-  }
-  // Linux / other: XDG_CONFIG_HOME
-  const xdg = process.env.XDG_CONFIG_HOME || path.join(home, '.config');
-  return path.join(xdg, '.octocode');
 }
 
 /**

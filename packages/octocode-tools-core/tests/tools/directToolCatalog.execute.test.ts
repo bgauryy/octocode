@@ -9,7 +9,7 @@ import { cleanup } from '../../src/serverConfig.js';
 import {
   setRuntimeSurface,
   _resetRuntimeSurface,
-} from '../../src/shared/config/runtimeSurface.js';
+} from '@octocodeai/config';
 
 describe('executeDirectTool - invalid input handling (finding 3)', () => {
   const originalEnableClone = process.env.ENABLE_CLONE;

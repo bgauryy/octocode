@@ -1,7 +1,7 @@
 import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/security';
 import { sanitizeStructuredContent } from '../../responses.js';
-import { getRuntimeSurface } from '../../shared/config/runtimeSurface.js';
+import { getRuntimeSurface } from '@octocodeai/config';
 
 const FULL_MCP_TEXT_ENV = 'OCTOCODE_MCP_FULL_TEXT';
 

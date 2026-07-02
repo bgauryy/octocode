@@ -45,6 +45,33 @@ Install the published skill with:
 npx octocode skill --name octocode-brainstorming
 ```
 
+## Configuration — web search keys
+
+The skill runs web research via Tavily and/or Serper. Put your keys in the **unified Octocode env file** — not in a skill-local `.env`:
+
+```bash
+# ~/.octocode/.env  (macOS/Linux default; Windows: %APPDATA%\.octocode\.env)
+TAVILY_API_KEY=tvly-...
+SERPER_API_KEY=...
+```
+
+Get keys: [Tavily](https://app.tavily.com/) · [Serper](https://serper.dev/) · both is fine, one is enough.
+
+**How the keys reach the skill:**
+- Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `~/.octocode/.env` into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
+- When the scripts are run standalone from the published build — `octocode-config.mjs` is bundled alongside each script and loads the same file directly.
+
+**Key priority:** `process.env` (shell / agent session) > `~/.octocode/.env` (global) > `<project>/.octocode/.env` (project, when trusted). The search scripts never overwrite an already-set value.
+
+Verify a key is working:
+
+```bash
+node <skill_dir>/scripts/tavily-search.mjs --check
+node <skill_dir>/scripts/serper-search.mjs --check
+```
+
+The provider ladder is: Tavily → Serper → DuckDuckGo (no key needed, lower quality). The skill uses whichever exits 0 first; with no key it falls back to DuckDuckGo and reports the limitation once.
+
 ## Maintainer Notes
 
 Keep the README focused on the reasoning model: divergent framing, resource-first research, surface loops, conflict concessions, and decision usefulness. Keep operational details, eval mechanics, and web adapter behavior in the agent-facing skill file and references.

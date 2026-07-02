@@ -1,48 +1,85 @@
-# Configuration Reference
+# Octocode Configuration & Authentication
 
-Concise reference for Octocode environment variables, the `.env` file, `.octocoderc`, local state paths, and option precedence.
+## Table of Contents
 
-> **One config home for every Octocode surface.** The MCP server, the `octocode` CLI, the awareness memory store, and the `octocode-agent` / Pi extension all resolve the same per-platform **Octocode home** (macOS `~/.octocode`, Linux `${XDG_CONFIG_HOME:-~/.config}/.octocode`, Windows `%APPDATA%\.octocode`; override with `OCTOCODE_HOME`). Everything — `.env`, `.octocoderc`, credentials, LSP config, caches — lives under that single directory, with an optional per-project `.octocode/` for overrides. Each surface reads a different subset of these files; see [Config surfaces — who reads what](#config-surfaces--who-reads-what).
+- [Quick Setup](#quick-setup)
+- [Authentication](#authentication)
+  - [Method 1 — Octocode OAuth login](#method-1--octocode-oauth-login-recommended)
+  - [Method 2 — Token env var](#method-2--token-env-var)
+  - [Method 3 — gh CLI passthrough](#method-3--gh-cli-passthrough)
+  - [Token priority order](#token-priority-order)
+  - [Auth commands](#auth-commands)
+- [Config Files](#config-files)
+  - [Where everything lives](#where-everything-lives)
+  - [`.env` — third-party API keys](#env--third-party-api-keys)
+  - [`.octocoderc` — Octocode settings](#octocoderc--octocode-settings)
+  - [How settings override each other](#how-settings-override-each-other)
+- [MCP Client `env` Block](#mcp-client-env-block)
+- [All Settings Reference](#all-settings-reference)
+- [GitHub Enterprise](#github-enterprise)
+- [Troubleshooting](#troubleshooting)
+- [See Also](#see-also)
 
-## Sources And Precedence
+---
 
-Octocode resolves configuration in this order:
+## Quick Setup
 
-```text
-explicit environment variables
-  > <octocode-home>/.env   (and project .octocode/.env — loaded by the agent + skills via @octocodeai/config)
-  > <octocode-home>/.octocoderc
-  > built-in defaults
+```bash
+# Step 1 — authenticate (opens browser, stores encrypted token)
+npx octocode auth login
+
+# Step 2 — (optional) add web search for better results
+echo 'TAVILY_API_KEY=tvly-...' >> ~/.octocode/.env
+
+# Step 3 — verify
+npx octocode status --json
 ```
 
-- **Environment variables** — per-client/per-project settings and tokens. Highest priority.
-- **`.env`** — environment variables (incl. tool API keys such as `TAVILY_API_KEY`). The `octocode-agent` / Pi-extension surface loads these into `process.env` at session start; an explicit env var already set always wins. (The standalone MCP server / CLI read env from your shell or client config; they do not auto-load `.env`.)
-- **`.octocoderc`** — structured machine-wide defaults (no secrets).
+Already have a GitHub token and don't want a browser login? Jump to [Method 2](#method-2--token-env-var).
 
-Restart the MCP server (or start a new agent session) after changing any source.
+---
 
-### Config surfaces — who reads what
+## Authentication
 
-The **home is unified** (every surface resolves the same `<octocode-home>` and `OCTOCODE_HOME`), but each surface reads a different subset of files under it. This matrix is the source of truth:
+Octocode needs a GitHub token to search code, read files, and call the GitHub API. There are **three ways** to provide one — pick the one that fits your workflow.
 
-| Surface | `.octocoderc` | `<home>/.env` + project `.octocode/.env` | Notes |
-|---------|:---:|:---:|-------|
-| **MCP server** | ✅ | ❌ | Env comes from the client `env` block (see below); does not auto-load `.env`. |
-| **`octocode` CLI** | ✅ | ❌ | Env comes from your shell; does not auto-load `.env`. |
-| **`octocode-agent` / Pi extension** | ❌ | ✅ | Loads `.env` into `process.env` at session start (global always; project when trusted). |
-| **Skills** (e.g. brainstorming web search scripts) | ❌ | ✅ | Load `<home>/.env` (+ project) via the shared loader, then a skill-local `.env` as a standalone fallback; `process.env` always wins. |
+---
 
-**The single loader.** All env/config loading flows through one zero-dependency, cross-platform npm package: [`@octocodeai/config`](../packages/octocode-config). It resolves the home (`getOctocodeHome`), parses `.env` (global + project) with the protected-key + precedence rules (`propagateOctocodeEnv`), and reads `.octocoderc` (`loadOctocoderc`). Packages use it as a workspace dep at build time; the Pi extension inlines the source as `dist/env.js` and skill scripts receive a static copy (`octocode-config.mjs`) — both injected at build, so nothing needs `@octocodeai/config` at runtime and it does not have to be published. `scripts/octocode-env.mjs` is a thin re-export kept for backward compatibility. This is the one place to change env/config behavior. *(MCP server / CLI adoption — auto-loading `<home>/.env` via this same module — is the remaining step; today they take env from the client/shell and read `.octocoderc`.)*
+### Method 1 — Octocode OAuth login (recommended)
 
-Practical consequences:
+**Best for:** individual developers, local use, any time a browser is available.
 
-- **API keys (Tavily/Serper) are unified in practice under the agent.** Put them once in `<home>/.env`; the agent propagates them into `process.env`, which the `web` tool and skill scripts both prefer over any skill-local `.env`.
-- **Standalone MCP/CLI do not read `.env`.** Pass their env via the client config (MCP `env` block) or your shell. Structured settings for them go in `.octocoderc`.
-- **Tokens** never live in `.octocoderc` or `.env` — use `npx octocode auth login` (encrypted `credentials.json`) or shell env.
+```bash
+npx octocode auth login
+```
 
-> **Fully unifying `.env`** (having the MCP server and CLI also auto-load `<home>/.env`, and pointing skill scripts at `<home>/.env` directly) is a possible future change — today only the agent surface auto-loads it.
+- Opens GitHub's OAuth Device Flow in your browser.
+- Token is stored **AES-256-GCM encrypted** at `~/.octocode/credentials.json` (key at `~/.octocode/.key`, both `chmod 600`).
+- GitHub App tokens auto-refresh. Standard `ghp_*` personal access tokens don't expire.
+- Octocode reads this automatically on every request — nothing else to configure.
 
-## MCP Env Example
+```bash
+npx octocode auth login --force      # replace an existing stored token
+npx octocode auth logout             # delete the stored token
+```
+
+---
+
+### Method 2 — Token env var
+
+**Best for:** CI/CD, MCP clients, scripts, or anywhere you already manage tokens as env vars.
+
+Set any one of these in your shell, CI environment, or MCP client `env` block:
+
+```bash
+# In your shell or ~/.zshrc / ~/.bashrc
+export GITHUB_TOKEN=ghp_...
+
+# Or use the Octocode-specific var (highest priority)
+export OCTOCODE_TOKEN=ghp_...
+```
+
+**In an MCP client config file** (no shell export needed):
 
 ```json
 {
@@ -51,234 +88,405 @@ Practical consequences:
       "command": "npx",
       "args": ["-y", "@octocodeai/mcp@latest"],
       "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
-        "ENABLE_CLONE": "false"
+        "GITHUB_TOKEN": "ghp_..."
       }
     }
   }
 }
 ```
 
-Install helpers write client-specific paths automatically:
+> ⚠️ **Tokens cannot go in `~/.octocode/.env`** — all four token vars are protected keys and will be silently skipped. Use your shell, your shell profile (`~/.zshrc`, `~/.bashrc`), or the MCP `env` block.
+
+Changes take effect on the **next request** — no restart needed.
+
+---
+
+### Method 3 — gh CLI passthrough
+
+**Best for:** developers who already use the [GitHub CLI (`gh`)](https://cli.github.com/) and don't want to manage a second token.
 
 ```bash
-npx octocode install --ide cursor
+gh auth login     # one-time setup with the gh CLI
 ```
 
-Supported clients are listed in the [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md#install).
+That's it. Octocode automatically calls `gh auth token` as a fallback when no other token is found. Nothing to configure in Octocode.
 
-## `.octocoderc`
+---
 
-Path:
+### Token priority order
 
-```text
-<octocode-home>/.octocoderc
+Octocode checks these sources in order and stops at the first non-empty value:
+
+| # | Type | Source | How to set |
+|---|------|--------|-----------|
+| 1 | Env var | `OCTOCODE_TOKEN` | `export OCTOCODE_TOKEN=ghp_...` |
+| 2 | Env var | `GH_TOKEN` | `export GH_TOKEN=ghp_...` |
+| 3 | Env var | `GITHUB_TOKEN` | `export GITHUB_TOKEN=ghp_...` · auto-set in GitHub Actions |
+| 4 | Env var | `GITHUB_PERSONAL_ACCESS_TOKEN` | `export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...` |
+| 5 | Octocode OAuth | encrypted storage | `npx octocode auth login` |
+| 6 | gh CLI | `gh auth token` | `gh auth login` |
+
+**Env vars always beat stored credentials.** If a token env var is set, the stored token is ignored.
+
+---
+
+### Auth commands
+
+```bash
+npx octocode auth login              # OAuth — opens browser, saves encrypted token
+npx octocode auth login --force      # replace the existing stored token
+npx octocode auth login --hostname github.mycompany.com  # GitHub Enterprise OAuth
+npx octocode auth logout             # delete the stored token
+npx octocode auth status             # show token source + GitHub username
+npx octocode auth status --json      # machine-readable
+npx octocode status --json           # full status: token + tools + config
 ```
 
-The file is JSON with comments/trailing commas tolerated. Tokens do not belong here.
+---
 
-```jsonc
-{
-  "version": 1,
-  "github": {
-    "apiUrl": "https://api.github.com"
-  },
-  "local": {
-    "enabled": true,
-    "enableClone": false,
-    "workspaceRoot": "/absolute/workspace",
-    "allowedPaths": []
-  },
-  "tools": {
-    "enabled": null,
-    "enableAdditional": null,
-    "disabled": null
-  },
-  "network": {
-    "timeout": 30000,
-    "maxRetries": 3
-  },
-  "lsp": {
-    "configPath": null
-  },
-  "output": {
-    "format": "yaml",
-    "pagination": {
-      "defaultCharLength": 20000
-    }
-  }
-}
+## Config Files
+
+### Where everything lives
+
+All Octocode config, credentials, cache, and session data live under one directory — the **Octocode home**:
+
+| Platform | Default location |
+|----------|-----------------|
+| macOS | `~/.octocode/` |
+| Linux | `${XDG_CONFIG_HOME:-~/.config}/.octocode/` |
+| Windows | `%APPDATA%\.octocode\` |
+
+Override it for all products at once:
+
+```bash
+export OCTOCODE_HOME=/custom/path
 ```
 
-Invalid file values fall back to defaults or env overrides. Unknown keys warn and are ignored.
+**Files inside the home directory:**
 
-## `.env` — Environment File
+| File | What it does |
+|------|-------------|
+| `.env` | Your third-party API keys (Tavily, Serper, …). Loaded by agents and skills. |
+| `.octocoderc` | Octocode behavior settings (tools, network, paths, output). Read by the MCP server and CLI. |
+| `credentials.json` | Encrypted GitHub token from `octocode auth login`. Don't edit manually. |
+| `stats.json` | Usage counters (tool calls, cache hits, …). |
+| `session.json` | Session identity. |
 
-Plain `KEY=VALUE` environment file for values that belong in `process.env` — most importantly **tool API keys** like `TAVILY_API_KEY` and `SERPER_API_KEY` for the `web` search tool. Two locations, project overrides global:
+---
 
-```text
-<octocode-home>/.env      # global (macOS ~/.octocode/.env)
-<project>/.octocode/.env  # project — wins when the project is trusted
+### `.env` — third-party API keys
+
+**What it is:** A plain key=value file for third-party API keys used by Octocode's web search and any agent skills you install. It is **not** for Octocode's own settings.
+
+**Where:** `~/.octocode/.env` (global) · `<project>/.octocode/.env` (project-level, overrides global)
+
+**How to create or edit it:**
+
+```bash
+# Create the directory if it doesn't exist
+mkdir -p ~/.octocode
+
+# Add a key (append, or open in any text editor)
+echo 'TAVILY_API_KEY=tvly-...' >> ~/.octocode/.env
+echo 'SERPER_API_KEY=...'      >> ~/.octocode/.env
+
+# Or open in your editor
+nano ~/.octocode/.env
+code ~/.octocode/.env
 ```
 
-The `octocode-agent` / Pi extension loads these at **session start** into `process.env`, so they reach the `web` tool, `bash`, hooks, the bundled `octocode` CLI, and skill scripts. Format: `KEY=VALUE`, `#` comments, optional `export ` prefix, surrounding quotes stripped, no shell expansion. A template ships as [`packages/octocode-pi-extension/.env.example`](../packages/octocode-pi-extension/.env.example).
+**File format — plain KEY=VALUE:**
 
 ```bash
 # ~/.octocode/.env
+
+# Web search — AI-curated results (recommended)
 TAVILY_API_KEY=tvly-...
+
+# Web search — Google SERP fallback
 SERPER_API_KEY=...
-# OCTOCODE_WEB_USER_AGENT=Mozilla/5.0 ... Chrome/125.0.0.0 Safari/537.36
+
+# Any other third-party keys your skills need
+MY_CUSTOM_KEY=...
 ```
 
-Rules and safety:
+**Rules:**
+- Keys already set in your shell always win over this file.
+- A project `.env` at `<project>/.octocode/.env` overrides the global file for matching keys (only loaded for trusted projects).
+- This file is loaded automatically by **agent sessions and skill scripts**. The MCP server and CLI do **not** load it — pass those keys via shell or the MCP `env` block instead.
+- GitHub token vars (`OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`) are blocked here — put them in your shell.
 
-- **Precedence:** an explicit shell/client env var already set **wins** over the file; project `.env` overrides global for the same key.
-- **Trust gate:** the project `.octocode/.env` is loaded only after the project is trusted; the global file is always loaded.
-- **Protected keys are never overwritten:** `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `TMPDIR`, `NODE_OPTIONS`, `PYTHON`, `OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` (skipped with a warning). **GitHub tokens do not go in `.env`** — use `npx octocode auth login` (encrypted `credentials.json`) or your shell/client env.
-- **Not a secret vault:** the agent can read env via `bash: env`. Values are never logged (`octocode-status` reports key names + source file only).
+Web search fallback order: **Tavily → Serper → DuckDuckGo** (DuckDuckGo works with no key).
 
-## Options
+---
 
-| Env | `.octocoderc` | Default | Meaning |
-|-----|---------------|---------|---------|
-| `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | GitHub API endpoint. Use `/api/v3` for GitHub Enterprise. |
-| `ENABLE_LOCAL` | `local.enabled` | `true` | Enable local filesystem and LSP tools. Set `false` to explicitly disable them. |
-| `ENABLE_CLONE` | `local.enableClone` | CLI `true`, MCP `false` | Enable `ghCloneRepo` and directory fetch. The CLI respects an explicit `ENABLE_CLONE=false`; MCP clone tools require `ENABLE_CLONE=true`. |
-| `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Root used for relative local paths and project context. Must be absolute when set. |
-| `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Comma-separated env list or JSON array. Empty means unrestricted after path validation. |
-| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict whitelist. Overrides add/remove filters. |
-| `ENABLE_TOOLS` | `tools.enableAdditional` | `null` | Add tools to the default enabled set. |
-| `DISABLE_TOOLS` | `tools.disabled` | `null` | Remove tools from the default enabled set. |
-| `REQUEST_TIMEOUT` | `network.timeout` | `30000` | Request timeout in ms. Clamped to `5000..300000`. |
-| `MAX_RETRIES` | `network.maxRetries` | `3` | Retry attempts. Clamped to `0..10`. |
-| `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | unset | Custom LSP server config path. |
-| `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | `yaml` or `json`. |
-| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | `20000` | Auto-pagination character budget. Clamped to `1000..50000`. |
+### `.octocoderc` — Octocode settings
 
-Env-only options:
+**What it is:** A JSON config file for Octocode's own behavior — tool availability, network settings, local path restrictions, output format, LSP config. It is **not** for third-party API keys.
 
-| Env | Default | Meaning |
-|-----|---------|---------|
-| `OCTOCODE_TOKEN` | unset | Highest-priority GitHub token. |
-| `GH_TOKEN` | unset | Second-priority GitHub token. |
-| `GITHUB_TOKEN` | unset | Third-priority GitHub token. |
-| `OCTOCODE_HOME` | platform default | Override the Octocode config home (the single directory holding `.env`, `.octocoderc`, credentials, caches). |
-| `TAVILY_API_KEY` | unset | `web` tool search provider (Tavily — AI answer + results). First choice in the provider ladder. Set via `.env`. |
-| `SERPER_API_KEY` | unset | `web` tool search provider (Serper — Google SERP). Used when no `TAVILY_API_KEY`. Set via `.env`. |
-| `OCTOCODE_WEB_USER_AGENT` | Chrome UA | User-Agent for `web({url})` fetch and the DuckDuckGo fallback. Defaults to a mainstream browser UA. |
-| `OCTOCODE_BULK_QUERY_TIMEOUT_MS` | `60000` | Per-query timeout inside a bulk tool call (ms). |
-| `OCTOCODE_TOOL_TIMEOUT_MS` | `60000` | Outer timeout for the entire tool call (ms). |
-| `OCTOCODE_COMMAND_CHECK_TIMEOUT_MS` | `5000` | System command availability check timeout (ms). |
-| `OCTOCODE_CACHE_TTL_MS` | `86400000` | Tmp materialization cache TTL in ms. |
-| `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` | Tmp materialization cache size limit in bytes. |
-| `OCTOCODE_MAX_CLONES` | `50` | Maximum cached clone/tree materialization count per tmp bucket. |
+**Where:** `~/.octocode/.octocoderc`
 
-## Parsing Rules
+**How to create or edit it:**
 
-| Type | Env format | `.octocoderc` format |
-|------|------------|----------------------|
-| Boolean | `"true"` / `"1"` / `"false"` / `"0"` | `true` / `false` |
-| Number | Integer string | Number |
-| List | Comma-separated string, such as `"a,b,c"` | JSON array |
+```bash
+# Create the directory if it doesn't exist
+mkdir -p ~/.octocode
 
-## Important Interactions
+# Open in your editor — it's JSON with comments (JSONC)
+nano ~/.octocode/.octocoderc
+code ~/.octocode/.octocoderc
+```
 
-- Auth tokens are env-only. Do not put tokens in `.octocoderc` **or `.env`** (both protect them) — use `npx octocode auth login` or shell/client env.
-- **`.env` loads at session start** (agent surface): global `<octocode-home>/.env` always, project `<project>/.octocode/.env` only when trusted; project overrides global; already-set env wins; protected keys skipped. Propagates to the `web` tool, `bash`, hooks, the bundled `octocode` CLI, and skill scripts.
-- **Web search provider ladder:** `TAVILY_API_KEY` → `SERPER_API_KEY` → DuckDuckGo (no key). The `web` tool auto-selects; check the active provider with `/octocode-status`.
-- `TOOLS_TO_RUN` is a strict whitelist and overrides `ENABLE_TOOLS` and `DISABLE_TOOLS`.
-- **Local tools default on.** Set `ENABLE_LOCAL=false` or `local.enabled:false` only when you want to disable the whole local surface. To hide individual tools, prefer `DISABLE_TOOLS` or `tools.disabled`.
-- **Clone defaults differ by surface.** The CLI enables clone/materialization by default unless `ENABLE_CLONE=false`; MCP clone tools require `ENABLE_CLONE=true`.
-- LSP requires local tools enabled. If `OCTOCODE_LSP_CONFIG` is unset, Octocode checks `<workspace>/.octocode/lsp-servers.json`, then `<octocode-home>/lsp-servers.json`.
-- `WORKSPACE_ROOT` env overrides `local.workspaceRoot`.
+**After editing:** restart your MCP server or start a new agent session for changes to take effect.
 
-## Local State
-
-All state lives under Octocode home, a fixed per-platform directory (macOS `~/.octocode`, Linux `${XDG_CONFIG_HOME:-~/.config}/.octocode`, Windows `%APPDATA%\.octocode`):
-
-| Path | Purpose |
-|------|---------|
-| `.octocoderc` | Persistent MCP config (env/local/tools/network/output). |
-| `.env` | Environment vars (incl. `web` tool keys). Loaded into `process.env` by `octocode-agent` / Pi extension at session start. |
-| `credentials.json` | Encrypted OAuth credentials. |
-| `.key` | 32-byte AES key for credential encryption. |
-| `session.json` | Session identity and timestamps. |
-| `stats.json` | Usage counters and character savings. |
-| `config.json` | CLI config (e.g. `skillsDestDir`). |
-| `tmp/clone/` | Git clone and sparse-clone cache. |
-| `tmp/tree/` | GitHub API file/tree materialization cache. |
-| `tmp/binary/` | Text derived from binary/archive modes such as `extract`, `decompress`, and `strings`. |
-| `tmp/unzip/` | Archive unpack output from `localBinaryInspect` / `unzip`. |
-| `lsp-servers.json` | User-level LSP server config. |
-
-Architecture details: [Credentials](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#credential-architecture-api) · [Session](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence)
-
-## Project `.octocode/` Folder
-
-Octocode also reads a per-project `.octocode/` directory at the workspace root. It is not required — create it only when you need project-specific overrides.
-
-| Path | Purpose |
-|------|---------|
-| `.octocode/lsp-servers.json` | Project-level LSP server config. Checked before `<octocode-home>/lsp-servers.json`. |
-| `.octocode/.env` | Project environment vars (e.g. per-repo `web` tool keys). Overrides `<octocode-home>/.env`; loaded only when the project is trusted. |
-
-### `lsp-servers.json` format
-
-Keys are file-extension patterns (must start with `.`). `command` and `languageId` are
-required; `args` (default `[]`) and `initializationOptions` (passed verbatim in the LSP
-`initialize` request) are optional. A custom entry **overrides the built-in server** for that
-extension, and — more usefully — **adds semantics for a language with no built-in server**
-(e.g. Scala, Kotlin, Ruby):
+**Full reference file with every option:**
 
 ```jsonc
+// ~/.octocode/.octocoderc
+// JSON with comments and trailing commas are both supported.
 {
-  "languageServers": {
-    // Bring-your-own: Scala has no built-in server — this gives it full semantics.
-    ".scala": { "command": "metals", "args": ["stdio"], "languageId": "scala" },
+  // ── GitHub ────────────────────────────────────────────────────────────────
+  "github": {
+    // Default: "https://api.github.com"
+    // GitHub Enterprise: "https://ghe.mycompany.com/api/v3"
+    "apiUrl": "https://api.github.com"
+  },
 
-    // Override a built-in: a different Java launch with init options.
-    ".java": {
-      "command": "jdtls",
-      "args": ["-data", "/tmp/jdtls-workspace"],
-      "languageId": "java",
-      "initializationOptions": { "bundles": [] }
+  // ── Local filesystem tools ────────────────────────────────────────────────
+  "local": {
+    // false → disable all local filesystem tools (localSearchCode, localFindFiles, …)
+    "enabled": true,
+
+    // true → enable ghCloneRepo (clone a GitHub repo to disk for deep local analysis)
+    // CLI default: true  |  MCP default: false (must opt in)
+    "enableClone": false,
+
+    // Lock the workspace root to a specific path (default: process.cwd())
+    // Must be an absolute path. Example: "/home/user/projects"
+    "workspaceRoot": null,
+
+    // Restrict local tools to these paths only. Empty = unrestricted.
+    // Example: ["/home/user/projects", "/tmp/sandbox"]
+    "allowedPaths": []
+  },
+
+  // ── Tool availability ─────────────────────────────────────────────────────
+  "tools": {
+    // Strict whitelist — only these tools are registered. Overrides enabled/disabled.
+    // null = use the default tool set
+    // Example: ["ghSearchCode", "localSearchCode", "npmSearch"]
+    "enabled": null,
+
+    // Add specific tools on top of the default set.
+    // Example: ["ghCloneRepo"]
+    "enableAdditional": null,
+
+    // Remove specific tools from the default set.
+    // Example: ["ghCloneRepo", "localBinaryInspect"]
+    "disabled": null
+  },
+
+  // ── Network ───────────────────────────────────────────────────────────────
+  "network": {
+    // Request timeout in milliseconds. Range: 5000–300000. Default: 30000
+    "timeout": 30000,
+
+    // Max retries on failure. Range: 0–10. Default: 3
+    "maxRetries": 3
+  },
+
+  // ── Output ────────────────────────────────────────────────────────────────
+  "output": {
+    // Response format: "yaml" (default) or "json"
+    "format": "yaml",
+
+    "pagination": {
+      // Auto-pagination character budget. Range: 1000–50000. Default: 20000
+      "defaultCharLength": 20000
+    }
+  },
+
+  // ── LSP ───────────────────────────────────────────────────────────────────
+  "lsp": {
+    // Path to a custom lsp-servers.json. null = use built-in defaults.
+    "configPath": null
+  }
+}
+```
+
+Every setting in `.octocoderc` can also be set via an **env var** — env vars always win. See [All Settings Reference](#all-settings-reference) for the env var name for each option.
+
+---
+
+### How settings override each other
+
+```
+Shell env vars / MCP client env block       ← always win, highest priority
+  ↓
+<project>/.octocode/.env                    ← project API keys (agent/skills only)
+~/.octocode/.env                            ← global API keys  (agent/skills only)
+  ↓
+~/.octocode/.octocoderc                     ← Octocode settings (MCP server + CLI)
+  ↓
+Built-in defaults
+```
+
+Key takeaways:
+- **Env vars always beat file config.** Set an env var and `.octocoderc` is ignored for that setting.
+- **`.env` is only for agent/skill sessions.** The MCP server and CLI don't load it — use your shell or the MCP `env` block.
+- **GitHub tokens never come from `.env`** — they're blocked there regardless of priority.
+
+---
+
+## MCP Client `env` Block
+
+The cleanest way to configure the MCP server — no shell profile changes needed. Pass env vars directly in your client config file:
+
+```json
+{
+  "mcpServers": {
+    "octocode": {
+      "command": "npx",
+      "args": ["-y", "@octocodeai/mcp@latest"],
+      "env": {
+        "GITHUB_TOKEN": "ghp_...",
+        "ENABLE_CLONE": "true",
+        "REQUEST_TIMEOUT": "60000",
+        "GITHUB_API_URL": "https://ghe.mycompany.com/api/v3"
+      }
     }
   }
 }
 ```
 
-TypeScript/JavaScript are bundled — no entry needed. Set `OCTOCODE_LSP_CONFIG` to point to a
-different file entirely. Without an entry, an unsupported extension's semantic ops throw
-`lspServerUnavailable` and the agent falls back to text/structural search — see
-[`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
+Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.) to write this automatically.
 
-## Quick Checks
+---
+
+## All Settings Reference
+
+### Third-party keys — `~/.octocode/.env` or shell
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `TAVILY_API_KEY` | unset | Web search — AI-curated. [Get key →](https://app.tavily.com/) |
+| `SERPER_API_KEY` | unset | Web search — Google SERP. [Get key →](https://serper.dev/) |
+| `OCTOCODE_WEB_USER_AGENT` | Chrome UA | User-Agent for web fetch |
+
+---
+
+### Octocode settings — env var or `~/.octocode/.octocoderc`
+
+#### GitHub token (env var only — not in `.env` or `.octocoderc`)
+
+| Env var | Priority | Notes |
+|---------|----------|-------|
+| `OCTOCODE_TOKEN` | 1 — highest | Octocode-specific override |
+| `GH_TOKEN` | 2 | |
+| `GITHUB_TOKEN` | 3 | Auto-set in GitHub Actions |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | 4 | |
+
+#### GitHub API
+
+| Env var | `.octocoderc` key | Default |
+|---------|------------------|---------|
+| `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` |
+
+#### Local tools
+
+| Env var | `.octocoderc` key | Default | Notes |
+|---------|------------------|---------|-------|
+| `ENABLE_LOCAL` | `local.enabled` | `true` | `false` → disable all local tools |
+| `ENABLE_CLONE` | `local.enableClone` | CLI: `true` · MCP: `false` | Enable `ghCloneRepo` |
+| `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute |
+| `ALLOWED_PATHS` | `local.allowedPaths` | `[]` unrestricted | Env: comma-separated; rc: JSON array |
+
+#### Tools
+
+| Env var | `.octocoderc` key | Default | Notes |
+|---------|------------------|---------|-------|
+| `TOOLS_TO_RUN` | `tools.enabled` | `null` | Strict whitelist — overrides add/remove |
+| `ENABLE_TOOLS` | `tools.enableAdditional` | `null` | Add tools to the default set |
+| `DISABLE_TOOLS` | `tools.disabled` | `null` | Remove tools from the default set |
+
+#### Network
+
+| Env var | `.octocoderc` key | Default | Range |
+|---------|------------------|---------|-------|
+| `REQUEST_TIMEOUT` | `network.timeout` | `30000` ms | 5 000 – 300 000 |
+| `MAX_RETRIES` | `network.maxRetries` | `3` | 0 – 10 |
+
+#### Output
+
+| Env var | `.octocoderc` key | Default | Notes |
+|---------|------------------|---------|-------|
+| `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | `yaml` or `json` |
+| `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `output.pagination.defaultCharLength` | `20000` | 1 000 – 50 000 |
+
+#### LSP
+
+| Env var | `.octocoderc` key | Default |
+|---------|------------------|---------|
+| `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | unset |
+
+#### Home directory
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OCTOCODE_HOME` | Platform default | Overrides the config directory for all products |
+
+---
+
+## GitHub Enterprise
 
 ```bash
-echo "GITHUB_TOKEN: ${GITHUB_TOKEN:+set}"
-echo "ENABLE_LOCAL: ${ENABLE_LOCAL:-not set}"
-echo "ENABLE_CLONE: ${ENABLE_CLONE:-not set}"
-echo "octocode home: ${OCTOCODE_HOME:-$HOME/.octocode}"
-echo "web keys: TAVILY=${TAVILY_API_KEY:+set} SERPER=${SERPER_API_KEY:+set}"
-npx octocode status --json
-# In an octocode-agent / Pi session, /octocode-status reports the active web search provider.
+# Shell / CI
+export GITHUB_TOKEN="ghp_your_ghe_token"
+export GITHUB_API_URL="https://github.mycompany.com/api/v3"
+
+# OAuth login against GHE
+npx octocode auth login --hostname github.mycompany.com
 ```
 
-Common fixes:
+Or set it permanently in `~/.octocode/.octocoderc`:
 
-| Symptom | Check |
-|---------|-------|
-| Token missing | Set `OCTOCODE_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, or run `npx octocode auth login`. Not via `.env` (protected). |
-| Local tools unavailable | Check for `ENABLE_LOCAL=false`, `local.enabled:false`, or tool filters hiding them. |
-| Clone unavailable (MCP) | Set `ENABLE_CLONE=true` and make sure local tools are not explicitly disabled. The CLI enables clone by default unless you set `ENABLE_CLONE=false`. |
-| Tool hidden | Check `TOOLS_TO_RUN`, `ENABLE_TOOLS`, and `DISABLE_TOOLS`. |
-| Timeout | Increase `REQUEST_TIMEOUT` up to `300000`. |
-| Web search low quality / rate-limited | Add `TAVILY_API_KEY` or `SERPER_API_KEY` to `<octocode-home>/.env` (falls back to DuckDuckGo without a key). |
-| `.env` key not applied | Confirm it is not a protected key, not already set in the shell, and (project file) the project is trusted. Start a new agent session after editing. |
+```jsonc
+{
+  "github": { "apiUrl": "https://github.mycompany.com/api/v3" }
+}
+```
+
+---
+
+## Troubleshooting
+
+Always start here:
+
+```bash
+npx octocode status --json
+```
+
+| Symptom | Fix |
+|---------|-----|
+| No token / 401 | Run `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
+| Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
+| Env token overriding saved token | Env always wins — unset the env var |
+| `ghCloneRepo` unavailable in MCP | Add `"ENABLE_CLONE": "true"` to the MCP `env` block |
+| Local tools disabled | Check `ENABLE_LOCAL` isn't `false` and `local.enabled` isn't `false` |
+| A tool is missing | Check `TOOLS_TO_RUN` (strict whitelist), `ENABLE_TOOLS`, `DISABLE_TOOLS` |
+| Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
+| Web search low quality | Add `TAVILY_API_KEY` to `~/.octocode/.env` |
+| `.env` key ignored | Token vars are blocked in `.env` — use shell or MCP `env` block |
+| `.env` key not loading | Confirm the agent session restarted and the project is trusted |
+| Enterprise hitting github.com | Set `GITHUB_API_URL` in both shell and `.octocoderc` |
+| Settings not taking effect | Restart the MCP server or start a new agent session after editing `.octocoderc` |
+
+---
 
 ## See Also
 
-- [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
-- [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
-- [Local Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
-- [LSP Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)
+- [Tools Reference](./OCTOCODE_TOOLS.md) — all tools and parameters
+- [MCP Server](./OCTOCODE_MCP.md) — startup lifecycle and client config
+- [CLI Guide](./OCTOCODE_CLI.md) — all CLI commands
+- [LSP Setup](./LSP_SERVER_LIFECYCLE.md) — custom language server config
+- [Security](./SECURITY.md) — secret redaction and path validation

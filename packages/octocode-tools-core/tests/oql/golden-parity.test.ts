@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runOqlSearch } from '../../src/oql/run.js';
 import { runDirect } from '../../src/oql/adapters/runner.js';
-import { _resetConfigCache } from '../../src/shared/config/resolverCache.js';
+import { _resetConfigCache } from '@octocodeai/config';
 
 // The raw-tool path (executeDirectTool) gates local tools behind ENABLE_LOCAL;
 // OQL's local adapters call the runners directly, so only the raw side needs it.

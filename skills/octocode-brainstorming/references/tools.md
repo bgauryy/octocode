@@ -61,7 +61,7 @@ Two interchangeable engines in `scripts/` (same CLI: `--query --max-results --ti
 | `tavily-search.mjs` | `TAVILY_API_KEY` | AI-curated answers, deep research |
 
 - **Check once at startup:** `node <skill_dir>/scripts/<engine>-search.mjs --check`. Use whichever exits 0; if both, Serper for breadth + Tavily for depth.
-  `--check` runs a live authorization check; add `--presence-only` only when offline. Both exit 1 → tell user once: add `SERPER_API_KEY` (serper.dev) and/or `TAVILY_API_KEY` (app.tavily.com) to `<absolute skill_dir>/.env`.
+  `--check` runs a live authorization check; add `--presence-only` only when offline. Both exit 1 → tell user once: add `SERPER_API_KEY` (serper.dev) and/or `TAVILY_API_KEY` (app.tavily.com) to `~/.octocode/.env` (macOS/Linux; Windows `%APPDATA%\.octocode\.env`). That file is loaded at session start and by the skill scripts — no skill-local `.env` needed.
 - **Loop:** run engine → fetch/open the best formal URLs with the runtime web reader (`WebFetch` in Claude; web/open or Browser in Codex) → extract leads → read exact code → reconcile contradictions.
   Search snippets are leads; cite only fetched/opened sources.
 - Engine flags: Tavily `--depth basic|advanced|fast|ultra-fast`, `--topic general|news|finance`, `--include-domains`/`--exclude-domains` (comma-separated), `--start-date`/`--end-date` (YYYY-MM-DD), `--auto-parameters`, `--max-results` (0–20); Serper `--gl`, `--hl`, `--time-range`.
@@ -70,7 +70,7 @@ Two interchangeable engines in `scripts/` (same CLI: `--query --max-results --ti
 **Fallback (no engine):**
 - Seed URLs from GitHub READMEs / `awesome-*` lists / package pages, then aggregators (HN, Product Hunt, alternativeto.net, dev.to), then follow leads like engine results.
 - Flag in TL;DR: "Web research limited — no search engine."
-- On 401/403 → key invalid: try the other engine and give the absolute `.env` path. On 429/5xx → switch engine/fallback and continue. Never block on search failure.
+- On 401/403 → key invalid: try the other engine and tell the user to check the key in `~/.octocode/.env`. On 429/5xx → switch engine/fallback and continue. Never block on search failure.
 - Never print/commit keys (`.env` is gitignored); one-off user-provided keys may be passed as env vars for verification only.
 
 ## Smart querying (all surfaces)

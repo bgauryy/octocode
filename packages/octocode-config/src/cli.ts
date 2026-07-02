@@ -8,7 +8,12 @@
 //   npx @octocodeai/config --help
 
 import path from 'node:path';
-import { getOctocodeHome, propagateOctocodeEnv, loadOctocodeEnv, loadOctocoderc } from './index.mjs';
+import {
+  getOctocodeHome,
+  loadOctocodeEnv,
+  loadOctocoderc,
+  propagateOctocodeEnv,
+} from './index.js';
 
 const args = process.argv.slice(2);
 
@@ -31,7 +36,8 @@ Env files loaded (in precedence order):
 const home = getOctocodeHome();
 
 if (args.includes('--check')) {
-  const key = args[args.indexOf('--check') + 1];
+  const checkIdx = args.indexOf('--check');
+  const key = args[checkIdx + 1];
   if (!key) {
     process.stderr.write('--check requires a KEY name\n');
     process.exit(1);

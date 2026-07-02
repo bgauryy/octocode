@@ -15,11 +15,9 @@ import {
   resolveNetwork,
   resolveLsp,
   resolveOutput,
-} from '../../../src/shared/config/resolverSections.js';
-import {
   setRuntimeSurface,
   _resetRuntimeSurface,
-} from '../../../src/shared/config/runtimeSurface.js';
+} from '@octocodeai/config';
 
 const CONFIG_ENV_KEYS = [
   'GITHUB_API_URL',

@@ -36,18 +36,10 @@ import {
   resetTokenResolution,
 } from './tokenResolution.js';
 import {
-  getTokenFromEnv,
-  getEnvTokenSource,
-  hasEnvToken,
-  ENV_TOKEN_VARS,
-} from './envTokens.js';
-import {
   normalizeHostname,
   isTokenExpired,
   isRefreshTokenExpired,
 } from './credentialUtils.js';
-
-export { getTokenFromEnv, getEnvTokenSource, hasEnvToken, ENV_TOKEN_VARS };
 
 export async function storeCredentials(
   credentials: StoredCredentials

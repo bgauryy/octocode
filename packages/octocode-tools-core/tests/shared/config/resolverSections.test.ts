@@ -4,11 +4,9 @@ import {
   parseIntEnv,
   parseStringArrayEnv,
   resolveLocal,
-} from '../../../src/shared/config/resolverSections.js';
-import {
   setRuntimeSurface,
   _resetRuntimeSurface,
-} from '../../../src/shared/config/runtimeSurface.js';
+} from '@octocodeai/config';
 
 describe('parseBooleanEnv', () => {
   it('should return undefined for undefined', () => {

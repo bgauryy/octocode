@@ -7,7 +7,7 @@ import {
   createErrorResult,
   type UnifiedErrorResult,
 } from '../response/error.js';
-import { getConfigSync } from '../../shared/index.js';
+import { getConfigSync } from '@octocodeai/config';
 
 type LocalErrorResult = UnifiedErrorResult;
 

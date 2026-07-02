@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { validateConfig } from '../../../src/shared/config/validator.js';
+import { validateConfig } from '@octocodeai/config';
 import {
   MIN_TIMEOUT,
   MAX_TIMEOUT,
   MIN_RETRIES,
   MAX_RETRIES,
-} from '../../../src/shared/config/defaults.js';
+} from '@octocodeai/config';
 
 describe('config/validator', () => {
   describe('validateConfig', () => {

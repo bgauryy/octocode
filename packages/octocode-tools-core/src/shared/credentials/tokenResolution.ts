@@ -1,6 +1,6 @@
 import type { TokenSource } from './types.js';
 import type { TokenWithRefreshResult } from './tokenRefresh.js';
-import { resolveEnvToken } from './envTokens.js';
+import { resolveEnvToken } from '@octocodeai/config';
 import { getGhCliToken as defaultGetGhCliToken } from './ghCli.js';
 import {
   OCTOCODE_GITHUB_APP_CLIENT_ID,

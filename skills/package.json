@@ -1,0 +1,17 @@
+{
+  "name": "@octocodeai/skills",
+  "version": "1.0.2",
+  "private": true,
+  "description": "Octocode agent skills — source of truth. Build syncs skill dirs to packages/octocode-pi-extension/skills/ and injects packages/octocode-config/dist/index.js as octocode-config.mjs into each skill's scripts/ dir (standalone env + token + config loader). Requires @octocodeai/config to be built first.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/sync.mjs",
+    "clean": "node scripts/sync.mjs --clean",
+    "lint": "node --check scripts/sync.mjs",
+    "test": "node scripts/sync.mjs --dry-run",
+    "verify": "yarn lint && yarn test"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

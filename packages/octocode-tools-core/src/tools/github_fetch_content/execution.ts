@@ -29,7 +29,7 @@ import {
   providerSupports,
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
-import { getConfigSync } from '../../shared/index.js';
+import { getConfigSync } from '@octocodeai/config';
 
 type FileContentInputQuery = z.input<typeof FileContentQueryLocalSchema>;
 

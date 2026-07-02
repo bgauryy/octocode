@@ -4,7 +4,7 @@ import {
   getTokenFromEnv,
   getEnvTokenSource,
   hasEnvToken,
-} from '../../../src/shared/credentials/envTokens.js';
+} from '@octocodeai/config';
 
 const SAVED_ENV: Record<string, string | undefined> = {};
 

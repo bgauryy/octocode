@@ -47,6 +47,7 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "packages/octocode-engine/npm/*"
+    "packages/octocode-engine/npm/*",
+    "skills"
   ]
 }

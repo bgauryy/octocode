@@ -17,9 +17,7 @@ vi.mock('../../../src/responses.js', () => ({
 const { sanitizeCallToolResult } = await import(
   '../../../src/utils/response/callToolResult.js'
 );
-const { setRuntimeSurface, _resetRuntimeSurface } = await import(
-  '../../../src/shared/config/runtimeSurface.js'
-);
+const { setRuntimeSurface, _resetRuntimeSurface } = await import('@octocodeai/config');
 
 const AWS_KEY = 'AKIAIOSFODNN7EXAMPLE';
 const REDACTED = '[REDACTED-AWS_ACCESS_KEY_ID]';

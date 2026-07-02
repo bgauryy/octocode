@@ -23,6 +23,8 @@ coverage
 .context
 # Exception for committed skill bundle
 !/skills/octocode-research/output/
+# Build artifact injected by skills/scripts/sync.mjs — regenerated from packages/octocode-config/dist/
+/skills/*/scripts/octocode-config.mjs
 # sqlite DB
 mcp.sqlite
 

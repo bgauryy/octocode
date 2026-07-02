@@ -9,7 +9,7 @@ import { describe, expect, it, beforeAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { _resetConfigCache } from '../../src/shared/config/resolverCache.js';
+import { _resetConfigCache } from '@octocodeai/config';
 import { runOqlSearch } from '../../src/oql/run.js';
 import { normalizeQuery } from '../../src/oql/normalize.js';
 import { planQuery } from '../../src/oql/planner.js';

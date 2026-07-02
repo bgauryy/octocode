@@ -18,20 +18,19 @@
   "bugs": "https://github.com/bgauryy/octocode-mcp/issues",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.mjs",
-  "types": "./src/index.d.mts",
-  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.d.mts",
-      "import": "./src/index.mjs"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "bin": {
-    "octocode-config": "./src/cli.mjs"
+    "octocode-config": "./dist/cli.js"
   },
   "files": [
-    "src/**",
+    "dist/**",
     "README.md",
     "LICENSE"
   ],
@@ -39,11 +38,20 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "lint": "node --check src/index.mjs src/cli.mjs",
-    "test": "node --test tests/*.test.mjs",
-    "test:quiet": "node --test --reporter=dot tests/*.test.mjs",
-    "typecheck": "yarn lint",
-    "verify": "yarn lint && yarn test"
+    "build": "node build.mjs",
+    "clean": "rm -rf dist/",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --coverage",
+    "test:quiet": "vitest run --reporter=dot --silent",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "yarn lint && yarn test && yarn build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@vitest/coverage-v8": "^4.1.9",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
   },
   "publishConfig": {
     "access": "public"
