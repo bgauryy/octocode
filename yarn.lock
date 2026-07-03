@@ -2157,8 +2157,14 @@ __metadata:
 "@octocodeai/config@workspace:*, @octocodeai/config@workspace:packages/octocode-config":
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
+  dependencies:
+    "@types/node": "npm:^25.9.3"
+    "@vitest/coverage-v8": "npm:^4.1.9"
+    esbuild: "npm:^0.28.1"
+    typescript: "npm:^5.9.3"
+    vitest: "npm:^4.1.9"
   bin:
-    octocode-config: ./src/cli.mjs
+    octocode-config: ./dist/cli.js
   languageName: unknown
   linkType: soft
 
@@ -2168,7 +2174,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.1.1"
+    "@octocodeai/octocode-core": "npm:^16.6.2"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octocodeai/octocode-tools-core": "workspace:*"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -2198,12 +2204,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^16.1.1":
-  version: 16.6.1
-  resolution: "@octocodeai/octocode-core@npm:16.6.1"
+"@octocodeai/octocode-core@npm:^16.6.2":
+  version: 16.6.2
+  resolution: "@octocodeai/octocode-core@npm:16.6.2"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/9d47d7bab9336b3568ab41f0d76d559c93dc651bf0160d1488efc9f81b899d3a7b1fcbb35774a403ca92412ed4dc50b9b4cb81e7684e79cbd4fa8f72d91b6239
+  checksum: 10c0/fecd2599e02359620e8abcb9bacd7d2b9022f5bb0e7ba8891d247f1b9992f9e1c16129bfac46a2b386e351457f6ca9050ba0b53f8ed059573e151bdd5372a09c
   languageName: node
   linkType: hard
 
@@ -2288,7 +2294,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.1.1"
+    "@octocodeai/octocode-core": "npm:^16.6.2"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -2313,12 +2319,19 @@ __metadata:
   resolution: "@octocodeai/pi-extension@workspace:packages/octocode-pi-extension"
   dependencies:
     "@octocodeai/config": "workspace:*"
+    "@octocodeai/octocode-core": "npm:^16.6.2"
     octocode: "workspace:*"
   peerDependencies:
     typebox: "*"
   peerDependenciesMeta:
     typebox:
       optional: true
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/skills@workspace:skills":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/skills@workspace:skills"
   languageName: unknown
   linkType: soft
 
@@ -7364,7 +7377,6 @@ __metadata:
   resolution: "octocode-agent@workspace:packages/octocode-agent"
   dependencies:
     "@earendil-works/pi-coding-agent": "npm:0.79.4"
-    "@octocodeai/config": "workspace:*"
     "@octocodeai/pi-extension": "workspace:*"
   bin:
     octocode-agent: ./bin/octocode-agent.mjs
@@ -7406,7 +7418,7 @@ __metadata:
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.1.1"
+    "@octocodeai/octocode-core": "npm:^16.6.2"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octocodeai/octocode-tools-core": "workspace:*"
     "@octokit/auth-oauth-device": "npm:^8.0.3"

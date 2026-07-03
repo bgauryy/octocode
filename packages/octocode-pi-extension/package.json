@@ -35,8 +35,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "octocode": "workspace:*",
-    "@octocodeai/octocode-core": ">=16.6.1"
+    "@octocodeai/octocode-core": "^16.6.2",
+    "octocode": "workspace:*"
   },
   "devDependencies": {
     "@octocodeai/config": "workspace:*"

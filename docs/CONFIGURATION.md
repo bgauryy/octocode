@@ -16,6 +16,17 @@
   - [How settings override each other](#how-settings-override-each-other)
 - [MCP Client `env` Block](#mcp-client-env-block)
 - [All Settings Reference](#all-settings-reference)
+  - [Third-party keys](#third-party-keys----octocodeenv-or-shell)
+  - [GitHub token](#github-token-env-var-only----not-in-env-or-octocoderc)
+  - [GitHub API](#github-api)
+  - [Local tools](#local-tools)
+  - [Tools](#tools)
+  - [Network](#network)
+  - [Output](#output)
+  - [LSP](#lsp)
+  - [Home directory](#home-directory)
+  - [Advanced runtime](#advanced-runtime--env-var-only)
+  - [Protected keys](#protected-keys--never-sourced-from-env)
 - [GitHub Enterprise](#github-enterprise)
 - [Troubleshooting](#troubleshooting)
 - [See Also](#see-also)
@@ -200,13 +211,24 @@ code ~/.octocode/.env
 ```bash
 # ~/.octocode/.env
 
-# Web search — AI-curated results (recommended)
+# ── Web search ────────────────────────────────────────────────────────────────
+
+# Tavily — AI-curated results (recommended). TAVILY_API_TOKEN is an alias.
+# Get key → https://app.tavily.com/
 TAVILY_API_KEY=tvly-...
 
-# Web search — Google SERP fallback
+# Serper — Google SERP results (fallback after Tavily)
+# Get key → https://serper.dev/
 SERPER_API_KEY=...
 
-# Any other third-party keys your skills need
+# ── Web fetch ────────────────────────────────────────────────────────────────
+
+# Override the User-Agent sent by the web browse/fetch tool.
+# API providers (Tavily, Serper) ignore this — they use their own auth.
+# Default: Chrome-like UA
+OCTOCODE_WEB_USER_AGENT=MyBot/1.0
+
+# ── Any other keys your skills need ─────────────────────────────────────────
 MY_CUSTOM_KEY=...
 ```
 
@@ -370,8 +392,9 @@ Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.
 | Key | Default | Notes |
 |-----|---------|-------|
 | `TAVILY_API_KEY` | unset | Web search — AI-curated. [Get key →](https://app.tavily.com/) |
+| `TAVILY_API_TOKEN` | unset | Alias for `TAVILY_API_KEY` — either works |
 | `SERPER_API_KEY` | unset | Web search — Google SERP. [Get key →](https://serper.dev/) |
-| `OCTOCODE_WEB_USER_AGENT` | Chrome UA | User-Agent for web fetch |
+| `OCTOCODE_WEB_USER_AGENT` | Chrome-like UA | User-Agent for the web fetch tool. API providers ignore it (they use their own auth headers). |
 
 ---
 
@@ -434,6 +457,48 @@ Run `npx octocode install --ide cursor` (or `vscode`, `claude`, `windsurf`, etc.
 | Env var | Default | Notes |
 |---------|---------|-------|
 | `OCTOCODE_HOME` | Platform default | Overrides the config directory for all products |
+
+---
+
+### Advanced runtime — env var only
+
+These are lower-level knobs read directly by `octocode-tools-core`. They do **not** have a `.octocoderc` equivalent — set them in your shell or MCP `env` block.
+
+#### Clone cache
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OCTOCODE_CACHE_TTL_MS` | `86400000` (24 h) | How long a cloned repo stays fresh before re-fetch |
+| `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` (2 GB) | Total byte cap for the clone cache on disk |
+| `OCTOCODE_MAX_CLONES` | `50` | Maximum number of repos that can be kept in the clone cache |
+
+#### Timeouts
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OCTOCODE_TOOL_TIMEOUT_MS` | `60000` (60 s) | Hard wall-clock timeout for a single tool call |
+| `OCTOCODE_BULK_QUERY_TIMEOUT_MS` | `60000` (60 s) | Timeout for a bulk / multi-query tool operation |
+
+---
+
+### Protected keys — never sourced from `.env`
+
+These keys are **always ignored** when loading `~/.octocode/.env` or a project `.env`, regardless of their values. Set them in your shell, CI environment, or the MCP `env` block instead.
+
+| Key | Why protected |
+|-----|---------------|
+| `OCTOCODE_TOKEN` | GitHub auth — must be explicit |
+| `GH_TOKEN` | GitHub auth — must be explicit |
+| `GITHUB_TOKEN` | GitHub auth — must be explicit |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | GitHub auth — must be explicit |
+| `PATH` | OS binary resolution — `.env` must not hijack it |
+| `HOME` | OS home directory — must not be overridden |
+| `SHELL` | User login shell |
+| `USER` / `LOGNAME` | User identity |
+| `PWD` | Working directory |
+| `TMPDIR` | System temp directory |
+| `NODE_OPTIONS` | Node.js runtime flags — security risk if overrideable |
+| `PYTHON` | Python interpreter path |
 
 ---
 

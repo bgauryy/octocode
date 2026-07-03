@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +15,33 @@ const distDir = path.join(packageRoot, 'dist');
 const require = createRequire(import.meta.url);
 
 function resolveOctocodeOutDir() {
-  const pkgJsonPath = require.resolve('octocode/package.json');
-  return path.join(path.dirname(pkgJsonPath), 'out');
+  // 1. Workspace-resolved package — present when octocode has been built from source.
+  //    In yarn workspaces node_modules/octocode is a symlink to packages/octocode, so
+  //    both resolve to the same directory; we de-duplicate by checking fs.existsSync.
+  const candidates = [];
+  try {
+    const pkgDir = path.dirname(require.resolve('octocode/package.json'));
+    const realPkgDir = fs.realpathSync(pkgDir);
+    candidates.push(path.join(realPkgDir, 'out'));
+  } catch {
+    // package not resolvable at all
+  }
+
+  // 2. If this package is already installed (e.g. via `pi install` into ~/.pi/agent/npm),
+  //    reuse its dist/bin/ — it is the bundled octocode CLI and is structurally equivalent
+  //    to an octocode out/ dir (single octocode.js entry point).
+  const piInstalled = path.join(
+    os.homedir(), '.pi', 'agent', 'npm', 'node_modules',
+    '@octocodeai', 'pi-extension', 'dist', 'bin'
+  );
+  candidates.push(piInstalled);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `Could not find a built octocode out/ dir. Tried:\n${candidates.join('\n')}\nBuild octocode first: yarn workspace octocode build:dev`
+  );
 }
 
 // Resolve @octocodeai/config source via workspace link — no path hardcoding.
@@ -63,7 +89,10 @@ const SKIPPED_DIRECTORIES = new Set([
 // octocode-awareness is excluded from the skills list: the pi extension exposes
 // its operations as native tools (memory_record / memory_recall / memory_reflect).
 // The scripts are still bundled at dist/awareness/scripts/ for tool + hook use.
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-stats', 'octocode-awareness']);
+// octocode-awareness is excluded: the pi extension exposes it as native tools (memory_recall/record/reflect).
+// octocode (architecture docs) and octocode-stats are excluded as they are meta-docs/utilities.
+// octocode-stats is bundled — it reads ~/.octocode/stats.json which MCP creates.
+const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness']);
 
 function isSecretEnvFile(name) {
   return name === '.env' || (name.startsWith('.env.') && name !== '.env.example');
@@ -186,13 +215,13 @@ function refreshPackageSkills() {
   fs.rmSync(SOURCE_PATHS.skills, { recursive: true, force: true });
   fs.mkdirSync(SOURCE_PATHS.skills, { recursive: true });
   for (const entry of fs.readdirSync(SOURCE_PATHS.rootSkills, { withFileTypes: true })) {
-    if (entry.isDirectory() && SKIPPED_SKILLS.has(entry.name)) continue;
-    // Only copy skill directories — root-level files (e.g. README.md) are not skills
-    // and would trigger validation errors when Pi scans the skills directory.
     if (!entry.isDirectory()) continue;
+    if (SKIPPED_SKILLS.has(entry.name)) continue;
+    // Only copy skill directories — those that contain a SKILL.md.
+    // Non-skill dirs (e.g. scripts/) are skipped to prevent Pi validation noise.
     const src = path.join(SOURCE_PATHS.rootSkills, entry.name);
-    const dst = path.join(SOURCE_PATHS.skills, entry.name);
-    copyDirectory(src, dst);
+    if (!fs.existsSync(path.join(src, 'SKILL.md'))) continue;
+    copyDirectory(src, path.join(SOURCE_PATHS.skills, entry.name));
   }
   assertNoSecretEnvFiles(SOURCE_PATHS.skills);
 }

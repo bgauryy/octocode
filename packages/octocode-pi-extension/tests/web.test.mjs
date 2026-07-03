@@ -103,6 +103,64 @@ test('htmlToText / extractTitle / decodeEntities strip markup and decode entitie
   assert.equal(decodeEntities('a&amp;b&#38;c'), 'a&b&c');
 });
 
+test('htmlToText strips aria announcements, BreadcrumbList, and skip-to links', () => {
+  // aria-label="Announcement" banner (nodejs.org pattern)
+  const withAnnouncement = '<body><section aria-label="Announcement"><a href="/event">Don\'t miss our event!</a></section><article><p>Real content.</p></article></body>';
+  const t1 = htmlToText(withAnnouncement);
+  assert.ok(!t1.includes('Don\'t miss'), 'aria announcement stripped');
+  assert.ok(t1.includes('Real content'), 'article kept');
+
+  // schema.org BreadcrumbList (MDN pattern)
+  const withCrumbs = '<body><ol typeof="BreadcrumbList"><li>JS</li><li>Promise</li></ol><main><p>Article here.</p></main></body>';
+  const t2 = htmlToText(withCrumbs);
+  assert.ok(!t2.includes('JS'), 'breadcrumb item stripped');
+  assert.ok(!t2.includes('Promise'), 'breadcrumb item stripped');
+  assert.ok(t2.includes('Article here'), 'main content kept');
+
+  // skip-to anchor links — standard close tag
+  const withSkip = '<body><ul><li><a href="#content">Skip to main content</a></li><li><a href="#search">Skip to search</a></li></ul><p>Real article text.</p></body>';
+  const t3 = htmlToText(withSkip);
+  assert.ok(!t3.includes('Skip to main content'), 'skip-to link stripped');
+  assert.ok(!t3.includes('Skip to search'), 'skip-to link stripped');
+  assert.ok(t3.includes('Real article text'), 'article kept');
+
+  // skip-to anchor links — SSR close tag with space (</a > MDN pattern)
+  const withSkipSpace = '<ul class="a11y-menu"><li><a href="#content" data-x="y" >Skip to main content</a > </li></ul><p>Body text.</p>';
+  const t3b = htmlToText(withSkipSpace);
+  assert.ok(!t3b.includes('Skip to main content'), 'skip-to link with </a > stripped');
+  assert.ok(t3b.includes('Body text'), 'body kept');
+
+  // Web Components (custom elements) stripped — language switcher, theme picker
+  const withCustomEl = '<mdn-language-switcher locale="en-US"><ul><li>Deutsch</li><li>Español</li></ul></mdn-language-switcher><mdn-color-theme><span>Dark</span></mdn-color-theme><article><p>Real docs content.</p></article>';
+  const t5 = htmlToText(withCustomEl);
+  assert.ok(!t5.includes('Deutsch'), 'custom element content stripped');
+  assert.ok(!t5.includes('Dark'), 'custom element content stripped');
+  assert.ok(t5.includes('Real docs content'), 'article kept');
+
+  // normal in-page anchor links must NOT be stripped
+  const withNormalAnchor = '<p>See <a href="#section-2">Section 2</a> below.</p>';
+  const t4 = htmlToText(withNormalAnchor);
+  assert.ok(t4.includes('Section 2'), 'normal anchor link text kept');
+});
+
+test('htmlToText strips nav, aside, footer chrome but keeps article content', () => {
+  const html = `
+    <html><body>
+      <nav><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav>
+      <aside>Related: <a href="/x">Link</a></aside>
+      <article><h1>Real Title</h1><p>Real content here.</p></article>
+      <footer>Copyright 2025 Acme Inc. <a href="/privacy">Privacy</a></footer>
+    </body></html>`;
+  const text = htmlToText(html);
+  assert.ok(!text.includes('Home'), 'nav link stripped');
+  assert.ok(!text.includes('About'), 'nav link stripped');
+  assert.ok(!text.includes('Related:'), 'aside stripped');
+  assert.ok(!text.includes('Copyright'), 'footer stripped');
+  assert.ok(!text.includes('Privacy'), 'footer link stripped');
+  assert.ok(text.includes('Real Title'), 'article heading kept');
+  assert.ok(text.includes('Real content here.'), 'article body kept');
+});
+
 test('unwrapDdgHref decodes DuckDuckGo redirect wrappers', () => {
   assert.equal(unwrapDdgHref('//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fx'), 'https://example.com/x');
   assert.equal(unwrapDdgHref('https://plain.com/'), 'https://plain.com/');
@@ -180,11 +238,82 @@ test('webFetch: non-HTML passthrough, HTTP error, and maxChars truncation', asyn
   assert.ok(clip.text.length <= 10);
 });
 
+test('webFetch: page pagination slices extracted text and reports truncated + totalChars', async () => {
+  // 90 chars of body text after HTML stripping
+  const body = 'a'.repeat(30) + ' ' + 'b'.repeat(30) + ' ' + 'c'.repeat(30);
+  const html = `<title>T</title><body><p>${body}</p></body>`;
+  const fetchImpl = async () => textRes(html);
+
+  // page 1: first 40 chars
+  const p1 = await webFetch('https://x.com/doc', { fetchImpl, lookup: publicLookup, maxChars: 40, page: 1 });
+  assert.equal(p1.page, 1);
+  assert.equal(p1.text.length, 40);
+  assert.equal(p1.truncated, true, 'more content exists');
+  assert.ok(p1.totalChars >= 90, 'totalChars covers full body');
+
+  // page 2: next 40 chars
+  const p2 = await webFetch('https://x.com/doc', { fetchImpl, lookup: publicLookup, maxChars: 40, page: 2 });
+  assert.equal(p2.page, 2);
+  assert.equal(p2.text.length, 40);
+  assert.ok(p2.text !== p1.text, 'different content slice');
+
+  // page 3: remaining chars (≤ 40), not truncated
+  const p3 = await webFetch('https://x.com/doc', { fetchImpl, lookup: publicLookup, maxChars: 40, page: 3 });
+  assert.equal(p3.page, 3);
+  assert.ok(p3.text.length > 0 && p3.text.length <= 40);
+  assert.equal(p3.truncated, false, 'last page is not truncated');
+
+  // page beyond content returns empty marker
+  const p99 = await webFetch('https://x.com/doc', { fetchImpl, lookup: publicLookup, maxChars: 40, page: 99 });
+  assert.match(p99.text, /no content at this page offset/);
+  assert.equal(p99.truncated, false);
+});
+
+test('renderWebResult: shows page label and next-page hint when truncated', () => {
+  const r1 = renderWebResult({ url: 'https://x.com', title: 'T', text: 'hello', page: 1, truncated: true });
+  assert.match(r1, /page: 2/);
+  assert.doesNotMatch(r1, /\[page 1\]/, 'page 1 label omitted');
+
+  const r2 = renderWebResult({ url: 'https://x.com', title: 'T', text: 'hello', page: 2, truncated: true });
+  assert.match(r2, /\[page 2\]/);
+  assert.match(r2, /page: 3/);
+
+  const r3 = renderWebResult({ url: 'https://x.com', title: 'T', text: 'hello', page: 2, truncated: false });
+  assert.doesNotMatch(r3, /page:/);
+});
+
 test('duckDuckGoSearch: parses SERP via injected fetch', async () => {
   const html = '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fo.com">OT</a><a class="result__snippet">S</a>';
   const out = await duckDuckGoSearch('q', { fetchImpl: async () => textRes(html), lookup: publicLookup, maxResults: 1 });
   assert.equal(out.engine, 'duckduckgo');
   assert.deepEqual(out.results[0], { title: 'OT', url: 'https://o.com', snippet: 'S' });
+});
+
+test('webSearch: retries without timeRange when provider returns zero results', async () => {
+  let calls = 0;
+  const fetchImpl = async (url, init) => {
+    calls++;
+    const body = JSON.parse(init?.body ?? '{}');
+    // First call (with timeRange): return empty results
+    if (body.time_range) return { ok: true, json: async () => ({ answer: '', results: [] }) };
+    // Second call (no timeRange): return results
+    return { ok: true, json: async () => ({ answer: 'Fallback answer', results: [{ title: 'T', url: 'u', content: 'c' }] }) };
+  };
+  const out = await webSearch('q', { env: { TAVILY_API_KEY: 'k' }, timeRange: 'month', fetchImpl });
+  assert.equal(calls, 2, 'retried once without timeRange');
+  assert.equal(out.results?.length, 1, 'fallback results returned');
+  assert.equal(out.answer, 'Fallback answer');
+});
+
+test('webSearch: does not retry when timeRange returns results', async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    return { ok: true, json: async () => ({ answer: 'A', results: [{ title: 'T', url: 'u', content: 'c' }] }) };
+  };
+  const out = await webSearch('q', { env: { TAVILY_API_KEY: 'k' }, timeRange: 'week', fetchImpl });
+  assert.equal(calls, 1, 'no retry when results exist');
+  assert.equal(out.results?.length, 1);
 });
 
 test('webSearch: dispatches to the provider chosen by env, end to end', async () => {
@@ -293,4 +422,18 @@ test('runWebTool requires url or query; renderWebResult formats both modes', () 
     assert.ok(renderWebResult({ query: 'q', results: [{ title: 'T', url: 'u', snippet: 's' }] }).includes('1. T'));
     assert.ok(renderWebResult({ url: 'https://x', title: 'Ti', text: 'body' }).includes('# Ti'));
   });
+});
+
+test('runWebTool: page param dispatched to webFetch and reflected in result', async () => {
+  const body = 'a'.repeat(20) + ' ' + 'b'.repeat(20) + ' ' + 'c'.repeat(20);
+  const html = `<title>Doc</title><body><p>${body}</p></body>`;
+  const fetchImpl = async () => textRes(html);
+
+  const p1 = await runWebTool({ url: 'https://x.com/doc', maxChars: 25, page: 1 }, { fetchImpl, lookup: publicLookup });
+  const p2 = await runWebTool({ url: 'https://x.com/doc', maxChars: 25, page: 2 }, { fetchImpl, lookup: publicLookup });
+
+  assert.equal(p1.page, 1);
+  assert.equal(p2.page, 2);
+  assert.ok(p1.text !== p2.text, 'different slices');
+  assert.equal(p1.truncated, true);
 });

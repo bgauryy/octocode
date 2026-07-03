@@ -35,6 +35,19 @@ export function getOctocodeMemoryHome() {
 }
 
 /**
+ * Resolve the awareness.mjs script path (Node.js — no Python required).
+ * Primary:  dist/awareness/scripts/awareness.mjs
+ * Fallback: dist/skills/octocode-awareness/scripts/awareness.mjs
+ */
+export function getAwarenessMjsPath(baseDir = extensionDir) {
+  const primary = path.join(baseDir, 'awareness', 'scripts', 'awareness.mjs');
+  if (fs.existsSync(primary)) return primary;
+  const legacy = path.join(getAssetPaths(baseDir).skillsDir, 'octocode-awareness', 'scripts', 'awareness.mjs');
+  if (fs.existsSync(legacy)) return legacy;
+  return null;
+}
+
+/**
  * Resolve the awareness.py script path.
  * Primary:  dist/awareness/scripts/awareness.py  (bundled separately from skills)
  * Fallback: dist/skills/octocode-awareness/scripts/awareness.py  (legacy location)
@@ -144,7 +157,8 @@ export function getInstallSource(baseDir = extensionDir) {
 }
 
 export function getAwarenessBridgeStatus(baseDir = extensionDir) {
-  return fs.existsSync(getAwarenessScriptPath(baseDir)) ? 'available' : 'missing';
+  if (getAwarenessMjsPath(baseDir)) return 'available (node)';
+  return fs.existsSync(getAwarenessScriptPath(baseDir)) ? 'available (python)' : 'missing';
 }
 
 export function getBundledOctocodeScript() {
@@ -202,7 +216,7 @@ export function formatStatus(baseDir = extensionDir) {
 
   // Web search provider + key presence (names only — never values).
   const searchProvider = pickProvider({});
-  const searchKeys = ['TAVILY_API_KEY', 'SERPER_API_KEY'].filter((k) => process.env[k]);
+  const searchKeys = ['TAVILY_API_KEY', 'TAVILY_API_TOKEN', 'SERPER_API_KEY'].filter((k) => process.env[k]);
   const searchStatus = `${searchProvider}${searchKeys.length ? ` (keys: ${searchKeys.join(', ')})` : ' (no key — DuckDuckGo fallback)'}`;
 
   return [
@@ -286,21 +300,25 @@ function notifyAwarenessWarning(ctx, result) {
 
 async function runAwareness(args, ctx, options = {}) {
   const baseDir = options.baseDir ?? extensionDir;
-  const scriptPath = getAwarenessScriptPath(baseDir);
-  if (!fs.existsSync(scriptPath)) {
-    return { skipped: true, status: 0, stdout: '', stderr: `Missing ${scriptPath}` };
-  }
 
   // Always set OCTOCODE_MEMORY_HOME to the platform-resolved path so that
   // pi extension, awareness skill, and Octocode CLI all share the same DB.
   const memoryHome = getOctocodeMemoryHome();
   const env = { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome, ...options.env };
+  const cwd = ctx?.cwd ?? process.cwd();
+  const runCmd = options.runCommand ?? defaultRunCommand;
 
-  return (options.runCommand ?? defaultRunCommand)(process.env.PYTHON ?? 'python3', [scriptPath, ...args], {
-    cwd: ctx?.cwd ?? process.cwd(),
-    env,
-    timeout: 20000,
-  });
+  // Prefer awareness.mjs (Node.js, no Python required). Fall back to awareness.py.
+  const mjsPath = getAwarenessMjsPath(baseDir);
+  if (mjsPath) {
+    return runCmd(process.execPath, [mjsPath, ...args], { cwd, env, timeout: 20000 });
+  }
+
+  const scriptPath = getAwarenessScriptPath(baseDir);
+  if (!fs.existsSync(scriptPath)) {
+    return { skipped: true, status: 0, stdout: '', stderr: `Missing ${scriptPath}` };
+  }
+  return runCmd(process.env.PYTHON ?? 'python3', [scriptPath, ...args], { cwd, env, timeout: 20000 });
 }
 
 export function createAwarenessBridge(options = {}) {
@@ -564,7 +582,8 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
         url: Type.Optional(Type.String({ description: 'Absolute http(s) URL to fetch and read as text.' })),
         query: Type.Optional(Type.String({ description: 'Web search query (used when no url is given).' })),
         maxResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: 'Search: max results (default 5).' })),
-        maxChars: Type.Optional(Type.Integer({ minimum: 500, maximum: 50000, description: 'Fetch: max characters of page text to return (default 15000).' })),
+        maxChars: Type.Optional(Type.Integer({ minimum: 500, maximum: 50000, description: 'Fetch: max characters of page text to return per page (default 15000).' })),
+        page: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: 'Fetch: page number for long documents (default 1). Each page is maxChars chars. Pass page: 2, 3… when the result shows truncated: true.' })),
         engine: Type.Optional(Type.String({ description: 'Search: force a provider — "tavily", "serper", or "duckduckgo" (default: auto by available key).' })),
         timeRange: Type.Optional(Type.String({ description: 'Search: recency filter — "day", "week", "month", or "year".' })),
         includeDomains: Type.Optional(Type.Array(Type.String(), { description: 'Search (Tavily): allowlist domains, e.g. ["docs.python.org"].' })),
@@ -584,7 +603,7 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
       name: 'compact_context',
       label: 'Compact Context',
       description:
-        'Compact conversation history to free context window space. Call autonomously when context is ≥ 80 % full or headroom is needed for the next task chunk.',
+        'Compact conversation history to free context window space. Call autonomously when context is ≥ 60 % full AND the next task is large, at a research→execution boundary, or when an unrelated task starts mid-session.',
       promptSnippet: 'Compact conversation history to free context window space',
       parameters: Type.Object({
         instructions: Type.Optional(
@@ -657,7 +676,7 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
     // getOctocodeMemoryHome() and passed as OCTOCODE_MEMORY_HOME to every call,
     // keeping pi extension, awareness skill, and CLI on the same store.
 
-    const MEMORY_LABELS = 'BUG|GOTCHA|DECISION|IMPROVEMENT|ARCHITECTURE|SECURITY|PERFORMANCE|TEST|BUILD|DOCS|CONFIG|WORKFLOW|REFACTOR|API|RELEASE|INCIDENT|OTHER';
+    const MEMORY_LABELS = 'BUG|FEATURE|SUGGESTION|GOTCHA|IMPROVEMENT|DECISION|ARCHITECTURE|SECURITY|PERFORMANCE|TEST|BUILD|DOCS|CONFIG|WORKFLOW|REFACTOR|API|RELEASE|INCIDENT|OTHER';
 
     pi.registerTool({
       name: 'memory_recall',

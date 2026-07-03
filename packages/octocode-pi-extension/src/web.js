@@ -208,12 +208,25 @@ export function extractTitle(html) {
   return m ? decodeEntities(m[1]).replace(/\s+/g, ' ').trim() : '';
 }
 
-/** Strip a page to readable plain text: drop script/style/nav noise, tags, collapse whitespace. */
+/** Strip a page to readable plain text: drop script/style/nav chrome, tags, collapse whitespace. */
 export function htmlToText(html) {
   const text = html
     .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style|noscript|template|svg)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<\/(p|div|section|article|h[1-6]|li|tr|br|header|footer)>/gi, '\n')
+    // Strip entire content of structural UI-chrome elements.
+    // Includes: scripts, styles, nav menus, sidebars, footers.
+    .replace(/<(script|style|noscript|template|svg|nav|aside|footer)([\s>][\s\S]*?)<\/\1>/gi, ' ')
+    // Strip Web Components (custom elements — hyphenated tag names per spec).
+    // These are overwhelmingly UI widgets (language pickers, theme switchers, sidebars)
+    // on documentation sites; article content lives in semantic HTML, not custom elements.
+    .replace(/<([a-z][a-z0-9]*(?:-[a-z0-9]+)+)[\s\S]*?<\/\1>/gi, ' ')
+    // Strip ARIA announcement banners (e.g. <section aria-label="Announcement">).
+    .replace(/<(\w+)[^>]+\baria-label="announcement"[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    // Strip schema.org BreadcrumbList containers — cross-site breadcrumb marker.
+    .replace(/<(\w+)[^>]+\btypeof="BreadcrumbList"[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    // Strip accessibility skip-to anchor links (<a href="#...">Skip to...</a>).
+    // Uses \s*> to tolerate spaces before closing > (e.g. </a >) in some SSR output.
+    .replace(/<a[^>]+href="#[^"]*"[^>]*>\s*Skip[^<]*<\/a\s*>/gi, ' ')
+    .replace(/<\/(p|div|section|article|h[1-6]|li|tr|br|header)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ');
   return decodeEntities(text)
@@ -244,25 +257,42 @@ export function createDeadline(opts = {}) {
   };
 }
 
-/** Fetch one URL and return readable text + title. Never throws — returns { error } on failure. */
+/** Fetch one URL and return readable text + title. Never throws — returns { error } on failure.
+ * Supports `page` (1-based) for long documents: each page is `maxChars` characters of the
+ * extracted text. Set `page: 2` when the result has `truncated: true` to read further.
+ */
 export async function webFetch(url, opts = {}) {
   const maxChars = opts.maxChars ?? 15000;
+  const page = Math.max(1, Math.floor(opts.page ?? 1));
+  const start = (page - 1) * maxChars;
+  // Ensure we read enough raw bytes to cover this page: text extraction compresses HTML
+  // by ~5-8×, so multiply by 10 to be safe. Floor at 2MB; hard ceiling at 10MB so a
+  // large page number can't trigger a runaway HTTP read.
+  const minBytes = Math.max(2_000_000, (start + maxChars) * 10);
+  const maxBytes = Math.min(
+    opts.maxBytes !== undefined ? Math.max(opts.maxBytes, minBytes) : minBytes,
+    10_000_000
+  );
   const deadline = createDeadline(opts);
   try {
     const { res, finalUrl } = await safeFetch(url, { ...opts, signal: deadline.signal });
     if (!res.ok) return { error: `HTTP ${res.status} fetching ${url}` };
     const contentType = res.headers.get('content-type') || '';
-    const { text: raw, truncated: bytesTruncated } = await readCapped(res, opts.maxBytes, { signal: deadline.signal });
+    const { text: raw, truncated: bytesTruncated } = await readCapped(res, maxBytes, { signal: deadline.signal });
     const isHtml = /html/i.test(contentType) || /^\s*<(!doctype|html)/i.test(raw);
     const title = isHtml ? extractTitle(raw) : '';
     const body = isHtml ? htmlToText(raw) : raw.trim();
-    const clipped = body.length > maxChars;
+    const end = start + maxChars;
+    const hasMore = body.length > end;
+    const text = body.slice(start, end);
     return {
       url: finalUrl,
       title,
       contentType,
-      truncated: bytesTruncated || clipped,
-      text: clipped ? body.slice(0, maxChars) : body,
+      page,
+      totalChars: body.length,
+      truncated: bytesTruncated || hasMore,
+      text: text || (start > 0 ? '(no content at this page offset)' : ''),
     };
   } catch (err) {
     return { error: `web fetch failed: ${err?.message ?? String(err)}` };
@@ -425,18 +455,27 @@ export function pickProvider({ engine, env = process.env } = {}) {
 /**
  * Search the web via the provider ladder. Never throws — returns { error } on failure.
  * Keys are read from process.env (populated by env.js from ~/.octocode/.env).
+ * When `timeRange` is set and the first call returns zero results, retries once without
+ * the time filter — avoids dead-ends caused by thin recent coverage.
  */
 export async function webSearch(query, opts = {}) {
   const env = opts.env ?? process.env;
   const provider = pickProvider({ engine: opts.engine, env });
   try {
+    let result;
     if (provider === 'tavily') {
-      return await tavilySearch(query, { ...opts, apiKey: env.TAVILY_API_KEY || env.TAVILY_API_TOKEN }, opts);
+      result = await tavilySearch(query, { ...opts, apiKey: env.TAVILY_API_KEY || env.TAVILY_API_TOKEN }, opts);
+    } else if (provider === 'serper') {
+      result = await serperSearch(query, { ...opts, apiKey: env.SERPER_API_KEY }, opts);
+    } else {
+      result = await duckDuckGoSearch(query, opts);
     }
-    if (provider === 'serper') {
-      return await serperSearch(query, { ...opts, apiKey: env.SERPER_API_KEY }, opts);
+    // Silent fallback: if timeRange produced zero results, retry without it once.
+    // Thin recent coverage is a Tavily/Serper gap, not a query failure.
+    if (opts.timeRange && !result.error && result.results?.length === 0 && !opts._timeRangeFallback) {
+      return webSearch(query, { ...opts, timeRange: undefined, _timeRangeFallback: true });
     }
-    return await duckDuckGoSearch(query, opts);
+    return result;
   } catch (err) {
     return { error: `web search (${provider}) failed: ${err?.message ?? String(err)}` };
   }
@@ -452,14 +491,16 @@ export function renderWebResult(out) {
     return [answer + head, ...out.results.map((r, i) =>
       `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ''}`)].join('\n');
   }
-  const head = [out.title && `# ${out.title}`, `Source: ${out.url}`, out.truncated && '(truncated)']
+  const pageLabel = out.page > 1 ? ` [page ${out.page}]` : '';
+  const truncNote = out.truncated ? `(truncated — pass page: ${(out.page ?? 1) + 1} to continue)` : null;
+  const head = [out.title && `# ${out.title}`, `Source: ${out.url}${pageLabel}`, truncNote]
     .filter(Boolean).join('\n');
   return `${head}\n\n${out.text}`;
 }
 
 /** Dispatch the single `web` tool: url → fetch/read a page; query → search. */
 export async function runWebTool(params = {}, deps = {}) {
-  if (params.url) return webFetch(params.url, { ...deps, maxChars: params.maxChars, maxBytes: params.maxBytes });
+  if (params.url) return webFetch(params.url, { ...deps, maxChars: params.maxChars, maxBytes: params.maxBytes, page: params.page });
   if (params.query) {
     return webSearch(params.query, {
       ...deps,

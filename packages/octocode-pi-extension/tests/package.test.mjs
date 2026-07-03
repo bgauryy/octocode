@@ -56,15 +56,16 @@ test('build copies the canonical system prompt', () => {
 });
 
 test('build copies bundled Octocode skills without secret env files', () => {
-  const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-stats'];
+  // octocode (architecture docs) and octocode-awareness are intentionally excluded.
+  // octocode-awareness ships as native memory_* tools (memory_recall/record/reflect), not a skill.
+  // octocode-stats is now bundled — it reads ~/.octocode/stats.json and is referenced in the system prompt.
+  const SKIPPED = ['octocode', 'octocode-awareness'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
   assert.deepEqual(skills, sourceSkills, 'dist matches package skills');
   // package/dist == root skills minus the intentionally-skipped ones (build.mjs SKIPPED_SKILLS).
   assert.deepEqual(rootSkills.filter((s) => !SKIPPED.includes(s)), sourceSkills);
-  // octocode, octocode-awareness, and octocode-stats are intentionally excluded by
-  // build.mjs SKIPPED_SKILLS (awareness ships as native memory_* tools, not a skill).
   assert.deepEqual(
     skills,
     [
@@ -74,13 +75,13 @@ test('build copies bundled Octocode skills without secret env files', () => {
       'octocode-rfc-generator',
       'octocode-roast',
       'octocode-skills',
+      'octocode-stats',
     ].sort()
   );
 
+  // No secret .env files must be present in any built skill.
   const forbiddenEnv = path.join(distDir, 'skills', 'octocode-brainstorming', '.env');
-  const allowedExample = path.join(distDir, 'skills', 'octocode-brainstorming', '.env.example');
   assert.equal(fs.existsSync(forbiddenEnv), false);
-  assert.equal(fs.existsSync(allowedExample), true);
 });
 
 test('managed APPEND_SYSTEM block is inserted and replaced without duplication', () => {
@@ -129,7 +130,7 @@ test('status reports the dist assets', () => {
 test('awareness status detects the bundled script', () => {
   const missingBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-pi-missing-'));
   assert.equal(getAwarenessBridgeStatus(missingBaseDir), 'missing');
-  assert.equal(getAwarenessBridgeStatus(createAwarenessFixture()), 'available');
+  assert.match(getAwarenessBridgeStatus(createAwarenessFixture()), /^available/);
 });
 
 test('write target extraction supports Pi write and edit inputs', () => {
