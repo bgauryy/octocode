@@ -32,10 +32,11 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "@octocodeai/octocode-core": "^16.6.2",
+    "@octocodeai/octocode-core": "^16.6.3",
+    "@octocodeai/octocode-memory": "workspace:*",
     "octocode": "workspace:*"
   },
   "devDependencies": {

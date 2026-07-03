@@ -80,9 +80,9 @@ Key fields:
 Examples:
 
 ```json
-{ "keywords": ["useReducer"], "owner": "facebook", "repo": "react" }
+{ "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js" }
 { "keywords": ["middleware"], "extension": "ts", "owner": "vercel", "repo": "next.js" }
-{ "keywords": ["config"], "match": "path", "owner": "facebook" }
+{ "keywords": ["config"], "match": "path", "owner": "vercel" }
 ```
 
 Rules:
@@ -121,7 +121,7 @@ Directory mode:
 Examples:
 
 ```json
-{ "owner": "facebook", "repo": "react", "path": "packages/react/index.js", "startLine": 1, "endLine": 80 }
+{ "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "startLine": 1, "endLine": 80 }
 { "owner": "vercel", "repo": "next.js", "path": "packages/next/src", "type": "directory" }
 ```
 
@@ -144,7 +144,7 @@ Examples:
 
 ```json
 { "owner": "vercel", "repo": "next.js", "path": "", "maxDepth": 1 }
-{ "owner": "facebook", "repo": "react", "path": "packages", "maxDepth": 2, "itemsPerPage": 100 }
+{ "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2, "itemsPerPage": 100 }
 ```
 
 ### `ghSearchRepos`
@@ -236,7 +236,7 @@ Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `n
 Examples:
 
 ```json
-{ "owner": "facebook", "repo": "react", "branch": "main" }
+{ "owner": "vercel", "repo": "next.js", "branch": "canary" }
 { "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler" }
 ```
 
@@ -1231,7 +1231,7 @@ A PR with 100+ changed files with `content.patches.mode: "all"` (or legacy `type
 
 **Read actual inline review comments (not the summary heuristic):**
 ```json
-{ "prNumber": 27733, "owner": "facebook", "repo": "react",
+{ "prNumber": 1, "owner": "vercel", "repo": "next.js",
   "content": { "comments": { "reviewInline": true, "discussion": false } } }
 ```
 
@@ -1590,15 +1590,15 @@ next:
 
 ```
 Step 1: Clone the repo
-  ghCloneRepo(owner="facebook", repo="react")
-  → localPath = "<octocode-home>/tmp/clone/facebook/react/main"
+  ghCloneRepo(owner="vercel", repo="next.js")
+  → localPath = "<octocode-home>/tmp/clone/vercel/next.js/canary"
 
 Step 2: Browse the tree
   localViewStructure(path=localPath, depth=2)
   → See the full directory structure with file sizes and dates
 
 Step 3: Drill into a directory
-  localViewStructure(path=localPath + "/packages/react/src", depth=2)
+  localViewStructure(path=localPath + "/packages/next/src", depth=2)
   → See the subdirectory contents
 ```
 

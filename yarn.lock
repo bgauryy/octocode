@@ -2174,7 +2174,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.2"
+    "@octocodeai/octocode-core": "npm:^16.6.3"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octocodeai/octocode-tools-core": "workspace:*"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -2204,12 +2204,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^16.6.2":
-  version: 16.6.2
-  resolution: "@octocodeai/octocode-core@npm:16.6.2"
+"@octocodeai/octocode-core@npm:^16.6.3":
+  version: 16.6.3
+  resolution: "@octocodeai/octocode-core@npm:16.6.3"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/fecd2599e02359620e8abcb9bacd7d2b9022f5bb0e7ba8891d247f1b9992f9e1c16129bfac46a2b386e351457f6ca9050ba0b53f8ed059573e151bdd5372a09c
+  checksum: 10c0/d8c0186a5034778861e22a53bf6e67cb587cd15df2c643abc1fb7f58d336bdd3bb85f9979bc55b48669810a3655d67c9850acef535f834d39e58d44b56aa959b
   languageName: node
   linkType: hard
 
@@ -2288,13 +2288,27 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@octocodeai/octocode-memory@workspace:*, @octocodeai/octocode-memory@workspace:packages/octocode-memory":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-memory@workspace:packages/octocode-memory"
+  dependencies:
+    "@types/node": "npm:^25.9.3"
+    "@vitest/coverage-v8": "npm:^4.1.9"
+    esbuild: "npm:^0.28.1"
+    typescript: "npm:^5.9.3"
+    vitest: "npm:^4.1.9"
+  bin:
+    octocode-awareness: ./dist/bin/awareness.js
+  languageName: unknown
+  linkType: soft
+
 "@octocodeai/octocode-tools-core@workspace:*, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.2"
+    "@octocodeai/octocode-core": "npm:^16.6.3"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -2319,7 +2333,8 @@ __metadata:
   resolution: "@octocodeai/pi-extension@workspace:packages/octocode-pi-extension"
   dependencies:
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.2"
+    "@octocodeai/octocode-core": "npm:^16.6.3"
+    "@octocodeai/octocode-memory": "workspace:*"
     octocode: "workspace:*"
   peerDependencies:
     typebox: "*"
@@ -7418,7 +7433,7 @@ __metadata:
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.2"
+    "@octocodeai/octocode-core": "npm:^16.6.3"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octocodeai/octocode-tools-core": "workspace:*"
     "@octokit/auth-oauth-device": "npm:^8.0.3"

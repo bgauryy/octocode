@@ -72,32 +72,32 @@ export const OQL_SCHEMA_DOC = {
   // ── Quick-start recipes — copy-paste these, swap the path/text ──────────
   quickStart: {
     'text search (local)': 'search "functionName" ./src',
-    'text search (GitHub)': 'search "functionName" facebook/react',
+    'text search (GitHub)': 'search "functionName" vercel/next.js',
     'package lookup (npm)': 'search zod --target packages',
     'PR deep read (GitHub)':
-      'search facebook/react#1 --target pullRequests --comments --patches',
+      'search vercel/next.js#1 --target pullRequests --comments --patches',
     'commit history (GitHub)':
-      'search facebook/react/packages/react/src --target commits --since 2024-01-01T00:00:00Z',
+      'search vercel/next.js/packages/next/src --target commits --since 2024-01-01T00:00:00Z',
     'browse a tree (local dir or owner/repo)':
-      'search ./src --tree   |   search facebook/react --tree',
+      'search ./src --tree   |   search vercel/next.js --tree',
     'read a file (local or owner/repo/path)':
-      'search ./src/index.ts   |   search facebook/react/packages/react/src/index.js',
+      'search ./src/index.ts   |   search vercel/next.js/packages/next/src/server/config.ts',
     'read a remote file (exact)':
-      'search facebook/react/README.md --content-view exact',
+      'search vercel/next.js/README.md --content-view exact',
     'semantics (local/materialized)':
       'search ./src/index.ts --op documentSymbols   |   search ./src/index.ts --op references --symbol runCLI --line 42',
     'artifact inspect/list':
       'search app.tgz --target artifacts --list   |   search dist/server.node --target artifacts --inspect',
     'PR diff (GitHub)':
-      'search facebook/react#123 --target diff   |   search facebook/react --target diff --pr 123',
+      'search vercel/next.js#123 --target diff   |   search vercel/next.js --target diff --pr 123',
     'two-ref / two-file diff':
       'search src/a.ts src/b.ts --target diff   |   search owner/repo --target diff --base-ref <sha> --head-ref <sha> --path <file>',
     'structural AST (local — needs full node shape)':
       'search --pattern "function $NAME($$$ARGS) { $$$BODY }" ./src --lang ts',
     'structural AST (GitHub — clones bounded subtree)':
-      'search --pattern "function $NAME($$$ARGS) { $$$BODY }" facebook/react/packages --lang js --materialize auto',
+      'search --pattern "function $NAME($$$ARGS) { $$$BODY }" vercel/next.js/packages/next/src --lang ts --materialize auto',
     'GitHub index miss recovery':
-      'search useState packages/react/src --repo facebook/react --materialize required   |   clone facebook/react/packages/react/src   |   cache fetch facebook/react packages/react/src --depth tree',
+      'search useState packages/next/src --repo vercel/next.js --materialize required   |   clone vercel/next.js/packages/next/src   |   cache fetch vercel/next.js packages/next/src --depth tree',
     'dead-code triage (research)':
       'search --query \'{"schema":"oql","target":"research","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols","files"]},"itemsPerPage":1,"page":1}\'',
     'LSP-proven dead symbols (graph)':

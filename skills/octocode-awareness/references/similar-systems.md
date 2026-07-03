@@ -15,7 +15,7 @@ Read this only when redesigning `octocode-awareness` or comparing it with other 
 
 `octocode-awareness` is intentionally simpler than a full memory server:
 
-- One SQLite store with column-scoped records: global memories, workspace handoffs, repo-channel notifications, verification intents, and cross-process file locks via `scripts/awareness.py`.
-- `scripts/schema.mjs` for Zod-validated protocol payloads; `scripts/show-memories.py` for an HTML viewer.
+- One SQLite store with column-scoped records: global memories, workspace handoffs, repo-channel notifications, verification intents, and cross-process file locks via `scripts/awareness.mjs`.
+- `scripts/schema.mjs` for Zod-validated protocol payloads; `node scripts/awareness.mjs status` for a live DB summary.
 - No vector dependency in v1.
 - No background daemon or Docker requirement.

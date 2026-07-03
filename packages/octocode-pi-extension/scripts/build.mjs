@@ -14,6 +14,10 @@ const distDir = path.join(packageRoot, 'dist');
 
 const require = createRequire(import.meta.url);
 
+// Resolve @octocodeai/octocode-memory package root via workspace link.
+// resolve('@octocodeai/octocode-memory') → dist/index.js; go up one level for the package root.
+const memoryPkgDir = path.resolve(path.dirname(require.resolve('@octocodeai/octocode-memory')), '..');
+
 function resolveOctocodeOutDir() {
   // 1. Workspace-resolved package — present when octocode has been built from source.
   //    In yarn workspaces node_modules/octocode is a symlink to packages/octocode, so
@@ -59,9 +63,12 @@ const SOURCE_PATHS = {
   rootSkills: path.join(repoRoot, 'skills'),
   skills: path.join(packageRoot, 'skills'),
   systemPrompt: path.join(packageRoot, 'docs', 'PI', 'APPEND_SYSTEM.md'),
-  // awareness scripts are bundled separately from skills (tools use them directly)
-  awarenessScripts: path.join(repoRoot, 'skills', 'octocode-awareness', 'scripts'),
-  awarenessSchemaGen: path.join(repoRoot, 'skills', 'octocode-awareness', 'scripts', 'schema.mjs'),
+  // awareness sources come directly from @octocodeai/octocode-memory — single source of truth.
+  // skill/scripts/ = canonical hooks + utilities; dist/bin/ = compiled awareness CLI.
+  awarenessScripts: path.join(memoryPkgDir, 'skill', 'scripts'),
+  awarenessAwarenessMjs: path.join(memoryPkgDir, 'dist', 'bin', 'awareness.js'),
+  awarenessExtractMjs: path.join(memoryPkgDir, 'dist', 'bin', 'extract-hook-files.js'),
+  awarenessSchemaGen: path.join(memoryPkgDir, 'skill', 'scripts', 'schema.mjs'),
 };
 
 const OUTPUT_PATHS = {
@@ -227,11 +234,15 @@ function refreshPackageSkills() {
 }
 
 function bundleAwarenessTools() {
-  // Copy awareness scripts to dist/awareness/scripts/ (used by memory_* tools + file-lock hooks).
+  // Copy canonical scripts (hooks, install, schema, …) from the memory package.
   if (!fs.existsSync(SOURCE_PATHS.awarenessScripts)) {
     throw new Error(`Missing awareness scripts source: ${SOURCE_PATHS.awarenessScripts}`);
   }
   copyDirectory(SOURCE_PATHS.awarenessScripts, OUTPUT_PATHS.awarenessScripts);
+
+  // Copy compiled CLI — same binary the memory package ships and the skill uses.
+  copyFile(SOURCE_PATHS.awarenessAwarenessMjs, path.join(OUTPUT_PATHS.awarenessScripts, 'awareness.mjs'));
+  copyFile(SOURCE_PATHS.awarenessExtractMjs,   path.join(OUTPUT_PATHS.awarenessScripts, 'extract-hook-files.mjs'));
 
   // Generate schema.json from the canonical schema.mjs so tool schemas stay aligned.
   const schemas = {};

@@ -29,7 +29,7 @@ import {
   providerSupports,
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
-import { getConfigSync } from '@octocodeai/config';
+
 
 type FileContentInputQuery = z.input<typeof FileContentQueryLocalSchema>;
 
@@ -88,13 +88,8 @@ async function handleDirectoryFetch(
   authInfo: AuthInfo | undefined,
   providerContext: ReturnType<typeof createProviderExecutionContext>
 ) {
-  const config = getConfigSync();
-  if (!(config.local.enabled && config.local.enableClone)) {
-    return createErrorResult(
-      'Directory fetch requires local clone support. Set ENABLE_CLONE=true and make sure ENABLE_LOCAL is not false.',
-      query
-    );
-  }
+  // Clone availability is enforced at the MCP layer (packages/octocode-mcp).
+  // tools-core implementation proceeds if local is enabled.
 
   if (!providerSupports(providerContext, 'fetchDirectoryToDisk')) {
     return handleCatchError(

@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { runWebTool, renderWebResult, pickProvider } from './web.js';
 import { propagateOctocodeEnv, getOctocodeHome } from './env.js';
+import {
+  connectDb, resolveDbPath, memoryHome as resolveMemoryHome,
+  getMemory, insertMemory, reflect as reflectMemory,
+  preFlightIntent, releaseFileLock,
+} from '@octocodeai/octocode-memory';
 
 export const PACKAGE_NAME = '@octocodeai/pi-extension';
 export const SYSTEM_PROMPT_MARKER = '<!-- octocode-pi-extension:system-prompt -->';
@@ -24,38 +29,11 @@ export function getAssetPaths(baseDir = extensionDir) {
 }
 
 /**
- * Awareness memory home: OCTOCODE_MEMORY_HOME env override, else <octocodeHome>/memory.
- * This is the directory awareness.py uses; always pass it via env to keep all
- * Octocode instances (pi extension, awareness skill, CLI) pointing at the same DB.
+ * Awareness memory home: delegates to @octocodeai/octocode-memory.
+ * Kept as a named export for backward compat with external callers.
  */
 export function getOctocodeMemoryHome() {
-  const override = process.env.OCTOCODE_MEMORY_HOME;
-  if (override && override.trim()) return path.resolve(override.trim());
-  return path.join(getOctocodeHome(), 'memory');
-}
-
-/**
- * Resolve the awareness.mjs script path (Node.js — no Python required).
- * Primary:  dist/awareness/scripts/awareness.mjs
- * Fallback: dist/skills/octocode-awareness/scripts/awareness.mjs
- */
-export function getAwarenessMjsPath(baseDir = extensionDir) {
-  const primary = path.join(baseDir, 'awareness', 'scripts', 'awareness.mjs');
-  if (fs.existsSync(primary)) return primary;
-  const legacy = path.join(getAssetPaths(baseDir).skillsDir, 'octocode-awareness', 'scripts', 'awareness.mjs');
-  if (fs.existsSync(legacy)) return legacy;
-  return null;
-}
-
-/**
- * Resolve the awareness.py script path.
- * Primary:  dist/awareness/scripts/awareness.py  (bundled separately from skills)
- * Fallback: dist/skills/octocode-awareness/scripts/awareness.py  (legacy location)
- */
-export function getAwarenessScriptPath(baseDir = extensionDir) {
-  const primary = path.join(baseDir, 'awareness', 'scripts', 'awareness.py');
-  if (fs.existsSync(primary)) return primary;
-  return path.join(getAssetPaths(baseDir).skillsDir, 'octocode-awareness', 'scripts', 'awareness.py');
+  return resolveMemoryHome();
 }
 
 export function readTextIfExists(filePath) {
@@ -156,11 +134,6 @@ export function getInstallSource(baseDir = extensionDir) {
   return packageRoot;
 }
 
-export function getAwarenessBridgeStatus(baseDir = extensionDir) {
-  if (getAwarenessMjsPath(baseDir)) return 'available (node)';
-  return fs.existsSync(getAwarenessScriptPath(baseDir)) ? 'available (python)' : 'missing';
-}
-
 export function getBundledOctocodeScript() {
   // Preferred: physically bundled into dist/bin/ during build (always present when published)
   const distBin = path.join(extensionDir, 'bin', 'octocode.js');
@@ -203,7 +176,6 @@ export function formatStatus(baseDir = extensionDir) {
   const paths = getAssetPaths(baseDir);
   const skills = listBundledSkills(baseDir);
   const promptStatus = fs.existsSync(paths.systemPrompt) ? 'found' : 'missing';
-  const awarenessStatus = getAwarenessBridgeStatus(baseDir);
   const octocodeScript = getBundledOctocodeScript();
   const octocodeVersion = getBundledOctocodeVersion();
   const octocodeStatus = octocodeScript
@@ -223,8 +195,8 @@ export function formatStatus(baseDir = extensionDir) {
     'Octocode Pi extension',
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
-    `awareness file locks: ${awarenessStatus}`,
     `memory DB: ${dbStatus}`,
+    `memory module: @octocodeai/octocode-memory (direct import)`,
     `octocode CLI: ${octocodeStatus}`,
     `web search: ${searchStatus}`,
     `package assets: ${baseDir}`,
@@ -283,44 +255,6 @@ function defaultRunCommand(command, args, options = {}) {
   });
 }
 
-function targetFileArgs(files) {
-  return files.flatMap((file) => ['--target-file', file]);
-}
-
-function formatAwarenessConflict(result) {
-  const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
-  return detail.length > 0 ? `Octocode awareness blocked this edit:\n${detail}` : 'Octocode awareness blocked this edit.';
-}
-
-function notifyAwarenessWarning(ctx, result) {
-  const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
-  const suffix = detail.length > 0 ? `: ${detail}` : '';
-  notify(ctx, `Octocode awareness warning; continuing${suffix}`, 'warning');
-}
-
-async function runAwareness(args, ctx, options = {}) {
-  const baseDir = options.baseDir ?? extensionDir;
-
-  // Always set OCTOCODE_MEMORY_HOME to the platform-resolved path so that
-  // pi extension, awareness skill, and Octocode CLI all share the same DB.
-  const memoryHome = getOctocodeMemoryHome();
-  const env = { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome, ...options.env };
-  const cwd = ctx?.cwd ?? process.cwd();
-  const runCmd = options.runCommand ?? defaultRunCommand;
-
-  // Prefer awareness.mjs (Node.js, no Python required). Fall back to awareness.py.
-  const mjsPath = getAwarenessMjsPath(baseDir);
-  if (mjsPath) {
-    return runCmd(process.execPath, [mjsPath, ...args], { cwd, env, timeout: 20000 });
-  }
-
-  const scriptPath = getAwarenessScriptPath(baseDir);
-  if (!fs.existsSync(scriptPath)) {
-    return { skipped: true, status: 0, stdout: '', stderr: `Missing ${scriptPath}` };
-  }
-  return runCmd(process.env.PYTHON ?? 'python3', [scriptPath, ...args], { cwd, env, timeout: 20000 });
-}
-
 export function createAwarenessBridge(options = {}) {
   const pendingToolFiles = options.pendingToolFiles ?? new Map();
 
@@ -329,70 +263,51 @@ export function createAwarenessBridge(options = {}) {
 
     async handleToolCall(event, ctx) {
       const targetFiles = extractWriteTargetPaths(event?.toolName, event?.input);
-      if (targetFiles.length === 0) {
-        return undefined;
-      }
+      if (targetFiles.length === 0) return undefined;
 
       const agentId = getAwarenessAgentId(ctx);
-      const result = await runAwareness(
-        [
-          'pre-flight-intent',
-          '--agent-id',
+      try {
+        const db = connectDb(ctx?.dbPath ?? resolveDbPath(null));
+        const result = preFlightIntent(db, {
           agentId,
-          '--workspace',
-          ctx?.cwd ?? process.cwd(),
-          '--rationale',
-          'auto: Pi write/edit tool call via octocode-pi-extension',
-          '--test-plan',
-          'post-edit verification',
-          '--ttl-minutes',
-          '15',
-          ...targetFileArgs(targetFiles),
-        ],
-        ctx,
-        options
-      );
+          workspacePath: ctx?.cwd ?? process.cwd(),
+          rationale: 'auto: Pi write/edit tool call via octocode-pi-extension',
+          testPlan: 'post-edit verification',
+          targetFiles,
+          ttlMs: 15 * 60000,
+        });
 
-      if (result.status === 2) {
-        return { block: true, reason: formatAwarenessConflict(result) };
-      }
+        if (!result.ok) {
+          const detail = (result.conflicts || [])
+            .map(c => `${c.file_path} (held by ${c.agent_id})`).join(', ');
+          return { block: true, reason: `Octocode awareness blocked this edit: ${detail || 'conflict'}` };
+        }
 
-      if (result.status !== 0) {
-        notifyAwarenessWarning(ctx, result);
+        if (event?.toolCallId) {
+          pendingToolFiles.set(event.toolCallId, targetFiles);
+        }
+        return undefined;
+      } catch (err) {
+        notify(ctx, `Octocode awareness warning; continuing: ${err.message}`, 'warning');
         return undefined;
       }
-
-      if (!result.skipped && event?.toolCallId) {
-        pendingToolFiles.set(event.toolCallId, targetFiles);
-      }
-
-      return undefined;
     },
 
     async handleToolResult(event, ctx) {
       const targetFiles = pendingToolFiles.get(event?.toolCallId);
-      if (!targetFiles) {
-        return undefined;
-      }
+      if (!targetFiles) return undefined;
 
       pendingToolFiles.delete(event.toolCallId);
-      const result = await runAwareness(
-        [
-          'release-file-lock',
-          '--agent-id',
-          getAwarenessAgentId(ctx),
-          '--status',
-          'PENDING',
-          ...targetFileArgs(targetFiles),
-        ],
-        ctx,
-        options
-      );
-
-      if (result.status !== 0) {
-        notifyAwarenessWarning(ctx, result);
+      try {
+        const db = connectDb(ctx?.dbPath ?? resolveDbPath(null));
+        releaseFileLock(db, {
+          agentId: getAwarenessAgentId(ctx),
+          targetFiles,
+          status: 'PENDING',
+        });
+      } catch (err) {
+        notify(ctx, `Octocode awareness warning; continuing: ${err.message}`, 'warning');
       }
-
       return undefined;
     },
   };
@@ -488,8 +403,10 @@ export function createOctocodePiExtension(options = {}) {
 }
 
 async function wireOctocodePiExtension(pi, { promptMode }) {
-  // Pending handoff payload set by handoff_context tool, consumed by octocode-handoff command.
-  let pendingHandoff = null;
+  // Handoff queue (FIFO) set by handoff_context tool, drained by octocode-handoff command.
+  // A queue — not one slot — so multiple delegations in a turn queue and run as follow-ups
+  // instead of silently dropping (the prior single-slot overwrite footgun).
+  const handoffQueue = [];
 
   if (pi?.on) {
     const awarenessBridge = createAwarenessBridge();
@@ -646,25 +563,33 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
       parameters: Type.Object({
         summary: Type.String({
           description:
-            'Self-contained handoff summary: goal, constraints, progress, key decisions, next steps, and critical context (file paths, values). No noise.',
+            'Self-contained handoff summary: goal, constraints, progress, key decisions, next steps, and critical context (file paths, values). No noise. Must be readable by an agent with NONE of this thread\'s context.',
         }),
         kickoff: Type.Optional(
           Type.String({
             description: 'First message the subagent should act on. Defaults to "Continue from the context above."',
           })
         ),
+        artifactDir: Type.Optional(Type.String({
+          description: 'Workspace .octocode/<kind>/<YYYYMMDD-HHMM-slug>/ dir the subagent must write its deliverable to so the caller can verify on disk. Omit only for tasks with no artifact.',
+        })),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-        pendingHandoff = {
-          summary: params.summary,
-          kickoff: params.kickoff || 'Continue from the context above.',
-        };
+        const kickoff = params.kickoff || 'Continue from the context above.';
+        const summary = params.artifactDir
+          ? `${params.summary}\n\nDeliverable path (write your result here so the caller verifies on disk): ${params.artifactDir}`
+          : params.summary;
+        handoffQueue.push({ summary, kickoff });
         pi.sendUserMessage('/octocode-handoff', { deliverAs: 'followUp' });
+        const position = handoffQueue.length;
         return {
           content: [
             {
               type: 'text',
-              text: 'Handoff queued. A new session will open seeded with your summary.',
+              text:
+                position === 1
+                  ? 'Handoff queued — a new session will open seeded with your summary.'
+                  : `Handoff queued at position ${position} (runs after ${position - 1} pending handoff${position - 1 === 1 ? '' : 's'}). A session opens for each in order.`,
             },
           ],
         };
@@ -672,11 +597,13 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
     });
 
     // ─── Memory Tools ─────────────────────────────────────────────────────────
-    // Wrappers around awareness.py. DB path is platform-resolved via
-    // getOctocodeMemoryHome() and passed as OCTOCODE_MEMORY_HOME to every call,
-    // keeping pi extension, awareness skill, and CLI on the same store.
+    // Direct calls into @octocodeai/octocode-memory — no subprocess overhead.
 
     const MEMORY_LABELS = 'BUG|FEATURE|SUGGESTION|GOTCHA|IMPROVEMENT|DECISION|ARCHITECTURE|SECURITY|PERFORMANCE|TEST|BUILD|DOCS|CONFIG|WORKFLOW|REFACTOR|API|RELEASE|INCIDENT|OTHER';
+    // Smart-input default importance by label when the agent omits `importance`.
+    // Critical/safety labels rank high; routine labels fall to the middling default.
+    const DEFAULT_IMPORTANCE = { BUG: 8, GOTCHA: 7, IMPROVEMENT: 7, SECURITY: 9, INCIDENT: 9, RELEASE: 8, DECISION: 6, ARCHITECTURE: 6 };
+    const defaultImportance = (label) => DEFAULT_IMPORTANCE[label?.toUpperCase()] ?? 5;
 
     pi.registerTool({
       name: 'memory_recall',
@@ -696,18 +623,40 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
         label: Type.Optional(Type.String({ description: `Filter by label: ${MEMORY_LABELS}` })),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const args = [
-          'get-memory', '--compact',
-          '--query', params.query,
-          '--limit', String(params.limit ?? 3),
-          '--workspace', ctx?.cwd ?? process.cwd(),
-        ];
-        if (params.min_importance) args.push('--min-importance', String(params.min_importance));
-        if (params.smart) args.push('--smart');
-        if (params.label) args.push('--label', params.label);
-        const result = await runAwareness(args, ctx);
-        const out = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-        return { content: [{ type: 'text', text: out || 'No memories found.' }], details: { exit: result.status } };
+        try {
+          const db = connectDb(ctx?.dbPath ?? resolveDbPath(null));
+          const result = getMemory(db, {
+            query: params.query,
+            limit: params.limit ?? 3,
+            minImportance: params.min_importance,
+            label: params.label ? [params.label] : undefined,
+            smart: params.smart,
+            workspacePath: ctx?.cwd ?? process.cwd(),
+          });
+          // Token-efficient recall view: drop bookkeeping + null provenance. The agent
+          // acts on observation/task_context/memory_id (for supersedes) + weighting + refs.
+          const memories = result.memories.map((m) => {
+            const lean = {
+              memory_id: m.memory_id,
+              observation: m.observation,
+              task_context: m.task_context,
+              label: m.label,
+              importance: m.importance_score,
+              score: Math.round((m.score ?? 0) * 100) / 100,
+            };
+            if (m.tags && m.tags.length) lean.tags = m.tags;
+            if (m.references && m.references.length) lean.references = m.references;
+            if (m.failure_signature) lean.failure_signature = m.failure_signature;
+            if (m.repo) lean.repo = m.repo;
+            if (m.ref) lean.ref = m.ref;
+            if (m.file) lean.file = m.file;
+            return lean;
+          });
+          const out = JSON.stringify({ count: result.count, memories });
+          return { content: [{ type: 'text', text: out }], details: { exit: 0 } };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `No memories found. ${err.message}` }], details: { exit: 1 } };
+        }
       },
     });
 
@@ -727,7 +676,7 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
         observation: Type.String({ description: 'The lesson — specific enough to act on. What changed, why, what to do instead.' }),
         task_context: Type.String({ description: 'Why a future agent needs this: which decision it guides or failure it prevents.' }),
         label: Type.String({ description: `Memory category: ${MEMORY_LABELS}` }),
-        importance: Type.Integer({ minimum: 1, maximum: 10, description: '1–3 minor · 4–6 useful · 7–8 important · 9–10 critical/safety' }),
+        importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: '1–3 minor · 4–6 useful · 7–8 important · 9–10 critical/safety. Defaults from label (SECURITY/INCIDENT=9, BUG/RELEASE=8, GOTCHA/IMPROVEMENT=7, DECISION/ARCHITECTURE=6, else 5).' })),
         tags: Type.Optional(Type.Array(Type.String(), { description: 'Keyword tags for recall.' })),
         references: Type.Optional(Type.Array(Type.String(), {
           description: 'Provenance: URLs, pr:owner/repo#N, npm:pkg@v, file:/abs/path:line.',
@@ -736,25 +685,29 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
         failure_signature: Type.Optional(Type.String({ description: 'Clusterable recurring-failure signature: "mechanism:X|cause:Y". Enables mine-weakness to surface patterns across sessions.' })),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const args = [
-          'tell-memory', '--compact',
-          '--agent-id', getAwarenessAgentId(ctx),
-          '--task-context', params.task_context,
-          '--observation', params.observation,
-          '--label', params.label.toUpperCase(),
-          '--importance-score', String(params.importance),
-          // tell-memory has no --workspace; workspace/repo auto-filled from git cwd
-        ];
-        if (params.tags) params.tags.forEach((t) => args.push('--tag', t));
-        if (params.references) params.references.forEach((r) => args.push('--reference', r));
-        if (params.supersedes) args.push('--supersedes', params.supersedes);
-        if (params.failure_signature) args.push('--failure-signature', params.failure_signature);
-        const result = await runAwareness(args, ctx);
-        const out = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-        return {
-          content: [{ type: 'text', text: result.status === 0 ? `Recorded. ${out}`.trim() : `Failed: ${out}` }],
-          details: { exit: result.status },
-        };
+        try {
+          const db = connectDb(ctx?.dbPath ?? resolveDbPath(null));
+          const label = params.label?.toUpperCase() ?? 'OTHER';
+          const { memory, superseded } = insertMemory(db, {
+            agentId: getAwarenessAgentId(ctx),
+            taskContext: params.task_context,
+            observation: params.observation,
+            importanceScore: params.importance ?? defaultImportance(label),
+            label,
+            tags: params.tags ?? [],
+            references: params.references ?? [],
+            supersedes: params.supersedes ? [params.supersedes] : [],
+            failureSignature: params.failure_signature ?? null,
+            cwd: ctx?.cwd ?? process.cwd(),
+          });
+          // Lean confirmation: the agent already has the text it sent — return only the
+          // id + weighting it needs for a follow-up `supersedes`, plus any replaced ids.
+          const payload = { memory_id: memory.memory_id, importance: memory.importance_score, label: memory.label };
+          if (superseded.length) payload.superseded = superseded;
+          return { content: [{ type: 'text', text: JSON.stringify(payload) }], details: { exit: 0 } };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Failed: ${err.message}` }], details: { exit: 1 } };
+        }
       },
     });
 
@@ -769,7 +722,7 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
       ],
       parameters: Type.Object({
         task: Type.String({ description: 'What you just did.' }),
-        outcome: Type.String({ description: 'worked | partial | failed' }),
+        outcome: Type.Union([Type.Literal('worked'), Type.Literal('partial'), Type.Literal('failed')], { description: 'worked | partial | failed' }),
         lesson: Type.Optional(Type.String({ description: 'Durable lesson for the memory store.' })),
         worked: Type.Optional(Type.String({ description: 'What went well.' })),
         didnt_work: Type.Optional(Type.String({ description: 'What failed. Used as lesson if no lesson given.' })),
@@ -779,24 +732,35 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
         importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Override default importance (failed=8, partial=6, worked=5).' })),
       }),
       async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-        const outcome = ['worked', 'partial', 'failed'].includes(params.outcome) ? params.outcome : 'partial';
-        const args = [
-          'reflect', '--compact',
-          '--agent-id', getAwarenessAgentId(ctx),
-          '--task', params.task,
-          '--outcome', outcome,
-          '--workspace', ctx?.cwd ?? process.cwd(),
-        ];
-        if (params.lesson) args.push('--lesson', params.lesson);
-        if (params.worked) args.push('--worked', params.worked);
-        if (params.didnt_work) args.push('--didnt-work', params.didnt_work);
-        if (params.fix_repo) args.push('--fix-repo', params.fix_repo);
-        if (params.fix_harness) args.push('--fix-harness', params.fix_harness);
-        if (params.failure_signature) args.push('--failure-signature', params.failure_signature);
-        if (params.importance) args.push('--importance', String(params.importance));
-        const result = await runAwareness(args, ctx);
-        const out = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
-        return { content: [{ type: 'text', text: out || 'Reflection recorded.' }], details: { exit: result.status } };
+        try {
+          const db = connectDb(ctx?.dbPath ?? resolveDbPath(null));
+          const outcome = ['worked', 'partial', 'failed'].includes(params.outcome) ? params.outcome : 'partial';
+          const result = reflectMemory(db, {
+            agentId: getAwarenessAgentId(ctx),
+            task: params.task,
+            outcome,
+            lesson: params.lesson,
+            worked: params.worked,
+            didntWork: params.didnt_work,
+            fixRepo: params.fix_repo,
+            fixHarness: params.fix_harness,
+            failureSignature: params.failure_signature,
+            importance: params.importance,
+            workspacePath: ctx?.cwd ?? process.cwd(),
+            cwd: ctx?.cwd ?? process.cwd(),
+          });
+          // Lean confirmation: keep the ids the agent needs for follow-ups; drop the
+          // always-zero eval stubs and the envelope. Emit a short `next` hint only when
+          // an action-bearing artifact was created (refinement / harness fix).
+          const payload = { outcome: result.outcome, memory_id: result.learning_memory_id };
+          const actions = [];
+          if (result.repo_fix_refinement_id) { payload.refinement_id = result.repo_fix_refinement_id; actions.push('refine-get → repo fixes for the next agent'); }
+          if (result.harness_fix) { payload.harness_fix = true; actions.push('export-harness → harness improvement (a human merges)'); }
+          if (actions.length) payload.next = actions.join(' · ');
+          return { content: [{ type: 'text', text: JSON.stringify(payload) }], details: { exit: 0 } };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Reflection recorded. ${err.message}` }], details: { exit: 1 } };
+        }
       },
     });
   }
@@ -850,15 +814,16 @@ async function wireOctocodePiExtension(pi, { promptMode }) {
   });
 
   pi.registerCommand('octocode-handoff', {
-    description: 'Internal: open a new session seeded with a pending handoff summary. Invoked by the handoff_context tool.',
+    description: 'Internal: open a new session seeded with the next queued handoff summary. Invoked by the handoff_context tool.',
     handler: async (_args, ctx) => {
-      const handoff = pendingHandoff;
-      pendingHandoff = null;
+      const handoff = handoffQueue.shift();
 
       if (!handoff) {
-        notify(ctx, 'octocode-handoff: no pending handoff payload found.', 'warning');
+        notify(ctx, 'octocode-handoff: no queued handoff payload found.', 'warning');
         return;
       }
+      const remaining = handoffQueue.length;
+      if (remaining > 0) notify(ctx, `octocode-handoff: ${remaining} handoff${remaining === 1 ? '' : 's'} still queued.`, 'info');
 
       const { summary, kickoff } = handoff;
       await ctx.newSession({

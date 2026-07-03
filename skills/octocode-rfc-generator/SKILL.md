@@ -15,7 +15,7 @@ For trivial one-file edits with no design choice, skip RFC mode and route to `oc
 
 ## Output: a folder, not a file
 
-When a save is approved, write a folder `\.octocode/rfc/{name}/` containing **three files**:
+When a save is approved, write a folder `<workspace>/.octocode/rfc/{name}/` containing **three files** (fall back to global `~/.octocode/rfc/{name}/` only when the workspace has no `.octocode/` or is unwritable — see `<doc_placement>`):
 
 | File | Role · reader · lifecycle |
 |---|---|

@@ -104,7 +104,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octocodeai/octocode-core": "^16.6.2",
+    "@octocodeai/octocode-core": "^16.6.3",
     "@octocodeai/octocode-engine": "workspace:*",
     "@octokit/oauth-methods": "^6.0.2",
     "@octokit/plugin-throttling": "^11.0.3",

@@ -110,7 +110,7 @@ export function resolveRef(input: string, branchOverride?: string): Ref {
   // almost certainly a local path with a typo (e.g. `src/foo/Bar.ts` after a
   // rename) — route it local so the caller reports a precise "file not found"
   // rather than a confusing GitHub "repository not found (owner=src...)". A
-  // genuine owner/repo shorthand (e.g. `facebook/react/index.js`) has a leading
+  // genuine owner/repo shorthand (e.g. `vercel/next.js/index.js`) has a leading
   // segment that does NOT exist on disk, so it still falls through to GitHub.
   if (trimmed.includes('/')) {
     const firstSegment = trimmed.split('/')[0];

@@ -38,9 +38,9 @@ export const cloneCommand: CLICommand = {
         console.error(`\n  ${c('red', '✗')} ${message}`);
         console.error(
           `\n  ${dim('Examples:')}\n` +
-            `    clone facebook/react\n` +
-            `    clone facebook/react/packages/react        ${dim('# sparse subtree')}\n` +
-            `    clone facebook/react@main/packages/react\n` +
+            `    clone vercel/next.js\n` +
+            `    clone vercel/next.js/packages/next        ${dim('# sparse subtree')}\n` +
+            `    clone vercel/next.js@canary/packages/next\n` +
             `    clone https://github.com/owner/repo/tree/main/src\n`
         );
       }

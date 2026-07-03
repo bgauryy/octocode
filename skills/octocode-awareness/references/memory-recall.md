@@ -1,6 +1,6 @@
 # Memory & recall semantics
 
-Read this when recording or recalling lessons, or when authoring `awareness.py` payloads for the memory commands. The locking/coordination commands and the data model live in `coordination-protocol.md`; the recall ranking math lives in `self-harness.md`.
+Read this when recording or recalling lessons, or when authoring `awareness.mjs` payloads for the memory commands. The locking/coordination commands and the data model live in `coordination-protocol.md`; the recall ranking math lives in `self-harness.md`.
 
 ## Canonical payload contract
 
@@ -23,11 +23,11 @@ Memories are global per-machine by default. To **share them with a team and stor
 
 ```bash
 # Author: write ACTIVE memories to a committable file (default <workspace>/.octocode/memories.jsonl)
-awareness.py memory-export --min-importance 5          # optional floor; --out <path> to override
+awareness.mjs memory-export --min-importance 5          # optional floor; --out <path> to override
 git add .octocode/memories.jsonl && git commit -m "share agent memories"
 
 # Teammate: load the committed file into their store (dedupes by memory_id)
-awareness.py memory-import .octocode/memories.jsonl    # --mode skip (default, keep local) | replace
+awareness.mjs memory-import .octocode/memories.jsonl    # --mode skip (default, keep local) | replace
 ```
 
 `memory-export` is schema-agnostic (`SELECT *`) and skips embedding blobs (rebuild with `embed-index` after import). It can export a scoped slice with `--workspace`/`--repo`/`--ref`; scoped exports include broader global/applicable memories unless `--strict-scope` is passed, and `--global-only` exports only unscoped lessons. `memory-import` keeps existing memories under `--mode skip` and overwrites under `--mode replace`, refreshing FTS and exact-reference indexes either way.
@@ -60,14 +60,14 @@ Recall modes (default ranking blends importance + recency-of-use + access + lexi
   Semantic is **opt-in and self-provisioning** — a shipped skill is just a folder, so build the vectors on first use and whenever `status.semantic.active_coverage` is below `1.0`:
 
   ```bash
-  # One command: pip-install model2vec from scripts/requirements.txt, then embed every memory.
-  python3 <skill_root>/scripts/awareness.py embed-index --install
+  # One command: embed every memory (semantic index; requires model2vec — run --install once).
+  node <skill_root>/scripts/awareness.mjs embed-index --install
   # Thereafter (deps present): refresh new/changed rows, or --rebuild to re-embed all.
-  python3 <skill_root>/scripts/awareness.py embed-index
+  node <skill_root>/scripts/awareness.mjs embed-index
   # Check coverage; --compact is easiest for agents to parse.
-  python3 <skill_root>/scripts/awareness.py status --compact
+  node <skill_root>/scripts/awareness.mjs status --compact
   # Then recall semantically:
-  python3 <skill_root>/scripts/awareness.py get-memory --query "..." --semantic
+  node <skill_root>/scripts/awareness.mjs get-memory --query "..." --semantic
   ```
 
   First `embed-index` downloads the default model (`minishlab/potion-base-8M`, ~30 MB) from HuggingFace. For offline/air-gapped installs, vendor it at `scripts/models/potion-base-8M` or point `OCTOCODE_EMBED_MODEL` at a local path. Re-run `embed-index` after `memory-import` (export/import drops embedding blobs) and after large capture batches. `status` and `stats` report semantic coverage, active coverage, stale-model rows, and the configured model. There is no separate semantic DB: embeddings live inline in `agent_memories.embedding` / `agent_memories.embedding_model` in the shared SQLite store.

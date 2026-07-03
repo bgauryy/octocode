@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-engine",
-  "version": "1.0.2",
+  "version": "16.7.0",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
   "type": "module",
   "main": "index.cjs",
@@ -302,8 +302,10 @@
     "platforms:check": "node scripts/check-platform-binaries.cjs",
     "version:check": "node scripts/check-version-consistency.cjs",
     "version:sync": "node scripts/sync-versions.cjs",
+    "manifest:gen": "node scripts/gen-server-manifest.mjs",
+    "verify:manifest": "node scripts/gen-server-manifest.mjs && git diff --exit-code src/lsp/serverManifestData.ts || (echo 'ERROR: src/lsp/serverManifestData.ts is out of sync with serverManifest.json — run yarn manifest:gen and commit the result' && exit 1)",
     "loader:check": "node scripts/check-loader-entries.cjs",
-    "prepublish:verify": "yarn version:check && yarn loader:check && yarn pack:check && yarn platforms:check",
+    "prepublish:verify": "yarn version:check && yarn loader:check && yarn verify:manifest && yarn pack:check && yarn platforms:check",
     "binary-size:check": "node scripts/check-binary-size.cjs",
     "ast:check": "yarn workspace @octocodeai/octocode-benchmark ast:check",
     "lsp:check": "yarn workspace @octocodeai/octocode-benchmark lsp:check",
@@ -332,7 +334,7 @@
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
     "audit": "yarn audit:rust",
     "verify:rust": "yarn check:rust && yarn fmt:rust:check && yarn lint:rust && yarn test:rust && yarn deps:rust && yarn udeps:rust && yarn audit:rust",
-    "verify": "yarn verify:patterns && yarn typecheck && yarn verify:rust && yarn test && yarn benchmark && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
+    "verify": "yarn verify:patterns && yarn verify:manifest && yarn typecheck && yarn verify:rust && yarn test && yarn benchmark && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "prepack": "yarn readme:sync",
     "prepublishOnly": "yarn version:sync"

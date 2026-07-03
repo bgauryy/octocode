@@ -98,13 +98,13 @@ the full contract. Note: a bare `packages/foo` path is read as a GitHub
 | `semantics` | LSP: defs, refs, callers, symbols, hover | `npx octocode search ./src/index.ts --op references --symbol runCLI --line 42` | Prove symbol identity/reachability (run `--op documentSymbols` first for line anchors). |
 | `repositories` | GitHub repo discovery | `npx octocode search "mcp server" --target repositories --lang TypeScript --stars ">100"` | Find repos by topic/language/stars. |
 | `packages` | npm package discovery | `npx octocode search zod --target packages` | Resolve a package + its source repo. |
-| `pullRequests` | PR search / deep read | `npx octocode search facebook/react#1 --target pullRequests --comments --patches` | Inspect a PR's discussion, files, patches. |
-| `commits` | Commit history (+ optional diffs) | `npx octocode search facebook/react/packages/react/src --target commits --since 2024-01-01T00:00:00Z` | "What changed here / when / by whom." |
+| `pullRequests` | PR search / deep read | `npx octocode search vercel/next.js#1 --target pullRequests --comments --patches` | Inspect a PR's discussion, files, patches. |
+| `commits` | Commit history (+ optional diffs) | `npx octocode search vercel/next.js/packages/next/src --target commits --since 2024-01-01T00:00:00Z` | "What changed here / when / by whom." |
 | `artifacts` | Binary / archive / strings inspection | `npx octocode search dist/server.node --target artifacts --inspect` | Inspect/list/extract/strings a binary or archive. |
 | `diff` | PR patch OR two-ref/two-file diff | `npx octocode search src/a.ts src/b.ts --target diff` | Compare two files/refs, or read a PR patch. (Two-ref content diff now produces a real line diff.) |
 | `research` | Candidate dead-code / reachability packets | `npx octocode search --query '{"target":"research","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols","files"]},"itemsPerPage":1}'` | "What looks dead, why, what keeps it alive?" Always candidate-grade. |
 | `graph` | Retained-by chains + bounded LSP proof | `npx octocode search --query '{"target":"graph","from":{"kind":"local","path":"./src"},"params":{"intent":"reachability","facets":["symbols"],"proof":"lsp","proofLimit":5}}'` | "What retains this? Is the keeper itself dead?" Upgrade research candidates. |
-| `materialize` | Clone/cache a bounded GitHub subtree | `npx octocode clone facebook/react/packages/react/src` (or `--target materialize`) | Make remote code behave like local for AST/LSP/negation proof. |
+| `materialize` | Clone/cache a bounded GitHub subtree | `npx octocode clone vercel/next.js/packages/next/src` (or `--target materialize`) | Make remote code behave like local for AST/LSP/negation proof. |
 
 The live CLI schema is the executable contract:
 
@@ -274,9 +274,9 @@ npx octocode search ./src/index.ts --op references --symbol runCLI --line 42    
 **Search GitHub, recover from a zero result (providerUnindexed)**
 
 ```bash
-npx octocode search "createServer" facebook/react              # provider code search
-npx octocode search facebook/react/packages/react/src --tree   # verify the path exists
-npx octocode search useState packages/react/src --repo facebook/react --materialize required   # bounded local proof
+npx octocode search "use server" vercel/next.js --lang ts      # provider code search
+npx octocode search vercel/next.js/packages/next/src --tree    # verify the path exists
+npx octocode search useState packages/next/src --repo vercel/next.js --materialize required   # bounded local proof
 ```
 
 **Inspect an npm package, then its source**
@@ -289,7 +289,7 @@ npx octocode search zod --target packages
 **Read a PR deeply / diff two refs**
 
 ```bash
-npx octocode search facebook/react#1 --target pullRequests --deep
+npx octocode search vercel/next.js#1 --target pullRequests --deep
 npx octocode search src/a.ts src/b.ts --target diff
 ```
 
@@ -1103,14 +1103,14 @@ Use this recovery order:
 
 ```bash
 # 1. Verify the remote path exists.
-npx octocode search facebook/react/packages/react/src --tree --depth 2
+npx octocode search vercel/next.js/packages/next/src --tree --depth 2
 
 # 2. One-step bounded local proof through search/OQL.
-npx octocode search useState packages/react/src --repo facebook/react --materialize required --lang js
+npx octocode search useState packages/next/src --repo vercel/next.js --materialize required --lang ts
 
 # 3. Explicit disk materialization when the next work is multi-file.
-npx octocode clone facebook/react/packages/react/src
-npx octocode cache fetch facebook/react packages/react/src --depth tree
+npx octocode clone vercel/next.js/packages/next/src
+npx octocode cache fetch vercel/next.js packages/next/src --depth tree
 ```
 
 For file-level checks use `npx octocode cache fetch owner/repo path/to/file --depth file`.

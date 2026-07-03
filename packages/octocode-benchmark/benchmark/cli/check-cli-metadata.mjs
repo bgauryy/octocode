@@ -627,7 +627,7 @@ function validateSearchRouteMatrix() {
     },
     {
       name: 'github code text',
-      args: ['useState', 'facebook/react', '--lang', 'tsx'],
+      args: ['useState', 'vercel/next.js', '--lang', 'ts'],
       target: 'code',
       backend: 'ghSearchCode:searchCode:exact',
       transformer: 'github.code',
@@ -654,7 +654,7 @@ function validateSearchRouteMatrix() {
     },
     {
       name: 'github files approximate',
-      args: ['TODO', 'facebook/react', '--target', 'files'],
+      args: ['TODO', 'vercel/next.js', '--target', 'files'],
       target: 'files',
       backend: 'ghSearchCode:findFiles:approx',
       transformer: 'github.files',
@@ -704,7 +704,7 @@ function validateSearchRouteMatrix() {
     },
     {
       name: 'pull requests',
-      args: ['facebook/react', '--target', 'pullRequests', '--state', 'open'],
+      args: ['vercel/next.js', '--target', 'pullRequests', '--state', 'open'],
       target: 'pullRequests',
       backend: 'ghHistoryResearch:searchPullRequests:exact',
       transformer: 'github.pullRequests',
@@ -712,7 +712,7 @@ function validateSearchRouteMatrix() {
     {
       name: 'commits',
       args: [
-        'facebook/react/packages/react',
+        'vercel/next.js/packages/next/src',
         '--target',
         'commits',
         '--since',
@@ -780,7 +780,7 @@ function validateSearchRouteMatrix() {
     },
     {
       name: 'materialize',
-      args: ['facebook/react/packages/react', '--target', 'materialize'],
+      args: ['vercel/next.js/packages/next/src', '--target', 'materialize'],
       target: 'materialize',
       backend: 'ghCloneRepo:materialize:exact',
       transformer: 'github.materialize',

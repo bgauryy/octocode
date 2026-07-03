@@ -1,6 +1,6 @@
 [package]
 name = "octocode-engine"
-version = "16.6.2"
+version = "16.7.0"
 edition = "2021"
 description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
 license = "MIT"
@@ -126,6 +126,7 @@ tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-si
 
 [dev-dependencies]
 napi = { version = "3", default-features = false, features = ["noop", "napi4", "tokio_rt", "serde-json"] }
+proptest = "1"
 
 [build-dependencies]
 napi-build = "2"
@@ -135,3 +136,14 @@ lto           = true
 codegen-units = 1
 opt-level     = 3
 strip         = "symbols"
+
+# Build regex-automata with full optimizations even in debug/test profiles.
+# Without this, the regex crate's DFA literal-optimization is disabled at the
+# default debug opt-level, causing pathological performance on large strings
+# (e.g. the 500KB+multibyte chunk-boundary property test). Release is unaffected
+# (already opt-level=3); this only warms the debug/test hot path.
+[profile.dev.package."regex-automata"]
+opt-level = 3
+
+[profile.test.package."regex-automata"]
+opt-level = 3

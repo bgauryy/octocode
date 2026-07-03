@@ -234,7 +234,7 @@ Clones five popular repos at pinned tags and runs text/AST/symbols probes at rep
 
 | Key | Repo | Tag | Language |
 |-----|------|-----|----------|
-| `react` | facebook/react | v19.1.0 | JavaScript/TypeScript |
+| `zustand` | pmndrs/zustand | v5.0.5 | TypeScript (state management) |
 | `tokio` | tokio-rs/tokio | tokio-1.45.0 | Rust |
 | `spring-boot` | spring-projects/spring-boot | v3.5.3 | Java |
 | `chromium` | chromium/src `base/` sparse | HEAD | C++ |
@@ -245,7 +245,7 @@ Chromium uses `--filter=blob:none --sparse` to check out `base/` only (~250 MB v
 ```bash
 yarn repo:clone                 # clone all repos (one-time, ~minutes)
 yarn repo:bench                 # run all probes
-yarn repo:bench react nextjs    # specific repos only
+yarn repo:bench zustand nextjs  # specific repos only
 ```
 
 **Probes per repo**: `engine.searchRipgrep` (text), `engine.structuralSearchFiles` (AST), `engine.structuralSearch("$$$")` (parse check). Results written to `results/repo/<name>/results.md`.

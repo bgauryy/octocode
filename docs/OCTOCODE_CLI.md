@@ -88,10 +88,10 @@ shorthand for common tasks and full OQL JSON when you need precise control.
 | Discover repos | `npx octocode search "mcp server" --target repositories --lang TypeScript` | `ghSearchRepos` |
 | Resolve npm packages | `npx octocode search zod --target packages` | `npmSearch` |
 | Read PRs | `npx octocode search bgauryy/octocode#123 --target pullRequests --comments` | `ghHistoryResearch` |
-| Read commits | `npx octocode search facebook/react/packages/react/src --target commits --since 2024-01-01T00:00:00Z` | `ghHistoryResearch` |
+| Read commits | `npx octocode search vercel/next.js/packages/next/src --target commits --since 2024-01-01T00:00:00Z` | `ghHistoryResearch` |
 | Inspect archives or binaries | `npx octocode search app.zip --target artifacts --list` | `localBinaryInspect` |
 | Diff files or refs | `npx octocode search src/a.ts src/b.ts --target diff` | OQL diff lane |
-| Materialize remote code | `npx octocode search "useState" packages/react --repo facebook/react --materialize required` | `ghCloneRepo` plus local tools |
+| Materialize remote code | `npx octocode search "useState" packages/next/src --repo vercel/next.js --materialize required` | `ghCloneRepo` plus local tools |
 
 The best search loop is:
 
@@ -185,9 +185,9 @@ Useful flags:
 Clone a GitHub repo or subtree locally:
 
 ```bash
-npx octocode clone facebook/react
-npx octocode clone facebook/react/packages/react
-npx octocode clone facebook/react@main/packages/react
+npx octocode clone vercel/next.js
+npx octocode clone vercel/next.js/packages/next
+npx octocode clone vercel/next.js@canary/packages/next
 ```
 
 Use clone when you expect to inspect several files, run structural search, or use
@@ -199,9 +199,9 @@ MCP clone tools require `ENABLE_CLONE=true`.
 Materialize remote files, trees, or repos, then continue locally:
 
 ```bash
-npx octocode cache fetch facebook/react README.md --depth file
-npx octocode cache fetch facebook/react packages/react --depth tree
-npx octocode cache fetch facebook/react --depth clone --json
+npx octocode cache fetch vercel/next.js README.md --depth file
+npx octocode cache fetch vercel/next.js packages/next --depth tree
+npx octocode cache fetch vercel/next.js --depth clone --json
 npx octocode cache status
 npx octocode cache clear --all
 ```
@@ -307,10 +307,10 @@ GitHub code search can return zero rows when a provider has not indexed a repo
 or path. Treat that as provider evidence, not proof of absence.
 
 ```bash
-npx octocode search facebook/react/packages/react --tree --depth 2
-npx octocode search "useState" packages/react --repo facebook/react --materialize required --lang js
-npx octocode cache fetch facebook/react packages/react --depth tree
-npx octocode search "useState" <localPath-from-cache-output> --lang js
+npx octocode search vercel/next.js/packages/next --tree --depth 2
+npx octocode search "useState" packages/next/src --repo vercel/next.js --materialize required --lang ts
+npx octocode cache fetch vercel/next.js packages/next --depth tree
+npx octocode search "useState" <localPath-from-cache-output> --lang ts
 ```
 
 ### Symbols And References

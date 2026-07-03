@@ -23,7 +23,7 @@ yarn repo:bench
 
 | Key | Repo | Tag | Language |
 |-----|------|-----|----------|
-| `react` | facebook/react | v19.1.0 | JavaScript/TypeScript |
+| `zustand` | pmndrs/zustand | v5.0.5 | TypeScript (state management) |
 | `tokio` | tokio-rs/tokio | tokio-1.45.0 | Rust |
 | `spring-boot` | spring-projects/spring-boot | v3.5.3 | Java |
 | `chromium` | chromium/src `base/` (sparse) | HEAD | C++ |

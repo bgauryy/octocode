@@ -27,7 +27,7 @@ One `tell-memory` call. Put the causal lesson in `--observation`, and add one `-
 per source that backs it:
 
 ```bash
-python3 <skill_root>/scripts/awareness.py tell-memory \
+node <skill_root>/scripts/awareness.mjs tell-memory \
   --agent-id "$AGENT" \
   --task-context "Evaluating glob libraries for the bundler; reason: future agents need a default choice without re-benchmarking" \
   --observation "fast-glob is ~2x faster than globby on large trees; globby only adds gitignore handling on top of fast-glob. Prefer fast-glob unless gitignore semantics are needed." \
@@ -111,4 +111,4 @@ tell-memory --observation "<updated lesson>" --reference "<new source>" \
 ```
 
 The old memory is marked `SUPERSEDED` (hidden from default recall, its valid window closed) and
-points at the new one. Then regenerate the read-first index: `awareness.py memory-index`.
+points at the new one. Then regenerate the read-first index: `awareness.mjs memory-index`.

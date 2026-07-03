@@ -23,9 +23,9 @@ function printUsage(message: string, jsonOutput: boolean): void {
     console.error(`\n  ${c('red', '✗')} ${message}`);
     console.error(
       `\n  ${dim('Examples:')}\n` +
-        `    cache fetch facebook/react README.md --depth file\n` +
-        `    cache fetch facebook/react packages/react --depth tree\n` +
-        `    cache fetch facebook/react --depth clone\n` +
+        `    cache fetch vercel/next.js README.md --depth file\n` +
+        `    cache fetch vercel/next.js packages/next --depth tree\n` +
+        `    cache fetch vercel/next.js --depth clone\n` +
         `    cache status\n` +
         `\n  ${dim('Flow:')}\n` +
         `    cache fetch checks existing tmp materialization first; use --force-refresh to bypass it.\n` +

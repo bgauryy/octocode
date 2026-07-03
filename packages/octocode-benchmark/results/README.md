@@ -13,7 +13,7 @@ results/
     comparison.md         ← Octocode vs ast-grep timing table (latest)
     summary.md            ← run summary (last ast:compare:upstream)
   repo/
-    react/results.md      ← facebook/react probe results (yarn repo:bench)
+    zustand/results.md   ← pmndrs/zustand probe results (yarn repo:bench)
     tokio/results.md      ← tokio-rs/tokio probe results
     spring-boot/results.md
     chromium/results.md

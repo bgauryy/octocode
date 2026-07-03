@@ -28,6 +28,13 @@ if (cargoVersion !== rootPackage.version) {
 
 const optionalDependencies = rootPackage.optionalDependencies ?? {}
 for (const [name, version] of Object.entries(optionalDependencies)) {
+  // workspace:* is the intentional local-dev protocol for platform subpackages.
+  // scripts/sync-versions.cjs (run on prepublishOnly) rewrites these to exact
+  // version pins before publish — so workspace:* here is correct, not drift.
+  if (version === 'workspace:*') {
+    console.log(`version:check note: ${name} uses workspace:* (by-design for local dev; pinned at prepublishOnly)`)
+    continue
+  }
   if (version !== rootPackage.version) {
     fail(`${name} optional dependency version ${version} does not match ${rootPackage.version}`)
   }

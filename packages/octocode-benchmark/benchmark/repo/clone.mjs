@@ -26,11 +26,11 @@ mkdirSync(TARGET, { recursive: true });
 
 // ── Repo catalogue ────────────────────────────────────────────────────────────
 const REPOS = {
-  react: {
-    url: 'https://github.com/facebook/react.git',
-    tag: 'v19.1.0',
-    lang: 'JavaScript/TypeScript',
-    desc: 'facebook/react – canonical JS/TS monorepo',
+  zustand: {
+    url: 'https://github.com/pmndrs/zustand.git',
+    tag: 'v5.0.5',
+    lang: 'TypeScript',
+    desc: 'pmndrs/zustand – lightweight TS state management',
     depth: 1,
   },
   tokio: {

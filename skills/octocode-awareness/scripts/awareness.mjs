@@ -1,153 +1,146 @@
 #!/usr/bin/env node
-/**
- * awareness.mjs — Node.js implementation of the Octocode awareness memory backend.
- *
- * Drop-in replacement for awareness.py. Requires Node >=22 (node:sqlite built-in).
- * Zero npm dependencies — uses only Node built-ins.
- *
- * Commands implemented (same interface as awareness.py):
- *   tell-memory       Record a lesson/decision to the shared memory store.
- *   get-memory        Recall memories (FTS5 + decay scoring).
- *   reflect           Post-task self-reflection: learning memory + optional repo fix.
- *   refine-set        Queue a codebase fix for the next agent.
- *   refine-get        List open/ongoing refinements.
- *   pre-flight-intent Create a write-intent + file locks (pre-edit hook).
- *   release-file-lock Release file locks for a completed intent (alias: release-intent).
- *   status            DB stats: memory counts, lock counts, semantic coverage.
- *   init              Create / migrate the awareness database.
- *   self-test         Smoke-test against a temporary in-memory database.
- *
- * Usage:
- *   node awareness.mjs <command> [options]
- *   node awareness.mjs tell-memory --agent-id agent --task-context "..." --observation "..."
- *       --importance-score 7 --label GOTCHA [--tag foo] [--reference url]
- *   node awareness.mjs get-memory --query "sqlite FTS" --limit 5 --min-importance 3
- *   node awareness.mjs reflect --agent-id agent --task "..." --outcome worked
- *   node awareness.mjs status
- *   node awareness.mjs self-test
- */
 
-import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join, resolve, basename, dirname, sep } from 'node:path';
-import { homedir, platform } from 'node:os';
-import { randomUUID } from 'node:crypto';
-import { execSync, spawnSync } from 'node:child_process';
+// bin/awareness.ts
+import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// src/db.ts
+import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { join, resolve as resolve2, dirname } from "node:path";
+import { homedir, platform } from "node:os";
 
-const DEFAULT_DB_NAME = 'awareness.sqlite3';
-const MEMORY_HOME_ENV = 'OCTOCODE_MEMORY_HOME';
-const FTS_INDEX_VERSION = '2';
-
-const MEMORY_LABELS = new Set([
-  'BUG','FEATURE','SUGGESTION','GOTCHA','IMPROVEMENT','DECISION',
-  'ARCHITECTURE','SECURITY','PERFORMANCE','TEST','BUILD','DOCS',
-  'CONFIG','WORKFLOW','REFACTOR','API','RELEASE','INCIDENT','OTHER',
+// src/helpers.ts
+import { resolve } from "node:path";
+var MEMORY_LABELS = /* @__PURE__ */ new Set([
+  "BUG",
+  "FEATURE",
+  "SUGGESTION",
+  "GOTCHA",
+  "IMPROVEMENT",
+  "DECISION",
+  "ARCHITECTURE",
+  "SECURITY",
+  "PERFORMANCE",
+  "TEST",
+  "BUILD",
+  "DOCS",
+  "CONFIG",
+  "WORKFLOW",
+  "REFACTOR",
+  "API",
+  "RELEASE",
+  "INCIDENT",
+  "OTHER"
 ]);
-
-const REFLECTION_IMPORTANCE = { failed: 8, partial: 6, worked: 5 };
-
-// Decay weights — mirror awareness.py DECAY_WEIGHTS
-const DECAY_WEIGHTS = { importance: 0.25, recency: 0.30, access: 0.15, lexical: 0.30 };
-const DEFAULT_HALF_LIFE_DAYS = 30.0;
-const ACCESS_SATURATION = 50.0;
-
-let COMPACT_OUTPUT = process.env.OCTOCODE_AWARENESS_COMPACT === '1';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
+var REFLECTION_IMPORTANCE = {
+  failed: 8,
+  partial: 6,
+  worked: 5
+};
 function utcNow() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function parseJsonList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+function tagsText(tags) {
+  return tags.length === 0 ? "," : "," + tags.join(",") + ",";
+}
+function normalizeTags(tags = [], csv = "") {
+  const raw = [...tags];
+  if (csv) raw.push(...csv.split(","));
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const t of raw) {
+    const cleaned = t.trim().toLowerCase().replace(/[^a-zA-Z0-9_.:-]+/g, "-").replace(/^-|-$/g, "");
+    if (cleaned && !seen.has(cleaned)) {
+      out.push(cleaned);
+      seen.add(cleaned);
+    }
+  }
+  return out;
+}
+function normalizeReferences(refs = []) {
+  const seen = /* @__PURE__ */ new Set();
+  return refs.map((r) => (r ?? "").trim().slice(0, 512)).filter((r) => r && !seen.has(r) && seen.add(r)).slice(0, 20);
+}
+function normalizeLabel(value) {
+  if (!value) return "OTHER";
+  const cleaned = String(value).trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return MEMORY_LABELS.has(cleaned) ? cleaned : "OTHER";
+}
+function normalizeFilePath(filePath) {
+  if (!filePath) return null;
+  return resolve(String(filePath));
+}
+function rowToMemory(row) {
+  return {
+    memory_id: row.memory_id,
+    agent_id: row.agent_id,
+    task_context: row.task_context,
+    observation: row.observation,
+    importance_score: row.importance_score,
+    state: row.state ?? "ACTIVE",
+    label: row.label ?? "OTHER",
+    superseded_by: row.superseded_by ?? null,
+    tags: parseJsonList(row.tags_json),
+    references: parseJsonList(row.references_json),
+    workspace_path: row.workspace_path ?? null,
+    repo: row.repo ?? null,
+    ref: row.ref ?? null,
+    file: row.file ?? null,
+    failure_signature: row.failure_signature ?? null,
+    access_count: row.access_count ?? 0,
+    last_accessed_at: row.last_accessed_at ?? null,
+    decay_half_life_days: row.decay_half_life_days ?? null,
+    valid_from: row.valid_from ?? null,
+    valid_to: row.valid_to ?? null,
+    expired_at: row.expired_at ?? null,
+    file_tree_fingerprint: row.file_tree_fingerprint ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at ?? null
+  };
 }
 
+// src/db.ts
+var DEFAULT_DB_NAME = "awareness.sqlite3";
+var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
+var FTS_INDEX_VERSION = "2";
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
-  if (configured && configured.trim()) return resolve(configured.trim());
+  if (configured?.trim()) return resolve2(configured.trim());
   const h = homedir();
   const p = platform();
-  if (p === 'win32') {
-    const appData = process.env.APPDATA ?? join(h, 'AppData', 'Roaming');
-    return join(appData, '.octocode', 'memory');
+  if (p === "win32") {
+    const appData = process.env["APPDATA"] ?? join(h, "AppData", "Roaming");
+    return join(appData, ".octocode", "memory");
   }
-  if (p === 'darwin') return join(h, '.octocode', 'memory');
-  const xdg = process.env.XDG_CONFIG_HOME ?? join(h, '.config');
-  return join(xdg, '.octocode', 'memory');
+  if (p === "darwin") return join(h, ".octocode", "memory");
+  const xdg = process.env["XDG_CONFIG_HOME"] ?? join(h, ".config");
+  return join(xdg, ".octocode", "memory");
 }
-
 function resolveDbPath(dbArg) {
-  if (dbArg) return resolve(dbArg);
+  if (dbArg) return resolve2(dbArg);
   return join(memoryHome(), DEFAULT_DB_NAME);
 }
-
-function emit(payload, exitCode = 0) {
-  payload.ok = payload.ok ?? (exitCode === 0);
-  payload.schema_version = 1;
-  const text = COMPACT_OUTPUT
-    ? JSON.stringify(payload)
-    : JSON.stringify(payload, null, 2);
-  process.stdout.write(text + '\n');
-  return exitCode;
+function connectDb(dbPath2) {
+  mkdirSync(dirname(dbPath2), { recursive: true });
+  const db2 = new DatabaseSync(dbPath2);
+  db2.exec("PRAGMA foreign_keys = ON");
+  db2.exec("PRAGMA busy_timeout = 5000");
+  db2.exec("PRAGMA journal_mode = WAL");
+  initDb(db2);
+  return db2;
 }
-
-function die(message, extras = {}) {
-  process.stdout.write(JSON.stringify({ ok: false, error: message, schema_version: 1, ...extras }, null, 2) + '\n');
-  process.exit(1);
-}
-
-// ─── Arg parser (no npm deps) ─────────────────────────────────────────────────
-
-/**
- * Minimal flag parser. Supports:
- *   --flag value        (string / number)
- *   --flag              (boolean true)
- *   --no-flag           (boolean false)
- *   --flag a --flag b   (multi-value → array via knownArrayFlags)
- */
-function parseArgs(argv, knownArrayFlags = new Set()) {
-  const result = { _: [] };
-  let i = 0;
-  while (i < argv.length) {
-    const arg = argv[i];
-    if (arg === '--') { result._.push(...argv.slice(i + 1)); break; }
-    if (arg.startsWith('--no-')) {
-      const key = arg.slice(5).replace(/-/g, '_');
-      result[key] = false; i++; continue;
-    }
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2).replace(/-/g, '_');
-      const next = argv[i + 1];
-      if (next === undefined || next.startsWith('--')) {
-        result[key] = true; i++; continue;
-      }
-      const val = next; i += 2;
-      if (knownArrayFlags.has(key)) {
-        if (!Array.isArray(result[key])) result[key] = [];
-        result[key].push(val);
-      } else {
-        result[key] = val;
-      }
-      continue;
-    }
-    result._.push(arg); i++;
-  }
-  return result;
-}
-
-// ─── Database init ────────────────────────────────────────────────────────────
-
-function connect(dbPath) {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA busy_timeout = 5000');
-  db.exec('PRAGMA journal_mode = WAL');
-  initDb(db);
-  return db;
-}
-
-function initDb(db) {
-  db.exec(`
+function initDb(db2) {
+  db2.exec(`
     CREATE TABLE IF NOT EXISTS agent_memories (
       memory_id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -262,375 +255,265 @@ function initDb(db) {
     CREATE INDEX IF NOT EXISTS idx_refinements_state ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_repo ON refinements(repo);
   `);
-
-  ensureMemoryColumns(db);
-  ensureIntentColumns(db);
-
-  // FTS5 virtual table for memory search
+  ensureMemoryColumns(db2);
+  ensureIntentColumns(db2);
   try {
-    db.exec(`
+    db2.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
       USING fts5(memory_id UNINDEXED, task_context, observation, tags)
     `);
-  } catch { /* already exists or fts5 unavailable */ }
-
-  ensureFtsVersion(db);
+  } catch {
+  }
+  ensureFtsVersion(db2);
 }
-
-function tableColumns(db, tableName) {
-  return new Set(
-    db.prepare(`PRAGMA table_info(${tableName})`).all().map(r => r.name)
-  );
+function tableColumns(db2, tableName) {
+  const rows = db2.prepare(`PRAGMA table_info(${tableName})`).all();
+  return new Set(rows.map((r) => r.name));
 }
-
-function ensureMemoryColumns(db) {
-  const cols = tableColumns(db, 'agent_memories');
+function ensureMemoryColumns(db2) {
+  const cols = tableColumns(db2, "agent_memories");
   const alterations = [
-    ['state', 'TEXT NOT NULL DEFAULT \'ACTIVE\''],
-    ['label', 'TEXT NOT NULL DEFAULT \'OTHER\''],
-    ['superseded_by', 'TEXT'],
-    ['updated_at', 'TEXT'],
-    ['file', 'TEXT'],
-    ['last_accessed_at', 'TEXT'],
-    ['access_count', 'INTEGER NOT NULL DEFAULT 0'],
-    ['decay_half_life_days', 'REAL'],
-    ['failure_signature', 'TEXT'],
-    ['valid_from', 'TEXT'],
-    ['valid_to', 'TEXT'],
-    ['expired_at', 'TEXT'],
-    ['references_json', "TEXT NOT NULL DEFAULT '[]'"],
-    ['workspace_path', 'TEXT'],
-    ['repo', 'TEXT'],
-    ['ref', 'TEXT'],
-    ['embedding', 'BLOB'],
-    ['embedding_model', 'TEXT'],
+    ["state", "TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ["label", "TEXT NOT NULL DEFAULT 'OTHER'"],
+    ["superseded_by", "TEXT"],
+    ["updated_at", "TEXT"],
+    ["file", "TEXT"],
+    ["last_accessed_at", "TEXT"],
+    ["access_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["decay_half_life_days", "REAL"],
+    ["failure_signature", "TEXT"],
+    ["valid_from", "TEXT"],
+    ["valid_to", "TEXT"],
+    ["expired_at", "TEXT"],
+    ["references_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["workspace_path", "TEXT"],
+    ["repo", "TEXT"],
+    ["ref", "TEXT"],
+    ["embedding", "BLOB"],
+    ["embedding_model", "TEXT"]
   ];
   for (const [col, def] of alterations) {
     if (!cols.has(col)) {
-      db.exec(`ALTER TABLE agent_memories ADD COLUMN ${col} ${def}`);
+      db2.exec(`ALTER TABLE agent_memories ADD COLUMN ${col} ${def}`);
     }
   }
 }
-
-function ensureIntentColumns(db) {
-  const cols = tableColumns(db, 'agent_intents');
-  if (!cols.has('workspace_path')) db.exec('ALTER TABLE agent_intents ADD COLUMN workspace_path TEXT');
-  if (!cols.has('files_json')) db.exec("ALTER TABLE agent_intents ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'");
+function ensureIntentColumns(db2) {
+  const cols = tableColumns(db2, "agent_intents");
+  if (!cols.has("workspace_path")) {
+    db2.exec("ALTER TABLE agent_intents ADD COLUMN workspace_path TEXT");
+  }
+  if (!cols.has("files_json")) {
+    db2.exec("ALTER TABLE agent_intents ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'");
+  }
 }
-
-function hasFts(db) {
-  const row = db.prepare(
+function hasFts(db2) {
+  const row = db2.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_fts'"
   ).get();
   return Boolean(row);
 }
-
 function ftsTermsForRow(row) {
   const tags = parseJsonList(row.tags_json);
   const refs = parseJsonList(row.references_json);
-  const label = (row.label || 'OTHER').toLowerCase();
-  const parts = [
-    ...tags, ...refs, label,
-    row.file || '', row.failure_signature || '',
-    row.workspace_path || '', row.repo || '', row.ref || '',
-  ];
-  return parts.filter(Boolean).join(' ');
+  const label = (row.label ?? "OTHER").toLowerCase();
+  return [
+    ...tags,
+    ...refs,
+    label,
+    row.file ?? "",
+    row.failure_signature ?? "",
+    row.workspace_path ?? "",
+    row.repo ?? "",
+    row.ref ?? ""
+  ].filter(Boolean).join(" ");
 }
-
-function rebuildFts(db) {
-  db.exec("DELETE FROM memory_fts");
-  const rows = db.prepare('SELECT * FROM agent_memories').all();
-  const insert = db.prepare(
-    'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
+function rebuildFts(db2) {
+  db2.exec("DELETE FROM memory_fts");
+  const rows = db2.prepare("SELECT * FROM agent_memories").all();
+  const insert = db2.prepare(
+    "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
   );
   for (const row of rows) {
     insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
   }
 }
-
-function ensureFtsVersion(db) {
-  if (!hasFts(db)) return;
-  const row = db.prepare(
+function ensureFtsVersion(db2) {
+  if (!hasFts(db2)) return;
+  const row = db2.prepare(
     "SELECT value FROM awareness_meta WHERE key='memory_fts_version'"
   ).get();
-  if (row && row.value === FTS_INDEX_VERSION) return;
-  rebuildFts(db);
-  db.prepare(
+  if (row?.value === FTS_INDEX_VERSION) return;
+  rebuildFts(db2);
+  db2.prepare(
     "INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_fts_version', ?)"
   ).run(FTS_INDEX_VERSION);
 }
 
-// ─── Data helpers ─────────────────────────────────────────────────────────────
+// src/memory.ts
+import { randomUUID } from "node:crypto";
 
-function parseJsonList(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+// src/git.ts
+import { spawnSync } from "node:child_process";
+import { basename } from "node:path";
+function runCmd(cmd, args2, cwd) {
   try {
-    const parsed = JSON.parse(String(value));
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
-  } catch { return []; }
-}
-
-function tagsText(tags) {
-  return tags.length === 0 ? ',' : ',' + tags.join(',') + ',';
-}
-
-function normalizeTags(tags = [], csv = '') {
-  const raw = [...(tags || [])];
-  if (csv) raw.push(...csv.split(','));
-  const seen = new Set();
-  const out = [];
-  for (const t of raw) {
-    const cleaned = t.trim().toLowerCase().replace(/[^a-zA-Z0-9_.:-]+/g, '-').replace(/^-|-$/g, '');
-    if (cleaned && !seen.has(cleaned)) { out.push(cleaned); seen.add(cleaned); }
+    const r = spawnSync(cmd, args2, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
+    return r.status === 0 ? r.stdout.trim() : null;
+  } catch {
+    return null;
   }
-  return out;
 }
-
-function normalizeReferences(refs = []) {
-  const seen = new Set();
-  return (refs || [])
-    .map(r => (r || '').trim().slice(0, 512))
-    .filter(r => r && !seen.has(r) && seen.add(r))
-    .slice(0, 20);
+function detectGit(cwd) {
+  const root = runCmd("git", ["-C", cwd ?? ".", "rev-parse", "--show-toplevel"]);
+  if (!root) return { is_repo: false };
+  const branch = runCmd("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"]);
+  const remote = runCmd("git", ["-C", root, "remote", "get-url", "origin"]);
+  const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
+  return { is_repo: true, root, repo: repoName, branch, remote };
 }
-
-function normalizeLabel(value) {
-  if (!value) return 'OTHER';
-  const cleaned = value.trim().toUpperCase().replace(/[\s-]+/g, '_');
-  return MEMORY_LABELS.has(cleaned) ? cleaned : 'OTHER';
-}
-
-function normalizeFilePath(filePath) {
-  if (!filePath) return null;
-  const p = resolve(filePath);
-  return p;
-}
-
-function rowToMemory(row) {
-  return {
-    memory_id: row.memory_id,
-    agent_id: row.agent_id,
-    task_context: row.task_context,
-    observation: row.observation,
-    importance_score: row.importance_score,
-    state: row.state ?? 'ACTIVE',
-    label: row.label ?? 'OTHER',
-    superseded_by: row.superseded_by ?? null,
-    tags: parseJsonList(row.tags_json),
-    references: parseJsonList(row.references_json),
-    workspace_path: row.workspace_path ?? null,
-    repo: row.repo ?? null,
-    ref: row.ref ?? null,
-    file: row.file ?? null,
-    failure_signature: row.failure_signature ?? null,
-    access_count: row.access_count ?? 0,
-    last_accessed_at: row.last_accessed_at ?? null,
-    decay_half_life_days: row.decay_half_life_days ?? null,
-    valid_from: row.valid_from ?? null,
-    valid_to: row.valid_to ?? null,
-    expired_at: row.expired_at ?? null,
-    file_tree_fingerprint: row.file_tree_fingerprint ?? null,
-    created_at: row.created_at,
-    updated_at: row.updated_at ?? null,
+function fillScope(partial, cwd) {
+  const scope = {
+    workspace_path: partial.workspace_path ?? null,
+    repo: partial.repo ?? null,
+    ref: partial.ref ?? null
   };
+  if (scope.workspace_path && scope.repo) return scope;
+  const git = detectGit(cwd ?? process.cwd());
+  if (!git.is_repo) return scope;
+  if (!scope.workspace_path && git.root) scope.workspace_path = git.root;
+  if (!scope.repo && git.repo) scope.repo = git.repo;
+  if (!scope.ref && git.branch) scope.ref = git.branch;
+  return scope;
 }
 
-// ─── Decay / salience scoring ─────────────────────────────────────────────────
-
+// src/memory.ts
+var DECAY_WEIGHTS = { importance: 0.25, recency: 0.3, access: 0.15, lexical: 0.3 };
+var DEFAULT_HALF_LIFE_DAYS = 30;
+var ACCESS_SATURATION = 50;
+var SCORING_PREFETCH_FACTOR = 3;
 function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
   const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
   const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
   let recency = 0;
   if (lastUsedStr) {
-    const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 86400000);
+    const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 864e5);
     recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
   }
   const importance = (memory.importance_score ?? 0) / 10;
   const access = Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION);
   const lexNorm = Math.max(0, Math.min(1, lexical));
-  return (
-    weights.importance * importance +
-    weights.recency * recency +
-    weights.access * Math.min(access, 1) +
-    weights.lexical * lexNorm
-  );
+  return weights.importance * importance + weights.recency * recency + weights.access * Math.min(access, 1) + weights.lexical * lexNorm;
 }
-
-// ─── Git detection ────────────────────────────────────────────────────────────
-
-function runCmd(cmd, args, cwd) {
-  try {
-    const r = spawnSync(cmd, args, { cwd: cwd || process.cwd(), encoding: 'utf8', timeout: 5000 });
-    return r.status === 0 ? r.stdout.trim() : null;
-  } catch { return null; }
-}
-
-function detectGit(cwd) {
-  const root = runCmd('git', ['-C', cwd || '.', 'rev-parse', '--show-toplevel']);
-  if (!root) return { is_repo: false };
-  const branch = runCmd('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD']);
-  const remote = runCmd('git', ['-C', root, 'remote', 'get-url', 'origin']);
-  const repoName = remote
-    ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) || [])[1] || basename(root)
-    : basename(root);
-  return {
-    is_repo: true,
-    root,
-    repo: repoName,
-    branch,
-    remote,
-  };
-}
-
-function autoFillScope(args, cwd) {
-  if (args.workspace_path && args.repo) return;
-  const git = detectGit(cwd || process.cwd());
-  if (!git.is_repo) return;
-  if (!args.workspace_path && git.root) args.workspace_path = git.root;
-  if (!args.repo && git.repo) args.repo = git.repo;
-  if (!args.ref && git.branch) args.ref = git.branch;
-}
-
-// ─── FTS search ───────────────────────────────────────────────────────────────
-
 function buildFtsQuery(query) {
-  // Extract meaningful tokens; FTS5 syntax: word OR word
-  const stopWords = new Set(['the','and','for','with','this','that','about','before','after']);
-  const tokens = [...new Set(
-    (query.toLowerCase().match(/[a-z0-9_]{2,}/g) || [])
-      .filter(t => !stopWords.has(t))
-  )].slice(0, 16);
-  if (!tokens.length) return null;
-  return tokens.join(' OR ');
+  const stopWords = /* @__PURE__ */ new Set(["the", "and", "for", "with", "this", "that", "about", "before", "after"]);
+  const tokens = [
+    ...new Set(
+      (query.toLowerCase().match(/[a-z0-9_]{2,}/g) ?? []).filter((t) => !stopWords.has(t))
+    )
+  ].slice(0, 16);
+  return tokens.length > 0 ? tokens.join(" OR ") : null;
 }
-
-function lexicalSearch(db, query, limit, minImportance, tags, labels, states) {
+function fallbackSearch(db2, conditions, params, limit) {
+  const sql = `
+    SELECT m.*, 0 AS _bm25
+    FROM agent_memories m
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY m.importance_score DESC, m.created_at DESC
+    LIMIT ?
+  `;
+  return db2.prepare(sql).all(...params, limit);
+}
+function lexicalSearch(db2, query, limit, minImportance, tags, labels, states) {
   const ftsQuery = query ? buildFtsQuery(query) : null;
   const params = [];
-  const conditions = ['m.importance_score >= ?', `m.state IN (${states.map(() => '?').join(',')})`];
+  const conditions = [
+    "m.importance_score >= ?",
+    `m.state IN (${states.map(() => "?").join(",")})`
+  ];
   params.push(minImportance, ...states);
-
-  if (labels && labels.length > 0) {
-    conditions.push(`m.label IN (${labels.map(() => '?').join(',')})`);
+  if (labels.length > 0) {
+    conditions.push(`m.label IN (${labels.map(() => "?").join(",")})`);
     params.push(...labels);
   }
-  for (const tag of (tags || [])) {
-    conditions.push('m.tags_text LIKE ?');
+  for (const tag of tags) {
+    conditions.push("m.tags_text LIKE ?");
     params.push(`%,${tag},%`);
   }
-
   let rows;
-  if (ftsQuery && hasFts(db)) {
+  if (ftsQuery && hasFts(db2)) {
     try {
-      // Use FTS5 BM25; negative score = more relevant
       const sql = `
         SELECT m.*, ABS(bm25(memory_fts)) AS _bm25
         FROM agent_memories m
         JOIN memory_fts ON memory_fts.memory_id = m.memory_id
         WHERE memory_fts MATCH ?
-          AND ${conditions.join(' AND ')}
+          AND ${conditions.join(" AND ")}
         ORDER BY _bm25 DESC
         LIMIT ?
       `;
-      rows = db.prepare(sql).all(ftsQuery, ...params, limit);
+      rows = db2.prepare(sql).all(ftsQuery, ...params, limit);
     } catch {
-      rows = fallbackSearch(db, conditions, params, limit);
+      rows = fallbackSearch(db2, conditions, params, limit);
     }
   } else {
-    rows = fallbackSearch(db, conditions, params, limit);
+    rows = fallbackSearch(db2, conditions, params, limit);
   }
-
-  // Normalize lexical score 0..1 using BM25 if available, else constant 0.5
   const maxBm25 = rows.reduce((m, r) => Math.max(m, r._bm25 ?? 0), 0);
-  return rows.map(row => {
+  return rows.map((row) => {
     const lexical = maxBm25 > 0 ? (row._bm25 ?? 0) / maxBm25 : 0.5;
     const mem = rowToMemory(row);
     mem.score = decayScore(mem, lexical);
     return mem;
   });
 }
-
-function fallbackSearch(db, conditions, params, limit) {
-  const sql = `
-    SELECT m.*, 0 AS _bm25
-    FROM agent_memories m
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY m.importance_score DESC, m.created_at DESC
-    LIMIT ?
-  `;
-  return db.prepare(sql).all(...params, limit);
-}
-
-function bumpAccess(db, memoryIds) {
-  if (!memoryIds.length) return;
+function bumpAccess(db2, memoryIds) {
+  if (memoryIds.length === 0) return;
   const now = utcNow();
-  const placeholders = memoryIds.map(() => '?').join(',');
-  db.prepare(`
+  const placeholders = memoryIds.map(() => "?").join(",");
+  db2.prepare(`
     UPDATE agent_memories
     SET access_count = COALESCE(access_count, 0) + 1, last_accessed_at = ?
     WHERE memory_id IN (${placeholders})
   `).run(now, ...memoryIds);
 }
-
-// ─── Commands ─────────────────────────────────────────────────────────────────
-
-// tell-memory
-function cmdTellMemory(db, args) {
+function insertMemory(db2, params) {
   const {
-    agent_id = 'agent',
-    task_context,
+    agentId = "agent",
+    taskContext,
     observation,
-    importance_score,
+    importanceScore,
     label,
-    tag,
-    tags: tagsStr,
-    reference,
-    references: refsArg,
-    supersedes: supersedesArg,
-    failure_signature = null,
-    valid_from: vf,
-    valid_to: vt,
-    workspace,
+    tags = [],
+    tagsCsv = "",
+    references = [],
+    supersedes = [],
+    failureSignature = null,
+    validFrom: vf,
+    validTo: vt,
+    workspacePath,
     repo: repoArg,
     ref: refArg,
     file: fileArg,
-    file_tree_fingerprint = null,
-    compact,
-  } = args;
-
-  if (compact) COMPACT_OUTPUT = true;
-  if (!task_context) die('--task-context is required');
-  if (!observation) die('--observation is required');
-  const imp = parseInt(importance_score, 10);
-  if (isNaN(imp) || imp < 1 || imp > 10) die('--importance-score must be 1–10');
-
-  const memoryId = 'mem_' + randomUUID().replace(/-/g, '');
-  const tagList = normalizeTags(
-    Array.isArray(tag) ? tag : tag ? [tag] : [],
-    typeof tagsStr === 'string' ? tagsStr : ''
-  );
-  const refList = normalizeReferences(
-    Array.isArray(reference) ? reference
-      : reference ? [reference]
-      : Array.isArray(refsArg) ? refsArg
-      : refsArg ? [refsArg]
-      : []
-  );
+    fileTreeFingerprint = null,
+    cwd
+  } = params;
+  const imp = Number(importanceScore);
+  if (!Number.isInteger(imp) || imp < 1 || imp > 10) {
+    throw new Error(`importanceScore must be 1\u201310, got ${String(importanceScore)}`);
+  }
+  const memoryId = "mem_" + randomUUID().replace(/-/g, "");
+  const tagList = normalizeTags(tags, tagsCsv);
+  const refList = normalizeReferences(references);
   const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label);
   const createdAt = utcNow();
-  const validFrom = vf || createdAt;
-  const memFile = fileArg ? normalizeFilePath(fileArg) : null;
-
-  // Auto-detect workspace/repo from git if not supplied
-  const scope = { workspace_path: workspace || null, repo: repoArg || null, ref: refArg || null };
-  autoFillScope(scope, process.cwd());
-
-  const supersedesList = Array.isArray(supersedesArg)
-    ? supersedesArg
-    : supersedesArg ? [supersedesArg] : [];
-
-  db.prepare(`
+  const validFromVal = vf ?? createdAt;
+  const memFile = normalizeFilePath(fileArg);
+  const scope = fillScope(
+    { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
+    cwd ?? process.cwd()
+  );
+  db2.prepare(`
     INSERT INTO agent_memories (
       memory_id, agent_id, task_context, observation, importance_score,
       label, tags_json, tags_text, references_json, workspace_path, repo, ref,
@@ -638,40 +521,63 @@ function cmdTellMemory(db, args) {
       last_accessed_at, access_count, failure_signature, valid_from, valid_to
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `).run(
-    memoryId, agent_id, task_context, observation, imp,
-    normalizedLabel, JSON.stringify(tagList), tagsText(tagList), JSON.stringify(refList),
-    scope.workspace_path, scope.repo, scope.ref,
-    file_tree_fingerprint, memFile, createdAt, createdAt,
-    createdAt, failure_signature || null, validFrom, vt || null
+    memoryId,
+    agentId,
+    taskContext,
+    observation,
+    imp,
+    normalizedLabel,
+    JSON.stringify(tagList),
+    tagsText(tagList),
+    JSON.stringify(refList),
+    scope.workspace_path,
+    scope.repo,
+    scope.ref,
+    fileTreeFingerprint,
+    memFile,
+    createdAt,
+    createdAt,
+    createdAt,
+    failureSignature ?? null,
+    validFromVal,
+    vt ?? null
   );
-
-  // Insert into FTS
-  if (hasFts(db)) {
-    db.prepare(
-      'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
+  if (hasFts(db2)) {
+    db2.prepare(
+      "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
     ).run(
-      memoryId, task_context, observation,
-      ftsTermsForRow({ tags_json: JSON.stringify(tagList), references_json: JSON.stringify(refList), label: normalizedLabel, file: memFile, failure_signature: failure_signature || null, workspace_path: scope.workspace_path, repo: scope.repo, ref: scope.ref })
+      memoryId,
+      taskContext,
+      observation,
+      ftsTermsForRow({
+        tags_json: JSON.stringify(tagList),
+        references_json: JSON.stringify(refList),
+        label: normalizedLabel,
+        file: memFile,
+        failure_signature: failureSignature ?? null,
+        workspace_path: scope.workspace_path,
+        repo: scope.repo,
+        ref: scope.ref
+      })
     );
   }
-
-  // Supersede old memories
   const superseded = [];
-  for (const oldId of supersedesList) {
-    const r = db.prepare(`
+  for (const oldId of supersedes) {
+    const r = db2.prepare(`
       UPDATE agent_memories
       SET state = 'SUPERSEDED', superseded_by = ?, updated_at = ?,
           valid_to = COALESCE(valid_to, ?), expired_at = ?
       WHERE memory_id = ? AND memory_id <> ?
-    `).run(memoryId, createdAt, validFrom, createdAt, oldId, memoryId);
+    `).run(memoryId, createdAt, validFromVal, createdAt, oldId, memoryId);
     if (r.changes) superseded.push(oldId);
   }
-
-  return emit({
-    db_path: resolveDbPath(args.db),
+  return {
+    memoryId,
     memory: {
       memory_id: memoryId,
-      agent_id,
+      agent_id: agentId,
+      task_context: taskContext,
+      observation,
       importance_score: imp,
       label: normalizedLabel,
       tags: tagList,
@@ -680,172 +586,153 @@ function cmdTellMemory(db, args) {
       repo: scope.repo,
       ref: scope.ref,
       file: memFile,
-      state: 'ACTIVE',
-      created_at: createdAt,
+      state: "ACTIVE",
+      created_at: createdAt
     },
-    superseded,
-  });
+    superseded
+  };
 }
-
-// get-memory
-function cmdGetMemory(db, args) {
+function getMemory(db2, params = {}) {
   const {
-    query = '',
-    limit: limitArg = '3',
-    min_importance: minImpArg = '1',
+    query = "",
+    limit: limitRaw = 3,
+    minImportance: minImpRaw = 1,
     label,
-    tag,
-    smart,
-    workspace,
-    state: stateArg,
-    compact,
-    sort = 'smart',
-    global_only,
-    as_of,
-  } = args;
-
-  if (compact) COMPACT_OUTPUT = true;
-
-  const limit = Math.min(20, Math.max(1, parseInt(limitArg, 10) || 3));
-  let minImportance = parseInt(minImpArg, 10) || 1;
-
-  // smart=true: widen threshold
-  if (smart === true || smart === 'true') {
-    minImportance = Math.max(1, minImportance - 1);
+    tags = [],
+    smart = false,
+    workspacePath,
+    states: statesRaw,
+    sort = "smart",
+    globalOnly = false,
+    asOf
+  } = params;
+  const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
+  let minImportance = Math.max(1, Number(minImpRaw) || 1);
+  if (smart === true || smart === "true") minImportance = Math.max(1, minImportance - 1);
+  const states = statesRaw ?? ["ACTIVE"];
+  const labels = label ? Array.isArray(label) ? label.map(normalizeLabel) : [normalizeLabel(label)] : [];
+  let memories = lexicalSearch(
+    db2,
+    query,
+    limit * SCORING_PREFETCH_FACTOR,
+    minImportance,
+    tags,
+    labels,
+    states
+  );
+  let scope = workspacePath;
+  if (!globalOnly && scope) {
+    scope = fillScope({ workspace_path: null }, scope).workspace_path ?? scope;
+    memories = memories.filter((m) => !m.workspace_path || m.workspace_path === scope);
   }
-
-  const states = stateArg ? (Array.isArray(stateArg) ? stateArg : [stateArg]) : ['ACTIVE'];
-  const labels = label ? (Array.isArray(label) ? label.map(normalizeLabel) : [normalizeLabel(label)]) : [];
-  const tags = tag ? (Array.isArray(tag) ? tag : [tag]) : [];
-
-  let memories = lexicalSearch(db, query, limit * 3, minImportance, tags, labels, states);
-
-  // Filter by workspace scope (non-strict: include global + workspace-specific)
-  const scope = { workspace_path: workspace || null };
-  if (!global_only && workspace) {
-    memories = memories.filter(m =>
-      !m.workspace_path || m.workspace_path === scope.workspace_path
-    );
-  }
-
-  // Point-in-time filter
-  if (as_of) {
-    const asOfDate = new Date(as_of);
-    memories = memories.filter(m => {
+  if (asOf) {
+    const asOfDate = new Date(asOf);
+    memories = memories.filter((m) => {
       const vf = m.valid_from ? new Date(m.valid_from) : null;
       const vt = m.valid_to ? new Date(m.valid_to) : null;
       return (!vf || vf <= asOfDate) && (!vt || vt > asOfDate);
     });
   }
-
-  // Sort by score descending
   memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   memories = memories.slice(0, limit);
-
-  // Bump access counts
-  bumpAccess(db, memories.map(m => m.memory_id));
-
-  return emit({
-    db_path: resolveDbPath(args.db),
+  bumpAccess(db2, memories.map((m) => m.memory_id));
+  return {
     count: memories.length,
     memories,
-    mode: hasFts(db) ? 'lexical' : 'fallback',
+    mode: hasFts(db2) ? "lexical" : "fallback",
     sort,
-    as_of: as_of ?? null,
-    global_only: Boolean(global_only),
-    states,
-  });
+    as_of: asOf ?? null,
+    global_only: Boolean(globalOnly),
+    states
+  };
 }
 
-// refine-set
-function cmdRefineSet(db, args) {
+// src/refinements.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+function insertRefinement(db2, params) {
   const {
-    agent_id = 'agent',
+    agentId = "agent",
     reasoning,
     remember,
-    quality = 'good',
-    state: stateRaw,
-    workspace,
+    quality = "good",
+    state = "open",
+    workspacePath,
     repo: repoArg,
     ref: refArg,
-    file: filesArg,
-    compact,
-  } = args;
-  // state is in ARRAY_FLAGS — normalize to string
-  const stateArg = Array.isArray(stateRaw) ? stateRaw[0] : (stateRaw ?? 'open');
-
-  if (compact) COMPACT_OUTPUT = true;
-  if (!reasoning) die('--reasoning is required');
-  if (!remember) die('--remember is required');
-
-  const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
+    files = [],
+    cwd
+  } = params;
+  const refinementId = "ref_" + randomUUID2().replace(/-/g, "");
   const now = utcNow();
-  const scope = { workspace_path: workspace || null, repo: repoArg || null, ref: refArg || null };
-  autoFillScope(scope, process.cwd());
-
-  const files = Array.isArray(filesArg) ? filesArg : filesArg ? [filesArg] : [];
-
-  db.prepare(`
+  const scope = fillScope(
+    { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
+    cwd ?? process.cwd()
+  );
+  db2.prepare(`
     INSERT INTO refinements (
       refinement_id, agent_id, workspace_path, repo, ref,
       files_json, reasoning, remember, quality, state, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    refinementId, agent_id,
-    scope.workspace_path || process.cwd(),
-    scope.repo || null, scope.ref || null,
-    JSON.stringify(files), reasoning, remember, quality, stateArg, now, now
+    refinementId,
+    agentId,
+    scope.workspace_path ?? process.cwd(),
+    scope.repo ?? null,
+    scope.ref ?? null,
+    JSON.stringify(files),
+    reasoning,
+    remember,
+    quality,
+    state,
+    now,
+    now
   );
-
-  return emit({
-    db_path: resolveDbPath(args.db),
+  return {
+    refinementId,
     refinement: {
       refinement_id: refinementId,
-      agent_id,
-      workspace_path: scope.workspace_path,
+      agent_id: agentId,
+      workspace_path: scope.workspace_path ?? process.cwd(),
       repo: scope.repo,
       ref: scope.ref,
+      files,
       reasoning,
       remember,
       quality,
-      state: stateArg,
+      state,
       created_at: now,
-    },
-  });
+      updated_at: now
+    }
+  };
 }
-
-// refine-get
-function cmdRefineGet(db, args) {
+function getRefinements(db2, params = {}) {
   const {
-    workspace,
+    workspacePath,
     repo: repoArg,
-    state: stateArg,
-    limit: limitArg = '10',
-    compact,
-  } = args;
-
-  if (compact) COMPACT_OUTPUT = true;
-
-  const limit = Math.min(50, Math.max(1, parseInt(limitArg, 10) || 10));
-  const states = stateArg
-    ? (Array.isArray(stateArg) ? stateArg : [stateArg])
-    : ['open', 'ongoing'];
-
-  const scope = { workspace_path: workspace || null, repo: repoArg || null };
-  autoFillScope(scope, process.cwd());
-
-  const params = [...states];
-  const stateFilter = `state IN (${states.map(() => '?').join(',')})`;
+    states: statesRaw,
+    limit: limitRaw = 10,
+    cwd
+  } = params;
+  const limit = Math.min(50, Math.max(1, Number(limitRaw) || 10));
+  const states = statesRaw ?? ["open", "ongoing"];
+  const scope = fillScope(
+    { workspace_path: workspacePath ?? null, repo: repoArg ?? null },
+    cwd ?? process.cwd()
+  );
+  const queryParams = [...states];
+  const stateFilter = `state IN (${states.map(() => "?").join(",")})`;
   let sql = `SELECT * FROM refinements WHERE ${stateFilter}`;
-
-  if (scope.repo) { sql += ' AND (repo = ? OR repo IS NULL)'; params.push(scope.repo); }
-  else if (scope.workspace_path) { sql += ' AND (workspace_path = ? OR workspace_path IS NULL)'; params.push(scope.workspace_path); }
-
+  if (scope.repo) {
+    sql += " AND (repo = ? OR repo IS NULL)";
+    queryParams.push(scope.repo);
+  } else if (scope.workspace_path) {
+    sql += " AND (workspace_path = ? OR workspace_path IS NULL)";
+    queryParams.push(scope.workspace_path);
+  }
   sql += ` ORDER BY CASE state WHEN 'ongoing' THEN 0 ELSE 1 END, updated_at DESC LIMIT ?`;
-  params.push(limit);
-
-  const rows = db.prepare(sql).all(...params);
-  const refinements = rows.map(r => ({
+  queryParams.push(limit);
+  const rows = db2.prepare(sql).all(...queryParams);
+  const refinements = rows.map((r) => ({
     refinement_id: r.refinement_id,
     agent_id: r.agent_id,
     workspace_path: r.workspace_path,
@@ -857,160 +744,31 @@ function cmdRefineGet(db, args) {
     quality: r.quality,
     state: r.state,
     created_at: r.created_at,
-    updated_at: r.updated_at,
+    updated_at: r.updated_at
   }));
-
-  return emit({
-    db_path: resolveDbPath(args.db),
-    count: refinements.length,
-    refinements,
-  });
+  return { count: refinements.length, refinements };
 }
 
-// reflect
-function cmdReflect(db, dbPath, args) {
+// src/intents.ts
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { resolve as resolve3 } from "node:path";
+function preFlightIntent(db2, params) {
   const {
-    agent_id = 'agent',
-    task,
-    outcome,
-    lesson,
-    worked,
-    didnt_work,
-    fix_repo,
-    fix_harness,
-    failure_signature: failSig,
-    importance: impArg,
-    workspace,
-    repo: repoArg,
-    ref: refArg,
-    compact,
-  } = args;
-
-  if (compact) COMPACT_OUTPUT = true;
-  if (!task) die('--task is required');
-  const validOutcomes = ['worked', 'partial', 'failed'];
-  const resolvedOutcome = validOutcomes.includes(outcome) ? outcome : 'partial';
-
-  // Build narrative observation
-  const bits = [`[reflection:${resolvedOutcome}] ${task}`];
-  if (worked) bits.push(`worked: ${worked}`);
-  if (didnt_work) bits.push(`didn't work: ${didnt_work}`);
-  if (fix_harness) bits.push(`harness fix: ${fix_harness}`);
-  const narrative = bits.join(' | ');
-  const observation = lesson ? (bits.length > 1 ? `${lesson}  (${narrative})` : lesson) : narrative;
-
-  const importance = impArg ? parseInt(impArg, 10) : REFLECTION_IMPORTANCE[resolvedOutcome];
-  const tags = ['reflection', resolvedOutcome];
-  if (fix_harness) tags.push('harness');
-
-  const sig = failSig || (resolvedOutcome === 'failed' && fix_harness ? 'harness:reflection|outcome:failed' : null);
-
-  // Record learning memory — capture stdout so cmdTellMemory doesn't emit
-  const origWriteTell = process.stdout.write.bind(process.stdout);
-  let capturedTell = '';
-  process.stdout.write = (data) => { capturedTell += data; return true; };
-  const tellArgs = {
-    agent_id, task_context: task, observation,
-    importance_score: String(importance),
-    label: 'OTHER',
-    tag: tags,
-    failure_signature: sig,
-    workspace, repo: repoArg, ref: refArg,
-    db: dbPath,
-  };
-  cmdTellMemory(db, tellArgs);
-  process.stdout.write = origWriteTell;
-
-  // Get the memory_id from the captured tell output
-  let memoryId = null;
-  try {
-    const tellResult = JSON.parse(capturedTell);
-    memoryId = tellResult?.memory?.memory_id ?? null;
-  } catch {
-    // Fallback: query DB directly
-    const memRow = db.prepare(
-      'SELECT memory_id FROM agent_memories WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).get(agent_id);
-    memoryId = memRow?.memory_id ?? null;
-  }
-
-  // Restore compact flag
-  if (compact) COMPACT_OUTPUT = true;
-
-  // Optional repo fix refinement
-  let refinementId = null;
-  if (fix_repo) {
-    const refineArgs = {
-      agent_id,
-      reasoning: `Fix in repo (from ${resolvedOutcome} reflection): ${fix_repo}`,
-      remember: fix_repo,
-      quality: 'bad',
-      state: 'open',
-      workspace, repo: repoArg, ref: refArg,
-      db: dbPath,
-    };
-    // Capture refine-set output without emitting
-    const origWrite = process.stdout.write.bind(process.stdout);
-    let captured = '';
-    process.stdout.write = (data) => { captured += data; return true; };
-    cmdRefineSet(db, refineArgs);
-    process.stdout.write = origWrite;
-    try {
-      const refResult = JSON.parse(captured);
-      refinementId = refResult?.refinement?.refinement_id ?? null;
-    } catch { /* ignore */ }
-  }
-
-  return emit({
-    outcome: resolvedOutcome,
-    learning_memory_id: memoryId,
-    repo_fix_refinement_id: refinementId,
-    harness_fix: Boolean(fix_harness),
-    eval_failure_count: 0,
-    eval_failure_ids: [],
-    next: 'refine-get → repo fixes for the next agent · mine-weakness → recurring failures · export-harness → preview harness improvements. A human merges.',
-  });
-}
-
-// pre-flight-intent
-function cmdPreFlightIntent(db, args) {
-  const {
-    agent_id = 'agent',
-    workspace,
-    rationale = 'agent write operation',
-    test_plan = 'post-edit verification',
-    target_file: targetFilesArg, // primary: --target-file
-    file: filesArgLegacy,        // legacy: --file
-    lock_type = 'EXCLUSIVE',
-    ttl_minutes: ttlMinutesArg,  // primary: --ttl-minutes
-    ttl_seconds: ttlSecondsArg,  // legacy: --ttl-seconds
-    compact,
-  } = args;
-
-  if (compact) COMPACT_OUTPUT = true;
-
-  const intentId = 'intent_' + randomUUID().replace(/-/g, '');
+    agentId = "agent",
+    workspacePath,
+    rationale = "agent write operation",
+    testPlan = "post-edit verification",
+    targetFiles = [],
+    lockType = "EXCLUSIVE",
+    ttlMs = null
+  } = params;
+  const intentId = "intent_" + randomUUID3().replace(/-/g, "");
   const now = utcNow();
-
-  // Merge --target-file (primary) and --file (legacy)
-  const rawFiles = targetFilesArg ?? filesArgLegacy;
-  const files = Array.isArray(rawFiles) ? rawFiles : rawFiles ? [rawFiles] : [];
-  const absFiles = files.map(f => resolve(f));
-
-  const scope = { workspace_path: workspace || null };
-  if (!scope.workspace_path) scope.workspace_path = process.cwd();
-
-  // TTL: prefer --ttl-minutes, fall back to --ttl-seconds
-  const ttlMs = ttlMinutesArg
-    ? parseInt(ttlMinutesArg, 10) * 60000
-    : ttlSecondsArg
-    ? parseInt(ttlSecondsArg, 10) * 1000
-    : null;
-
-  // Check for conflicts (EXCLUSIVE locks on these files by other agents)
+  const wsPath = workspacePath ?? process.cwd();
+  const absFiles = targetFiles.map((f) => resolve3(f));
   const conflicts = [];
   for (const absPath of absFiles) {
-    const existing = db.prepare(`
+    const existing = db2.prepare(`
       SELECT fl.*, ai.agent_id AS intent_agent_id FROM file_locks fl
       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
       WHERE fl.file_path = ?
@@ -1018,368 +776,729 @@ function cmdPreFlightIntent(db, args) {
         AND ai.status = 'ACTIVE'
         AND fl.lock_type = 'EXCLUSIVE'
         AND (fl.expires_at IS NULL OR fl.expires_at > ?)
-    `).all(absPath, agent_id, now);
+    `).all(absPath, agentId, now);
     conflicts.push(...existing);
   }
-
   if (conflicts.length > 0) {
-    return emit({
+    return {
       ok: false,
       conflict: true,
-      conflicts: conflicts.map(c => ({
+      conflicts: conflicts.map((c) => ({
         file_path: c.file_path,
         lock_type: c.lock_type,
-        agent_id: c.intent_agent_id,
+        agent_id: c.intent_agent_id ?? c.agent_id,
         acquired_at: c.acquired_at,
-        expires_at: c.expires_at,
-      })),
-    }, 2);
+        expires_at: c.expires_at
+      }))
+    };
   }
-
-  // Create intent (stores absolute paths)
-  db.prepare(`
-    INSERT INTO agent_intents (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
+  db2.prepare(`
+    INSERT INTO agent_intents
+      (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
-  `).run(intentId, agent_id, rationale, test_plan, scope.workspace_path, JSON.stringify(absFiles), now, now);
-
-  // Acquire locks
+  `).run(intentId, agentId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
+  const expiresAt = ttlMs ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
   const acquiredLocks = [];
-  const expiresAt = ttlMs ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, 'Z') : null;
   for (const absPath of absFiles) {
-    const lockId = 'lock_' + randomUUID().replace(/-/g, '');
-    db.prepare(`
-      INSERT OR REPLACE INTO file_locks (lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
+    const lockId = "lock_" + randomUUID3().replace(/-/g, "");
+    db2.prepare(`
+      INSERT OR REPLACE INTO file_locks
+        (lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(lockId, absPath, intentId, agent_id, lock_type, now, expiresAt);
-    acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type, expires_at: expiresAt });
+    `).run(lockId, absPath, intentId, agentId, lockType, now, expiresAt);
+    acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
   }
-
-  // Response mirrors awareness.py: { intent: { intent_id, target_files, locks, ... } }
-  return emit({
-    db_path: resolveDbPath(args.db),
+  return {
+    ok: true,
     intent: {
       intent_id: intentId,
-      agent_id,
-      lock_type,
-      workspace_path: scope.workspace_path,
+      agent_id: agentId,
+      lock_type: lockType,
+      workspace_path: wsPath,
       target_files: absFiles,
-      locks: acquiredLocks,
-      status: 'ACTIVE',
-      created_at: now,
-    },
-  });
+      locks: acquiredLocks.map((l) => ({
+        lock_id: l.lock_id,
+        file_path: l.file_path,
+        lock_type: l.lock_type,
+        agent_id: agentId,
+        acquired_at: now,
+        expires_at: l.expires_at
+      })),
+      status: "ACTIVE",
+      created_at: now
+    }
+  };
 }
-
-// release-file-lock
-// Accepts --intent-id (release all locks for that intent) OR --target-file
-// (release locks held by agent_id on those specific files). Mirrors awareness.py.
-function cmdReleaseFileLock(db, args) {
+function releaseFileLock(db2, params) {
   const {
-    intent_id,
-    target_file: targetFilesArg,
-    file: filesArgLegacy,
-    agent_id = 'agent',
-    status: statusArg = 'SUCCESS',
-    compact,
-  } = args;
-  if (compact) COMPACT_OUTPUT = true;
-
+    agentId = "agent",
+    intentId = null,
+    targetFiles = [],
+    status: statusArg = "SUCCESS"
+  } = params;
   const now = utcNow();
-
-  // Build WHERE clause — must always scope to agent_id
-  const whereClauses = ['fl.agent_id = ?'];
-  const whereParams = [agent_id];
-
-  if (intent_id) {
-    whereClauses.push('fl.intent_id = ?');
-    whereParams.push(intent_id);
+  const whereClauses = ["fl.agent_id = ?"];
+  const whereParams = [agentId];
+  if (intentId) {
+    whereClauses.push("fl.intent_id = ?");
+    whereParams.push(intentId);
   }
-
-  const rawFiles = targetFilesArg ?? filesArgLegacy;
-  const targetFiles = rawFiles
-    ? (Array.isArray(rawFiles) ? rawFiles : [rawFiles]).map(f => resolve(f))
-    : [];
-
-  if (targetFiles.length > 0) {
-    const ph = targetFiles.map(() => '?').join(',');
+  const absFiles = targetFiles.map((f) => resolve3(f));
+  if (absFiles.length > 0) {
+    const ph = absFiles.map(() => "?").join(",");
     whereClauses.push(`fl.file_path IN (${ph})`);
-    whereParams.push(...targetFiles);
+    whereParams.push(...absFiles);
   }
-
-  const where = whereClauses.join(' AND ');
-
-  // Find matching locks (need intent_ids to update intents after)
-  const locks = db.prepare(
+  const where = whereClauses.join(" AND ");
+  const locks = db2.prepare(
     `SELECT fl.lock_id, fl.intent_id, fl.file_path FROM file_locks fl WHERE ${where}`
   ).all(...whereParams);
-
-  // Delete the locks (SQLite doesn't support table aliases in DELETE)
-  const deleteWhere = where.replace(/\bfl\./g, '');
-  db.prepare(`DELETE FROM file_locks WHERE ${deleteWhere}`).run(...whereParams);
-
-  // For each affected intent: if no locks remain, update its status
-  const intentIds = [...new Set([
-    ...(intent_id ? [intent_id] : []),
-    ...locks.map(l => l.intent_id),
+  const deleteWhere = where.replace(/\bfl\./g, "");
+  db2.prepare(`DELETE FROM file_locks WHERE ${deleteWhere}`).run(...whereParams);
+  const intentIds = [.../* @__PURE__ */ new Set([
+    ...intentId ? [intentId] : [],
+    ...locks.map((l) => l.intent_id)
   ])];
-
   for (const iid of intentIds) {
-    const remaining = db.prepare(
-      'SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1'
-    ).get(iid);
+    const remaining = db2.prepare("SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1").get(iid);
     if (!remaining) {
-      db.prepare(
-        'UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?'
-      ).run(statusArg, now, iid, agent_id);
+      db2.prepare(
+        "UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?"
+      ).run(statusArg, now, iid, agentId);
     }
   }
-
-  return emit({
-    db_path: resolveDbPath(args.db),
-    agent_id,
+  return {
+    agent_id: agentId,
     status: statusArg,
-    released: locks.length > 0 || Boolean(intent_id),
+    released: locks.length > 0 || Boolean(intentId),
     locks_released: locks.length,
     intent_ids: intentIds,
-    updated_at: now,
-  });
+    updated_at: now
+  };
 }
 
-// status
-function cmdStatus(db, dbPath, args) {
-  const { workspace, limit: limitArg = '20', compact } = args;
-  if (compact) COMPACT_OUTPUT = true;
+// src/reflect.ts
+var VALID_OUTCOMES = ["worked", "partial", "failed"];
+var NEXT_MSG = "refine-get \u2192 repo fixes for the next agent \xB7 mine-weakness \u2192 recurring failures \xB7 export-harness \u2192 preview harness improvements. A human merges.";
+function reflect(db2, params) {
+  const {
+    agentId = "agent",
+    task,
+    outcome,
+    lesson,
+    worked,
+    didntWork,
+    fixRepo,
+    fixHarness,
+    failureSignature: failSig,
+    importance: impArg,
+    workspacePath,
+    repo: repoArg,
+    ref: refArg,
+    cwd
+  } = params;
+  const resolvedOutcome = VALID_OUTCOMES.includes(outcome ?? "") ? outcome : "partial";
+  const bits = [`[reflection:${resolvedOutcome}] ${task}`];
+  if (worked) bits.push(`worked: ${worked}`);
+  if (didntWork) bits.push(`didn't work: ${didntWork}`);
+  if (fixHarness) bits.push(`harness fix: ${fixHarness}`);
+  const narrative = bits.join(" | ");
+  const observation = lesson ? bits.length > 1 ? `${lesson}  (${narrative})` : lesson : narrative;
+  const importance = impArg != null ? Number(impArg) : REFLECTION_IMPORTANCE[resolvedOutcome] ?? 5;
+  const tags = ["reflection", resolvedOutcome, ...fixHarness ? ["harness"] : []];
+  const sig = failSig ?? (resolvedOutcome === "failed" && fixHarness ? "harness:reflection|outcome:failed" : null);
+  const { memoryId } = insertMemory(db2, {
+    agentId,
+    taskContext: task,
+    observation,
+    importanceScore: importance,
+    label: "OTHER",
+    tags,
+    failureSignature: sig,
+    workspacePath,
+    repo: repoArg,
+    ref: refArg,
+    cwd
+  });
+  let refinementId = null;
+  if (fixRepo) {
+    const { refinementId: rid } = insertRefinement(db2, {
+      agentId,
+      reasoning: `Fix in repo (from ${resolvedOutcome} reflection): ${fixRepo}`,
+      remember: fixRepo,
+      quality: "bad",
+      state: "open",
+      workspacePath,
+      repo: repoArg,
+      ref: refArg,
+      cwd
+    });
+    refinementId = rid;
+  }
+  return {
+    outcome: resolvedOutcome,
+    learning_memory_id: memoryId,
+    repo_fix_refinement_id: refinementId,
+    harness_fix: Boolean(fixHarness),
+    eval_failure_count: 0,
+    eval_failure_ids: [],
+    next: NEXT_MSG
+  };
+}
 
+// src/stubs.ts
+function pruneStale(db2, _params = {}) {
   const now = utcNow();
-  // Cleanup expired locks
-  db.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?").run(now);
+  const expiredLocks = db2.prepare(`
+    SELECT fl.lock_id, fl.intent_id
+    FROM file_locks fl
+    WHERE fl.expires_at IS NOT NULL AND fl.expires_at < ?
+  `).all(now);
+  if (expiredLocks.length === 0) {
+    return { pruned_locks: 0, updated_intents: 0 };
+  }
+  db2.prepare(
+    "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?"
+  ).run(now);
+  const affectedIntentIds = [...new Set(expiredLocks.map((l) => l.intent_id))];
+  let updatedIntents = 0;
+  for (const iid of affectedIntentIds) {
+    const remaining = db2.prepare("SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1").get(iid);
+    if (!remaining) {
+      const r = db2.prepare(
+        "UPDATE agent_intents SET status = 'PENDING', updated_at = ? WHERE intent_id = ? AND status = 'ACTIVE'"
+      ).run(now, iid);
+      if (r.changes) updatedIntents++;
+    }
+  }
+  return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
+}
+function notifyGet(_db, _params = {}) {
+  process.stderr.write("[stub] notify-get: not yet implemented; skipping\n");
+  return { ok: true, count: 0, notifications: [] };
+}
+function sessionCapture(_db, _params = {}) {
+  process.stderr.write("[stub] session-capture: not yet implemented; skipping\n");
+  return { ok: true, captured: false };
+}
+function waitForLock(_db, _params = {}) {
+  process.stderr.write("[stub] wait-for-lock: not yet implemented; returning immediately\n");
+  return { ok: true, waited_ms: 0, lock_free: true };
+}
 
-  const memCount = db.prepare('SELECT COUNT(*) AS count FROM agent_memories').get().count;
+// src/verify.ts
+var VALID_VERIFY_STATUSES = /* @__PURE__ */ new Set(["SUCCESS", "FAILED"]);
+function auditUnverified(db2, params = {}) {
+  const where = ["status = 'PENDING'"];
+  const binds = [];
+  if (params.agentId) {
+    where.push("agent_id = ?");
+    binds.push(params.agentId);
+  }
+  if (params.workspacePath) {
+    where.push("workspace_path = ?");
+    binds.push(params.workspacePath);
+  }
+  const rows = db2.prepare(
+    `SELECT intent_id, agent_id, status, test_plan, rationale, workspace_path, files_json, created_at
+     FROM agent_intents
+     WHERE ${where.join(" AND ")}
+     ORDER BY created_at ASC`
+  ).all(...binds);
+  const unverified = rows.map((r) => ({
+    intent_id: r.intent_id,
+    agent_id: r.agent_id,
+    status: r.status,
+    test_plan: r.test_plan,
+    rationale: r.rationale,
+    target_files: parseJsonList(r.files_json),
+    workspace_path: r.workspace_path,
+    created_at: r.created_at
+  }));
+  return { ok: true, unverified, count: unverified.length };
+}
+function markVerified(db2, params) {
+  const { intentId, agentId = "agent" } = params;
+  const status = params.status ?? "SUCCESS";
+  if (!intentId) {
+    return { ok: false, error: "--intent-id is required", intent_id: intentId };
+  }
+  if (!VALID_VERIFY_STATUSES.has(status)) {
+    return {
+      ok: false,
+      error: `invalid status "${status}" \u2014 must be SUCCESS or FAILED`,
+      intent_id: intentId
+    };
+  }
+  const now = utcNow();
+  const result = db2.prepare(
+    "UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ? AND status = 'PENDING'"
+  ).run(status, now, intentId, agentId);
+  if (result.changes === 0) {
+    const row = db2.prepare(
+      "SELECT agent_id, status FROM agent_intents WHERE intent_id = ?"
+    ).get(intentId);
+    if (!row) {
+      return {
+        ok: false,
+        error: `no intent found with intent_id=${intentId}`,
+        intent_id: intentId
+      };
+    }
+    if (row.agent_id !== agentId) {
+      return {
+        ok: false,
+        error: `intent ${intentId} belongs to agent "${row.agent_id}", not "${agentId}"`,
+        intent_id: intentId
+      };
+    }
+    return {
+      ok: false,
+      error: `intent ${intentId} has status "${row.status}" \u2014 only PENDING intents can be verified`,
+      intent_id: intentId
+    };
+  }
+  return {
+    ok: true,
+    intent_id: intentId,
+    status,
+    updated_at: now
+  };
+}
+
+// bin/awareness.ts
+if (parseInt(process.version.slice(1), 10) < 22) {
+  process.stderr.write(`awareness requires Node >=22 (got ${process.version})
+`);
+  process.exit(1);
+}
+var ARRAY_FLAGS = /* @__PURE__ */ new Set([
+  "tag",
+  "reference",
+  "file",
+  "target_file",
+  "supersedes",
+  "label",
+  "state"
+]);
+function parseArgs(argv) {
+  const result = { _: [] };
+  let i = 0;
+  while (i < argv.length) {
+    const arg = argv[i];
+    if (arg === "--") {
+      result._.push(...argv.slice(i + 1));
+      break;
+    }
+    if (arg.startsWith("--no-")) {
+      result[arg.slice(5).replace(/-/g, "_")] = false;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      const key = arg.slice(2).replace(/-/g, "_");
+      const next = argv[i + 1];
+      if (next === void 0 || next.startsWith("--")) {
+        result[key] = true;
+        i++;
+        continue;
+      }
+      i += 2;
+      if (ARRAY_FLAGS.has(key)) {
+        const cur = result[key];
+        result[key] = Array.isArray(cur) ? [...cur, next] : [next];
+      } else {
+        result[key] = next;
+      }
+      continue;
+    }
+    result._.push(arg);
+    i++;
+  }
+  return result;
+}
+function extractGlobalDb(argv) {
+  let dbPath2 = null;
+  const filtered = [];
+  let i = 0;
+  while (i < argv.length) {
+    if (argv[i] === "--db" && i + 1 < argv.length) {
+      dbPath2 = argv[i + 1];
+      i += 2;
+    } else {
+      filtered.push(argv[i]);
+      i++;
+    }
+  }
+  return { dbPath: dbPath2, filtered };
+}
+function emit(payload, exitCode2 = 0, opts2 = {}) {
+  payload["ok"] = payload["ok"] ?? exitCode2 === 0;
+  payload["schema_version"] = 1;
+  const compact2 = opts2.compact === true || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
+  process.stdout.write((compact2 ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)) + "\n");
+  return exitCode2;
+}
+function die(message, extras = {}) {
+  process.stdout.write(JSON.stringify({ ok: false, error: message, schema_version: 1, ...extras }, null, 2) + "\n");
+  process.exit(1);
+}
+function cmdTellMemory(db2, args2, dbPath2, opts2) {
+  const agentId = String(args2["agent_id"] ?? "agent");
+  const taskContext = String(args2["task_context"] ?? "");
+  const observation = String(args2["observation"] ?? "");
+  const importanceScore = args2["importance_score"];
+  if (!taskContext) die("--task-context is required");
+  if (!observation) die("--observation is required");
+  const imp = parseInt(String(importanceScore), 10);
+  if (isNaN(imp) || imp < 1 || imp > 10) die("--importance-score must be 1\u201310");
+  const rawTag = args2["tag"];
+  const tags = Array.isArray(rawTag) ? rawTag : rawTag ? [String(rawTag)] : [];
+  const rawRef = args2["reference"];
+  const references = Array.isArray(rawRef) ? rawRef : rawRef ? [String(rawRef)] : [];
+  const rawSup = args2["supersedes"];
+  const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
+  const rawLabel = args2["label"];
+  const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? "");
+  const { memory, superseded } = insertMemory(db2, {
+    agentId,
+    taskContext,
+    observation,
+    importanceScore: imp,
+    label: normalizeLabel(label),
+    tags,
+    references,
+    supersedes,
+    failureSignature: args2["failure_signature"] ? String(args2["failure_signature"]) : null,
+    validFrom: args2["valid_from"] ? String(args2["valid_from"]) : null,
+    validTo: args2["valid_to"] ? String(args2["valid_to"]) : null,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null,
+    file: args2["file"] ? String(args2["file"]) : null
+  });
+  return emit({ db_path: dbPath2, memory, superseded }, 0, opts2);
+}
+function cmdGetMemory(db2, args2, dbPath2, opts2) {
+  const rawLabel = args2["label"];
+  const labelArr = Array.isArray(rawLabel) ? rawLabel : rawLabel ? [String(rawLabel)] : void 0;
+  const rawTag = args2["tag"];
+  const tags = Array.isArray(rawTag) ? rawTag : rawTag ? [String(rawTag)] : [];
+  const rawState = args2["state"];
+  const states = rawState ? Array.isArray(rawState) ? rawState : [String(rawState)] : void 0;
+  const result = getMemory(db2, {
+    query: String(args2["query"] ?? ""),
+    limit: parseInt(String(args2["limit"] ?? "3"), 10),
+    minImportance: parseInt(String(args2["min_importance"] ?? "1"), 10),
+    label: labelArr,
+    tags,
+    smart: args2["smart"] === true || args2["smart"] === "true",
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    states,
+    sort: String(args2["sort"] ?? "smart"),
+    globalOnly: Boolean(args2["global_only"]),
+    asOf: args2["as_of"] ? String(args2["as_of"]) : null
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdRefineSet(db2, args2, dbPath2, opts2) {
+  const reasoning = String(args2["reasoning"] ?? "");
+  const remember = String(args2["remember"] ?? "");
+  if (!reasoning) die("--reasoning is required");
+  if (!remember) die("--remember is required");
+  const rawState = args2["state"];
+  const stateVal = Array.isArray(rawState) ? rawState[0] : String(rawState ?? "open");
+  const rawFile = args2["file"];
+  const files = Array.isArray(rawFile) ? rawFile : rawFile ? [String(rawFile)] : [];
+  const { refinement } = insertRefinement(db2, {
+    agentId: String(args2["agent_id"] ?? "agent"),
+    reasoning,
+    remember,
+    quality: String(args2["quality"] ?? "good"),
+    state: stateVal ?? "open",
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null,
+    files
+  });
+  return emit({ db_path: dbPath2, refinement }, 0, opts2);
+}
+function cmdRefineGet(db2, args2, dbPath2, opts2) {
+  const rawState = args2["state"];
+  const states = rawState ? Array.isArray(rawState) ? rawState : [String(rawState)] : void 0;
+  const result = getRefinements(db2, {
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    states,
+    limit: parseInt(String(args2["limit"] ?? "10"), 10)
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdReflect(db2, args2, dbPath2, opts2) {
+  if (!args2["task"]) die("--task is required");
+  const result = reflect(db2, {
+    agentId: String(args2["agent_id"] ?? "agent"),
+    task: String(args2["task"]),
+    outcome: String(args2["outcome"] ?? "partial"),
+    lesson: args2["lesson"] ? String(args2["lesson"]) : null,
+    worked: args2["worked"] ? String(args2["worked"]) : null,
+    didntWork: args2["didnt_work"] ? String(args2["didnt_work"]) : null,
+    fixRepo: args2["fix_repo"] ? String(args2["fix_repo"]) : null,
+    fixHarness: args2["fix_harness"] ? String(args2["fix_harness"]) : null,
+    failureSignature: args2["failure_signature"] ? String(args2["failure_signature"]) : null,
+    importance: args2["importance"] ? parseInt(String(args2["importance"]), 10) : null,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null
+  });
+  return emit({ ...result, db_path: dbPath2 }, 0, opts2);
+}
+function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
+  const rawTarget = args2["target_file"] ?? args2["file"];
+  const targetFiles = Array.isArray(rawTarget) ? rawTarget : rawTarget ? [String(rawTarget)] : [];
+  const ttlMinutes = args2["ttl_minutes"] ? parseInt(String(args2["ttl_minutes"]), 10) : null;
+  const ttlSeconds = args2["ttl_seconds"] ? parseInt(String(args2["ttl_seconds"]), 10) : null;
+  const ttlMs = ttlMinutes != null ? ttlMinutes * 6e4 : ttlSeconds != null ? ttlSeconds * 1e3 : null;
+  const result = preFlightIntent(db2, {
+    agentId: String(args2["agent_id"] ?? "agent"),
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    rationale: String(args2["rationale"] ?? "agent write operation"),
+    testPlan: String(args2["test_plan"] ?? "post-edit verification"),
+    targetFiles,
+    lockType: String(args2["lock_type"] ?? "EXCLUSIVE"),
+    ttlMs
+  });
+  if (!result.ok) return emit({ db_path: dbPath2, ...result }, 2, opts2);
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdAuditUnverified(db2, args2, dbPath2, opts2) {
+  const result = auditUnverified(db2, {
+    agentId: args2["agent_id"] ? String(args2["agent_id"]) : null,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null
+  });
+  return emit({ db_path: dbPath2, ...result }, result.count > 0 ? 1 : 0, opts2);
+}
+function cmdVerify(db2, args2, dbPath2, opts2) {
+  if (!args2["intent_id"]) return emit({ error: "--intent-id is required" }, 1, opts2);
+  const statusArg = args2["status"] ? String(args2["status"]) : "SUCCESS";
+  if (statusArg !== "SUCCESS" && statusArg !== "FAILED") {
+    return emit({ error: `--status must be SUCCESS or FAILED, got "${statusArg}"` }, 1, opts2);
+  }
+  const result = markVerified(db2, {
+    intentId: String(args2["intent_id"]),
+    agentId: String(args2["agent_id"] ?? "agent"),
+    status: statusArg
+  });
+  return emit({ db_path: dbPath2, ...result }, result.ok ? 0 : 1, opts2);
+}
+function cmdReleaseFileLock(db2, args2, dbPath2, opts2) {
+  const rawTarget = args2["target_file"] ?? args2["file"];
+  const targetFiles = rawTarget ? Array.isArray(rawTarget) ? rawTarget : [String(rawTarget)] : [];
+  if (!args2["intent_id"] && targetFiles.length === 0) {
+    return emit({ error: "release-file-lock requires --intent-id or --target-file" }, 1, opts2);
+  }
+  const result = releaseFileLock(db2, {
+    agentId: String(args2["agent_id"] ?? "agent"),
+    intentId: args2["intent_id"] ? String(args2["intent_id"]) : null,
+    targetFiles,
+    status: String(args2["status"] ?? "SUCCESS")
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdStatus(db2, dbPath2, args2, opts2) {
+  const now = utcNow();
+  db2.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?").run(now);
+  const memCount = db2.prepare("SELECT COUNT(*) AS count FROM agent_memories").get().count;
   const memStates = Object.fromEntries(
-    db.prepare("SELECT state, COUNT(*) AS count FROM agent_memories GROUP BY state").all()
-      .map(r => [r.state, r.count])
+    db2.prepare("SELECT state, COUNT(*) AS count FROM agent_memories GROUP BY state").all().map((r) => [r.state, r.count])
   );
   const memLabels = Object.fromEntries(
-    db.prepare("SELECT COALESCE(label,'OTHER') AS label, COUNT(*) AS count FROM agent_memories GROUP BY label").all()
-      .map(r => [r.label, r.count])
+    db2.prepare("SELECT COALESCE(label,'OTHER') AS label, COUNT(*) AS count FROM agent_memories GROUP BY label").all().map((r) => [r.label, r.count])
   );
-  const activeIntents = db.prepare(
-    "SELECT COUNT(*) AS count FROM agent_intents WHERE status='ACTIVE'"
-  ).get().count;
-  const limit = Math.min(100, Math.max(1, parseInt(limitArg, 10) || 20));
-  const locks = db.prepare(
-    'SELECT file_path, intent_id, agent_id, lock_type, acquired_at, expires_at FROM file_locks ORDER BY acquired_at DESC LIMIT ?'
+  const activeIntents = db2.prepare("SELECT COUNT(*) AS count FROM agent_intents WHERE status='ACTIVE'").get().count;
+  const limit = Math.min(100, Math.max(1, parseInt(String(args2["limit"] ?? "20"), 10) || 20));
+  const locks = db2.prepare(
+    "SELECT file_path, intent_id, agent_id, lock_type, acquired_at, expires_at FROM file_locks ORDER BY acquired_at DESC LIMIT ?"
   ).all(limit);
-
-  const openRefinements = db.prepare(
+  const openRefinements = db2.prepare(
     "SELECT COUNT(*) AS count FROM refinements WHERE state IN ('open','ongoing')"
   ).get().count;
-
   return emit({
-    db_path: dbPath,
-    fts_enabled: hasFts(db),
+    db_path: dbPath2,
+    fts_enabled: hasFts(db2),
     memory_count: memCount,
     memory_states: memStates,
     memory_labels: memLabels,
     active_intent_count: activeIntents,
     open_refinements: openRefinements,
     locks,
-    workspace_path: workspace || null,
-  });
+    workspace_path: args2["workspace"] ? String(args2["workspace"]) : null
+  }, 0, opts2);
 }
-
-// init
-function cmdInit(db, dbPath, args) {
-  const { compact } = args;
-  if (compact) COMPACT_OUTPUT = true;
-  // initDb already called by connect(); just confirm
-  const memCount = db.prepare('SELECT COUNT(*) AS count FROM agent_memories').get().count;
-  return emit({ db_path: dbPath, initialized: true, memory_count: memCount });
+function cmdInit(db2, dbPath2, opts2) {
+  const memCount = db2.prepare("SELECT COUNT(*) AS count FROM agent_memories").get().count;
+  return emit({ db_path: dbPath2, initialized: true, memory_count: memCount }, 0, opts2);
 }
-
-// self-test
-function cmdSelfTest(_dbPath, args) {
-  const { compact } = args;
-  if (compact) COMPACT_OUTPUT = true;
-
-  // Use in-memory DB for smoke test
-  const testDb = new DatabaseSync(':memory:');
-  testDb.exec('PRAGMA foreign_keys = ON');
+function cmdSelfTest(opts2) {
+  const testDb = new DatabaseSync2(":memory:");
+  testDb.exec("PRAGMA foreign_keys = ON");
   initDb(testDb);
-
-  const testAgent = 'self-test-agent';
-  const now = utcNow();
-
-  // Tell
-  const memId = 'mem_' + randomUUID().replace(/-/g, '');
-  testDb.prepare(`
-    INSERT INTO agent_memories (memory_id, agent_id, task_context, observation, importance_score, label, tags_json, tags_text, references_json, created_at, updated_at, last_accessed_at)
-    VALUES (?, ?, ?, ?, 7, 'GOTCHA', '["smoke-test"]', ',smoke-test,', '[]', ?, ?, ?)
-  `).run(memId, testAgent, 'self-test task', 'This is a smoke-test memory.', now, now, now);
-
-  if (hasFts(testDb)) {
-    testDb.prepare('INSERT INTO memory_fts VALUES (?, ?, ?, ?)').run(
-      memId, 'self-test task', 'This is a smoke-test memory.', 'gotcha smoke-test'
-    );
+  const testAgent = "self-test-agent";
+  const { memoryId } = insertMemory(testDb, {
+    agentId: testAgent,
+    taskContext: "self-test task",
+    observation: "This is a smoke-test memory.",
+    importanceScore: 7,
+    label: "GOTCHA",
+    tags: ["smoke-test"]
+  });
+  const { memories: results } = getMemory(testDb, { query: "smoke-test", limit: 5 });
+  if (results.length === 0) {
+    return emit({ ok: false, error: "FTS recall returned no results" }, 1, opts2);
   }
-
-  // Get
-  const results = lexicalSearch(testDb, 'smoke-test', 5, 1, [], [], ['ACTIVE']);
-  if (!results.length) {
-    return emit({ ok: false, error: 'FTS recall returned no results' }, 1);
-  }
-
-  // Reflect
-  const reflMemId = 'mem_' + randomUUID().replace(/-/g, '');
-  testDb.prepare(`
-    INSERT INTO agent_memories (memory_id, agent_id, task_context, observation, importance_score, label, tags_json, tags_text, references_json, created_at, updated_at, last_accessed_at)
-    VALUES (?, ?, ?, ?, 5, 'OTHER', '["reflection","worked"]', ',reflection,worked,', '[]', ?, ?, ?)
-  `).run(reflMemId, testAgent, 'self-test', '[reflection:worked] smoke test', now, now, now);
-
-  // Refine
-  const refId = 'ref_' + randomUUID().replace(/-/g, '');
-  testDb.prepare(`
-    INSERT INTO refinements (refinement_id, agent_id, workspace_path, reasoning, remember, quality, state, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'bad', 'open', ?, ?)
-  `).run(refId, testAgent, process.cwd(), 'test fix', 'fix something', now, now);
-
-  const refRow = testDb.prepare("SELECT * FROM refinements WHERE state='open'").get();
-
+  const reflectResult = reflect(testDb, {
+    agentId: testAgent,
+    task: "self-test",
+    outcome: "worked",
+    fixRepo: "test fix"
+  });
   return emit({
     ok: true,
-    db: ':memory:',
+    db: ":memory:",
     fts_enabled: hasFts(testDb),
-    memory_written: memId,
+    memory_written: memoryId,
     memory_recalled: results[0].memory_id,
-    reflection_memory: reflMemId,
-    refinement_id: refRow?.refinement_id ?? null,
+    reflection_memory: reflectResult.learning_memory_id,
+    refinement_id: reflectResult.repo_fix_refinement_id,
     checks: {
-      write: true,
+      write: Boolean(memoryId),
       fts_recall: results.length > 0,
-      scoring: typeof results[0].score === 'number',
-      refinement: Boolean(refRow),
-    },
-  });
+      scoring: typeof results[0].score === "number",
+      refinement: Boolean(reflectResult.repo_fix_refinement_id)
+    }
+  }, 0, opts2);
 }
+var HELP = `usage: awareness <command> [options]
 
-// ─── Entry point ──────────────────────────────────────────────────────────────
+commands: tell-memory  get-memory  reflect  refine-set  refine-get
+          pre-flight-intent  release-file-lock  status  init  self-test
+          prune-stale-locks  audit-unverified  verify
+          notify-get  session-capture  wait-for-lock
 
-const ARRAY_FLAGS = new Set([
-  'tag', 'reference', 'file', 'target_file', 'supersedes', 'label', 'state',
-]);
+common options:
+  --db <path>     Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)
+  --compact       Compact JSON output (or OCTOCODE_AWARENESS_COMPACT=1)
 
-const argv = process.argv.slice(2);
-if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
-  process.stdout.write([
-    'usage: awareness.mjs <command> [options]',
-    '',
-    'commands: tell-memory  get-memory  reflect  refine-set  refine-get',
-    '          pre-flight-intent  release-file-lock  status  init  self-test',
-    '',
-    'common options:',
-    '  --db <path>          Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)',
-    '  --compact            Compact JSON output (also OCTOCODE_AWARENESS_COMPACT=1)',
-    '',
-    'tell-memory:',
-    '  --agent-id <id>  --task-context <text>  --observation <text>',
-    '  --importance-score <1-10>  --label <LABEL>  [--tag <t>]...  [--reference <r>]...',
-    '  [--supersedes <id>]  [--failure-signature <sig>]',
-    '',
-    'get-memory:',
-    '  --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]',
-    '  [--tag <t>]...  [--smart]  [--workspace <path>]',
-    '',
-    'reflect:',
-    '  --agent-id <id>  --task <text>  --outcome worked|partial|failed',
-    '  [--lesson <text>]  [--worked <text>]  [--didnt-work <text>]',
-    '  [--fix-repo <text>]  [--fix-harness <text>]  [--failure-signature <sig>]',
-    '  [--importance <1-10>]',
-    '',
-    'refine-set:',
-    '  --agent-id <id>  --reasoning <text>  --remember <text>',
-    '  [--quality good|bad]  [--state open|ongoing|done]  [--workspace <path>]',
-    '',
-    'refine-get:',
-    '  [--workspace <path>]  [--repo <name>]  [--state <s>]...  [--limit <n>]',
-    '',
-    'pre-flight-intent:',
-    '  --agent-id <id>  --workspace <path>  [--target-file <path>]...  [--ttl-minutes <n>]  [--lock-type EXCLUSIVE|SHARED]',
-    '',
-    'release-file-lock:',
-    '  --agent-id <id>  (--intent-id <id> | --target-file <path>)  [--status PENDING|SUCCESS|FAILED]',
-  ].join('\n') + '\n');
+tell-memory:
+  --agent-id <id>  --task-context <text>  --observation <text>
+  --importance-score <1-10>  --label <LABEL>  [--tag <t>]...  [--reference <r>]...
+
+get-memory:
+  --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
+
+reflect:
+  --agent-id <id>  --task <text>  --outcome worked|partial|failed
+  [--lesson <text>]  [--worked <text>]  [--didnt-work <text>]
+  [--fix-repo <text>]  [--fix-harness <text>]
+
+pre-flight-intent:
+  --agent-id <id>  [--workspace <path>]  [--target-file <path>]...  [--ttl-minutes <n>]
+
+release-file-lock:
+  --agent-id <id>  (--intent-id <id> | --target-file <path>)  [--status SUCCESS|PENDING|FAILED]
+
+audit-unverified:
+  [--agent-id <id>]  [--workspace <path>]
+  exits 1 when unverified (PENDING) intents exist; exits 0 when clear
+
+verify:
+  --intent-id <id>  --agent-id <id>  [--status SUCCESS|FAILED (default SUCCESS)]
+  marks a PENDING intent as verified; clears it from audit-unverified
+`;
+var rawArgv = process.argv.slice(2);
+if (rawArgv.length === 0 || rawArgv.includes("--help") || rawArgv.includes("-h")) {
+  process.stdout.write(HELP + "\n");
   process.exit(0);
 }
-
-// --db <path> is the only global flag that takes a value and can appear before
-// the command. Extract it first so the command is simply argv[0] after removal.
-function extractGlobalDb(argv) {
-  let dbPath = null;
-  const filtered = [];
-  let i = 0;
-  while (i < argv.length) {
-    if (argv[i] === '--db' && i + 1 < argv.length) {
-      dbPath = argv[i + 1]; i += 2;
-    } else {
-      filtered.push(argv[i]); i++;
-    }
-  }
-  return { dbPath, filtered };
-}
-const { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(argv);
-const [command, ...rest] = filteredArgv;
-const args = parseArgs(rest, ARRAY_FLAGS);
-if (globalDb) args.db = globalDb;
-
-const dbPath = resolveDbPath(args.db);
-let db;
-
+var { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
+var [command, ...rest] = filteredArgv;
+var args = parseArgs(rest ?? []);
+if (globalDb) args["db"] = globalDb;
+var dbPath = resolveDbPath(globalDb ?? null);
+var compact = args["compact"] === true || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
+var opts = { compact };
 if (!command) {
-  process.stdout.write('No command given. Run --help for usage.\n');
+  process.stdout.write("No command given. Run --help for usage.\n");
   process.exit(1);
 }
-if (command === 'self-test') {
-  process.exit(cmdSelfTest(dbPath, args));
+if (command === "self-test") {
+  process.exit(cmdSelfTest(opts));
 }
-
-db = connect(dbPath);
-
-let exitCode = 0;
+var db;
+try {
+  db = connectDb(dbPath);
+} catch (err) {
+  process.stderr.write(`awareness: failed to connect DB at ${dbPath}: ${String(err)}
+`);
+  process.exit(1);
+}
+var exitCode = 0;
 try {
   switch (command) {
-    case 'tell-memory':
-      exitCode = cmdTellMemory(db, { ...args, db: dbPath });
+    case "tell-memory":
+      exitCode = cmdTellMemory(db, args, dbPath, opts);
       break;
-    case 'get-memory':
-      exitCode = cmdGetMemory(db, { ...args, db: dbPath });
+    case "get-memory":
+      exitCode = cmdGetMemory(db, args, dbPath, opts);
       break;
-    case 'reflect':
-      exitCode = cmdReflect(db, dbPath, args);
+    case "reflect":
+      exitCode = cmdReflect(db, args, dbPath, opts);
       break;
-    case 'refine-set':
-      exitCode = cmdRefineSet(db, { ...args, db: dbPath });
+    case "refine-set":
+      exitCode = cmdRefineSet(db, args, dbPath, opts);
       break;
-    case 'refine-get':
-      exitCode = cmdRefineGet(db, { ...args, db: dbPath });
+    case "refine-get":
+      exitCode = cmdRefineGet(db, args, dbPath, opts);
       break;
-    case 'pre-flight-intent':
-      exitCode = cmdPreFlightIntent(db, { ...args, db: dbPath });
+    case "pre-flight-intent":
+      exitCode = cmdPreFlightIntent(db, args, dbPath, opts);
       break;
-    case 'release-file-lock':
-    case 'release-intent': // alias for backward compat
-      exitCode = cmdReleaseFileLock(db, { ...args, db: dbPath });
+    case "release-file-lock":
+    case "release-intent":
+      exitCode = cmdReleaseFileLock(db, args, dbPath, opts);
       break;
-    case 'status':
-      exitCode = cmdStatus(db, dbPath, args);
+    case "status":
+      exitCode = cmdStatus(db, dbPath, args, opts);
       break;
-    case 'init':
-      exitCode = cmdInit(db, dbPath, args);
+    case "init":
+      exitCode = cmdInit(db, dbPath, opts);
+      break;
+    case "prune-stale-locks":
+      exitCode = emit({ db_path: dbPath, ...pruneStale(db, {}) }, 0, opts);
+      break;
+    case "audit-unverified":
+      exitCode = cmdAuditUnverified(db, args, dbPath, opts);
+      break;
+    case "verify":
+      exitCode = cmdVerify(db, args, dbPath, opts);
+      break;
+    case "notify-get":
+      exitCode = emit({ db_path: dbPath, ...notifyGet(db, {}) }, 0, opts);
+      break;
+    case "session-capture":
+      exitCode = emit({ db_path: dbPath, ...sessionCapture(db, {}) }, 0, opts);
+      break;
+    case "wait-for-lock":
+      exitCode = emit({ db_path: dbPath, ...waitForLock(db, {}) }, 0, opts);
       break;
     default:
-      exitCode = emit({ error: `unknown command: ${command}. Run --help for usage.` }, 1);
+      exitCode = emit({ error: `unknown command: ${command}. Run --help for usage.` }, 1, opts);
   }
 } catch (err) {
-  exitCode = emit({ error: String(err.message || err), stack: err.stack }, 1);
+  exitCode = emit({
+    error: err instanceof Error ? err.message : String(err),
+    stack: err instanceof Error ? err.stack : void 0
+  }, 1, opts);
 }
-
 process.exit(exitCode);
+//# sourceMappingURL=awareness.js.map

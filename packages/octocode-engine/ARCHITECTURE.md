@@ -118,6 +118,52 @@ Publish the six platform packages first, then publish the engine root. Interface
 packages (`octocode-mcp` and `octocode`) are published only after this package is
 available on npm because they depend on it directly at runtime.
 
+## Cross-Compile Build Prerequisites
+
+`yarn build:all` cross-compiles the native addon for all 6 target platforms.
+The default `rustup` install only ships the host target; the others require:
+
+| platform | extra prerequisites |
+|---|---|
+| `darwin-arm64` | host target — no extras |
+| `darwin-x64` | `rustup target add x86_64-apple-darwin` |
+| `linux-x64-gnu` | `rustup target add x86_64-unknown-linux-gnu` + `brew install zig` |
+| `linux-x64-musl` | `rustup target add x86_64-unknown-linux-musl` + `brew install zig` |
+| `linux-arm64-gnu` | `rustup target add aarch64-unknown-linux-gnu` + `brew install zig` |
+| `win32-x64-msvc` | `rustup target add x86_64-pc-windows-msvc` + `brew install llvm` + export PATH |
+
+One-time setup on macOS (covers all 6 platforms):
+
+```bash
+# Rust cross targets
+rustup target add x86_64-apple-darwin \
+  x86_64-unknown-linux-gnu x86_64-unknown-linux-musl \
+  aarch64-unknown-linux-gnu x86_64-pc-windows-msvc
+
+# zig — used by napi-rs cargo-zigbuild for linux cross-linking
+brew install zig
+
+# LLVM — provides llvm-lib (MSVC archiver) for the win32 cross-build
+brew install llvm
+export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+
+# Now build all 6 platforms (~2 min each; ~12 min total)
+yarn build:all
+```
+
+**Why zig?** `napi build --cross-compile` uses `cargo-zigbuild` under the hood.
+`cargo-zigbuild` requires a `zig` binary on PATH; it does **not** auto-download
+one. Without `zig`: `Error: Failed to find zig / cannot find binary path`.
+
+**Why llvm?** The `cc-rs` build script of a C dependency (`pcre2`) needs
+`llvm-lib` (LLVM’s MSVC-compatible archiver) when cross-compiling to
+`x86_64-pc-windows-msvc`. `brew install llvm` installs it at
+`/opt/homebrew/opt/llvm/bin/llvm-lib`. Without it:
+`error occurred in cc-rs: failed to find tool "llvm-lib"`.
+
+CI builds all 6 platforms in a zig-equipped Linux environment and publishes
+them before the root package. See `RELEASE_GUIDE.md`.
+
 ## Verification
 
 Run from `packages/octocode-engine/`:

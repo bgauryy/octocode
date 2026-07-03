@@ -1,6 +1,6 @@
 # Coordination protocol semantics
 
-Read this when you need per-command flag detail beyond `--help` for the file-lock, messaging, and refinement commands, are authoring `awareness.py` payloads, or are wiring a future MCP/tool wrapper. The memory commands and the shared schema contract live in `memory-recall.md`; `status`/timestamps/collision live in `files-awareness.md`.
+Read this when you need per-command flag detail beyond `--help` for the file-lock, messaging, and refinement commands, are authoring `awareness.mjs` payloads, or are wiring a future MCP/tool wrapper. The memory commands and the shared schema contract live in `memory-recall.md`; `status`/timestamps/collision live in `files-awareness.md`.
 
 ## `notify` / `notify-get` — repo-scoped agent messaging
 
@@ -57,7 +57,7 @@ If the command returns `ok: false`, do not modify the files. Either wait/retry, 
 Use this when the user or wrapper explicitly chooses "wait until the current holder releases" but you do **not** want to create a new intent yet:
 
 ```bash
-python3 scripts/awareness.py wait-for-lock --agent-id codex \
+node scripts/awareness.mjs wait-for-lock --agent-id codex \
   --target-file /abs/path/src/auth/router.ts --wait-seconds 120 --retry-interval 5
 ```
 
@@ -68,8 +68,8 @@ The `wait-for-lock` command checks the same conflict rules as `pre-flight-intent
 Use this when a lock holder disappeared and the user or automation policy says it is stale. Preview first:
 
 ```bash
-python3 scripts/awareness.py prune-stale-locks --older-than-minutes 20 --dry-run
-python3 scripts/awareness.py prune-stale-locks --older-than-minutes 20
+node scripts/awareness.mjs prune-stale-locks --older-than-minutes 20 --dry-run
+node scripts/awareness.mjs prune-stale-locks --older-than-minutes 20
 ```
 
 `--expired-only` limits cleanup to locks whose `expires_at` is already in the past; otherwise `--older-than-minutes` also catches very old live locks. Optional filters: `--agent-id`, `--target-file`. Pruning deletes only lock rows, records a `STALE_PRUNED` event, and changes fully released `ACTIVE` intents to `PENDING`; it never marks work as `SUCCESS`.

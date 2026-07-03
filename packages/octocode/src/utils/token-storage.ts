@@ -1,3 +1,4 @@
+// Storage + resolution functions live in tools-core credentials.
 export {
   storeCredentials,
   getCredentials,
@@ -6,10 +7,11 @@ export {
   isTokenExpired,
   isRefreshTokenExpired,
   getCredentialsFilePath,
-  getEnvTokenSource,
-  hasEnvToken,
   resolveTokenFull,
   refreshAuthToken,
   getTokenWithRefresh,
   getGhCliToken,
 } from '@octocodeai/octocode-tools-core/credentials';
+// Env-token helpers are single-sourced in @octocodeai/config — import directly
+// to avoid a re-export chain that breaks esbuild code splitting.
+export { hasEnvToken, getEnvTokenSource } from '@octocodeai/config';

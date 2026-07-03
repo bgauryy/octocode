@@ -1890,14 +1890,14 @@ describe('searchPackage - NPM CLI Repository Fetching', () => {
     );
   });
 
-  it('should fetch repository URL via CLI (object format like @wix packages)', async () => {
-    mockNpmViewFull('@wix/yoshi-style-dependencies', {
-      name: '@wix/yoshi-style-dependencies',
+  it('should fetch repository URL via CLI (object format for scoped monorepo packages)', async () => {
+    mockNpmViewFull('@scope/monorepo-package', {
+      name: '@scope/monorepo-package',
       version: '6.0.0',
       repository: {
         type: 'git',
-        url: 'https://github.com/organization-private/yoshi.git',
-        directory: 'old-packages/yoshi-style-dependencies',
+        url: 'https://github.com/org/monorepo.git',
+        directory: 'packages/monorepo-package',
       },
     });
 
@@ -1910,10 +1910,10 @@ describe('searchPackage - NPM CLI Repository Fetching', () => {
     );
 
     const query: NpmSearchInput = {
-      name: '@wix/yoshi-style-dependencies',
+      name: '@scope/monorepo-package',
       mainResearchGoal: 'Test CLI repository URL fetching',
       researchGoal: 'Test object URL format',
-      reasoning: 'Verify CLI handles @wix package format',
+      reasoning: 'Verify CLI handles scoped package with object repository format',
     };
 
     const result = await searchPackage(query);
@@ -1922,7 +1922,7 @@ describe('searchPackage - NPM CLI Repository Fetching', () => {
     if ('packages' in result) {
       expect(result.packages.length).toBe(1);
       const pkg = result.packages[0] as NpmPackageResult;
-      expect(pkg.repoUrl).toBe('https://github.com/organization-private/yoshi');
+      expect(pkg.repoUrl).toBe('https://github.com/org/monorepo');
     }
   });
 

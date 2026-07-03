@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-engine-win32-x64-msvc",
-  "version": "1.0.2",
+  "version": "16.7.0",
   "os": [
     "win32"
   ],

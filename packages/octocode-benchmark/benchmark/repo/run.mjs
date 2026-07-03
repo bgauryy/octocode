@@ -98,15 +98,15 @@ function runDocumentSymbols(repoPath, filePath) {
 // ── Probe suites per repo ─────────────────────────────────────────────────────
 
 const SUITES = {
-  react: {
-    lang: 'JavaScript/TypeScript',
+  zustand: {
+    lang: 'TypeScript',
     probes: [
-      { name: 'text: find useState',        layer: 'text',      fn: p => runTextSearch(p, 'useState') },
-      { name: 'text: find useEffect',       layer: 'text',      fn: p => runTextSearch(p, 'useEffect') },
-      { name: 'text: find export default',  layer: 'text',      fn: p => runTextSearch(p, 'export default') },
-      { name: 'ast: arrow functions (jsx)', layer: 'ast',       fn: p => runStructural(p, 'const $N = ($$$A) => $B', 'jsx') },
-      { name: 'ast: function declarations', layer: 'ast',       fn: p => runStructural(p, 'function $NAME($$$ARGS) { $$$BODY }', 'js') },
-      { name: 'symbols: packages/react/src/ReactHooks.js', layer: 'symbols', fn: p => runDocumentSymbols(p, 'packages/react/src/ReactHooks.js') },
+      { name: 'text: find createStore',     layer: 'text',      fn: p => runTextSearch(p, 'createStore') },
+      { name: 'text: find useStore',        layer: 'text',      fn: p => runTextSearch(p, 'useStore') },
+      { name: 'text: find export',          layer: 'text',      fn: p => runTextSearch(p, 'export') },
+      { name: 'ast: arrow functions (ts)',  layer: 'ast',       fn: p => runStructural(p, 'const $N = ($$$A): $R => $B', 'ts') },
+      { name: 'ast: function declarations', layer: 'ast',       fn: p => runStructural(p, 'function $NAME($$$ARGS) { $$$BODY }', 'ts') },
+      { name: 'symbols: src/vanilla.ts',    layer: 'symbols',   fn: p => runDocumentSymbols(p, 'src/vanilla.ts') },
     ],
   },
   tokio: {

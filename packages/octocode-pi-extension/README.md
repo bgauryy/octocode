@@ -78,6 +78,147 @@ SERPER_API_KEY=...           # Google SERP web search                  → serpe
 
 ---
 
+## Model configuration (`models.json`)
+
+Add custom providers, local models, and API proxies via `~/.pi/agent/models.json`.
+The file **hot-reloads** on every `/model` open — no restart needed.
+
+### The one rule that prevents 90% of problems
+
+> **Always set `maxTokens` and `contextWindow` to the model's actual published limits.**
+
+Pi uses `maxTokens` as the hard output cap it sends to the provider. If you copy a stub entry or leave the default (`16384`), the model stops mid-response with:
+> *"Model stopped because it reached the maximum output token limit. The response may be incomplete."*
+
+This is not a context-window issue and not a model refusal — pi hit its own cap. Fix: look up the model's real output limit and set it explicitly.
+
+### Minimal structure
+
+```json
+{
+  "providers": {
+    "my-provider": {
+      "baseUrl": "https://api.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$MY_API_KEY",
+      "models": [
+        {
+          "id": "model-id",
+          "name": "Human label",
+          "contextWindow": 131072,
+          "maxTokens": 65536,
+          "reasoning": false,
+          "input": ["text", "image"]
+        }
+      ]
+    }
+  }
+}
+```
+
+### Fields to set on every custom model
+
+| Field | Why it matters |
+|---|---|
+| `contextWindow` | Pi uses this for context-window warnings and compaction. Wrong value → compaction fires too early or too late. |
+| `maxTokens` | Hard output cap sent to the provider. **Wrong value = truncated responses.** |
+| `reasoning` | Set `true` if the model supports extended thinking. Without it, pi won't offer thinking levels for that model. |
+| `input` | Include `"image"` only if the model actually accepts images — otherwise tool calls with screenshots fail. |
+
+### OpenAI-compatible servers (Nebius, Ollama, vLLM, OpenRouter)
+
+Most third-party servers don't support all OpenAI parameters. Set `compat` to prevent silent failures:
+
+```json
+{
+  "providers": {
+    "nebius": {
+      "baseUrl": "https://api.studio.nebius.com/v1",
+      "apiKey": "$NEBIUS_API_KEY",
+      "api": "openai-completions",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "zai-org/GLM-5.2",
+          "name": "GLM 5.2",
+          "reasoning": true,
+          "contextWindow": 1000000,
+          "maxTokens": 131072
+        }
+      ]
+    }
+  }
+}
+```
+
+| `compat` flag | When to set it |
+|---|---|
+| `supportsDeveloperRole: false` | Server rejects the `developer` role (most non-Anthropic servers). Pi sends `system` instead. |
+| `supportsReasoningEffort: false` | Server doesn't understand `reasoning_effort`. |
+| `supportsUsageInStreaming: false` | Server doesn't support `stream_options: { include_usage: true }`. |
+
+### Local models (Ollama)
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "llama3.3:70b", "contextWindow": 131072, "maxTokens": 32768 },
+        { "id": "qwen2.5-coder:14b", "contextWindow": 131072, "maxTokens": 32768 }
+      ]
+    }
+  }
+}
+```
+
+`apiKey` is required as a placeholder — Ollama ignores it but pi needs a value before showing the model in `/model`.
+
+### API key resolution
+
+```json
+"apiKey": "$MY_API_KEY"          // env var — preferred
+"apiKey": "!op read 'op://v/i'"  // shell command — for 1Password, keychain, etc.
+"apiKey": "sk-abc123"            // literal — avoid in shared configs
+```
+
+### Routing a built-in provider through a proxy
+
+Override just the `baseUrl` — all built-in models stay available:
+
+```json
+{
+  "providers": {
+    "anthropic": {
+      "baseUrl": "https://my-proxy.example.com/v1"
+    }
+  }
+}
+```
+
+### Verify after editing
+
+```
+/model          → model should appear in the list
+/octocode-status → confirm the extension loaded cleanly
+```
+
+If a model doesn't appear in `/model`, it means auth is missing — configure via `/login` or add `apiKey` to the provider entry.
+
+Full reference: [Pi custom models docs](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)
+
+---
+
 ## Commands
 
 | | |

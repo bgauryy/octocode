@@ -1,7 +1,7 @@
 # Output — chat brief, decisions, evidence rules
 
 Load at Present (Workflow step 8), assigning confidence, or preparing an RFC handoff. Present in chat first; scale sections to real content.
-When the user confirms a save, write the fuller brief with `brief-template.md` and offer: "Save this brief to `.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`?"
+When the user confirms a save, write the fuller brief with `brief-template.md` and offer: "Save this brief to `.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`?" (workspace `.octocode/`; fall back to global `~/.octocode/brainstorming/` only when the workspace has no `.octocode/` or is unwritable — see `<doc_placement>`).
 
 ## Compact chat skeleton
 

@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// hasEnvToken and getEnvTokenSource are sourced directly from @octocodeai/config
+// (single-source rule; avoids esbuild code-splitting cross-chunk reference bugs).
+vi.mock('@octocodeai/config', () => ({
+  hasEnvToken: vi.fn().mockReturnValue(false),
+  getEnvTokenSource: vi.fn().mockReturnValue(null),
+}));
+
+// Mock only what the real @octocodeai/octocode-tools-core/credentials module exports.
+// Keys that were never in the real module (getEnvTokenSource, hasEnvToken,
+// getTokenFromEnv, ENV_TOKEN_VARS, isWindows, isMac, isLinux, HOME) are removed.
 vi.mock('@octocodeai/octocode-tools-core/credentials', () => ({
   storeCredentials: vi.fn().mockResolvedValue({ success: true }),
   getCredentials: vi.fn().mockResolvedValue(null),
@@ -24,16 +34,7 @@ vi.mock('@octocodeai/octocode-tools-core/credentials', () => ({
   getCredentialsFilePath: vi
     .fn()
     .mockReturnValue('/mock/.octocode/credentials.json'),
-  getTokenFromEnv: vi.fn().mockReturnValue(null),
-  getEnvTokenSource: vi.fn().mockReturnValue(null),
-  hasEnvToken: vi.fn().mockReturnValue(false),
-  ENV_TOKEN_VARS: ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'],
   resolveTokenFull: vi.fn().mockResolvedValue(null),
-
-  isWindows: false,
-  isMac: true,
-  isLinux: false,
-  HOME: '/Users/test',
 }));
 
 function createTestCredentials(overrides = {}) {
@@ -81,10 +82,11 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
     vi.mocked(shared.getCredentialsFilePath).mockReturnValue(
       '/mock/.octocode/credentials.json'
     );
-    vi.mocked(shared.getTokenFromEnv).mockReturnValue(null);
-    vi.mocked(shared.getEnvTokenSource).mockReturnValue(null);
-    vi.mocked(shared.hasEnvToken).mockReturnValue(false);
     vi.mocked(shared.resolveTokenFull).mockResolvedValue(null);
+
+    const config = await import('@octocodeai/config');
+    vi.mocked(config.hasEnvToken).mockReturnValue(false);
+    vi.mocked(config.getEnvTokenSource).mockReturnValue(null);
   });
 
   describe('storeCredentials', () => {
@@ -272,13 +274,12 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
   });
 
   describe('getEnvTokenSource', () => {
-    it('should return source from shared package', async () => {
-      const shared =
-        await import('@octocodeai/octocode-tools-core/credentials');
+    it('should return source from @octocodeai/config', async () => {
+      const config = await import('@octocodeai/config');
       const { getEnvTokenSource } =
         await import('../../src/utils/token-storage.js');
 
-      vi.mocked(shared.getEnvTokenSource).mockReturnValue('env:GITHUB_TOKEN');
+      vi.mocked(config.getEnvTokenSource).mockReturnValue('env:GITHUB_TOKEN');
 
       const result = getEnvTokenSource();
 
@@ -287,12 +288,11 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
   });
 
   describe('hasEnvToken', () => {
-    it('should return result from shared package', async () => {
-      const shared =
-        await import('@octocodeai/octocode-tools-core/credentials');
+    it('should return result from @octocodeai/config', async () => {
+      const config = await import('@octocodeai/config');
       const { hasEnvToken } = await import('../../src/utils/token-storage.js');
 
-      vi.mocked(shared.hasEnvToken).mockReturnValue(true);
+      vi.mocked(config.hasEnvToken).mockReturnValue(true);
 
       const result = hasEnvToken();
 

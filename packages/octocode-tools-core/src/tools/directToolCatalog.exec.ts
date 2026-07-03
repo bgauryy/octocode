@@ -169,13 +169,9 @@ function assertDirectToolEnabled(tool: DirectToolRuntimeDefinition): void {
     throw error;
   }
 
-  if (tool.isClone && !(config.local.enabled && config.local.enableClone)) {
-    const error = new Error(
-      `Tool "${tool.name}" requires clone support. Set ENABLE_CLONE=true and make sure ENABLE_LOCAL is not false.`
-    );
-    (error as { code?: string }).code = 'cloneDisabled';
-    throw error;
-  }
+  // Clone gating is the responsibility of the MCP package (packages/octocode-mcp).
+  // The tools-core implementation is gate-free — the interface layer decides
+  // whether to register/expose ghCloneRepo based on ENABLE_CLONE.
 }
 
 async function runDirectTool(
