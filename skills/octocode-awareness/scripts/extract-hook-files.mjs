@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 
 // bin/extract-hook-files.ts
+var USAGE = `usage: extract-hook-files < hook-payload.json
+
+Reads a hook JSON payload from stdin and prints one deduplicated file path per line.
+Supports Claude tool_input, Pi input/args, and Codex apply_patch command payloads.
+`;
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  process.stdout.write(USAGE);
+  process.exit(0);
+}
 var raw = "";
 process.stdin.on("data", (chunk) => {
   raw += String(chunk);

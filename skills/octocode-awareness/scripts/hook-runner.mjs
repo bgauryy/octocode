@@ -23,6 +23,7 @@ function parseJsonList(value) {
 }
 
 // src/db.ts
+var REFERENCES_INDEX_VERSION = "1";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
 var FTS_INDEX_VERSION = "2";
@@ -145,6 +146,28 @@ function initDb(db2) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS memory_references (
+      memory_id TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      kind TEXT,
+      ordinal INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (memory_id, reference),
+      FOREIGN KEY(memory_id) REFERENCES agent_memories(memory_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_references_ref ON memory_references(reference);
+    CREATE INDEX IF NOT EXISTS idx_memory_references_kind ON memory_references(kind);
+
+    CREATE TABLE IF NOT EXISTS intent_events (
+      event_id TEXT PRIMARY KEY,
+      intent_id TEXT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(intent_id) REFERENCES agent_intents(intent_id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS awareness_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -172,6 +195,7 @@ function initDb(db2) {
   `);
   ensureMemoryColumns(db2);
   ensureIntentColumns(db2);
+  ensureMemoryReferencesVersion(db2);
   try {
     db2.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
@@ -245,6 +269,34 @@ function ftsTermsForRow(row) {
     row.ref ?? ""
   ].filter(Boolean).join(" ");
 }
+function referenceKind(reference) {
+  if (/^https?:\/\//.test(reference)) return "url";
+  const m = reference.match(/^([a-zA-Z][a-zA-Z0-9_.\-]*):/);
+  return m ? m[1].toLowerCase() : "other";
+}
+function replaceMemoryReferences(db2, memoryId, references) {
+  db2.prepare("DELETE FROM memory_references WHERE memory_id = ?").run(memoryId);
+  const insert = db2.prepare(
+    "INSERT OR REPLACE INTO memory_references(memory_id, reference, kind, ordinal) VALUES (?, ?, ?, ?)"
+  );
+  references.forEach((ref, i) => insert.run(memoryId, ref, referenceKind(ref), i));
+}
+function backfillMemoryReferences(db2) {
+  const rows = db2.prepare("SELECT memory_id, references_json FROM agent_memories").all();
+  for (const row of rows) {
+    const refs = parseJsonList(row.references_json);
+    if (refs.length > 0) replaceMemoryReferences(db2, row.memory_id, refs);
+  }
+}
+function ensureMemoryReferencesVersion(db2) {
+  try {
+    const row = db2.prepare("SELECT value FROM awareness_meta WHERE key='memory_references_version'").get();
+    if (row?.value === REFERENCES_INDEX_VERSION) return;
+    backfillMemoryReferences(db2);
+    db2.prepare("INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_references_version', ?)").run(REFERENCES_INDEX_VERSION);
+  } catch {
+  }
+}
 function rebuildFts(db2) {
   db2.exec("DELETE FROM memory_fts");
   const rows = db2.prepare("SELECT * FROM agent_memories").all();
@@ -315,7 +367,7 @@ function preFlightIntent(db2, params) {
       (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
   `).run(intentId, agentId2, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
-  const expiresAt = ttlMs ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
+  const expiresAt = ttlMs != null ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
   const acquiredLocks = [];
   for (const absPath of absFiles) {
     const lockId = "lock_" + randomUUID().replace(/-/g, "");
@@ -352,8 +404,12 @@ function releaseFileLock(db2, params) {
     agentId: agentId2 = "agent",
     intentId = null,
     targetFiles = [],
-    status: statusArg = "SUCCESS"
+    status: statusArg = "SUCCESS",
+    verified = false,
+    verifiedNote
   } = params;
+  const requestedSuccessWithoutVerification = statusArg === "SUCCESS" && !verified;
+  const effectiveStatus = verified ? "SUCCESS" : requestedSuccessWithoutVerification ? "PENDING" : statusArg;
   const now = utcNow();
   const whereClauses = ["fl.agent_id = ?"];
   const whereParams = [agentId2];
@@ -382,20 +438,31 @@ function releaseFileLock(db2, params) {
     if (!remaining) {
       db2.prepare(
         "UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?"
-      ).run(statusArg, now, iid, agentId2);
+      ).run(effectiveStatus, now, iid, agentId2);
+      if (verified && verifiedNote) {
+        try {
+          db2.prepare(
+            `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+             VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
+          ).run("evt_" + randomUUID().replace(/-/g, ""), iid, agentId2, verifiedNote, now);
+        } catch {
+        }
+      }
     }
   }
   return {
     agent_id: agentId2,
-    status: statusArg,
+    status: effectiveStatus,
     released: locks.length > 0 || Boolean(intentId),
     locks_released: locks.length,
     intent_ids: intentIds,
-    updated_at: now
+    updated_at: now,
+    ...requestedSuccessWithoutVerification ? { unverifiedConclusion: "SUCCESS requested without --verified; stored as PENDING until verify records the test result." } : {}
   };
 }
 
 // src/verify.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
 function auditUnverified(db2, params = {}) {
   const where = ["status = 'PENDING'"];
   const binds = [];
@@ -423,12 +490,85 @@ function auditUnverified(db2, params = {}) {
     workspace_path: r.workspace_path,
     created_at: r.created_at
   }));
+  if (params.abandon && unverified.length > 0) {
+    const now = utcNow();
+    for (const intent of unverified) {
+      db2.prepare(
+        "UPDATE agent_intents SET status = 'FAILED', updated_at = ? WHERE intent_id = ? AND status = 'PENDING'"
+      ).run(now, intent.intent_id);
+      try {
+        db2.prepare(
+          `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+           VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`
+        ).run("evt_" + randomUUID2().replace(/-/g, ""), intent.intent_id, intent.agent_id, now);
+      } catch {
+      }
+    }
+  }
   return { ok: true, unverified, count: unverified.length };
 }
 
 // src/stubs.ts
-function pruneStale(db2, _params = {}) {
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { randomUUID as randomUUID3 } from "node:crypto";
+
+// src/git.ts
+import { spawnSync } from "node:child_process";
+import { basename } from "node:path";
+function runCmd(cmd, args, cwd) {
+  try {
+    const r = spawnSync(cmd, args, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
+    return r.status === 0 ? r.stdout.trim() : null;
+  } catch {
+    return null;
+  }
+}
+function detectGit(cwd) {
+  const root = runCmd("git", ["-C", cwd ?? ".", "rev-parse", "--show-toplevel"]);
+  if (!root) return { is_repo: false };
+  const branch = runCmd("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"]);
+  const remote = runCmd("git", ["-C", root, "remote", "get-url", "origin"]);
+  const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
+  return { is_repo: true, root, repo: repoName, branch, remote };
+}
+function fillScope(partial, cwd) {
+  const scope = {
+    workspace_path: partial.workspace_path ?? null,
+    repo: partial.repo ?? null,
+    ref: partial.ref ?? null
+  };
+  if (scope.workspace_path && scope.repo) return scope;
+  const git = detectGit(cwd ?? process.cwd());
+  if (!git.is_repo) return scope;
+  if (!scope.workspace_path && git.root) scope.workspace_path = git.root;
+  if (!scope.repo && git.repo) scope.repo = git.repo;
+  if (!scope.ref && git.branch) scope.ref = git.branch;
+  return scope;
+}
+
+// src/stubs.ts
+function pruneStale(db2, params = {}) {
+  const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const now = utcNow();
+  const ageCutoff = olderThanMinutes != null ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
+  if (dryRun) {
+    let count = 0;
+    try {
+      const row = db2.prepare(
+        `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
+      ).get(now);
+      count += row.c;
+      if (ageCutoff) {
+        const row2 = db2.prepare(
+          `SELECT COUNT(*) AS c FROM file_locks WHERE acquired_at < ? AND (expires_at IS NULL OR expires_at >= ?)`
+        ).get(ageCutoff, now);
+        count += row2.c;
+      }
+    } catch {
+    }
+    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: count };
+  }
   const expiredLocks = db2.prepare(`
     SELECT fl.lock_id, fl.intent_id
     FROM file_locks fl
@@ -540,9 +680,103 @@ function notifyGet(db2, params = {}) {
   }
   return result;
 }
-function sessionCapture(_db, _params = {}) {
-  process.stderr.write("[stub] session-capture: not yet implemented; skipping\n");
-  return { ok: true, captured: false };
+function gitDirtyFiles(workspacePath) {
+  if (!workspacePath) return [];
+  try {
+    const result = spawnSync2("git", ["-C", workspacePath, "status", "--short"], {
+      encoding: "utf8",
+      timeout: 5e3
+    });
+    if (result.status !== 0) return [];
+    return String(result.stdout).split("\n").map((line) => line.trim()).filter(Boolean).map((line) => line.slice(3).trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+function sessionCapture(db2, params = {}) {
+  const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
+  const reason = params.reason ? String(params.reason) : null;
+  const scope = fillScope(
+    {
+      workspace_path: params.workspace ?? params.workspace_path ?? params.workspacePath,
+      repo: params.repo ?? null,
+      ref: params.ref ?? null
+    },
+    params.cwd ?? process.cwd()
+  );
+  const workspacePath = scope.workspace_path ?? process.cwd();
+  const intentRows = db2.prepare(
+    `SELECT intent_id, rationale, test_plan, status, files_json, created_at, updated_at
+     FROM agent_intents
+     WHERE agent_id = ?
+       AND status IN ('ACTIVE', 'PENDING')
+       AND (workspace_path = ? OR workspace_path IS NULL)
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT 20`
+  ).all(agentId2, workspacePath);
+  const files = [...new Set(intentRows.flatMap((row) => parseJsonList(row.files_json)))];
+  const dirtyFiles = gitDirtyFiles(workspacePath);
+  const activeIntents = intentRows.filter((row) => row.status === "ACTIVE").length;
+  const pendingIntents = intentRows.filter((row) => row.status === "PENDING").length;
+  if (intentRows.length === 0 && dirtyFiles.length === 0) {
+    return {
+      ok: true,
+      captured: false,
+      refinement_id: null,
+      pending_intents: 0,
+      active_intents: 0,
+      files: [],
+      dirty_files: [],
+      reason
+    };
+  }
+  const now = utcNow();
+  const refinementId = "ref_" + randomUUID3().replace(/-/g, "");
+  const capturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
+  const statusSummary = intentRows.map((row) => {
+    const rowFiles = parseJsonList(row.files_json);
+    const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(", ")}` : "";
+    return `${row.status} ${row.intent_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+  });
+  const reasoning = [
+    `Session capture for ${agentId2}${reason ? ` (${reason})` : ""}.`,
+    `Unresolved intents: ${intentRows.length} (${activeIntents} active, ${pendingIntents} pending).`,
+    dirtyFiles.length > 0 ? `Dirty files: ${dirtyFiles.join(", ")}.` : null,
+    statusSummary.length > 0 ? `Intent details: ${statusSummary.join(" | ")}` : null
+  ].filter(Boolean).join(" ");
+  const remember = [
+    `Review session handoff for ${agentId2}: ${activeIntents} active and ${pendingIntents} pending intents remain.`,
+    capturedFiles.length > 0 ? `Touched files: ${capturedFiles.join(", ")}.` : null,
+    dirtyFiles.length > 0 ? "Check dirty git state before continuing." : null,
+    pendingIntents > 0 ? "Run the recorded verification before claiming completion." : null
+  ].filter(Boolean).join(" ");
+  db2.prepare(
+    `INSERT INTO refinements (
+       refinement_id, agent_id, workspace_path, repo, ref,
+       files_json, reasoning, remember, quality, state, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bad', 'open', ?, ?)`
+  ).run(
+    refinementId,
+    agentId2,
+    workspacePath,
+    scope.repo,
+    scope.ref,
+    JSON.stringify(capturedFiles),
+    reasoning,
+    remember,
+    now,
+    now
+  );
+  return {
+    ok: true,
+    captured: true,
+    refinement_id: refinementId,
+    pending_intents: pendingIntents,
+    active_intents: activeIntents,
+    files: capturedFiles,
+    dirty_files: dirtyFiles,
+    reason
+  };
 }
 function digest(db2, params = {}) {
   const retentionDays = Number(params.retention_days ?? 90);

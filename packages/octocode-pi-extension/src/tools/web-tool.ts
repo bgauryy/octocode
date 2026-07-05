@@ -4,8 +4,9 @@
  * SSRF-hardened: private/loopback/link-local/metadata IPs blocked.
  */
 import { runWebTool, renderWebResult } from '../web.js';
-import type { ToolDefinition } from '../types.js';
+import type { ToolDefinition, PiTheme, ToolCallResult } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
+import { truncateToWidth } from './render-helpers.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
@@ -82,6 +83,7 @@ export function registerWebTool(
         }),
       ),
     }),
+
     async execute(
       _toolCallId: string,
       params: Record<string, unknown>,
@@ -95,6 +97,66 @@ export function registerWebTool(
         content: [{ type: 'text' as const, text: renderWebResult(out) }],
         isError: Boolean((out as { error?: string }).error),
         details: out,
+      };
+    },
+
+    renderCall(args: unknown, theme?: PiTheme) {
+      const a = (args ?? {}) as Record<string, unknown>;
+      const url = typeof a.url === 'string' && a.url ? a.url : '';
+      const query = typeof a.query === 'string' && a.query ? a.query : '';
+      const nameStr = theme?.fg('toolTitle', theme.bold('web')) ?? 'web';
+      const detail = url
+        ? (theme?.fg('accent', url.length > 70 ? url.slice(0, 67) + '…' : url) ?? url)
+        : query
+        ? (theme?.fg('dim', `"${query.length > 70 ? query.slice(0, 67) + '…' : query}"`) ?? `"${query}"`)
+        : '';
+      const rawLine = detail ? `${nameStr} ${detail}` : nameStr;
+      return {
+        render: (w: number) => [truncateToWidth(rawLine, w)],
+        invalidate() { /* no-op */ },
+      };
+    },
+
+    renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
+      if (opts.isPartial) {
+        const msg = theme?.fg('warning', 'Fetching…') ?? 'Fetching…';
+        return { render: (w: number) => [truncateToWidth(msg, w)], invalidate() { /* no-op */ } };
+      }
+      const ok = !result.isError;
+      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
+      const nameStr = theme?.fg('toolTitle', 'web') ?? 'web';
+      // Extract meaningful stats from details
+      const det = result.details as Record<string, unknown> | null;
+      let stat = '';
+      if (Array.isArray((det as Record<string, unknown> | null)?.results)) {
+        const n = ((det as Record<string, unknown>).results as unknown[]).length;
+        stat = theme?.fg('dim', ` · ${n} result${n === 1 ? '' : 's'}`) ?? ` · ${n} results`;
+      } else if (det?.url) {
+        const truncated = det.truncated === true;
+        const pg = typeof det.page === 'number' && det.page > 1 ? ` p${det.page}` : '';
+        stat = truncated
+          ? (theme?.fg('dim', ` · page${pg} (more pages available)`) ?? ` · page${pg} (more)`)
+          : (theme?.fg('dim', ` · page${pg}`) ?? ` · page${pg}`);
+      }
+      const header = `${icon} ${nameStr}${stat}`;
+      if (!opts.expanded) {
+        const hint = theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output';
+        return { render: (w: number) => [truncateToWidth(`${header}${hint}`, w)], invalidate() { /* no-op */ } };
+      }
+      const text = (result.content as Array<{ type: string; text: string }>)
+        ?.find?.((p) => p.type === 'text')?.text ?? '';
+      const allLines = text.split('\n');
+      const lines = allLines.slice(0, 20);
+      const omitted = allLines.length - lines.length;
+      return {
+        render: (w: number) => [
+          truncateToWidth(header, w),
+          ...lines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
+          ...(omitted > 0
+            ? [truncateToWidth(theme?.fg('muted', `… ${omitted} more lines`) ?? `… ${omitted} more lines`, w)]
+            : []),
+        ],
+        invalidate() { /* no-op */ },
       };
     },
   } satisfies ToolDefinition);

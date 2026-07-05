@@ -18,23 +18,34 @@ export interface ISecurityRegistry {
   reset(): void;
 }
 
-const REDOS_TIMEOUT_MS = 50;
-const REDOS_TEST_INPUT = 'a'.repeat(100);
+const REDOS_TIMEOUT_MS = 200;
+// Use multiple input lengths to catch ReDoS patterns that only blow up at larger sizes.
+const REDOS_TEST_INPUTS = [
+  'a'.repeat(50),
+  'a'.repeat(500),
+  'a'.repeat(2000),
+] as const;
 
 function isReDoSSafe(regex: RegExp): boolean {
-  // Reset lastIndex so a global/sticky regex doesn't skip the test input.
-  // Note: this is a timing heuristic, not a structural guarantee — it catches
-  // obvious exponential backtracking patterns but may miss subtler ones.
-  regex.lastIndex = 0;
-  const start = performance.now();
-  try {
-    regex.test(REDOS_TEST_INPUT);
-  } catch {
-    return false;
-  } finally {
+  // Timing heuristic — catches obvious exponential backtracking but cannot provide
+  // structural guarantees. Tests multiple input sizes to catch patterns that only
+  // blow up at larger scales. A proper linear-time checker (e.g., re2) would be
+  // the gold standard but adds a native dependency.
+  for (const input of REDOS_TEST_INPUTS) {
     regex.lastIndex = 0;
+    const start = performance.now();
+    try {
+      regex.test(input);
+    } catch {
+      return false;
+    } finally {
+      regex.lastIndex = 0;
+    }
+    if (performance.now() - start >= REDOS_TIMEOUT_MS) {
+      return false;
+    }
   }
-  return performance.now() - start < REDOS_TIMEOUT_MS;
+  return true;
 }
 
 export class SecurityRegistry implements ISecurityRegistry {

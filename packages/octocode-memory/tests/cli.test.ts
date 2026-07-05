@@ -343,6 +343,25 @@ describe('refine-set / refine-get', () => {
     expect(result['count']).toBe(0);
   });
 
+  it('refine-get filters by quality', () => {
+    ok(db, [
+      'refine-set', '--agent-id', 'a',
+      '--reasoning', 'Good handoff',
+      '--remember', 'Good one',
+      '--quality', 'good', '--state', 'open',
+    ]);
+    ok(db, [
+      'refine-set', '--agent-id', 'a',
+      '--reasoning', 'Bad handoff',
+      '--remember', 'Bad one',
+      '--quality', 'bad', '--state', 'open',
+    ]);
+    const result = ok(db, ['refine-get', '--state', 'open', '--quality', 'bad']);
+    const refs = result['refinements'] as Record<string, unknown>[];
+    expect(refs.length).toBeGreaterThanOrEqual(1);
+    expect(refs.every(r => r['quality'] === 'bad')).toBe(true);
+  });
+
   it('missing --reasoning exits 1', () => {
     fail(db, ['refine-set', '--agent-id', 'a', '--remember', 'do X']);
   });
@@ -392,6 +411,14 @@ describe('pre-flight-intent', () => {
     expect(conflicts?.[0]?.['file_path']).toBe(targetFile);
     expect(conflicts?.[0]?.['agent_id']).toBe('agent-a');
   });
+
+  it('rejects ttl-minutes below schema minimum', () => {
+    const r = run(db, [
+      'pre-flight-intent', '--agent-id', 'agent-z', '--target-file', targetFile, '--ttl-minutes', '0',
+    ]);
+    expect(r.status).toBe(1);
+    expect(r.parsed?.['error']).toContain('--ttl-minutes must be >= 1');
+  });
 });
 
 describe('release-file-lock', () => {
@@ -417,6 +444,8 @@ describe('release-file-lock', () => {
     ]);
     expect(rel['released']).toBe(true);
     expect(rel['locks_released']).toBe(1);
+    expect(rel['status']).toBe('PENDING');
+    expect(rel['unverifiedConclusion']).toContain('SUCCESS requested without --verified');
 
     // Should now be claimable by agent-b
     const b = ok(db, ['pre-flight-intent', '--agent-id', 'agent-b', '--target-file', targetFile]);
@@ -532,6 +561,40 @@ describe('CLI', () => {
       const parsed = JSON.parse(r.stdout) as Record<string, unknown>;
       expect(parsed['initialized']).toBe(true);
     } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('schema list maps to accepted CLI commands or explicit aliases', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skill/scripts/schema.mjs');
+    if (!existsSync(schemaScript)) return;
+    const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    const listed = JSON.parse(schema.stdout) as string[];
+    const help = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(help.status).toBe(0);
+    const aliases: Record<string, string> = {
+      tell_memory: 'tell-memory',
+      get_memory: 'get-memory',
+      memory_index: 'memory-index',
+      pre_flight_intent: 'pre-flight-intent',
+      wait_for_lock: 'wait-for-lock',
+      prune_stale_locks: 'prune-stale-locks',
+      release_file_lock: 'release-file-lock',
+      forget_memory: 'forget',
+      refinement: 'refine-set',
+      refine_query: 'refine-get',
+      refine_delete: 'refine-delete',
+      notify_query: 'notify-get',
+      notify_resolve: 'notify-resolve',
+      notify_prune: 'notify-prune',
+      workspace_status: 'workspace-status',
+      export_harness: 'export-harness',
+    };
+    const unsupported = ['stats', 'embed_index', 'harness_apply', 'memory_export', 'memory_import'];
+    expect(listed).not.toEqual(expect.arrayContaining(unsupported));
+    for (const key of listed) {
+      const command = aliases[key] ?? key.replaceAll('_', '-');
+      expect(help.stdout, `${key} should map to CLI command ${command}`).toContain(command);
+    }
   });
 });
 

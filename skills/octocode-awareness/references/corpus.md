@@ -1,6 +1,6 @@
 # Engineer Corpus
 
-Read this before creating, reorganizing, or substantially updating `~/.octocode/awareness/corpus/**/*.md`. The corpus is the human-readable companion to the SQLite awareness store: memories keep searchable lessons, refinements keep repo handoffs, and corpus docs keep curated engineering context a future agent can browse.
+Read this before creating, reorganizing, or substantially updating `~/.octocode/awareness/corpus/**/*.md`. The corpus is the human-readable companion to the SQLite awareness store: memories keep searchable lessons, refinements keep repo handoffs, and corpus docs keep curated engineering context.
 
 ## Canonical paths
 
@@ -10,7 +10,12 @@ Read this before creating, reorganizing, or substantially updating `~/.octocode/
 
 ## When to write
 
-Write only after a real flow teaches something useful. Good corpus candidates are repo maps, repeated gotchas, tool workflows, mental models, decision summaries, and "I should learn X because it would improve Y" ideas. Do not use the corpus for routine status, task handoff, raw transcripts, long logs, or anything secret. Use `refine-set` for unfinished work and `tell-memory` for searchable reusable lessons; mirror a distilled version into the corpus only when browsing it later would help.
+Write only after a real flow teaches something useful.
+Good candidates are repo maps, repeated gotchas, tool workflows, mental models, decision summaries, and learning ideas.
+Do not use the corpus for routine status, task handoff, raw transcripts, long logs, or secrets.
+Use `refine-set` for unfinished work.
+Use `tell-memory` for searchable lessons.
+Mirror a distilled version only when browsing it later would help.
 
 Think like a junior engineer who wants to return tomorrow sharper: what would save confusion, reveal the next good question, or make the first thirty minutes of a similar task better?
 

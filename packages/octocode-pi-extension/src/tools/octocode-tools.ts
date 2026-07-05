@@ -12,47 +12,15 @@ import {
   loadToolContent,
 } from '@octocodeai/octocode-tools-core/schema';
 import { OCTOCODE_DIRECT_TOOL_NAMES } from '../constants.js';
-import { truncateUserVisibleToolOutput } from '../utils.js';
+import { recordFileReadState } from './edit-tool.js';
 import type { TSchema, ToolDefinition, ToolCallResult, PiTheme } from '../types.js';
 
-// ─── ANSI-safe line-width helpers (inline — no external dep) ─────────────────
-// Matches CSI sequences (ESC [ ... m) and other 2-char ESC sequences.
-const ANSI_ESC_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-
-function visibleWidth(str: string): number {
-  return str.replace(ANSI_ESC_RE, '').length;
-}
-
-/**
- * Truncate `str` so its *visible* width (ANSI codes excluded) does not exceed
- * `maxWidth`. An ellipsis is appended and an SGR reset is added so open color
- * sequences from the truncated portion don't bleed into the next line.
- */
-function truncateToWidth(str: string, maxWidth: number, ellipsis = '\u2026'): string {
-  if (maxWidth <= 0) return '';
-  if (visibleWidth(str) <= maxWidth) return str;
-  const ellipsisLen = visibleWidth(ellipsis);
-  const target = maxWidth - ellipsisLen;
-  if (target <= 0) return ellipsis.slice(0, maxWidth);
-
-  let visible = 0;
-  let i = 0;
-  while (i < str.length) {
-    // Skip an ANSI escape sequence without counting visible width.
-    const esc = ANSI_ESC_RE.exec(str.slice(i));
-    if (esc && esc.index === 0) {
-      i += esc[0].length;
-      ANSI_ESC_RE.lastIndex = 0;
-      continue;
-    }
-    ANSI_ESC_RE.lastIndex = 0;
-    if (visible >= target) break;
-    visible++;
-    i++;
-  }
-  return str.slice(0, i) + ellipsis + '\x1b[0m';
-}
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Shared rendering helpers (ANSI truncation + smart call/result renderers) ──
+import {
+  truncateToWidth,
+  buildOctocodeRenderCall,
+  buildOctocodeRenderResult,
+} from './render-helpers.js';
 
 // ─── TypeBox (dynamic import — Pi runtime dep) ────────────────────────────────
 
@@ -167,6 +135,7 @@ async function executeOctocodeToolForPi(
   toolName: string,
   params: Record<string, unknown>,
   signal?: AbortSignal,
+  ctx?: { cwd?: string },
 ): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error(`Octocode tool ${toolName} was cancelled before it started.`);
   const { setRuntimeSurface, invalidateConfigCache } = await import(
@@ -186,10 +155,27 @@ async function executeOctocodeToolForPi(
     const text = content.find((part) => part.type === 'text')?.text ?? JSON.stringify(details);
     throw new Error(text);
   }
+  if (toolName === 'localGetFileContent') {
+    await recordLocalGetFileContentReads(params, ctx?.cwd ?? process.cwd());
+  }
   return {
     content,
     details,
   };
+}
+
+async function recordLocalGetFileContentReads(params: Record<string, unknown>, cwd: string): Promise<void> {
+  const queries = Array.isArray(params['queries']) ? params['queries'] : [];
+  await Promise.all(queries.map(async (query) => {
+    if (!query || typeof query !== 'object') return;
+    const filePath = (query as Record<string, unknown>)['path'];
+    if (typeof filePath !== 'string' || filePath.trim().length === 0) return;
+    try {
+      await recordFileReadState(filePath, cwd);
+    } catch {
+      // Read-state tracking is an edit-safety enhancement; never fail localGetFileContent because tracking failed.
+    }
+  }));
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -239,46 +225,32 @@ async function registerUnzipTool(
       'unzip uses the localBinaryInspect schema — always pass mode:"unpack". Follow the returned localPath with localViewStructure, localSearchCode, or localGetFileContent.',
     ],
     parameters: buildOctocodeToolParameters(Type, schema),
-    async execute(_toolCallId: string, params: Record<string, unknown>) {
+    async execute(_toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal, _onUpdate?: unknown, ctx?: { cwd?: string }) {
       // Route directly to localBinaryInspect — shared execution, no duplication.
-      return executeOctocodeToolForPi('localBinaryInspect', params);
+      return executeOctocodeToolForPi('localBinaryInspect', params, signal, ctx);
     },
     renderCall(args: unknown, theme?: PiTheme) {
-      const preview = JSON.stringify(args ?? {});
-      const short = preview.length > 96 ? `${preview.slice(0, 96)}…` : preview;
-      const rawLine = `${theme?.fg('toolTitle', theme.bold('unzip')) ?? 'unzip'} ${theme?.fg('dim', short) ?? short}`;
-      return {
-        render: (width: number) => [truncateToWidth(rawLine, width)],
-        invalidate() { /* no-op */ },
-      };
+      // unzip is an alias for localBinaryInspect; show path + mode
+      return buildOctocodeRenderCall('localBinaryInspect', args, theme);
     },
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
       if (opts.isPartial) {
-        return {
-          render: (width: number) => [truncateToWidth(theme?.fg('warning', 'Unpacking…') ?? 'Unpacking…', width)],
-          invalidate() { /* no-op */ },
-        };
+        const msg = theme?.fg('warning', 'Unpacking…') ?? 'Unpacking…';
+        return { render: (w: number) => [truncateToWidth(msg, w)], invalidate() { /* no-op */ } };
       }
+      // Show localPath prominently in collapsed view
       const ok = !result.isError;
       const details = result.details as { results?: Array<{ data?: { localPath?: string } }> } | null;
       const localPath = details?.results?.[0]?.data?.localPath;
-      const suffix = localPath ? ` → ${localPath}` : '';
-      const header = `${theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗')} ${theme?.fg('toolTitle', 'unzip') ?? 'unzip'}${theme?.fg('dim', suffix) ?? suffix}`;
+      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
+      const nameStr = theme?.fg('toolTitle', 'unzip') ?? 'unzip';
+      const pathStr = localPath ? (theme?.fg('dim', ` → ${localPath}`) ?? ` → ${localPath}`) : '';
+      const header = `${icon} ${nameStr}${pathStr}`;
       if (!opts.expanded) {
-        return {
-          render: (width: number) => [truncateToWidth(`${header}${theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output'}`, width)],
-          invalidate() { /* no-op */ },
-        };
+        const hint = theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output';
+        return { render: (w: number) => [truncateToWidth(`${header}${hint}`, w)], invalidate() { /* no-op */ } };
       }
-      const text = (result.content as Array<{ type: string; text: string }>)?.find?.((p) => p.type === 'text')?.text ?? '';
-      const preview = truncateUserVisibleToolOutput(text);
-      return {
-        render: (width: number) => [
-          truncateToWidth(header, width),
-          ...preview.text.split('\n').map((line) => truncateToWidth(theme?.fg('dim', line) ?? line, width)),
-        ],
-        invalidate() { /* no-op */ },
-      };
+      return buildOctocodeRenderResult('localBinaryInspect', result, opts, theme);
     },
   });
 }
@@ -305,88 +277,16 @@ export async function registerOctocodeTools(
       promptSnippet,
       promptGuidelines: buildOctocodeToolGuidelines(toolName),
       parameters: buildOctocodeToolParameters(Type, schema),
-      async execute(_toolCallId: string, params: Record<string, unknown>) {
-        return executeOctocodeToolForPi(toolName, params);
+      async execute(_toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal, _onUpdate?: unknown, ctx?: { cwd?: string }) {
+        return executeOctocodeToolForPi(toolName, params, signal, ctx);
       },
       renderCall(args: unknown, theme?: PiTheme) {
-        const preview = JSON.stringify(args ?? {});
-        // Pre-trim to 96 raw chars so the visible portion is already short;
-        // render() will truncate further if the terminal is narrower.
-        const shortPreview = preview.length > 96 ? `${preview.slice(0, 96)}…` : preview;
-        const rawLine = `${theme?.fg('toolTitle', theme.bold(toolName)) ?? toolName} ${theme?.fg('dim', shortPreview) ?? shortPreview}`;
-        return {
-          render: (width: number) => [truncateToWidth(rawLine, width)],
-          invalidate() { /* no-op */ },
-        };
+        // Smart per-tool-category call summary: shows keywords, owner/repo, path, symbol, etc.
+        return buildOctocodeRenderCall(toolName, args, theme);
       },
       renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
-        if (opts.isPartial)
-          return {
-            render: (width: number) => [
-              truncateToWidth(
-                theme?.fg('warning', 'Octocode tool running…') ?? 'Octocode tool running…',
-                width,
-              ),
-            ],
-            invalidate() { /* no-op */ },
-          };
-        const details = result.details as {
-          results?: unknown[];
-          data?: { files?: unknown[] };
-        } | null;
-        const ok = !result.isError;
-        const count = Array.isArray(details?.results)
-          ? details.results.length
-          : Array.isArray(details?.data?.files)
-            ? details?.data?.files.length
-            : undefined;
-        const suffix =
-          typeof count === 'number'
-            ? ` · ${count} item${count === 1 ? '' : 's'}`
-            : '';
-        const header = `${theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗')} ${theme?.fg('toolTitle', toolName) ?? toolName}${suffix}`;
-        if (!opts.expanded) {
-          return {
-            render: (width: number) => [
-              truncateToWidth(
-                `${header}${theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output'}`,
-                width,
-              ),
-            ],
-            invalidate() { /* no-op */ },
-          };
-        }
-        const text =
-          (result.content as Array<{ type: string; text: string }>)
-            ?.find?.((part) => part.type === 'text')?.text ?? '';
-        const preview = truncateUserVisibleToolOutput(text);
-        return {
-          // Each element of the returned array must be a single line ≤ width.
-          // Split preview.text on newlines so multi-line tool output is handled
-          // correctly, then truncate every line individually.
-          render: (width: number) => {
-            const previewLines = preview.text
-              .split('\n')
-              .map((line) => truncateToWidth(theme?.fg('dim', line) ?? line, width));
-            const truncationNotice = preview.truncated
-              ? [
-                  truncateToWidth(
-                    theme?.fg(
-                      'muted',
-                      `… user preview truncated (${preview.omittedChars} chars hidden; full output stays available to the agent)`,
-                    ) ?? `… ${preview.omittedChars} chars hidden`,
-                    width,
-                  ),
-                ]
-              : [];
-            return [
-              truncateToWidth(header, width),
-              ...previewLines,
-              ...truncationNotice,
-            ];
-          },
-          invalidate() { /* no-op */ },
-        };
+        // Smart per-tool-category result stats: match counts, file paths, repo names, etc.
+        return buildOctocodeRenderResult(toolName, result, opts, theme);
       },
     });
   }

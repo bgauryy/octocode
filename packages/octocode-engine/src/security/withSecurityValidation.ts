@@ -27,11 +27,24 @@ function createErrorResult(text: string): ToolResult {
   return { content: [{ type: 'text', text }], isError: true };
 }
 
+// Combine an external caller-provided AbortSignal with an internal one so that
+// aborting either cancels the tool. Returns the single source unchanged when
+// only one (or none) is present, preserving existing behavior.
+function mergeAbortSignals(
+  external: AbortSignal | undefined,
+  internal: AbortSignal | undefined
+): AbortSignal | undefined {
+  if (!external) return internal;
+  if (!internal) return external;
+  return AbortSignal.any([external, internal]);
+}
+
 function withToolTimeout(
   toolName: string,
   promise: Promise<ToolResult>,
   signal?: AbortSignal,
-  timeoutMs?: number
+  timeoutMs?: number,
+  onTimeout?: () => void
 ): Promise<ToolResult> {
   const timeout = getTimeoutMs(timeoutMs);
 
@@ -43,6 +56,7 @@ function withToolTimeout(
 
   return new Promise<ToolResult>(resolve => {
     const timer = setTimeout(() => {
+      onTimeout?.();
       resolve(
         createErrorResult(
           `Tool '${toolName}' timed out after ${timeout / 1000}s. Try reducing query complexity or scope.`
@@ -101,13 +115,31 @@ interface RunSecureOptions<T extends Record<string, unknown>, TAuth> {
   sessionId?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  // Called when the tool times out, before the timeout error resolves. Lets
+  // callers abort an internal AbortController to signal the handler to stop
+  // without changing every handler's signature. Internal opt-in only; the
+  // public withSecurityValidation / withBasicSecurityValidation wrappers do
+  // not expose this yet.
+  onTimeout?: () => void;
+  // Internal abort signal merged (via AbortSignal.any) with the external caller
+  // `signal`. Groundwork for callers to pass an internal controller.
+  abortSignal?: AbortSignal;
 }
 
 async function runSecure<T extends Record<string, unknown>, TAuth>(
   opts: RunSecureOptions<T, TAuth>
 ): Promise<ToolResult> {
-  const { toolName, handler, args, authInfo, sessionId, signal, timeoutMs } =
-    opts;
+  const {
+    toolName,
+    handler,
+    args,
+    authInfo,
+    sessionId,
+    signal,
+    timeoutMs,
+    onTimeout,
+    abortSignal,
+  } = opts;
   try {
     const sanitizer = getSanitizer();
     const validation = sanitizer.validateInputParameters(
@@ -122,11 +154,13 @@ async function runSecure<T extends Record<string, unknown>, TAuth>(
       string,
       unknown
     >;
+    const mergedSignal = mergeAbortSignals(signal, abortSignal);
     const rawResult = await withToolTimeout(
       toolName,
       handler(sanitizedParams as T, authInfo, sessionId),
-      signal,
-      timeoutMs
+      mergedSignal,
+      timeoutMs,
+      onTimeout
     );
     return rawResult;
   } catch (error) {

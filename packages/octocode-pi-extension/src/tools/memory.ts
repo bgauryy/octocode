@@ -15,6 +15,8 @@ import {
   digest,
   getWorkspaceStatus,
   exportMemoryDoc,
+  forgetMemory,
+  insertNotification,
 } from '@octocodeai/octocode-memory';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -38,7 +40,9 @@ type MemoryType =
   | 'refine_get'
   | 'audit_unverified'
   | 'verify'
-  | 'digest';
+  | 'digest'
+  | 'forget'
+  | 'notify';
 
 const DEFAULT_IMPORTANCE: Record<string, number> = {
   BUG: 8,
@@ -115,14 +119,24 @@ function runMemoryOperation(
 ): ToolCallResult {
   switch (type) {
     case 'recall': {
+      const rawRefs = request['references'];
+      const recallRefs = Array.isArray(rawRefs) ? rawRefs as string[] : rawRefs ? [String(rawRefs)] : [];
+      const rawRegex = request['regex'];
+      const recallRegex = Array.isArray(rawRegex) ? rawRegex as string[] : rawRegex ? [String(rawRegex)] : [];
       const result = getMemory(db, {
         query: recallQuery(request, type),
-          limit: (request['limit'] as number | undefined) ?? 3,
-          minImportance: request['min_importance'] as number | undefined,
-          label: request['label'] ? [(request['label'] as string)] : undefined,
-          smart: request['smart'] as boolean | undefined,
-          workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
-          globalOnly: request['global_only'] as boolean | undefined,
+        limit: (request['limit'] as number | undefined) ?? 3,
+        minImportance: request['min_importance'] as number | undefined,
+        label: request['label'] ? [(request['label'] as string)] : undefined,
+        smart: request['smart'] as boolean | undefined,
+        workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
+        globalOnly: request['global_only'] as boolean | undefined,
+        strictScope: request['strict_scope'] as boolean | undefined,
+        sort: request['sort'] as string | undefined,
+        states: request['state'] ? [String(request['state'])] : undefined,
+        references: recallRefs.length > 0 ? recallRefs : undefined,
+        regex: recallRegex.length > 0 ? recallRegex : undefined,
+        asOf: request['as_of'] as string | undefined ?? null,
       });
       type MemRecord = {
         memory_id: string;
@@ -383,20 +397,44 @@ function runMemoryOperation(
     }
 
     case 'verify': {
-      const result = markVerified(db, {
-        intentId: requireText(request, 'intent_id', type),
-        agentId: getAgentId(ctx),
-        status: ((request['status'] as string | undefined) ?? 'SUCCESS') as 'SUCCESS' | 'FAILED',
-      }) as { ok: boolean; intent_id: string; status?: string; error?: string };
-      const payload = result.ok
-        ? { intent_id: result.intent_id, status: result.status }
-        : { intent_id: result.intent_id, error: result.error };
+      const singleId = request['intent_id'] as string | undefined;
+      const batchIds = Array.isArray(request['intent_ids']) ? (request['intent_ids'] as unknown[]).map(String) : [];
+      const allPending = Boolean(request['allPending']);
+
+      // Collect IDs from all three sources, deduplicating
+      const ids: string[] = [];
+      if (singleId) ids.push(singleId);
+      for (const id of batchIds) if (id && !ids.includes(id)) ids.push(id);
+      if (allPending) {
+        const pending = auditUnverified(db, { agentId: getAgentId(ctx), workspacePath: cwd }) as {
+          unverified: Array<{ intent_id: string }>;
+        };
+        for (const i of pending.unverified) if (!ids.includes(i.intent_id)) ids.push(i.intent_id);
+      }
+
+      if (ids.length === 0) {
+        throw new Error('memory_verify requires intent_id, intent_ids[], or allPending:true');
+      }
+
+      const verifyStatus = ((request['status'] as string | undefined) ?? 'SUCCESS') as 'SUCCESS' | 'FAILED';
+      const agentId = getAgentId(ctx);
+      const verifyResults = ids.map((intentId) => {
+        const r = markVerified(db, { intentId, agentId, status: verifyStatus }) as {
+          ok: boolean; intent_id: string; status?: string; error?: string;
+        };
+        return r.ok
+          ? { intent_id: r.intent_id, status: r.status }
+          : { intent_id: r.intent_id, error: r.error };
+      });
+
+      const allOk = verifyResults.every((r) => !('error' in r));
+      // Backward compat: single-ID calls get the same flat payload shape
+      const payload = verifyResults.length === 1 ? verifyResults[0] : { count: verifyResults.length, results: verifyResults };
       return {
         content: [{ type: 'text', text: JSON.stringify(payload) }],
-        details: { exit: result.ok ? 0 : 1 },
+        details: { exit: allOk ? 0 : 1 },
       };
     }
-
     case 'digest': {
       const digestParams: Record<string, unknown> = {
         retention_days: (request['retention_days'] as number | undefined) ?? 90,
@@ -425,6 +463,46 @@ function runMemoryOperation(
 
       return {
         content: [{ type: 'text', text: JSON.stringify(payload) }],
+        details: { exit: 0 },
+      };
+    }
+
+    case 'forget': {
+      const rawIds = request['memory_ids'];
+      const memIds = Array.isArray(rawIds) ? rawIds as string[] : rawIds ? [String(rawIds)] : [];
+      const rawTags = request['tags'];
+      const forgTags = Array.isArray(rawTags) ? rawTags as string[] : rawTags ? [String(rawTags)] : [];
+      const result = forgetMemory(db, {
+        memoryIds: memIds,
+        tags: forgTags,
+        before: request['before'] as string | undefined,
+        maxImportance: request['max_importance'] as number | undefined,
+        dryRun: Boolean(request['dry_run']),
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+        details: { exit: 0 },
+      };
+    }
+
+    case 'notify': {
+      const notifyKind = request['kind'] as string;
+      const notifySubject = request['subject'] as string;
+      if (!notifyKind || !notifySubject) throw new Error('memory notify requires kind and subject');
+      const rawNFiles = request['files'];
+      const notifyFiles = Array.isArray(rawNFiles) ? rawNFiles as string[] : [];
+      const result = insertNotification(db, {
+        agentId: getAgentId(ctx),
+        workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
+        toAgent: request['to_agent'] as string | undefined ?? null,
+        kind: notifyKind as import('@octocodeai/octocode-memory').NotificationKind,
+        subject: notifySubject,
+        body: request['body'] as string | undefined ?? null,
+        files: notifyFiles,
+        importance: request['importance'] as number | undefined ?? 5,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
         details: { exit: 0 },
       };
     }
@@ -544,7 +622,13 @@ export function buildMemoryToolDefinition(
         min_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Raise to filter low-signal noise.' })),
         smart: Type.Optional(Type.Boolean({ description: 'Broaden after zero results.' })),
         label: labelSchema,
-          global_only: Type.Optional(Type.Boolean({ description: 'Search global memories only; skip workspace filtering.' })),
+        global_only: Type.Optional(Type.Boolean({ description: 'Search global memories only; skip workspace filtering.' })),
+        strict_scope: Type.Optional(Type.Boolean({ description: 'Exact workspace match only; skip NULL-workspace global memories.' })),
+        sort: Type.Optional(Type.String({ description: 'smart (default), importance, recent, or accessed.' })),
+        state: Type.Optional(Type.String({ description: 'ACTIVE (default) or SUPERSEDED.' })),
+        references: Type.Optional(Type.Array(Type.String(), { description: 'Filter by exact provenance reference; e.g. npm:pkg, pr:owner/repo#N.' })),
+        regex: Type.Optional(Type.Array(Type.String(), { description: 'Regex patterns matched against all text fields.' })),
+        as_of: Type.Optional(Type.String({ description: 'ISO date for bi-temporal point-in-time recall.' })),
           ...fileScopeProps,
           ...repoScopeProps,
       }),
@@ -634,7 +718,7 @@ export function buildMemoryToolDefinition(
       description: 'List pending edit intents that still need verification.',
       promptGuidelines: [
         'Run after edits and before final response.',
-        'If pending intents exist, run the stated checks and clear each with memory_verify.',
+        'If pending intents exist, run the stated checks and clear with memory_verify({intent_ids:[...], status}) for batch, memory_verify({allPending:true}) to clear all, or memory_verify({intent_id, status}) for one.',
       ],
       parameters: Type.Object({
         agent_only: Type.Optional(Type.Boolean({ description: 'Restrict to this agent; default true.' })),
@@ -644,17 +728,19 @@ export function buildMemoryToolDefinition(
       name: 'memory_verify',
       type: 'verify' as const,
       label: 'Memory: Verify Intent',
-      description: 'Mark a pending edit intent as verified or failed after running its check.',
+      description: 'Mark a pending edit intent as verified or failed after running its check. Accepts a single intent_id, a batch intent_ids[] array, or allPending:true to clear every pending intent for this agent in one call.',
       promptGuidelines: [
         'Use only after running the stated verification for the intent.',
         'Never mark SUCCESS just to clear the gate.',
+        'Prefer intent_ids[] or allPending:true to clear multiple intents in a single tool call instead of looping.',
       ],
       parameters: Type.Object({
-        intent_id: Type.String({ description: 'Pending verify intent id.' }),
+        intent_id: Type.Optional(Type.String({ description: 'Single pending intent id to verify.' })),
+        intent_ids: Type.Optional(Type.Array(Type.String(), { description: 'Batch: list of pending intent ids to verify in one call.' })),
+        allPending: Type.Optional(Type.Boolean({ description: 'Verify ALL pending intents for this agent in one call. Pair with status.' })),
         status: Type.Optional(verifyStatusSchema),
       }),
-    },
-    {
+    },    {
       name: 'memory_digest',
       type: 'digest' as const,
       label: 'Memory: Digest',
@@ -668,6 +754,42 @@ export function buildMemoryToolDefinition(
         dry_run: Type.Optional(Type.Boolean({ description: 'Preview what would be archived/pruned without making any changes.' })),
         export_doc: Type.Optional(Type.Boolean({ description: 'Write a full markdown report of all active memories to .octocode/memory-reports/.' })),
         workspace_path: Type.Optional(Type.String({ description: 'Scope to this workspace root; defaults to cwd.' })),
+      }),
+    },
+    {
+      name: 'memory_forget',
+      type: 'forget' as const,
+      label: 'Memory: Forget',
+      description: 'Delete memories by id, tag, age, or importance ceiling. Use dry_run:true first to preview.',
+      promptGuidelines: [
+        'Use dry_run:true first to see what would be deleted before committing.',
+        'Always set max_importance to avoid deleting important memories accidentally.',
+      ],
+      parameters: Type.Object({
+        memory_ids: Type.Optional(Type.Array(Type.String(), { description: 'Specific memory ids to delete.' })),
+        tags: Type.Optional(Type.Array(Type.String(), { description: 'Delete memories with any of these tags.' })),
+        before: Type.Optional(Type.String({ description: 'ISO timestamp — delete memories created before this date.' })),
+        max_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Safety ceiling — only delete at or below this importance score.' })),
+        dry_run: Type.Optional(Type.Boolean({ description: 'Preview what would be deleted without actually deleting.' })),
+      }),
+    },
+    {
+      name: 'memory_notify',
+      type: 'notify' as const,
+      label: 'Memory: Notify',
+      description: 'Post a workspace-scoped message to other agents (handoff, blocker, question, decision, etc.).',
+      promptGuidelines: [
+        'Use for real multi-agent coordination: blockers, handoffs, decisions that other agents need to act on.',
+        'Skip for single-agent sessions with no parallel workers.',
+      ],
+      parameters: Type.Object({
+        kind: Type.String({ description: 'claim|handoff|question|reply|blocker|request|decision|fyi' }),
+        subject: Type.String({ description: 'One-line summary of the message.' }),
+        body: Type.Optional(Type.String({ description: 'Optional detail.' })),
+        to_agent: Type.Optional(Type.String({ description: 'Recipient agent id; omit to broadcast to all agents on this workspace.' })),
+        files: Type.Optional(Type.Array(Type.String(), { description: 'Files this message concerns.' })),
+        importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Importance 1-10; default 5.' })),
+        ...repoScopeProps,
       }),
     },
   ];

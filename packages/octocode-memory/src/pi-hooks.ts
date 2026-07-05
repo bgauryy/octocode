@@ -62,6 +62,19 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
+function addQueryPaths(paths: string[], value: unknown): void {
+  if (!Array.isArray(value)) return;
+  for (const query of value) {
+    const payload = objectOrEmpty(query);
+    addPathValue(paths, payload.path);
+    addPathValue(paths, payload.filePath);
+    addPathValue(paths, payload.file_path);
+    addPathValue(paths, payload.paths);
+    addPathValue(paths, payload.filePaths);
+    addPathValue(paths, payload.file_paths);
+  }
+}
+
 export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}): string[] {
   const normalizedToolName = String(toolName ?? '').toLowerCase();
   const isWriteTool = ['write', 'edit', 'multi_edit', 'multiedit', 'notebookedit', 'notebook_edit'].includes(normalizedToolName);
@@ -77,6 +90,7 @@ export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}
   addPathValue(paths, payload.paths);
   addPathValue(paths, payload.filePaths);
   addPathValue(paths, payload.file_paths);
+  addQueryPaths(paths, payload.queries);
   addApplyPatchPaths(paths, command);
 
   return [...new Set(paths)];
@@ -121,7 +135,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
             ? `verify edit applied to: ${targetFiles.slice(0, 3).join(', ')}${targetFiles.length > 3 ? ` + ${targetFiles.length - 3} more` : ''}`
             : 'post-edit verification',
           targetFiles,
-          ttlMs: 15 * 60000,
+          ttlMs: 10 * 60_000,
         });
 
         if (!result.ok) {

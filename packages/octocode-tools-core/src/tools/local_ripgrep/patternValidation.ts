@@ -51,10 +51,16 @@ export function preflightValidateRipgrepPattern(
 }
 
 function looksLikeLiteralSearch(pattern: string): boolean {
+  // If the pattern contains any regex special chars, it's intentionally a regex.
   if (/[\\^$|()[\]{}+*?]/.test(pattern)) {
     return false;
   }
+  // Patterns with a dot + word chars look like filenames/method names (e.g. fs.readFile).
   if (pattern.includes('.') && /^[\w.\-/:]+$/.test(pattern)) {
+    return true;
+  }
+  // Plain identifiers (word chars only, length > 2) are almost always literal searches.
+  if (pattern.length > 2 && /^\w+$/.test(pattern)) {
     return true;
   }
   return false;

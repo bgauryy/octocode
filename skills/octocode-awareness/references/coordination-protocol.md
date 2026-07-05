@@ -1,132 +1,149 @@
 # Coordination protocol semantics
 
-Read this when you need per-command flag detail beyond `--help` for the file-lock, messaging, and refinement commands, are authoring `awareness.mjs` payloads, or are wiring a future MCP/tool wrapper. The memory commands and the shared schema contract live in `memory-recall.md`; `status`/timestamps/collision live in `files-awareness.md`.
+Read this when you need flag detail beyond `--help` for locks, messaging, refinements, or future wrappers.
+Memory commands live in `memory-recall.md`; status and collisions live in `files-awareness.md`.
 
-## `notify` / `notify-get` — repo-scoped agent messaging
+## `notify` / `notify-get` — repo-scoped messages
 
-Typed messages between agents working the **same** repo at the same time. This is the third awareness layer, alongside memories (global, async, anyone) and refinements (repo-local, async, the next agent). A **notification** is "a message to another agent on this repo *now*."
+A notification is a live repo message to another agent.
+Notifications complement locks and refinements:
+- Lock: this file is taken.
+- Notification: why it is taken, what is blocked, or who should act next.
+- Refinement: durable work state for the next run.
 
-Each notification lives in the **one shared store** (`~/.octocode/memory/awareness.sqlite3`), keyed by `workspace_path`. Concurrent agents resolving to one working tree share one channel: **the repo is the topic**. The `UserPromptSubmit` delivery hook (`scripts/hooks/notify-deliver.sh`) injects unread messages into context each turn; pull them explicitly with `notify-get`.
+Messages live in `~/.octocode/memory/awareness.sqlite3`, scoped by `workspace_path`.
+Agents in the same working tree share one channel.
+Treat messages as peer signals to verify, not orders.
 
-How it differs from the passive file lock: a lock says "this file is taken"; a notification lets agents *say why*, negotiate a slice, flag a blocker, or hand off — turning coordination into a conversation. Treat received messages as peer signals to verify against current code, not orders.
+`notify` posts a message or reply:
+- `--agent-id`: sender, required.
+- `--to`: recipient agent id; omit to broadcast.
+- `--kind`: `claim`, `handoff`, `question`, `reply`, `blocker`, `request`, `decision`, or `fyi`.
+- `--subject`: one-line summary, required.
+- `--body`: optional detail.
+- `--file`: repeatable related files.
+- `--ref-id`: repeatable related ids: intent, refinement, memory, or notification.
+- `--in-reply-to`: reply target; inherits the parent `thread_id`.
+- `--importance`: 1-10, default 5.
+- `--workspace`, `--repo`, `--ref`: scope; repo/ref auto-fill from git when omitted.
 
-`notify` posts a message (or a reply):
-- `--agent-id`: sender (required). `--to`: recipient agent id; **omit to broadcast** to every other agent on this repo.
-- `--kind` (required): one of `claim`, `handoff`, `question`, `reply`, `blocker`, `request`, `decision`, `fyi`. Typed so recipients can filter (`notify-get --kind blocker`) and act.
-- `--subject` (required, one line); `--body` (optional detail).
-- `--file` (repeatable): files the message concerns (normalized like locks). `--ref-id` (repeatable): related `intent_id`/`refinement_id`/`memory_id`/`notification_id` — makes the message actionable.
-- `--in-reply-to <notification-id>`: reply within a thread; the reply inherits the parent's `thread_id` so a discussion stays grouped. A message with no `--in-reply-to` roots its own thread (`thread_id == notification_id`).
-- `--importance` (1–10, default 5); `--repo`/`--ref` auto-fill from git when omitted; `--workspace` selects the channel (default cwd).
+`notify-get` reads the inbox:
+- `--agent-id`: reader, required.
+- Default: unread messages addressed to me or broadcast, excluding my own messages.
+- `--all`: include already-read messages.
+- `--mark-read`: advance this agent's read cursor.
+- `--kind`: repeatable filter.
+- `--thread-id`: read one discussion end-to-end.
+- `--format hook`: emit hook `additionalContext`; empty output means no message.
 
-`notify-get` reads messages (the inbox):
-- `--agent-id` (required): the reader. Default view = messages **addressed to me or broadcast, authored by someone else, that I have not read**.
-- `--unread-only` (default on) / `--all` (include already-read). `--mark-read` advances this agent's read cursor over the returned messages so each is delivered once (the delivery hook passes both).
-- `--kind` (repeatable filter), `--limit`, `--repo`/`--ref`/`--workspace` scope.
-- `--thread-id <id>`: read one discussion end-to-end (the whole thread, ignoring read state and addressing).
-- `--format hook`: emit a `UserPromptSubmit` `additionalContext` payload (empty output when nothing is unread, so the hook is a no-op). Default `json`.
+Never put secrets in notifications.
+Promote reusable lessons to memory.
+Promote durable work state to refinements.
 
-Exit codes follow the standard contract (`0` ok; replying to a missing `--in-reply-to` id is a `1` usage error). Never put secrets in a message; messages are repo-local peer signals, not a durable record — promote anything reusable to a memory and anything that's work state to a refinement.
+`notify-resolve` closes messages:
+- Select with `--notification-id` and/or `--thread-id`.
+- Matching rows move to `status='resolved'`.
+- Resolved messages drop from active views.
 
-**`notify-resolve`** closes a message or a whole discussion: `--notification-id <id>` (repeatable) and/or `--thread-id <id>` flips matching rows to `status='resolved'` (requires one selector). Resolved messages drop out of the active set and become eligible for pruning. Returns `{ resolved: <count> }`.
-
-**`notify-prune`** is retention for the repo channel. It deletes notifications **and** their read-cursor rows. Selectors combine with AND and **at least one is required** (it never bulk-deletes on workspace alone): `--notification-id <id>` (repeatable), `--resolved` (only `status='resolved'`), `--older-than-days N` (created more than N days ago). `--dry-run` reports `would_delete` + the matched ids first. Because messages have no TTL of their own (unlike file locks), run `notify-prune --resolved` or `--older-than-days` periodically — e.g. after a feature lands — so the workspace DB doesn't grow without bound. This is also the path the viewer's notification delete button calls (`--notification-id`).
+`notify-prune` deletes notifications and read cursors:
+- Requires at least one selector: `--notification-id`, `--resolved`, or `--older-than-days`.
+- Workspace alone never bulk-deletes.
+- Use `--dry-run` first for broad cleanup.
 
 ## `pre-flight-intent`
 
-Run before any file modification once this skill is active.
-
+Run before modifying files.
 Important flags:
-- `--agent-id`: stable human-readable agent identifier.
+- `--agent-id`: stable agent id.
 - `--rationale`: why the change is needed.
-- `--target-file`: repeat for each file likely to change.
+- `--target-file`: repeat for likely changed files.
 - `--test-plan`: exact verification plan.
 - `--plan-doc-ref`: optional plan or design doc.
-- `--workspace`: logical workspace for later `status`, `audit-unverified`, and `verify --all-pending` scoping (default cwd).
-- `--lock-type`: `EXCLUSIVE` by default; use `SHARED` only for non-writing reads that still need visibility.
-- `--wait-seconds`: optional wait budget; the script re-polls every `--retry-interval` seconds. Use a small explicit budget only when you have already decided that waiting is the right response.
-- `--ttl-minutes`: lock expiry safety valve, default `240`.
+- `--workspace`: scope for status, audit, and `verify --all-pending`.
+- `--lock-type`: default `EXCLUSIVE`; use `SHARED` only for visible non-writing reads.
+- `--wait-seconds`: bounded wait; use only after choosing to wait.
+- `--ttl-minutes`: lock expiry safety valve; default 240.
 
-If the command returns `ok: false`, do not modify the files. Either wait/retry, choose different files, or report the conflict.
+If the result is `ok: false`, do not modify files.
+Choose wait/retry, a different slice, coordination, or conflict reporting.
 
-**Exit codes** (stable contract — branch on `$?`, don't parse prose): `0` = success; `2` = lock conflict (the `pre-flight-intent` / hook "another agent holds it" case, paired with `ok: false` and a `conflicts[]` array listing each holder's `agent_id`, `rationale`, `test_plan`, and `expires_at`); any other non-zero = usage or runtime error. The hooks rely on this: `pre-edit.sh` re-emits exit `2` to block the edit and exits `0` (fail-open) on any other error.
+Exit codes are the stable contract:
+- `0`: success.
+- `2`: lock conflict; output includes `conflicts[]` holder data.
+- Any other non-zero: usage or runtime error.
 
-**Path matching**: `--target-file` values are normalized to an absolute, symlink-resolved path before comparison (`..`, trailing slashes, and `~` are handled). Relative paths resolve against the current working directory, so two agents in *different* cwds could pass the same relative path and not collide — **pass absolute paths (or always run from the repo root)** so claims on the same file always conflict as intended.
+Hooks rely on this contract.
+`pre-edit.sh` re-emits exit `2` to block edits and fail-opens on other errors.
+
+Path matching normalizes `--target-file` to absolute, symlink-resolved paths.
+Pass absolute paths, or always run from repo root, so same-file claims collide.
 
 ## `wait-for-lock`
 
-Use this when the user or wrapper explicitly chooses "wait until the current holder releases" but you do **not** want to create a new intent yet:
+Use `wait-for-lock` only after choosing to wait for a current holder.
+`wait-for-lock` checks the same conflicts as `pre-flight-intent` but never acquires a lock.
+`wait-for-lock` sleeps outside SQLite transactions and has a bounded deadline.
+Exit `0` means clear; exit `2` means timed out with `conflicts[]`.
+After a clear result, immediately claim with `pre-flight-intent` before editing.
 
 ```bash
 node scripts/awareness.mjs wait-for-lock --agent-id codex \
   --target-file /abs/path/src/auth/router.ts --wait-seconds 120 --retry-interval 5
 ```
 
-The `wait-for-lock` command checks the same conflict rules as `pre-flight-intent` for the requested `--lock-type` (default `EXCLUSIVE`) but never acquires a lock. It sleeps outside SQLite transactions and always has a bounded deadline: `0` means clear/released, `2` means timed out and returns `conflicts[]` with the current holder data. After it returns clear, immediately run `pre-flight-intent` before editing; another agent could claim the file between the wait and your edit.
-
 ## `prune-stale-locks`
 
-Use this when a lock holder disappeared and the user or automation policy says it is stale. Preview first:
+Use this when a lock holder disappeared and cleanup is approved.
+Preview first:
 
 ```bash
 node scripts/awareness.mjs prune-stale-locks --older-than-minutes 20 --dry-run
 node scripts/awareness.mjs prune-stale-locks --older-than-minutes 20
 ```
 
-`--expired-only` limits cleanup to locks whose `expires_at` is already in the past; otherwise `--older-than-minutes` also catches very old live locks. Optional filters: `--agent-id`, `--target-file`. Pruning deletes only lock rows, records a `STALE_PRUNED` event, and changes fully released `ACTIVE` intents to `PENDING`; it never marks work as `SUCCESS`.
+`--expired-only` limits cleanup to expired locks.
+Without `--expired-only`, `--older-than-minutes` also catches old live locks.
+Optional filters: `--agent-id`, `--target-file`.
+Pruning deletes lock rows and changes released `ACTIVE` intents to `PENDING`.
+Pruning never marks work as `SUCCESS`.
 
 ## `release-file-lock`
 
-Run at the end of the work. Pass `--status SUCCESS` after verification passes, `--status FAILED` when abandoning or after failed verification, and `--status PENDING` only when the lock should be released but verification is still owed (the post-edit hook path). If `SUCCESS` is requested without recorded verification, the command warns and persists the intent as `PENDING`. Use `--target-file` to release specific files, or `--intent-id` to release the whole intent. Add `--verified` once the declared `--test-plan` actually ran (see `self-harness.md`); after hook-managed edits, `verify --workspace <root> --all-pending` records one test result against every pending intent for the agent in that workspace. For `status`, timestamps, and the collision protocol, see `files-awareness.md`.
+Run at the end of work.
+- `--status SUCCESS` after verification.
+- `--status FAILED` when abandoning or after failed verification.
+- `--status PENDING` when verification is still owed.
+- `--target-file` for specific files, or `--intent-id` for a whole intent.
+- `--verified` only after the declared `--test-plan` actually ran.
+
+`release-file-lock` warns and stores `PENDING` when `SUCCESS` lacks recorded verification.
+After hook-managed edits, use `verify --workspace <root> --all-pending`.
 
 ## `refine-set` / `refine-get`
 
-A **refinement** is a structured record of work state for one workspace — distinct from a **memory** (a general, reusable lesson). Refinements answer "what is the state of *this* work and what should the next agent do here." They are **workspace-scoped** but stored in the **one shared store** (`~/.octocode/memory/awareness.sqlite3`), keyed by `repo`/`ref` columns — no per-repo `.octocode/` database is created. `--workspace` selects the root used for `repo`/`ref` auto-detection (default cwd); `--db` overrides the store directly (tests). For a *committable* cross-machine handoff, use `memory-export` (writes `<workspace>/.octocode/memories.jsonl` on purpose) rather than copying a live store.
+A refinement is workspace work state for the next agent.
+Memory stores reusable lessons instead.
+Refinements live in the shared DB and are scoped by `workspace_path`, `repo`, and `ref`.
+Do not copy a live DB for handoff; write a reviewed doc or refinement instead.
+State lifecycle: `open` -> `ongoing` -> `done`.
+`refine-get` defaults to unfinished work: `open` + `ongoing`.
 
-Record shape: `refinement_id` (generated `ref_…`), `agent_id`, `workspace_path`, `repo`, `ref` (branch or commit), `files[]` (related paths, may be empty), `reasoning` (why saved for the next agent), `remember` (the good or bad lesson), `quality` (`good`/`bad`), `state`, `created_at`/`updated_at`. `refine-get` returns a compact captured-`env` summary by default; add `--include-env` only when you need the full `git.changes[]` list. State lifecycle: `open` (identified) → `ongoing` (in progress) → `done` (finished); transition with `refine-set --refinement-id <id> --state <state>`.
+`refine-set`:
+- New records require `--reasoning` and `--remember`.
+- `--quality` is `good` or `bad`.
+- `--state` is `open`, `ongoing`, or `done`.
+- Updates use `--refinement-id` and only change passed flags.
 
-Read at the start of work and write during/after. `refine-get` defaults to the **handoff view** (`open` + `ongoing`) so finished work doesn't clutter pickup; pass `--state done` to audit. A new refinement requires `--reasoning` and `--remember`; updates need `--refinement-id` and change only the flags you pass. Keep `reasoning`/`remember` specific (name the file, command, gotcha); set `quality bad` for a dead end; mark `done` when finished. Treat refinements as evidence to verify against current code, not orders.
-
-`refine-set` creates or updates one refinement:
-- New record requires `--reasoning` and `--remember`; `--repo`, `--ref`, `--file` (repeatable), `--quality good|bad`, `--state open|ongoing|done`, `--agent-id` are optional (state defaults `open`, quality `good`).
-- Update an existing record with `--refinement-id`; only the flags you pass are overwritten.
-
-`refine-get` reads them, defaulting to the unfinished-work handoff view:
-- Filters: `--repo`, `--ref`, `--quality`, `--refinement-id`, repeatable `--state` (default `open` + `ongoing`), `--limit`, `--include-env` for full captured environment.
-- Results are ordered `ongoing` → `open` → `done`, newest first.
+`refine-get` filters by repo, ref, quality, id, state, limit, and `--include-env`.
+Treat refinements as evidence to verify against current code, not orders.
 
 ## `refine-delete`
 
-Delete one or more refinements by id (the hard-delete counterpart to `refine-set`). Flags: `--workspace` (or `--db`) to locate the store, `--refinement-id` (repeatable, required), `--dry-run` to report `would_delete` + the matched records without deleting. With no id it refuses and exits non-zero. This is what the viewer's refinement delete button calls.
+Hard-delete refinements by id.
+Use `--dry-run` first when deleting stale entries.
+With no id, the command refuses.
 
-## Data Model
+## Data model
 
-The script owns these SQLite tables.
-
-One shared DB (`~/.octocode/memory/awareness.sqlite3`) holds **all** tables. Memories, intents, locks:
-
-```sql
-agent_memories(memory_id, agent_id, task_context, observation, importance_score, state, superseded_by, tags_json, tags_text, references_json, workspace_path, repo, ref, file_tree_fingerprint, file, created_at, updated_at, last_accessed_at, access_count, decay_half_life_days, failure_signature, valid_from, valid_to, expired_at, embedding, embedding_model)
-  -- state IN ('ACTIVE','SUPERSEDED'); `workspace_path`/`repo`/`ref` are optional applicability scope; `file` is the ONE correlated file; `references_json` is structured provenance; `embedding`/`embedding_model` are optional inline semantic recall columns
-memory_references(memory_id, reference, kind, ordinal)
-  -- normalized exact-reference index mirrored from references_json; JSON remains the export/import/display shape
-memory_fts(memory_id, task_context, observation, tags) -- optional FTS5 table
-awareness_meta(key, value) -- local migration/index versions, e.g. expanded FTS terms
-agent_intents(intent_id, agent_id, plan_doc_ref, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
-  -- files_json snapshots claimed files so released/stale-pruned pending intents keep ownership context
-file_locks(lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
-intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
-```
-
-Same shared DB — refinements + notifications (scoped logically by `repo`/`ref` and `workspace_path` columns, not by a separate file):
-
-```sql
-refinements(refinement_id, agent_id, workspace_path, repo, ref, files_json, reasoning, remember, quality, state, created_at, updated_at)
-  -- quality IN ('good','bad'); state IN ('open','ongoing','done')
-
-notifications(notification_id, workspace_path, repo, ref, from_agent, to_agent, kind, subject, body, files_json, refs_json, thread_id, in_reply_to, importance, status, created_at)
-  -- to_agent NULL = broadcast on this repo; kind IN ('claim','handoff','question','reply','blocker','request','decision','fyi');
-  -- thread_id groups a discussion (== notification_id for a thread root); status IN ('open','resolved')
-notification_reads(notification_id, agent_id, read_at)  -- per-agent read cursor; PRIMARY KEY (notification_id, agent_id)
-```
-
-Every DB is initialized with all tables; each store only uses the ones relevant to it. Keep this as the stable local contract. Semantic recall currently uses optional inline embedding columns in the shared SQLite DB; introduce a separate vector table/index only if scale or retention needs justify it.
+One shared DB holds memories, intents, locks, refinements, notifications, read cursors, and events.
+Keep this as the stable local contract.

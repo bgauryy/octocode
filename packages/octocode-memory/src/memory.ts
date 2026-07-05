@@ -15,10 +15,10 @@ import {
   rowToMemory,
 } from './helpers.js';
 import { fillScope } from './git.js';
-import { hasFts, ftsTermsForRow } from './db.js';
+import { hasFts, ftsTermsForRow, replaceMemoryReferences } from './db.js';
 import type {
   InsertMemoryParams, InsertMemoryResult, GetMemoryParams, GetMemoryResult,
-  MemoryRow, MemoryRecord,
+  MemoryRow, MemoryRecord, ForgetMemoryParams, ForgetMemoryResult,
 } from './types.js';
 
 // ─── Decay / salience scoring ─────────────────────────────────────────────────
@@ -249,6 +249,11 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     createdAt, failureSignature ?? null, validFromVal, vt ?? null
   );
 
+  // Populate structured reference index (Python-compatible memory_references table)
+  if (refList.length > 0) {
+    try { replaceMemoryReferences(db, memoryId, refList); } catch { /* ignore if table missing */ }
+  }
+
   if (hasFts(db)) {
     db.prepare(
       'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
@@ -294,6 +299,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
       repo: scope.repo,
       ref: scope.ref,
       file: memFile,
+      failure_signature: failureSignature ?? null,
       novelty_score: noveltyScore,
       similar_memory_ids: similarMemoryIds,
       state: 'ACTIVE' as const,
@@ -322,7 +328,12 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     states: statesRaw,
     sort = 'smart',
     globalOnly = false,
+    strictScope = false,
     asOf,
+    references = [],
+    regex = [],
+    fileRegex = [],
+    files = [],
   } = params;
 
   const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
@@ -338,15 +349,74 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     db, query, limit * SCORING_PREFETCH_FACTOR, minImportance, tags, labels, states
   );
 
-  // Normalize the caller's workspace to the same repo root that insertMemory stores
-  // (fillScope), so recall from a subdirectory of a git repo matches memories whose
-  // workspace_path was resolved to the repo root. Falls back to the raw path when the
-  // caller is outside any git repo. Without this, an agent recording with cwd in a
-  // subdirectory and recalling with the same cwd would filter out its own memory.
+  // Workspace scope filter
   let scope = workspacePath;
   if (!globalOnly && scope) {
     scope = fillScope({ workspace_path: null }, scope).workspace_path ?? scope;
-    memories = memories.filter(m => !m.workspace_path || m.workspace_path === scope);
+    if (strictScope) {
+      memories = memories.filter(m => m.workspace_path === scope);
+    } else {
+      memories = memories.filter(m => !m.workspace_path || m.workspace_path === scope);
+    }
+  }
+  if (globalOnly) {
+    memories = memories.filter(m => !m.workspace_path && !m.repo && !m.ref);
+  }
+
+  // Exact file filter
+  if (files.length > 0) {
+    const normFiles = new Set(files.map(f => normalizeFilePath(f) ?? f));
+    memories = memories.filter(m => m.file != null && normFiles.has(m.file));
+  }
+
+  // Reference filter — use memory_references table when available, fall back to inline JSON
+  if (references.length > 0) {
+    const refSet = new Set(references);
+    const fromTable = new Set<string>();
+    try {
+      for (const ref of references) {
+        const rows = db.prepare(
+          'SELECT memory_id FROM memory_references WHERE reference = ?'
+        ).all(ref) as unknown as Array<{ memory_id: string }>;
+        rows.forEach(r => fromTable.add(r.memory_id));
+      }
+      if (fromTable.size > 0) {
+        memories = memories.filter(m => fromTable.has(m.memory_id));
+      } else {
+        memories = memories.filter(m => (m.references ?? []).some(r => refSet.has(r)));
+      }
+    } catch {
+      memories = memories.filter(m => (m.references ?? []).some(r => refSet.has(r)));
+    }
+  }
+
+  // Regex filter
+  if (regex.length > 0 || fileRegex.length > 0) {
+    const compileRegex = (pattern: string): RegExp => {
+      try {
+        return new RegExp(pattern);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`invalid regex ${JSON.stringify(pattern)}: ${message}`);
+      }
+    };
+    const compiledRegex = regex.map(compileRegex);
+    const compiledFileRegex = fileRegex.map(compileRegex);
+    memories = memories.filter(m => {
+      if (compiledFileRegex.length > 0) {
+        const fv = m.file ?? '';
+        if (!compiledFileRegex.every(re => re.test(fv))) return false;
+      }
+      if (compiledRegex.length > 0) {
+        const haystack = [
+          m.task_context, m.observation,
+          ...(m.tags ?? []), ...(m.references ?? []),
+          m.label, m.workspace_path, m.repo, m.ref, m.file, m.failure_signature,
+        ].filter(Boolean).join(' ');
+        if (!compiledRegex.every(re => re.test(haystack))) return false;
+      }
+      return true;
+    });
   }
 
   if (asOf) {
@@ -358,7 +428,19 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     });
   }
 
-  memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  // Sort
+  if (sort === 'importance') {
+    memories.sort((a, b) =>
+      (b.importance_score - a.importance_score) || ((b.score ?? 0) - (a.score ?? 0)));
+  } else if (sort === 'recent') {
+    memories.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+  } else if (sort === 'accessed') {
+    memories.sort((a, b) =>
+      (b.last_accessed_at ?? b.created_at ?? '').localeCompare(a.last_accessed_at ?? a.created_at ?? ''));
+  } else {
+    memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }
+
   memories = memories.slice(0, limit);
   bumpAccess(db, memories.map(m => m.memory_id));
 
@@ -371,6 +453,63 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     global_only: Boolean(globalOnly),
     states,
   };
+}
+
+// ─── forgetMemory ─────────────────────────────────────────────────────────────────
+
+/**
+ * Delete memories by id, tag, age, or importance ceiling.
+ * dryRun=true returns the count without deleting anything.
+ */
+export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): ForgetMemoryResult {
+  const { memoryIds = [], tags = [], before, maxImportance, dryRun = false } = params;
+
+  const conditions: string[] = [];
+  const bindParams: (string | number)[] = [];
+
+  if (memoryIds.length > 0) {
+    conditions.push(`memory_id IN (${memoryIds.map(() => '?').join(',')})`);
+    bindParams.push(...memoryIds);
+  }
+  if (tags.length > 0) {
+    conditions.push(`(${tags.map(() => 'tags_text LIKE ?').join(' OR ')})`);
+    bindParams.push(...tags.map(t => `%,${t},%`));
+  }
+  if (before) {
+    conditions.push('created_at < ?');
+    bindParams.push(before);
+  }
+  if (maxImportance != null) {
+    conditions.push('importance_score <= ?');
+    bindParams.push(maxImportance);
+  }
+
+  if (conditions.length === 0) {
+    throw new Error('forgetMemory requires at least one filter: memoryIds, tags, before, or maxImportance');
+  }
+
+  const where = conditions.join(' AND ');
+  const rows = db.prepare(
+    `SELECT memory_id FROM agent_memories WHERE ${where}`
+  ).all(...bindParams) as unknown as Array<{ memory_id: string }>;
+  const ids = rows.map(r => r.memory_id);
+
+  if (dryRun) {
+    return { deleted: 0, dry_run: true, would_delete: ids.length, memory_ids: ids };
+  }
+
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`DELETE FROM agent_memories WHERE memory_id IN (${ph})`).run(...ids);
+    if (hasFts(db)) {
+      db.prepare(`DELETE FROM memory_fts WHERE memory_id IN (${ph})`).run(...ids);
+    }
+    try {
+      db.prepare(`DELETE FROM memory_references WHERE memory_id IN (${ph})`).run(...ids);
+    } catch { /* ignore if table missing */ }
+  }
+
+  return { deleted: ids.length, memory_ids: ids };
 }
 
 // ─── mineWeakness ─────────────────────────────────────────────────────────────

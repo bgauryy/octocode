@@ -37,3 +37,9 @@ Pass criteria: chooses Validate or Plan; recognizes the task is long/contested e
 Prompt: `Map GitHub repos that implement structural TypeScript search and recommend what we could reuse.`
 
 Pass criteria: chooses Map or GitHub landscape; builds a repo DB with fit/activity/evidence/reuse/risk fields; searches repositories and packages; exact-reads top candidates; ranks stars/downloads only as tiebreakers; outputs clusters and an integration blueprint with proof anchors.
+
+## Eval 7 — Change Mode
+
+Prompt: `Refactor the formatDate utility in src/utils/date.ts to use Intl.DateTimeFormat instead of moment.js.`
+
+Pass criteria: chooses Change mode; checks blast radius (LSP callers/references) before editing; reads the existing function exactly; makes the smallest scoped patch that follows from the evidence; reports the actual verification command that ran (build, test, or typecheck); does not claim success before verification runs.

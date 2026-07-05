@@ -22,7 +22,7 @@ STOP, recommend one option, and wait when any gate trips:
 
 ## Research Rules
 
-- Recall first (FRAME): with octocode-awareness, check prior decisions/art via `get-memory --smart --query <idea>`; on zero results retry synonyms and validate recalled code facts. Capture last (DECIDE): emit one awareness packet or a `doNotCaptureReason` via `learning-capture.md`.
+- Recall first (FRAME): `memory_recall({query, smart:true})` in Pi, or `get-memory --smart --query <idea>` with awareness hooks; on zero results retry synonyms and validate recalled code facts. Capture last (DECIDE): `memory_record`/`memory_reflect` (Pi) or `tell-memory` via `learning-capture.md` (standalone); skip if nothing durable survived rebuttal.
 - Treat snippets and search summaries as leads; cite fetched pages, exact files, repos, packages, PRs, metrics, or mark claims `weak`.
 - Default external loop: top articles/docs/papers -> repos/packages/code -> exact reads -> loop back to sources for contradictions. Cross-pollinate at least once per active surface.
 - Keep a claim ledger: `claim -> source -> confidence -> next query`; for substantial, multi-surface, or high-confidence runs, start `scripts/brainstorm-run.mjs` via `references/hook-communication.md`.

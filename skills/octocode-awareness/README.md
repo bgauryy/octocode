@@ -51,9 +51,9 @@ From there, the agent should make the awareness layer visible in plain language:
 
 If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call the bundled scripts manually. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview.
 
-## Storage And Semantic Recall
+## Storage And Recall
 
-Awareness uses one local SQLite database under Octocode's state directory by default. It can also export important memories into a repo so a team can share them through normal code review. Semantic recall is optional and local; it does not require a separate semantic database or external service beyond the first model download when indexing is enabled.
+Awareness uses one local SQLite database under Octocode's state directory by default. It can also export important memories into a repo so a team can share them through normal code review. The bundled Node runtime uses SQLite FTS, scope filters, references, and smart lexical broadening. Older Python-only semantic indexing notes are reference material, not a feature of the shipped `awareness.mjs` runtime.
 
 ## User Experience
 

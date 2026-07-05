@@ -59,18 +59,36 @@ describe('preFlightIntent', () => {
     } finally { cleanup(); }
   });
 
-  it('sets expiresAt when ttlMs is provided', () => {
+  it('sets expiresAt and caps lock TTL at 10 minutes', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
+      const before = Date.now();
       const result = preFlightIntent(db, {
         agentId: 'agent-a',
         targetFiles: [path],
-        ttlMs: 60000,
+        ttlMs: 60 * 60_000,
       });
       if (result.ok) {
-        expect(result.intent.locks[0]!.expires_at).not.toBeNull();
+        const expiresAt = result.intent.locks[0]!.expires_at;
+        expect(expiresAt).not.toBeNull();
+        const ttl = Date.parse(expiresAt!) - before;
+        expect(ttl).toBeGreaterThan(0);
+        expect(ttl).toBeLessThanOrEqual(10 * 60_000 + 1000);
       }
+    } finally { cleanup(); }
+  });
+
+  it('prunes expired locks before conflict checks', () => {
+    const db = freshDb();
+    const { path, cleanup } = tempFile();
+    try {
+      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path], ttlMs: 1000 });
+      if (!first.ok) throw new Error('first claim failed');
+      const past = new Date(Date.now() - 5000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      db.prepare('UPDATE file_locks SET expires_at = ? WHERE intent_id = ?').run(past, first.intent.intent_id);
+      const second = preFlightIntent(db, { agentId: 'agent-b', targetFiles: [path] });
+      expect(second.ok).toBe(true);
     } finally { cleanup(); }
   });
 
@@ -99,7 +117,8 @@ describe('releaseFileLock', () => {
       });
       expect(release.released).toBe(true);
       expect(release.locks_released).toBe(1);
-      expect(release.status).toBe('SUCCESS');
+      expect(release.status).toBe('PENDING');
+      expect(release.unverifiedConclusion).toContain('SUCCESS requested without --verified');
     } finally { cleanup(); }
   });
 
@@ -154,13 +173,33 @@ describe('releaseFileLock', () => {
     } finally { cleanup(); }
   });
 
-  it('updates intent status to SUCCESS after lock release', () => {
+  it('keeps unverified SUCCESS releases pending', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
     try {
       const a = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
       if (!a.ok) throw new Error('claim failed');
-      releaseFileLock(db, { agentId: 'agent-a', intentId: a.intent.intent_id, status: 'SUCCESS' });
+      const release = releaseFileLock(db, { agentId: 'agent-a', intentId: a.intent.intent_id, status: 'SUCCESS' });
+      const intent = db.prepare('SELECT status FROM agent_intents WHERE intent_id = ?')
+        .get(a.intent.intent_id) as { status: string };
+      expect(release.status).toBe('PENDING');
+      expect(intent.status).toBe('PENDING');
+    } finally { cleanup(); }
+  });
+
+  it('updates intent status to SUCCESS after verified lock release', () => {
+    const db = freshDb();
+    const { path, cleanup } = tempFile();
+    try {
+      const a = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      if (!a.ok) throw new Error('claim failed');
+      releaseFileLock(db, {
+        agentId: 'agent-a',
+        intentId: a.intent.intent_id,
+        status: 'SUCCESS',
+        verified: true,
+        verifiedNote: 'test passed',
+      });
       const intent = db.prepare('SELECT status FROM agent_intents WHERE intent_id = ?')
         .get(a.intent.intent_id) as { status: string };
       expect(intent.status).toBe('SUCCESS');

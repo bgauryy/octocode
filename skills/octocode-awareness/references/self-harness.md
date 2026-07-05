@@ -27,22 +27,20 @@ The `reflect` command records nothing new of its own — it **routes** the refle
 - **Repo/code fix** (`--fix-repo`) → an open, `quality:bad` refinement the next agent sees via `refine-get` — your durable *"fix this here"* indication, stored with the repo.
 - **Harness improvement** (`--fix-harness`) → a `harness`-tagged memory that §4 `export-harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
 
-So the everyday flow is: **do the work → `verify` it (§1) → `reflect` on it (worked/didn't) → fixes land where they'll be picked up → a human merges (§4).** Everything in §1–4 below is what `reflect` feeds.
+Use `--judgment-note` when the conclusion needs nuance: name checked evidence, remaining uncertainty, and why any eval/checklist prompt mattered.
+Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness.
+`--duo` adds a `reflection_duo` packet with two advisory reviewer roles.
+The packet is not stored, scored, or enforced.
 
-Use `--judgment-note` when the conclusion needs nuance: name what evidence was checked, what uncertainty remains, and why any eval/checklist prompt mattered or did not. Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness. It adds a `reflection_duo` packet with two advisory reviewer roles: an evidence/verification reviewer and a harness/skill improver. The packet is not stored, scored, or enforced; it gives a later eval agent seed questions to rewrite, answer, or discard from the actual task intent.
-
-For subagent-heavy work, pair `--judgment-note` with the compact evidence receipt from `agentic-flows.md`: scope, claims, evidence anchors, verification status, decision impact, and open questions. Receipts are evidence summaries, not transcripts. Turn them into eval targets only when a repeated failure signature shows up across receipts or verification events.
-
+For subagent-heavy work, pair `--judgment-note` with the compact evidence receipt from `agentic-flows.md`: scope, claims, evidence anchors, verification status, decision impact, and open questions.
 ### Binary-question eval failures
 
-Some skills emit BinEval-style `binaryQuestions` in their eval output: each failed question should carry a question id, dimension, failure signature, and suggested lesson. Treat that as a diagnostic packet, not as an auto-patch instruction.
+Treat failed binary questions as diagnostic packets, not auto-patch instructions.
 
 - Record high-signal recurring failures with `reflect --lesson ... --failure-signature <failed-question.failureSignature>`.
-- Mention the failed question ids in the lesson so future agents can trace the eval back to the violated criterion.
-- Prefer `reflect --eval-failure-json '[...]'` when the eval output is structured. Each entry keeps `id`, optional `dimension`, `failure_signature`, and `suggested_lesson`; `reflect` tags the memory as `eval` and uses the first provided signature for `mine-weakness` when `--failure-signature` is omitted.
-- If an eval emits `agenticEval`, use its generated questions as seed prompts for a semantic eval agent. The eval agent may rewrite, add, or drop questions based on the actual intent; these questions guide judgment and should not become a fixed pass/fail checklist.
-- Use `--fix-harness` only for proposed prompt/skill improvements. The proposal still goes through the human-merged harness path below.
-- Do not blindly append every suggested lesson to `SKILL.md`; collapse duplicates, separate promptable failures from missing capability/tooling, and cap update loops before prompt bloat.
+- Prefer `reflect --eval-failure-json '[...]'` when the eval output is structured. Each entry keeps `id`, optional `dimension`, `failure_signature`, and `suggested_lesson`. `reflect` tags the memory as `eval` and uses the first provided signature for `mine-weakness` when `--failure-signature` is omitted.
+- If an eval emits `agenticEval`, use its generated questions as seed prompts for a semantic eval agent.
+  The eval agent may rewrite, add, or drop questions based on intent; they guide judgment, not fixed pass/fail.
 
 ## 1. Validate before you conclude
 
@@ -131,19 +129,17 @@ Before applying any harness change, ask the user with a concrete fix request:
 
 Until approved, keep the proposal in conversation or a proposal-only refinement; do not
 edit files or add/supersede/prune standing harness memories. Use `reflect --fix-harness`
-only when the user asks for or approves durable proposal capture. After approval for
-skill edits, follow `references/harness-apply.md`. One approval covers only the scoped
-change being discussed; never treat it as blanket permission.
+only when the user asks for or approves durable proposal capture. One approval covers only
+the scoped change being discussed; never treat it as blanket permission.
 
 ## Hard NOs
 
-- No **unattended** self-modifying loop. An agent may edit the skill **only** via the
-  gated `harness-apply` path in `references/harness-apply.md` — never silently,
-  never on `main`, never auto-merged.
+- No **unattended** self-modifying loop. An agent may edit the skill **only** after
+  explicit human approval for the scoped change — never silently, never on `main`,
+  never auto-merged.
 - No automatic prompt rewrite from failed binary questions or advisory `agenticEval`
   prompts. They are evidence for `reflect`, `mine-weakness`, and human-reviewed
   harness proposals.
 - No numeric regression-gate infrastructure (held-in/held-out splits + verifier
-  services) — out of scope for a service-free local skill. Capture the conservative
-  spirit by flagging regressions in notes, not by building a benchmark harness.
+  services) — out of scope for a service-free local skill. Flag regressions in notes instead.
 - Failure signatures are for the weakness view only — never the sole recall path.

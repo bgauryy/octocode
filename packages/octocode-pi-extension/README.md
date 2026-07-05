@@ -1,47 +1,54 @@
 # @octocodeai/pi-extension
 
 <div align="center">
-  <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
+<img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
 </div>
 
-Octocode for [Pi](https://github.com/earendil-works/pi): one package that gives the agent native code-research tools, live web search, persistent memory, edit-safety hooks, and bundled skills.
-
-The Octocode CLI is **not bundled**. For CLI workflows (auth, search, clone, cache, install, lsp-server) install separately:
-
-```bash
-npm install -g octocode   # or: npx octocode <command>
-```
+> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 7 bundled skills, and a full operating-model system prompt. One package install.
 
 ```bash
 pi install npm:@octocodeai/pi-extension
 /octocode-status
 ```
 
+The Octocode CLI is **not bundled**. For CLI workflows (auth, search, clone, cache, install, lsp-server):
+
+```bash
+npm install -g octocode   # or: npx octocode <command>
+```
+
 ---
 
-## What happens after install
+## Harness at a glance
 
-When Pi loads the extension, it does four things:
+| Surface | Count |
+|---|---|
+| System prompt (operating model) | 1 block |
+| Native Octocode tools | 14 |
+| Support tools (web, memory, agent) | 15 |
+| Custom edit tool | 1 |
+| Slash commands | 4 |
+| Bundled skills | 7 |
 
-1. **Adds the Octocode operating model to the system prompt.** The prompt tells the agent to research before changing code, verify claims, use memory, protect secrets, manage context, and run the project’s real checks. The prompt block is idempotent — it is appended once, not duplicated.
-2. **Registers native tools.** Code/GitHub/npm/local/LSP/OQL tools execute directly through `@octocodeai/octocode-tools-core`; no MCP server is spawned for these calls.
-3. **Registers support tools.** Web search, context management, handoff, and memory tools are available as Pi tools.
-4. **Registers slash commands.** A lean set of harness commands (`/octocode-status`, `/octocode-harness`, `/octocode-setup`, `/octocode-skills-update`). For CLI workflows use `npx octocode` directly.
+---
 
-During normal use:
+## What loads at install
 
-- Before Pi write/edit tool calls, the awareness bridge claims locks for target files.
-- After the edit tool result, the bridge releases locks and leaves an intent in `PENDING`, meaning verification is still owed.
-- The system prompt tells the agent to run the stated check and clear pending intents. When the awareness stop hook is installed/active, it can block conclusion while `PENDING` intents remain.
-- Memory tool calls go directly into `@octocodeai/octocode-memory` and use a local SQLite DB under Octocode memory home.
-- Skills are bundled from this package and loaded by Pi like normal Agent Skills.
+When Pi loads the extension, four things happen automatically:
 
-What does **not** happen automatically:
+1. **System prompt injected.** The Octocode operating model block is appended to Pi's system prompt — authority model, tool-routing rules, research proof ladder, memory protocol, code discipline, and safety gates. The block is idempotent: appended once, never duplicated.
 
-- No repository is cloned unless the agent/user invokes clone/cache tooling.
+2. **Native tools registered.** 14 Octocode tools (GitHub/local/LSP/npm/binary) execute directly through `@octocodeai/octocode-tools-core`. No MCP server is spawned for these calls.
+
+3. **Support tools registered.** Web search, context management, agent spawning, and 10 typed memory tools are registered as Pi tools.
+
+4. **Slash commands registered.** Four harness commands: `/octocode-status`, `/octocode-harness`, `/octocode-setup`, `/octocode-skills-update`.
+
+**What does NOT happen automatically:**
+- No repo is cloned without explicit agent/user invocation.
 - No destructive command runs without the normal Pi/tool confirmation path.
 - No GitHub token is read from `.env`; tokens use shell env or Octocode auth storage.
-- The Octocode CLI is not bundled in this package. Use `npx octocode` or install it globally: `npm install -g octocode`.
+- The Octocode CLI is not bundled; use `npx octocode` or install globally.
 
 ---
 
@@ -49,117 +56,507 @@ What does **not** happen automatically:
 
 ```bash
 pi install npm:@octocodeai/pi-extension
-/octocode-status        # health: prompt, skills, memory, native tools, web provider
-/octocode-harness       # exact list of registered tools, commands, and skills
+/octocode-status        # health check: prompt, skills, memory, tools, web provider
+/octocode-harness       # exact list of every registered tool, command, and skill
 ```
 
-For a project-specific persistent prompt block:
+Pin the operating model to a project or globally:
 
 ```bash
-/octocode-setup         # writes .pi/APPEND_SYSTEM.md in the current project
+/octocode-setup          # writes .pi/APPEND_SYSTEM.md in the current project
 /octocode-setup --global # writes ~/.pi/agent/APPEND_SYSTEM.md
 ```
 
-Use `/octocode-setup` when you want Octocode’s operating model pinned even if the package is not actively loaded.
+---
+
+## System prompt — operating model
+
+**Source:** `packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md`
+
+The injected system prompt defines eight protocol blocks that govern agent behavior for every session:
+
+| Block | What it enforces |
+|---|---|
+| `<authority>` | Conflict resolution order: safety → correctness → minimal scope. |
+| `<operating_model>` | Work loop: orient → scope → hypothesize → search/prove → act → verify. Request mode classification (answer / diagnose / plan / change / monitor). |
+| `<memory>` | Typed memory dispatch table — when to recall, record, reflect, audit, verify, digest, or forget. |
+| `<tools>` | Tool routing ladder. AST+LSP combined workflow. GitHub discovery/read/clone/history flow. Minify aggressively. |
+| `<research>` | Proof ladder: candidate search → exact read → AST/shape → LSP → independent corroboration → verdict. Confidence levels: confirmed / likely / uncertain. |
+| `<skills>` | Skill dispatch: when each bundled skill applies; how to load SKILL.md before following. |
+| `<code>` | Scope discipline. No stubs, no fake wiring, no fallbacks unless requested. Trace real flow before changing contracts. |
+| `<safety>` | Never log secrets. Validate paths. Ask before destructive actions. Same failure 3× → stop and re-plan. |
 
 ---
 
-## Everyday workflows
+## Native Octocode tools (14)
 
-### Research code
+Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no network hop.
 
-The agent should use native tools first:
+### GitHub tools (6)
 
-- locate files/symbols with local or GitHub search,
-- inspect structure before reading raw files,
-- use LSP semantics when symbols/types matter,
-- use exact file reads only after it has anchors.
+| Tool | Purpose |
+|---|---|
+| `ghSearchCode` | Search code contents or file paths across any GitHub repo. Use `match:"path"` for filenames first; `match:"file"` for content snippets. |
+| `ghSearchRepos` | Discover repos by name, topic, language, stars, forks, or date. `concise:true` for triage. |
+| `ghHistoryResearch` | Research PRs and commit history. List mode + detail mode (prNumber). Patch selection: `patches.mode:"selected"` is cheapest. |
+| `ghGetFileContent` | Read a file or region from any GitHub repo. `minify:"symbols"` first for large/unknown files. |
+| `ghViewRepoStructure` | Browse a repo tree before reading files. Cheaper than content search when path is unknown. |
+| `ghCloneRepo` | Materialize a repo (or sparse subtree) locally for repeated reads, AST, or LSP. Use `sparsePath`. Needs `ENABLE_CLONE`. |
 
-For command-style workflows, use `npx octocode` in a terminal:
+### Local tools (5)
 
-```bash
-npx octocode search "where is auth handled?"
-npx octocode context tools
-npx octocode cache repo owner/name
-npx octocode clone owner/name
-npx octocode lsp-server status
+| Tool | Purpose |
+|---|---|
+| `localSearchCode` | Text, regex, or AST structural search. `mode:"structural"` with `pattern:` or `rule:` for code-shape queries. Returns file+line anchors for LSP escalation. |
+| `localFindFiles` | Find files by name glob, path pattern, regex, size, time, permissions, or type. |
+| `localGetFileContent` | Read a local file or exact region. `matchString` returns slices + matchRanges. `minify:"symbols"` for orientation. |
+| `localViewStructure` | Browse a local directory tree. Cheapest first orientation step — no content loaded. |
+| `localBinaryInspect` | Inspect archives, compressed streams, and binaries. Modes: inspect / list / extract / decompress / strings / unpack. |
+
+### LSP tool (1)
+
+| Tool | Purpose |
+|---|---|
+| `lspGetSemantics` | definitions · references · callers/callees · callHierarchy · hover · documentSymbols · workspaceSymbol · diagnostic · typeDefinition · implementation · supertypes/subtypes. Bundled servers: TS/JS, Python (pyright), Rust (rust-analyzer), C/C++ (clangd), YAML, JSON, HTML, CSS, Shell. |
+
+### Package + archive tools (2)
+
+| Tool | Purpose |
+|---|---|
+| `npmSearch` | Look up npm packages and find their source repos. Exact name → rich result; keyword → paged candidates. |
+| `unzip` | Unpack any archive (.zip, .tar.gz, .jar, .7z, .deb, .dmg) to a local path. Wrapper for `localBinaryInspect mode:"unpack"`. |
+
+---
+
+## Support tools (15)
+
+### Web search (1)
+
+| Tool | Purpose |
+|---|---|
+| `web` | Search the live web (`query`) or fetch clean page text (`url`). Provider order: Tavily → Serper → DuckDuckGo fallback. |
+
+### Context management (2)
+
+| Tool | Purpose |
+|---|---|
+| `compact_context` | Summarize conversation history to free context window space. Auto-triggered at ≥60% full before large tasks. |
+| `clear_context` | Start a fresh unrelated session when Pi exposes session control. Otherwise use `/new` manually. |
+
+### Agent spawning (2)
+
+| Tool | Purpose |
+|---|---|
+| `spawnAgent` | Start a background Pi worker process over RPC. Returns `agentId`. Workers cannot spawn workers. |
+| `AgentMessage` | List, status, send, steer, followUp, wait, or kill spawned workers. |
+
+### Memory tools (10)
+
+All memory is stored in a local SQLite DB under Octocode memory home (`~/.octocode/memory/` by default).
+
+| Tool | Purpose |
+|---|---|
+| `memory_recall` | Recall durable lessons before risky/unfamiliar work. Accepts `query`, `smart:true`, `references`, `regex`, `sort`, `strict_scope`. |
+| `memory_record` | Store a root cause, decision, workaround, or verified gotcha. Attaches `file`/`files`/`folders`/`repo`/`workspace_path` scope. Skips duplicates unless `supersedes` or `allow_similar:true`. |
+| `memory_reflect` | Capture a reusable lesson after non-trivial work. Prefer over `memory_record` when `fix_repo`, `fix_harness`, or `failure_signature` apply — creates refinements and clusters failure patterns. |
+| `memory_workspace_status` | Show active file locks, working agents, and memory store stats for current workspace. |
+| `memory_refine_get` | List open repo-fix refinements. Use after reflections may have left actionable fixes. |
+| `memory_audit_unverified` | List pending edit intents that still need verification. Use after every edit batch. |
+| `memory_verify` | Mark a pending edit intent as verified or failed. Three call forms: `{intent_id}` (single), `{intent_ids:[...]}` (batch array), `{allPending:true}` (clear all pending for this agent in one call). |
+| `memory_digest` | Review, deduplicate, and prune the memory store. `dry_run:true` previews; `export_doc:true` writes markdown report. |
+| `memory_forget` | Delete memories by id, tag, age, or importance ceiling. Always `dry_run:true` first. |
+| `memory_notify` | Post a workspace-scoped message to other agents (kinds: claim / handoff / question / reply / blocker / request / decision / fyi). |
+
+---
+
+## Memory — out of the box
+
+Memory works with zero configuration. A local SQLite database is created on first use at `~/.octocode/memory/` (override with `OCTOCODE_HOME`). No server, no signup, no sync.
+
+### What gets stored
+
+Memory is intentionally selective. The agent only stores things that are reusable across sessions:
+
+| Good to store | Skip |  
+|---|---|
+| Root causes of recurring bugs | Routine status updates |
+| Architectural decisions and their rationale | Raw logs or test output |
+| Verified workarounds | Facts already captured in git/docs |
+| Recurring failure signatures | Secrets or tokens |
+| Security findings | One-off observations |
+
+### Memory labels and default importance
+
+Every memory has a label and an importance score (1–10). The agent picks these automatically, but you can override:
+
+| Label | Default importance | When used |
+|---|---|---|
+| `SECURITY` | 9 | Security findings, auth issues, data exposure |
+| `INCIDENT` | 9 | Production incidents, data loss events |
+| `BUG` | 8 | Confirmed bugs with root cause |
+| `RELEASE` | 8 | Release decisions, publish blockers |
+| `GOTCHA` | 7 | Non-obvious traps, counterintuitive behavior |
+| `IMPROVEMENT` | 7 | Verified performance or quality improvements |
+| `DECISION` | 6 | Architecture and design decisions |
+| `ARCHITECTURE` | 6 | Structural patterns and ownership rules |
+| `FEATURE` · `DOCS` · `CONFIG` · `WORKFLOW` · `REFACTOR` · `API` · `TEST` · `BUILD` · `EXPERIENCE` · `OTHER` | varies | General purpose |
+
+### Core memory loop
+
+```
+Before risky work      →  memory_recall({ query, smart:true })
+After non-trivial work →  memory_reflect({ task, outcome, worked, lesson })
+For a specific finding →  memory_record({ task_context, observation, label, importance })
+After edits            →  memory_audit_unverified
+                           → memory_verify({ allPending: true })          # clear all at once
+                           → memory_verify({ intent_ids: [...] })         # clear a subset
+                           → memory_verify({ intent_id, status })         # single
 ```
 
-### Use live web
+### Scoping — why it matters
 
-The `web` tool searches the web or fetches clean page text. It is for current external information: docs, changelogs, errors, model/provider limits, and news.
+Attach scope so recall is context-aware. Without scope, memories are global. With scope, `memory_recall` surfaces the most relevant lessons first:
 
-Provider order:
+```
+file:         a specific file the memory concerns
+files:        multiple related files
+folders:      a directory subtree
+repo:         owner/repo — repo-wide scope
+workspace_path: absolute path to the workspace root
+```
 
-1. Tavily, if `TAVILY_API_KEY` or `TAVILY_API_TOKEN` is set
-2. Serper, if `SERPER_API_KEY` is set
-3. DuckDuckGo fallback, no key required
+### Multi-agent awareness
 
-### Remember durable lessons
+When multiple agents work in the same workspace, `memory_workspace_status` shows:
+- Which files are currently locked by another agent
+- Active PENDING intents awaiting verification
+- Agent IDs of running workers
 
-The agent has concise typed memory tools: `memory_recall`, `memory_record`, `memory_reflect`, `memory_workspace_status`, `memory_refine_get`, `memory_audit_unverified`, `memory_verify`, and `memory_digest`.
+`memory_notify` lets agents post structured messages to each other (kinds: `claim` / `handoff` / `question` / `reply` / `blocker` / `request` / `decision` / `fyi`).
 
-Each tool has a narrow schema so the agent can pick the right memory action without a `type` discriminator. Memory is intentionally selective: good memories are reusable lessons, root causes, decisions, recurring failure signatures, and verified workarounds. Attach `file`, `files`, `folders`, or repo-wide `repo` / `workspace_path` scope so recall can connect lessons to code, docs, README, AGENTS.md, and architecture files. Bad memories are routine status, raw logs, secrets, test output, or facts already captured by git/docs. `memory_record` checks similar active memories and skips duplicate captures unless the agent passes `supersedes` or explicitly sets `allow_similar:true` for distinct new evidence; `valid_to` plus `memory_digest` marks expired memories stale.
+### Keeping the store clean
 
-### Coordinate long work
+```bash
+# Preview what would be pruned
+memory_digest({ dry_run: true })
 
-The agent can manage context and parallel workers without user babysitting:
+# Export a full markdown report
+memory_digest({ export_doc: true })
+# writes to .octocode/memory-reports/
 
-- `compact_context` summarizes long history when the next phase needs room.
-- `clear_context` starts a fresh unrelated session when Pi exposes session control to the command context; otherwise use `/new` manually.
-- `spawnAgent` starts a background Pi worker process over RPC and returns an `agentId`. Workers cannot spawn other workers; orchestration stays in the parent session.
-- `AgentMessage` lists, checks, messages, waits for, or kills spawned workers.
+# Delete by tag or age
+memory_forget({ tags: ["EXPERIENCE"], before: "2026-01-01", max_importance: 5, dry_run: true })
+```
+
+The `supersedes` field on `memory_record` / `memory_reflect` replaces stale entries instead of accumulating duplicates.
+
+---
+
+## Subagents — out of the box
+
+`spawnAgent` starts a real background Pi process over RPC and returns an `agentId` immediately. The parent session continues while the worker runs independently.
+
+### How it works
+
+```
+spawnAgent({ task, ... })  →  agentId (returned immediately)
+         ↓
+   Pi worker process (isolated, no shared context)
+         ↓
+AgentMessage({ action: "wait", agentId })  →  collect result
+```
+
+Workers run with `OCTOCODE_PI_SUBAGENT=1` in their environment. They are true child processes — not threads, not coroutines.
+
+### Resource modes
+
+| Mode | What the worker loads | When to use |
+|---|---|---|
+| `lean` (default) | No extensions, no skills, no prompt templates | Lightweight tasks, scripting, data processing |
+| `octocode` | This extension only (`@octocodeai/pi-extension`) | Worker needs native tools and memory |
+| `default` | Full Pi discovery (all installed extensions/skills) | Worker needs the full user environment |
+
+### Forbidden worker tools
+
+Workers can **never** call `spawnAgent` or `AgentMessage` — recursive spawning is blocked at the process level. Orchestration always stays in the parent session.
+
+### Worker lifecycle
+
+```
+starting  →  running  →  idle  →  exited
+                    ↘  failed
+                    ↘  killed
+```
+
+### AgentMessage actions
+
+| Action | Use |
+|---|---|
+| `list` | Show all spawned workers and their status |
+| `status` | Check one worker's status, last output, exit code |
+| `send` | Send a follow-up message to a running worker |
+| `steer` | Interrupt and redirect the worker's next turn |
+| `followUp` | Queue a message to deliver after the worker completes its current turn |
+| `wait` | Block until the worker finishes (with optional `timeoutMs`) |
+| `kill` | Terminate a worker process |
+
+### TUI output
+
+Both agent tools have rich TUI rendering:
+
+**Call site** — what you see when the tool fires:
+```
+spawnAgent  auth-researcher — Research the auth token flow · sonnet:high
+AgentMessage  wait  auth-researcher
+AgentMessage  send  auth-researcher — also check the tests
+```
+
+**Result (collapsed):**
+```
+⧗ spawnAgent · auth-researcher · running  · expand for output
+✓ AgentMessage · auth-researcher · exited · expand for output
+✗ AgentMessage · code-scanner · failed    · expand for output
+```
+
+**Result (expanded):** shows `status · elapsed` line then agent's full output, split on real newlines (no JSON-escaped `\n`).
+
+**List action (collapsed):**
+```
+◧ AgentMessage list · 3 agents · 1 running · 2 done · 0 failed
+```
+**List action (expanded):** one line per agent — `name (id[:8]) · status · elapsed — output preview`
+
+**Status bar during `wait`:**
+```
+⧗ Waiting for "auth-researcher"…    ← shown in Pi status bar for the full wait duration
+```
+
+Status icon key: `✓` exited · `✗` failed/killed · `⧗` running · `◎` idle · `○` starting
+
+### Worker prompt discipline
+
+Worker prompts must be **fully self-contained** — workers cannot see the parent conversation. Include:
+
+- **Goal** — what to produce, not how
+- **Non-goals** — what is explicitly out of scope
+- **Constraints** — style, scope, allowed files/commands
+- **Evidence anchors** — specific file paths, line numbers, or facts (never "based on earlier research")
+- **Allowed scope** — which files/packages the worker may touch
+- **Verification** — what the worker should check before reporting done
+- **Stop conditions** — when to stop and report a blocker instead of continuing
+
+### When to spawn vs stay in the parent
+
+| Spawn a worker | Stay in parent |
+|---|---|
+| Large independent task with clear output | Bug fix or refactor that needs shared context |
+| Long-running work (clone, benchmark, eval) | Dependent steps where order matters |
+| Adversarial/coverage check on the parent's work | Small/medium tasks |
+| Truly parallel independent packages or hypotheses | Tasks where worker output feeds the next decision |
+
+### Parallel pattern
+
+```
+// Spawn all independent workers first
+const a = spawnAgent({ task: "audit package A", resourceMode: "octocode" })
+const b = spawnAgent({ task: "audit package B", resourceMode: "octocode" })
+
+// Then collect — do NOT wait one by one before spawning the next
+AgentMessage({ action: "wait", agentId: a.agentId })
+AgentMessage({ action: "wait", agentId: b.agentId })
+
+// Verify before relaying results
+// Treat worker reports as claims until artifacts are confirmed
+```
+
+---
+
+## Custom edit tool
+
+The extension replaces Pi's built-in edit tool with an enhanced version:
+
+| Feature | Description |
+|---|---|
+| Exact current-file matching | `oldText` matched against original file content, not after earlier edits are applied |
+| Batch edits | Multiple `edits[]` replacements in one call, computed before writing |
+| Multi-file queries | `queries[]` for logically-related changes across files, all computed before any file is written |
+| `matchMode:"normalized"` | Opt-in fuzzy matching for whitespace/unicode quote/dash drift |
+| `matchMode:"lineRange"` | Replace by freshly-read line range |
+| Stale-read detection | Detects edits against stale content and surfaces actionable mismatch diagnostics |
+| `replaceAll` | File-wide replacement when intentional |
+| Diff/patch detail in results | Shows exactly what changed |
+
+**Edit safety bridge:** Before every Pi write/edit call, the awareness bridge claims a lock on target files. After the edit result, it releases locks and records a `PENDING` intent. The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear the intent. If the awareness stop hook is installed, it can block conclusion while `PENDING` intents remain.
+
+---
+
+## Bundled skills (7)
+
+### `octocode-research`
+
+> Evidence-first technical research, investigation, planning, review, and code changes.
+
+**Modes:** Map · Validate · Investigate · Plan · Review · Change · Loop
+
+**References:** `octocode.md` · `research-flow.md` · `code-research.md` · `finding-checks.md` · `long-research.md` · `github-landscape.md`
+
+**Output:** Finding/Evidence/Confidence/Next for quick answers; TL;DR/scope/verdict/risks for decision briefs; severity-ranked file:line findings for reviews.
+
+---
+
+### `octocode-brainstorming`
+
+> Validate ideas against evidence before building. Diverge then converge.
+
+**Flow:** FRAME → DIVERGE → RESEARCH → CROSS-POLLINATE → STRESS-TEST → SYNTHESIZE → DECIDE
+
+**Modes:** Generate · Validate · Map
+
+**Hard gates:** Stops and recommends one option when: idea maps to 3+ unrelated spaces; surfaces stay thin after synonym retries; evidence materially conflicts; or delegation would exceed 5 workers.
+
+**Output:** TL;DR / Framings / Evidence by surface / What survived review / Verdict / Risks / Next. Build-ready ideas hand off to `octocode-rfc-generator`.
+
+---
+
+### `octocode-rfc-generator`
+
+> RFCs, architecture proposals, migration plans, and research-backed decisions before coding.
+
+**Flow:** UNDERSTAND → RESEARCH → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS → DERIVE KPIs → VALIDATE → DELIVER
+
+**Output structure:** Three-file folder at `<workspace>/.octocode/rfc/{name}/`:
+
+| File | Role |
+|---|---|
+| `RFC.md` | **Decide** — reviewer-facing; frozen at decision; single source of truth for goals/scope/decision |
+| `IMPLEMENTATION.md` | **Build** — implementer-facing; live; every RFC open question closed with evidence |
+| `KPI.md` | **Verify** — outlives ship date; acceptance criteria + success signals + traceability matrix |
+
+Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and `KPI.md` reference RFC section anchors — never restate them.
+
+---
+
+### `octocode-roast`
+
+> Brutally honest code review with severity-ranked findings and fix paths.
+
+**Severity tiers:** Capital offenses (security/data loss) → Felonies (type abuse/N+1/brittle async) → Crimes (magic numbers/hidden state) → Slop (AI verbosity/duplicates) → Misdemeanors (TODOs/console logs)
+
+**Laws:** Cite or drop it — every finding needs a `file:line`. Punch the code, not the coder. Never output a secret value. Present findings before editing.
+
+**Output:** Top roast / Findings by severity / Autopsy / Redemption paths / Fix checkpoint.
+
+---
+
+### `octocode-prompt-optimizer`
+
+> Improve prompts, SKILL.md files, AGENTS.md, and agent instructions.
+
+**Flow:** READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT (6 gated steps; no gate may be skipped)
+
+**Modes:** Full Path (all gates separate) for multi-section/ambiguous/high-risk; Fast Path (READ+UNDERSTAND and RATE+FIX may combine) for short/low-risk.
+
+**Non-negotiables:** Preserve working logic and intent. Target <10% line increase. VALIDATE is never skipped.
+
+---
+
+### `octocode-skills`
+
+> Find, evaluate, lint, install, and author Agent Skills.
+
+**Flow:** UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → VERIFY
+
+**Hard rules:** Inspect real SKILL.md before recommending. Gate every install/write/overwrite/symlink behind user approval.
+
+**Scripts:** `scripts/skill-lint.mjs` — lint skill structure, routing, scripts, and prompt quality. Runs before any created or edited skill is reported done.
+
+---
+
+### `octocode-stats`
+
+> Octocode usage dashboard: tokens saved, cache hits, tool-call counts, errors.
+
+**Flow:** RESOLVE STATS → RUN BUILDER → REPORT PATH + KEY NUMBERS
+
+**Script:** `scripts/build_dashboard.mjs` — deterministic HTML dashboard from `stats.json`. Flags: `--stats`, `--output`, `--open`, `--no-open`, `--allow-empty`.
+
+**Stats path order:** user `--stats` arg → `${OCTOCODE_HOME}/stats.json` → `~/.octocode/stats.json`
+
+---
+
+## Slash commands (4)
+
+| Command | Purpose |
+|---|---|
+| `/octocode-status` | Extension health check: prompt loaded, skills found, memory home, tools count, web provider. |
+| `/octocode-harness` | List every registered tool, command, and skill with surface counts. |
+| `/octocode-setup` | Install/update the managed `APPEND_SYSTEM.md` block. `--global` writes to `~/.pi/agent/`. |
+| `/octocode-skills-update` | `pi update <source>` for this package + reload Pi resources. Prompts for confirmation. |
 
 ---
 
 ## Configuration
 
-Octocode config is optional. The extension loads Octocode env/config from the shared Octocode config system.
+Octocode config is optional. Config files load in this order:
 
-Common locations:
-
-```bash
+```
 ~/.octocode/.env           # global
-<project>/.octocode/.env   # project-local
+<project>/.octocode/.env   # project-local (trusted projects only)
 ```
 
 Useful keys:
 
 ```bash
-TAVILY_API_KEY=tvly-...    # better web search
-SERPER_API_KEY=...         # Google SERP web search
-OCTOCODE_WEB_USER_AGENT=...# optional web fetch user-agent override
+TAVILY_API_KEY=tvly-...     # best web search quality
+SERPER_API_KEY=...          # Google SERP alternative
+OCTOCODE_WEB_USER_AGENT=... # optional fetch user-agent override
+ENABLE_CLONE=1              # enable ghCloneRepo
+ENABLE_LOCAL=1              # enable local tools (default on)
 ```
 
 GitHub auth:
 
-- Use shell env (`GITHUB_TOKEN`, `GH_TOKEN`, `OCTOCODE_TOKEN`) or Octocode auth commands.
-- Do not put GitHub tokens in `.octocode/.env`; protected keys are not imported from project env files.
-
-CLI auth commands (run in a terminal):
-
 ```bash
-npx octocode auth status
+# Preferred: shell env (not in .env files — protected keys are blocked)
+export GITHUB_TOKEN=ghp_...
+export GH_TOKEN=ghp_...
+
+# Or: Octocode auth storage
 npx octocode login
-npx octocode logout
-npx octocode status
+npx octocode auth status
 ```
 
 Full config docs: [CONFIGURATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION.md) · [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
 
 ---
 
+## Web search provider order
+
+| Priority | Provider | Key required |
+|---|---|---|
+| 1 | Tavily | `TAVILY_API_KEY` or `TAVILY_API_TOKEN` |
+| 2 | Serper | `SERPER_API_KEY` |
+| 3 | DuckDuckGo | No key — automatic fallback |
+
+---
+
 ## Model configuration (`models.json`)
 
-Custom Pi models live in `~/.pi/agent/models.json`. The file hot-reloads when you open `/model`.
+Custom models live in `~/.pi/agent/models.json`. Hot-reloads when you open `/model`.
 
-The important rule:
+**Critical fields:**
 
-> Set `contextWindow` and `maxTokens` to the provider’s real published limits.
+| Field | Effect |
+|---|---|
+| `contextWindow` | Pi context accounting and compaction timing |
+| `maxTokens` | Maximum generated tokens — **set to the provider's real published limit or the model stops mid-answer** |
+| `reasoning` | Enables Pi thinking controls |
+| `input` | Include `"image"` only for vision-capable models |
+| `compat.supportsDeveloperRole` | `false` for servers that reject the OpenAI `developer` role |
+| `compat.supportsReasoningEffort` | `false` for servers that reject `reasoning_effort` |
+| `compat.supportsUsageInStreaming` | `false` for servers that reject streaming usage options |
 
-`contextWindow` controls context warnings and compaction. `maxTokens` is the hard output cap Pi sends to the provider. If `maxTokens` is too low, the model stops mid-answer even when the context window is large.
-
-Minimal OpenAI-compatible provider:
+Minimal example:
 
 ```json
 {
@@ -187,135 +584,64 @@ Minimal OpenAI-compatible provider:
 }
 ```
 
-Fields that matter:
-
-| Field | Effect |
-|---|---|
-| `contextWindow` | Pi context accounting and compaction timing |
-| `maxTokens` | Maximum generated tokens per response |
-| `reasoning` | Enables Pi thinking controls for models that support them |
-| `input` | Include `"image"` only for vision-capable models |
-| `compat.supportsDeveloperRole` | Set `false` for servers that reject the OpenAI `developer` role |
-| `compat.supportsReasoningEffort` | Set `false` for servers that reject `reasoning_effort` |
-| `compat.supportsUsageInStreaming` | Set `false` for servers that reject streaming usage options |
-
-API key forms:
-
-```json
-"apiKey": "$MY_API_KEY"
-"apiKey": "!op read 'op://vault/item/credential'"
-"apiKey": "literal-key-avoid-in-shared-files"
-```
-
-After editing:
-
-```text
-/model            # model appears
-/octocode-status  # extension still loads cleanly
-```
+API key forms: `"$ENV_VAR"` · `"!op read 'op://vault/item/cred'"` · `"literal-key-avoid-in-shared-files"`
 
 Full Pi model docs: [models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)
 
 ---
 
-## Registered surfaces
+## Awareness bridge — edit safety
 
-This section is intentionally explicit. `/octocode-harness` shows the same information from the running extension.
+The awareness bridge runs automatically on every Pi edit/write tool call:
 
-### Native Octocode tools
+1. **Before edit:** Claims a file lock for each target path. Other agents see the lock via `memory_workspace_status`.
+2. **After edit:** Releases locks and records a `PENDING` intent in memory.
+3. **Agent duty:** The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear the intent. Use `{allPending:true}` to clear all pending intents in one call, or `{intent_ids:[...]}` for a subset.
+4. **Stop hook:** When `install-hooks.mjs` is active, Pi's stop hook can block conclusion while any `PENDING` intent remains unverified.
 
-| Tool | Use |
-|---|---|
-| `ghSearchCode` | Search GitHub code |
-| `ghSearchRepos` | Search GitHub repositories |
-| `ghHistoryResearch` | Research GitHub history, PRs, commits, and changes |
-| `ghGetFileContent` | Read GitHub file contents |
-| `ghViewRepoStructure` | Inspect GitHub repository structure |
-| `ghCloneRepo` | Clone/materialize GitHub repos when enabled |
-| `localSearchCode` | Search local code |
-| `localFindFiles` | Find local files |
-| `localGetFileContent` | Read local files |
-| `localViewStructure` | Inspect local directory/repo structure |
-| `lspGetSemantics` | Query language-server semantics |
-| `localBinaryInspect` | Inspect binary/artifact metadata |
-| `npmSearch` | Search npm/package metadata |
-| `unzip` | Unpack archives for local research (routes to localBinaryInspect mode:"unpack") |
+```bash
+node dist/awareness/scripts/install.mjs   # install hooks into current project
+```
 
-### Support tools
+To bypass a stuck hook (misfires only):
 
-| Tool | Use |
-|---|---|
-| `web` | Search live web or fetch clean page text |
-| `compact_context` | Summarize current conversation to free context |
-| `clear_context` | Start a fresh unrelated session when session control is available |
-| `spawnAgent` | Start a background Pi worker process over RPC; recursive worker spawning is disabled |
-| `AgentMessage` | List, check, message, wait for, or kill spawned workers |
-| `memory_recall` | Recall durable lessons before risky, unfamiliar, or long-running work |
-| `memory_record` | Store a durable root cause, decision, workaround, or verified gotcha |
-| `memory_reflect` | Capture a reusable lesson after non-trivial work |
-| `memory_workspace_status` | Show active file locks, working agents, and memory store stats for the current workspace |
-| `memory_refine_get` | List open repo-fix refinements for the current workspace |
-| `memory_audit_unverified` | List pending edit intents that still need verification |
-| `memory_verify` | Mark a pending edit intent as verified or failed |
-| `memory_digest` | Review, deduplicate, and prune the memory store; supports `dry_run` preview and `export_doc` markdown report |
-
-### Slash commands
-
-The extension registers a small set of harness commands. For CLI workflows (auth, search, clone, cache, install, skill, lsp-server, context) use `npx octocode` directly in a terminal.
-
-| Command | Use |
-|---|---|
-| `/octocode-status` | Show extension health: prompt, skills, memory, tools, web |
-| `/octocode-harness` | List every registered surface |
-| `/octocode-setup` | Install/update the managed APPEND_SYSTEM block |
-| `/octocode-skills-update` | Update this Pi package and reload resources |
-
-### Bundled skills
-
-| Skill | Use |
-|---|---|
-| `octocode-research` | Evidence-first investigation, planning, implementation, review, and refactor work |
-| `octocode-brainstorming` | Validate ideas against evidence before building |
-| `octocode-rfc-generator` | Produce RFCs/design docs for risky or cross-package changes |
-| `octocode-roast` | Brutally honest code review with ranked findings |
-| `octocode-prompt-optimizer` | Improve prompts, SKILL.md files, and agent instructions |
-| `octocode-skills` | Find, evaluate, install, or author skills |
-| `octocode-stats` | Inspect Octocode usage stats and savings |
+```bash
+OCTOCODE_NO_VERIFY_GATE=1 pi ...
+```
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Check |
+| Symptom | Fix |
 |---|---|
 | Extension seems inactive | Run `/octocode-status`, then `/octocode-harness`. |
-| Model stops mid-answer | Fix `maxTokens` in `~/.pi/agent/models.json`. |
-| Model missing from `/model` | Check `apiKey`, provider `baseUrl`, and `api` value. |
-| Web search quality is weak | Add `TAVILY_API_KEY` or `SERPER_API_KEY` to Octocode env. |
-| GitHub calls are unauthenticated | Run `npx octocode login` or export `GITHUB_TOKEN`/`GH_TOKEN`/`OCTOCODE_TOKEN`. |
-| Agent keeps using shell for code search | Remind it to prefer native Octocode tools; use `/octocode-harness`. |
-| Verify gate blocks conclusion | Run the stated test plan, then mark the pending intent verified. If no stop hook is installed, pending intents still appear in memory/audit state but may not block the UI. |
+| Model stops mid-answer | Set `maxTokens` to the provider's real published limit in `~/.pi/agent/models.json`. |
+| Model missing from `/model` | Check `apiKey`, `baseUrl`, and `api` value in `models.json`. |
+| Web search is weak or slow | Add `TAVILY_API_KEY` or `SERPER_API_KEY` to Octocode env. |
+| GitHub calls are unauthenticated | Run `npx octocode login` or export `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` in shell env. |
+| Agent uses `grep`/`cat`/`curl` instead of native tools | Run `/octocode-harness`; remind the agent to use native Octocode tools. |
+| Verify gate blocks conclusion | Run the stated verification, then call `memory_verify({ allPending: true })` to clear all in one call (or `{ intent_ids: [...] }` for a subset). If no stop hook is installed, pending intents appear in `memory_audit_unverified` but do not block the UI. |
+| Stuck pending intents from a dead session | Call `memory_audit_unverified({abandon:true})` to dismiss orphaned PENDING intents. |
+| `ghCloneRepo` not available | Set `ENABLE_CLONE=1` in Octocode env. |
+| Local tools not available | Check `ENABLE_LOCAL` — defaults on; set `ENABLE_LOCAL=1` if overridden. |
 
 ---
 
 ## Development notes
 
-Canonical sources:
+Canonical sources (do **not** edit generated copies — build overwrites them):
 
-- System prompt: `packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md`
-- Root skills: `skills/`
-- Package/dist skills are regenerated by `packages/octocode-pi-extension/scripts/build.mjs`
-
-Do not edit generated package skill copies as the source of truth; build will overwrite them.
-
-Useful checks:
+- **System prompt:** `packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md`
+- **Skills source:** `packages/octocode-pi-extension/skills/`
+- **Build script:** `packages/octocode-pi-extension/scripts/build.mjs` (copies skills to `dist/skills/`, injects `octocode-config.mjs` into each skill's `scripts/` dir)
 
 ```bash
 yarn workspace @octocodeai/pi-extension build
-yarn workspace @octocodeai/pi-extension test
+yarn workspace @octocodeai/pi-extension test     # builds first, then runs vitest
 ```
 
-The test suite verifies that this README lists every live tool, command, and bundled skill from the extension harness.
+The test suite verifies that this README lists every live tool, command, and bundled skill registered by the extension harness.
 
 ---
 

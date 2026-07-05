@@ -39,7 +39,12 @@ node <skill_root>/scripts/awareness.mjs tell-memory \
 
 ### Capture packet for other skills
 
-`octocode-research` and `octocode-brainstorming` should finish with at most one compact packet:
+`octocode-research` and `octocode-brainstorming` should finish with at most one compact packet.
+Write one distilled memory from the packet, not one memory per ledger row.
+If nothing durable survived rebuttal, set `doNotCaptureReason` and skip capture entirely.
+
+**Claude (standalone — awareness hooks):** call `tell-memory`, folding `memoryReason` into
+`--task-context` or `--observation`; map `memoryReferences[]` to repeatable `--reference` flags:
 
 ```json
 {
@@ -54,10 +59,21 @@ node <skill_root>/scripts/awareness.mjs tell-memory \
 }
 ```
 
-Write one distilled memory from the packet, not one memory per ledger row. When calling
-`tell-memory`, fold `memoryReason` into `--task-context` or `--observation`; it is a
-capture-packet aid, not a separate stored field. If nothing durable survived, or if
-`memoryReason` cannot be stated, set `doNotCaptureReason` and do not call `tell-memory`.
+**Pi (native tools):** call `memory_record` or `memory_reflect` directly — no intermediate packet needed:
+
+```
+memory_record({
+  task_context: memoryReason,
+  observation: memoryObservation,
+  references: memoryReferences,   // same locators, array field
+  supersedes: ["mem_old"],
+  importance: 7
+})
+// or for lessons with fix_repo / failure_signature:
+memory_reflect({ task, outcome, lesson: memoryObservation, references: memoryReferences })
+```
+
+`memoryReason` is not a DB column in either path; fold it into `task_context` / `--task-context` so future readers know why the row exists.
 
 ### Reference format
 

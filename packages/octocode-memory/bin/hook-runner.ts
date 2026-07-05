@@ -92,7 +92,7 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
       rationale: 'auto: file edit via lifecycle hook',
       testPlan: 'post-edit verification',
       targetFiles: files,
-      ttlMs: 15 * 60_000,
+      ttlMs: 10 * 60_000,
     });
     if (!result.ok) {
       console.error('octocode-awareness: target file is locked by another agent — edit blocked.');

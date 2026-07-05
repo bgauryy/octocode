@@ -8,6 +8,17 @@
  * Compiled to dist/bin/extract-hook-files.js.
  */
 
+const USAGE = `usage: extract-hook-files < hook-payload.json
+
+Reads a hook JSON payload from stdin and prints one deduplicated file path per line.
+Supports Claude tool_input, Pi input/args, and Codex apply_patch command payloads.
+`;
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  process.stdout.write(USAGE);
+  process.exit(0);
+}
+
 let raw = '';
 process.stdin.on('data', (chunk: Buffer | string) => { raw += String(chunk); });
 process.stdin.on('end', () => {

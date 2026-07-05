@@ -2,7 +2,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 const MAX_COMMAND_OUTPUT_CHARS = 12000;
-export const USER_VISIBLE_TOOL_PREVIEW_CHARS = 300;
+// 800 chars gives a meaningful preview in TUI expanded view (~20 lines of 40 chars)
+// while staying well below the 12000-char agent output budget.
+export const USER_VISIBLE_TOOL_PREVIEW_CHARS = 800;
 
 export function splitArgs(input: string): string[] {
   const args: string[] = [];

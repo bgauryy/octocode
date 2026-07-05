@@ -81,6 +81,11 @@ export class LspClientPool<T extends PooledClient> {
     return [...this.entries.values()].map(entry => entry.key);
   }
 
+  has(key: PoolKey): boolean {
+    const k = serializeKey(key);
+    return this.entries.has(k) || this.inflight.has(k);
+  }
+
   private resetIdleTimer(k: string): void {
     const entry = this.entries.get(k);
     if (!entry) return;
@@ -103,7 +108,7 @@ export class LspClientPool<T extends PooledClient> {
   }
 }
 
-function serializeKey(key: PoolKey): string {
+export function serializeKey(key: PoolKey): string {
   return `${key.serverId ?? key.languageId}\u0000${key.workspaceRoot}`;
 }
 

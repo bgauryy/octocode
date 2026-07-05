@@ -93,6 +93,17 @@ describe('reflect', () => {
     expect(result.harness_fix).toBe(false);
   });
 
+  it('stores reflection label and failure signature', () => {
+    const db = freshDb();
+    const result = reflect(db, {
+      task: 't', outcome: 'failed', failureSignature: 'mechanism:test|cause:unit',
+    });
+    const mem = db.prepare('SELECT label, failure_signature FROM agent_memories WHERE memory_id = ?')
+      .get(result.learning_memory_id) as { label: string; failure_signature: string };
+    expect(mem.label).toBe('EXPERIENCE');
+    expect(mem.failure_signature).toBe('mechanism:test|cause:unit');
+  });
+
   it('stores reflection and harness tags', () => {
     const db = freshDb();
     const result = reflect(db, {

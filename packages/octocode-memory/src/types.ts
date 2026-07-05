@@ -117,6 +117,7 @@ export interface InsertMemoryResult {
     repo: string | null;
     ref: string | null;
     file: string | null;
+    failure_signature: string | null;
     novelty_score: number | null;
     similar_memory_ids: string[];
     state: 'ACTIVE';
@@ -138,7 +139,12 @@ export interface GetMemoryParams {
   states?: string[];
   sort?: string;
   globalOnly?: boolean;
+  strictScope?: boolean;
   asOf?: string | null;
+  references?: string[];     // exact provenance filter
+  regex?: string[];           // regex matched against all text fields
+  fileRegex?: string[];       // regex matched against file path
+  files?: string[];           // exact file path filter
 }
 
 export interface GetMemoryResult {
@@ -172,6 +178,7 @@ export interface InsertRefinementResult {
 export interface GetRefinementsParams {
   workspacePath?: string | null;
   repo?: string | null;
+  quality?: RefinementQuality;
   states?: string[];
   limit?: number;
   cwd?: string;
@@ -216,6 +223,8 @@ export interface ReleaseFileLockParams {
   intentId?: string | null;
   targetFiles?: string[];
   status?: IntentStatus;
+  verified?: boolean;          // record that test_plan was actually run
+  verifiedNote?: string;       // what was verified (e.g. 'yarn test: 273 passed')
 }
 
 export interface ReleaseFileLockResult {
@@ -225,6 +234,7 @@ export interface ReleaseFileLockResult {
   locks_released: number;
   intent_ids: string[];
   updated_at: string;
+  unverifiedConclusion?: string;
 }
 
 export interface ReflectParams {
@@ -366,4 +376,220 @@ export interface IntentIdRow {
 export interface RunResult {
   changes: number;
   lastInsertRowid: number | bigint;
+}
+
+// ─── Forget ──────────────────────────────────────────────────────────────────
+
+export interface ForgetMemoryParams {
+  agentId?: string;
+  memoryIds?: string[];
+  tags?: string[];
+  before?: string;           // ISO — delete memories created before this
+  maxImportance?: number;    // safety ceiling — only delete at or below this score
+  dryRun?: boolean;
+  cwd?: string;
+}
+
+export interface ForgetMemoryResult {
+  deleted: number;
+  dry_run?: true;
+  would_delete?: number;
+  memory_ids: string[];
+}
+
+// ─── Real wait-for-lock ───────────────────────────────────────────────────────
+
+export interface WaitForLockParams {
+  agentId?: string;
+  targetFiles?: string[];
+  lockType?: LockType;
+  waitMs?: number;           // max wait time ms (default 60000)
+  retryIntervalMs?: number;  // poll interval ms (default 5000)
+}
+
+export interface WaitForLockResult {
+  ok: true;
+  waited_ms: number;
+  lock_free: boolean;
+  conflicts?: Array<{ file_path: string; agent_id: string; expires_at: string | null }>;
+}
+
+// ─── Enhanced prune-stale ─────────────────────────────────────────────────────
+
+export interface PruneStaleParams {
+  dryRun?: boolean;
+  olderThanMinutes?: number; // treat locks acquired >= N minutes ago as stale (default 20)
+  expiredOnly?: boolean;     // only prune locks past expires_at (ignore age)
+  agentId?: string;
+  targetFiles?: string[];
+}
+
+export interface PruneStaleResult {
+  pruned_locks: number;
+  updated_intents: number;
+  dry_run?: true;
+  would_prune?: number;
+}
+
+// ─── Verify enhancements ─────────────────────────────────────────────────────
+
+export interface MarkVerifiedParams {
+  intentId?: string;         // verify one intent by id
+  agentId?: string;
+  allPending?: boolean;      // verify all pending intents for this agent/workspace
+  workspacePath?: string;    // scope for allPending
+  message?: string;          // what was verified
+  status?: 'SUCCESS' | 'FAILED';
+}
+
+export interface MarkVerifiedResult {
+  ok: boolean;
+  intent_id?: string;
+  intent_ids?: string[];     // when allPending=true
+  status?: string;
+  count?: number;
+  error?: string;
+}
+
+// ─── Audit enhancements ──────────────────────────────────────────────────────
+
+export interface AuditUnverifiedParams {
+  agentId?: string | null;
+  workspacePath?: string;
+  abandon?: boolean;         // dismiss all found PENDING intents as orphaned
+}
+
+// ─── Delete refinement ───────────────────────────────────────────────────────
+
+export interface DeleteRefinementParams {
+  refinementIds: string[];
+  workspacePath?: string;
+  dryRun?: boolean;
+}
+
+export interface DeleteRefinementResult {
+  deleted: number;
+  dry_run?: true;
+  would_delete?: number;
+  refinement_ids: string[];
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+export type NotificationKind =
+  | 'claim' | 'handoff' | 'question' | 'reply'
+  | 'blocker' | 'request' | 'decision' | 'fyi';
+
+export type NotificationStatus = 'open' | 'resolved';
+
+export interface NotificationRecord {
+  notification_id: string;
+  workspace_path: string;
+  repo: string | null;
+  ref: string | null;
+  from_agent: string;
+  to_agent: string | null;
+  kind: NotificationKind;
+  subject: string;
+  body: string | null;
+  files: string[];
+  refs: string[];
+  thread_id: string;
+  in_reply_to: string | null;
+  importance: number;
+  status: NotificationStatus;
+  created_at: string;
+}
+
+export interface InsertNotificationParams {
+  agentId: string;
+  workspacePath?: string | null;
+  repo?: string | null;
+  ref?: string | null;
+  toAgent?: string | null;
+  kind: NotificationKind;
+  subject: string;
+  body?: string | null;
+  files?: string[];
+  refIds?: string[];         // related intent/refinement/memory ids
+  inReplyTo?: string | null; // inherits thread from parent
+  importance?: number;
+  cwd?: string;
+}
+
+export interface InsertNotificationResult {
+  notification_id: string;
+  thread_id: string;
+  workspace_path: string;
+}
+
+export interface GetNotificationsParams {
+  agentId: string;
+  workspacePath?: string | null;
+  repo?: string | null;
+  ref?: string | null;
+  kinds?: NotificationKind[];
+  threadId?: string | null;
+  unreadOnly?: boolean;       // default true
+  markRead?: boolean;         // advance read cursor
+  limit?: number;
+  cwd?: string;
+}
+
+export interface GetNotificationsResult {
+  count: number;
+  notifications: NotificationRecord[];
+  unread_only: boolean;
+}
+
+export interface ResolveNotificationParams {
+  notificationIds?: string[];
+  threadId?: string | null;
+  workspacePath?: string | null;
+  cwd?: string;
+}
+
+export interface ResolveNotificationResult {
+  resolved: number;
+  notification_ids: string[];
+}
+
+export interface PruneNotificationsParams {
+  workspacePath?: string | null;
+  notificationIds?: string[];
+  resolvedOnly?: boolean;
+  olderThanDays?: number;
+  dryRun?: boolean;
+  cwd?: string;
+}
+
+export interface PruneNotificationsResult {
+  deleted: number;
+  dry_run?: true;
+  would_delete?: number;
+  notification_ids: string[];
+}
+
+// ─── Export harness ──────────────────────────────────────────────────────────
+
+export interface ExportHarnessParams {
+  limit?: number;
+  minImportance?: number;
+  workspacePath?: string | null;
+  cwd?: string;
+}
+
+export interface ExportHarnessResult {
+  count: number;
+  markdown: string;
+  memories: Array<{ memory_id: string; label: string; importance: number; observation: string }>;
+}
+
+// ─── Memory references ────────────────────────────────────────────────────────
+
+export interface MemoryReferenceRow {
+  memory_id: string;
+  reference: string;
+  kind: string;
+  ordinal: number;
 }

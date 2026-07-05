@@ -11,6 +11,8 @@ import { homedir, platform } from 'node:os';
 import { parseJsonList } from './helpers.js';
 import type { TableInfoRow, MetaRow, MemoryRow } from './types.js';
 
+const REFERENCES_INDEX_VERSION = '1';
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_DB_NAME = 'awareness.sqlite3';
@@ -151,6 +153,28 @@ export function initDb(db: DatabaseSync): void {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS memory_references (
+      memory_id TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      kind TEXT,
+      ordinal INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (memory_id, reference),
+      FOREIGN KEY(memory_id) REFERENCES agent_memories(memory_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_references_ref ON memory_references(reference);
+    CREATE INDEX IF NOT EXISTS idx_memory_references_kind ON memory_references(kind);
+
+    CREATE TABLE IF NOT EXISTS intent_events (
+      event_id TEXT PRIMARY KEY,
+      intent_id TEXT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(intent_id) REFERENCES agent_intents(intent_id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS awareness_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -179,6 +203,7 @@ export function initDb(db: DatabaseSync): void {
 
   ensureMemoryColumns(db);
   ensureIntentColumns(db);
+  ensureMemoryReferencesVersion(db);
 
   try {
     db.exec(`
@@ -259,6 +284,44 @@ export function ftsTermsForRow(row: Partial<MemoryRow>): string {
     row.workspace_path ?? '', row.repo ?? '', row.ref ?? '',
   ].filter(Boolean).join(' ');
 }
+
+// ─── Memory references ───────────────────────────────────────────────────────────
+
+export function referenceKind(reference: string): string {
+  if (/^https?:\/\//.test(reference)) return 'url';
+  const m = reference.match(/^([a-zA-Z][a-zA-Z0-9_.\-]*):/);
+  return m ? m[1]!.toLowerCase() : 'other';
+}
+
+export function replaceMemoryReferences(db: DatabaseSync, memoryId: string, references: string[]): void {
+  db.prepare('DELETE FROM memory_references WHERE memory_id = ?').run(memoryId);
+  const insert = db.prepare(
+    'INSERT OR REPLACE INTO memory_references(memory_id, reference, kind, ordinal) VALUES (?, ?, ?, ?)'
+  );
+  references.forEach((ref, i) => insert.run(memoryId, ref, referenceKind(ref), i));
+}
+
+function backfillMemoryReferences(db: DatabaseSync): void {
+  const rows = db.prepare('SELECT memory_id, references_json FROM agent_memories').all() as
+    unknown as Array<{ memory_id: string; references_json: string }>;
+  for (const row of rows) {
+    const refs = parseJsonList(row.references_json);
+    if (refs.length > 0) replaceMemoryReferences(db, row.memory_id, refs);
+  }
+}
+
+export function ensureMemoryReferencesVersion(db: DatabaseSync): void {
+  try {
+    const row = db.prepare("SELECT value FROM awareness_meta WHERE key='memory_references_version'").get() as MetaRow | undefined;
+    if (row?.value === REFERENCES_INDEX_VERSION) return;
+    backfillMemoryReferences(db);
+    db.prepare("INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_references_version', ?)").run(REFERENCES_INDEX_VERSION);
+  } catch {
+    // awareness_meta may not exist yet on very old DBs; skip silently
+  }
+}
+
+// ─── FTS ───────────────────────────────────────────────────────────────────
 
 export function rebuildFts(db: DatabaseSync): void {
   db.exec('DELETE FROM memory_fts');

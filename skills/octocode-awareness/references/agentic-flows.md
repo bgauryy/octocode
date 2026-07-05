@@ -1,6 +1,6 @@
 # Agentic Flows
 
-Use this when deciding how to combine Awareness' manual loop, lifecycle hooks, subagent handoffs, reflection, and cleanup. The goal is one operating model: the skill teaches the agent what to do, hooks catch lifecycle moments, and reflection turns outcomes into better future behavior.
+Use this when combining Awareness' manual loop, lifecycle hooks, subagent handoffs, reflection, and cleanup. One operating model is the goal: skill teaches intent, hooks catch lifecycle moments, and reflection improves future behavior.
 
 ## Three flow layers
 
@@ -8,7 +8,7 @@ Use this when deciding how to combine Awareness' manual loop, lifecycle hooks, s
 |-------|---------|------------|--------------------|
 | Skill loop | `get-memory`, `refine-get`, `status`, `pre-flight-intent`, `verify`, `refine-set`, `reflect` | Intentional work: attend, focus, claim, verify, encode, sleep | Automatic enforcement by itself |
 | Hooks | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `SessionEnd` | Lifecycle guardrails: deliver messages, claim files, keep verification visible, capture handoffs | Deciding that the artifact is correct |
-| Agentic loop | `notify`, `reflect --duo`, `--eval-failure-json`, `mine-weakness`, `export-harness`, `harness-apply` | Peer coordination, critique, recurring failure mining, harness improvements | Storing raw private reasoning or unattended self-modification |
+| Agentic loop | `notify`, `reflect --duo`, `--eval-failure-json`, `mine-weakness`, `export-harness` | Peer coordination, critique, recurring failure mining, harness improvements | Storing raw private reasoning or unattended self-modification |
 
 Hooks should make the right behavior harder to forget. They do not replace the agent's judgment, test plan, or explicit verification.
 
@@ -32,7 +32,10 @@ If hooks are active, `PreToolUse` claims and `PostToolUse` releases the live loc
 
 ### Multi-agent or subagent work
 
-Set a stable `OCTOCODE_AGENT_ID` when possible so hook-managed and manual calls share identity. Use parent/child names such as `codex/research-web` when delegating. Default subagents to read-only research or review unless writes are clearly disjoint; keep final write integration single-threaded.
+Set a stable `OCTOCODE_AGENT_ID` when possible so hook-managed and manual calls share identity.
+Use parent/child names such as `codex/research-web` when delegating.
+Default subagents to read-only research or review.
+Integrate final writes in one agent. Split writes only when files are clearly disjoint.
 
 Require a compact subagent evidence receipt before using delegated conclusions:
 
@@ -47,15 +50,29 @@ open questions:
 trace/ref ids:
 ```
 
-Store the receipt with `notify --kind handoff` for live coordination or `refine-set` when the next run must inherit it. Do not store raw transcripts. `SubagentStop` can flag missing verification, but the parent agent still reads the evidence anchors, runs or records the declared verification, and decides what survives.
+Store the receipt with `notify --kind handoff` for live coordination.
+Use `refine-set` when the next run must inherit it.
+Do not store raw transcripts. `SubagentStop` can flag missing verification.
+The parent still checks anchors, records verification, and decides what survives.
 
 ### Harness improvement
 
-Use `reflect --duo` for ambiguous or substantial outcomes. Use `--eval-failure-json` when another skill emits structured failures, then `mine-weakness` to find repeated signatures. Preserve the path `trace -> finding -> eval target -> bounded task`: group repeated failures before changing the harness, and make each proposed fix small enough to verify. Use `export-harness` to preview proposed changes. Apply changes to this skill only through the gated `harness-apply` path with human approval and a dedicated branch.
+Use `reflect --duo` for ambiguous or substantial outcomes.
+Use `--eval-failure-json` when another skill emits structured failures.
+Then run `mine-weakness` to find repeated signatures.
+Preserve the path `trace -> finding -> eval target -> bounded task`.
+Group repeated failures before changing the harness.
+Make each proposed fix small enough to verify.
+Use `export-harness` to preview proposed changes.
+Apply changes only after human approval on a dedicated branch.
 
 ### Sleep cleanup
 
-Sleep runs at end-of-work, session end, subagent handoff, or explicit cleanup. It is not triggered by quiet time alone. Audit first with `status`, `audit-unverified`, `notify-get`, `refine-get`, `forget --dry-run`, and `notify-prune --dry-run`. Then record verification, reflect, mark handoffs done when true, supersede stale memories, prune resolved messages, update corpus docs only for stable reusable knowledge, and release any remaining locks.
+Sleep runs at end-of-work, session end, subagent handoff, or explicit cleanup.
+Sleep is not triggered by quiet time alone.
+Audit first with `status`, `audit-unverified`, `notify-get`, `refine-get`, `forget --dry-run`, and `notify-prune --dry-run`.
+Then record verification, reflect, and mark true handoffs done.
+Supersede stale memories, prune resolved messages, update stable corpus docs, and release locks.
 
 ## Hook leverage
 

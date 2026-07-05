@@ -81,8 +81,11 @@ export async function resolveTokenFull(options?: {
         wasRefreshed: false,
       };
     }
-  } catch {
-    void 0;
+  } catch (err) {
+    // gh-cli is optional — failure is not fatal, but log it so users can debug.
+    process.stderr.write(
+      `[octocode] gh auth token failed: ${err instanceof Error ? err.message : String(err)}\n`
+    );
   }
 
   return null;

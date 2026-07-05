@@ -3,7 +3,7 @@ import {
   getLanguageServerForFile,
   resolveServerForFile,
 } from './config.js';
-import { LspClientPool, type PoolKey } from './lspClientPool.js';
+import { LspClientPool, type PoolKey, serializeKey } from './lspClientPool.js';
 import { manifestInstallHint } from './serverManifest.js';
 import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
 import type { LanguageServerConfig, LspServerSource } from './types.js';
@@ -104,17 +104,18 @@ function readyTimeoutForLanguage(languageId: string): number {
 // happen once in poolKeyForFile (to build the key) and again inside the factory
 // (to create the client). poolKeyForFile deposits the already-resolved config
 // here before calling sharedPool.acquire; the factory reads and clears it.
-// Key format mirrors lspClientPool.ts serializeKey: `${serverId}\u0000${workspaceRoot}`.
+//
+// The deposit is conditional: when sharedPool already has an entry or an
+// inflight promise for this key, acquire() returns the cached client or the
+// existing promise WITHOUT invoking the factory — so depositing again here
+// would never be read or cleared and would leak the entry forever. Key format
+// is the shared serializeKey from lspClientPool.ts.
 const _pendingConfigs = new Map<string, LanguageServerConfig>();
-
-function serializePoolKey(key: PoolKey): string {
-  return `${key.serverId ?? key.languageId}\u0000${key.workspaceRoot}`;
-}
 
 const sharedPool = new LspClientPool<LSPClient>({
   idleTimeoutMs: POOL_IDLE_TIMEOUT_MS,
   factory: async key => {
-    const cacheKey = serializePoolKey(key);
+    const cacheKey = serializeKey(key);
     const serverConfig =
       _pendingConfigs.get(cacheKey) ??
       (await getLanguageServerForFile(synthesizeFilePathForKey(key), key.workspaceRoot));
@@ -238,7 +239,12 @@ async function poolKeyForFile(
     serverId:
       `${serverConfig.command} ${(serverConfig.args ?? []).join(' ')}`.trim(),
   };
-  // Deposit the config so the factory can use it without a second resolution.
-  _pendingConfigs.set(serializePoolKey(key), serverConfig);
+  const serialized = serializeKey(key);
+  // Only deposit when the pool will actually call the factory for this key.
+  // If there's already an entry or inflight, acquire() won't start a new factory
+  // run — so depositing here would permanently leak the entry.
+  if (!sharedPool.has(key)) {
+    _pendingConfigs.set(serialized, serverConfig);
+  }
   return key;
 }

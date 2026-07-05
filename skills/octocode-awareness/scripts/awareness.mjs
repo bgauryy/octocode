@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 // bin/awareness.ts
+import { writeFileSync, mkdirSync as mkdirSync2 } from "node:fs";
+import { dirname as dirname2 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 
 // src/db.ts
@@ -114,6 +116,7 @@ function rowToMemory(row) {
 }
 
 // src/db.ts
+var REFERENCES_INDEX_VERSION = "1";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
 var FTS_INDEX_VERSION = "2";
@@ -236,6 +239,28 @@ function initDb(db2) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS memory_references (
+      memory_id TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      kind TEXT,
+      ordinal INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (memory_id, reference),
+      FOREIGN KEY(memory_id) REFERENCES agent_memories(memory_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_references_ref ON memory_references(reference);
+    CREATE INDEX IF NOT EXISTS idx_memory_references_kind ON memory_references(kind);
+
+    CREATE TABLE IF NOT EXISTS intent_events (
+      event_id TEXT PRIMARY KEY,
+      intent_id TEXT,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(intent_id) REFERENCES agent_intents(intent_id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS awareness_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -263,6 +288,7 @@ function initDb(db2) {
   `);
   ensureMemoryColumns(db2);
   ensureIntentColumns(db2);
+  ensureMemoryReferencesVersion(db2);
   try {
     db2.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
@@ -335,6 +361,34 @@ function ftsTermsForRow(row) {
     row.repo ?? "",
     row.ref ?? ""
   ].filter(Boolean).join(" ");
+}
+function referenceKind(reference) {
+  if (/^https?:\/\//.test(reference)) return "url";
+  const m = reference.match(/^([a-zA-Z][a-zA-Z0-9_.\-]*):/);
+  return m ? m[1].toLowerCase() : "other";
+}
+function replaceMemoryReferences(db2, memoryId, references) {
+  db2.prepare("DELETE FROM memory_references WHERE memory_id = ?").run(memoryId);
+  const insert = db2.prepare(
+    "INSERT OR REPLACE INTO memory_references(memory_id, reference, kind, ordinal) VALUES (?, ?, ?, ?)"
+  );
+  references.forEach((ref, i) => insert.run(memoryId, ref, referenceKind(ref), i));
+}
+function backfillMemoryReferences(db2) {
+  const rows = db2.prepare("SELECT memory_id, references_json FROM agent_memories").all();
+  for (const row of rows) {
+    const refs = parseJsonList(row.references_json);
+    if (refs.length > 0) replaceMemoryReferences(db2, row.memory_id, refs);
+  }
+}
+function ensureMemoryReferencesVersion(db2) {
+  try {
+    const row = db2.prepare("SELECT value FROM awareness_meta WHERE key='memory_references_version'").get();
+    if (row?.value === REFERENCES_INDEX_VERSION) return;
+    backfillMemoryReferences(db2);
+    db2.prepare("INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_references_version', ?)").run(REFERENCES_INDEX_VERSION);
+  } catch {
+  }
 }
 function rebuildFts(db2) {
   db2.exec("DELETE FROM memory_fts");
@@ -584,6 +638,12 @@ function insertMemory(db2, params) {
     validFromVal,
     vt ?? null
   );
+  if (refList.length > 0) {
+    try {
+      replaceMemoryReferences(db2, memoryId, refList);
+    } catch {
+    }
+  }
   if (hasFts(db2)) {
     db2.prepare(
       "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
@@ -628,6 +688,7 @@ function insertMemory(db2, params) {
       repo: scope.repo,
       ref: scope.ref,
       file: memFile,
+      failure_signature: failureSignature ?? null,
       novelty_score: noveltyScore,
       similar_memory_ids: similarMemoryIds,
       state: "ACTIVE",
@@ -650,7 +711,12 @@ function getMemory(db2, params = {}) {
     states: statesRaw,
     sort = "smart",
     globalOnly = false,
-    asOf
+    strictScope = false,
+    asOf,
+    references = [],
+    regex = [],
+    fileRegex = [],
+    files = []
   } = params;
   const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
@@ -669,7 +735,71 @@ function getMemory(db2, params = {}) {
   let scope = workspacePath;
   if (!globalOnly && scope) {
     scope = fillScope({ workspace_path: null }, scope).workspace_path ?? scope;
-    memories = memories.filter((m) => !m.workspace_path || m.workspace_path === scope);
+    if (strictScope) {
+      memories = memories.filter((m) => m.workspace_path === scope);
+    } else {
+      memories = memories.filter((m) => !m.workspace_path || m.workspace_path === scope);
+    }
+  }
+  if (globalOnly) {
+    memories = memories.filter((m) => !m.workspace_path && !m.repo && !m.ref);
+  }
+  if (files.length > 0) {
+    const normFiles = new Set(files.map((f) => normalizeFilePath(f) ?? f));
+    memories = memories.filter((m) => m.file != null && normFiles.has(m.file));
+  }
+  if (references.length > 0) {
+    const refSet = new Set(references);
+    const fromTable = /* @__PURE__ */ new Set();
+    try {
+      for (const ref of references) {
+        const rows = db2.prepare(
+          "SELECT memory_id FROM memory_references WHERE reference = ?"
+        ).all(ref);
+        rows.forEach((r) => fromTable.add(r.memory_id));
+      }
+      if (fromTable.size > 0) {
+        memories = memories.filter((m) => fromTable.has(m.memory_id));
+      } else {
+        memories = memories.filter((m) => (m.references ?? []).some((r) => refSet.has(r)));
+      }
+    } catch {
+      memories = memories.filter((m) => (m.references ?? []).some((r) => refSet.has(r)));
+    }
+  }
+  if (regex.length > 0 || fileRegex.length > 0) {
+    const compileRegex = (pattern) => {
+      try {
+        return new RegExp(pattern);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`invalid regex ${JSON.stringify(pattern)}: ${message}`);
+      }
+    };
+    const compiledRegex = regex.map(compileRegex);
+    const compiledFileRegex = fileRegex.map(compileRegex);
+    memories = memories.filter((m) => {
+      if (compiledFileRegex.length > 0) {
+        const fv = m.file ?? "";
+        if (!compiledFileRegex.every((re) => re.test(fv))) return false;
+      }
+      if (compiledRegex.length > 0) {
+        const haystack = [
+          m.task_context,
+          m.observation,
+          ...m.tags ?? [],
+          ...m.references ?? [],
+          m.label,
+          m.workspace_path,
+          m.repo,
+          m.ref,
+          m.file,
+          m.failure_signature
+        ].filter(Boolean).join(" ");
+        if (!compiledRegex.every((re) => re.test(haystack))) return false;
+      }
+      return true;
+    });
   }
   if (asOf) {
     const asOfDate = new Date(asOf);
@@ -679,7 +809,15 @@ function getMemory(db2, params = {}) {
       return (!vf || vf <= asOfDate) && (!vt || vt > asOfDate);
     });
   }
-  memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  if (sort === "importance") {
+    memories.sort((a, b) => b.importance_score - a.importance_score || (b.score ?? 0) - (a.score ?? 0));
+  } else if (sort === "recent") {
+    memories.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  } else if (sort === "accessed") {
+    memories.sort((a, b) => (b.last_accessed_at ?? b.created_at ?? "").localeCompare(a.last_accessed_at ?? a.created_at ?? ""));
+  } else {
+    memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  }
   memories = memories.slice(0, limit);
   bumpAccess(db2, memories.map((m) => m.memory_id));
   return {
@@ -691,6 +829,50 @@ function getMemory(db2, params = {}) {
     global_only: Boolean(globalOnly),
     states
   };
+}
+function forgetMemory(db2, params) {
+  const { memoryIds = [], tags = [], before, maxImportance, dryRun = false } = params;
+  const conditions = [];
+  const bindParams = [];
+  if (memoryIds.length > 0) {
+    conditions.push(`memory_id IN (${memoryIds.map(() => "?").join(",")})`);
+    bindParams.push(...memoryIds);
+  }
+  if (tags.length > 0) {
+    conditions.push(`(${tags.map(() => "tags_text LIKE ?").join(" OR ")})`);
+    bindParams.push(...tags.map((t) => `%,${t},%`));
+  }
+  if (before) {
+    conditions.push("created_at < ?");
+    bindParams.push(before);
+  }
+  if (maxImportance != null) {
+    conditions.push("importance_score <= ?");
+    bindParams.push(maxImportance);
+  }
+  if (conditions.length === 0) {
+    throw new Error("forgetMemory requires at least one filter: memoryIds, tags, before, or maxImportance");
+  }
+  const where = conditions.join(" AND ");
+  const rows = db2.prepare(
+    `SELECT memory_id FROM agent_memories WHERE ${where}`
+  ).all(...bindParams);
+  const ids = rows.map((r) => r.memory_id);
+  if (dryRun) {
+    return { deleted: 0, dry_run: true, would_delete: ids.length, memory_ids: ids };
+  }
+  if (ids.length > 0) {
+    const ph = ids.map(() => "?").join(",");
+    db2.prepare(`DELETE FROM agent_memories WHERE memory_id IN (${ph})`).run(...ids);
+    if (hasFts(db2)) {
+      db2.prepare(`DELETE FROM memory_fts WHERE memory_id IN (${ph})`).run(...ids);
+    }
+    try {
+      db2.prepare(`DELETE FROM memory_references WHERE memory_id IN (${ph})`).run(...ids);
+    } catch {
+    }
+  }
+  return { deleted: ids.length, memory_ids: ids };
 }
 function mineWeakness(db2, params = {}) {
   const { minCount = 2, limit = 20, cwd } = params;
@@ -804,6 +986,7 @@ function getRefinements(db2, params = {}) {
   const {
     workspacePath,
     repo: repoArg,
+    quality,
     states: statesRaw,
     limit: limitRaw = 10,
     cwd
@@ -817,6 +1000,10 @@ function getRefinements(db2, params = {}) {
   const queryParams = [...states];
   const stateFilter = `state IN (${states.map(() => "?").join(",")})`;
   let sql = `SELECT * FROM refinements WHERE ${stateFilter}`;
+  if (quality) {
+    sql += " AND quality = ?";
+    queryParams.push(quality);
+  }
   if (scope.repo) {
     sql += " AND (repo = ? OR repo IS NULL)";
     queryParams.push(scope.repo);
@@ -842,6 +1029,31 @@ function getRefinements(db2, params = {}) {
     updated_at: r.updated_at
   }));
   return { count: refinements.length, refinements };
+}
+function deleteRefinement(db2, params) {
+  const { refinementIds, workspacePath, dryRun = false } = params;
+  if (refinementIds.length === 0) {
+    return { deleted: 0, refinement_ids: [] };
+  }
+  const ph = refinementIds.map(() => "?").join(",");
+  const where = [`refinement_id IN (${ph})`];
+  const binds = [...refinementIds];
+  if (workspacePath) {
+    where.push("(workspace_path = ? OR workspace_path IS NULL)");
+    binds.push(workspacePath);
+  }
+  const rows = db2.prepare(
+    `SELECT refinement_id FROM refinements WHERE ${where.join(" AND ")}`
+  ).all(...binds);
+  const ids = rows.map((r) => r.refinement_id);
+  if (dryRun) {
+    return { deleted: 0, dry_run: true, would_delete: ids.length, refinement_ids: ids };
+  }
+  if (ids.length > 0) {
+    const delPh = ids.map(() => "?").join(",");
+    db2.prepare(`DELETE FROM refinements WHERE refinement_id IN (${delPh})`).run(...ids);
+  }
+  return { deleted: ids.length, refinement_ids: ids };
 }
 
 // src/intents.ts
@@ -892,7 +1104,7 @@ function preFlightIntent(db2, params) {
       (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
   `).run(intentId, agentId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
-  const expiresAt = ttlMs ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
+  const expiresAt = ttlMs != null ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
   const acquiredLocks = [];
   for (const absPath of absFiles) {
     const lockId = "lock_" + randomUUID3().replace(/-/g, "");
@@ -929,8 +1141,12 @@ function releaseFileLock(db2, params) {
     agentId = "agent",
     intentId = null,
     targetFiles = [],
-    status: statusArg = "SUCCESS"
+    status: statusArg = "SUCCESS",
+    verified = false,
+    verifiedNote
   } = params;
+  const requestedSuccessWithoutVerification = statusArg === "SUCCESS" && !verified;
+  const effectiveStatus = verified ? "SUCCESS" : requestedSuccessWithoutVerification ? "PENDING" : statusArg;
   const now = utcNow();
   const whereClauses = ["fl.agent_id = ?"];
   const whereParams = [agentId];
@@ -959,16 +1175,26 @@ function releaseFileLock(db2, params) {
     if (!remaining) {
       db2.prepare(
         "UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?"
-      ).run(statusArg, now, iid, agentId);
+      ).run(effectiveStatus, now, iid, agentId);
+      if (verified && verifiedNote) {
+        try {
+          db2.prepare(
+            `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+             VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
+          ).run("evt_" + randomUUID3().replace(/-/g, ""), iid, agentId, verifiedNote, now);
+        } catch {
+        }
+      }
     }
   }
   return {
     agent_id: agentId,
-    status: statusArg,
+    status: effectiveStatus,
     released: locks.length > 0 || Boolean(intentId),
     locks_released: locks.length,
     intent_ids: intentIds,
-    updated_at: now
+    updated_at: now,
+    ...requestedSuccessWithoutVerification ? { unverifiedConclusion: "SUCCESS requested without --verified; stored as PENDING until verify records the test result." } : {}
   };
 }
 
@@ -1066,8 +1292,30 @@ function reflect(db2, params) {
 }
 
 // src/stubs.ts
-function pruneStale(db2, _params = {}) {
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { randomUUID as randomUUID4 } from "node:crypto";
+function pruneStale(db2, params = {}) {
+  const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const now = utcNow();
+  const ageCutoff = olderThanMinutes != null ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
+  if (dryRun) {
+    let count = 0;
+    try {
+      const row = db2.prepare(
+        `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
+      ).get(now);
+      count += row.c;
+      if (ageCutoff) {
+        const row2 = db2.prepare(
+          `SELECT COUNT(*) AS c FROM file_locks WHERE acquired_at < ? AND (expires_at IS NULL OR expires_at >= ?)`
+        ).get(ageCutoff, now);
+        count += row2.c;
+      }
+    } catch {
+    }
+    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: count };
+  }
   const expiredLocks = db2.prepare(`
     SELECT fl.lock_id, fl.intent_id
     FROM file_locks fl
@@ -1179,13 +1427,145 @@ function notifyGet(db2, params = {}) {
   }
   return result;
 }
-function sessionCapture(_db, _params = {}) {
-  process.stderr.write("[stub] session-capture: not yet implemented; skipping\n");
-  return { ok: true, captured: false };
+function gitDirtyFiles(workspacePath) {
+  if (!workspacePath) return [];
+  try {
+    const result = spawnSync2("git", ["-C", workspacePath, "status", "--short"], {
+      encoding: "utf8",
+      timeout: 5e3
+    });
+    if (result.status !== 0) return [];
+    return String(result.stdout).split("\n").map((line) => line.trim()).filter(Boolean).map((line) => line.slice(3).trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
-function waitForLock(_db, _params = {}) {
-  process.stderr.write("[stub] wait-for-lock: not yet implemented; returning immediately\n");
-  return { ok: true, waited_ms: 0, lock_free: true };
+function sessionCapture(db2, params = {}) {
+  const agentId = String(params.agent_id ?? params.agentId ?? "agent");
+  const reason = params.reason ? String(params.reason) : null;
+  const scope = fillScope(
+    {
+      workspace_path: params.workspace ?? params.workspace_path ?? params.workspacePath,
+      repo: params.repo ?? null,
+      ref: params.ref ?? null
+    },
+    params.cwd ?? process.cwd()
+  );
+  const workspacePath = scope.workspace_path ?? process.cwd();
+  const intentRows = db2.prepare(
+    `SELECT intent_id, rationale, test_plan, status, files_json, created_at, updated_at
+     FROM agent_intents
+     WHERE agent_id = ?
+       AND status IN ('ACTIVE', 'PENDING')
+       AND (workspace_path = ? OR workspace_path IS NULL)
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT 20`
+  ).all(agentId, workspacePath);
+  const files = [...new Set(intentRows.flatMap((row) => parseJsonList(row.files_json)))];
+  const dirtyFiles = gitDirtyFiles(workspacePath);
+  const activeIntents = intentRows.filter((row) => row.status === "ACTIVE").length;
+  const pendingIntents = intentRows.filter((row) => row.status === "PENDING").length;
+  if (intentRows.length === 0 && dirtyFiles.length === 0) {
+    return {
+      ok: true,
+      captured: false,
+      refinement_id: null,
+      pending_intents: 0,
+      active_intents: 0,
+      files: [],
+      dirty_files: [],
+      reason
+    };
+  }
+  const now = utcNow();
+  const refinementId = "ref_" + randomUUID4().replace(/-/g, "");
+  const capturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
+  const statusSummary = intentRows.map((row) => {
+    const rowFiles = parseJsonList(row.files_json);
+    const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(", ")}` : "";
+    return `${row.status} ${row.intent_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+  });
+  const reasoning = [
+    `Session capture for ${agentId}${reason ? ` (${reason})` : ""}.`,
+    `Unresolved intents: ${intentRows.length} (${activeIntents} active, ${pendingIntents} pending).`,
+    dirtyFiles.length > 0 ? `Dirty files: ${dirtyFiles.join(", ")}.` : null,
+    statusSummary.length > 0 ? `Intent details: ${statusSummary.join(" | ")}` : null
+  ].filter(Boolean).join(" ");
+  const remember = [
+    `Review session handoff for ${agentId}: ${activeIntents} active and ${pendingIntents} pending intents remain.`,
+    capturedFiles.length > 0 ? `Touched files: ${capturedFiles.join(", ")}.` : null,
+    dirtyFiles.length > 0 ? "Check dirty git state before continuing." : null,
+    pendingIntents > 0 ? "Run the recorded verification before claiming completion." : null
+  ].filter(Boolean).join(" ");
+  db2.prepare(
+    `INSERT INTO refinements (
+       refinement_id, agent_id, workspace_path, repo, ref,
+       files_json, reasoning, remember, quality, state, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bad', 'open', ?, ?)`
+  ).run(
+    refinementId,
+    agentId,
+    workspacePath,
+    scope.repo,
+    scope.ref,
+    JSON.stringify(capturedFiles),
+    reasoning,
+    remember,
+    now,
+    now
+  );
+  return {
+    ok: true,
+    captured: true,
+    refinement_id: refinementId,
+    pending_intents: pendingIntents,
+    active_intents: activeIntents,
+    files: capturedFiles,
+    dirty_files: dirtyFiles,
+    reason
+  };
+}
+function waitForLock(db2, params = {}) {
+  const targetFiles = Array.isArray(params.target_files) ? params.target_files : Array.isArray(params.targetFiles) ? params.targetFiles : [];
+  const agentId = params.agent_id ?? params.agentId ?? "agent";
+  const waitMs = Number(params.wait_ms ?? params.waitMs ?? 6e4);
+  const retryMs = Number(params.retry_interval_ms ?? params.retryIntervalMs ?? 5e3);
+  const start = Date.now();
+  if (targetFiles.length === 0) {
+    return { ok: true, waited_ms: 0, lock_free: true };
+  }
+  const checkLocks = () => {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const ph = targetFiles.map(() => "?").join(",");
+    const locks = db2.prepare(
+      `SELECT fl.file_path, ai.agent_id, fl.expires_at
+       FROM file_locks fl
+       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+       WHERE fl.file_path IN (${ph})
+         AND ai.agent_id <> ?
+         AND ai.status = 'ACTIVE'
+         AND fl.lock_type = 'EXCLUSIVE'
+         AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
+    ).all(...targetFiles, agentId, now);
+    return locks;
+  };
+  let conflicts = checkLocks();
+  const waited = () => Date.now() - start;
+  while (conflicts.length > 0 && waited() < waitMs) {
+    const buf = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(buf, 0, 0, Math.min(retryMs, waitMs - waited()));
+    conflicts = checkLocks();
+  }
+  const elapsed = waited();
+  if (conflicts.length === 0) {
+    return { ok: true, waited_ms: elapsed, lock_free: true };
+  }
+  return {
+    ok: true,
+    waited_ms: elapsed,
+    lock_free: false,
+    conflicts: conflicts.map((c) => ({ file_path: c.file_path, agent_id: c.agent_id, expires_at: c.expires_at }))
+  };
 }
 function digest(db2, params = {}) {
   const retentionDays = Number(params.retention_days ?? 90);
@@ -1241,8 +1621,356 @@ function digest(db2, params = {}) {
     schema_version: 1
   };
 }
+function getWorkspaceStatus(db2, params = {}) {
+  const now = utcNow();
+  const wsPath = params.workspace_path ?? null;
+  db2.prepare(
+    "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?"
+  ).run(now);
+  const activeMemories = db2.prepare(
+    `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'ACTIVE'`
+  ).get().c;
+  const pendingIntents = db2.prepare(
+    `SELECT COUNT(*) AS c FROM agent_intents WHERE status = 'PENDING'`
+  ).get().c;
+  const activeIntents = db2.prepare(
+    `SELECT COUNT(*) AS c FROM agent_intents WHERE status = 'ACTIVE'`
+  ).get().c;
+  const refConds = ["state IN ('open','ongoing')"];
+  const refParams = [];
+  if (wsPath) {
+    refConds.push("(workspace_path = ? OR workspace_path IS NULL)");
+    refParams.push(wsPath);
+  }
+  const openRefinements = db2.prepare(
+    `SELECT COUNT(*) AS c FROM refinements WHERE ${refConds.join(" AND ")}`
+  ).get(...refParams).c;
+  const locks = db2.prepare(
+    `SELECT fl.file_path, ai.agent_id, fl.lock_type, fl.acquired_at, fl.expires_at
+     FROM file_locks fl
+     JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+     ORDER BY fl.acquired_at DESC
+     LIMIT 50`
+  ).all();
+  return {
+    ok: true,
+    active_memories: activeMemories,
+    pending_intents: pendingIntents,
+    active_intents: activeIntents,
+    open_refinements: openRefinements,
+    locks,
+    schema_version: 1
+  };
+}
+function exportMemoryDoc(db2, params = {}) {
+  const wsPath = params.workspace_path ?? null;
+  const now = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const conds = ["state = 'ACTIVE'"];
+  const bindParams = [];
+  if (wsPath) {
+    conds.push("(workspace_path = ? OR workspace_path IS NULL)");
+    bindParams.push(wsPath);
+  }
+  const rows = db2.prepare(
+    `SELECT memory_id, label, importance_score, task_context, observation,
+            tags_json, references_json, file, repo, ref, failure_signature, created_at
+     FROM agent_memories
+     WHERE ${conds.join(" AND ")}
+     ORDER BY importance_score DESC, created_at DESC`
+  ).all(...bindParams);
+  const byLabel = {};
+  for (const row of rows) {
+    const label = row.label ?? "OTHER";
+    (byLabel[label] ??= []).push(row);
+  }
+  const lines = [
+    `# Memory Store Report \u2014 ${now}`,
+    "",
+    `**Total active memories:** ${rows.length}`,
+    `**By label:** ${Object.entries(byLabel).map(([l, ms]) => `${l}(${ms.length})`).join(", ")}`,
+    ""
+  ];
+  for (const [label, mems] of Object.entries(byLabel)) {
+    lines.push(`## ${label}`, "");
+    for (const m of mems) {
+      const tags = (() => {
+        try {
+          return JSON.parse(m.tags_json);
+        } catch {
+          return [];
+        }
+      })();
+      const refs = (() => {
+        try {
+          return JSON.parse(m.references_json);
+        } catch {
+          return [];
+        }
+      })();
+      lines.push(
+        `### \`${m.memory_id}\` \u2014 importance ${m.importance_score}`,
+        `**Context:** ${m.task_context}`,
+        `**Observation:** ${m.observation}`
+      );
+      if (tags.length) lines.push(`**Tags:** ${tags.join(", ")}`);
+      if (m.failure_signature) lines.push(`**Failure signature:** ${m.failure_signature}`);
+      if (m.file) lines.push(`**File:** ${m.file}`);
+      if (m.repo) lines.push(`**Repo:** ${m.repo}${m.ref ? ` @ ${m.ref}` : ""}`);
+      if (refs.length) lines.push(`**References:** ${refs.join(", ")}`);
+      lines.push(`**Created:** ${m.created_at.slice(0, 10)}`, "");
+    }
+  }
+  return lines.join("\n");
+}
+function exportHarness(db2, params = {}) {
+  const limit = Number(params.limit ?? 10);
+  const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
+  const wsPath = params.workspace_path ?? null;
+  const conds = ["state = 'ACTIVE'", "importance_score >= ?"];
+  const bindParams = [minImportance];
+  if (wsPath) {
+    conds.push("(workspace_path = ? OR workspace_path IS NULL)");
+    bindParams.push(wsPath);
+  }
+  const rows = db2.prepare(
+    `SELECT memory_id, label, importance_score, observation
+     FROM agent_memories
+     WHERE ${conds.join(" AND ")}
+     ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+     LIMIT ?`
+  ).all(...bindParams, limit);
+  const memories = rows.map((r) => ({
+    memory_id: r.memory_id,
+    label: r.label,
+    importance: r.importance_score,
+    observation: r.observation
+  }));
+  if (memories.length === 0) {
+    return { count: 0, markdown: "<!-- No high-importance memories to export -->", memories: [] };
+  }
+  const lines = [
+    "## Agent lessons (auto-generated by octocode-awareness export-harness)",
+    "",
+    "<!-- Do not edit manually. Re-run `awareness export-harness` to refresh. -->",
+    ""
+  ];
+  for (const m of memories) {
+    lines.push(`- **[${m.label}:${m.importance}]** ${m.observation}`);
+  }
+  lines.push("");
+  return { count: memories.length, markdown: lines.join("\n"), memories };
+}
+
+// src/notifications.ts
+import { randomUUID as randomUUID5 } from "node:crypto";
+function rowToNotification(r) {
+  return {
+    notification_id: r.notification_id,
+    workspace_path: r.workspace_path,
+    repo: r.repo,
+    ref: r.ref,
+    from_agent: r.from_agent,
+    to_agent: r.to_agent,
+    kind: r.kind,
+    subject: r.subject,
+    body: r.body,
+    files: (() => {
+      try {
+        return JSON.parse(r.files_json);
+      } catch {
+        return [];
+      }
+    })(),
+    refs: (() => {
+      try {
+        return JSON.parse(r.refs_json);
+      } catch {
+        return [];
+      }
+    })(),
+    thread_id: r.thread_id,
+    in_reply_to: r.in_reply_to,
+    importance: r.importance,
+    status: r.status,
+    created_at: r.created_at
+  };
+}
+function insertNotification(db2, params) {
+  const {
+    agentId,
+    toAgent = null,
+    kind,
+    subject,
+    body = null,
+    files = [],
+    refIds = [],
+    inReplyTo = null,
+    importance = 5,
+    cwd
+  } = params;
+  const scope = fillScope(
+    { workspace_path: params.workspacePath ?? null, repo: params.repo ?? null, ref: params.ref ?? null },
+    cwd ?? process.cwd()
+  );
+  const notificationId = "ntf_" + randomUUID5().replace(/-/g, "");
+  const createdAt = utcNow();
+  const wsPath = scope.workspace_path ?? process.cwd();
+  let threadId;
+  if (inReplyTo) {
+    const parent = db2.prepare(
+      "SELECT thread_id FROM notifications WHERE notification_id = ?"
+    ).get(inReplyTo);
+    threadId = parent?.thread_id ?? notificationId;
+  } else {
+    threadId = notificationId;
+  }
+  db2.prepare(
+    `INSERT INTO notifications
+     (notification_id, workspace_path, repo, ref, from_agent, to_agent, kind, subject, body,
+      files_json, refs_json, thread_id, in_reply_to, importance, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+  ).run(
+    notificationId,
+    wsPath,
+    scope.repo,
+    scope.ref,
+    agentId,
+    toAgent,
+    kind,
+    subject,
+    body,
+    JSON.stringify(files),
+    JSON.stringify(refIds),
+    threadId,
+    inReplyTo,
+    importance,
+    createdAt
+  );
+  return { notification_id: notificationId, thread_id: threadId, workspace_path: wsPath };
+}
+function getNotifications(db2, params) {
+  const {
+    agentId,
+    kinds = [],
+    threadId = null,
+    unreadOnly = true,
+    markRead = false,
+    limit = 20,
+    cwd
+  } = params;
+  const scope = fillScope(
+    { workspace_path: params.workspacePath ?? null, repo: params.repo ?? null, ref: params.ref ?? null },
+    cwd ?? process.cwd()
+  );
+  const where = [];
+  const binds = [];
+  if (scope.workspace_path) {
+    where.push("(n.workspace_path = ? OR n.workspace_path IS NULL)");
+    binds.push(scope.workspace_path);
+  }
+  if (threadId) {
+    where.push("n.thread_id = ?");
+    binds.push(threadId);
+  } else {
+    where.push("(n.to_agent IS NULL OR n.to_agent = ?)");
+    binds.push(agentId);
+    if (unreadOnly) {
+      where.push("n.status = 'open'");
+      where.push(
+        `NOT EXISTS (SELECT 1 FROM notification_reads nr WHERE nr.notification_id = n.notification_id AND nr.agent_id = ?)`
+      );
+      binds.push(agentId);
+    }
+  }
+  if (kinds.length > 0) {
+    where.push(`n.kind IN (${kinds.map(() => "?").join(",")})`);
+    binds.push(...kinds);
+  }
+  const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  const sql = `
+    SELECT n.* FROM notifications n
+    ${whereClause}
+    ORDER BY n.created_at DESC
+    LIMIT ?
+  `;
+  const rows = db2.prepare(sql).all(...binds, limit);
+  const notifications = rows.map(rowToNotification);
+  if (markRead && notifications.length > 0) {
+    const now = utcNow();
+    const insertRead = db2.prepare(
+      "INSERT OR IGNORE INTO notification_reads(notification_id, agent_id, read_at) VALUES (?, ?, ?)"
+    );
+    for (const n of notifications) {
+      insertRead.run(n.notification_id, agentId, now);
+    }
+  }
+  return { count: notifications.length, notifications, unread_only: unreadOnly };
+}
+function resolveNotification(db2, params) {
+  const { notificationIds = [], threadId = null } = params;
+  const resolved = [];
+  const now = utcNow();
+  if (notificationIds.length > 0) {
+    const ph = notificationIds.map(() => "?").join(",");
+    const rows = db2.prepare(
+      `UPDATE notifications SET status = 'resolved' WHERE notification_id IN (${ph}) AND status = 'open' RETURNING notification_id`
+    ).all(...notificationIds);
+    resolved.push(...rows.map((r) => r.notification_id));
+  }
+  if (threadId) {
+    const rows = db2.prepare(
+      `UPDATE notifications SET status = 'resolved' WHERE thread_id = ? AND status = 'open' RETURNING notification_id`
+    ).all(threadId);
+    resolved.push(...rows.map((r) => r.notification_id));
+  }
+  void now;
+  return { resolved: resolved.length, notification_ids: [...new Set(resolved)] };
+}
+function pruneNotifications(db2, params) {
+  const { notificationIds = [], resolvedOnly = false, olderThanDays, dryRun = false, cwd } = params;
+  const scope = fillScope(
+    { workspace_path: params.workspacePath ?? null, repo: null, ref: null },
+    cwd ?? process.cwd()
+  );
+  const where = [];
+  const binds = [];
+  if (notificationIds.length > 0) {
+    where.push(`notification_id IN (${notificationIds.map(() => "?").join(",")})`);
+    binds.push(...notificationIds);
+  }
+  if (resolvedOnly) {
+    where.push("status = 'resolved'");
+  }
+  if (olderThanDays != null) {
+    const cutoff = new Date(Date.now() - olderThanDays * 864e5).toISOString();
+    where.push("created_at < ?");
+    binds.push(cutoff);
+  }
+  if (scope.workspace_path && notificationIds.length === 0) {
+    where.push("(workspace_path = ? OR workspace_path IS NULL)");
+    binds.push(scope.workspace_path);
+  }
+  if (where.length === 0) {
+    return { deleted: 0, notification_ids: [] };
+  }
+  const whereClause = where.join(" AND ");
+  const rows = db2.prepare(
+    `SELECT notification_id FROM notifications WHERE ${whereClause}`
+  ).all(...binds);
+  const ids = rows.map((r) => r.notification_id);
+  if (dryRun) {
+    return { deleted: 0, dry_run: true, would_delete: ids.length, notification_ids: ids };
+  }
+  if (ids.length > 0) {
+    const ph = ids.map(() => "?").join(",");
+    db2.prepare(`DELETE FROM notifications WHERE notification_id IN (${ph})`).run(...ids);
+    db2.prepare(`DELETE FROM notification_reads WHERE notification_id IN (${ph})`).run(...ids);
+  }
+  return { deleted: ids.length, notification_ids: ids };
+}
 
 // src/verify.ts
+import { randomUUID as randomUUID6 } from "node:crypto";
 var VALID_VERIFY_STATUSES = /* @__PURE__ */ new Set(["SUCCESS", "FAILED"]);
 function auditUnverified(db2, params = {}) {
   const where = ["status = 'PENDING'"];
@@ -1271,13 +1999,58 @@ function auditUnverified(db2, params = {}) {
     workspace_path: r.workspace_path,
     created_at: r.created_at
   }));
+  if (params.abandon && unverified.length > 0) {
+    const now = utcNow();
+    for (const intent of unverified) {
+      db2.prepare(
+        "UPDATE agent_intents SET status = 'FAILED', updated_at = ? WHERE intent_id = ? AND status = 'PENDING'"
+      ).run(now, intent.intent_id);
+      try {
+        db2.prepare(
+          `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+           VALUES (?, ?, ?, 'ABANDONED', 'orphaned by audit-unverified --abandon', ?)`
+        ).run("evt_" + randomUUID6().replace(/-/g, ""), intent.intent_id, intent.agent_id, now);
+      } catch {
+      }
+    }
+  }
   return { ok: true, unverified, count: unverified.length };
 }
 function markVerified(db2, params) {
-  const { intentId, agentId = "agent" } = params;
+  const { agentId = "agent", allPending = false, workspacePath, message } = params;
+  const intentId = params.intentId ?? "";
   const status = params.status ?? "SUCCESS";
+  if (allPending) {
+    const where = ["status = 'PENDING'", "agent_id = ?"];
+    const binds = [agentId];
+    if (workspacePath) {
+      where.push("workspace_path = ?");
+      binds.push(workspacePath);
+    }
+    const rows = db2.prepare(
+      `SELECT intent_id FROM agent_intents WHERE ${where.join(" AND ")}`
+    ).all(...binds);
+    const now2 = utcNow();
+    const ids = [];
+    for (const row of rows) {
+      db2.prepare(
+        "UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND status = 'PENDING'"
+      ).run(status, now2, row.intent_id);
+      ids.push(row.intent_id);
+      if (message) {
+        try {
+          db2.prepare(
+            `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+             VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
+          ).run("evt_" + randomUUID6().replace(/-/g, ""), row.intent_id, agentId, message, now2);
+        } catch {
+        }
+      }
+    }
+    return { ok: true, intent_id: "", intent_ids: ids, count: ids.length, status, updated_at: now2 };
+  }
   if (!intentId) {
-    return { ok: false, error: "--intent-id is required", intent_id: intentId };
+    return { ok: false, error: "--intent-id is required (or use --all-pending)", intent_id: "" };
   }
   if (!VALID_VERIFY_STATUSES.has(status)) {
     return {
@@ -1335,7 +2108,13 @@ var ARRAY_FLAGS = /* @__PURE__ */ new Set([
   "target_file",
   "supersedes",
   "label",
-  "state"
+  "state",
+  "memory_id",
+  "refinement_id",
+  "notification_id",
+  "ref_id",
+  "regex",
+  "file_regex"
 ]);
 function parseArgs(argv) {
   const result = { _: [] };
@@ -1442,6 +2221,14 @@ function cmdGetMemory(db2, args2, dbPath2, opts2) {
   const tags = Array.isArray(rawTag) ? rawTag : rawTag ? [String(rawTag)] : [];
   const rawState = args2["state"];
   const states = rawState ? Array.isArray(rawState) ? rawState : [String(rawState)] : void 0;
+  const rawReference = args2["reference"];
+  const references = Array.isArray(rawReference) ? rawReference : rawReference ? [String(rawReference)] : [];
+  const rawRegex = args2["regex"];
+  const regex = Array.isArray(rawRegex) ? rawRegex : rawRegex ? [String(rawRegex)] : [];
+  const rawFileRegex = args2["file_regex"];
+  const fileRegex = Array.isArray(rawFileRegex) ? rawFileRegex : rawFileRegex ? [String(rawFileRegex)] : [];
+  const rawGetFiles = args2["file"];
+  const getFiles = Array.isArray(rawGetFiles) ? rawGetFiles : rawGetFiles ? [String(rawGetFiles)] : [];
   const result = getMemory(db2, {
     query: String(args2["query"] ?? ""),
     limit: parseInt(String(args2["limit"] ?? "3"), 10),
@@ -1453,7 +2240,12 @@ function cmdGetMemory(db2, args2, dbPath2, opts2) {
     states,
     sort: String(args2["sort"] ?? "smart"),
     globalOnly: Boolean(args2["global_only"]),
-    asOf: args2["as_of"] ? String(args2["as_of"]) : null
+    strictScope: Boolean(args2["strict_scope"]),
+    asOf: args2["as_of"] ? String(args2["as_of"]) : null,
+    references,
+    regex,
+    fileRegex,
+    files: getFiles
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
@@ -1485,6 +2277,7 @@ function cmdRefineGet(db2, args2, dbPath2, opts2) {
   const result = getRefinements(db2, {
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
+    quality: args2["quality"] ? String(args2["quality"]) : void 0,
     states,
     limit: parseInt(String(args2["limit"] ?? "10"), 10)
   });
@@ -1514,6 +2307,8 @@ function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
   const targetFiles = Array.isArray(rawTarget) ? rawTarget : rawTarget ? [String(rawTarget)] : [];
   const ttlMinutes = args2["ttl_minutes"] ? parseInt(String(args2["ttl_minutes"]), 10) : null;
   const ttlSeconds = args2["ttl_seconds"] ? parseInt(String(args2["ttl_seconds"]), 10) : null;
+  if (ttlMinutes != null && (!Number.isInteger(ttlMinutes) || ttlMinutes < 1)) die("--ttl-minutes must be >= 1");
+  if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)) die("--ttl-seconds must be >= 1");
   const ttlMs = ttlMinutes != null ? ttlMinutes * 6e4 : ttlSeconds != null ? ttlSeconds * 1e3 : null;
   const result = preFlightIntent(db2, {
     agentId: String(args2["agent_id"] ?? "agent"),
@@ -1530,19 +2325,26 @@ function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
 function cmdAuditUnverified(db2, args2, dbPath2, opts2) {
   const result = auditUnverified(db2, {
     agentId: args2["agent_id"] ? String(args2["agent_id"]) : null,
-    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    abandon: Boolean(args2["abandon"])
   });
   return emit({ db_path: dbPath2, ...result }, result.count > 0 ? 1 : 0, opts2);
 }
 function cmdVerify(db2, args2, dbPath2, opts2) {
-  if (!args2["intent_id"]) return emit({ error: "--intent-id is required" }, 1, opts2);
+  const allPending = Boolean(args2["all_pending"]);
+  if (!allPending && !args2["intent_id"]) {
+    return emit({ error: "--intent-id is required (or use --all-pending)" }, 1, opts2);
+  }
   const statusArg = args2["status"] ? String(args2["status"]) : "SUCCESS";
   if (statusArg !== "SUCCESS" && statusArg !== "FAILED") {
     return emit({ error: `--status must be SUCCESS or FAILED, got "${statusArg}"` }, 1, opts2);
   }
   const result = markVerified(db2, {
-    intentId: String(args2["intent_id"]),
+    intentId: args2["intent_id"] ? String(args2["intent_id"]) : void 0,
     agentId: String(args2["agent_id"] ?? "agent"),
+    allPending,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    message: args2["message"] ? String(args2["message"]) : void 0,
     status: statusArg
   });
   return emit({ db_path: dbPath2, ...result }, result.ok ? 0 : 1, opts2);
@@ -1557,7 +2359,158 @@ function cmdReleaseFileLock(db2, args2, dbPath2, opts2) {
     agentId: String(args2["agent_id"] ?? "agent"),
     intentId: args2["intent_id"] ? String(args2["intent_id"]) : null,
     targetFiles,
-    status: String(args2["status"] ?? "SUCCESS")
+    status: String(args2["status"] ?? "SUCCESS"),
+    verified: Boolean(args2["verified"]),
+    verifiedNote: args2["verified_note"] ? String(args2["verified_note"]) : void 0
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdMemoryIndex(db2, args2, dbPath2, opts2) {
+  const limit = args2["limit"] ? parseInt(String(args2["limit"]), 10) : 30;
+  const minImportance = args2["min_importance"] ? parseInt(String(args2["min_importance"]), 10) : 1;
+  const stdout = Boolean(args2["stdout"]);
+  const wsPath = args2["workspace"] ? String(args2["workspace"]) : null;
+  const conds = [];
+  const binds = [minImportance];
+  let sql = `SELECT memory_id, label, importance_score, task_context, observation, file, tags_json, created_at
+     FROM agent_memories WHERE state = 'ACTIVE' AND importance_score >= ?`;
+  if (wsPath) {
+    sql += " AND (workspace_path = ? OR workspace_path IS NULL)";
+    binds.push(wsPath);
+  }
+  sql += " ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC LIMIT ?";
+  binds.push(limit);
+  void conds;
+  const rows = db2.prepare(sql).all(...binds);
+  const now = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const lines = [
+    `# Memory Index \u2014 ${now}`,
+    `<!-- Auto-generated by awareness memory-index. Regenerate after recording or forgetting memories. -->`,
+    "",
+    `**${rows.length} active memories** (importance \u2265 ${minImportance}, sorted by salience)`,
+    ""
+  ];
+  for (const m of rows) {
+    const tags = (() => {
+      try {
+        return JSON.parse(m.tags_json).join(", ");
+      } catch {
+        return "";
+      }
+    })();
+    lines.push(`## [${m.label}:${m.importance_score}] ${m.task_context.slice(0, 80)}`);
+    lines.push(`> ${m.observation.slice(0, 200)}`);
+    if (tags) lines.push(`*Tags: ${tags}*`);
+    if (m.file) lines.push(`*File: ${m.file}*`);
+    lines.push("");
+  }
+  const content = lines.join("\n");
+  if (stdout) {
+    process.stdout.write(content + "\n");
+    return 0;
+  }
+  const outPath = args2["out"] ? String(args2["out"]) : null;
+  const targetPath = outPath ?? resolveDbPath(null).replace("awareness.sqlite3", "MEMORY.md");
+  try {
+    mkdirSync2(dirname2(targetPath), { recursive: true });
+    writeFileSync(targetPath, content, "utf8");
+  } catch (err) {
+    return emit({ db_path: dbPath2, error: `Could not write MEMORY.md: ${err.message}` }, 1, opts2);
+  }
+  return emit({ db_path: dbPath2, ok: true, path: targetPath, count: rows.length }, 0, opts2);
+}
+function cmdForget(db2, args2, dbPath2, opts2) {
+  const rawIds = args2["memory_id"];
+  const memoryIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
+  const rawTags = args2["tag"];
+  const tags = Array.isArray(rawTags) ? rawTags : rawTags ? [String(rawTags)] : [];
+  const result = forgetMemory(db2, {
+    memoryIds,
+    tags,
+    before: args2["before"] ? String(args2["before"]) : void 0,
+    maxImportance: args2["max_importance"] ? parseInt(String(args2["max_importance"]), 10) : void 0,
+    dryRun: Boolean(args2["dry_run"])
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdRefineDelete(db2, args2, dbPath2, opts2) {
+  const rawIds = args2["refinement_id"];
+  const refinementIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
+  if (refinementIds.length === 0) return emit({ error: "--refinement-id is required" }, 1, opts2);
+  const result = deleteRefinement(db2, {
+    refinementIds,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : void 0,
+    dryRun: Boolean(args2["dry_run"])
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdExportHarness(db2, args2, dbPath2, opts2) {
+  const result = exportHarness(db2, {
+    limit: args2["limit"] ? parseInt(String(args2["limit"]), 10) : void 0,
+    min_importance: args2["min_importance"] ? parseInt(String(args2["min_importance"]), 10) : void 0,
+    workspace_path: args2["workspace"] ? String(args2["workspace"]) : null
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdNotify(db2, args2, dbPath2, opts2) {
+  if (!args2["agent_id"]) return emit({ error: "--agent-id is required" }, 1, opts2);
+  if (!args2["kind"]) return emit({ error: "--kind is required" }, 1, opts2);
+  if (!args2["subject"]) return emit({ error: "--subject is required" }, 1, opts2);
+  const rawFiles = args2["file"];
+  const files = Array.isArray(rawFiles) ? rawFiles : rawFiles ? [String(rawFiles)] : [];
+  const rawRefIds = args2["ref_id"];
+  const refIds = Array.isArray(rawRefIds) ? rawRefIds : rawRefIds ? [String(rawRefIds)] : [];
+  const result = insertNotification(db2, {
+    agentId: String(args2["agent_id"]),
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null,
+    toAgent: args2["to"] ? String(args2["to"]) : null,
+    kind: String(args2["kind"]),
+    subject: String(args2["subject"]),
+    body: args2["body"] ? String(args2["body"]) : null,
+    files,
+    refIds,
+    inReplyTo: args2["in_reply_to"] ? String(args2["in_reply_to"]) : null,
+    importance: args2["importance"] ? parseInt(String(args2["importance"]), 10) : 5
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdNotifyGet(db2, args2, dbPath2, opts2) {
+  if (!args2["agent_id"]) return emit({ error: "--agent-id is required" }, 1, opts2);
+  const rawKinds = args2["kind"];
+  const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
+  const result = getNotifications(db2, {
+    agentId: String(args2["agent_id"]),
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    kinds,
+    threadId: args2["thread_id"] ? String(args2["thread_id"]) : null,
+    unreadOnly: args2["all"] ? false : true,
+    markRead: Boolean(args2["mark_read"]),
+    limit: args2["limit"] ? parseInt(String(args2["limit"]), 10) : 20
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdNotifyResolve(db2, args2, dbPath2, opts2) {
+  const rawIds = args2["notification_id"];
+  const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
+  const result = resolveNotification(db2, {
+    notificationIds,
+    threadId: args2["thread_id"] ? String(args2["thread_id"]) : null,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null
+  });
+  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdNotifyPrune(db2, args2, dbPath2, opts2) {
+  const rawIds = args2["notification_id"];
+  const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
+  const result = pruneNotifications(db2, {
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    notificationIds,
+    resolvedOnly: Boolean(args2["resolved"]),
+    olderThanDays: args2["older_than_days"] ? parseInt(String(args2["older_than_days"]), 10) : void 0,
+    dryRun: Boolean(args2["dry_run"])
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
@@ -1636,10 +2589,10 @@ function cmdSelfTest(opts2) {
 }
 var HELP = `usage: awareness <command> [options]
 
-commands: tell-memory  get-memory  reflect  refine-set  refine-get
-          pre-flight-intent  release-file-lock  status  init  self-test
-          prune-stale-locks  audit-unverified  verify
-          notify-get  session-capture  wait-for-lock
+commands: tell-memory  get-memory  forget  reflect  refine-set  refine-get  refine-delete
+          pre-flight-intent  release-file-lock  status  workspace-status  init  self-test
+          prune-stale-locks  audit-unverified  verify  mine-weakness  export-harness  memory-index
+          notify  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
 
 common options:
   --db <path>     Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)
@@ -1651,25 +2604,65 @@ tell-memory:
 
 get-memory:
   --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
+  [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
+  [--sort smart|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
+  [--strict-scope]  [--global-only]  [--as-of <ISO>]
+
+forget:
+  [--memory-id <id>]...  [--tag <t>]...  [--before <ISO>]  [--max-importance <n>]  [--dry-run]
+
+refine-delete:
+  --refinement-id <id>...  [--workspace <path>]  [--dry-run]
+
+export-harness:
+  [--limit <n>]  [--min-importance <n>]  [--workspace <path>]
+  preview top lessons as an AGENTS.md block
+
+notify:
+  --agent-id <id>  --kind claim|handoff|question|reply|blocker|request|decision|fyi
+  --subject <text>  [--to <agent-id>]  [--body <text>]  [--file <path>]...
+  [--ref-id <id>]...  [--in-reply-to <notification-id>]  [--importance <1-10>]
+
+notify-resolve:
+  [--notification-id <id>]...  [--thread-id <id>]
+
+notify-prune:
+  [--notification-id <id>]...  [--resolved]  [--older-than-days <n>]  [--dry-run]
 
 reflect:
   --agent-id <id>  --task <text>  --outcome worked|partial|failed
   [--lesson <text>]  [--worked <text>]  [--didnt-work <text>]
   [--fix-repo <text>]  [--fix-harness <text>]
 
+workspace-status:
+  [--workspace <path>]   show active locks, agent intents, and memory counts
+
+mine-weakness:
+  [--agent-id <id>]  [--workspace <path>]  [--min-count <n>]  [--limit <n>]
+  find recurring failure patterns grouped by failure_signature
+
+digest:
+  [--retention-days <n>]  [--dry-run]  [--export-doc [path]]
+  archive expired memories, prune old superseded rows, rebuild FTS
+  --dry-run: preview counts without mutating anything
+  --export-doc: write a markdown memory report to .octocode/memory-reports/
+
 pre-flight-intent:
   --agent-id <id>  [--workspace <path>]  [--target-file <path>]...  [--ttl-minutes <n>]
 
 release-file-lock:
   --agent-id <id>  (--intent-id <id> | --target-file <path>)  [--status SUCCESS|PENDING|FAILED]
+  [--verified]  [--verified-note <text>]
 
 audit-unverified:
-  [--agent-id <id>]  [--workspace <path>]
+  [--agent-id <id>]  [--workspace <path>]  [--abandon]
   exits 1 when unverified (PENDING) intents exist; exits 0 when clear
+  --abandon: dismiss all PENDING intents as FAILED (clear orphaned sessions)
 
 verify:
-  --intent-id <id>  --agent-id <id>  [--status SUCCESS|FAILED (default SUCCESS)]
-  marks a PENDING intent as verified; clears it from audit-unverified
+  (--intent-id <id> | --all-pending)  --agent-id <id>
+  [--status SUCCESS|FAILED]  [--message <text>]  [--workspace <path>]
+  marks a PENDING intent as verified; --all-pending clears every PENDING for this agent
 `;
 var rawArgv = process.argv.slice(2);
 if (rawArgv.length === 0 || rawArgv.includes("--help") || rawArgv.includes("-h")) {
@@ -1730,7 +2723,7 @@ try {
       exitCode = cmdInit(db, dbPath, opts);
       break;
     case "prune-stale-locks":
-      exitCode = emit({ db_path: dbPath, ...pruneStale(db, {}) }, 0, opts);
+      exitCode = emit({ db_path: dbPath, ...pruneStale(db, args) }, 0, opts);
       break;
     case "audit-unverified":
       exitCode = cmdAuditUnverified(db, args, dbPath, opts);
@@ -1739,21 +2732,37 @@ try {
       exitCode = cmdVerify(db, args, dbPath, opts);
       break;
     case "notify-get": {
-      const ngParams = {
-        workspace: args["workspace"],
-        format: args["format"] ?? "json",
-        agent_id: args["agent_id"]
-      };
-      const ngResult = notifyGet(db, ngParams);
-      if (ngParams.format === "hook" && ngResult.additionalContext) {
-        exitCode = emit({ additionalContext: ngResult.additionalContext }, 0, opts);
+      const ngFormat = String(args["format"] ?? "json");
+      const ngAgentId = args["agent_id"];
+      if (ngAgentId && ngFormat !== "hook") {
+        exitCode = cmdNotifyGet(db, args, dbPath, opts);
       } else {
-        exitCode = emit({ db_path: dbPath, ...ngResult }, 0, opts);
+        const ngParams = {
+          workspace: args["workspace"],
+          format: ngFormat,
+          agent_id: ngAgentId
+        };
+        const ngResult = notifyGet(db, ngParams);
+        if (ngFormat === "hook" && ngResult["additionalContext"]) {
+          exitCode = emit({ additionalContext: ngResult["additionalContext"] }, 0, opts);
+        } else {
+          exitCode = emit({ db_path: dbPath, ...ngResult }, 0, opts);
+        }
       }
       break;
     }
     case "session-capture":
-      exitCode = emit({ db_path: dbPath, ...sessionCapture(db, {}) }, 0, opts);
+      exitCode = emit({
+        db_path: dbPath,
+        ...sessionCapture(db, {
+          agent_id: args["agent_id"],
+          workspace: args["workspace"],
+          repo: args["repo"],
+          ref: args["ref"],
+          reason: args["reason"],
+          cwd: args["cwd"]
+        })
+      }, 0, opts);
       break;
     case "mine-weakness": {
       const mwParams = {
@@ -1766,21 +2775,80 @@ try {
       exitCode = emit({ db_path: dbPath, ...mineWeakness(db, mwParams) }, 0, opts);
       break;
     }
-    case "digest": {
-      const retDays = args["retention_days"] ? Number(args["retention_days"]) : void 0;
-      exitCode = emit({ db_path: dbPath, ...digest(db, retDays !== void 0 ? { retention_days: retDays } : {}) }, 0, opts);
+    case "workspace-status": {
+      const wsStatusResult = getWorkspaceStatus(db, {
+        workspace_path: args["workspace"]
+      });
+      exitCode = emit({ db_path: dbPath, ...wsStatusResult }, 0, opts);
       break;
     }
-    case "wait-for-lock":
-      exitCode = emit({ db_path: dbPath, ...waitForLock(db, {}) }, 0, opts);
+    case "digest": {
+      const retDays = args["retention_days"] ? Number(args["retention_days"]) : void 0;
+      const isDryRun = Boolean(args["dry_run"] ?? args["dry-run"]);
+      const digestResult = digest(db, {
+        ...retDays !== void 0 ? { retention_days: retDays } : {},
+        ...isDryRun ? { dry_run: true } : {}
+      });
+      const payload = { db_path: dbPath, ...digestResult };
+      if (!isDryRun && (args["export_doc"] ?? args["export-doc"])) {
+        try {
+          const wsPath = args["workspace"] ?? process.cwd();
+          const { mkdirSync: mkdirSync3, writeFileSync: writeFileSync2 } = await import("node:fs");
+          const { join: join2 } = await import("node:path");
+          const docDir = join2(wsPath, ".octocode", "memory-reports");
+          mkdirSync3(docDir, { recursive: true });
+          const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", "-").replace(":", "");
+          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join2(docDir, `memory-report-${dateStr}.md`);
+          writeFileSync2(docPath, exportMemoryDoc(db, { workspace_path: wsPath }), "utf8");
+          payload["doc_path"] = docPath;
+        } catch (err) {
+          payload["doc_warning"] = `Could not write doc: ${err.message}`;
+        }
+      }
+      exitCode = emit(payload, 0, opts);
+      break;
+    }
+    case "wait-for-lock": {
+      const rawWaitTarget = args["target_file"] ?? args["file"];
+      const waitTargets = Array.isArray(rawWaitTarget) ? rawWaitTarget : rawWaitTarget ? [String(rawWaitTarget)] : [];
+      const waitSecs = args["wait_seconds"] ? parseInt(String(args["wait_seconds"]), 10) : null;
+      const retrySecs = args["retry_interval"] ? parseInt(String(args["retry_interval"]), 10) : null;
+      const waitResult = waitForLock(db, {
+        agent_id: args["agent_id"],
+        target_files: waitTargets,
+        wait_ms: waitSecs != null ? waitSecs * 1e3 : void 0,
+        retry_interval_ms: retrySecs != null ? retrySecs * 1e3 : void 0
+      });
+      exitCode = emit({ db_path: dbPath, ...waitResult }, waitResult.lock_free ? 0 : 2, opts);
+      break;
+    }
+    case "memory-index":
+      exitCode = cmdMemoryIndex(db, args, dbPath, opts);
+      break;
+    case "forget":
+      exitCode = cmdForget(db, args, dbPath, opts);
+      break;
+    case "refine-delete":
+      exitCode = cmdRefineDelete(db, args, dbPath, opts);
+      break;
+    case "export-harness":
+      exitCode = cmdExportHarness(db, args, dbPath, opts);
+      break;
+    case "notify":
+      exitCode = cmdNotify(db, args, dbPath, opts);
+      break;
+    case "notify-resolve":
+      exitCode = cmdNotifyResolve(db, args, dbPath, opts);
+      break;
+    case "notify-prune":
+      exitCode = cmdNotifyPrune(db, args, dbPath, opts);
       break;
     default:
       exitCode = emit({ error: `unknown command: ${command}. Run --help for usage.` }, 1, opts);
   }
 } catch (err) {
   exitCode = emit({
-    error: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : void 0
+    error: err instanceof Error ? err.message : String(err)
   }, 1, opts);
 }
 process.exit(exitCode);

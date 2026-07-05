@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { getInstallSource } from '../assets.js';
 import { truncateUserVisibleToolOutput } from '../utils.js';
-import type { PiContext, PiInstance, ToolCallResult, ToolDefinition } from '../types.js';
+import type { PiContext, PiInstance, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
@@ -98,6 +98,52 @@ function stringEnumSchema(
   description: string,
 ): Record<string, unknown> {
   return Type.Unsafe({ type: 'string', enum: [...values], description });
+}
+
+// ─── TUI rendering helpers ────────────────────────────────────────────────────
+
+const ANSI_ESC_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+
+function visibleWidth(str: string): number {
+  return str.replace(ANSI_ESC_RE, '').length;
+}
+
+function truncateToWidth(str: string, maxWidth: number, ellipsis = '\u2026'): string {
+  if (maxWidth <= 0) return '';
+  if (visibleWidth(str) <= maxWidth) return str;
+  let visible = 0;
+  let out = '';
+  let inEsc = false;
+  for (const ch of str) {
+    if (inEsc) { out += ch; if (/[@-~]/.test(ch)) inEsc = false; continue; }
+    if (ch === '\x1B') { inEsc = true; out += ch; continue; }
+    if (visible + 1 + ellipsis.length > maxWidth) break;
+    out += ch;
+    visible++;
+  }
+  return out + ellipsis;
+}
+
+function statusIcon(status: AgentStatus, theme?: PiTheme): string {
+  if (status === 'exited') return theme?.fg('success', '\u2713') ?? '\u2713'; // ✓
+  if (status === 'failed') return theme?.fg('error', '\u2717') ?? '\u2717';   // ✗
+  if (status === 'killed') return theme?.fg('warning', '\u2717') ?? '\u2717'; // ✗
+  if (status === 'running') return theme?.fg('warning', '\u29D7') ?? '\u29D7'; // ⧗
+  if (status === 'idle') return theme?.fg('success', '\u25CE') ?? '\u25CE';   // ◎
+  return theme?.fg('dim', '\u25CB') ?? '\u25CB'; // ○ starting
+}
+
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+function formatElapsed(startedAt: number): string {
+  const ms = Date.now() - startedAt;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return s > 0 ? `${m}m${s}s` : `${m}m`;
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -358,23 +404,43 @@ function waitForAgent(record: AgentRecord, timeoutMs: number): Promise<void> {
 
 function renderAgentResult(records: AgentRecord[], header: string): ToolCallResult {
   const summaries = records.map(summarizeAgent);
+  const lines: string[] = [`${header} (${records.length}):`];
+  for (const s of summaries) {
+    const exit = s.exitCode !== undefined ? ` (exit ${s.exitCode})` : '';
+    const elapsed = formatElapsed(new Date(s.startedAt).getTime());
+    const preview = s.lastOutput ? ` \u2014 ${s.lastOutput.slice(0, 60).replace(/\n/g, ' ')}${s.outputTruncated ? '\u2026' : ''}` : '';
+    lines.push(`  ${s.name} (${shortId(s.agentId)}) \u00b7 ${s.status}${exit} \u00b7 ${elapsed}${preview}`);
+  }
   return {
-    content: [{ type: 'text', text: `${header}\n${JSON.stringify({ agents: summaries }, null, 2)}` }],
+    content: [{ type: 'text', text: lines.join('\n') }],
     details: { agents: summaries } satisfies AgentDetails,
   };
 }
 
 function renderSingleAgentResult(record: AgentRecord, header: string): ToolCallResult {
   const output = truncateUserVisibleToolOutput(record.lastOutput || record.stderr || record.error || '', MAX_VISIBLE_OUTPUT);
-  const payload = {
-    agent: summarizeAgent(record),
-    output: output.text,
-    outputTruncated: output.truncated,
-    omittedChars: output.omittedChars,
-  };
+  const summary = summarizeAgent(record);
+  const elapsed = formatElapsed(record.startedAt);
+  const statusParts = [
+    `status: ${record.status}`,
+    record.exitCode !== undefined ? `exit: ${record.exitCode}` : '',
+    `elapsed: ${elapsed}`,
+    record.error ? `error: ${record.error}` : '',
+  ].filter(Boolean).join(' \u00b7 ');
+  const contentParts: string[] = [
+    `${header} [${record.name}]`,
+    statusParts,
+  ];
+  if (output.text) contentParts.push('', output.text);
+  if (output.truncated) contentParts.push(`\u2026 output truncated (${output.omittedChars} chars hidden; full content in details)`);
   return {
-    content: [{ type: 'text', text: `${header}\n${JSON.stringify(payload, null, 2)}` }],
-    details: payload,
+    content: [{ type: 'text', text: contentParts.join('\n') }],
+    details: {
+      agent: summary,
+      output: output.text,
+      outputTruncated: output.truncated,
+      omittedChars: output.omittedChars,
+    },
     isError: record.status === 'failed',
   };
 }
@@ -442,10 +508,54 @@ export function registerAgentTools(
     }),
     async execute(_toolCallId: string, params: Record<string, unknown>, _signal?: AbortSignal, _onUpdate?: unknown, ctx?: PiContext) {
       const record = spawnRpcAgent(params as SpawnAgentParams, ctx);
-      return renderSingleAgentResult(record, `Spawned agent ${record.id}`);
+      return renderSingleAgentResult(record, 'Spawned agent');
+    },
+    renderCall(args: unknown, theme?: PiTheme) {
+      const p = args as Partial<SpawnAgentParams>;
+      const name = String(p.name ?? 'worker');
+      const task = String(p.task ?? p.prompt ?? '');
+      const taskPreview = task.length > 72 ? `${task.slice(0, 72)}\u2026` : (task || '(no task)');
+      const model = p.model ? ` \u00b7 ${p.model}` : '';
+      const rawLine = [
+        theme?.fg('toolTitle', theme.bold('spawnAgent')) ?? 'spawnAgent',
+        theme?.fg('accent', name) ?? name,
+        theme?.fg('dim', `\u2014 ${taskPreview}${model}`) ?? `\u2014 ${taskPreview}${model}`,
+      ].join(' ');
+      return { render: (w: number) => [truncateToWidth(rawLine, w)], invalidate() { /* no-op */ } };
+    },
+    renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
+      if (opts.isPartial) {
+        return {
+          render: (w: number) => [truncateToWidth(theme?.fg('warning', '\u29D7 Spawning agent\u2026') ?? '\u29D7 Spawning agent\u2026', w)],
+          invalidate() { /* no-op */ },
+        };
+      }
+      const ok = !result.isError;
+      const det = result.details as { agent?: { name?: string; status?: AgentStatus } } | null;
+      const agentName = det?.agent?.name ?? 'agent';
+      const agentStatus = det?.agent?.status ?? (ok ? 'running' : 'failed');
+      const icon = statusIcon(ok ? agentStatus : 'failed', theme);
+      const label = theme?.fg('toolTitle', 'spawnAgent') ?? 'spawnAgent';
+      const nameStr = theme?.fg('accent', agentName) ?? agentName;
+      const statusStr = theme?.fg('dim', agentStatus) ?? agentStatus;
+      const header = `${icon} ${label} \u00b7 ${nameStr} \u00b7 ${statusStr}`;
+      if (!opts.expanded) {
+        return {
+          render: (w: number) => [truncateToWidth(`${header}${theme?.fg('dim', ' \u00b7 expand for output') ?? ' \u00b7 expand for output'}`, w)],
+          invalidate() { /* no-op */ },
+        };
+      }
+      const text = result.content.find((p) => p.type === 'text')?.text ?? '';
+      const outputLines = text.split('\n').slice(2); // skip agent-header + status lines
+      return {
+        render: (w: number) => [
+          truncateToWidth(header, w),
+          ...outputLines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
+        ],
+        invalidate() { /* no-op */ },
+      };
     },
   } satisfies ToolDefinition);
-
   registerFn(pi, registeredToolNames, {
     name: 'AgentMessage',
     label: 'Agent: Message Parallel Worker',
@@ -472,21 +582,26 @@ export function registerAgentTools(
       timeoutMs: Type.Optional(Type.Integer({ description: 'wait timeout in milliseconds. Default 300000.' })),
       remove: Type.Optional(Type.Boolean({ description: 'After kill, remove the agent record from the registry.' })),
     }),
-    async execute(_toolCallId: string, params: Record<string, unknown>) {
+    async execute(_toolCallId: string, params: Record<string, unknown>, _signal?: AbortSignal, _onUpdate?: unknown, ctx?: PiContext) {
       const action = (params['action'] as MessageAction | undefined) ?? 'status';
       if (action === 'list') return renderAgentResult([...agents.values()], 'Spawned agents');
 
       const record = getAgent(params['agentId']);
-      if (action === 'status') return renderSingleAgentResult(record, `Agent ${record.id} status`);
+      if (action === 'status') return renderSingleAgentResult(record, 'Agent status');
 
       if (action === 'wait') {
-        await waitForAgent(record, Number(params['timeoutMs'] ?? 300000));
-        return renderSingleAgentResult(record, `Agent ${record.id} completed`);
+        if (ctx?.hasUI) ctx.ui?.setStatus?.('agent-wait', `\u29D7 Waiting for \u201C${record.name}\u201D\u2026`);
+        try {
+          await waitForAgent(record, Number(params['timeoutMs'] ?? 300000));
+        } finally {
+          if (ctx?.hasUI) ctx.ui?.setStatus?.('agent-wait', '');
+        }
+        return renderSingleAgentResult(record, 'Agent completed');
       }
 
       if (action === 'kill') {
         killAgent(record);
-        const result = renderSingleAgentResult(record, `Agent ${record.id} killed`);
+        const result = renderSingleAgentResult(record, 'Agent killed');
         if (params['remove'] === true) agents.delete(record.id);
         return result;
       }
@@ -506,7 +621,79 @@ export function registerAgentTools(
           streamingBehavior: params['streamingBehavior'] ?? (wasRunning ? 'followUp' : undefined),
         });
       }
-      return renderSingleAgentResult(record, `Agent ${record.id} messaged`);
+      return renderSingleAgentResult(record, 'Agent messaged');
+    },
+    renderCall(args: unknown, theme?: PiTheme) {
+      const p = args as { action?: string; agentId?: string; message?: string };
+      const action = String(p.action ?? 'status');
+      const rec = p.agentId ? agents.get(p.agentId) : undefined;
+      const agentLabel = rec
+        ? (theme?.fg('accent', rec.name) ?? rec.name)
+        : (theme?.fg('dim', p.agentId ? shortId(p.agentId) : 'all') ?? (p.agentId ? shortId(p.agentId) : 'all'));
+      const msgPart = p.message
+        ? (theme?.fg('dim', ` \u2014 ${p.message.slice(0, 48)}${p.message.length > 48 ? '\u2026' : ''}`) ?? ` \u2014 ${p.message.slice(0, 48)}`)
+        : '';
+      const rawLine = [
+        theme?.fg('toolTitle', theme.bold('AgentMessage')) ?? 'AgentMessage',
+        theme?.fg('accent', action) ?? action,
+        agentLabel,
+        msgPart,
+      ].filter(Boolean).join(' ');
+      return { render: (w: number) => [truncateToWidth(rawLine, w)], invalidate() { /* no-op */ } };
+    },
+    renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
+      if (opts.isPartial) {
+        return {
+          render: (w: number) => [truncateToWidth(theme?.fg('warning', '\u29D7 Agent working\u2026') ?? '\u29D7 Agent working\u2026', w)],
+          invalidate() { /* no-op */ },
+        };
+      }
+      const ok = !result.isError;
+      const det = result.details as {
+        agent?: { name?: string; status?: AgentStatus } | null;
+        agents?: Array<{ name: string; agentId: string; status: string; exitCode?: number }>;
+      } | null;
+      // list action \u2014 compact agent count summary
+      if (det?.agents) {
+        const count = det.agents.length;
+        const running = det.agents.filter((a) => a.status === 'running').length;
+        const exited = det.agents.filter((a) => a.status === 'exited').length;
+        const failed = det.agents.filter((a) => a.status === 'failed').length;
+        const squareIcon = theme?.fg('toolTitle', '\u25A6') ?? '\u25A6';
+        const summary = theme?.fg('dim', `${count} agents \u00b7 ${running} running \u00b7 ${exited} done \u00b7 ${failed} failed`) ?? `${count} agents`;
+        const header = `${squareIcon} ${theme?.fg('toolTitle', 'AgentMessage') ?? 'AgentMessage'} list \u00b7 ${summary}`;
+        if (!opts.expanded) {
+          return { render: (w: number) => [truncateToWidth(header, w)], invalidate() { /* no-op */ } };
+        }
+        const text = result.content.find((p) => p.type === 'text')?.text ?? '';
+        return {
+          render: (w: number) => [truncateToWidth(header, w), ...text.split('\n').slice(1).map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w))],
+          invalidate() { /* no-op */ },
+        };
+      }
+      // single-agent actions
+      const agentName = det?.agent?.name ?? 'agent';
+      const agentStatus = det?.agent?.status ?? (ok ? 'idle' : 'failed');
+      const icon = statusIcon(ok ? agentStatus : 'failed', theme);
+      const label = theme?.fg('toolTitle', 'AgentMessage') ?? 'AgentMessage';
+      const nameStr = theme?.fg('accent', agentName) ?? agentName;
+      const statusStr = theme?.fg('dim', agentStatus) ?? agentStatus;
+      const header = `${icon} ${label} \u00b7 ${nameStr} \u00b7 ${statusStr}`;
+      if (!opts.expanded) {
+        return {
+          render: (w: number) => [truncateToWidth(`${header}${theme?.fg('dim', ' \u00b7 expand for output') ?? ' \u00b7 expand for output'}`, w)],
+          invalidate() { /* no-op */ },
+        };
+      }
+      const text = result.content.find((p) => p.type === 'text')?.text ?? '';
+      const outputLines = text.split('\n').slice(2); // skip agent-header + status lines
+      return {
+        render: (w: number) => [
+          truncateToWidth(header, w),
+          ...outputLines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
+        ],
+        invalidate() { /* no-op */ },
+      };
     },
   } satisfies ToolDefinition);
 }

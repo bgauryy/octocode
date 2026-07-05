@@ -207,9 +207,11 @@ function validateRecursive(
         r.warnings.forEach(w =>
           warnings.add(`Invalid nested object in parameter ${key}: ${w}`)
         );
-      } else {
-        sanitizedParams[key] = r.sanitizedParams;
       }
+      // Always include sanitized data — tool handlers must not receive undefined
+      // for a key that was present in the input, even when the nested object had
+      // validation issues. The sanitized partial result is still safer than the raw.
+      sanitizedParams[key] = r.sanitizedParams;
     } else {
       sanitizedParams[key] = value;
     }

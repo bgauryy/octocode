@@ -23,20 +23,31 @@ Lead evidence-first technical research and code work across the modes below, loo
 - Start cheap with tree/path/package/repo discovery; deep-read exact slices only after anchors appear.
 - Cross-pollinate surfaces: local clues feed GitHub/npm/web, and external claims feed code reads.
 - Keep a claim ledger; promote snippets to proof only after exact source, AST/LSP, history, artifact, or test evidence.
-- Recall prior lessons first via octocode-awareness (`get-memory --smart --query <question>`); on zero results retry synonyms/locators, and validate recalled code facts before trusting them.
-- On a durable finding, emit one awareness capture packet (or a `doNotCaptureReason`) via `learning-capture.md` so it is not re-researched.
+- Recall prior lessons first: `memory_recall({query, smart:true})` in Pi, or `get-memory --smart --query <question>` with awareness hooks; on zero results retry synonyms/locators, and validate recalled code facts before trusting them.
+- On a durable finding: `memory_record({task_context, observation, references:[...]})` or `memory_reflect` (Pi); `tell-memory` via `learning-capture.md` (standalone); skip capture if no reusable lesson survived rebuttal.
 - Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
 - For code edits, make the smallest scoped patch and report actual verification.
 
 ## Reference Map
 
 - `references/octocode.md` — when choosing transport, auth, install, schema, or CLI/MCP fallback behavior.
-- `references/research-flow.md` — when running Map, Validate, prior-art, PR/history, package, or multi-surface research.
+- `references/research-flow.md` — when running Map, Validate, Investigate, Loop, prior-art, PR/history, package, or multi-surface research.
 - `references/code-research.md` — when implementation, review, refactor, architecture, dead-code, binary, or blast-radius work is likely.
-- `references/loop-research.md` — when repeated Act->Observe->Learn loops, convergence proof, or no-progress handling matter.
 - `references/finding-checks.md` — when validating, dismissing, or presenting findings before a report or patch.
 - `references/long-research.md` — when the task needs a durable decision brief, saved artifacts, or audit trail.
 - `references/github-landscape.md` — when comparing GitHub repos, packages, reuse options, or ecosystem candidates.
+
+## Mode → Reference Quick Route
+
+| Mode | Load |
+|---|---|
+| Map / Validate / prior-art | `research-flow` + `octocode` |
+| Investigate / Review | `research-flow` + `code-research` + `finding-checks` |
+| Plan | `code-research` + `finding-checks` |
+| Change | `code-research` |
+| Loop | `research-flow` (Loop section) |
+| Long / contested / multi-surface | `long-research` + above as needed |
+| GitHub ecosystem comparison | `github-landscape` |
 
 ## Scripts
 

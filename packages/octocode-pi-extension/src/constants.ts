@@ -32,6 +32,8 @@ export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'memory_record',
   'memory_reflect',
   'memory_workspace_status',
+  'memory_forget',
+  'memory_notify',
   'memory_refine_get',
   'memory_audit_unverified',
   'memory_verify',

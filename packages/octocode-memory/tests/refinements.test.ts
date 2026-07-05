@@ -77,6 +77,16 @@ describe('getRefinements', () => {
     expect(refinements[0]!.state).toBe('done');
   });
 
+  it('respects quality filter', () => {
+    const db = freshDb();
+    insertRefinement(db, { reasoning: 'r', remember: 'good handoff', quality: 'good', state: 'open' });
+    insertRefinement(db, { reasoning: 'r', remember: 'bad handoff', quality: 'bad', state: 'open' });
+    const { refinements } = getRefinements(db, { quality: 'bad' });
+    expect(refinements).toHaveLength(1);
+    expect(refinements[0]!.quality).toBe('bad');
+    expect(refinements[0]!.remember).toBe('bad handoff');
+  });
+
   it('respects limit', () => {
     const db = freshDb();
     for (let i = 0; i < 5; i++) {

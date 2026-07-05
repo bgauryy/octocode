@@ -19,16 +19,20 @@ Use this reference when improving awareness behavior around memory layers, clean
 
 1. **Attend:** run recall, handoff, status, and inbox checks before planning. Salient signals are active locks, unread messages, high-importance memories, and unfinished refinements.
 2. **Encode:** after a surprising finding or decision, store the smallest useful trace in the right layer: refinement for repo state, memory for reusable lesson, corpus note for browsable knowledge.
-3. **Retrieve:** treat recalled memories as cues, then verify against current files or commands before relying on them. If lexical recall misses, broaden or use semantic recall after `embed-index`.
+3. **Retrieve:** treat recalled memories as cues, then verify against current files or commands before relying on them. If lexical recall misses, broaden the query. Use exact `--reference` / `--regex` filters when source anchors matter.
 4. **Act:** claim files before edits. The lock is the agent's motor plan: it binds intention, target files, and test plan.
 5. **Reward:** run the declared test plan. A passing verification strengthens the path; a failed or skipped check becomes a failure signature, not a success story.
 6. **Sleep:** finish by auditing idle state, then consolidate and clean: reflect, mark refinements done, supersede stale memories, prune resolved notifications, update corpus notes when the knowledge should be browsable, and release locks.
 
 ## When sleep runs
 
-Sleep is explicit, not time-based. Run it when the task is complete, the session is ending, a subagent hands off, or the user asks for cleanup. Do not infer sleep from silence alone.
+Sleep is explicit, not time-based.
+Run it when the task is complete, the session is ending, a subagent hands off, or the user asks for cleanup.
+Do not infer sleep from silence alone.
 
-Treat a run as idle only after an audit shows: no live locks for the agent, no active intents for the agent, no missing verification for its claimed work, and no unresolved blocker/question messages that need a response. Existing `status`, `audit-unverified`, `notify-get`, and refinement checks are enough to decide; if any check is unclear, leave a handoff instead of cleaning aggressively.
+Treat a run as idle only after an audit shows no live locks, active intents, missing verification, or unresolved blocker/question messages.
+Existing `status`, `audit-unverified`, `notify-get`, and refinement checks are enough.
+If any check is unclear, leave a handoff.
 
 ## Audit before cleanup
 

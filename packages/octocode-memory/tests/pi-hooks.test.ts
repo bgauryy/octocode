@@ -18,6 +18,12 @@ describe('extractPiWriteTargetPaths', () => {
       'src/b.ts',
       'src/c.ts',
     ]);
+    expect(extractPiWriteTargetPaths('edit', {
+      queries: [
+        { path: 'src/d.ts' },
+        { file_path: 'src/e.ts', filePaths: ['src/f.ts', 'src/d.ts'] },
+      ],
+    })).toEqual(['src/d.ts', 'src/e.ts', 'src/f.ts']);
   });
 
   it('extracts apply_patch file paths from command payloads', () => {

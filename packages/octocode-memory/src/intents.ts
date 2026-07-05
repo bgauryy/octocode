@@ -27,13 +27,18 @@ export function preFlightIntent(
     testPlan = 'post-edit verification',
     targetFiles = [],
     lockType = 'EXCLUSIVE',
-    ttlMs = null,
+    ttlMs = 10 * 60_000,
   } = params;
 
+  const maxTtlMs = 10 * 60_000;
+  const effectiveTtlMs = Math.min(Math.max(1, ttlMs ?? maxTtlMs), maxTtlMs);
   const intentId = 'intent_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
   const wsPath = workspacePath ?? process.cwd();
   const absFiles = targetFiles.map(f => resolve(f));
+
+  // Drop expired locks before checking conflicts so dangling locks never block new work.
+  db.prepare('DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
 
   // Check for conflicts (EXCLUSIVE locks on these files by other agents)
   const conflicts: FileLockRow[] = [];
@@ -70,9 +75,7 @@ export function preFlightIntent(
     VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
   `).run(intentId, agentId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
 
-  const expiresAt = ttlMs
-    ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
-    : null;
+  const expiresAt = new Date(Date.now() + effectiveTtlMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   const acquiredLocks: Array<{ lock_id: string; file_path: string; lock_type: 'EXCLUSIVE' | 'SHARED'; expires_at: string | null }> = [];
   for (const absPath of absFiles) {
@@ -119,7 +122,16 @@ export function releaseFileLock(
     intentId = null,
     targetFiles = [],
     status: statusArg = 'SUCCESS',
+    verified = false,
+    verifiedNote,
   } = params;
+
+  const requestedSuccessWithoutVerification = statusArg === 'SUCCESS' && !verified;
+  const effectiveStatus: ReleaseFileLockParams['status'] = verified
+    ? 'SUCCESS'
+    : requestedSuccessWithoutVerification
+      ? 'PENDING'
+      : statusArg;
 
   const now = utcNow();
   const whereClauses: string[] = ['fl.agent_id = ?'];
@@ -155,16 +167,27 @@ export function releaseFileLock(
     if (!remaining) {
       db.prepare(
         'UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?'
-      ).run(statusArg, now, iid, agentId);
+      ).run(effectiveStatus, now, iid, agentId);
+      if (verified && verifiedNote) {
+        try {
+          db.prepare(
+            `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+             VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
+          ).run('evt_' + randomUUID().replace(/-/g, ''), iid, agentId, verifiedNote, now);
+        } catch { /* intent_events may not exist on older DBs */ }
+      }
     }
   }
 
   return {
     agent_id: agentId,
-    status: statusArg as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
+    status: effectiveStatus as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
     released: locks.length > 0 || Boolean(intentId),
     locks_released: locks.length,
     intent_ids: intentIds,
     updated_at: now,
+    ...(requestedSuccessWithoutVerification
+      ? { unverifiedConclusion: 'SUCCESS requested without --verified; stored as PENDING until verify records the test result.' }
+      : {}),
   };
 }

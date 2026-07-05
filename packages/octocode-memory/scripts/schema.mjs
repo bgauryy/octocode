@@ -230,24 +230,7 @@ export const schemas = {
       limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
-    .describe("Show shared DB health: FTS, memory states, semantic embedding coverage, active locks, and unverified intents."),
-
-  stats: z
-    .object({
-      workspace_path: workspacePath.optional().describe("Workspace root used for refinement/env scoping by the CLI."),
-      stale_days: z.number().int().min(1).max(3650).default(60).describe("Age threshold for stale ACTIVE memories."),
-      top: z.number().int().min(1).max(100).default(5).describe("Maximum recurring weakness clusters to return."),
-    })
-    .strict()
-    .describe("Show harness-health counts: memory labels/states, semantic coverage, stale active memories, weaknesses, and refinements."),
-
-  embed_index: z
-    .object({
-      install: z.boolean().default(false).describe("Install model2vec from scripts/requirements.txt if unavailable."),
-      rebuild: z.boolean().default(false).describe("Re-embed every memory even when an embedding already exists for the configured model."),
-    })
-    .strict()
-    .describe("Build or refresh inline semantic embeddings for get_memory --semantic."),
+    .describe("Show shared DB health: FTS, memory labels/states, active locks, open refinements, and unverified intents."),
 
   memory_index: z
     .object({
@@ -557,45 +540,6 @@ export const schemas = {
     })
     .strict()
     .describe("Post-task self-reflection: record what worked/didn't as learning, plus actionable fix indications for the repo and/or the harness."),
-
-  harness_apply: z
-    .object({
-      agent_id: agentId,
-      approved_by: nonEmptyText("Human who approved this harness change (the gate).", 128),
-      change: nonEmptyText("One-line summary of the skill/harness change.", 2000),
-      why_needed: nonEmptyText("Why future agents need this change; name the failure or decision it changes.", 2000),
-      evidence: nonEmptyText("Evidence source: user correction, memory, eval, file, or command.", 2000),
-      risk: nonEmptyText("Risk plus rollback/review note for this scoped change.", 2000),
-      verification_plan: nonEmptyText("Checks that will prove the harness change.", 2000),
-      file: fileList.describe("Skill files to be edited."),
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace for the announcement notification."),
-    })
-    .strict()
-    .describe(
-      "Gated, branch-only, announced approval for an agent to edit the skill/harness itself. " +
-        "Requires the human to have opened the gate (OCTOCODE_ALLOW_HARNESS_APPLY=1) and a dedicated branch.",
-    ),
-
-  memory_export: z
-    .object({
-      out: z.string().trim().min(1).max(1024).optional().describe("Output JSONL path. Default: <workspace>/.octocode/memories.jsonl."),
-      workspace_path: z.string().trim().min(1).max(1024).optional(),
-      repo: repoScope.optional().describe("Repository scope to export."),
-      ref: refScope.optional().describe("Branch/commit scope to export."),
-      strict_scope: z.boolean().default(false).describe("Export exact scope matches only."),
-      global_only: z.boolean().default(false).describe("Export only memories with no workspace/repo/ref scope."),
-      min_importance: importanceScore.optional().describe("Only export memories at or above this importance."),
-    })
-    .strict()
-    .describe("Export ACTIVE memories to a committable JSONL file so a team can share self-knowledge as files."),
-
-  memory_import: z
-    .object({
-      file: nonEmptyText("JSONL file to import.", 1024),
-      mode: z.enum(["skip", "replace"]).default("skip").describe("On memory_id collision: skip (keep local) or replace."),
-    })
-    .strict()
-    .describe("Import memories from a JSONL file (team-shared self-knowledge). Dedupes by memory_id."),
 };
 
 export const examples = {
@@ -632,17 +576,7 @@ export const examples = {
   status: {
     workspace_path: "/repo",
     limit: 20,
-  },
-  stats: {
-    workspace_path: "/repo",
-    stale_days: 60,
-    top: 5,
-  },
-  embed_index: {
-    install: false,
-    rebuild: false,
-  },
-  memory_index: {
+  },  memory_index: {
     limit: 30,
     min_importance: 4,
     repo: "octocode-mcp",
@@ -756,26 +690,15 @@ export const examples = {
     ],
     duo: true,
   },
-  harness_apply: {
-    agent_id: "codex-local",
-    approved_by: "guy",
-    change: "Add a reflect step to the agent loop in SKILL.md",
-    why_needed: "Future agents were finishing harness edits without recording why the change prevents a repeated failure.",
-    evidence: "user correction in current thread plus memory:mem_verify_gate",
-    risk: "Prompt bloat; rollback by reverting the scoped SKILL.md/reference diff.",
-    verification_plan: "skill-lint plus awareness self-test and git diff --check",
-    file: ["SKILL.md"],
-  },
-  memory_export: {
-    min_importance: 5,
-    repo: "octocode-mcp",
-    strict_scope: false,
-  },
-  memory_import: {
-    file: ".octocode/memories.jsonl",
-    mode: "skip",
-  },
 };
+
+const listableSchemas = [
+  "tell_memory", "get_memory", "status", "memory_index",
+  "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify",
+  "forget_memory", "refinement", "refine_query", "refine_delete",
+  "notify", "notify_query", "notify_resolve", "notify_prune",
+  "workspace_status", "export_harness", "reflect",
+];
 
 function usage() {
   return `Usage:
@@ -817,7 +740,7 @@ async function main(argv) {
   }
 
   if (command === "list") {
-    console.log(JSON.stringify(Object.keys(schemas), null, 2));
+    console.log(JSON.stringify(listableSchemas, null, 2));
     return 0;
   }
 

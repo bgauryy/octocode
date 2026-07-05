@@ -28,6 +28,7 @@ import {
   splitArgs,
   setAgentProcessFactoryForTests,
 } from '../src/index.js';
+import { applyCustomEditsToContent, clearEditReadStateForTests, recordFileReadState } from '../src/tools/edit-tool.js';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(packageRoot, 'dist');
@@ -209,7 +210,7 @@ test('formatStatus reports the dist assets and memory module', withTempMemoryHom
   assert.match(status, /memory DB: not yet created/);
   assert.match(status, /octocode tools: 14 native Pi tools/);
   assert.match(status, /CLI: use `npx octocode`/);
-  assert.match(status, /disabled built-ins: none/);
+  assert.match(status, /disabled\/replaced built-ins: edit \(custom Octocode tool\)/);
 }));
 
 test('getOctocodeMemoryHome honors OCTOCODE_MEMORY_HOME', () => {
@@ -292,10 +293,178 @@ test('awareness bridge blocks only on lock conflicts', withIsolatedDb(async (ctx
   });
 }));
 
-test('keeps Pi built-in read available for skill progressive disclosure', async () => {
-  const { activeTools } = await captureExtensions();
+test('keeps Pi built-in read available and replaces built-in edit by custom tool override', async () => {
+  const { activeTools, tools } = await captureExtensions();
   assert.equal(activeTools.includes('read'), true);
   assert.equal(activeTools.includes('bash'), true);
+  assert.equal(activeTools.includes('edit'), true, 'edit remains active because the custom tool overrides the built-in by name');
+
+  const editTool = tools.get('edit')!;
+  assert.equal(editTool.label, 'edit (Octocode)');
+  assert.match(editTool.description!, /Replaces Pi built-in edit/);
+  assert.ok(editTool.promptGuidelines!.some((line) => line.includes('replaces Pi built-in edit')));
+  const params = editTool.parameters as { properties: { edits: { items: { properties: Record<string, unknown> } }, queries: unknown } };
+  assert.ok(params.properties.edits.items.properties['replaceAll'], 'custom edit supports replaceAll');
+  assert.ok(params.properties.edits.items.properties['reasoning'], 'custom edit supports per-edit reasoning metadata');
+  assert.ok(params.properties.edits.items.properties['matchMode'], 'custom edit supports match modes');
+  assert.ok(params.properties.queries, 'custom edit supports multi-file queries');
+});
+
+test('custom edit applies batched replacements and replaceAll against original content', () => {
+  const result = applyCustomEditsToContent(
+    'alpha one\nbeta one\nalpha two\n',
+    [
+      { oldText: 'beta one', newText: 'beta two', reasoning: 'update the beta line only' },
+      { oldText: 'alpha', newText: 'ALPHA', replaceAll: true, reasoning: 'rename every alpha literal' },
+    ],
+    'sample.txt',
+  );
+
+  assert.equal(result.newContent, 'ALPHA one\nbeta two\nALPHA two\n');
+  assert.equal(result.replacements, 3);
+  assert.equal(result.firstChangedLine, 1);
+});
+
+test('custom edit not-found errors include current-file recovery guidance', () => {
+  assert.throws(
+    () => applyCustomEditsToContent('const value = 1;\n', [{ oldText: 'const value = 2;', newText: 'const value = 3;', reasoning: 'test' }], 'sample.ts'),
+    /Re-read the target range and retry with a smaller unique oldText/,
+  );
+});
+
+test('custom edit requires reasoning and shows it in output', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-reasoning-'));
+  const target = path.join(tmp, 'reasoning.txt');
+  fs.writeFileSync(target, 'left\nright\n', 'utf8');
+  try {
+    const editTool = tools.get('edit')!;
+    // Missing reasoning must be rejected.
+    await assert.rejects(
+      () => invokeExecute(editTool, { path: target, edits: [{ oldText: 'left', newText: 'LEFT' }] }),
+      /reasoning is required/,
+    );
+
+    const withReasoning = await invokeExecute(editTool, {
+      path: target,
+      edits: [{ oldText: 'right', newText: 'RIGHT', reasoning: 'uppercase the remaining direction' }],
+    });
+    assert.match(withReasoning.content[0]!.text, /Reasoning:\n- .*reasoning\.txt edits\[0\]: uppercase the remaining direction/);
+    assert.match(withReasoning.content[0]!.text, /Changes:\n# .*reasoning\.txt/);
+    assert.match(withReasoning.content[0]!.text, /\x1b\[31m- right\x1b\[0m/);
+    assert.match(withReasoning.content[0]!.text, /\x1b\[32m\+ RIGHT\x1b\[0m/);
+    // 'left' was not changed (the rejected call did not write); only 'right' was replaced.
+    assert.equal(fs.readFileSync(target, 'utf8'), 'left\nRIGHT\n');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('custom edit returns diff and patch details', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-diff-'));
+  const target = path.join(tmp, 'diff.txt');
+  fs.writeFileSync(target, 'one\ntwo\n', 'utf8');
+  try {
+    const result = await invokeExecute(tools.get('edit')!, {
+      path: target,
+      edits: [{ oldText: 'two', newText: 'TWO', reasoning: 'change to uppercase' }],
+    });
+    const details = result.details as {
+      diff: string;
+      patch: string;
+      files: Array<{ patch: string; diff: string; coloredDiff: string; reasoning: Array<{ editIndex: number; reasoning: string }> }>;
+    };
+    assert.match(result.content[0]!.text, /Changes:\n# .*diff\.txt/);
+    assert.match(result.content[0]!.text, /\x1b\[31m- two\x1b\[0m/);
+    assert.match(result.content[0]!.text, /\x1b\[32m\+ TWO\x1b\[0m/);
+    assert.match(details.diff, /- two/);
+    assert.match(details.diff, /\+ TWO/);
+    assert.match(details.files[0]!.coloredDiff, /\x1b\[31m- two\x1b\[0m/);
+    assert.deepEqual(details.files[0]!.reasoning, [{ editIndex: 0, reasoning: 'change to uppercase' }]);
+    assert.match(details.patch, /^--- /m);
+    assert.match(details.files[0]!.patch, /\+\+\+ .*diff\.txt/);
+
+    const themedLines = tools.get('edit')!.renderResult!(result, { expanded: true }, {
+      bold: (text: string) => `<b>${text}</b>`,
+      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+    }).render(120);
+    assert.ok(themedLines.some((line) => line.includes('<error>- two</error>')));
+    assert.ok(themedLines.some((line) => line.includes('<success>+ TWO</success>')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('custom edit supports normalized and lineRange match modes', () => {
+  const normalized = applyCustomEditsToContent(
+    'const label = “hello”;\n',
+    [{ oldText: 'const label = "hello";\n', newText: 'const label = "hi";\n', matchMode: 'normalized', reasoning: 'test normalized match' }],
+    'sample.ts',
+  );
+  assert.equal(normalized.newContent, 'const label = "hi";\n');
+  assert.deepEqual(normalized.usedModes, ['normalized']);
+
+  const lineRange = applyCustomEditsToContent(
+    'one\ntwo\nthree\n',
+    [{ newText: 'TWO\n', matchMode: 'lineRange', startLine: 2, endLine: 2, reasoning: 'test lineRange match' }],
+    'sample.txt',
+  );
+  assert.equal(lineRange.newContent, 'one\nTWO\nthree\n');
+  assert.deepEqual(lineRange.usedModes, ['lineRange']);
+});
+
+test('custom edit supports all-or-nothing multi-file queries', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-queries-'));
+  const first = path.join(tmp, 'first.txt');
+  const second = path.join(tmp, 'second.txt');
+  fs.writeFileSync(first, 'alpha\n', 'utf8');
+  fs.writeFileSync(second, 'beta\n', 'utf8');
+  try {
+    await assert.rejects(
+      () => invokeExecute(tools.get('edit')!, {
+        queries: [
+          { path: first, edits: [{ oldText: 'alpha', newText: 'ALPHA', reasoning: 'test' }] },
+          { path: second, edits: [{ oldText: 'missing', newText: 'MISSING', reasoning: 'test' }] },
+        ],
+      }),
+      /Could not find/,
+    );
+    assert.equal(fs.readFileSync(first, 'utf8'), 'alpha\n');
+    assert.equal(fs.readFileSync(second, 'utf8'), 'beta\n');
+
+    const result = await invokeExecute(tools.get('edit')!, {
+      queries: [
+        { path: first, edits: [{ oldText: 'alpha', newText: 'ALPHA', reasoning: 'test' }] },
+        { path: second, edits: [{ oldText: 'beta', newText: 'BETA', reasoning: 'test' }] },
+      ],
+    });
+    assert.match(result.content[0]!.text, /2 file\(s\)/);
+    assert.equal(fs.readFileSync(first, 'utf8'), 'ALPHA\n');
+    assert.equal(fs.readFileSync(second, 'utf8'), 'BETA\n');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('custom edit rejects stale files when read state was recorded', async () => {
+  clearEditReadStateForTests();
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-stale-'));
+  const target = path.join(tmp, 'stale.txt');
+  fs.writeFileSync(target, 'before\n', 'utf8');
+  try {
+    await recordFileReadState(target);
+    fs.writeFileSync(target, 'changed elsewhere\n', 'utf8');
+    await assert.rejects(
+      () => invokeExecute(tools.get('edit')!, { path: target, edits: [{ oldText: 'changed elsewhere', newText: 'ours', reasoning: 'test' }] }),
+      /File changed since last recorded read/,
+    );
+  } finally {
+    clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('registers all Octocode direct tools as native Pi tools', async () => {
@@ -332,23 +501,33 @@ test('registers all Octocode direct tools as native Pi tools', async () => {
       { expanded: false },
       theme,
     ).render(80)[0],
-    '✓ localViewStructure · 2 items · expand for full output',
+    '✓ localViewStructure · 2 queries · expand for full output',
   );
+  // Build 30 newline-separated lines so the 25-line limit is exceeded (5 lines omitted).
+  const manyLines = Array.from({ length: 30 }, (_, i) => `line${i + 1}`).join('\n');
   const expanded = localViewStructure.renderResult!(
-    { isError: false, content: [{ type: 'text', text: 'x'.repeat(450) }], details: {} },
+    { isError: false, content: [{ type: 'text', text: manyLines }], details: {} },
     { expanded: true },
     theme,
   ).render(80);
+  // expanded[0] = header, expanded[1..25] = first 25 content lines, expanded[26] = notice
+  assert.equal(expanded.length, 27, 'header + 25 content lines + 1 truncation notice');
   // render(80) must respect the width contract: every line's visible width ≤ 80.
-  // Strip ANSI escape codes to measure the visible character count.
   const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
   const previewVisibleWidth = expanded[1]!.replace(ANSI_RE, '').length;
   assert.ok(
     previewVisibleWidth <= 80,
     `expanded preview line visible width (${previewVisibleWidth}) must not exceed render width 80`,
   );
-  assert.ok(expanded[1]!.includes('\u2026'), 'preview is truncated with ellipsis when wider than render width');
-  assert.match(expanded[2]!, /user preview truncated \(150 chars hidden/);
+  // Last element is the line-based truncation notice (30 − 25 = 5 lines omitted)
+  assert.match(expanded[26]!, /5 more lines? hidden/);
+  // A single long line (> render width) must still be truncated with an ellipsis
+  const singleLineLong = localViewStructure.renderResult!(
+    { isError: false, content: [{ type: 'text', text: 'x'.repeat(450) }], details: {} },
+    { expanded: true },
+    theme,
+  ).render(80);
+  assert.ok(singleLineLong[1]!.includes('\u2026'), 'long single line is ellipsis-truncated at render width');
 });
 
 test('applies Octocode Pi UI status and hidden thinking label', () => {
@@ -419,9 +598,9 @@ test('registers split typed memory support tools with strict schemas', async () 
   assert.deepEqual(recallParams.required, ['query']);
   const recordParams = tools.get('memory_record')!.parameters as { required?: string[] };
   assert.deepEqual(recordParams.required, ['task_context', 'observation']);
-  const verifyParams = tools.get('memory_verify')!.parameters as { required?: string[] };
-  assert.deepEqual(verifyParams.required, ['intent_id']);
-});
+        const verifyParams = tools.get('memory_verify')!.parameters as { required?: string[] };
+        // All inputs are optional in schema — intent_id | intent_ids[] | allPending:true; runtime enforces at least one
+        assert.deepEqual(verifyParams.required, undefined);});
 
 test('compact_context queues a continuation after compaction completes', async () => {
   const { tools, sentUserMessages } = await captureExtensions();
@@ -934,10 +1113,10 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.match(spawned[0]!.proc.stdinWrites[0]!, /Context for this delegated agent/);
     assert.match(spawned[0]!.proc.stdinWrites[0]!, /check the docs/);
 
-    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
-    const list = await invokeExecute(messageTool, { action: 'list' });
-    assert.match(list.content[0]!.text, new RegExp(agentId));
-
+          const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+          const list = await invokeExecute(messageTool, { action: 'list' });
+          // list content shows shortId (first 8 chars) for readability; full agentId is in details
+          assert.match(list.content[0]!.text, new RegExp(agentId.slice(0, 8)));
     spawned[0]!.proc.emitStdout({ type: 'agent_end', messages: [] });
     await invokeExecute(messageTool, { action: 'wait', agentId, timeoutMs: 1000 });
     await invokeExecute(messageTool, { action: 'send', agentId, message: 'also inspect tests' });

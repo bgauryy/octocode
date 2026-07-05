@@ -6,14 +6,19 @@
  * available in ExtensionCommandContext (registerCommand handlers). They are
  * NOT exposed to tool execute() contexts and will always be undefined there.
  */
-import type { PiContext, PiCommandContext, PiInstance, ToolDefinition } from '../types.js';
+import type { PiContext, PiCommandContext, PiInstance, ToolDefinition, PiTheme } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
+import { truncateToWidth } from './render-helpers.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
 type Notifier = (ctx: PiContext | undefined, msg: string, level?: string) => void;
 
 const AUTO_COMPACT_THRESHOLD = 0.80;
+
+function simpleRenderer(line: string) {
+  return { render: (w: number) => [truncateToWidth(line, w)], invalidate() { /* no-op */ } };
+}
 
 export function registerContextTools(
   pi: PiInstance,
@@ -129,6 +134,29 @@ export function registerContextTools(
         ],
       };
     },
+
+    renderCall(args: unknown, theme?: PiTheme) {
+      const a = (args ?? {}) as Record<string, unknown>;
+      const instructions = typeof a.instructions === 'string' && a.instructions ? a.instructions : '';
+      const nameStr = theme?.fg('toolTitle', theme.bold('compact_context')) ?? 'compact_context';
+      const detail = instructions
+        ? (theme?.fg('dim', ` "${instructions.length > 50 ? instructions.slice(0, 47) + '…' : instructions}"`) ?? ` "${instructions}"`)
+        : '';
+      return simpleRenderer(`${nameStr}${detail}`);
+    },
+
+    renderResult(result, opts, theme?: PiTheme) {
+      if (opts.isPartial) {
+        return simpleRenderer(theme?.fg('warning', 'Compacting…') ?? 'Compacting…');
+      }
+      const ok = !result.isError;
+      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
+      const nameStr = theme?.fg('toolTitle', 'compact_context') ?? 'compact_context';
+      const msg = ok
+        ? (theme?.fg('dim', ' · compaction triggered') ?? ' · compaction triggered')
+        : '';
+      return simpleRenderer(`${icon} ${nameStr}${msg}`);
+    },
   } satisfies ToolDefinition);
 
   registerFn(pi, registeredToolNames, {
@@ -152,6 +180,24 @@ export function registerContextTools(
           },
         ],
       };
+    },
+
+    renderCall(_args: unknown, theme?: PiTheme) {
+      const nameStr = theme?.fg('toolTitle', theme.bold('clear_context')) ?? 'clear_context';
+      return simpleRenderer(nameStr);
+    },
+
+    renderResult(result, opts, theme?: PiTheme) {
+      if (opts.isPartial) {
+        return simpleRenderer(theme?.fg('warning', 'Clearing…') ?? 'Clearing…');
+      }
+      const ok = !result.isError;
+      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
+      const nameStr = theme?.fg('toolTitle', 'clear_context') ?? 'clear_context';
+      const msg = ok
+        ? (theme?.fg('dim', ' · new session queued') ?? ' · new session queued')
+        : '';
+      return simpleRenderer(`${icon} ${nameStr}${msg}`);
     },
   } satisfies ToolDefinition);
 }

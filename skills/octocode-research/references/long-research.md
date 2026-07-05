@@ -95,14 +95,11 @@ Drop claims that are only plausible but unsupported. Keep contradicted claims wh
 5. Update claims after each decisive observation.
 6. Run Advocate vs Critic over claims, not raw notes.
 7. Produce the brief from supported and partial claims only.
-8. Produce at most one awareness capture packet from final supported/partial claims, using evidence locators as `memoryReferences[]`; if no reusable lesson survived, record `doNotCaptureReason` instead of storing memory.
+8. On a durable finding, store one distilled lesson: `memory_record({task_context, observation, references:[<evidence locators>]})` or `memory_reflect({task, outcome, lesson, fix_repo})` in Pi; `tell-memory --observation ... --reference ...` via `learning-capture.md` in standalone. If no reusable lesson survived rebuttal, skip memory capture entirely.
 
 ## Vendor Adapters
 
-Firecrawl, Tavily, Parallel, Perplexity, and similar tools are optional adapters. Use them only when they are available, authenticated, and useful for the active surface.
-They enrich the web/paper surface only; they do not replace Octocode proof for local, GitHub, npm, PR/history, AST/LSP, or artifact claims.
-
-If a vendor adapter fails, continue with Octocode and runtime web search when possible. Mark the web/paper surface degraded instead of blocking the whole campaign.
+Optional web-enrichment adapters (e.g. Tavily, Perplexity) are useful only when available and authenticated. They enrich the web/paper surface only — they do not replace Octocode proof for local, GitHub, npm, PR/history, AST/LSP, or artifact claims. If an adapter fails, continue with native web search and mark the surface degraded.
 
 ## Output Skeleton
 

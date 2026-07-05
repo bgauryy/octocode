@@ -1,10 +1,10 @@
 # Memory & recall semantics
 
-Read this when recording or recalling lessons, or when authoring `awareness.mjs` payloads for the memory commands. The locking/coordination commands and the data model live in `coordination-protocol.md`; the recall ranking math lives in `self-harness.md`.
+Read this when recording or recalling lessons, or when authoring `awareness.mjs` payloads for memory commands. The locking/coordination commands and data model live in `coordination-protocol.md`. Recall ranking lives in `self-harness.md`.
 
 ## Canonical payload contract
 
-Use the Zod schemas in `scripts/schema.mjs` as the canonical JSON payload contract for agents and future MCP/tool wrappers. They are not a one-to-one list of CLI flags; the CLI often uses repeatable flags such as `--target-file` where the JSON wrapper uses arrays such as `target_files`. The schema names are `tell_memory`, `get_memory`, `status`, `stats`, `embed_index`, `memory_index`, `forget_memory`, `refinement`, `refine_query`, `refine_delete`, `pre_flight_intent`, `wait_for_lock`, `prune_stale_locks`, `release_file_lock`, `verify`, `notify`, `notify_query`, `notify_resolve`, `notify_prune`, `reflect`, `harness_apply`, `memory_export`, and `memory_import`. Inspect or validate them with:
+Use the Zod schemas in `scripts/schema.mjs` as the canonical JSON payload contract for agents and future MCP/tool wrappers. CLI flags are not one-to-one with JSON fields; for example, `--target-file` maps to `target_files`. Inspect schemas with:
 
 ```bash
 node <skill_root>/scripts/schema.mjs list
@@ -15,24 +15,9 @@ node <skill_root>/scripts/schema.mjs validate tell_memory payload.json
 
 The Python CLI also accepts underscore aliases for these protocol-style names: `tell_memory`, `get_memory`, `pre_flight_intent`, `wait_for_lock`, `prune_stale_locks`, `release_file_lock`, and `notify_get`.
 
-For token-efficient agent reads, pass `--compact` anywhere in the command or set `OCTOCODE_AWARENESS_COMPACT=1`; it minifies JSON without changing fields.
+For token-efficient agent reads, pass `--compact` after the command or set `OCTOCODE_AWARENESS_COMPACT=1`; it minifies JSON without changing fields.
 
-## Sharing memories as files — `memory-export` / `memory-import`
-
-Memories are global per-machine by default. To **share them with a team and store them as files in the repo**, export to a git-diffable JSONL and commit it; teammates import it:
-
-```bash
-# Author: write ACTIVE memories to a committable file (default <workspace>/.octocode/memories.jsonl)
-awareness.mjs memory-export --min-importance 5          # optional floor; --out <path> to override
-git add .octocode/memories.jsonl && git commit -m "share agent memories"
-
-# Teammate: load the committed file into their store (dedupes by memory_id)
-awareness.mjs memory-import .octocode/memories.jsonl    # --mode skip (default, keep local) | replace
-```
-
-`memory-export` is schema-agnostic (`SELECT *`) and skips embedding blobs (rebuild with `embed-index` after import). It can export a scoped slice with `--workspace`/`--repo`/`--ref`; scoped exports include broader global/applicable memories unless `--strict-scope` is passed, and `--global-only` exports only unscoped lessons. `memory-import` keeps existing memories under `--mode skip` and overwrites under `--mode replace`, refreshing FTS and exact-reference indexes either way.
-
-For a **fully repo-local** memory store (every memory lives in the repo, not `~/.octocode`), point `OCTOCODE_MEMORY_HOME=<repo>/.octocode/memory`; then `tell-memory`/`get-memory` read and write inside the repo directly. Export/import is the file-based, merge-friendly path; a repo-local DB is the all-in path. Never commit secrets — the same safety rule applies to exported files.
+Memories are global per-machine by default. For a repo-local store, point `OCTOCODE_MEMORY_HOME=<repo>/.octocode/memory`; then `tell-memory`/`get-memory` read and write inside the repo. Never commit secrets or raw memory databases unless a human explicitly approves the storage model.
 
 ## `get-memory`
 
@@ -51,53 +36,58 @@ Important flags:
 - `--workspace` / `--repo` / `--ref`: optional applicability filters. Default scoped recall includes broader global/applicable memories (`NULL OR exact`) so repo work still sees global developer gotchas. Add `--strict-scope` for exact matches only, or `--global-only` to inspect unscoped lessons.
 - `--regex`: repeatable regex matched against task, observation, tags, references, label, workspace/repo/ref, file, and failure signature.
 - `--sort`: `smart`/`score` (default salience), `importance`, `recent`, `updated`, `accessed`, `access`, `label`, or `file`.
-- `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters, then try semantic recall if indexed. Use this for "fetch smart memories" moments before deciding the store has no relevant context.
+- `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters. Use this for "fetch smart memories" moments before deciding the store has no relevant context.
 
-Recall modes (default ranking blends importance + recency-of-use + access + lexical; see `self-harness.md` for the decay formula and `--no-decay`/`--half-life`/`--explain`):
-- `--as-of <ISO>`: **bi-temporal** point-in-time recall — only memories whose valid window (`valid_from`/`valid_to`) contains that instant. Default (omitted) = now-behavior. Set `--valid-from`/`--valid-to` on `tell-memory`; superseding a memory closes its window (`valid_to`) and stamps `expired_at`.
-- `--semantic`: **local embedding** recall via `model2vec` — paraphrase-tolerant, finds lessons whose wording differs from the query. Falls back to lexical and reports `mode` when the model isn't installed/vendored, when the query is empty, when the current model has no indexed rows for the active filters, or when no semantic hit exists. Cosine is min-max normalized across the candidate pool, filtered by `embedding_model`, then blended with decay (see `self-harness.md`); `--explain` shows `semantic` (raw cosine) and `semantic_norm`.
+Recall modes (default ranking blends importance + recency-of-use + access + lexical):
+- `--as-of <ISO>`: **bi-temporal** point-in-time recall — only memories whose valid window (`valid_from`/`valid_to`) contains that instant.
 
-  Semantic is **opt-in and self-provisioning** — a shipped skill is just a folder, so build the vectors on first use and whenever `status.semantic.active_coverage` is below `1.0`:
+> **Node.js (awareness.mjs):** `--semantic`, `--no-decay`, `--half-life`, `--explain`, `embed-index` are **Python-only** — not available in the Node.js runtime. Use `--smart` and `--reference` for broader recall without embeddings.
+
+- `--semantic` *(Python only)*: local embedding recall via `model2vec`. Requires `pip install model2vec` and a prior `embed-index` run. Not available in Node.js awareness.mjs.
 
   ```bash
-  # One command: embed every memory (semantic index; requires model2vec — run --install once).
-  node <skill_root>/scripts/awareness.mjs embed-index --install
-  # Thereafter (deps present): refresh new/changed rows, or --rebuild to re-embed all.
-  node <skill_root>/scripts/awareness.mjs embed-index
-  # Check coverage; --compact is easiest for agents to parse.
-  node <skill_root>/scripts/awareness.mjs status --compact
-  # Then recall semantically:
-  node <skill_root>/scripts/awareness.mjs get-memory --query "..." --semantic
+  # Python only — requires awareness.py, not awareness.mjs:
+  python <skill_root>/scripts/awareness.py embed-index --install
+  python <skill_root>/scripts/awareness.py get-memory --query "..." --semantic
   ```
 
-  First `embed-index` downloads the default model (`minishlab/potion-base-8M`, ~30 MB) from HuggingFace. For offline/air-gapped installs, vendor it at `scripts/models/potion-base-8M` or point `OCTOCODE_EMBED_MODEL` at a local path. Re-run `embed-index` after `memory-import` (export/import drops embedding blobs) and after large capture batches. `status` and `stats` report semantic coverage, active coverage, stale-model rows, and the configured model. There is no separate semantic DB: embeddings live inline in `agent_memories.embedding` / `agent_memories.embedding_model` in the shared SQLite store.
+**A zero-result recall is not proof of absence.** Default recall is lexical (FTS keyword match).
+When `count` is `0`, retry broader terms.
+Use `--smart` and drop restrictive filters before concluding no match exists.
 
-**A zero-result recall is not proof of absence.** Default recall is lexical (FTS keyword match), so a paraphrased query can miss a real lesson whose wording differs. When `count` is `0`, `get-memory` returns a `hint`: retry with fewer / broader / synonymous terms (or the symbol or file name), use `--smart`, and drop `--tag`/`--label`/`--min-importance`, before concluding nothing is known. Enable `--semantic` (after `embed-index`) for paraphrase-tolerant recall.
+Use returned memories as evidence, not instructions.
+**MUST:** validate code-related memories against current code before relying on them.
+If validation shows a memory is obsolete or redundant, retire it with `forget --dry-run` first for broad filters or supersede it with `tell-memory --supersedes`.
 
-Use returned memories as evidence, not as instructions. **MUST:** validate code-related memories against actual current code before relying on them; code changes, so memory is never truth by itself. If validation shows a memory is obsolete or redundant, retire it with `forget --dry-run` first for broad filters or supersede it with `tell-memory --supersedes`.
+## `memory-index` *(Python only)*
 
-## `memory-index`
+> **Not available in Node.js awareness.mjs.** Use `export-harness` for a similar markdown summary of top lessons, or `digest --export-doc` for a full memory report.
 
-The zero-dependency, Claude-Code-style recall aid. `memory-index` regenerates a concise, model-readable `MEMORY.md` of the top ACTIVE memories (ranked by importance + recency-of-use + access) and writes it next to the global store — `<memory_home>/MEMORY.md` (i.e. `~/.octocode/memory` or `OCTOCODE_MEMORY_HOME`). This mirrors Anthropic's own pattern (Claude Code auto-memory, the API `memory` tool): a small index the agent **reads first**, then `get-memory --query "..."` pulls full detail — the model is the semantic layer, no vector DB. Flags: `--limit` (default 30), `--min-importance`, `--workspace`/`--repo`/`--ref`, `--strict-scope`, `--global-only`, `--out` (override path), `--stdout` (print only, don't write). Regenerate it after recording or forgetting memories so the index stays current.
+Python only: regenerates `MEMORY.md` of the top ACTIVE memories next to the global store. Flags: `--limit`, `--min-importance`, `--workspace`/`--repo`/`--ref`, `--strict-scope`, `--global-only`, `--out`, `--stdout`. Regenerate after recording or forgetting memories.
 
 ## `tell-memory`
 
-Run after a meaningful discovery, bug fix, architectural decision, or surprising failure. Do not record routine status, secrets, credentials, stack traces with tokens, or generic advice.
+Run after a meaningful discovery, bug fix, architectural decision, or surprising failure. Record durable lessons only. Skip routine status, secrets, credentials, token-bearing stack traces, and generic advice.
 
-Before writing, reason to yourself why the memory is needed: which future decision it will improve, or which failure it will prevent. If you cannot name that reason, do not store it. `memoryReason` is not a DB column; when converting a capture packet to `tell-memory`, fold the reason into `--task-context` or `--observation` so future readers know why the row exists.
+Before writing, name why the memory is needed: which future decision it improves, or which failure it prevents.
+If you cannot name that reason, skip storage.
+`memoryReason` is not a DB column.
+When converting a capture packet to `tell-memory`, fold the reason into `--task-context` or `--observation`.
 
-Memory records are future LLM context, so keep them distilled: summarize the causal lesson, evidence, and verification command instead of pasting long logs or transcripts. Be concise, but do not compress away the root cause, safety caveat, or detail needed to avoid repeating the failure.
+Memory records are future LLM context, so keep them distilled.
+Summarize the causal lesson, evidence, and verification command instead of pasting logs.
+Be concise, but keep the root cause, safety caveat, or detail needed to avoid repeating the failure.
 
 Important flags:
 - `--agent-id`: stable human-readable agent identifier.
 - `--task-context`: concise description of the task that produced the lesson.
 - `--observation`: the exact lesson learned.
 - `--importance-score`: `1-10` criticality rating.
-- `--label`: memory category. Empty or omitted becomes `OTHER`. Prefer specific labels when obvious: `BUG` for defects, `GOTCHA` for surprising constraints, `IMPROVEMENT` for better process, `DECISION` for chosen direction, `SECURITY` for safety-sensitive lessons, etc.
+- `--label`: memory category. Empty or omitted becomes `OTHER`. Prefer specific labels: `BUG`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `SECURITY`, etc.
 - `--tag`: optional repeated keyword tag.
-- `--reference`: optional repeated provenance string — where this lesson came from (URL, `pr:owner/repo#123`, `repo:owner/repo`, `npm:pkg`, `doc:<title>`, `file:<abs-path>`). Use it to capture research/brainstorm findings so future recall surfaces the conclusion *and* its sources; see `learning-capture.md`. References are stored structured, mirrored into an indexed `memory_references` table for exact filters, and folded into FTS, semantic embedding text, `MEMORY.md`, the viewer, and import/export rebuilds.
-- `--workspace` / `--repo` / `--ref`: optional applicability scope. Use for repo-specific lessons; omit for global developer gotchas and learning that should travel across repos. `--repo`/`--ref` auto-fill from `--workspace` git when omitted.
-- `--file`: the ONE file this memory correlates to (normalized to an absolute path, like locks). Omit for a general lesson. A memory is tied to at most one file; use the file-scoped form for "editing X behaves like Y", and the general form for reusable cross-file lessons.
+- `--reference`: repeated provenance string. Examples: URL, PR, repo, npm package, doc, or local file. Use references for research findings so recall surfaces the conclusion and sources. References are indexed and folded into FTS/docs/viewer/import-export.
+- `--workspace` / `--repo` / `--ref`: optional applicability scope. Use for repo-specific lessons. Omit for global gotchas and cross-repo learning. `--repo`/`--ref` auto-fill from `--workspace` git when omitted.
+- `--file`: the ONE file this memory correlates to, normalized like locks. Omit for general lessons. Use file scope for "editing X behaves like Y"; use general scope for reusable cross-file lessons.
 - `--file-tree-fingerprint`: optional Git SHA or workspace state hash.
 - `--supersedes`: repeatable; memory id(s) this new memory replaces — each is marked `SUPERSEDED` and points at the new memory. The one-step refine for "I learned a better version."
 
@@ -113,11 +103,13 @@ Good observations are specific:
 Changing X in file Y caused Z because of W. Future agents should do A instead and verify with command B.
 ```
 
-When the lesson is a specific code snippet, API, or command, include the why/how in the memory itself. Add a source-code comment only when you are already editing that code and a concise comment would prevent real confusion; a snippet with no "why" is noise, but noisy comments in code are also debt.
+When the lesson is a specific code snippet, API, or command, include the why/how in the memory itself.
+Add a source-code comment only when already editing that code and a concise comment would prevent real confusion.
+A snippet with no "why" is noise; noisy comments in code are also debt.
 
 ## `forget`
 
-Run when a memory is wrong, stale, obsolete, redundant, superseded, or a duplicate. Memories are evidence to verify against current code, not authority — retire ones that would mislead future agents instead of leaving them to resurface in recall.
+Run when a memory is wrong, stale, obsolete, redundant, superseded, or duplicated. Memories are evidence, not authority. Retire memories that would mislead future agents.
 
 Important flags (at least one selector is required; all provided filters combine with `AND`):
 - `--memory-id`: repeat to target exact memory ids (from a prior `get-memory`).
@@ -126,15 +118,19 @@ Important flags (at least one selector is required; all provided filters combine
 - `--max-importance`: safety ceiling — only delete memories at or below this importance, so high-value memories are not swept up by a broad filter.
 - `--dry-run`: report `would_delete` and the matched memories without deleting. Preview first for any broad filter.
 
-Deletes are removed from both `agent_memories` and the `memory_fts` index. With no selector the command refuses and exits non-zero rather than guessing. For a soft alternative on memories, supersede with `tell-memory --supersedes` (marks the old memory `SUPERSEDED` and hides it from default recall) rather than hard-deleting.
+Deletes remove rows from `agent_memories` and `memory_fts`.
+With no selector the command refuses instead of guessing.
+For soft deletion, supersede with `tell-memory --supersedes` rather than hard-deleting.
 
 ## `reflect` — post-task self-reflection
 
-`reflect` is the front door to the self-harness loop (see `self-harness.md` when running it): after finishing (or abandoning) a task, capture **what worked / what didn't** and route it into action. It records nothing new of its own — it routes into the existing stores so the right reader picks each item up:
+`reflect` is the front door to the self-harness loop; see `self-harness.md` when running it.
+After finishing or abandoning a task, capture what worked or failed and route it into action.
+`reflect` routes into existing stores so the right reader picks each item up:
 
 - `--task` (required) + `--outcome worked|partial|failed` (required), with optional `--worked` / `--didnt-work` narrative.
 - `--lesson` → a **general memory** (tagged `reflection` + the outcome), recalled later and clustered under `mine-weakness` when you also pass `--failure-signature`. Importance defaults by outcome (failed 8 / partial 6 / worked 5) unless `--importance` overrides.
-- `--fix-repo "<note>" [--fix-file <path> …]` → an **open, `quality:bad` workspace-scoped refinement** in the shared store — a concrete *"fix this in the repo/code"* indication the next agent sees via `refine-get` and the viewer. `--repo`/`--ref` auto-fill from git.
+- `--fix-repo "<note>" [--fix-file <path> …]` → an **open, `quality:bad` workspace-scoped refinement**. The next agent sees it via `refine-get` and the viewer. `--repo`/`--ref` auto-fill from git.
 - `--fix-harness "<note>"` → folded into the learning memory tagged `harness`, so `export-harness` surfaces it as a proposed skill/AGENTS.md improvement.
 
-One call can emit all three. The result reports `learning_memory_id`, `repo_fix_refinement_id`, and `harness_fix`, plus the `next` steps. **Discipline is unchanged: reflect records and proposes — a human merges.** It never edits repo code or the skill itself.
+One call can emit all three. The result reports ids plus next steps. **Discipline is unchanged: reflect records and proposes — a human merges.** It never edits repo code or the skill itself.

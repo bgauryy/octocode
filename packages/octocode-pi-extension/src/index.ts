@@ -27,6 +27,7 @@ import { buildMemoryToolDefinition } from './tools/memory.js';
 import { registerContextTools } from './tools/context-tools.js';
 import { registerAgentTools } from './tools/agent-tools.js';
 import { registerWebTool } from './tools/web-tool.js';
+import { registerEditTool } from './tools/edit-tool.js';
 import { pickProvider } from './web.js';
 import type {
   PiInstance,
@@ -148,7 +149,7 @@ export function formatStatus(baseDir?: string): string {
     `memory module: @octocodeai/octocode-memory (direct import)`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
     `CLI: use \`npx octocode\` for auth, search, clone, cache, install, skill, lsp-server, context`,
-    `disabled built-ins: ${DISABLED_BUILTIN_TOOL_NAMES.length ? DISABLED_BUILTIN_TOOL_NAMES.join(', ') : 'none'}`,
+    `disabled/replaced built-ins: edit (custom Octocode tool)${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
     `web search: ${searchStatus}`,
     `package assets: ${paths.baseDir}`,
   ].join('\n');
@@ -365,6 +366,8 @@ async function wireOctocodePiExtension(
   if (pi.registerTool) {
     const { Type } = await import('typebox');
     const registeredToolNames = new Set<string>();
+
+    registerEditTool(pi, Type);
 
     await registerOctocodeTools(pi, Type, registeredToolNames);
 

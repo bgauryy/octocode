@@ -6,19 +6,22 @@
  * digest:              REAL — archives expired memories, prunes stale rows/locks, rebuilds FTS.
  * getWorkspaceStatus:  REAL — returns active locks, agents, memory stats for the workspace.
  * exportMemoryDoc:     REAL — queries all active memories and returns a markdown report string.
- * sessionCapture:      STUB — no-op.
- * waitForLock:         STUB — returns immediately.
- *
- * Remaining stubs write "[stub] <command>: not yet implemented" to stderr.
+ * sessionCapture:      REAL — records unresolved session work as an open refinement.
+ * waitForLock:         REAL — polls active exclusive locks until clear or timeout.
  */
 
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { hasFts, rebuildFts } from './db.js';
-import { utcNow } from './helpers.js';
+import { fillScope } from './git.js';
+import { parseJsonList, utcNow } from './helpers.js';
 
 export interface PruneStaleResult {
   pruned_locks: number;
   updated_intents: number;
+  dry_run?: true;
+  would_prune?: number;
 }
 
 export interface NotifyGetResult {
@@ -30,18 +33,49 @@ export interface NotifyGetResult {
 
 export interface SessionCaptureResult {
   ok: true;
-  captured: false;
+  captured: boolean;
+  refinement_id: string | null;
+  pending_intents: number;
+  active_intents: number;
+  files: string[];
+  dirty_files: string[];
+  reason: string | null;
 }
 
 export interface WaitForLockResult {
   ok: true;
-  waited_ms: 0;
-  lock_free: true;
+  waited_ms: number;
+  lock_free: boolean;
+  conflicts?: Array<{ file_path: string; agent_id: string; expires_at: string | null }>;
 }
 
 /** REAL: Delete expired file locks and set parent intents to PENDING. */
-export function pruneStale(db: DatabaseSync, _params: Record<string, unknown> = {}): PruneStaleResult {
+export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {}): PruneStaleResult {
+  const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) :
+    params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const now = utcNow();
+  // Age cutoff: locks older than N minutes are considered stale even if no expires_at
+  const ageCutoff = olderThanMinutes != null
+    ? new Date(Date.now() - olderThanMinutes * 60000).toISOString()
+    : null;
+
+  if (dryRun) {
+    let count = 0;
+    try {
+      const row = db.prepare(
+        `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
+      ).get(now) as { c: number };
+      count += row.c;
+      if (ageCutoff) {
+        const row2 = db.prepare(
+          `SELECT COUNT(*) AS c FROM file_locks WHERE acquired_at < ? AND (expires_at IS NULL OR expires_at >= ?)`
+        ).get(ageCutoff, now) as { c: number };
+        count += row2.c;
+      }
+    } catch { /* ignore */ }
+    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: count };
+  }
 
   const expiredLocks = db.prepare(`
     SELECT fl.lock_id, fl.intent_id
@@ -188,22 +222,185 @@ export function notifyGet(
   return result;
 }
 
-/** STUB: No-op session capture. */
-export function sessionCapture(
-  _db: DatabaseSync,
-  _params: Record<string, unknown> = {},
-): SessionCaptureResult {
-  process.stderr.write('[stub] session-capture: not yet implemented; skipping\n');
-  return { ok: true, captured: false };
+function gitDirtyFiles(workspacePath: string | null): string[] {
+  if (!workspacePath) return [];
+  try {
+    const result = spawnSync('git', ['-C', workspacePath, 'status', '--short'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    if (result.status !== 0) return [];
+    return String(result.stdout)
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => line.slice(3).trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
-/** STUB: Returns immediately (lock considered free). */
+/** REAL: Capture unresolved session state as an open handoff refinement. */
+export function sessionCapture(
+  db: DatabaseSync,
+  params: Record<string, unknown> = {},
+): SessionCaptureResult {
+  const agentId = String(params.agent_id ?? params.agentId ?? 'agent');
+  const reason = params.reason ? String(params.reason) : null;
+  const scope = fillScope(
+    {
+      workspace_path: (params.workspace ?? params.workspace_path ?? params.workspacePath) as string | null | undefined,
+      repo: (params.repo as string | null | undefined) ?? null,
+      ref: (params.ref as string | null | undefined) ?? null,
+    },
+    (params.cwd as string | undefined) ?? process.cwd(),
+  );
+  const workspacePath = scope.workspace_path ?? process.cwd();
+
+  const intentRows = db.prepare(
+    `SELECT intent_id, rationale, test_plan, status, files_json, created_at, updated_at
+     FROM agent_intents
+     WHERE agent_id = ?
+       AND status IN ('ACTIVE', 'PENDING')
+       AND (workspace_path = ? OR workspace_path IS NULL)
+     ORDER BY updated_at DESC, created_at DESC
+     LIMIT 20`
+  ).all(agentId, workspacePath) as Array<{
+    intent_id: string;
+    rationale: string;
+    test_plan: string;
+    status: string;
+    files_json: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  const files = [...new Set(intentRows.flatMap(row => parseJsonList(row.files_json)))];
+  const dirtyFiles = gitDirtyFiles(workspacePath);
+  const activeIntents = intentRows.filter(row => row.status === 'ACTIVE').length;
+  const pendingIntents = intentRows.filter(row => row.status === 'PENDING').length;
+
+  if (intentRows.length === 0 && dirtyFiles.length === 0) {
+    return {
+      ok: true,
+      captured: false,
+      refinement_id: null,
+      pending_intents: 0,
+      active_intents: 0,
+      files: [],
+      dirty_files: [],
+      reason,
+    };
+  }
+
+  const now = utcNow();
+  const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
+  const capturedFiles = [...new Set([...files, ...dirtyFiles])];
+  const statusSummary = intentRows.map(row => {
+    const rowFiles = parseJsonList(row.files_json);
+    const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(', ')}` : '';
+    return `${row.status} ${row.intent_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+  });
+  const reasoning = [
+    `Session capture for ${agentId}${reason ? ` (${reason})` : ''}.`,
+    `Unresolved intents: ${intentRows.length} (${activeIntents} active, ${pendingIntents} pending).`,
+    dirtyFiles.length > 0 ? `Dirty files: ${dirtyFiles.join(', ')}.` : null,
+    statusSummary.length > 0 ? `Intent details: ${statusSummary.join(' | ')}` : null,
+  ].filter(Boolean).join(' ');
+  const remember = [
+    `Review session handoff for ${agentId}: ${activeIntents} active and ${pendingIntents} pending intents remain.`,
+    capturedFiles.length > 0 ? `Touched files: ${capturedFiles.join(', ')}.` : null,
+    dirtyFiles.length > 0 ? 'Check dirty git state before continuing.' : null,
+    pendingIntents > 0 ? 'Run the recorded verification before claiming completion.' : null,
+  ].filter(Boolean).join(' ');
+
+  db.prepare(
+    `INSERT INTO refinements (
+       refinement_id, agent_id, workspace_path, repo, ref,
+       files_json, reasoning, remember, quality, state, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bad', 'open', ?, ?)`
+  ).run(
+    refinementId,
+    agentId,
+    workspacePath,
+    scope.repo,
+    scope.ref,
+    JSON.stringify(capturedFiles),
+    reasoning,
+    remember,
+    now,
+    now,
+  );
+
+  return {
+    ok: true,
+    captured: true,
+    refinement_id: refinementId,
+    pending_intents: pendingIntents,
+    active_intents: activeIntents,
+    files: capturedFiles,
+    dirty_files: dirtyFiles,
+    reason,
+  };
+}
+
+/**
+ * REAL: Poll until target file locks clear, bounded by waitMs.
+ * Uses Atomics.wait for efficient sleeping without busy-spin.
+ */
 export function waitForLock(
-  _db: DatabaseSync,
-  _params: Record<string, unknown> = {},
+  db: DatabaseSync,
+  params: Record<string, unknown> = {},
 ): WaitForLockResult {
-  process.stderr.write('[stub] wait-for-lock: not yet implemented; returning immediately\n');
-  return { ok: true, waited_ms: 0, lock_free: true };
+  const targetFiles = Array.isArray(params.target_files) ? params.target_files as string[] :
+    Array.isArray(params.targetFiles) ? params.targetFiles as string[] : [];
+  const agentId = (params.agent_id ?? params.agentId) as string | undefined ?? 'agent';
+  const waitMs = Number(params.wait_ms ?? params.waitMs ?? 60000);
+  const retryMs = Number(params.retry_interval_ms ?? params.retryIntervalMs ?? 5000);
+  const start = Date.now();
+
+  if (targetFiles.length === 0) {
+    return { ok: true, waited_ms: 0, lock_free: true };
+  }
+
+  const checkLocks = () => {
+    const now = new Date().toISOString();
+    const ph = targetFiles.map(() => '?').join(',');
+    type LockRow = { file_path: string; agent_id: string; expires_at: string | null };
+    const locks = db.prepare(
+      `SELECT fl.file_path, ai.agent_id, fl.expires_at
+       FROM file_locks fl
+       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+       WHERE fl.file_path IN (${ph})
+         AND ai.agent_id <> ?
+         AND ai.status = 'ACTIVE'
+         AND fl.lock_type = 'EXCLUSIVE'
+         AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
+    ).all(...targetFiles, agentId, now) as unknown as LockRow[];
+    return locks;
+  };
+
+  let conflicts = checkLocks();
+  const waited = () => Date.now() - start;
+
+  while (conflicts.length > 0 && waited() < waitMs) {
+    // Atomics.wait blocks the thread cleanly (no spin)
+    const buf = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(buf, 0, 0, Math.min(retryMs, waitMs - waited()));
+    conflicts = checkLocks();
+  }
+
+  const elapsed = waited();
+  if (conflicts.length === 0) {
+    return { ok: true, waited_ms: elapsed, lock_free: true };
+  }
+  return {
+    ok: true,
+    waited_ms: elapsed,
+    lock_free: false,
+    conflicts: conflicts.map(c => ({ file_path: c.file_path, agent_id: c.agent_id, expires_at: c.expires_at })),
+  };
 }
 
 // ─── Background digest ────────────────────────────────────────────────────
@@ -440,4 +637,56 @@ export function exportMemoryDoc(
   }
 
   return lines.join('\n');
+}
+
+// ─── Export harness ─────────────────────────────────────────────────────────────
+
+/**
+ * Returns top recurring lessons formatted as an AGENTS.md block.
+ * Never writes files — caller decides where to put the output.
+ */
+export function exportHarness(
+  db: DatabaseSync,
+  params: Record<string, unknown> = {},
+): { count: number; markdown: string; memories: Array<{ memory_id: string; label: string; importance: number; observation: string }> } {
+  const limit = Number(params.limit ?? 10);
+  const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
+  const wsPath = (params.workspace_path as string | undefined) ?? null;
+
+  const conds: string[] = ["state = 'ACTIVE'", 'importance_score >= ?'];
+  const bindParams: (string | number)[] = [minImportance];
+  if (wsPath) { conds.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+
+  type MemRow = { memory_id: string; label: string; importance_score: number; observation: string };
+  const rows = db.prepare(
+    `SELECT memory_id, label, importance_score, observation
+     FROM agent_memories
+     WHERE ${conds.join(' AND ')}
+     ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+     LIMIT ?`
+  ).all(...bindParams, limit) as unknown as MemRow[];
+
+  const memories = rows.map(r => ({
+    memory_id: r.memory_id,
+    label: r.label,
+    importance: r.importance_score,
+    observation: r.observation,
+  }));
+
+  if (memories.length === 0) {
+    return { count: 0, markdown: '<!-- No high-importance memories to export -->', memories: [] };
+  }
+
+  const lines = [
+    '## Agent lessons (auto-generated by octocode-awareness export-harness)',
+    '',
+    '<!-- Do not edit manually. Re-run `awareness export-harness` to refresh. -->',
+    '',
+  ];
+  for (const m of memories) {
+    lines.push(`- **[${m.label}:${m.importance}]** ${m.observation}`);
+  }
+  lines.push('');
+
+  return { count: memories.length, markdown: lines.join('\n'), memories };
 }

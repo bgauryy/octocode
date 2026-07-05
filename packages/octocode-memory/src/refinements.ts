@@ -83,6 +83,7 @@ export function getRefinements(
   const {
     workspacePath,
     repo: repoArg,
+    quality,
     states: statesRaw,
     limit: limitRaw = 10,
     cwd,
@@ -99,6 +100,11 @@ export function getRefinements(
   const queryParams: (string | number)[] = [...states];
   const stateFilter = `state IN (${states.map(() => '?').join(',')})`;
   let sql = `SELECT * FROM refinements WHERE ${stateFilter}`;
+
+  if (quality) {
+    sql += ' AND quality = ?';
+    queryParams.push(quality);
+  }
 
   if (scope.repo) {
     sql += ' AND (repo = ? OR repo IS NULL)';
@@ -128,4 +134,49 @@ export function getRefinements(
   }));
 
   return { count: refinements.length, refinements };
+}
+
+// ─── deleteRefinement ───────────────────────────────────────────────────────────────
+
+export interface DeleteRefinementResult {
+  deleted: number;
+  dry_run?: true;
+  would_delete?: number;
+  refinement_ids: string[];
+}
+
+export function deleteRefinement(
+  db: DatabaseSync,
+  params: { refinementIds: string[]; workspacePath?: string; dryRun?: boolean },
+): DeleteRefinementResult {
+  const { refinementIds, workspacePath, dryRun = false } = params;
+
+  if (refinementIds.length === 0) {
+    return { deleted: 0, refinement_ids: [] };
+  }
+
+  const ph = refinementIds.map(() => '?').join(',');
+  const where: string[] = [`refinement_id IN (${ph})`];
+  const binds: (string | number)[] = [...refinementIds];
+
+  if (workspacePath) {
+    where.push('(workspace_path = ? OR workspace_path IS NULL)');
+    binds.push(workspacePath);
+  }
+
+  const rows = db.prepare(
+    `SELECT refinement_id FROM refinements WHERE ${where.join(' AND ')}`
+  ).all(...binds) as unknown as Array<{ refinement_id: string }>;
+  const ids = rows.map(r => r.refinement_id);
+
+  if (dryRun) {
+    return { deleted: 0, dry_run: true, would_delete: ids.length, refinement_ids: ids };
+  }
+
+  if (ids.length > 0) {
+    const delPh = ids.map(() => '?').join(',');
+    db.prepare(`DELETE FROM refinements WHERE refinement_id IN (${delPh})`).run(...ids);
+  }
+
+  return { deleted: ids.length, refinement_ids: ids };
 }

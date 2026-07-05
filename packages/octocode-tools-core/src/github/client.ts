@@ -41,14 +41,13 @@ function purgeExpiredInstances(): void {
   }
 
   if (instances.size > MAX_INSTANCES) {
-    const sorted = [...instances.entries()].sort(
-      (a, b) => a[1].createdAt - b[1].createdAt
-    );
-
+    // Map is insertion-ordered — oldest entries are first.
     const excess = instances.size - MAX_INSTANCES;
-    for (let i = 0; i < excess && i < sorted.length; i++) {
-      const entry = sorted[i];
-      if (entry) instances.delete(entry[0]);
+    let evicted = 0;
+    for (const [key] of instances) {
+      if (evicted >= excess) break;
+      instances.delete(key);
+      evicted++;
     }
   }
 }

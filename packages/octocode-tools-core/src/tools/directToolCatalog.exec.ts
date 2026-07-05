@@ -9,7 +9,6 @@ import { type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { initialize } from '../serverConfig.js';
 import { initializeProviders } from '../providers/factory.js';
 import { getConfigSync } from '@octocodeai/config';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import type { ToolConfig } from './toolConfig.js';
 import { ALL_TOOLS } from './toolConfig.js';
 import {
@@ -20,7 +19,6 @@ import {
   withBasicSecurityValidation,
   withSecurityValidation,
 } from '../security/bridge.js';
-import { releaseAllPooledClients } from '@octocodeai/octocode-engine/lsp/manager';
 import {
   DirectToolInputError,
   type DirectToolDefinition,
@@ -45,13 +43,19 @@ let providerRuntimeInitPromise: Promise<void> | null = null;
 type InitializeFn = () => Promise<void>;
 let _initialize: InitializeFn = initialize;
 
-/** Inject a stub initialize() for unit tests that need to simulate init failure. */
+/** @internal — test use only; not part of the public API. */
 export function _overrideInitialize(fn: InitializeFn): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('_overrideInitialize is not available in production');
+  }
   _initialize = fn;
 }
 
-/** Restore the real initialize() and clear all cached init promises. */
+/** @internal — test use only; not part of the public API. */
 export function _resetInitialize(): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('_resetInitialize is not available in production');
+  }
   _initialize = initialize;
   serverRuntimeInitPromise = null;
   providerRuntimeInitPromise = null;
@@ -60,9 +64,11 @@ export function _resetInitialize(): void {
 function wrapExecution(
   fn: ToolConfig['direct']['executionFn']
 ): (input: DirectToolInput) => Promise<CallToolResult> {
-  return async input => {
-    return fn(input as never);
-  };
+  // executionFn is typed as (input: never) so any specific tool function can be
+  // assigned to it (contravariance). At the call site, the input has already been
+  // parsed and validated by Zod's inputSchema — this cast reflects that invariant.
+  const typedFn = fn as unknown as (input: DirectToolInput) => Promise<CallToolResult>;
+  return input => typedFn(input);
 }
 
 function createDirectTool(tool: ToolConfig): DirectToolRuntimeDefinition {
@@ -98,6 +104,9 @@ export async function executeDirectTool(
     throw new Error(`Unknown tool: ${name}`);
   }
 
+  // LSP client cleanup is handled by the pool's idle timer (idleTimeoutMs,
+  // unref()'d). Do not call releaseAllPooledClients() here — it would tear down
+  // clients shared by concurrent LSP tool invocations in MCP server mode.
   try {
     const parsedInput = parseDirectToolInput(tool, input);
     await ensureDirectToolRuntimeReady(tool);
@@ -108,10 +117,6 @@ export async function executeDirectTool(
     // structured error envelope as execution failures so non-CLI consumers
     // get a consistent result shape instead of an exception.
     return buildToolErrorResult(tool.name, error);
-  } finally {
-    if (name === LSP_GET_SEMANTICS_TOOL_NAME) {
-      await releaseAllPooledClients();
-    }
   }
 }
 

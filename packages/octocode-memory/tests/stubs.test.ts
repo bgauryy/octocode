@@ -243,11 +243,54 @@ describe('exportMemoryDoc', () => {
 });
 
 describe('sessionCapture', () => {
-  it('returns ok=true and captured=false', () => {
+  it('returns captured=false when there is no unresolved session state', () => {
     const db = freshDb();
-    const result = sessionCapture(db, {});
-    expect(result.ok).toBe(true);
-    expect(result.captured).toBe(false);
+    const { dir, cleanup } = tempFile();
+    try {
+      const result = sessionCapture(db, { workspace: dir, agent_id: 'agent' });
+      expect(result.ok).toBe(true);
+      expect(result.captured).toBe(false);
+      expect(result.refinement_id).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('records unresolved intents as an open handoff refinement', () => {
+    const db = freshDb();
+    const { path, cleanup } = tempFile();
+    try {
+      const claim = preFlightIntent(db, {
+        agentId: 'agent-a',
+        workspacePath: process.cwd(),
+        targetFiles: [path],
+        rationale: 'session work in progress',
+        testPlan: 'run focused verification',
+      });
+      expect(claim.ok).toBe(true);
+
+      const result = sessionCapture(db, {
+        agent_id: 'agent-a',
+        workspace: process.cwd(),
+        reason: 'quit',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.captured).toBe(true);
+      expect(result.refinement_id).toMatch(/^ref_/);
+      expect(result.active_intents).toBe(1);
+      expect(result.files).toContain(path);
+
+      const refinement = db.prepare(
+        'SELECT remember, quality, state, files_json FROM refinements WHERE refinement_id = ?'
+      ).get(result.refinement_id) as { remember: string; quality: string; state: string; files_json: string };
+      expect(refinement.quality).toBe('bad');
+      expect(refinement.state).toBe('open');
+      expect(refinement.remember).toContain('Review session handoff for agent-a');
+      expect(JSON.parse(refinement.files_json)).toContain(path);
+    } finally {
+      cleanup();
+    }
   });
 });
 
@@ -258,5 +301,18 @@ describe('waitForLock', () => {
     expect(result.ok).toBe(true);
     expect(result.waited_ms).toBe(0);
     expect(result.lock_free).toBe(true);
+  });
+
+  it('returns lock_free=false when conflicts remain after timeout', () => {
+    const db = freshDb();
+    preFlightIntent(db, { agentId: 'holder', targetFiles: ['/tmp/locked.ts'] });
+    const result = waitForLock(db, {
+      agent_id: 'waiter',
+      target_files: ['/tmp/locked.ts'],
+      wait_ms: 0,
+      retry_interval_ms: 1,
+    });
+    expect(result.lock_free).toBe(false);
+    expect(result.conflicts?.[0]?.agent_id).toBe('holder');
   });
 });

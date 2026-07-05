@@ -6,14 +6,15 @@
  */
 
 // DB layer
-export { connectDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns } from './db.js';
+export { connectDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, ensureMemoryReferencesVersion } from './db.js';
 
 // Memory operations
-export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness } from './memory.js';
+export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory } from './memory.js';
 export type { MineWeaknessResult, MineWeaknessParams, WeaknessCluster } from './memory.js';
 
 // Refinements
-export { insertRefinement, getRefinements } from './refinements.js';
+export { insertRefinement, getRefinements, deleteRefinement } from './refinements.js';
+export type { DeleteRefinementResult } from './refinements.js';
 
 // Intents / file locks
 export { preFlightIntent, releaseFileLock } from './intents.js';
@@ -21,9 +22,12 @@ export { preFlightIntent, releaseFileLock } from './intents.js';
 // Reflection
 export { reflect } from './reflect.js';
 
-// Background operations + smart briefing (stubs upgraded to real implementations)
-export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc } from './stubs.js';
-export type { DigestResult, BriefItem, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry } from './stubs.js';
+// Background operations + smart briefing + harness export
+export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from './stubs.js';
+export type { DigestResult, BriefItem, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry, WaitForLockResult, PruneStaleResult } from './stubs.js';
+
+// Notifications
+export { insertNotification, getNotifications, resolveNotification, pruneNotifications } from './notifications.js';
 
 // Pi native hook adapter
 export {
@@ -45,7 +49,7 @@ export type {
 export { auditUnverified, markVerified } from './verify.js';
 export type {
   AuditUnverifiedResult, AuditUnverifiedParams, UnverifiedIntent,
-  MarkVerifiedResult, MarkVerifiedParams, VerifyStatus,
+  MarkVerifiedResult, MarkVerifiedOk, MarkVerifiedErr, MarkVerifiedParams, VerifyStatus,
 } from './verify.js';
 
 // Pure helpers
@@ -70,4 +74,16 @@ export type {
   ReflectParams, ReflectResult,
   Scope, ScopePartial,
   MemoryState, LockType, IntentStatus, RefinementQuality, RefinementState, ReflectionOutcome,
+  // New types
+  ForgetMemoryParams, ForgetMemoryResult,
+  WaitForLockParams,
+  PruneStaleParams,
+  DeleteRefinementParams,
+  InsertNotificationParams, InsertNotificationResult,
+  GetNotificationsParams, GetNotificationsResult,
+  ResolveNotificationParams, ResolveNotificationResult,
+  PruneNotificationsParams, PruneNotificationsResult,
+  NotificationRecord, NotificationKind, NotificationStatus,
+  ExportHarnessParams, ExportHarnessResult,
+  MemoryReferenceRow,
 } from './types.js';

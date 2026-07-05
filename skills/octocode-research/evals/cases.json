@@ -248,6 +248,67 @@
       "forbidden": [
         { "name": "popularity as proof", "pattern": "\\bstars?\\b[^\\n]*(?:prove|validate)|\\bdownloads?\\b[^\\n]*(?:prove|validate)" }
       ]
+    },
+    {
+      "id": "change-mode",
+      "mode": "Change",
+      "prompt": "Refactor the formatDate utility in src/utils/date.ts to use Intl.DateTimeFormat instead of moment.js.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        {
+          "name": "change mode",
+          "pattern": "\\bMode:\\s*Change\\b|\\bChange mode\\b"
+        },
+        {
+          "name": "blast radius or callers",
+          "pattern": "\\bblast.radius\\b|\\bcallers?\\b|\\breferences?\\b|\\bconsumers?\\b|\\bLSP\\b"
+        },
+        {
+          "name": "exact read of existing code",
+          "pattern": "[A-Za-z0-9_./-]+:\\d+|\\bexact(?:-read| read| reads)\\b"
+        },
+        {
+          "name": "scoped patch",
+          "pattern": "\\bsmallest\\b|\\bscoped\\b|\\bminimal\\b|\\bpatch\\b"
+        },
+        {
+          "name": "verification ran",
+          "pattern": "\\bverif(?:y|ied|ication)\\b[\\s\\S]*\\b(build|test|typecheck|lint|ran|passed)\\b"
+        }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "checks-blast-radius",
+          "dimension": "method",
+          "question": "Does the answer check blast radius (callers, references, consumers) before making the change?",
+          "passPattern": "\\bblast.radius\\b|\\bcallers?\\b|\\bLSP[\\s\\S]*(?:references?|callers?)|(?:references?|callers?)[\\s\\S]*\\bLSP\\b",
+          "failureSignature": "mechanism:change-mode|cause:no-blast-radius-check",
+          "suggestedLesson": "Always check blast radius (LSP callers/references) before a Change mode edit to understand consumer impact."
+        },
+        {
+          "id": "verification-actually-ran",
+          "dimension": "evidence",
+          "question": "Does the answer report a verification command that actually ran (not just planned)?",
+          "passPattern": "\\bverif(?:y|ied|ication)\\b[\\s\\S]*\\b(ran|passed|output|result|exit|build|test|typecheck)\\b",
+          "failureSignature": "mechanism:change-mode|cause:verification-not-run",
+          "suggestedLesson": "Do not claim success for a code change until the verification command actually ran and its output is cited."
+        },
+        {
+          "id": "patch-is-scoped",
+          "dimension": "decision",
+          "question": "Does the answer make the smallest scoped patch rather than a broad rewrite?",
+          "passPattern": "\\bsmallest\\b|\\bscoped\\b|\\bminimal\\b|\\bonly(?:\\s+the)?\\s+(?:function|method|file|change)",
+          "failureSignature": "mechanism:change-mode|cause:overly-broad-patch",
+          "suggestedLesson": "Change mode patches should be the smallest scoped change that follows from evidence; avoid rewrites beyond the stated goal."
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "success before verification",
+          "pattern": "\\b(?:done|complete|fixed|refactored)\\b(?![\\s\\S]*\\bverif)"
+        }
+      ]
     }
   ]
 }
