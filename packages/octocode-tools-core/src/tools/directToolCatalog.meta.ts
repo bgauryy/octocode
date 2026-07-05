@@ -331,9 +331,9 @@ export function formatDirectToolSchemaText(toolName: string): string {
   }
 
   try {
-    return JSON.stringify(z.toJSONSchema(tool.inputSchema), null, 2);
+    return JSON.stringify(z.toJSONSchema(tool.inputSchema, { io: 'input' }), null, 2);
   } catch {
-    return JSON.stringify(z.toJSONSchema(tool.schema), null, 2);
+    return JSON.stringify(z.toJSONSchema(tool.schema, { io: 'input' }), null, 2);
   }
 }
 
@@ -386,7 +386,7 @@ export function getDirectToolDisplayFields(
     return [];
   }
 
-  const jsonSchema = z.toJSONSchema(tool.schema);
+  const jsonSchema = z.toJSONSchema(tool.schema, { io: 'input' });
   if (!isJsonSchemaObject(jsonSchema)) {
     return [];
   }

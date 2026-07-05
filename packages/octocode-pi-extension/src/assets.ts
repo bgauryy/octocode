@@ -1,0 +1,66 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { memoryHome as resolveMemoryHome } from '@octocodeai/octocode-memory';
+
+const extensionDir = path.dirname(fileURLToPath(import.meta.url));
+
+export interface AssetPaths {
+  baseDir: string;
+  docsDir: string;
+  skillsDir: string;
+  systemPrompt: string;
+}
+
+export function getAssetPaths(baseDir = extensionDir): AssetPaths {
+  return {
+    baseDir,
+    docsDir: path.join(baseDir, 'docs'),
+    skillsDir: path.join(baseDir, 'skills'),
+    systemPrompt: path.join(baseDir, 'system', 'APPEND_SYSTEM.md'),
+  };
+}
+
+/**
+ * Awareness memory home: delegates to @octocodeai/octocode-memory.
+ * Kept as a named export for backward compat with external callers.
+ */
+export function getOctocodeMemoryHome(): string {
+  return resolveMemoryHome();
+}
+
+export function readTextIfExists(filePath: string): string {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return '';
+    throw error;
+  }
+}
+
+export function listBundledSkills(baseDir = extensionDir): string[] {
+  const { skillsDir } = getAssetPaths(baseDir);
+  if (!fs.existsSync(skillsDir)) return [];
+  return fs
+    .readdirSync(skillsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((skillName) =>
+      fs.existsSync(path.join(skillsDir, skillName, 'SKILL.md')),
+    )
+    .sort();
+}
+
+export function getInstallSource(baseDir = extensionDir): string {
+  const packageRoot = path.dirname(baseDir);
+  if (
+    packageRoot.includes(
+      path.join('node_modules', '@octocodeai', 'pi-extension'),
+    )
+  ) {
+    return 'npm:@octocodeai/pi-extension';
+  }
+  return packageRoot;
+}
+
+

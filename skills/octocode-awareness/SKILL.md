@@ -25,12 +25,19 @@ Invoke this skill when any of:
 
 ## Agent loop
 
-1. **Attend** — run `status`, `get-memory`, `refine-get`, `notify-get`; validate recalled facts against current files before trusting them.
+**Two disciplines run throughout every loop (AutoMem, 2607.01224):**
+- **LOG** — record on every non-trivial discovery, *not only at task end*. If you learn something that would change a future agent’s approach, call `tell-memory` immediately.
+- **PLAN** — recall before every new task or unfamiliar concept. Zero recall = novel signal; pass `--novelty-signal` on the subsequent `tell-memory` call to auto-elevate importance.
+
+1. **Attend** — run `status`, `get-memory`, `refine-get`, `notify-get`; validate recalled facts against current files before trusting them. For recurring failure patterns, run `mine-weakness` to surface systematic weaknesses across sessions.
 2. **Claim** — before writes, call `pre-flight-intent --target-file <abs-path>`; if exit `2`, stop or wait with `wait-for-lock`. Hooks do this automatically.
-3. **Work** — edit under the lock. Hooks release the lock automatically on save.
+3. **Work** — edit under the lock. Hooks release the lock automatically on save. **LOG as you discover**: call `tell-memory` when you find a root cause, a pattern, or a decision — don’t defer all recording to Sleep.
 4. **Verify** — run the declared `--test-plan`, then record the result with `verify --all-pending` or `release-file-lock --verified`.
 5. **Encode** — memories = concise reusable lessons (global or scoped); refinements = repo-fix queue for the next agent; notifications = live repo messages.
+   - **Diversity check** (ParamMem, 2602.23320): before `tell-memory`, call `get-memory --query <lesson> --limit 3`. If similar memories exist, your lesson must be *more specific or address a different angle* — cite the difference. Do not record structural restatements.
+   - **Novelty signal**: if the prior `get-memory` returned empty, pass `--novelty-signal` to `tell-memory` so the memory auto-elevates to persistence-worthy importance.
 6. **Sleep** — release locks even on failure; run `reflect --task ... --outcome ...`; prune stale data. Report durable guidance to the user for `AGENTS.md`.
+   - **Multi-angle gate** (RoPoLL, 2606.30931): for `--importance ≥ 9`, run one adversarial check (“why could this be wrong?”) and one affirmative (“what evidence confirms this?”) before recording. Record only if the adversarial lens is exhausted.
 
 ## References
 

@@ -1,0 +1,840 @@
+#!/usr/bin/env node
+
+// src/db.ts
+import { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { join, resolve as resolve2, dirname } from "node:path";
+import { homedir, platform } from "node:os";
+
+// src/helpers.ts
+import { resolve } from "node:path";
+function utcNow() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+function parseJsonList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+// src/db.ts
+var DEFAULT_DB_NAME = "awareness.sqlite3";
+var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
+var FTS_INDEX_VERSION = "2";
+function memoryHome() {
+  const configured = process.env[MEMORY_HOME_ENV];
+  if (configured?.trim()) return resolve2(configured.trim());
+  const h = homedir();
+  const p = platform();
+  if (p === "win32") {
+    const appData = process.env["APPDATA"] ?? join(h, "AppData", "Roaming");
+    return join(appData, ".octocode", "memory");
+  }
+  if (p === "darwin") return join(h, ".octocode", "memory");
+  const xdg = process.env["XDG_CONFIG_HOME"] ?? join(h, ".config");
+  return join(xdg, ".octocode", "memory");
+}
+function resolveDbPath(dbArg) {
+  if (dbArg) return resolve2(dbArg);
+  return join(memoryHome(), DEFAULT_DB_NAME);
+}
+function connectDb(dbPath) {
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const db2 = new DatabaseSync(dbPath);
+  db2.exec("PRAGMA foreign_keys = ON");
+  db2.exec("PRAGMA busy_timeout = 5000");
+  db2.exec("PRAGMA journal_mode = WAL");
+  initDb(db2);
+  return db2;
+}
+function initDb(db2) {
+  db2.exec(`
+    CREATE TABLE IF NOT EXISTS agent_memories (
+      memory_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      task_context TEXT NOT NULL,
+      observation TEXT NOT NULL,
+      importance_score INTEGER NOT NULL CHECK(importance_score BETWEEN 1 AND 10),
+      state TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(state IN ('ACTIVE', 'SUPERSEDED')),
+      label TEXT NOT NULL DEFAULT 'OTHER',
+      superseded_by TEXT,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      tags_text TEXT NOT NULL DEFAULT ',',
+      references_json TEXT NOT NULL DEFAULT '[]',
+      workspace_path TEXT,
+      repo TEXT,
+      ref TEXT,
+      file_tree_fingerprint TEXT,
+      file TEXT,
+      novelty_score REAL,
+      similar_memory_ids_json TEXT NOT NULL DEFAULT '[]',
+      last_accessed_at TEXT,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      decay_half_life_days REAL,
+      failure_signature TEXT,
+      valid_from TEXT,
+      valid_to TEXT,
+      expired_at TEXT,
+      embedding BLOB,
+      embedding_model TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_intents (
+      intent_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      plan_doc_ref TEXT,
+      rationale TEXT NOT NULL,
+      test_plan TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
+      workspace_path TEXT,
+      files_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS file_locks (
+      lock_id TEXT PRIMARY KEY,
+      file_path TEXT NOT NULL,
+      intent_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      lock_type TEXT NOT NULL CHECK(lock_type IN ('SHARED','EXCLUSIVE')),
+      acquired_at TEXT NOT NULL,
+      expires_at TEXT,
+      FOREIGN KEY(intent_id) REFERENCES agent_intents(intent_id) ON DELETE CASCADE,
+      UNIQUE(file_path, intent_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS refinements (
+      refinement_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      workspace_path TEXT NOT NULL,
+      repo TEXT,
+      ref TEXT,
+      files_json TEXT NOT NULL DEFAULT '[]',
+      reasoning TEXT NOT NULL,
+      remember TEXT NOT NULL,
+      quality TEXT NOT NULL CHECK(quality IN ('good','bad')) DEFAULT 'good',
+      state TEXT NOT NULL CHECK(state IN ('open','ongoing','done')) DEFAULT 'open',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      notification_id TEXT PRIMARY KEY,
+      workspace_path TEXT NOT NULL,
+      repo TEXT,
+      ref TEXT,
+      from_agent TEXT NOT NULL,
+      to_agent TEXT,
+      kind TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT,
+      files_json TEXT NOT NULL DEFAULT '[]',
+      refs_json TEXT NOT NULL DEFAULT '[]',
+      thread_id TEXT NOT NULL,
+      in_reply_to TEXT,
+      importance INTEGER NOT NULL DEFAULT 5,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS awareness_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_reads (
+      notification_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      read_at TEXT NOT NULL,
+      PRIMARY KEY (notification_id, agent_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_acquired_at ON file_locks(acquired_at);
+    CREATE INDEX IF NOT EXISTS idx_file_locks_expires_at ON file_locks(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_refinements_state ON refinements(state);
+    CREATE INDEX IF NOT EXISTS idx_refinements_repo ON refinements(repo);
+  `);
+  ensureMemoryColumns(db2);
+  ensureIntentColumns(db2);
+  try {
+    db2.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
+      USING fts5(memory_id UNINDEXED, task_context, observation, tags)
+    `);
+  } catch {
+  }
+  ensureFtsVersion(db2);
+}
+function tableColumns(db2, tableName) {
+  const rows = db2.prepare(`PRAGMA table_info(${tableName})`).all();
+  return new Set(rows.map((r) => r.name));
+}
+function ensureMemoryColumns(db2) {
+  const cols = tableColumns(db2, "agent_memories");
+  const alterations = [
+    ["state", "TEXT NOT NULL DEFAULT 'ACTIVE'"],
+    ["label", "TEXT NOT NULL DEFAULT 'OTHER'"],
+    ["superseded_by", "TEXT"],
+    ["updated_at", "TEXT"],
+    ["file", "TEXT"],
+    ["novelty_score", "REAL"],
+    ["similar_memory_ids_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["last_accessed_at", "TEXT"],
+    ["access_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["decay_half_life_days", "REAL"],
+    ["failure_signature", "TEXT"],
+    ["valid_from", "TEXT"],
+    ["valid_to", "TEXT"],
+    ["expired_at", "TEXT"],
+    ["references_json", "TEXT NOT NULL DEFAULT '[]'"],
+    ["workspace_path", "TEXT"],
+    ["repo", "TEXT"],
+    ["ref", "TEXT"],
+    ["embedding", "BLOB"],
+    ["embedding_model", "TEXT"]
+  ];
+  for (const [col, def] of alterations) {
+    if (!cols.has(col)) {
+      db2.exec(`ALTER TABLE agent_memories ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+function ensureIntentColumns(db2) {
+  const cols = tableColumns(db2, "agent_intents");
+  if (!cols.has("workspace_path")) {
+    db2.exec("ALTER TABLE agent_intents ADD COLUMN workspace_path TEXT");
+  }
+  if (!cols.has("files_json")) {
+    db2.exec("ALTER TABLE agent_intents ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'");
+  }
+}
+function hasFts(db2) {
+  const row = db2.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_fts'"
+  ).get();
+  return Boolean(row);
+}
+function ftsTermsForRow(row) {
+  const tags = parseJsonList(row.tags_json);
+  const refs = parseJsonList(row.references_json);
+  const label = (row.label ?? "OTHER").toLowerCase();
+  return [
+    ...tags,
+    ...refs,
+    label,
+    row.file ?? "",
+    row.failure_signature ?? "",
+    row.workspace_path ?? "",
+    row.repo ?? "",
+    row.ref ?? ""
+  ].filter(Boolean).join(" ");
+}
+function rebuildFts(db2) {
+  db2.exec("DELETE FROM memory_fts");
+  const rows = db2.prepare("SELECT * FROM agent_memories").all();
+  const insert = db2.prepare(
+    "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
+  );
+  for (const row of rows) {
+    insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
+  }
+}
+function ensureFtsVersion(db2) {
+  if (!hasFts(db2)) return;
+  const row = db2.prepare(
+    "SELECT value FROM awareness_meta WHERE key='memory_fts_version'"
+  ).get();
+  if (row?.value === FTS_INDEX_VERSION) return;
+  rebuildFts(db2);
+  db2.prepare(
+    "INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_fts_version', ?)"
+  ).run(FTS_INDEX_VERSION);
+}
+
+// src/intents.ts
+import { randomUUID } from "node:crypto";
+import { resolve as resolve3 } from "node:path";
+function preFlightIntent(db2, params) {
+  const {
+    agentId: agentId2 = "agent",
+    workspacePath,
+    rationale = "agent write operation",
+    testPlan = "post-edit verification",
+    targetFiles = [],
+    lockType = "EXCLUSIVE",
+    ttlMs = null
+  } = params;
+  const intentId = "intent_" + randomUUID().replace(/-/g, "");
+  const now = utcNow();
+  const wsPath = workspacePath ?? process.cwd();
+  const absFiles = targetFiles.map((f) => resolve3(f));
+  const conflicts = [];
+  for (const absPath of absFiles) {
+    const existing = db2.prepare(`
+      SELECT fl.*, ai.agent_id AS intent_agent_id FROM file_locks fl
+      JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+      WHERE fl.file_path = ?
+        AND ai.agent_id <> ?
+        AND ai.status = 'ACTIVE'
+        AND fl.lock_type = 'EXCLUSIVE'
+        AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+    `).all(absPath, agentId2, now);
+    conflicts.push(...existing);
+  }
+  if (conflicts.length > 0) {
+    return {
+      ok: false,
+      conflict: true,
+      conflicts: conflicts.map((c) => ({
+        file_path: c.file_path,
+        lock_type: c.lock_type,
+        agent_id: c.intent_agent_id ?? c.agent_id,
+        acquired_at: c.acquired_at,
+        expires_at: c.expires_at
+      }))
+    };
+  }
+  db2.prepare(`
+    INSERT INTO agent_intents
+      (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+  `).run(intentId, agentId2, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
+  const expiresAt = ttlMs ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
+  const acquiredLocks = [];
+  for (const absPath of absFiles) {
+    const lockId = "lock_" + randomUUID().replace(/-/g, "");
+    db2.prepare(`
+      INSERT OR REPLACE INTO file_locks
+        (lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(lockId, absPath, intentId, agentId2, lockType, now, expiresAt);
+    acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
+  }
+  return {
+    ok: true,
+    intent: {
+      intent_id: intentId,
+      agent_id: agentId2,
+      lock_type: lockType,
+      workspace_path: wsPath,
+      target_files: absFiles,
+      locks: acquiredLocks.map((l) => ({
+        lock_id: l.lock_id,
+        file_path: l.file_path,
+        lock_type: l.lock_type,
+        agent_id: agentId2,
+        acquired_at: now,
+        expires_at: l.expires_at
+      })),
+      status: "ACTIVE",
+      created_at: now
+    }
+  };
+}
+function releaseFileLock(db2, params) {
+  const {
+    agentId: agentId2 = "agent",
+    intentId = null,
+    targetFiles = [],
+    status: statusArg = "SUCCESS"
+  } = params;
+  const now = utcNow();
+  const whereClauses = ["fl.agent_id = ?"];
+  const whereParams = [agentId2];
+  if (intentId) {
+    whereClauses.push("fl.intent_id = ?");
+    whereParams.push(intentId);
+  }
+  const absFiles = targetFiles.map((f) => resolve3(f));
+  if (absFiles.length > 0) {
+    const ph = absFiles.map(() => "?").join(",");
+    whereClauses.push(`fl.file_path IN (${ph})`);
+    whereParams.push(...absFiles);
+  }
+  const where = whereClauses.join(" AND ");
+  const locks = db2.prepare(
+    `SELECT fl.lock_id, fl.intent_id, fl.file_path FROM file_locks fl WHERE ${where}`
+  ).all(...whereParams);
+  const deleteWhere = where.replace(/\bfl\./g, "");
+  db2.prepare(`DELETE FROM file_locks WHERE ${deleteWhere}`).run(...whereParams);
+  const intentIds = [.../* @__PURE__ */ new Set([
+    ...intentId ? [intentId] : [],
+    ...locks.map((l) => l.intent_id)
+  ])];
+  for (const iid of intentIds) {
+    const remaining = db2.prepare("SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1").get(iid);
+    if (!remaining) {
+      db2.prepare(
+        "UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?"
+      ).run(statusArg, now, iid, agentId2);
+    }
+  }
+  return {
+    agent_id: agentId2,
+    status: statusArg,
+    released: locks.length > 0 || Boolean(intentId),
+    locks_released: locks.length,
+    intent_ids: intentIds,
+    updated_at: now
+  };
+}
+
+// src/verify.ts
+function auditUnverified(db2, params = {}) {
+  const where = ["status = 'PENDING'"];
+  const binds = [];
+  if (params.agentId) {
+    where.push("agent_id = ?");
+    binds.push(params.agentId);
+  }
+  if (params.workspacePath) {
+    where.push("workspace_path = ?");
+    binds.push(params.workspacePath);
+  }
+  const rows = db2.prepare(
+    `SELECT intent_id, agent_id, status, test_plan, rationale, workspace_path, files_json, created_at
+     FROM agent_intents
+     WHERE ${where.join(" AND ")}
+     ORDER BY created_at ASC`
+  ).all(...binds);
+  const unverified = rows.map((r) => ({
+    intent_id: r.intent_id,
+    agent_id: r.agent_id,
+    status: r.status,
+    test_plan: r.test_plan,
+    rationale: r.rationale,
+    target_files: parseJsonList(r.files_json),
+    workspace_path: r.workspace_path,
+    created_at: r.created_at
+  }));
+  return { ok: true, unverified, count: unverified.length };
+}
+
+// src/stubs.ts
+function pruneStale(db2, _params = {}) {
+  const now = utcNow();
+  const expiredLocks = db2.prepare(`
+    SELECT fl.lock_id, fl.intent_id
+    FROM file_locks fl
+    WHERE fl.expires_at IS NOT NULL AND fl.expires_at < ?
+  `).all(now);
+  if (expiredLocks.length === 0) {
+    return { pruned_locks: 0, updated_intents: 0 };
+  }
+  db2.prepare(
+    "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?"
+  ).run(now);
+  const affectedIntentIds = [...new Set(expiredLocks.map((l) => l.intent_id))];
+  let updatedIntents = 0;
+  for (const iid of affectedIntentIds) {
+    const remaining = db2.prepare("SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1").get(iid);
+    if (!remaining) {
+      const r = db2.prepare(
+        "UPDATE agent_intents SET status = 'PENDING', updated_at = ? WHERE intent_id = ? AND status = 'ACTIVE'"
+      ).run(now, iid);
+      if (r.changes) updatedIntents++;
+    }
+  }
+  return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
+}
+function notifyGet(db2, params = {}) {
+  const wsPath = params.workspace ?? null;
+  const format = params.format ?? "json";
+  const items = [];
+  try {
+    const conditions = [
+      "state = 'ACTIVE'",
+      "importance_score >= 6",
+      "label IN ('GOTCHA','BUG','DECISION','IMPROVEMENT','ARCHITECTURE','SECURITY')"
+    ];
+    const bindParams = [];
+    if (wsPath) {
+      conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+      bindParams.push(wsPath);
+    }
+    const memRows = db2.prepare(
+      `SELECT memory_id, observation, label, importance_score
+       FROM agent_memories
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY importance_score DESC, last_accessed_at DESC
+       LIMIT 3`
+    ).all(...bindParams);
+    for (const m of memRows) {
+      items.push({
+        kind: "memory",
+        text: `${m.label}(${m.importance_score}): ${m.observation.slice(0, 120)}`,
+        importance: m.importance_score
+      });
+    }
+  } catch {
+  }
+  try {
+    const wkConditions = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
+    const wkParams = [];
+    if (wsPath) {
+      wkConditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+      wkParams.push(wsPath);
+    }
+    const topWk = db2.prepare(
+      `SELECT failure_signature, count(*) AS freq, avg(importance_score) AS avg_imp
+       FROM agent_memories
+       WHERE ${wkConditions.join(" AND ")}
+       GROUP BY failure_signature HAVING freq >= 2
+       ORDER BY freq * avg_imp DESC LIMIT 1`
+    ).get(...wkParams);
+    if (topWk) {
+      items.push({
+        kind: "weakness",
+        text: `\u26A0\uFE0F Recurring: ${topWk.failure_signature} (${topWk.freq}x, avg imp ${Math.round(topWk.avg_imp)})`
+      });
+    }
+  } catch {
+  }
+  try {
+    const refConds = ["state = 'open'"];
+    const refParams = [];
+    if (wsPath) {
+      refConds.push("(workspace_path = ? OR workspace_path IS NULL)");
+      refParams.push(wsPath);
+    }
+    const refRow = db2.prepare(
+      `SELECT count(*) AS cnt FROM refinements WHERE ${refConds.join(" AND ")}`
+    ).get(...refParams);
+    const refCount = refRow?.cnt ?? 0;
+    if (refCount > 0) {
+      items.push({ kind: "refinement", text: `\u{1F4CB} ${refCount} open refinement(s) pending` });
+    }
+  } catch {
+  }
+  if (items.length === 0) {
+    return { ok: true, count: 0, notifications: [], schema_version: 1 };
+  }
+  const result = {
+    ok: true,
+    count: items.length,
+    notifications: items,
+    schema_version: 1
+  };
+  if (format === "hook") {
+    const lines = [
+      `\u{1F9E0} Memory brief (${items.length}):`,
+      ...items.map((i) => `  \u2022 ${i.text}`)
+    ];
+    result.additionalContext = lines.join("\n");
+  }
+  return result;
+}
+function sessionCapture(_db, _params = {}) {
+  process.stderr.write("[stub] session-capture: not yet implemented; skipping\n");
+  return { ok: true, captured: false };
+}
+function digest(db2, params = {}) {
+  const retentionDays = Number(params.retention_days ?? 90);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const cutoff = new Date(Date.now() - retentionDays * 864e5).toISOString();
+  if (params.dry_run) {
+    const wouldArchive = db2.prepare(
+      `SELECT COUNT(*) AS c FROM agent_memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
+    ).get(now).c;
+    const wouldPruneOld = db2.prepare(
+      `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
+    ).get(cutoff).c;
+    const wouldPruneLocks = db2.prepare(
+      `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
+    ).get(now).c;
+    return {
+      ok: true,
+      archived_memories: 0,
+      pruned_old: 0,
+      pruned_locks: 0,
+      fts_rebuilt: false,
+      schema_version: 1,
+      dry_run: true,
+      would_archive: wouldArchive,
+      would_prune_old: wouldPruneOld,
+      would_prune_locks: wouldPruneLocks
+    };
+  }
+  const archiveRes = db2.prepare(
+    `UPDATE agent_memories
+     SET state = 'SUPERSEDED', expired_at = ?
+     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
+  ).run(now, now);
+  const deleteRes = db2.prepare(
+    `DELETE FROM agent_memories
+     WHERE state = 'SUPERSEDED' AND updated_at < ?`
+  ).run(cutoff);
+  const { pruned_locks } = pruneStale(db2, {});
+  let ftsRebuilt = false;
+  try {
+    if (hasFts(db2)) {
+      rebuildFts(db2);
+      ftsRebuilt = true;
+    }
+  } catch {
+  }
+  return {
+    ok: true,
+    archived_memories: archiveRes.changes,
+    pruned_old: deleteRes.changes,
+    pruned_locks,
+    fts_rebuilt: ftsRebuilt,
+    schema_version: 1
+  };
+}
+
+// src/pi-hooks.ts
+import path from "node:path";
+function addPathValue(paths, value) {
+  if (typeof value === "string" && value.trim().length > 0) {
+    paths.push(value.trim());
+  } else if (Array.isArray(value)) {
+    for (const item of value) addPathValue(paths, item);
+  }
+}
+function addApplyPatchPaths(paths, command2) {
+  if (typeof command2 !== "string") return;
+  for (const line of command2.split("\n")) {
+    const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
+    if (addUpdDel) {
+      paths.push(addUpdDel[1].trim());
+      continue;
+    }
+    const moveTo = line.match(/^\*\*\* Move to: (.+)$/);
+    if (moveTo) paths.push(moveTo[1].trim());
+  }
+}
+function objectOrEmpty(value) {
+  return value && typeof value === "object" ? value : {};
+}
+function extractPiWriteTargetPaths(toolName, input = {}) {
+  const normalizedToolName = String(toolName ?? "").toLowerCase();
+  const isWriteTool = ["write", "edit", "multi_edit", "multiedit", "notebookedit", "notebook_edit"].includes(normalizedToolName);
+  const payload = objectOrEmpty(input);
+  const command2 = payload.command;
+  if (!isWriteTool && typeof command2 !== "string") return [];
+  const paths = [];
+  addPathValue(paths, payload.path);
+  addPathValue(paths, payload.filePath);
+  addPathValue(paths, payload.file_path);
+  addPathValue(paths, payload.paths);
+  addPathValue(paths, payload.filePaths);
+  addPathValue(paths, payload.file_paths);
+  addApplyPatchPaths(paths, command2);
+  return [...new Set(paths)];
+}
+
+// bin/hook-runner.ts
+var command = process.argv[2] ?? "help";
+function readStdin() {
+  return new Promise((resolve4) => {
+    let raw = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      raw += chunk;
+    });
+    process.stdin.on("end", () => resolve4(raw));
+    process.stdin.on("error", () => resolve4(raw));
+  });
+}
+function parsePayload(raw) {
+  try {
+    const parsed = JSON.parse(raw || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function objectOrEmpty2(value) {
+  return value && typeof value === "object" ? value : {};
+}
+function payloadInput(payload) {
+  return objectOrEmpty2(payload.tool_input ?? payload.input ?? payload.args ?? payload);
+}
+function agentId(payload) {
+  return process.env.OCTOCODE_AGENT_ID || String(payload.session_id ?? payload.sessionId ?? payload.agent_id ?? payload.agentId ?? "claude-agent");
+}
+function workspace(payload) {
+  const value = payload.cwd ?? payload.workspace ?? payload.workspacePath;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function hookReason(payload) {
+  return typeof payload.reason === "string" ? payload.reason : "";
+}
+function isStopHookActive(payload) {
+  return Boolean(payload.stop_hook_active);
+}
+function extractFiles(payload) {
+  const input = payloadInput(payload);
+  const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? input.tool_name ?? input.toolName ?? "";
+  return extractPiWriteTargetPaths(toolName, input);
+}
+function resolveHookPath(file, cwd = process.cwd()) {
+  return file.startsWith("/") ? file : `${cwd}/${file}`;
+}
+function isInsidePath(candidate, root) {
+  const normalizedRoot = root.endsWith("/") ? root : `${root}/`;
+  return candidate === root || candidate.startsWith(normalizedRoot);
+}
+function db() {
+  return connectDb(resolveDbPath(null));
+}
+function workspaceArgs(payload) {
+  const ws = workspace(payload);
+  return ws ? { workspacePath: ws } : {};
+}
+async function runPreEdit(payload) {
+  const files = extractFiles(payload);
+  if (files.length === 0) return 0;
+  try {
+    const result = preFlightIntent(db(), {
+      agentId: agentId(payload),
+      workspacePath: workspace(payload) ?? process.cwd(),
+      rationale: "auto: file edit via lifecycle hook",
+      testPlan: "post-edit verification",
+      targetFiles: files,
+      ttlMs: 15 * 6e4
+    });
+    if (!result.ok) {
+      console.error("octocode-awareness: target file is locked by another agent \u2014 edit blocked.");
+      console.error(JSON.stringify(result));
+      return 2;
+    }
+    return 0;
+  } catch (error) {
+    console.error(`octocode-awareness pre-flight warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    return 0;
+  }
+}
+async function runPostEdit(payload) {
+  const files = extractFiles(payload);
+  if (files.length === 0) return 0;
+  try {
+    releaseFileLock(db(), {
+      agentId: agentId(payload),
+      targetFiles: files,
+      status: "PENDING"
+    });
+  } catch {
+  }
+  return 0;
+}
+async function runHarnessGuard(payload) {
+  const skillRoot = process.env.OCTOCODE_SKILL_ROOT;
+  if (!skillRoot) return 0;
+  const files = extractFiles(payload);
+  if (files.length === 0) return 0;
+  const insideSkill = files.some((file) => isInsidePath(resolveHookPath(file), skillRoot));
+  if (!insideSkill) return 0;
+  if (process.env.OCTOCODE_ALLOW_HARNESS_APPLY !== "1") {
+    console.error("octocode-awareness: editing the skill itself is gated. A human must set OCTOCODE_ALLOW_HARNESS_APPLY=1. Edit blocked.");
+    return 2;
+  }
+  if (process.env.OCTOCODE_HARNESS_BRANCH_OK !== "1") {
+    console.error("octocode-awareness: harness self-fix is branch-only. Create a dedicated branch first, or set OCTOCODE_HARNESS_BRANCH_OK=1. Edit blocked.");
+    return 2;
+  }
+  return 0;
+}
+async function runStopVerify(payload) {
+  if (process.env.OCTOCODE_NO_VERIFY_GATE === "1" || isStopHookActive(payload)) return 0;
+  try {
+    const report = auditUnverified(db(), { agentId: agentId(payload), ...workspaceArgs(payload) });
+    if (report.count > 0) {
+      const plans = report.unverified.map((u) => `${u.status}:${u.intent_id}: ${u.test_plan}`).join("; ");
+      console.error(`octocode-awareness: concluding with unverified work. Pending: ${plans}`);
+      return 2;
+    }
+  } catch {
+  }
+  return 0;
+}
+function maybeRunDigest(payload) {
+  if (process.env.OCTOCODE_NO_DIGEST === "1") return;
+  const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
+  const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
+  const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
+  const markerKey = "__octocode_last_digest_epoch_ms";
+  try {
+    const database = db();
+    database.exec("CREATE TABLE IF NOT EXISTS awareness_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    const row = database.prepare("SELECT value FROM awareness_meta WHERE key = ?").get(markerKey);
+    const last = Number(row?.value ?? 0);
+    const now = Date.now();
+    if (!last || now - last >= intervalMs) {
+      database.prepare("INSERT OR REPLACE INTO awareness_meta (key, value) VALUES (?, ?)").run(markerKey, String(now));
+      digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
+    }
+  } catch {
+  }
+}
+async function runNotifyDeliver(payload) {
+  if (process.env.OCTOCODE_NO_NOTIFY === "1") return 0;
+  maybeRunDigest(payload);
+  try {
+    const result = notifyGet(db(), {
+      agent_id: agentId(payload),
+      workspace: workspace(payload) ?? void 0,
+      format: "hook"
+    });
+    if (result.additionalContext) {
+      process.stdout.write(JSON.stringify({ additionalContext: result.additionalContext }) + "\n");
+    }
+  } catch {
+  }
+  return 0;
+}
+async function runSessionEnd(payload) {
+  if (process.env.OCTOCODE_NO_SESSION_CAPTURE === "1" || hookReason(payload) === "clear") return 0;
+  try {
+    sessionCapture(db(), {
+      agent_id: agentId(payload),
+      workspace: workspace(payload) ?? void 0,
+      reason: hookReason(payload) || void 0
+    });
+  } catch {
+  }
+  return 0;
+}
+async function main() {
+  if (command === "help" || command === "--help" || command === "-h") {
+    process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n");
+    return 0;
+  }
+  const payload = parsePayload(await readStdin());
+  switch (command) {
+    case "pre-edit":
+      return runPreEdit(payload);
+    case "post-edit":
+      return runPostEdit(payload);
+    case "harness-guard":
+      return runHarnessGuard(payload);
+    case "stop-verify":
+      return runStopVerify(payload);
+    case "notify-deliver":
+      return runNotifyDeliver(payload);
+    case "session-end":
+      return runSessionEnd(payload);
+    default:
+      console.error(`unknown hook command: ${command}`);
+      return 1;
+  }
+}
+process.exitCode = await main();
+//# sourceMappingURL=hook-runner.js.map

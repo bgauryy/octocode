@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db.js';
 import { reflect } from '../src/reflect.js';
@@ -19,7 +19,6 @@ describe('reflect', () => {
 
   it('inserts a memory — no stdout emission', () => {
     const db = freshDb();
-    // Capture stdout — reflect must NOT write to it
     const writeSpy = vi.spyOn(process.stdout, 'write');
     reflect(db, { task: 'silent test', outcome: 'worked' });
     expect(writeSpy).not.toHaveBeenCalled();
@@ -114,6 +113,14 @@ describe('reflect', () => {
     expect(result.eval_failure_ids).toEqual([]);
   });
 
+  it('returns similar reflection ids for repeated reflections', () => {
+    const db = freshDb();
+    const first = reflect(db, { task: 'repeat task', outcome: 'worked', lesson: 'same durable lesson about repeated verification' });
+    const second = reflect(db, { task: 'repeat task', outcome: 'worked', lesson: 'same durable lesson about repeated verification' });
+    expect(second.similar_memory_ids).toContain(first.learning_memory_id);
+    expect(second.novelty_score).toBeLessThan(0.75);
+  });
+
   it('next message is non-empty', () => {
     const db = freshDb();
     const result = reflect(db, { task: 't', outcome: 'worked' });
@@ -126,5 +133,34 @@ describe('reflect', () => {
     const mem = db.prepare('SELECT importance_score FROM agent_memories WHERE memory_id = ?')
       .get(result.learning_memory_id) as { importance_score: number };
     expect(mem.importance_score).toBe(9);
+  });
+
+  it('stores scope references, primary file, expiry, and refinement files', () => {
+    const db = freshDb();
+    const result = reflect(db, {
+      task: 'scoped reflection',
+      outcome: 'partial',
+      lesson: 'folder-scoped lessons should be discoverable',
+      file: 'src/index.ts',
+      files: ['src/tools/memory.ts'],
+      folders: ['docs'],
+      references: ['file:AGENTS.md'],
+      validTo: '2099-01-01T00:00:00Z',
+      fixRepo: 'update scoped docs',
+    });
+    const mem = db.prepare('SELECT file, references_json, valid_to FROM agent_memories WHERE memory_id = ?')
+      .get(result.learning_memory_id) as { file: string; references_json: string; valid_to: string };
+    expect(mem.file.endsWith('/src/index.ts')).toBe(true);
+    expect(JSON.parse(mem.references_json)).toEqual(expect.arrayContaining([
+      'file:AGENTS.md',
+      expect.stringMatching(/^file:.*src\/index\.ts$/),
+      expect.stringMatching(/^file:.*src\/tools\/memory\.ts$/),
+      expect.stringMatching(/^dir:.*docs$/),
+    ]));
+    expect(mem.valid_to).toBe('2099-01-01T00:00:00Z');
+
+    const ref = db.prepare('SELECT files_json FROM refinements WHERE refinement_id = ?')
+      .get(result.repo_fix_refinement_id!) as { files_json: string };
+    expect(JSON.parse(ref.files_json)).toEqual(['src/tools/memory.ts', 'docs']);
   });
 });

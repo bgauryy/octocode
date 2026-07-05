@@ -4,6 +4,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { resolve } from 'node:path';
 import { REFLECTION_IMPORTANCE } from './helpers.js';
 import { insertMemory } from './memory.js';
 import { insertRefinement } from './refinements.js';
@@ -11,6 +12,10 @@ import type { ReflectParams, ReflectResult, ReflectionOutcome } from './types.js
 
 const VALID_OUTCOMES: ReadonlyArray<string> = ['worked', 'partial', 'failed'];
 const NEXT_MSG = 'refine-get → repo fixes for the next agent · mine-weakness → recurring failures · export-harness → preview harness improvements. A human merges.';
+
+function normalizeScopePaths(paths: string[] = [], prefix: 'file' | 'dir'): string[] {
+  return [...new Set(paths.filter(Boolean).map((p) => `${prefix}:${resolve(p)}`))];
+}
 
 /**
  * Record a reflection: learning memory + optional repo-fix refinement.
@@ -28,7 +33,13 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     fixHarness,
     failureSignature: failSig,
     importance: impArg,
-    workspacePath,
+      references = [],
+      file,
+      files = [],
+      folders = [],
+      validFrom,
+      validTo,
+      workspacePath,
     repo: repoArg,
     ref: refArg,
     cwd,
@@ -56,20 +67,30 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
 
   const sig = failSig
     ?? (resolvedOutcome === 'failed' && fixHarness ? 'harness:reflection|outcome:failed' : null);
+    const scopeReferences = [
+      ...references,
+      ...normalizeScopePaths(file ? [file] : [], 'file'),
+      ...normalizeScopePaths(files, 'file'),
+      ...normalizeScopePaths(folders, 'dir'),
+    ];
 
   // Insert learning memory — direct call, no subprocess, no stdout capture
-  const { memoryId } = insertMemory(db, {
+  const { memoryId, similarMemoryIds, noveltyScore } = insertMemory(db, {
     agentId,
     taskContext: task,
     observation,
     importanceScore: importance,
-    label: 'OTHER',
+    label: 'EXPERIENCE', // distinct label so reflections are filterable and excluded from briefings
     tags,
-    failureSignature: sig,
-    workspacePath,
+      references: scopeReferences,
+      failureSignature: sig,
+      validFrom,
+      validTo,
+      workspacePath,
     repo: repoArg,
     ref: refArg,
-    cwd,
+      file: file ?? files[0] ?? folders[0] ?? null,
+      cwd,
   });
 
   // Optional repo-fix refinement
@@ -84,7 +105,8 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       workspacePath,
       repo: repoArg,
       ref: refArg,
-      cwd,
+        files: [...files, ...folders],
+        cwd,
     });
     refinementId = rid;
   }
@@ -97,5 +119,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     eval_failure_count: 0,
     eval_failure_ids: [],
     next: NEXT_MSG,
+    novelty_score: noveltyScore,
+    similar_memory_ids: similarMemoryIds,
   };
 }

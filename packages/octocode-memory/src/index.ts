@@ -9,7 +9,8 @@
 export { connectDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns } from './db.js';
 
 // Memory operations
-export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore } from './memory.js';
+export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness } from './memory.js';
+export type { MineWeaknessResult, MineWeaknessParams, WeaknessCluster } from './memory.js';
 
 // Refinements
 export { insertRefinement, getRefinements } from './refinements.js';
@@ -20,8 +21,25 @@ export { preFlightIntent, releaseFileLock } from './intents.js';
 // Reflection
 export { reflect } from './reflect.js';
 
-// Stubs (pending full implementation)
-export { pruneStale, notifyGet, sessionCapture, waitForLock } from './stubs.js';
+// Background operations + smart briefing (stubs upgraded to real implementations)
+export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc } from './stubs.js';
+export type { DigestResult, BriefItem, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry } from './stubs.js';
+
+// Pi native hook adapter
+export {
+  createPiAwarenessBridge,
+  extractPiWriteTargetPaths,
+  getPiAwarenessAgentId,
+  wirePiAwarenessHooks,
+} from './pi-hooks.js';
+export type {
+  PiAwarenessBridgeOptions,
+  PiLikeApi,
+  PiLikeContext,
+  PiLikeSessionManager,
+  PiLikeUi,
+  PiToolEvent,
+} from './pi-hooks.js';
 
 // Verify gate
 export { auditUnverified, markVerified } from './verify.js';

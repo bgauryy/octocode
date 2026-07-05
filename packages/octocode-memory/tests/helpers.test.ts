@@ -105,6 +105,7 @@ describe('rowToMemory', () => {
       superseded_by: null, tags_json: '["foo","bar"]', tags_text: ',foo,bar,',
       references_json: '["https://x"]', workspace_path: null, repo: null,
       ref: null, file_tree_fingerprint: null, file: null,
+      novelty_score: null, similar_memory_ids_json: '[]',
       last_accessed_at: null, access_count: 0, decay_half_life_days: null,
       failure_signature: null, valid_from: null, valid_to: null,
       expired_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: null,

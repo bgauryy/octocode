@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -18,46 +17,12 @@ const require = createRequire(import.meta.url);
 // resolve('@octocodeai/octocode-memory') → dist/index.js; go up one level for the package root.
 const memoryPkgDir = path.resolve(path.dirname(require.resolve('@octocodeai/octocode-memory')), '..');
 
-function resolveOctocodeOutDir() {
-  // 1. Workspace-resolved package — present when octocode has been built from source.
-  //    In yarn workspaces node_modules/octocode is a symlink to packages/octocode, so
-  //    both resolve to the same directory; we de-duplicate by checking fs.existsSync.
-  const candidates = [];
-  try {
-    const pkgDir = path.dirname(require.resolve('octocode/package.json'));
-    const realPkgDir = fs.realpathSync(pkgDir);
-    candidates.push(path.join(realPkgDir, 'out'));
-  } catch {
-    // package not resolvable at all
-  }
-
-  // 2. If this package is already installed (e.g. via `pi install` into ~/.pi/agent/npm),
-  //    reuse its dist/bin/ — it is the bundled octocode CLI and is structurally equivalent
-  //    to an octocode out/ dir (single octocode.js entry point).
-  const piInstalled = path.join(
-    os.homedir(), '.pi', 'agent', 'npm', 'node_modules',
-    '@octocodeai', 'pi-extension', 'dist', 'bin'
-  );
-  candidates.push(piInstalled);
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  throw new Error(
-    `Could not find a built octocode out/ dir. Tried:\n${candidates.join('\n')}\nBuild octocode first: yarn workspace octocode build:dev`
-  );
-}
-
 // Resolve @octocodeai/config source via workspace link — no path hardcoding.
 const CONFIG_LOADER_SRC = require.resolve('@octocodeai/config');
 
 const SOURCE_PATHS = {
-  extension: path.join(packageRoot, 'src', 'index.js'),
-  // extension source modules imported by index.js — each is copied flat into dist/.
-  extensionModules: [
-    path.join(packageRoot, 'src', 'web.js'),
-  ],
-  // @octocodeai/config source injected as octocode-config.mjs into every skill that
+  // TypeScript source is compiled by tsc (see compileTsc()). Only non-code assets — each is copied flat into dist/.
+  // are managed here. @octocodeai/config source injected as octocode-config.mjs into every skill that
   // has a scripts/ directory — zero npm publish dependency for standalone skills.
   configLoader: CONFIG_LOADER_SRC,
   rootSkills: path.join(repoRoot, 'skills'),
@@ -75,7 +40,6 @@ const OUTPUT_PATHS = {
   extension: path.join(distDir, 'index.js'),
   skills: path.join(distDir, 'skills'),
   systemPrompt: path.join(distDir, 'system', 'APPEND_SYSTEM.md'),
-  bin: path.join(distDir, 'bin'),
   // awareness tooling lives here — scripts for execution, schema.json for alignment
   awarenessScripts: path.join(distDir, 'awareness', 'scripts'),
   awarenessSchema: path.join(distDir, 'awareness', 'schema.json'),
@@ -94,9 +58,8 @@ const SKIPPED_DIRECTORIES = new Set([
 ]);
 
 // octocode-awareness is excluded from the skills list: the pi extension exposes
-// its operations as native tools (memory_record / memory_recall / memory_reflect).
+// its memory operations through concise native `memory_*` tools.
 // The scripts are still bundled at dist/awareness/scripts/ for tool + hook use.
-// octocode-awareness is excluded: the pi extension exposes it as native tools (memory_recall/record/reflect).
 // octocode (architecture docs) and octocode-stats are excluded as they are meta-docs/utilities.
 // octocode-stats is bundled — it reads ~/.octocode/stats.json which MCP creates.
 const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness']);
@@ -138,7 +101,6 @@ function copyDirectory(sourceDir, targetDir) {
 
 function assertRequiredSources() {
   const requiredSources = {
-    extension: SOURCE_PATHS.extension,
     rootSkills: SOURCE_PATHS.rootSkills,
     systemPrompt: SOURCE_PATHS.systemPrompt,
   };
@@ -190,13 +152,6 @@ function injectConfigIntoSkills(skillsDir) {
     }
   }
   return injected;
-}
-
-function assertBundledBin() {
-  const entry = path.join(OUTPUT_PATHS.bin, 'octocode.js');
-  if (!fs.existsSync(entry)) {
-    throw new Error(`Missing bundled Octocode CLI entry: ${entry}`);
-  }
 }
 
 function assertBundledSkills() {
@@ -258,38 +213,48 @@ function bundleAwarenessTools() {
   return schemas;
 }
 
+function compileTsc() {
+  const candidates = [
+    path.join(packageRoot, 'node_modules', '.bin', 'tsc'),
+    path.join(packageRoot, '..', '..', 'node_modules', '.bin', 'tsc'),
+  ];
+  const tscBin = candidates.find((p) => fs.existsSync(p));
+  if (!tscBin) {
+    throw new Error(
+      `Could not find tsc binary. Tried:\n${candidates.join('\n')}\nRun: yarn install`,
+    );
+  }
+  execSync(`${JSON.stringify(tscBin)} -p tsconfig.build.json`, {
+    stdio: 'inherit',
+    cwd: packageRoot,
+  });
+}
+
 function build() {
   assertRequiredSources();
   refreshPackageSkills();
   clean();
-  copyFile(SOURCE_PATHS.extension, OUTPUT_PATHS.extension);
-  for (const modulePath of SOURCE_PATHS.extensionModules) {
-    copyFile(modulePath, path.join(distDir, path.basename(modulePath)));
-  }
+
+  // 1. Compile TypeScript -> dist/ (generates .js + .d.ts for all src/ modules).
+  compileTsc();
+
   // Inline the @octocodeai/config source AS dist/env.js — index.js imports './env.js', so
   // the published extension carries the loader itself (no runtime dep, nothing to publish).
-  // src/env.js stays a workspace re-export for repo-time (tests); dist is self-contained.
+  // src/env.ts stays a workspace re-export for repo-time (tests, IDE); dist is self-contained.
   copyFile(SOURCE_PATHS.configLoader, path.join(distDir, 'env.js'));
   copyFile(SOURCE_PATHS.systemPrompt, OUTPUT_PATHS.systemPrompt);
   copyDirectory(SOURCE_PATHS.skills, OUTPUT_PATHS.skills);
   // Inject @octocodeai/config source into every skill scripts/ dir — standalone, no npm needed.
   const configInjected = injectConfigIntoSkills(OUTPUT_PATHS.skills);
 
-  const octocodeOutDir = resolveOctocodeOutDir();
-  copyDirectory(octocodeOutDir, OUTPUT_PATHS.bin);
-  assertBundledBin();
-
   const awarenessSchemas = bundleAwarenessTools();
   const schemaNames = Object.keys(awarenessSchemas);
-
   assertNoSecretEnvFiles(distDir);
 
   const skillNames = assertBundledSkills();
-  const binFiles = fs.readdirSync(OUTPUT_PATHS.bin).length;
   console.log(`Built @octocodeai/pi-extension with ${skillNames.length} skills.`);
   console.log(`Skills: ${skillNames.join(', ')}`);
   console.log(`Config loader: octocode-config.mjs injected into ${configInjected} skill script dirs`);
-  console.log(`Bundled Octocode CLI: ${binFiles} entries in dist/bin/`);
   console.log(`Awareness tools: scripts bundled, schema.json (${schemaNames.join(', ')})`);
 }
 

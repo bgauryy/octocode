@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { test } from 'vitest';
 import {
   parseEnv,
   PROTECTED_KEYS,
@@ -23,7 +23,7 @@ test('loadOctocoderc: parses JSON with comments/trailing commas; {} when absent'
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-rc-'));
   assert.deepEqual(loadOctocoderc(dir), {}, 'absent → {}');
   fs.writeFileSync(path.join(dir, '.octocoderc'), '{\n  // a comment\n  "network": { "timeout": 1234, },\n}\n');
-  const rc = loadOctocoderc(dir);
+  const rc = loadOctocoderc(dir) as { network: { timeout: number } };
   assert.equal(rc.network.timeout, 1234);
 });
 
@@ -37,23 +37,23 @@ test('parseEnv: KEY=VALUE, comments, export prefix, quote stripping; ignores jun
     'noequalsline',
     'EMPTY=',
   ].join('\n'));
-  assert.equal(map.TAVILY_API_KEY, 'tvly-abc');
-  assert.equal(map.SERPER_API_KEY, 'serp-123');
-  assert.equal(map.QUOTED, 'v a l');
-  assert.equal(map.EMPTY, '');
+  assert.equal(map['TAVILY_API_KEY'], 'tvly-abc');
+  assert.equal(map['SERPER_API_KEY'], 'serp-123');
+  assert.equal(map['QUOTED'], 'v a l');
+  assert.equal(map['EMPTY'], '');
   assert.ok(!('noequalsline' in map));
 });
 
 test('applyOctocodeEnv: skips protected + already-set keys, applies the rest, returns names only', () => {
-  const env = { PATH: '/bin', TAVILY_API_KEY: 'existing' };
+  const env: Record<string, string> = { PATH: '/bin', TAVILY_API_KEY: 'existing' };
   const res = applyOctocodeEnv(
     { PATH: '/evil', TAVILY_API_KEY: 'new', SERPER_API_KEY: 'serp', FOO: 'bar' },
     { env },
   );
-  assert.equal(env.PATH, '/bin', 'protected PATH not overwritten');
-  assert.equal(env.TAVILY_API_KEY, 'existing', 'already-set key not overwritten (env wins)');
-  assert.equal(env.SERPER_API_KEY, 'serp', 'new key applied');
-  assert.equal(env.FOO, 'bar');
+  assert.equal(env['PATH'], '/bin', 'protected PATH not overwritten');
+  assert.equal(env['TAVILY_API_KEY'], 'existing', 'already-set key not overwritten (env wins)');
+  assert.equal(env['SERPER_API_KEY'], 'serp', 'new key applied');
+  assert.equal(env['FOO'], 'bar');
   assert.deepEqual(res.applied.sort(), ['FOO', 'SERPER_API_KEY']);
   assert.ok(res.skippedProtected.includes('PATH'));
   assert.ok(res.skippedExisting.includes('TAVILY_API_KEY'));
@@ -78,22 +78,22 @@ test('loadOctocodeEnv: project overrides global, and project is gated on trust',
   fs.writeFileSync(path.join(cwd, '.octocode', '.env'), 'TAVILY_API_KEY=project\nPROJECT_ONLY=p\n');
 
   const untrusted = loadOctocodeEnv({ home, cwd, trusted: false });
-  assert.equal(untrusted.map.TAVILY_API_KEY, 'global', 'untrusted: only global loaded');
+  assert.equal(untrusted.map['TAVILY_API_KEY'], 'global', 'untrusted: only global loaded');
   assert.ok(!('PROJECT_ONLY' in untrusted.map));
 
   const trusted = loadOctocodeEnv({ home, cwd, trusted: true });
-  assert.equal(trusted.map.TAVILY_API_KEY, 'project', 'trusted: project overrides global');
-  assert.equal(trusted.map.GLOBAL_ONLY, 'g');
-  assert.equal(trusted.map.PROJECT_ONLY, 'p');
-  assert.equal(trusted.sources.PROJECT_ONLY, 'project');
-  assert.equal(trusted.sources.GLOBAL_ONLY, 'global');
+  assert.equal(trusted.map['TAVILY_API_KEY'], 'project', 'trusted: project overrides global');
+  assert.equal(trusted.map['GLOBAL_ONLY'], 'g');
+  assert.equal(trusted.map['PROJECT_ONLY'], 'p');
+  assert.equal(trusted.sources['PROJECT_ONLY'], 'project');
+  assert.equal(trusted.sources['GLOBAL_ONLY'], 'global');
 });
 
 test('propagateOctocodeEnv: end-to-end load+apply into a target env', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-env2-'));
   fs.writeFileSync(path.join(dir, '.env'), 'SERPER_API_KEY=zzz\n');
-  const env = {};
+  const env: Record<string, string> = {};
   const res = propagateOctocodeEnv({ home: dir, cwd: undefined, trusted: false, env });
-  assert.equal(env.SERPER_API_KEY, 'zzz');
+  assert.equal(env['SERPER_API_KEY'], 'zzz');
   assert.ok(res.applied.includes('SERPER_API_KEY'));
 });

@@ -4,95 +4,162 @@
   <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
 </div>
 
-The Octocode harness for [Pi](https://github.com/earendil-works/pi). One install gives the agent a research engine, a persistent memory, an engineering operating model, and subagent coordination — active on every turn.
+Octocode for [Pi](https://github.com/earendil-works/pi): one package that gives the agent native code-research tools, live web search, persistent memory, edit-safety hooks, and bundled skills.
+
+The Octocode CLI is **not bundled**. For CLI workflows (auth, search, clone, cache, install, lsp-server) install separately:
+
+```bash
+npm install -g octocode   # or: npx octocode <command>
+```
 
 ```bash
 pi install npm:@octocodeai/pi-extension
+/octocode-status
 ```
 
 ---
 
-## What the agent gets
+## What happens after install
 
-**A research engine.** The agent uses [Octocode](https://octocode.ai) for all code discovery — local files, GitHub, npm, LSP semantics, AST patterns, binaries. One tool instead of grep, gh, and curl. It reads lean: locate first, then understand structure, then read exactly.
+When Pi loads the extension, it does four things:
 
-**Live web access.** A single `web` tool lets the agent search the web and read pages as clean text — for docs, changelogs, error messages, and anything beyond the codebase or its training cutoff. Works with **zero config** (DuckDuckGo); add a Tavily or Serper key for higher-quality, AI-answered search. Fetches are SSRF-guarded and browser-realistic.
+1. **Adds the Octocode operating model to the system prompt.** The prompt tells the agent to research before changing code, verify claims, use memory, protect secrets, manage context, and run the project’s real checks. The prompt block is idempotent — it is appended once, not duplicated.
+2. **Registers native tools.** Code/GitHub/npm/local/LSP/OQL tools execute directly through `@octocodeai/octocode-tools-core`; no MCP server is spawned for these calls.
+3. **Registers support tools.** Web search, context management, handoff, and memory tools are available as Pi tools.
+4. **Registers slash commands.** A lean set of harness commands (`/octocode-status`, `/octocode-harness`, `/octocode-setup`, `/octocode-skills-update`). For CLI workflows use `npx octocode` directly.
 
-**An engineering operating model.** A system prompt shapes how the agent reasons on every turn: research before writing, prove before claiming done, verify after every change. It reads git state and project config before acting. It maps blast radius before touching anything. It builds incrementally — reuse before adding, minimum that works, one owner per behavior, fix root causes not call sites, leave no traps.
+During normal use:
 
-**Clean code and architecture.** The agent writes code with intent-named functions, single responsibility, guard-clause returns, and no speculative params. It respects Clean Architecture — core logic free of I/O and framework, side effects at the edges, dependencies pointing inward. Types and schemas are treated as contracts: producers and consumers change together, every type change fixes every error.
+- Before Pi write/edit tool calls, the awareness bridge claims locks for target files.
+- After the edit tool result, the bridge releases locks and leaves an intent in `PENDING`, meaning verification is still owed.
+- The system prompt tells the agent to run the stated check and clear pending intents. When the awareness stop hook is installed/active, it can block conclusion while `PENDING` intents remain.
+- Memory tool calls go directly into `@octocodeai/octocode-memory` and use a local SQLite DB under Octocode memory home.
+- Skills are bundled from this package and loaded by Pi like normal Agent Skills.
 
-**Persistent memory.** Before starting work the agent queries a shared memory store for prior lessons, decisions, and gotchas. After finishing it records what it learned — findings, failures, decisions — so the next session starts knowing what this one discovered. The same store is shared across all Octocode tools and agents on the machine.
+What does **not** happen automatically:
 
-**Self-improvement.** The agent tracks recurring failures by signature and surfaces patterns. It proposes improvements to its own behavior after tasks. A human reviews and merges them.
-
-**Subagent coordination.** The agent forks work to independent sub-sessions when tasks are self-contained and unrelated to the current context. It writes a plan before complex work, compacts to that plan, then executes step by step. Parallel tasks that touch the same files are isolated and merged sequentially. Context is managed autonomously — compact, clear, or hand off — without asking.
-
-**Safe by default.** Every file edit is locked before it runs and released after, via hooks — no two agents collide. Destructive actions require confirmation. Protected files surface before editing.
-
----
-
-## Research workflows
-
-Six skills ship with the bundle:
-
-| | |
-|---|---|
-| `octocode-research` | Evidence-first investigation: code exploration, implementation planning, PR review, refactoring, architecture mapping |
-| `octocode-brainstorming` | Idea validation against real evidence before building — outputs a decision, not code |
-| `octocode-rfc-generator` | Structured proposal for risky or cross-cutting changes, before any code is written |
-| `octocode-roast` | Adversarial code review with ranked findings and specific fix paths |
-| `octocode-prompt-optimizer` | Fix agent instructions that drift, skip steps, or produce inconsistent output |
-| `octocode-skills` | Find, install, and author new skills |
-
-Invoke directly with `/skill:<name>`, or the agent picks the right one from context. Skills compose — research into roast, brainstorming into RFC — for end-to-end workflows.
+- No repository is cloned unless the agent/user invokes clone/cache tooling.
+- No destructive command runs without the normal Pi/tool confirmation path.
+- No GitHub token is read from `.env`; tokens use shell env or Octocode auth storage.
+- The Octocode CLI is not bundled in this package. Use `npx octocode` or install it globally: `npm install -g octocode`.
 
 ---
 
-## Setup
+## Quick start
 
 ```bash
 pi install npm:@octocodeai/pi-extension
-npx octocode auth login     # GitHub access for code research
-/octocode-status            # confirm everything loaded (skills, memory, prompt, web provider)
+/octocode-status        # health: prompt, skills, memory, native tools, web provider
+/octocode-harness       # exact list of registered tools, commands, and skills
 ```
 
-That's it — everything below is optional.
+For a project-specific persistent prompt block:
+
+```bash
+/octocode-setup         # writes .pi/APPEND_SYSTEM.md in the current project
+/octocode-setup --global # writes ~/.pi/agent/APPEND_SYSTEM.md
+```
+
+Use `/octocode-setup` when you want Octocode’s operating model pinned even if the package is not actively loaded.
+
+---
+
+## Everyday workflows
+
+### Research code
+
+The agent should use native tools first:
+
+- locate files/symbols with local or GitHub search,
+- inspect structure before reading raw files,
+- use LSP semantics when symbols/types matter,
+- use exact file reads only after it has anchors.
+
+For command-style workflows, use `npx octocode` in a terminal:
+
+```bash
+npx octocode search "where is auth handled?"
+npx octocode context tools
+npx octocode cache repo owner/name
+npx octocode clone owner/name
+npx octocode lsp-server status
+```
+
+### Use live web
+
+The `web` tool searches the web or fetches clean page text. It is for current external information: docs, changelogs, errors, model/provider limits, and news.
+
+Provider order:
+
+1. Tavily, if `TAVILY_API_KEY` or `TAVILY_API_TOKEN` is set
+2. Serper, if `SERPER_API_KEY` is set
+3. DuckDuckGo fallback, no key required
+
+### Remember durable lessons
+
+The agent has concise typed memory tools: `memory_recall`, `memory_record`, `memory_reflect`, `memory_workspace_status`, `memory_refine_get`, `memory_audit_unverified`, `memory_verify`, and `memory_digest`.
+
+Each tool has a narrow schema so the agent can pick the right memory action without a `type` discriminator. Memory is intentionally selective: good memories are reusable lessons, root causes, decisions, recurring failure signatures, and verified workarounds. Attach `file`, `files`, `folders`, or repo-wide `repo` / `workspace_path` scope so recall can connect lessons to code, docs, README, AGENTS.md, and architecture files. Bad memories are routine status, raw logs, secrets, test output, or facts already captured by git/docs. `memory_record` checks similar active memories and skips duplicate captures unless the agent passes `supersedes` or explicitly sets `allow_similar:true` for distinct new evidence; `valid_to` plus `memory_digest` marks expired memories stale.
+
+### Coordinate long work
+
+The agent can manage context and parallel workers without user babysitting:
+
+- `compact_context` summarizes long history when the next phase needs room.
+- `clear_context` starts a fresh unrelated session when Pi exposes session control to the command context; otherwise use `/new` manually.
+- `spawnAgent` starts a background Pi worker process over RPC and returns an `agentId`. Workers cannot spawn other workers; orchestration stays in the parent session.
+- `AgentMessage` lists, checks, messages, waits for, or kills spawned workers.
 
 ---
 
 ## Configuration
 
-All optional. Put keys and settings in a `.env` under your Octocode home — `~/.octocode/.env` (global) or `<project>/.octocode/.env` (per-repo, overrides global). It's loaded automatically at session start and shared with the bundled CLI, skills, and the `web` tool.
+Octocode config is optional. The extension loads Octocode env/config from the shared Octocode config system.
+
+Common locations:
 
 ```bash
-# ~/.octocode/.env   — every line optional
-TAVILY_API_KEY=tvly-...      # richer web search: AI answer + results  → app.tavily.com
-SERPER_API_KEY=...           # Google SERP web search                  → serper.dev
-# OCTOCODE_WEB_USER_AGENT=…  # override the browser UA used for web fetch
+~/.octocode/.env           # global
+<project>/.octocode/.env   # project-local
 ```
 
-- **Web search** auto-picks the best available provider: **Tavily → Serper → DuckDuckGo** (no key needed — DuckDuckGo is the fallback).
-- **GitHub tokens do *not* go here** — run `npx octocode auth login` (encrypted) or use your shell env. They're protected keys and won't be read from `.env`.
-- Values are never logged. Full reference: [CONFIGURATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION.md).
+Useful keys:
+
+```bash
+TAVILY_API_KEY=tvly-...    # better web search
+SERPER_API_KEY=...         # Google SERP web search
+OCTOCODE_WEB_USER_AGENT=...# optional web fetch user-agent override
+```
+
+GitHub auth:
+
+- Use shell env (`GITHUB_TOKEN`, `GH_TOKEN`, `OCTOCODE_TOKEN`) or Octocode auth commands.
+- Do not put GitHub tokens in `.octocode/.env`; protected keys are not imported from project env files.
+
+CLI auth commands (run in a terminal):
+
+```bash
+npx octocode auth status
+npx octocode login
+npx octocode logout
+npx octocode status
+```
+
+Full config docs: [CONFIGURATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION.md) · [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
 
 ---
 
 ## Model configuration (`models.json`)
 
-Add custom providers, local models, and API proxies via `~/.pi/agent/models.json`.
-The file **hot-reloads** on every `/model` open — no restart needed.
+Custom Pi models live in `~/.pi/agent/models.json`. The file hot-reloads when you open `/model`.
 
-### The one rule that prevents 90% of problems
+The important rule:
 
-> **Always set `maxTokens` and `contextWindow` to the model's actual published limits.**
+> Set `contextWindow` and `maxTokens` to the provider’s real published limits.
 
-Pi uses `maxTokens` as the hard output cap it sends to the provider. If you copy a stub entry or leave the default (`16384`), the model stops mid-response with:
-> *"Model stopped because it reached the maximum output token limit. The response may be incomplete."*
+`contextWindow` controls context warnings and compaction. `maxTokens` is the hard output cap Pi sends to the provider. If `maxTokens` is too low, the model stops mid-answer even when the context window is large.
 
-This is not a context-window issue and not a model refusal — pi hit its own cap. Fix: look up the model's real output limit and set it explicitly.
-
-### Minimal structure
+Minimal OpenAI-compatible provider:
 
 ```json
 {
@@ -101,6 +168,10 @@ This is not a context-window issue and not a model refusal — pi hit its own ca
       "baseUrl": "https://api.example.com/v1",
       "api": "openai-completions",
       "apiKey": "$MY_API_KEY",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
       "models": [
         {
           "id": "model-id",
@@ -108,7 +179,7 @@ This is not a context-window issue and not a model refusal — pi hit its own ca
           "contextWindow": 131072,
           "maxTokens": 65536,
           "reasoning": false,
-          "input": ["text", "image"]
+          "input": ["text"]
         }
       ]
     }
@@ -116,121 +187,135 @@ This is not a context-window issue and not a model refusal — pi hit its own ca
 }
 ```
 
-### Fields to set on every custom model
+Fields that matter:
 
-| Field | Why it matters |
+| Field | Effect |
 |---|---|
-| `contextWindow` | Pi uses this for context-window warnings and compaction. Wrong value → compaction fires too early or too late. |
-| `maxTokens` | Hard output cap sent to the provider. **Wrong value = truncated responses.** |
-| `reasoning` | Set `true` if the model supports extended thinking. Without it, pi won't offer thinking levels for that model. |
-| `input` | Include `"image"` only if the model actually accepts images — otherwise tool calls with screenshots fail. |
+| `contextWindow` | Pi context accounting and compaction timing |
+| `maxTokens` | Maximum generated tokens per response |
+| `reasoning` | Enables Pi thinking controls for models that support them |
+| `input` | Include `"image"` only for vision-capable models |
+| `compat.supportsDeveloperRole` | Set `false` for servers that reject the OpenAI `developer` role |
+| `compat.supportsReasoningEffort` | Set `false` for servers that reject `reasoning_effort` |
+| `compat.supportsUsageInStreaming` | Set `false` for servers that reject streaming usage options |
 
-### OpenAI-compatible servers (Nebius, Ollama, vLLM, OpenRouter)
-
-Most third-party servers don't support all OpenAI parameters. Set `compat` to prevent silent failures:
-
-```json
-{
-  "providers": {
-    "nebius": {
-      "baseUrl": "https://api.studio.nebius.com/v1",
-      "apiKey": "$NEBIUS_API_KEY",
-      "api": "openai-completions",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false
-      },
-      "models": [
-        {
-          "id": "zai-org/GLM-5.2",
-          "name": "GLM 5.2",
-          "reasoning": true,
-          "contextWindow": 1000000,
-          "maxTokens": 131072
-        }
-      ]
-    }
-  }
-}
-```
-
-| `compat` flag | When to set it |
-|---|---|
-| `supportsDeveloperRole: false` | Server rejects the `developer` role (most non-Anthropic servers). Pi sends `system` instead. |
-| `supportsReasoningEffort: false` | Server doesn't understand `reasoning_effort`. |
-| `supportsUsageInStreaming: false` | Server doesn't support `stream_options: { include_usage: true }`. |
-
-### Local models (Ollama)
+API key forms:
 
 ```json
-{
-  "providers": {
-    "ollama": {
-      "baseUrl": "http://localhost:11434/v1",
-      "api": "openai-completions",
-      "apiKey": "ollama",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false
-      },
-      "models": [
-        { "id": "llama3.3:70b", "contextWindow": 131072, "maxTokens": 32768 },
-        { "id": "qwen2.5-coder:14b", "contextWindow": 131072, "maxTokens": 32768 }
-      ]
-    }
-  }
-}
+"apiKey": "$MY_API_KEY"
+"apiKey": "!op read 'op://vault/item/credential'"
+"apiKey": "literal-key-avoid-in-shared-files"
 ```
 
-`apiKey` is required as a placeholder — Ollama ignores it but pi needs a value before showing the model in `/model`.
+After editing:
 
-### API key resolution
-
-```json
-"apiKey": "$MY_API_KEY"          // env var — preferred
-"apiKey": "!op read 'op://v/i'"  // shell command — for 1Password, keychain, etc.
-"apiKey": "sk-abc123"            // literal — avoid in shared configs
+```text
+/model            # model appears
+/octocode-status  # extension still loads cleanly
 ```
 
-### Routing a built-in provider through a proxy
-
-Override just the `baseUrl` — all built-in models stay available:
-
-```json
-{
-  "providers": {
-    "anthropic": {
-      "baseUrl": "https://my-proxy.example.com/v1"
-    }
-  }
-}
-```
-
-### Verify after editing
-
-```
-/model          → model should appear in the list
-/octocode-status → confirm the extension loaded cleanly
-```
-
-If a model doesn't appear in `/model`, it means auth is missing — configure via `/login` or add `apiKey` to the provider entry.
-
-Full reference: [Pi custom models docs](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)
+Full Pi model docs: [models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)
 
 ---
 
-## Commands
+## Registered surfaces
 
-| | |
+This section is intentionally explicit. `/octocode-harness` shows the same information from the running extension.
+
+### Native Octocode tools
+
+| Tool | Use |
 |---|---|
-| `/octocode-status` | Confirm CLI, skills, memory, and prompt all loaded |
-| `/octocode-setup` | Pin the operating model to your project |
-| `/octocode-setup --global` | Pin the operating model globally |
-| `/octocode-skills-update` | Update to the latest version |
+| `ghSearchCode` | Search GitHub code |
+| `ghSearchRepos` | Search GitHub repositories |
+| `ghHistoryResearch` | Research GitHub history, PRs, commits, and changes |
+| `ghGetFileContent` | Read GitHub file contents |
+| `ghViewRepoStructure` | Inspect GitHub repository structure |
+| `ghCloneRepo` | Clone/materialize GitHub repos when enabled |
+| `localSearchCode` | Search local code |
+| `localFindFiles` | Find local files |
+| `localGetFileContent` | Read local files |
+| `localViewStructure` | Inspect local directory/repo structure |
+| `lspGetSemantics` | Query language-server semantics |
+| `localBinaryInspect` | Inspect binary/artifact metadata |
+| `npmSearch` | Search npm/package metadata |
+| `unzip` | Unpack archives for local research (routes to localBinaryInspect mode:"unpack") |
+
+### Support tools
+
+| Tool | Use |
+|---|---|
+| `web` | Search live web or fetch clean page text |
+| `compact_context` | Summarize current conversation to free context |
+| `clear_context` | Start a fresh unrelated session when session control is available |
+| `spawnAgent` | Start a background Pi worker process over RPC; recursive worker spawning is disabled |
+| `AgentMessage` | List, check, message, wait for, or kill spawned workers |
+| `memory_recall` | Recall durable lessons before risky, unfamiliar, or long-running work |
+| `memory_record` | Store a durable root cause, decision, workaround, or verified gotcha |
+| `memory_reflect` | Capture a reusable lesson after non-trivial work |
+| `memory_workspace_status` | Show active file locks, working agents, and memory store stats for the current workspace |
+| `memory_refine_get` | List open repo-fix refinements for the current workspace |
+| `memory_audit_unverified` | List pending edit intents that still need verification |
+| `memory_verify` | Mark a pending edit intent as verified or failed |
+| `memory_digest` | Review, deduplicate, and prune the memory store; supports `dry_run` preview and `export_doc` markdown report |
+
+### Slash commands
+
+The extension registers a small set of harness commands. For CLI workflows (auth, search, clone, cache, install, skill, lsp-server, context) use `npx octocode` directly in a terminal.
+
+| Command | Use |
+|---|---|
+| `/octocode-status` | Show extension health: prompt, skills, memory, tools, web |
+| `/octocode-harness` | List every registered surface |
+| `/octocode-setup` | Install/update the managed APPEND_SYSTEM block |
+| `/octocode-skills-update` | Update this Pi package and reload resources |
+
+### Bundled skills
+
+| Skill | Use |
+|---|---|
+| `octocode-research` | Evidence-first investigation, planning, implementation, review, and refactor work |
+| `octocode-brainstorming` | Validate ideas against evidence before building |
+| `octocode-rfc-generator` | Produce RFCs/design docs for risky or cross-package changes |
+| `octocode-roast` | Brutally honest code review with ranked findings |
+| `octocode-prompt-optimizer` | Improve prompts, SKILL.md files, and agent instructions |
+| `octocode-skills` | Find, evaluate, install, or author skills |
+| `octocode-stats` | Inspect Octocode usage stats and savings |
 
 ---
 
-**Prefer one command?** [`octocode-agent`](../octocode-agent) bundles Pi + this harness into a single branded launcher (`octocode-agent`) with the harness leading the prompt.
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Extension seems inactive | Run `/octocode-status`, then `/octocode-harness`. |
+| Model stops mid-answer | Fix `maxTokens` in `~/.pi/agent/models.json`. |
+| Model missing from `/model` | Check `apiKey`, provider `baseUrl`, and `api` value. |
+| Web search quality is weak | Add `TAVILY_API_KEY` or `SERPER_API_KEY` to Octocode env. |
+| GitHub calls are unauthenticated | Run `npx octocode login` or export `GITHUB_TOKEN`/`GH_TOKEN`/`OCTOCODE_TOKEN`. |
+| Agent keeps using shell for code search | Remind it to prefer native Octocode tools; use `/octocode-harness`. |
+| Verify gate blocks conclusion | Run the stated test plan, then mark the pending intent verified. If no stop hook is installed, pending intents still appear in memory/audit state but may not block the UI. |
+
+---
+
+## Development notes
+
+Canonical sources:
+
+- System prompt: `packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md`
+- Root skills: `skills/`
+- Package/dist skills are regenerated by `packages/octocode-pi-extension/scripts/build.mjs`
+
+Do not edit generated package skill copies as the source of truth; build will overwrite them.
+
+Useful checks:
+
+```bash
+yarn workspace @octocodeai/pi-extension build
+yarn workspace @octocodeai/pi-extension test
+```
+
+The test suite verifies that this README lists every live tool, command, and bundled skill from the extension harness.
 
 ---
 

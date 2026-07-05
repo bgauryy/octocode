@@ -16,8 +16,9 @@ process.stdin.on("end", () => {
     };
     var add = add2;
     const data = JSON.parse(raw);
-    const toolInput = data !== null && typeof data === "object" && "tool_input" in data ? data.tool_input : null;
-    const ti = toolInput !== null && typeof toolInput === "object" ? toolInput : {};
+    const root = data !== null && typeof data === "object" ? data : {};
+    const toolInput = root.tool_input ?? root.input ?? root.args ?? null;
+    const ti = toolInput !== null && typeof toolInput === "object" ? toolInput : root;
     const paths = [];
     add2(ti["file_path"]);
     add2(ti["path"]);

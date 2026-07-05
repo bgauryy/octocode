@@ -7,6 +7,7 @@
  *   dist/index.js          — library entry (imported by pi-extension, etc.)
  *   dist/bin/awareness.js  — standalone CLI (called by hook scripts)
  *   dist/bin/extract-hook-files.js — hook file-path extractor
+ *   dist/bin/hook-runner.js — shared hook implementation
  */
 
 import * as esbuild from 'esbuild';
@@ -60,6 +61,14 @@ await esbuild.build({
   banner: { js: '#!/usr/bin/env node' },
 });
 
+// Hook runner: all lifecycle hook logic shared by thin shell wrappers.
+await esbuild.build({
+  ...shared,
+  entryPoints: ['bin/hook-runner.ts'],
+  outfile: 'dist/bin/hook-runner.js',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
 // Generate TypeScript declarations.
 execSync(`${tscBin} --emitDeclarationOnly --outDir dist -p tsconfig.build.json`, {
   stdio: 'inherit',
@@ -91,5 +100,6 @@ cpSync(skillSrc, skillDest, {
 // 2. Compiled CLI — the ONLY awareness binary all platforms share.
 copyFileSync(join(distBin, 'awareness.js'),          join(skillDest, 'awareness.mjs'));
 copyFileSync(join(distBin, 'extract-hook-files.js'), join(skillDest, 'extract-hook-files.mjs'));
+copyFileSync(join(distBin, 'hook-runner.js'),        join(skillDest, 'hook-runner.mjs'));
 
 console.log('✓ skills/octocode-awareness/scripts/ synced from dist/bin/ + skill/scripts/');

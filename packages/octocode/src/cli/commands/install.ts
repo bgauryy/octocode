@@ -42,7 +42,8 @@ export const installCommand: CLICommand = {
     const rawIde = args.options['ide'];
     const methodOpt = args.options['method'];
     const method = (typeof methodOpt === 'string' ? methodOpt : 'npx') as
-      InstallMethod | string;
+      | InstallMethod
+      | string;
     const force = Boolean(args.options['force']);
     const checkOnly = Boolean(args.options['check']);
     const rollback = Boolean(args.options['rollback']);

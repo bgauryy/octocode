@@ -27,6 +27,43 @@ const DECAY_WEIGHTS = { importance: 0.25, recency: 0.30, access: 0.15, lexical: 
 const DEFAULT_HALF_LIFE_DAYS = 30.0;
 const ACCESS_SATURATION = 50.0;
 const SCORING_PREFETCH_FACTOR = 3;
+const SIMILARITY_THRESHOLD = 0.45;
+const SIMILARITY_PREFETCH = 12;
+
+function textTokens(text: string): Set<string> {
+  const stopWords = new Set(['the', 'and', 'for', 'with', 'this', 'that', 'about', 'before', 'after', 'from', 'into', 'when', 'what']);
+  return new Set((text.toLowerCase().match(/[a-z0-9_:-]{3,}/g) ?? []).filter(t => !stopWords.has(t)));
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+
+export function findSimilarMemories(
+  db: DatabaseSync,
+  text: string,
+  limit = 3,
+  excludeMemoryId: string | null = null,
+): Array<{ memory_id: string; similarity: number }> {
+  const queryTokens = textTokens(text);
+  if (queryTokens.size === 0) return [];
+
+  const candidates = lexicalSearch(
+    db, text, SIMILARITY_PREFETCH, 1, [], [], ['ACTIVE']
+  ).filter(m => m.memory_id !== excludeMemoryId);
+
+  return candidates
+    .map(m => ({
+      memory_id: m.memory_id,
+      similarity: jaccard(queryTokens, textTokens(`${m.task_context} ${m.observation}`)),
+    }))
+    .filter(m => m.similarity >= SIMILARITY_THRESHOLD)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, limit);
+}
 
 export function decayScore(
   memory: MemoryRecord,
@@ -193,18 +230,22 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     cwd ?? process.cwd()
   );
 
+  const similar = findSimilarMemories(db, `${taskContext} ${observation}`);
+  const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
+  const similarMemoryIds = similar.map(m => m.memory_id);
+
   db.prepare(`
     INSERT INTO agent_memories (
       memory_id, agent_id, task_context, observation, importance_score,
       label, tags_json, tags_text, references_json, workspace_path, repo, ref,
-      file_tree_fingerprint, file, created_at, updated_at,
+      file_tree_fingerprint, file, novelty_score, similar_memory_ids_json, created_at, updated_at,
       last_accessed_at, access_count, failure_signature, valid_from, valid_to
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `).run(
     memoryId, agentId, taskContext, observation, imp,
     normalizedLabel, JSON.stringify(tagList), tagsText(tagList), JSON.stringify(refList),
     scope.workspace_path, scope.repo, scope.ref,
-    fileTreeFingerprint, memFile, createdAt, createdAt,
+    fileTreeFingerprint, memFile, noveltyScore, JSON.stringify(similarMemoryIds), createdAt, createdAt,
     createdAt, failureSignature ?? null, validFromVal, vt ?? null
   );
 
@@ -253,10 +294,14 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
       repo: scope.repo,
       ref: scope.ref,
       file: memFile,
+      novelty_score: noveltyScore,
+      similar_memory_ids: similarMemoryIds,
       state: 'ACTIVE' as const,
       created_at: createdAt,
     },
     superseded,
+    noveltyScore,
+    similarMemoryIds,
   };
 }
 
@@ -326,4 +371,87 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     global_only: Boolean(globalOnly),
     states,
   };
+}
+
+// ─── mineWeakness ─────────────────────────────────────────────────────────────
+
+export interface WeaknessCluster {
+  failure_signature: string;
+  count: number;
+  avg_importance: number;
+  score: number;
+  memory_ids: string[];
+  representative: string;
+  labels: string[];
+}
+
+export interface MineWeaknessResult {
+  ok: true;
+  clusters: WeaknessCluster[];
+  total_signatures: number;
+  total_memories: number;
+}
+
+export interface MineWeaknessParams {
+  agentId?: string | null;
+  workspacePath?: string | null;
+  minCount?: number;
+  limit?: number;
+  cwd?: string;
+}
+
+/**
+ * Cluster memories by failure_signature to surface recurring failure patterns.
+ * Sorted by count × avg_importance so the most impactful patterns appear first.
+ */
+export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}): MineWeaknessResult {
+  const { minCount = 2, limit = 20, cwd } = params;
+  const wsPath = params.workspacePath
+    ?? (cwd ? fillScope({ workspace_path: null }, cwd).workspace_path : null);
+
+  const conditions: string[] = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
+  const bindParams: (string | number)[] = [];
+  if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+  if (params.agentId) { conditions.push('agent_id = ?'); bindParams.push(params.agentId); }
+
+  type ClusterRow = { failure_signature: string; freq: number; avg_imp: number; score: number; ids: string; labels: string };
+  const rows = db.prepare(`
+    SELECT failure_signature,
+           count(*) AS freq,
+           avg(importance_score) AS avg_imp,
+           count(*) * avg(importance_score) AS score,
+           group_concat(memory_id, ',') AS ids,
+           group_concat(DISTINCT label) AS labels
+    FROM agent_memories
+    WHERE ${conditions.join(' AND ')}
+    GROUP BY failure_signature
+    HAVING freq >= ?
+    ORDER BY score DESC
+    LIMIT ?
+  `).all(...bindParams, minCount, limit) as unknown as ClusterRow[];
+
+  const clusters: WeaknessCluster[] = rows.map(row => {
+    const ids = row.ids.split(',');
+    const rep = db.prepare(
+      `SELECT observation FROM agent_memories WHERE memory_id IN (${ids.map(() => '?').join(',')})
+       ORDER BY importance_score DESC LIMIT 1`
+    ).get(...ids) as { observation: string } | undefined;
+    return {
+      failure_signature: row.failure_signature,
+      count: row.freq,
+      avg_importance: Math.round(row.avg_imp * 10) / 10,
+      score: Math.round(row.score * 10) / 10,
+      memory_ids: ids,
+      representative: rep?.observation?.slice(0, 200) ?? '',
+      labels: row.labels.split(',').filter(Boolean),
+    };
+  });
+
+  type TotalRow = { sigs: number; mems: number };
+  const totals = db.prepare(
+    `SELECT count(DISTINCT failure_signature) AS sigs, count(*) AS mems
+     FROM agent_memories WHERE failure_signature IS NOT NULL AND state = 'ACTIVE'`
+  ).get() as unknown as TotalRow;
+
+  return { ok: true, clusters, total_signatures: totals.sigs, total_memories: totals.mems };
 }

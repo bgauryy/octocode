@@ -1,8 +1,9 @@
 /**
  * extract-hook-files.ts — Extract file paths from a hook JSON payload (stdin).
  *
- * Handles Claude-style tool_input payloads and Codex apply_patch command strings.
- * Prints one path per line, deduplicated. Exits 0 on any error (fail-open).
+ * Handles Claude-style tool_input payloads, Pi tool events (`input`/`args`),
+ * and Codex apply_patch command strings. Prints one path per line, deduplicated.
+ * Exits 0 on any error (fail-open).
  *
  * Compiled to dist/bin/extract-hook-files.js.
  */
@@ -12,14 +13,13 @@ process.stdin.on('data', (chunk: Buffer | string) => { raw += String(chunk); });
 process.stdin.on('end', () => {
   try {
     const data: unknown = JSON.parse(raw);
-    const toolInput = (
-      data !== null && typeof data === 'object' && 'tool_input' in data
-        ? (data as { tool_input: unknown }).tool_input
-        : null
-    );
+    const root = data !== null && typeof data === 'object'
+      ? data as Record<string, unknown>
+      : {} as Record<string, unknown>;
+    const toolInput = root.tool_input ?? root.input ?? root.args ?? null;
     const ti = toolInput !== null && typeof toolInput === 'object'
       ? (toolInput as Record<string, unknown>)
-      : {} as Record<string, unknown>;
+      : root;
 
     const paths: string[] = [];
 

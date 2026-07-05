@@ -40,6 +40,8 @@ describe('insertMemory', () => {
     expect(row['importance_score']).toBe(8);
     expect(row['label']).toBe('SECURITY');
     expect(JSON.parse(row['tags_json'] as string)).toEqual(['jwt', 'auth']);
+    expect(typeof row['novelty_score']).toBe('number');
+    expect(JSON.parse(row['similar_memory_ids_json'] as string)).toEqual([]);
   });
 
   it('throws for out-of-range importanceScore', () => {
@@ -71,6 +73,25 @@ describe('insertMemory', () => {
     });
     const row = db.prepare('SELECT memory_id FROM memory_fts WHERE memory_fts MATCH ?').get('fts5') as Record<string, unknown> | undefined;
     expect(row?.['memory_id']).toBe(memoryId);
+  });
+
+  it('stores novelty/similar ids for repeated memories without verbose payloads', () => {
+    const db = freshDb();
+    const first = insertMemory(db, {
+      taskContext: 'build cache regression',
+      observation: 'Never edit generated dist files because build overwrites dist output',
+      importanceScore: 7,
+      label: 'GOTCHA',
+    });
+    const second = insertMemory(db, {
+      taskContext: 'build cache regression',
+      observation: 'Never edit generated dist files because build overwrites dist output',
+      importanceScore: 7,
+      label: 'GOTCHA',
+    });
+    expect(second.memory.novelty_score).toBeLessThan(0.75);
+    expect(second.memory.similar_memory_ids).toContain(first.memoryId);
+    expect(second.similarMemoryIds).toContain(first.memoryId);
   });
 
   it('normalizes label to OTHER for unknown values', () => {
@@ -205,7 +226,7 @@ describe('decayScore', () => {
       memory_id: 'm', agent_id: 'a', task_context: 't', observation: 'o',
       state: 'ACTIVE', label: 'OTHER',
       superseded_by: null, tags: [], references: [], workspace_path: null,
-      repo: null, ref: null, file: null, failure_signature: null,
+      repo: null, ref: null, file: null, novelty_score: null, similar_memory_ids: [], failure_signature: null,
       access_count: 0, last_accessed_at: now, decay_half_life_days: null,
       valid_from: null, valid_to: null, expired_at: null,
       file_tree_fingerprint: null, created_at: now, updated_at: null,
@@ -222,7 +243,7 @@ describe('decayScore', () => {
       memory_id: 'm', agent_id: 'a', task_context: 't', observation: 'o',
       importance_score: 5, state: 'ACTIVE', label: 'OTHER',
       superseded_by: null, tags: [], references: [], workspace_path: null,
-      repo: null, ref: null, file: null, failure_signature: null,
+      repo: null, ref: null, file: null, novelty_score: null, similar_memory_ids: [], failure_signature: null,
       access_count: 0, last_accessed_at: null, decay_half_life_days: null,
       valid_from: null, valid_to: null, expired_at: null,
       file_tree_fingerprint: null, created_at: now, updated_at: null,

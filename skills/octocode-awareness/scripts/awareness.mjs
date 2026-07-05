@@ -30,6 +30,8 @@ var MEMORY_LABELS = /* @__PURE__ */ new Set([
   "API",
   "RELEASE",
   "INCIDENT",
+  "EXPERIENCE",
+  // post-task reflections (worked/partial/failed outcomes)
   "OTHER"
 ]);
 var REFLECTION_IMPORTANCE = {
@@ -96,6 +98,8 @@ function rowToMemory(row) {
     repo: row.repo ?? null,
     ref: row.ref ?? null,
     file: row.file ?? null,
+    novelty_score: row.novelty_score ?? null,
+    similar_memory_ids: parseJsonList(row.similar_memory_ids_json),
     failure_signature: row.failure_signature ?? null,
     access_count: row.access_count ?? 0,
     last_accessed_at: row.last_accessed_at ?? null,
@@ -158,6 +162,8 @@ function initDb(db2) {
       ref TEXT,
       file_tree_fingerprint TEXT,
       file TEXT,
+      novelty_score REAL,
+      similar_memory_ids_json TEXT NOT NULL DEFAULT '[]',
       last_accessed_at TEXT,
       access_count INTEGER NOT NULL DEFAULT 0,
       decay_half_life_days REAL,
@@ -278,6 +284,8 @@ function ensureMemoryColumns(db2) {
     ["superseded_by", "TEXT"],
     ["updated_at", "TEXT"],
     ["file", "TEXT"],
+    ["novelty_score", "REAL"],
+    ["similar_memory_ids_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["last_accessed_at", "TEXT"],
     ["access_count", "INTEGER NOT NULL DEFAULT 0"],
     ["decay_half_life_days", "REAL"],
@@ -392,6 +400,35 @@ var DECAY_WEIGHTS = { importance: 0.25, recency: 0.3, access: 0.15, lexical: 0.3
 var DEFAULT_HALF_LIFE_DAYS = 30;
 var ACCESS_SATURATION = 50;
 var SCORING_PREFETCH_FACTOR = 3;
+var SIMILARITY_THRESHOLD = 0.45;
+var SIMILARITY_PREFETCH = 12;
+function textTokens(text) {
+  const stopWords = /* @__PURE__ */ new Set(["the", "and", "for", "with", "this", "that", "about", "before", "after", "from", "into", "when", "what"]);
+  return new Set((text.toLowerCase().match(/[a-z0-9_:-]{3,}/g) ?? []).filter((t) => !stopWords.has(t)));
+}
+function jaccard(a, b) {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+function findSimilarMemories(db2, text, limit = 3, excludeMemoryId = null) {
+  const queryTokens = textTokens(text);
+  if (queryTokens.size === 0) return [];
+  const candidates = lexicalSearch(
+    db2,
+    text,
+    SIMILARITY_PREFETCH,
+    1,
+    [],
+    [],
+    ["ACTIVE"]
+  ).filter((m) => m.memory_id !== excludeMemoryId);
+  return candidates.map((m) => ({
+    memory_id: m.memory_id,
+    similarity: jaccard(queryTokens, textTokens(`${m.task_context} ${m.observation}`))
+  })).filter((m) => m.similarity >= SIMILARITY_THRESHOLD).sort((a, b) => b.similarity - a.similarity).slice(0, limit);
+}
 function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
   const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
   const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
@@ -513,13 +550,16 @@ function insertMemory(db2, params) {
     { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
+  const similar = findSimilarMemories(db2, `${taskContext} ${observation}`);
+  const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
+  const similarMemoryIds = similar.map((m) => m.memory_id);
   db2.prepare(`
     INSERT INTO agent_memories (
       memory_id, agent_id, task_context, observation, importance_score,
       label, tags_json, tags_text, references_json, workspace_path, repo, ref,
-      file_tree_fingerprint, file, created_at, updated_at,
+      file_tree_fingerprint, file, novelty_score, similar_memory_ids_json, created_at, updated_at,
       last_accessed_at, access_count, failure_signature, valid_from, valid_to
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `).run(
     memoryId,
     agentId,
@@ -535,6 +575,8 @@ function insertMemory(db2, params) {
     scope.ref,
     fileTreeFingerprint,
     memFile,
+    noveltyScore,
+    JSON.stringify(similarMemoryIds),
     createdAt,
     createdAt,
     createdAt,
@@ -586,10 +628,14 @@ function insertMemory(db2, params) {
       repo: scope.repo,
       ref: scope.ref,
       file: memFile,
+      novelty_score: noveltyScore,
+      similar_memory_ids: similarMemoryIds,
       state: "ACTIVE",
       created_at: createdAt
     },
-    superseded
+    superseded,
+    noveltyScore,
+    similarMemoryIds
   };
 }
 function getMemory(db2, params = {}) {
@@ -645,6 +691,55 @@ function getMemory(db2, params = {}) {
     global_only: Boolean(globalOnly),
     states
   };
+}
+function mineWeakness(db2, params = {}) {
+  const { minCount = 2, limit = 20, cwd } = params;
+  const wsPath = params.workspacePath ?? (cwd ? fillScope({ workspace_path: null }, cwd).workspace_path : null);
+  const conditions = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
+  const bindParams = [];
+  if (wsPath) {
+    conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+    bindParams.push(wsPath);
+  }
+  if (params.agentId) {
+    conditions.push("agent_id = ?");
+    bindParams.push(params.agentId);
+  }
+  const rows = db2.prepare(`
+    SELECT failure_signature,
+           count(*) AS freq,
+           avg(importance_score) AS avg_imp,
+           count(*) * avg(importance_score) AS score,
+           group_concat(memory_id, ',') AS ids,
+           group_concat(DISTINCT label) AS labels
+    FROM agent_memories
+    WHERE ${conditions.join(" AND ")}
+    GROUP BY failure_signature
+    HAVING freq >= ?
+    ORDER BY score DESC
+    LIMIT ?
+  `).all(...bindParams, minCount, limit);
+  const clusters = rows.map((row) => {
+    const ids = row.ids.split(",");
+    const rep = db2.prepare(
+      `SELECT observation FROM agent_memories WHERE memory_id IN (${ids.map(() => "?").join(",")})
+       ORDER BY importance_score DESC LIMIT 1`
+    ).get(...ids);
+    return {
+      failure_signature: row.failure_signature,
+      count: row.freq,
+      avg_importance: Math.round(row.avg_imp * 10) / 10,
+      score: Math.round(row.score * 10) / 10,
+      memory_ids: ids,
+      representative: rep?.observation?.slice(0, 200) ?? "",
+      labels: row.labels.split(",").filter(Boolean)
+    };
+  });
+  const totals = db2.prepare(
+    `SELECT count(DISTINCT failure_signature) AS sigs, count(*) AS mems
+     FROM agent_memories WHERE failure_signature IS NOT NULL AND state = 'ACTIVE'`
+  ).get();
+  return { ok: true, clusters, total_signatures: totals.sigs, total_memories: totals.mems };
 }
 
 // src/refinements.ts
@@ -878,8 +973,12 @@ function releaseFileLock(db2, params) {
 }
 
 // src/reflect.ts
+import { resolve as resolve4 } from "node:path";
 var VALID_OUTCOMES = ["worked", "partial", "failed"];
 var NEXT_MSG = "refine-get \u2192 repo fixes for the next agent \xB7 mine-weakness \u2192 recurring failures \xB7 export-harness \u2192 preview harness improvements. A human merges.";
+function normalizeScopePaths(paths = [], prefix) {
+  return [...new Set(paths.filter(Boolean).map((p) => `${prefix}:${resolve4(p)}`))];
+}
 function reflect(db2, params) {
   const {
     agentId = "agent",
@@ -892,6 +991,12 @@ function reflect(db2, params) {
     fixHarness,
     failureSignature: failSig,
     importance: impArg,
+    references = [],
+    file,
+    files = [],
+    folders = [],
+    validFrom,
+    validTo,
     workspacePath,
     repo: repoArg,
     ref: refArg,
@@ -907,17 +1012,28 @@ function reflect(db2, params) {
   const importance = impArg != null ? Number(impArg) : REFLECTION_IMPORTANCE[resolvedOutcome] ?? 5;
   const tags = ["reflection", resolvedOutcome, ...fixHarness ? ["harness"] : []];
   const sig = failSig ?? (resolvedOutcome === "failed" && fixHarness ? "harness:reflection|outcome:failed" : null);
-  const { memoryId } = insertMemory(db2, {
+  const scopeReferences = [
+    ...references,
+    ...normalizeScopePaths(file ? [file] : [], "file"),
+    ...normalizeScopePaths(files, "file"),
+    ...normalizeScopePaths(folders, "dir")
+  ];
+  const { memoryId, similarMemoryIds, noveltyScore } = insertMemory(db2, {
     agentId,
     taskContext: task,
     observation,
     importanceScore: importance,
-    label: "OTHER",
+    label: "EXPERIENCE",
+    // distinct label so reflections are filterable and excluded from briefings
     tags,
+    references: scopeReferences,
     failureSignature: sig,
+    validFrom,
+    validTo,
     workspacePath,
     repo: repoArg,
     ref: refArg,
+    file: file ?? files[0] ?? folders[0] ?? null,
     cwd
   });
   let refinementId = null;
@@ -931,6 +1047,7 @@ function reflect(db2, params) {
       workspacePath,
       repo: repoArg,
       ref: refArg,
+      files: [...files, ...folders],
       cwd
     });
     refinementId = rid;
@@ -942,7 +1059,9 @@ function reflect(db2, params) {
     harness_fix: Boolean(fixHarness),
     eval_failure_count: 0,
     eval_failure_ids: [],
-    next: NEXT_MSG
+    next: NEXT_MSG,
+    novelty_score: noveltyScore,
+    similar_memory_ids: similarMemoryIds
   };
 }
 
@@ -973,9 +1092,92 @@ function pruneStale(db2, _params = {}) {
   }
   return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
 }
-function notifyGet(_db, _params = {}) {
-  process.stderr.write("[stub] notify-get: not yet implemented; skipping\n");
-  return { ok: true, count: 0, notifications: [] };
+function notifyGet(db2, params = {}) {
+  const wsPath = params.workspace ?? null;
+  const format = params.format ?? "json";
+  const items = [];
+  try {
+    const conditions = [
+      "state = 'ACTIVE'",
+      "importance_score >= 6",
+      "label IN ('GOTCHA','BUG','DECISION','IMPROVEMENT','ARCHITECTURE','SECURITY')"
+    ];
+    const bindParams = [];
+    if (wsPath) {
+      conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+      bindParams.push(wsPath);
+    }
+    const memRows = db2.prepare(
+      `SELECT memory_id, observation, label, importance_score
+       FROM agent_memories
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY importance_score DESC, last_accessed_at DESC
+       LIMIT 3`
+    ).all(...bindParams);
+    for (const m of memRows) {
+      items.push({
+        kind: "memory",
+        text: `${m.label}(${m.importance_score}): ${m.observation.slice(0, 120)}`,
+        importance: m.importance_score
+      });
+    }
+  } catch {
+  }
+  try {
+    const wkConditions = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
+    const wkParams = [];
+    if (wsPath) {
+      wkConditions.push("(workspace_path = ? OR workspace_path IS NULL)");
+      wkParams.push(wsPath);
+    }
+    const topWk = db2.prepare(
+      `SELECT failure_signature, count(*) AS freq, avg(importance_score) AS avg_imp
+       FROM agent_memories
+       WHERE ${wkConditions.join(" AND ")}
+       GROUP BY failure_signature HAVING freq >= 2
+       ORDER BY freq * avg_imp DESC LIMIT 1`
+    ).get(...wkParams);
+    if (topWk) {
+      items.push({
+        kind: "weakness",
+        text: `\u26A0\uFE0F Recurring: ${topWk.failure_signature} (${topWk.freq}x, avg imp ${Math.round(topWk.avg_imp)})`
+      });
+    }
+  } catch {
+  }
+  try {
+    const refConds = ["state = 'open'"];
+    const refParams = [];
+    if (wsPath) {
+      refConds.push("(workspace_path = ? OR workspace_path IS NULL)");
+      refParams.push(wsPath);
+    }
+    const refRow = db2.prepare(
+      `SELECT count(*) AS cnt FROM refinements WHERE ${refConds.join(" AND ")}`
+    ).get(...refParams);
+    const refCount = refRow?.cnt ?? 0;
+    if (refCount > 0) {
+      items.push({ kind: "refinement", text: `\u{1F4CB} ${refCount} open refinement(s) pending` });
+    }
+  } catch {
+  }
+  if (items.length === 0) {
+    return { ok: true, count: 0, notifications: [], schema_version: 1 };
+  }
+  const result = {
+    ok: true,
+    count: items.length,
+    notifications: items,
+    schema_version: 1
+  };
+  if (format === "hook") {
+    const lines = [
+      `\u{1F9E0} Memory brief (${items.length}):`,
+      ...items.map((i) => `  \u2022 ${i.text}`)
+    ];
+    result.additionalContext = lines.join("\n");
+  }
+  return result;
 }
 function sessionCapture(_db, _params = {}) {
   process.stderr.write("[stub] session-capture: not yet implemented; skipping\n");
@@ -984,6 +1186,60 @@ function sessionCapture(_db, _params = {}) {
 function waitForLock(_db, _params = {}) {
   process.stderr.write("[stub] wait-for-lock: not yet implemented; returning immediately\n");
   return { ok: true, waited_ms: 0, lock_free: true };
+}
+function digest(db2, params = {}) {
+  const retentionDays = Number(params.retention_days ?? 90);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const cutoff = new Date(Date.now() - retentionDays * 864e5).toISOString();
+  if (params.dry_run) {
+    const wouldArchive = db2.prepare(
+      `SELECT COUNT(*) AS c FROM agent_memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
+    ).get(now).c;
+    const wouldPruneOld = db2.prepare(
+      `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
+    ).get(cutoff).c;
+    const wouldPruneLocks = db2.prepare(
+      `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
+    ).get(now).c;
+    return {
+      ok: true,
+      archived_memories: 0,
+      pruned_old: 0,
+      pruned_locks: 0,
+      fts_rebuilt: false,
+      schema_version: 1,
+      dry_run: true,
+      would_archive: wouldArchive,
+      would_prune_old: wouldPruneOld,
+      would_prune_locks: wouldPruneLocks
+    };
+  }
+  const archiveRes = db2.prepare(
+    `UPDATE agent_memories
+     SET state = 'SUPERSEDED', expired_at = ?
+     WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
+  ).run(now, now);
+  const deleteRes = db2.prepare(
+    `DELETE FROM agent_memories
+     WHERE state = 'SUPERSEDED' AND updated_at < ?`
+  ).run(cutoff);
+  const { pruned_locks } = pruneStale(db2, {});
+  let ftsRebuilt = false;
+  try {
+    if (hasFts(db2)) {
+      rebuildFts(db2);
+      ftsRebuilt = true;
+    }
+  } catch {
+  }
+  return {
+    ok: true,
+    archived_memories: archiveRes.changes,
+    pruned_old: deleteRes.changes,
+    pruned_locks,
+    fts_rebuilt: ftsRebuilt,
+    schema_version: 1
+  };
 }
 
 // src/verify.ts
@@ -1482,12 +1738,39 @@ try {
     case "verify":
       exitCode = cmdVerify(db, args, dbPath, opts);
       break;
-    case "notify-get":
-      exitCode = emit({ db_path: dbPath, ...notifyGet(db, {}) }, 0, opts);
+    case "notify-get": {
+      const ngParams = {
+        workspace: args["workspace"],
+        format: args["format"] ?? "json",
+        agent_id: args["agent_id"]
+      };
+      const ngResult = notifyGet(db, ngParams);
+      if (ngParams.format === "hook" && ngResult.additionalContext) {
+        exitCode = emit({ additionalContext: ngResult.additionalContext }, 0, opts);
+      } else {
+        exitCode = emit({ db_path: dbPath, ...ngResult }, 0, opts);
+      }
       break;
+    }
     case "session-capture":
       exitCode = emit({ db_path: dbPath, ...sessionCapture(db, {}) }, 0, opts);
       break;
+    case "mine-weakness": {
+      const mwParams = {
+        agentId: args["agent_id"],
+        workspacePath: args["workspace"],
+        minCount: args["min_count"] ? Number(args["min_count"]) : void 0,
+        limit: args["limit"] ? Number(args["limit"]) : void 0,
+        cwd: args["cwd"]
+      };
+      exitCode = emit({ db_path: dbPath, ...mineWeakness(db, mwParams) }, 0, opts);
+      break;
+    }
+    case "digest": {
+      const retDays = args["retention_days"] ? Number(args["retention_days"]) : void 0;
+      exitCode = emit({ db_path: dbPath, ...digest(db, retDays !== void 0 ? { retention_days: retDays } : {}) }, 0, opts);
+      break;
+    }
     case "wait-for-lock":
       exitCode = emit({ db_path: dbPath, ...waitForLock(db, {}) }, 0, opts);
       break;

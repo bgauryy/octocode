@@ -23,7 +23,7 @@ function tempFile(): { dir: string; path: string; cleanup: () => void } {
 describe('preFlightIntent', () => {
   it('returns ok=true with an intent_id', () => {
     const db = freshDb();
-    const { dir, path, cleanup } = tempFile();
+    const { path, cleanup } = tempFile();
     try {
       const result = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
       expect(result.ok).toBe(true);

@@ -2174,7 +2174,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.3"
+    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octocodeai/octocode-tools-core": "workspace:*"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -2204,12 +2204,39 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:^16.6.3":
-  version: 16.6.3
-  resolution: "@octocodeai/octocode-core@npm:16.6.3"
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Fmcp%40workspace%3Apackages%2Foctocode-mcp":
+  version: 16.7.0
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=%40octocodeai%2Fmcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/d8c0186a5034778861e22a53bf6e67cb587cd15df2c643abc1fb7f58d336bdd3bb85f9979bc55b48669810a3655d67c9850acef535f834d39e58d44b56aa959b
+  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  languageName: node
+  linkType: hard
+
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core":
+  version: 16.7.0
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
+  peerDependencies:
+    zod: ">=4.0.0"
+  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  languageName: node
+  linkType: hard
+
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Fpi-extension%40workspace%3Apackages%2Foctocode-pi-extension":
+  version: 16.7.0
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=%40octocodeai%2Fpi-extension%40workspace%3Apackages%2Foctocode-pi-extension"
+  peerDependencies:
+    zod: ">=4.0.0"
+  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  languageName: node
+  linkType: hard
+
+"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode%40workspace%3Apackages%2Foctocode":
+  version: 16.7.0
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=octocode%40workspace%3Apackages%2Foctocode"
+  peerDependencies:
+    zod: ">=4.0.0"
+  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
   languageName: node
   linkType: hard
 
@@ -2308,7 +2335,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.3"
+    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octokit/core": "npm:^7.0.6"
     "@octokit/oauth-methods": "npm:^6.0.2"
@@ -2333,9 +2360,13 @@ __metadata:
   resolution: "@octocodeai/pi-extension@workspace:packages/octocode-pi-extension"
   dependencies:
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.3"
+    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
     "@octocodeai/octocode-memory": "workspace:*"
-    octocode: "workspace:*"
+    "@octocodeai/octocode-tools-core": "workspace:*"
+    "@types/node": "npm:^25.9.3"
+    "@vitest/coverage-v8": "npm:^4.1.9"
+    typescript: "npm:^5.8.3"
+    vitest: "npm:^4.1.9"
   peerDependencies:
     typebox: "*"
   peerDependenciesMeta:
@@ -7427,13 +7458,13 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode@workspace:*, octocode@workspace:packages/octocode":
+"octocode@workspace:packages/octocode":
   version: 0.0.0-use.local
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@octocodeai/config": "workspace:*"
-    "@octocodeai/octocode-core": "npm:^16.6.3"
+    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
     "@octocodeai/octocode-engine": "workspace:*"
     "@octocodeai/octocode-tools-core": "workspace:*"
     "@octokit/auth-oauth-device": "npm:^8.0.3"
@@ -9129,7 +9160,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@npm:^5.9.3":
+"typescript@npm:^5.8.3, typescript@npm:^5.9.3":
   version: 5.9.3
   resolution: "typescript@npm:5.9.3"
   bin:
@@ -9149,7 +9180,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@patch:typescript@npm%3A^5.9.3#optional!builtin<compat/typescript>":
+"typescript@patch:typescript@npm%3A^5.8.3#optional!builtin<compat/typescript>, typescript@patch:typescript@npm%3A^5.9.3#optional!builtin<compat/typescript>":
   version: 5.9.3
   resolution: "typescript@patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"
   bin:

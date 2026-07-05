@@ -38,6 +38,8 @@ export interface MemoryRecord {
   file_tree_fingerprint: string | null;
   created_at: string;
   updated_at: string | null;
+  novelty_score: number | null;
+  similar_memory_ids: string[];
   /** Decay + salience score — present after lexicalSearch */
   score?: number;
 }
@@ -115,10 +117,14 @@ export interface InsertMemoryResult {
     repo: string | null;
     ref: string | null;
     file: string | null;
+    novelty_score: number | null;
+    similar_memory_ids: string[];
     state: 'ACTIVE';
     created_at: string;
   };
   superseded: string[];
+  noveltyScore: number;
+  similarMemoryIds: string[];
 }
 
 export interface GetMemoryParams {
@@ -232,6 +238,12 @@ export interface ReflectParams {
   fixHarness?: string | null;
   failureSignature?: string | null;
   importance?: number | null;
+  references?: string[];
+  file?: string | null;
+  files?: string[];
+  folders?: string[];
+  validFrom?: string | null;
+  validTo?: string | null;
   workspacePath?: string | null;
   repo?: string | null;
   ref?: string | null;
@@ -246,6 +258,8 @@ export interface ReflectResult {
   eval_failure_count: number;
   eval_failure_ids: never[];
   next: string;
+  novelty_score?: number;
+  similar_memory_ids?: string[];
 }
 
 export interface ScopePartial {
@@ -279,6 +293,8 @@ export interface MemoryRow {
   ref: string | null;
   file_tree_fingerprint: string | null;
   file: string | null;
+  novelty_score: number | null;
+  similar_memory_ids_json: string;
   last_accessed_at: string | null;
   access_count: number;
   decay_half_life_days: number | null;

@@ -11,7 +11,9 @@ import type { MemoryRecord, MemoryRow } from './types.js';
 export const MEMORY_LABELS = new Set([
   'BUG', 'FEATURE', 'SUGGESTION', 'GOTCHA', 'IMPROVEMENT', 'DECISION',
   'ARCHITECTURE', 'SECURITY', 'PERFORMANCE', 'TEST', 'BUILD', 'DOCS',
-  'CONFIG', 'WORKFLOW', 'REFACTOR', 'API', 'RELEASE', 'INCIDENT', 'OTHER',
+  'CONFIG', 'WORKFLOW', 'REFACTOR', 'API', 'RELEASE', 'INCIDENT',
+  'EXPERIENCE', // post-task reflections (worked/partial/failed outcomes)
+  'OTHER',
 ]);
 
 export const REFLECTION_IMPORTANCE: Record<string, number> = {
@@ -109,6 +111,8 @@ export function rowToMemory(row: MemoryRow): MemoryRecord {
     repo: row.repo ?? null,
     ref: row.ref ?? null,
     file: row.file ?? null,
+    novelty_score: row.novelty_score ?? null,
+    similar_memory_ids: parseJsonList(row.similar_memory_ids_json),
     failure_signature: row.failure_signature ?? null,
     access_count: row.access_count ?? 0,
     last_accessed_at: row.last_accessed_at ?? null,

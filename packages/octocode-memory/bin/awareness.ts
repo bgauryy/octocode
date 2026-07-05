@@ -17,11 +17,11 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   connectDb, initDb, hasFts, resolveDbPath,
 } from '../src/db.js';
-import { insertMemory, getMemory } from '../src/memory.js';
+import { insertMemory, getMemory, mineWeakness } from '../src/memory.js';
 import { insertRefinement, getRefinements } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { reflect } from '../src/reflect.js';
-import { pruneStale, notifyGet, sessionCapture, waitForLock } from '../src/stubs.js';
+import { pruneStale, notifyGet, sessionCapture, waitForLock, digest } from '../src/stubs.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
 import {
   utcNow, normalizeLabel,
@@ -459,8 +459,39 @@ try {
     case 'prune-stale-locks': exitCode = emit({ db_path: dbPath, ...pruneStale(db, {}) }, 0, opts); break;
     case 'audit-unverified':  exitCode = cmdAuditUnverified(db, args, dbPath, opts); break;
     case 'verify':             exitCode = cmdVerify(db, args, dbPath, opts); break;
-    case 'notify-get':     exitCode = emit({ db_path: dbPath, ...notifyGet(db, {}) }, 0, opts); break;
+    case 'notify-get': {
+      // Pass workspace + format flags through so smart briefing can scope correctly
+      const ngParams: Record<string, unknown> = {
+        workspace: args['workspace'] as string | undefined,
+        format:    args['format'] as string | undefined ?? 'json',
+        agent_id:  args['agent_id'] as string | undefined,
+      };
+      const ngResult = notifyGet(db, ngParams) as unknown as Record<string, unknown>;
+      // For hook format, emit ONLY additionalContext so pi injects cleanly
+      if (ngParams.format === 'hook' && ngResult.additionalContext) {
+        exitCode = emit({ additionalContext: ngResult.additionalContext }, 0, opts);
+      } else {
+        exitCode = emit({ db_path: dbPath, ...ngResult }, 0, opts);
+      }
+      break;
+    }
     case 'session-capture': exitCode = emit({ db_path: dbPath, ...sessionCapture(db, {}) }, 0, opts); break;
+    case 'mine-weakness': {
+      const mwParams = {
+        agentId:       args['agent_id'] as string | undefined,
+        workspacePath: args['workspace'] as string | undefined,
+        minCount:      args['min_count'] ? Number(args['min_count']) : undefined,
+        limit:         args['limit']     ? Number(args['limit'])     : undefined,
+        cwd:           args['cwd']       as string | undefined,
+      };
+      exitCode = emit({ db_path: dbPath, ...mineWeakness(db, mwParams) }, 0, opts);
+      break;
+    }
+    case 'digest': {
+      const retDays = args['retention_days'] ? Number(args['retention_days']) : undefined;
+      exitCode = emit({ db_path: dbPath, ...digest(db, retDays !== undefined ? { retention_days: retDays } : {}) }, 0, opts);
+      break;
+    }
     case 'wait-for-lock':  exitCode = emit({ db_path: dbPath, ...waitForLock(db, {}) }, 0, opts); break;
     default:
       exitCode = emit({ error: `unknown command: ${command}. Run --help for usage.` }, 1, opts);

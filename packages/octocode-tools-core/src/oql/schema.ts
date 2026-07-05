@@ -298,8 +298,6 @@ export const OqlCanonicalInputSchema = z.union([
   OqlBatchSchema,
 ]);
 
-const ACTIVE_TARGET_ENUM = ACTIVE_TARGETS as unknown as [string, ...string[]];
-
 /**
  * Raw input is intentionally permissive: it carries documented sugar fields
  * AND passes unknown keys through (`.catchall`) so the normalizer — not Zod —
@@ -384,10 +382,10 @@ const OqlInputQueryShape = {
 const OqlExecutableInputQueryShape = {
   ...OqlInputQueryShape,
   target: z
-    .enum(ACTIVE_TARGET_ENUM)
+    .enum(ALL_TARGETS)
     .optional()
     .describe(
-      'REQUIRED unless inferable from sugar (text/regex/pattern/rule/boolean → code, fetch.content → content, fetch.tree → structure). One of the active targets — run `search --scheme` for the full list and recipes.'
+      'REQUIRED unless inferable from sugar (text/regex/pattern/rule/boolean → code, fetch.content → content, fetch.tree → structure). One of the active targets — run `search --scheme` for the full list and recipes. Reserved targets are accepted so the normalizer can return an unsupported-target diagnostic instead of a schema rejection.'
     ),
 } as const;
 
