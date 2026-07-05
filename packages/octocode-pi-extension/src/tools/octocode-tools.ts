@@ -17,7 +17,10 @@ import type { TSchema, ToolDefinition, ToolCallResult, PiTheme } from '../types.
 
 // ─── Shared rendering helpers (ANSI truncation + smart call/result renderers) ──
 import {
+  makeRenderer,
   truncateToWidth,
+  singleLineRenderer,
+  buildToolCallSummary,
   buildOctocodeRenderCall,
   buildOctocodeRenderResult,
 } from './render-helpers.js';
@@ -230,13 +233,17 @@ async function registerUnzipTool(
       return executeOctocodeToolForPi('localBinaryInspect', params, signal, ctx);
     },
     renderCall(args: unknown, theme?: PiTheme) {
-      // unzip is an alias for localBinaryInspect; show path + mode
-      return buildOctocodeRenderCall('localBinaryInspect', args, theme);
+      // Use 'unzip' as the display name, not 'localBinaryInspect'
+      const summary = buildToolCallSummary('localBinaryInspect', args);
+      const nameStr = theme?.fg('toolTitle', theme.bold('unzip')) ?? 'unzip';
+      const summaryStr = summary ? (theme?.fg('dim', summary) ?? summary) : '';
+      const rawLine = summaryStr ? `${nameStr} ${summaryStr}` : nameStr;
+      return singleLineRenderer(rawLine);
     },
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
       if (opts.isPartial) {
         const msg = theme?.fg('warning', 'Unpacking…') ?? 'Unpacking…';
-        return { render: (w: number) => [truncateToWidth(msg, w)], invalidate() { /* no-op */ } };
+        return makeRenderer((w) => [truncateToWidth(msg, w)]);
       }
       // Show localPath prominently in collapsed view
       const ok = !result.isError;
@@ -248,7 +255,7 @@ async function registerUnzipTool(
       const header = `${icon} ${nameStr}${pathStr}`;
       if (!opts.expanded) {
         const hint = theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output';
-        return { render: (w: number) => [truncateToWidth(`${header}${hint}`, w)], invalidate() { /* no-op */ } };
+        return makeRenderer((w) => [truncateToWidth(`${header}${hint}`, w)]);
       }
       return buildOctocodeRenderResult('localBinaryInspect', result, opts, theme);
     },

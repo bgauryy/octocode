@@ -8,7 +8,7 @@
  */
 import type { PiContext, PiCommandContext, PiInstance, ToolDefinition, PiTheme } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
-import { truncateToWidth } from './render-helpers.js';
+import { makeRenderer, truncateToWidth } from './render-helpers.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
@@ -17,7 +17,7 @@ type Notifier = (ctx: PiContext | undefined, msg: string, level?: string) => voi
 const AUTO_COMPACT_THRESHOLD = 0.80;
 
 function simpleRenderer(line: string) {
-  return { render: (w: number) => [truncateToWidth(line, w)], invalidate() { /* no-op */ } };
+  return makeRenderer((w) => [truncateToWidth(line, w)]);
 }
 
 export function registerContextTools(
@@ -31,7 +31,7 @@ export function registerContextTools(
 
   if (pi.on) {
     pi.on('turn_end', (_event, ctx) => {
-      const usage = (ctx as unknown as PiContext).getContextUsage?.();
+      const usage = ctx.getContextUsage?.();
       if (!usage) return;
       const fill = usage.tokens / usage.contextWindow;
       const prevFill = lastAutoCompactTokens !== null
@@ -42,21 +42,21 @@ export function registerContextTools(
       if (prevFill !== null && prevFill >= AUTO_COMPACT_THRESHOLD) return;
 
       const pctStr = `${Math.round(fill * 100)}%`;
-      if ((ctx as unknown as PiContext).hasUI) {
-        (ctx as unknown as PiContext).ui?.notify?.(
+      if (ctx.hasUI) {
+        ctx.ui?.notify?.(
           `Auto-compacting: context at ${pctStr} of context window.`,
           'info',
         );
       }
-      (ctx as unknown as PiContext).compact?.({
+      ctx.compact?.({
         onComplete: () => {
-          if ((ctx as unknown as PiContext).hasUI) {
-            (ctx as unknown as PiContext).ui?.notify?.('Auto-compaction complete.', 'info');
+          if (ctx.hasUI) {
+            ctx.ui?.notify?.('Auto-compaction complete.', 'info');
           }
         },
         onError: (error: Error) => {
-          if ((ctx as unknown as PiContext).hasUI) {
-            (ctx as unknown as PiContext).ui?.notify?.(
+          if (ctx.hasUI) {
+            ctx.ui?.notify?.(
               `Auto-compaction failed: ${error.message}`,
               'error',
             );

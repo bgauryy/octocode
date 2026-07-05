@@ -16,7 +16,7 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@octocodeai/octocode-memory": ["../octocode-memory/dist/src/index"]
+      "@octocodeai/octocode-awareness": ["../octocode-awareness/dist/src/index"]
     }
   },
   "include": ["src/**/*", "tests/**/*"],

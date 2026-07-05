@@ -3,6 +3,7 @@ import { access, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { TSchema, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
+import { makeRenderer, truncateToWidth, wrapText } from './render-helpers.js';
 
 // ─── TypeBox (dynamic import — Pi runtime dep) ────────────────────────────────
 
@@ -47,6 +48,20 @@ interface AppliedEditResult {
   replacements: number;
   firstChangedLine?: number;
   usedModes: MatchMode[];
+  edits: AppliedEditEvidence[];
+}
+
+interface AppliedEditEvidence {
+  editIndex: number;
+  // 1-based line range in the ORIGINAL (pre-edit) file.
+  startLine: number;
+  endLine: number;
+  mode: MatchMode;
+  reasoning: string;
+  // Removed text fragments (the oldText segments), split by line.
+  removedLines: string[];
+  // Added text fragments (the newText), split by line.
+  addedLines: string[];
 }
 
 interface PreparedEdit {
@@ -80,35 +95,29 @@ interface ReadStateCheck {
 }
 
 const readStates = new Map<string, ReadState>();
-const ANSI_ESC_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+
+// ─── File mutation queue ──────────────────────────────────────────────────────
+// Per-file serialization queue: ensures that parallel tool calls on the same
+// file don't race (read-modify-write is atomic within each file's queue).
+// Equivalent to Pi's withFileMutationQueue from @earendil-works/pi-coding-agent,
+// implemented locally since that package is not a declared dependency.
+const fileQueues = new Map<string, Promise<void>>();
+
+function withFileMutationQueue<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  // Get the current settled tail (always resolves, never rejects)
+  const prev = fileQueues.get(key) ?? Promise.resolve();
+  // Schedule fn after prev settles
+  const execution = prev.then(() => fn());
+  // New tail: suppress errors so future operations still run
+  const tail = execution.then(() => {}, () => {});
+  fileQueues.set(key, tail);
+  // Clean up once this tail settles (no further operations queued)
+  void tail.then(() => { if (fileQueues.get(key) === tail) fileQueues.delete(key); });
+  return execution;
+}
 const ANSI_GREEN = '\x1b[32m';
 const ANSI_RED = '\x1b[31m';
 const ANSI_RESET = '\x1b[0m';
-
-function visibleWidth(str: string): number {
-  return str.replace(ANSI_ESC_RE, '').length;
-}
-
-function truncateToWidth(str: string, maxWidth: number, ellipsis = '\u2026'): string {
-  if (maxWidth <= 0) return '';
-  if (visibleWidth(str) <= maxWidth) return str;
-  const target = maxWidth - visibleWidth(ellipsis);
-  if (target <= 0) return ellipsis.slice(0, maxWidth);
-  let visible = 0;
-  let i = 0;
-  while (i < str.length && visible < target) {
-    const esc = ANSI_ESC_RE.exec(str.slice(i));
-    if (esc && esc.index === 0) {
-      i += esc[0].length;
-      ANSI_ESC_RE.lastIndex = 0;
-      continue;
-    }
-    ANSI_ESC_RE.lastIndex = 0;
-    visible++;
-    i++;
-  }
-  return `${str.slice(0, i)}${ellipsis}\x1b[0m`;
-}
 
 function normalizeToLF(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -156,9 +165,19 @@ async function checkReadState(absolutePath: string, requireRecentRead: boolean):
     if (requireRecentRead) throw new Error(`${message} Re-read the file before editing or set requireRecentRead:false intentionally.`);
     return { state: 'missing', message };
   }
+  // Fast path: mtime AND size unchanged => definitively not stale; skip the hash read.
+  // If either differs, fall back to the authoritative content hash so an
+  // identical-content re-write (e.g. editor that reformats-on-save but yields
+  // the same bytes) is NOT falsely reported stale. mtime/size are cheap
+  // pre-checks; the hash is the source of truth.
   const stats = await stat(absolutePath);
-  const current = await readFile(absolutePath, 'utf8');
-  const stale = stats.mtimeMs !== state.mtimeMs || stats.size !== state.size || contentHash(current) !== state.contentHash;
+  let stale: boolean;
+  if (stats.mtimeMs === state.mtimeMs && stats.size === state.size) {
+    stale = false;
+  } else {
+    const current = await readFile(absolutePath, 'utf8');
+    stale = contentHash(current) !== state.contentHash;
+  }
   if (stale) {
     throw new Error('File changed since last recorded read. Re-read the target range before editing.');
   }
@@ -444,12 +463,64 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
     throw new Error(`No changes made to ${filePath}. The replacement produced identical content.`);
   }
 
+  // Build per-edit evidence: group replacements by editIndex, compute original-file
+  // line ranges from byte offsets, and derive removed/added line fragments.
+  const spanLines = lineSpans(content);
+  const byteToLineRange = (start: number, end: number): { startLine: number; endLine: number } => {
+    // 1-based start line containing `start`; end line containing the char before `end`.
+    let startLine = 1;
+    let endLine = 1;
+    for (let i = 0; i < spanLines.length; i++) {
+      const span = spanLines[i]!;
+      if (start >= span.start && start < span.end) startLine = i + 1;
+      if (end > span.start && end <= span.end) endLine = i + 1;
+    }
+    // end may point just past a trailing newline — clamp to last line.
+    if (endLine < startLine) endLine = startLine;
+    return { startLine, endLine };
+  };
+  const editEvidenceMap = new Map<number, AppliedEditEvidence>();
+  // Split text into display lines, stripping a single trailing newline so a line
+  // that includes its own newline boundary doesn't produce a phantom empty line.
+  // removedLines must reflect the ACTUAL bytes removed from the ORIGINAL file
+  // (content.slice), not edit.oldText — which for normalized/lineRange matching
+  // can differ from the original by normalization (e.g. ﬁ ligature, CRLF).
+  const toLines = (text: string): string[] => {
+    const stripped = text.endsWith('\n') ? text.slice(0, -1) : text;
+    return stripped.split('\n');
+  };
+  for (const r of replacements) {
+    const edit = edits[r.editIndex]!;
+    const removedText = normalizeToLF(content.slice(r.start, r.end));
+    const range = byteToLineRange(r.start, r.end);
+    const existing = editEvidenceMap.get(r.editIndex);
+    if (existing) {
+      // Multiple occurrences (replaceAll): widen the line range + accumulate fragments.
+      existing.startLine = Math.min(existing.startLine, range.startLine);
+      existing.endLine = Math.max(existing.endLine, range.endLine);
+      existing.removedLines.push(...toLines(removedText));
+      existing.addedLines.push(...toLines(r.newText));
+    } else {
+      editEvidenceMap.set(r.editIndex, {
+        editIndex: r.editIndex,
+        startLine: range.startLine,
+        endLine: range.endLine,
+        mode: r.mode,
+        reasoning: edit.reasoning.trim(),
+        removedLines: toLines(removedText),
+        addedLines: toLines(r.newText),
+      });
+    }
+  }
+  const editEvidence = [...editEvidenceMap.values()].sort((a, b) => a.editIndex - b.editIndex);
+
   return {
     baseContent: content,
     newContent,
     replacements: replacements.length,
     firstChangedLine: firstChangedLine(content, newContent),
     usedModes: [...new Set(replacements.map((replacement) => replacement.mode))],
+    edits: editEvidence,
   };
 }
 
@@ -502,8 +573,23 @@ function colorDiffString(diff: string): string {
 }
 
 function generateUnifiedPatch(filePath: string, oldContent: string, newContent: string): string {
-  const lines = [`--- ${filePath}`, `+++ ${filePath}`, '@@'];
-  for (const op of diffOps(oldContent, newContent)) {
+  // Compute a single hunk covering the changed region (old/new prelude of equal lines
+  // plus the +/- diff body). Emit a valid unified-diff hunk header
+  // `@@ -<oldStart>,<oldCount> +<newStart>,<newCount> @@` per the format spec.
+  const ops = diffOps(oldContent, newContent);
+  // Trim leading/trailing 'same' lines to bound the hunk to actual changes.
+  let start = 0;
+  while (start < ops.length && ops[start]!.type === 'same') start++;
+  let end = ops.length;
+  while (end > start && ops[end - 1]!.type === 'same') end--;
+  const hunkOps = ops.slice(start, end);
+  const oldCount = hunkOps.filter((op) => op.type !== 'add').length;
+  const newCount = hunkOps.filter((op) => op.type !== 'remove').length;
+  // 1-based start line in the old file of the first hunk line.
+  const oldStart = start + 1;
+  const newStart = start + 1;
+  const lines = [`--- ${filePath}`, `+++ ${filePath}`, `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`];
+  for (const op of ops) {
     if (op.type === 'same') lines.push(` ${op.line}`);
     else lines.push(`${op.type === 'add' ? '+' : '-'}${op.line}`);
   }
@@ -520,12 +606,10 @@ function buildParameters(Type: TypeBoxBuilder): TSchema {
       replaceAll: Type.Optional(Type.Boolean({
         description: 'Replace every occurrence of oldText. Default false; use only for intentional file-wide replacements.',
       })),
-            reasoning: Type.String({
-              description: 'REQUIRED. Why this edit is necessary. Must be a non-empty explanation; shown in the output reasoning list and audit trail.',
-            }),
-            matchMode: Type.Optional(Type.Union([
-        Type.Literal('exact'), Type.Literal('normalized'), Type.Literal('lineRange'),
-      ], { description: 'Matching strategy. Default exact. normalized is opt-in fuzzy normalization; lineRange uses startLine/endLine.' })),
+      reasoning: Type.String({
+        description: 'REQUIRED. Why this edit is necessary. Must be a non-empty explanation; shown in the output reasoning list and audit trail.',
+      }),
+      matchMode: Type.Optional(Type.Unsafe({ type: 'string', enum: ['exact', 'normalized', 'lineRange'], description: 'Matching strategy. Default exact. normalized is opt-in fuzzy normalization; lineRange uses startLine/endLine.' })),
       startLine: Type.Optional(Type.Integer({ minimum: 1, description: '1-based start line for matchMode:"lineRange".' })),
       endLine: Type.Optional(Type.Integer({ minimum: 1, description: '1-based inclusive end line for matchMode:"lineRange".' })),
     },
@@ -571,13 +655,6 @@ function reasoningSuffix(editsByFile: Array<{ path: string; edits: EditOperation
 function changesSuffix(prepared: PreparedEdit[]): string {
   const blocks = prepared.map((item) => `# ${item.requestPath}\n${colorDiffString(item.diff)}`);
   return `\nChanges:\n${blocks.join('\n')}`;
-}
-
-function renderResultLine(line: string, theme?: PiTheme): string {
-  const plain = line.replace(ANSI_ESC_RE, '');
-  if (plain.startsWith('+ ')) return theme?.fg('success', plain) ?? line;
-  if (plain.startsWith('- ')) return theme?.fg('error', plain) ?? line;
-  return theme?.fg('dim', plain) ?? plain;
 }
 
 async function prepareEdit(query: EditQuery, cwd: string, inheritedRequireRecentRead: boolean): Promise<PreparedEdit> {
@@ -642,13 +719,22 @@ export function registerEditTool(
       if (new Set(absolutePaths).size !== absolutePaths.length) {
         throw new Error('Edit tool input is invalid. queries must not contain duplicate target paths.');
       }
+      // Phase 1: prepare all files (read-only, parallel).
+      // If any prepare fails (bad oldText, missing file, etc.) no writes happen → all-or-nothing.
       const prepared = await Promise.all(queries.map((query) => prepareEdit(query, cwd, request.requireRecentRead === true)));
       if (signal?.aborted) throw new Error('Operation aborted');
-      for (const item of prepared) {
-        await writeFile(item.absolutePath, item.finalContent, 'utf8');
-      }
+      // Phase 2: write each file through its per-file mutex queue.
+      // Serializes concurrent writes from parallel tool calls on the same file.
+      await Promise.all(
+        prepared.map((item) =>
+          withFileMutationQueue(item.absolutePath, async () => {
+            if (signal?.aborted) throw new Error('Operation aborted');
+            await writeFile(item.absolutePath, item.finalContent, 'utf8');
+            await recordFileReadState(item.absolutePath);
+          }),
+        ),
+      );
       if (signal?.aborted) throw new Error('Operation aborted');
-      await Promise.all(prepared.map((item) => recordFileReadState(item.absolutePath)));
       const replacements = prepared.reduce((sum, item) => sum + item.result.replacements, 0);
       const editCount = prepared.reduce((sum, item) => sum + item.edits.length, 0);
       const firstChangedLine = prepared.find((item) => item.result.firstChangedLine !== undefined)?.result.firstChangedLine;
@@ -671,6 +757,7 @@ export function registerEditTool(
             usedModes: item.result.usedModes,
             readState: item.readState,
             reasoning: editReasoningEntries(item.edits),
+            edits: item.result.edits,
             diff: item.diff,
             coloredDiff: colorDiffString(item.diff),
             patch: item.patch,
@@ -681,31 +768,93 @@ export function registerEditTool(
       };
     },
     renderCall(args: unknown, theme?: PiTheme) {
-      return {
-        render: (width = 80) => [truncateToWidth(renderCallLine(args, theme), width)],
-        invalidate() { /* no-op */ },
-      };
+      return makeRenderer((width) => [truncateToWidth(renderCallLine(args, theme), width)]);
     },
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
-      const ok = !result.isError;
-      const details = result.details as { replacements?: number; firstChangedLine?: number } | undefined;
-      const count = typeof details?.replacements === 'number' ? ` · ${details.replacements} replacement${details.replacements === 1 ? '' : 's'}` : '';
-      const firstLine = typeof details?.firstChangedLine === 'number' ? ` · line ${details.firstChangedLine}` : '';
-      const header = `${theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗')} ${theme?.fg('toolTitle', 'edit') ?? 'edit'}${count}${firstLine}`;
-      if (!opts.expanded) {
-        return {
-          render: (width = 80) => [truncateToWidth(`${header}${theme?.fg('dim', ' · expand for details') ?? ' · expand for details'}`, width)],
-          invalidate() { /* no-op */ },
-        };
+      if (opts.isPartial) {
+        const prog = theme?.fg('warning', '… editing') ?? '… editing';
+        return makeRenderer(() => [prog]);
       }
-      const text = result.content.find((part) => part.type === 'text')?.text ?? '';
-      return {
-        render: (width = 80) => [
-          truncateToWidth(header, width),
-          ...text.split('\n').map((line) => truncateToWidth(renderResultLine(line, theme), width)),
-        ],
-        invalidate() { /* no-op */ },
-      };
+      const ok = !result.isError;
+      const details = result.details as {
+        replacements?: number;
+        firstChangedLine?: number;
+        files?: Array<{
+          path: string;
+          edits?: Array<AppliedEditEvidence>;
+        }>;
+      } | undefined;
+      const count = typeof details?.replacements === 'number'
+        ? ` · ${details.replacements} replacement${details.replacements === 1 ? '' : 's'}`
+        : '';
+      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
+      const titleStr = theme?.fg('toolTitle', 'edit') ?? 'edit';
+      const header = `${icon} ${titleStr}${count}`;
+
+      // Per file → per edit:
+      //   meta line  (truncatable — always short)
+      //   reasoning  (word-wrapped so full text is visible without exceeding terminal width)
+      //   diff lines (proper LCS diff: only genuinely changed lines)
+      //
+      // Items are either a static { text, truncate } pair or a width-function that
+      // emits multiple lines (used for word-wrapped reasoning).
+      type StaticItem = { text: string; truncate: boolean };
+      type DynamicItem = { fn: (width: number) => string[] };
+      type Item = StaticItem | DynamicItem;
+      const items: Item[] = [{ text: header, truncate: true }];
+      for (const file of details?.files ?? []) {
+        items.push({
+          text: theme?.fg('accent', `  ${file.path}`) ?? `  ${file.path}`,
+          truncate: true,
+        });
+        for (const edit of file.edits ?? []) {
+          const range = edit.startLine === edit.endLine
+            ? `line ${edit.startLine}`
+            : `lines ${edit.startLine}–${edit.endLine}`;
+          // Meta: short summary line, safe to truncate
+          const metaStr = `    edit #${edit.editIndex + 1} · ${range} · ${edit.mode}`;
+          items.push({ text: theme?.fg('dim', metaStr) ?? metaStr, truncate: true });
+
+          // Reasoning: word-wrapped across multiple lines so the full text is
+          // always visible without any single line exceeding the terminal width
+          // (pi crashes with uncaughtException if a rendered line is too wide).
+          const reasonText = edit.reasoning.trim();
+          if (reasonText) {
+            const indent = '      '; // 6 spaces
+            items.push({
+              fn: (w) => {
+                const availWidth = Math.max(w - indent.length, 10);
+                return wrapText(reasonText, availWidth).map((line) =>
+                  truncateToWidth(`${indent}${theme?.fg('muted', line) ?? line}`, w),
+                );
+              },
+            });
+          }
+
+          // Diff: LCS diff between old and new so unchanged lines are skipped.
+          // Verbatim removedLines/addedLines showed identical -/+ pairs when new
+          // content was appended after an unchanged anchor block (confusing UX).
+          const ops = diffOps(
+            edit.removedLines.join('\n'),
+            edit.addedLines.join('\n'),
+          );
+          for (const op of ops) {
+            if (op.type === 'same') continue;
+            const label = op.type === 'remove' ? '- ' : '+ ';
+            const color = op.type === 'remove' ? 'error' : 'success';
+            // 4-space indent is OUTSIDE theme.fg so the coloured substring
+            // `<color>- text</color>` is preserved for test assertions and renderers
+            // that match on the coloured part only.
+            const colored = theme?.fg(color, `${label}${op.line}`) ?? `${label}${op.line}`;
+            items.push({ text: `    ${colored}`, truncate: true });
+          }
+        }
+      }
+      return makeRenderer((width) => items.flatMap((item) =>
+        'fn' in item
+          ? item.fn(width)
+          : [item.truncate ? truncateToWidth(item.text, width) : item.text],
+      ));
     },
   });
 }

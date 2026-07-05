@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { memoryHome as resolveMemoryHome } from '@octocodeai/octocode-memory';
+import { memoryHome as resolveMemoryHome } from '@octocodeai/octocode-awareness';
 
 const extensionDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +22,7 @@ export function getAssetPaths(baseDir = extensionDir): AssetPaths {
 }
 
 /**
- * Awareness memory home: delegates to @octocodeai/octocode-memory.
+ * Awareness memory home: delegates to @octocodeai/octocode-awareness.
  * Kept as a named export for backward compat with external callers.
  */
 export function getOctocodeMemoryHome(): string {

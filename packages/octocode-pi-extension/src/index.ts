@@ -4,7 +4,7 @@ import {
   createPiAwarenessBridge,
   getPiAwarenessAgentId,
   wirePiAwarenessHooks,
-} from '@octocodeai/octocode-memory';
+} from '@octocodeai/octocode-awareness';
 import { propagateOctocodeEnv, getOctocodeHome } from './env.js';
 import {
   OCTOCODE_DIRECT_TOOL_NAMES,
@@ -25,7 +25,7 @@ import {
 import { registerOctocodeTools, registerUniqueTool } from './tools/octocode-tools.js';
 import { buildMemoryToolDefinition } from './tools/memory.js';
 import { registerContextTools } from './tools/context-tools.js';
-import { registerAgentTools } from './tools/agent-tools.js';
+import { cleanupSpawnedAgentsForShutdown, registerAgentTools } from './tools/agent-tools.js';
 import { registerWebTool } from './tools/web-tool.js';
 import { registerEditTool } from './tools/edit-tool.js';
 import { pickProvider } from './web.js';
@@ -64,10 +64,13 @@ export {
   getAppendSystemTarget,
   truncateUserVisibleToolOutput,
 } from './utils.js';
-export { extractPiWriteTargetPaths as extractWriteTargetPaths } from '@octocodeai/octocode-memory';
+export { extractPiWriteTargetPaths as extractWriteTargetPaths } from '@octocodeai/octocode-awareness';
 export { runWebTool, renderWebResult, pickProvider } from './web.js';
-export { setAgentProcessFactoryForTests } from './tools/agent-tools.js';
-export type { PromptMode, OctocodePiExtensionOptions } from './types.js';
+export {
+  cleanupSpawnedAgentsForShutdown,
+  setAgentProcessFactoryForTests,
+} from './tools/agent-tools.js';
+export type { PromptMode, OctocodePiExtensionOptions, SkillInfo, BuildSystemPromptOptions } from './types.js';
 
 export const getAwarenessAgentId = getPiAwarenessAgentId;
 
@@ -146,7 +149,7 @@ export function formatStatus(baseDir?: string): string {
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
     `memory DB: ${dbStatus}`,
-    `memory module: @octocodeai/octocode-memory (direct import)`,
+    `memory module: @octocodeai/octocode-awareness (direct import)`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
     `CLI: use \`npx octocode\` for auth, search, clone, cache, install, skill, lsp-server, context`,
     `disabled/replaced built-ins: edit (custom Octocode tool)${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
@@ -195,7 +198,6 @@ function renderExtensionHarness(baseDir?: string): string {
 export function disableBuiltinReadTool(pi: PiInstance): boolean {
   if (!pi.getActiveTools || !pi.setActiveTools) return false;
   try {
-    if (DISABLED_BUILTIN_TOOL_NAMES.length === 0) return false;
     const activeTools = pi.getActiveTools();
     if (!Array.isArray(activeTools)) return false;
     const disabled = new Set<string>(DISABLED_BUILTIN_TOOL_NAMES);
@@ -226,14 +228,18 @@ async function installAppendSystem(args: string, ctx: PiContext | undefined): Pr
   }
   const scope = parseSetupScope(args);
   const targetPath = getAppendSystemTarget(scope, ctx?.cwd ?? process.cwd());
-  const ok = await confirm(
-    ctx,
-    'Install Octocode APPEND_SYSTEM.md?',
-    `Write the managed Octocode harness block to ${targetPath}?`,
-  );
-  if (!ok) {
-    notify(ctx, 'Octocode setup cancelled.', 'info');
-    return;
+  // In non-UI mode (--mode json, -p), the confirm dialog is a no-op.
+  // Proceed directly so /octocode-setup still works from non-interactive invocations.
+  if (ctx?.hasUI) {
+    const ok = await confirm(
+      ctx,
+      'Install Octocode APPEND_SYSTEM.md?',
+      `Write the managed Octocode harness block to ${targetPath}?`,
+    );
+    if (!ok) {
+      notify(ctx, 'Octocode setup cancelled.', 'info');
+      return;
+    }
   }
   const existing = readTextIfExists(targetPath);
   const nextContent = mergeManagedAppendSystem(existing, prompt);
@@ -268,7 +274,7 @@ async function wireOctocodePiExtension(
   disableBuiltinReadTool(pi);
 
   if (pi.on) {
-    const awarenessBridge = wirePiAwarenessHooks(pi as unknown as Parameters<typeof wirePiAwarenessHooks>[0]) ?? createAwarenessBridge();
+    wirePiAwarenessHooks(pi as unknown as Parameters<typeof wirePiAwarenessHooks>[0]);
 
     pi.on('resources_discover', async () => {
       const paths = getAssetPaths();
@@ -326,12 +332,16 @@ async function wireOctocodePiExtension(
       }
     });
 
-    // Clean up status labels when the session tears down so they don't
-    // leak across /new, /resume, and /fork session transitions.
+    // Clean up status labels and spawned workers when the session tears down
+    // so they don't leak across /new, /resume, /fork, reload, or quit.
     pi.on('session_shutdown', async (_event, ctx) => {
+      const cleanedAgents = cleanupSpawnedAgentsForShutdown();
       if (ctx?.hasUI) {
         ctx.ui?.setStatus?.('octocode', '');
         ctx.ui?.setStatus?.('octocode-thinking', '');
+        if (cleanedAgents > 0) {
+          ctx.ui?.notify?.(`Octocode closed ${cleanedAgents} spawned subagent(s).`, 'info');
+        }
       }
     });
 
@@ -346,6 +356,13 @@ async function wireOctocodePiExtension(
     });
 
     pi.on('before_agent_start', async (event) => {
+      // Suppress AGENTS.md / CLAUDE.md context files — the Octocode extension
+      // provides its own structured system prompt; project instruction files
+      // add noise, grow context, and can conflict with extension guidance.
+      if (event.systemPromptOptions?.contextFiles) {
+        event.systemPromptOptions.contextFiles = [];
+      }
+
       const prompt = readTextIfExists(getAssetPaths().systemPrompt);
       if (promptMode !== 'replace' && !shouldAppendSystemPrompt(event.systemPrompt, prompt)) {
         return;
@@ -359,8 +376,6 @@ async function wireOctocodePiExtension(
         }),
       };
     });
-
-    void awarenessBridge;
   }
 
   if (pi.registerTool) {
@@ -406,6 +421,15 @@ async function wireOctocodePiExtension(
 
   pi.registerCommand('octocode-setup', {
     description: 'Install the Octocode APPEND_SYSTEM.md block into .pi or ~/.pi/agent.',
+    getArgumentCompletions: (prefix: string) => {
+      return ['project', 'global']
+        .filter((s) => s.startsWith(prefix))
+        .map((s) => ({
+          value: s,
+          label: s,
+          description: s === 'project' ? 'Install in project .pi/' : 'Install in ~/.pi/agent/',
+        }));
+    },
     handler: async (args, ctx) => {
       await installAppendSystem(args, ctx);
     },

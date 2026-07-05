@@ -20,7 +20,8 @@ export const OCTOCODE_DIRECT_TOOL_NAMES = [
   'unzip',
 ] as const;
 
-export const DISABLED_BUILTIN_TOOL_NAMES = [] as const;
+// Replaced by superior Octocode tools: localGetFileContent, localSearchCode, localFindFiles, localViewStructure
+export const DISABLED_BUILTIN_TOOL_NAMES = ['read', 'grep', 'find', 'ls'] as const;
 
 export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'web',

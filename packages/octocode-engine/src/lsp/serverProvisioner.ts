@@ -38,10 +38,9 @@ import {
  *   - atomic: download to a temp file in the dest dir, verify, chmod, rename
  *   - `.ok` completion marker written last, so a partial install never resolves
  *   - per-target lock so editor + CLI don't race the same download
- * v1 handles `gz` and `none` (raw) assets with zero new deps; archive formats
- * needing zip/tar/xz extraction return a clear "install manually" error.
+ * v1 handles `gz`, `zip`, and `none` (raw) assets with zero new deps; archive
+ * formats needing tar/xz extraction return a clear "install manually" error.
  */
-
 const ALLOWED_HOSTS = new Set([
   'github.com',
   // GitHub release assets redirect to a CDN host; both the legacy
@@ -283,10 +282,15 @@ export async function provisionServer(
     if (process.platform !== 'win32') chmodSync(tmpPath, 0o755);
     renameSync(tmpPath, binPath);
 
-    // Completion marker LAST — resolveCachedServer trusts the binary only now.
+    // Completion marker LAST — resolveCachedServer trusts only a marker that
+    // matches the final binary's hash and size.
     writeFileSync(
       `${binPath}.ok`,
-      JSON.stringify({ sha256: asset.sha256, size: extracted.bytes.length })
+      JSON.stringify({
+        assetSha256: asset.sha256,
+        binarySha256: sha256(extracted.bytes),
+        size: extracted.bytes.length,
+      })
     );
 
     return { ok: true, path: binPath, source: 'downloaded' };

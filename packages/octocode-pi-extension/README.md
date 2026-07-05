@@ -472,15 +472,13 @@ Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and 
 
 ---
 
-### `octocode-stats`
+### `octocode-subagents`
 
-> Octocode usage dashboard: tokens saved, cache hits, tool-call counts, errors.
+> Spawn, coordinate, and synthesize background Pi worker agents.
 
-**Flow:** RESOLVE STATS → RUN BUILDER → REPORT PATH + KEY NUMBERS
+**When to use:** Delegation decisions, writing self-contained worker prompts, coordinating parallel agents with `spawnAgent`/`AgentMessage`, synthesizing multi-agent results, and understanding worker limitations.
 
-**Script:** `scripts/build_dashboard.mjs` — deterministic HTML dashboard from `stats.json`. Flags: `--stats`, `--output`, `--open`, `--no-open`, `--allow-empty`.
-
-**Stats path order:** user `--stats` arg → `${OCTOCODE_HOME}/stats.json` → `~/.octocode/stats.json`
+**Covers:** `spawnAgent` parameters (task, context, model, thinking, tools, resourceMode), worker prompt templates, `AgentMessage` actions (list, status, wait, send, steer, followUp, kill, abort), result synthesis rules, tool allowlists, and automatic cleanup on `session_shutdown`.
 
 ---
 

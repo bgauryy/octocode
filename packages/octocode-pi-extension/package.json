@@ -39,8 +39,8 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@octocodeai/octocode-awareness": "workspace:*",
     "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core",
-    "@octocodeai/octocode-memory": "workspace:*",
     "@octocodeai/octocode-tools-core": "workspace:*"
   },
   "devDependencies": {
@@ -77,10 +77,7 @@
     "extensions": [
       "./dist/index.js"
     ],
-    "skills": [
-      "./skills",
-      "./dist/skills"
-    ]
+    "skills": []
   },
   "publishConfig": {
     "access": "public"

@@ -238,6 +238,11 @@ function validateCommandArgs(
         error: `find operator '${invalidFindArg}' is not allowed.`,
       };
     }
+  } else {
+    const backendError = validateArchiveBackendArgs(command, args);
+    if (backendError) {
+      return { isValid: false, error: backendError };
+    }
   }
   // grep: no per-flag allowlist — only the shared dangerous-pattern scan below
   // applies. grep flags are wide (e.g. -r, -Z, --include) and intentionally
@@ -318,6 +323,67 @@ function getGrepPatternPositions(args: string[]): Set<number> {
     }
   }
   return positions;
+}
+
+function isPathLikeArg(value: string): boolean {
+  return value.length > 0 && !value.startsWith('-');
+}
+
+function exactArgs(args: string[], expected: string[]): boolean {
+  return args.length === expected.length && args.every((arg, i) => arg === expected[i]);
+}
+
+function validateArchiveBackendArgs(command: string, args: string[]): string | null {
+  switch (command) {
+    case 'file':
+      return args.length === 3 && exactArgs(args.slice(0, 2), ['--mime-type', '-b']) && isPathLikeArg(args[2]!)
+        ? null
+        : 'file arguments are restricted to --mime-type -b <path>';
+    case 'zcat':
+    case 'bzcat':
+    case 'zstdcat':
+    case 'lz4cat':
+      return args.length === 1 && isPathLikeArg(args[0]!)
+        ? null
+        : `${command} arguments are restricted to <path>`;
+    case 'gunzip':
+      return args.length === 2 && args[0] === '-c' && isPathLikeArg(args[1]!)
+        ? null
+        : 'gunzip arguments are restricted to -c <path>';
+    case 'xzcat':
+      return (args.length === 1 && isPathLikeArg(args[0]!)) ||
+        (args.length === 2 && args[0] === '--format=lzma' && isPathLikeArg(args[1]!))
+        ? null
+        : 'xzcat arguments are restricted to <path> or --format=lzma <path>';
+    case 'zstd':
+      return args.length === 2 && args[0] === '-dcq' && isPathLikeArg(args[1]!)
+        ? null
+        : 'zstd arguments are restricted to -dcq <path>';
+    case 'brotli':
+      return args.length === 2 && args[0] === '-dc' && isPathLikeArg(args[1]!)
+        ? null
+        : 'brotli arguments are restricted to -dc <path>';
+    case 'lzfse':
+      return args.length === 5 && exactArgs(args.slice(0, 2), ['-decode', '-i']) && isPathLikeArg(args[2]!) && args[3] === '-o' && args[4] === '/dev/stdout'
+        ? null
+        : 'lzfse arguments are restricted to -decode -i <path> -o /dev/stdout';
+    case 'tar':
+    case 'bsdtar':
+      return args.length === 4 && args[0] === '-xOf' && isPathLikeArg(args[1]!) && args[2] === '--' && args[3]!.length > 0
+        ? null
+        : `${command} arguments are restricted to -xOf <archive> -- <entry>`;
+    case 'unzip':
+      return args.length === 3 && args[0] === '-p' && isPathLikeArg(args[1]!) && args[2]!.length > 0
+        ? null
+        : 'unzip arguments are restricted to -p <archive> <entry>';
+    case '7z':
+    case '7zz':
+      return args.length === 6 && exactArgs(args.slice(0, 4), ['e', '-so', '-bd', '--']) && isPathLikeArg(args[4]!) && args[5]!.length > 0
+        ? null
+        : `${command} arguments are restricted to e -so -bd -- <archive> <entry>`;
+    default:
+      return null;
+  }
 }
 
 const FIND_PATTERN_ARGS = new Set([

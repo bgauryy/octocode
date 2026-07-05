@@ -27,19 +27,20 @@ const DEST = path.resolve(__dirname, '../../packages/octocode-pi-extension/skill
 // Uses the compiled dist output (TypeScript → esbuild → dist/index.js).
 const CONFIG_SRC = path.resolve(__dirname, '../../packages/octocode-config/dist/index.js');
 
-// @octocodeai/octocode-memory is the single source of truth for all octocode-awareness
+// @octocodeai/octocode-awareness is the single source of truth for all octocode-awareness
 // skill scripts. The skill/ directory in the package contains source scripts (hooks,
 // install.mjs, schema.mjs, etc.) and the build injects compiled binaries on top.
 //
 // skills/octocode-awareness/scripts/ is 100% build-generated — not in git.
-const SKILL_SCRIPTS_SRC = path.resolve(
-  __dirname, '../../packages/octocode-memory/skill/scripts'
+const AWARENESS_SKILL_SRC = path.resolve(
+  __dirname, '../../packages/octocode-awareness/skills/octocode-awareness'
 );
+const SKILL_SCRIPTS_SRC = path.join(AWARENESS_SKILL_SRC, 'scripts');
 const AWARENESS_CLI_SRC = path.resolve(
-  __dirname, '../../packages/octocode-memory/dist/bin/awareness.js'
+  __dirname, '../../packages/octocode-awareness/dist/bin/awareness.js'
 );
 const EXTRACT_FILES_SRC = path.resolve(
-  __dirname, '../../packages/octocode-memory/dist/bin/extract-hook-files.js'
+  __dirname, '../../packages/octocode-awareness/dist/bin/extract-hook-files.js'
 );
 const AWARENESS_SKILL = 'octocode-awareness';
 
@@ -116,10 +117,10 @@ function injectConfig(skillEntries, targetRoot, dryRun) {
 }
 
 /**
- * Build and inject all octocode-awareness skill scripts from @octocodeai/octocode-memory.
+ * Build and inject all octocode-awareness skill scripts from @octocodeai/octocode-awareness.
  *
- * Step 1 — Copy source scripts from packages/octocode-memory/skill/scripts/ into
- *   <targetRoot>/octocode-awareness/scripts/  (hooks, install.mjs, schema.mjs, etc.)
+ * Step 1 — Copy the package-owned skill from packages/octocode-awareness/skills/octocode-awareness/
+ *   into <targetRoot>/octocode-awareness/, including hooks, install.mjs, schema.mjs, docs, and references.
  *
  * Step 2 — Overwrite with compiled binaries from dist/bin/:
  *   awareness.mjs          — esbuild bundle (all src/ logic, only node built-ins)
@@ -130,17 +131,22 @@ function injectConfig(skillEntries, targetRoot, dryRun) {
  * The resulting scripts/ dir is 100% build-generated — never hand-edit files there.
  */
 function injectMemoryCli(targetRoot, dryRun) {
-  for (const src of [SKILL_SCRIPTS_SRC, AWARENESS_CLI_SRC, EXTRACT_FILES_SRC]) {
+  for (const src of [AWARENESS_SKILL_SRC, SKILL_SCRIPTS_SRC, AWARENESS_CLI_SRC, EXTRACT_FILES_SRC]) {
     if (!fs.existsSync(src)) {
       throw new Error(
         `Missing source: ${src}\n` +
-        `Run: yarn workspace @octocodeai/octocode-memory build`
+        `Run: yarn workspace @octocodeai/octocode-awareness build`
       );
     }
   }
 
-  const destScripts = path.join(targetRoot, AWARENESS_SKILL, 'scripts');
-  if (!dryRun) fs.mkdirSync(destScripts, { recursive: true });
+  const destSkill = path.join(targetRoot, AWARENESS_SKILL);
+  const destScripts = path.join(destSkill, 'scripts');
+  if (!dryRun) {
+    fs.rmSync(destSkill, { recursive: true, force: true });
+    copyDir(AWARENESS_SKILL_SRC, destSkill, false);
+    fs.mkdirSync(destScripts, { recursive: true });
+  }
 
   // Step 1: copy all source scripts (hooks, install.mjs, schema.mjs, etc.)
   if (!dryRun) {
@@ -156,8 +162,8 @@ function injectMemoryCli(targetRoot, dryRun) {
       fs.chmodSync(path.join(destScripts, 'prune-stale-locks.sh'), 0o755);
     }
   }
-  const srcRel = path.relative(process.cwd(), SKILL_SCRIPTS_SRC);
-  console.log(`  ${dryRun ? '[dry-run] would copy' : 'Copied'} ${srcRel}/ → ${path.relative(process.cwd(), destScripts)}/`);
+  const srcRel = path.relative(process.cwd(), AWARENESS_SKILL_SRC);
+  console.log(`  ${dryRun ? '[dry-run] would copy' : 'Copied'} ${srcRel}/ → ${path.relative(process.cwd(), destSkill)}/`);
 
   // Step 2: overwrite with compiled binaries
   for (const [src, destName] of [
@@ -225,13 +231,13 @@ injectConfig(skills, SKILLS_ROOT, dryRun);
 console.log('Injecting octocode-config.mjs into pi-extension skills:');
 injectConfig(skills, DEST, dryRun);
 
-// ── inject @octocodeai/octocode-memory CLI ────────────────────────────────────
+// ── inject @octocodeai/octocode-awareness CLI ────────────────────────────────────
 // Inject bundled awareness.mjs + extract-hook-files.mjs into octocode-awareness/scripts/
 // in both source and destination so the skill is self-contained (no npm install needed).
-console.log(`Injecting @octocodeai/octocode-memory binaries into ${AWARENESS_SKILL}/scripts/:`);
+console.log(`Injecting @octocodeai/octocode-awareness binaries into ${AWARENESS_SKILL}/scripts/:`);
 injectMemoryCli(SKILLS_ROOT, dryRun);
-if (!dryRun && fs.existsSync(path.join(DEST, AWARENESS_SKILL))) {
-  console.log(`  (also injecting into pi-extension ${AWARENESS_SKILL}/ — skipped from sync but may exist)`);
+if (!dryRun && fs.existsSync(DEST)) {
+  console.log(`  (also generating pi-extension ${AWARENESS_SKILL}/ from package source)`);
   injectMemoryCli(DEST, dryRun);
 }
 

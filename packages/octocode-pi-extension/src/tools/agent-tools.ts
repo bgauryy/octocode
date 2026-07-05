@@ -7,13 +7,15 @@ import { getInstallSource } from '../assets.js';
 import { truncateUserVisibleToolOutput } from '../utils.js';
 import type { PiContext, PiInstance, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
+import { makeRenderer, truncateToWidth } from './render-helpers.js';
+import { stringEnumSchema } from './schema-helpers.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
 
 type AgentStatus = 'starting' | 'running' | 'idle' | 'exited' | 'failed' | 'killed';
 type ResourceMode = 'lean' | 'octocode' | 'default';
-type MessageAction = 'list' | 'status' | 'send' | 'steer' | 'followUp' | 'wait' | 'kill';
+type MessageAction = 'list' | 'status' | 'send' | 'steer' | 'followUp' | 'wait' | 'kill' | 'abort';
 
 type StreamHandler = (event: string, cb: (chunk: Buffer | string) => void) => void;
 type ProcessHandler = (event: string, cb: (...args: unknown[]) => void) => void;
@@ -48,7 +50,6 @@ interface SpawnAgentParams {
   tools?: string[];
   systemPrompt?: string;
   resourceMode?: ResourceMode;
-  noContextFiles?: boolean;
   noSession?: boolean;
 }
 
@@ -81,48 +82,59 @@ interface AgentDetails {
 
 const MAX_STORED_EVENTS = 200;
 const MAX_VISIBLE_OUTPUT = 12000;
+const MAX_AGENT_RECORDS = 50;
 const SUBAGENT_ENV_VAR = 'OCTOCODE_PI_SUBAGENT';
 const FORBIDDEN_WORKER_TOOLS = new Set(['spawnAgent', 'AgentMessage']);
 const agents = new Map<string, AgentRecord>();
+const EXIT_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP'];
 let processFactory: AgentProcessFactory = (command, args, options) => spawn(command, args, options) as unknown as AgentProcess;
+let processCleanupHandlersInstalled = false;
 
 export function setAgentProcessFactoryForTests(factory: AgentProcessFactory | null): void {
   processFactory = factory ?? ((command, args, options) => spawn(command, args, options) as unknown as AgentProcess);
   agents.clear();
 }
 
-
-function stringEnumSchema(
-  Type: TypeBoxBuilder,
-  values: readonly string[],
-  description: string,
-): Record<string, unknown> {
-  return Type.Unsafe({ type: 'string', enum: [...values], description });
+function isTerminal(record: AgentRecord): boolean {
+  return ['idle', 'exited', 'failed', 'killed'].includes(record.status);
 }
+
+function evictStaleAgents(): void {
+  if (agents.size <= MAX_AGENT_RECORDS) return;
+  const terminal = [...agents.entries()]
+    .filter(([, r]) => isTerminal(r))
+    .sort(([, a], [, b]) => a.updatedAt - b.updatedAt || a.startedAt - b.startedAt);
+  while (agents.size > MAX_AGENT_RECORDS && terminal.length > 0) {
+    const [id, record] = terminal.shift()!;
+    removePromptFiles(record);
+    agents.delete(id);
+  }
+}
+
+export function cleanupSpawnedAgentsForShutdown(): number {
+  const running = [...agents.values()].filter((record) => !isTerminal(record));
+  for (const record of running) killAgent(record, { forceKillDelayMs: 0 });
+  return running.length;
+}
+
+function installProcessCleanupHandlers(): void {
+  if (processCleanupHandlersInstalled || process.env[SUBAGENT_ENV_VAR] === '1') return;
+  processCleanupHandlersInstalled = true;
+  const cleanup = () => { cleanupSpawnedAgentsForShutdown(); };
+  process.once('beforeExit', cleanup);
+  process.once('exit', cleanup);
+  for (const signal of EXIT_SIGNALS) {
+    process.once(signal, () => {
+      cleanup();
+      process.kill(process.pid, signal);
+    });
+  }
+}
+
+
 
 // ─── TUI rendering helpers ────────────────────────────────────────────────────
-
-const ANSI_ESC_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-
-function visibleWidth(str: string): number {
-  return str.replace(ANSI_ESC_RE, '').length;
-}
-
-function truncateToWidth(str: string, maxWidth: number, ellipsis = '\u2026'): string {
-  if (maxWidth <= 0) return '';
-  if (visibleWidth(str) <= maxWidth) return str;
-  let visible = 0;
-  let out = '';
-  let inEsc = false;
-  for (const ch of str) {
-    if (inEsc) { out += ch; if (/[@-~]/.test(ch)) inEsc = false; continue; }
-    if (ch === '\x1B') { inEsc = true; out += ch; continue; }
-    if (visible + 1 + ellipsis.length > maxWidth) break;
-    out += ch;
-    visible++;
-  }
-  return out + ellipsis;
-}
+// truncateToWidth + makeRenderer imported from render-helpers.ts (single source)
 
 function statusIcon(status: AgentStatus, theme?: PiTheme): string {
   if (status === 'exited') return theme?.fg('success', '\u2713') ?? '\u2713'; // ✓
@@ -206,7 +218,7 @@ function buildPiArgs(params: SpawnAgentParams, name: string, promptFiles: string
   if (params.model) args.push('--model', params.model);
   if (params.thinking) args.push('--thinking', params.thinking);
   if (workerTools.length) args.push('--tools', workerTools.join(','));
-  if (params.noContextFiles) args.push('--no-context-files');
+  args.push('--no-context-files');
 
   if (resourceMode === 'lean') {
     args.push('--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes');
@@ -266,6 +278,11 @@ function processRpcLine(record: AgentRecord, line: string): void {
   const eventType = (event as { type?: string }).type;
   if (eventType === 'response') {
     pushCapped(record.responses, event);
+    const resp = event as { success?: boolean; command?: string; error?: string };
+    if (resp.success === false) {
+      if (!record.error) record.error = resp.error ?? `RPC command failed: ${resp.command ?? 'unknown'}`;
+      touch(record);
+    }
   } else if (eventType === 'agent_start') {
     touch(record, 'running');
   } else if (eventType === 'message_end' && (event as { message?: unknown }).message) {
@@ -325,6 +342,7 @@ function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentRecord {
     nextRequestId: 1,
   };
   agents.set(id, record);
+  evictStaleAgents();
 
   let stdoutBuffer = '';
   proc.stdout.on('data', (chunk) => {
@@ -381,14 +399,21 @@ function getArgValue(args: string[], flag: string): string | undefined {
 }
 
 function getAgent(agentId: unknown): AgentRecord {
-  const id = String(agentId ?? '');
+  const id = String(agentId ?? '').trim();
+  if (!id) throw new Error(
+    'AgentMessage requires agentId for all actions except action:"list". '
+    + 'Use action:"list" to see all active agents.',
+  );
   const record = agents.get(id);
-  if (!record) throw new Error(`Unknown agentId: ${id || '(missing)'}`);
+  if (!record) throw new Error(
+    `No agent found with id: ${id.slice(0, 16)}${id.length > 16 ? '\u2026' : ''}. `
+    + `Use action:"list" to see all active agents (${agents.size} registered).`,
+  );
   return record;
 }
 
 function waitForAgent(record: AgentRecord, timeoutMs: number): Promise<void> {
-  if (['idle', 'exited', 'failed', 'killed'].includes(record.status)) return Promise.resolve();
+  if (isTerminal(record)) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const onDone = () => {
       clearTimeout(timer);
@@ -396,7 +421,7 @@ function waitForAgent(record: AgentRecord, timeoutMs: number): Promise<void> {
     };
     const timer = setTimeout(() => {
       record.waiters.delete(onDone);
-      reject(new Error(`Timed out waiting for ${record.id} after ${timeoutMs}ms.`));
+      reject(new Error(`Timed out waiting for agent "${record.name}" after ${timeoutMs}ms. Use AgentMessage action:"status" to inspect.`));
     }, timeoutMs);
     record.waiters.add(onDone);
   });
@@ -445,7 +470,7 @@ function renderSingleAgentResult(record: AgentRecord, header: string): ToolCallR
   };
 }
 
-function killAgent(record: AgentRecord): void {
+function killAgent(record: AgentRecord, opts: { forceKillDelayMs?: number } = {}): void {
   touch(record, 'killed');
   try {
     record.process.stdin.end?.();
@@ -453,9 +478,15 @@ function killAgent(record: AgentRecord): void {
     // ignore stdin close errors
   }
   record.process.kill('SIGTERM');
-  setTimeout(() => {
+  const forceKillDelayMs = opts.forceKillDelayMs ?? 5000;
+  if (forceKillDelayMs <= 0) {
     if (!record.process.killed) record.process.kill('SIGKILL');
-  }, 5000).unref?.();
+  } else {
+    setTimeout(() => {
+      if (!record.process.killed) record.process.kill('SIGKILL');
+    }, forceKillDelayMs).unref?.();
+  }
+  removePromptFiles(record);
   notifyWaiters(record);
 }
 
@@ -466,6 +497,7 @@ export function registerAgentTools(
   registerFn: RegisterFn,
 ): void {
   if (process.env[SUBAGENT_ENV_VAR] === '1') return;
+  installProcessCleanupHandlers();
 
   const resourceModeSchema = stringEnumSchema(
     Type,
@@ -474,8 +506,8 @@ export function registerAgentTools(
   );
   const actionSchema = stringEnumSchema(
     Type,
-    ['list', 'status', 'send', 'steer', 'followUp', 'wait', 'kill'],
-    'AgentMessage action.',
+    ['list', 'status', 'send', 'steer', 'followUp', 'wait', 'kill', 'abort'],
+    'AgentMessage action. abort sends Pi RPC abort (graceful interrupt without killing the process).',
   );
 
   registerFn(pi, registeredToolNames, {
@@ -503,7 +535,6 @@ export function registerAgentTools(
       tools: Type.Optional(Type.Array(Type.String(), { description: 'Optional allowlist of enabled tool names for the worker. spawnAgent and AgentMessage are always removed.' })),
       systemPrompt: Type.Optional(Type.String({ description: 'Optional extra system prompt appended via a temporary file.' })),
       resourceMode: Type.Optional(resourceModeSchema),
-      noContextFiles: Type.Optional(Type.Boolean({ description: 'Pass --no-context-files to the worker.' })),
       noSession: Type.Optional(Type.Boolean({ description: 'Pass --no-session to the worker. Default true.' })),
     }),
     async execute(_toolCallId: string, params: Record<string, unknown>, _signal?: AbortSignal, _onUpdate?: unknown, ctx?: PiContext) {
@@ -521,46 +552,37 @@ export function registerAgentTools(
         theme?.fg('accent', name) ?? name,
         theme?.fg('dim', `\u2014 ${taskPreview}${model}`) ?? `\u2014 ${taskPreview}${model}`,
       ].join(' ');
-      return { render: (w: number) => [truncateToWidth(rawLine, w)], invalidate() { /* no-op */ } };
+      return makeRenderer((w) => [truncateToWidth(rawLine, w)]);
     },
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
       if (opts.isPartial) {
-        return {
-          render: (w: number) => [truncateToWidth(theme?.fg('warning', '\u29D7 Spawning agent\u2026') ?? '\u29D7 Spawning agent\u2026', w)],
-          invalidate() { /* no-op */ },
-        };
+        return makeRenderer((w) => [truncateToWidth(theme?.fg('warning', '\u29D7 Spawning agent\u2026') ?? '\u29D7 Spawning agent\u2026', w)]);
       }
       const ok = !result.isError;
-      const det = result.details as { agent?: { name?: string; status?: AgentStatus } } | null;
+      const det = result.details as { agent?: { name?: string } } | null;
       const agentName = det?.agent?.name ?? 'agent';
-      const agentStatus = det?.agent?.status ?? (ok ? 'running' : 'failed');
-      const icon = statusIcon(ok ? agentStatus : 'failed', theme);
+      const displayStatus = ok ? 'spawned' : 'failed';
+      const icon = ok ? (theme?.fg('success', '\u2713') ?? '\u2713') : statusIcon('failed', theme);
       const label = theme?.fg('toolTitle', 'spawnAgent') ?? 'spawnAgent';
       const nameStr = theme?.fg('accent', agentName) ?? agentName;
-      const statusStr = theme?.fg('dim', agentStatus) ?? agentStatus;
+      const statusStr = theme?.fg('dim', displayStatus) ?? displayStatus;
       const header = `${icon} ${label} \u00b7 ${nameStr} \u00b7 ${statusStr}`;
       if (!opts.expanded) {
-        return {
-          render: (w: number) => [truncateToWidth(`${header}${theme?.fg('dim', ' \u00b7 expand for output') ?? ' \u00b7 expand for output'}`, w)],
-          invalidate() { /* no-op */ },
-        };
+        return makeRenderer((w) => [truncateToWidth(`${header}${theme?.fg('dim', ' \u00b7 expand for output') ?? ' \u00b7 expand for output'}`, w)]);
       }
       const text = result.content.find((p) => p.type === 'text')?.text ?? '';
       const outputLines = text.split('\n').slice(2); // skip agent-header + status lines
-      return {
-        render: (w: number) => [
-          truncateToWidth(header, w),
-          ...outputLines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
-        ],
-        invalidate() { /* no-op */ },
-      };
+      return makeRenderer((w) => [
+        truncateToWidth(header, w),
+        ...outputLines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
+      ]);
     },
   } satisfies ToolDefinition);
   registerFn(pi, registeredToolNames, {
     name: 'AgentMessage',
     label: 'Agent: Message Parallel Worker',
     description:
-      'Manage spawned agents. Actions: list, status, send, steer, followUp, wait, kill. Use this after spawnAgent to coordinate parallel workers.',
+      'Manage spawned agents. Actions: list, status, send, steer, followUp, wait, kill, abort. Use this after spawnAgent to coordinate parallel workers.',
     promptSnippet: 'Message, wait for, list, status, or kill spawned background agents.',
     promptGuidelines: [
       'Use AgentMessage action:"list" or action:"status" before claiming a spawned worker is done.',
@@ -596,7 +618,9 @@ export function registerAgentTools(
         } finally {
           if (ctx?.hasUI) ctx.ui?.setStatus?.('agent-wait', '');
         }
-        return renderSingleAgentResult(record, 'Agent completed');
+        const waitResult = renderSingleAgentResult(record, 'Agent completed');
+        if (params['remove'] === true) agents.delete(record.id);
+        return waitResult;
       }
 
       if (action === 'kill') {
@@ -604,6 +628,14 @@ export function registerAgentTools(
         const result = renderSingleAgentResult(record, 'Agent killed');
         if (params['remove'] === true) agents.delete(record.id);
         return result;
+      }
+
+      if (action === 'abort') {
+        if (!isTerminal(record)) {
+          sendRpc(record, { type: 'abort' });
+          touch(record);
+        }
+        return renderSingleAgentResult(record, 'Agent aborted');
       }
 
       const message = String(params['message'] ?? '').trim();
@@ -639,14 +671,11 @@ export function registerAgentTools(
         agentLabel,
         msgPart,
       ].filter(Boolean).join(' ');
-      return { render: (w: number) => [truncateToWidth(rawLine, w)], invalidate() { /* no-op */ } };
+      return makeRenderer((w) => [truncateToWidth(rawLine, w)]);
     },
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
       if (opts.isPartial) {
-        return {
-          render: (w: number) => [truncateToWidth(theme?.fg('warning', '\u29D7 Agent working\u2026') ?? '\u29D7 Agent working\u2026', w)],
-          invalidate() { /* no-op */ },
-        };
+        return makeRenderer((w) => [truncateToWidth(theme?.fg('warning', '\u29D7 Agent working\u2026') ?? '\u29D7 Agent working\u2026', w)]);
       }
       const ok = !result.isError;
       const det = result.details as {
@@ -663,13 +692,10 @@ export function registerAgentTools(
         const summary = theme?.fg('dim', `${count} agents \u00b7 ${running} running \u00b7 ${exited} done \u00b7 ${failed} failed`) ?? `${count} agents`;
         const header = `${squareIcon} ${theme?.fg('toolTitle', 'AgentMessage') ?? 'AgentMessage'} list \u00b7 ${summary}`;
         if (!opts.expanded) {
-          return { render: (w: number) => [truncateToWidth(header, w)], invalidate() { /* no-op */ } };
+          return makeRenderer((w) => [truncateToWidth(header, w)]);
         }
         const text = result.content.find((p) => p.type === 'text')?.text ?? '';
-        return {
-          render: (w: number) => [truncateToWidth(header, w), ...text.split('\n').slice(1).map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w))],
-          invalidate() { /* no-op */ },
-        };
+        return makeRenderer((w) => [truncateToWidth(header, w), ...text.split('\n').slice(1).map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w))]);
       }
       // single-agent actions
       const agentName = det?.agent?.name ?? 'agent';
@@ -680,20 +706,14 @@ export function registerAgentTools(
       const statusStr = theme?.fg('dim', agentStatus) ?? agentStatus;
       const header = `${icon} ${label} \u00b7 ${nameStr} \u00b7 ${statusStr}`;
       if (!opts.expanded) {
-        return {
-          render: (w: number) => [truncateToWidth(`${header}${theme?.fg('dim', ' \u00b7 expand for output') ?? ' \u00b7 expand for output'}`, w)],
-          invalidate() { /* no-op */ },
-        };
+        return makeRenderer((w) => [truncateToWidth(`${header}${theme?.fg('dim', ' \u00b7 expand for output') ?? ' \u00b7 expand for output'}`, w)]);
       }
       const text = result.content.find((p) => p.type === 'text')?.text ?? '';
       const outputLines = text.split('\n').slice(2); // skip agent-header + status lines
-      return {
-        render: (w: number) => [
-          truncateToWidth(header, w),
-          ...outputLines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
-        ],
-        invalidate() { /* no-op */ },
-      };
+      return makeRenderer((w) => [
+        truncateToWidth(header, w),
+        ...outputLines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
+      ]);
     },
   } satisfies ToolDefinition);
 }

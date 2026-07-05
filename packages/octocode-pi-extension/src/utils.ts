@@ -1,7 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
 
-const MAX_COMMAND_OUTPUT_CHARS = 12000;
 // 800 chars gives a meaningful preview in TUI expanded view (~20 lines of 40 chars)
 // while staying well below the 12000-char agent output budget.
 export const USER_VISIBLE_TOOL_PREVIEW_CHARS = 800;
@@ -32,25 +31,6 @@ export function getAppendSystemTarget(
     return path.join(homeDir, '.pi', 'agent', 'APPEND_SYSTEM.md');
   }
   return path.join(cwd, '.pi', 'APPEND_SYSTEM.md');
-}
-
-export function splitCommandArgs(args: unknown): string[] {
-  if (Array.isArray(args))
-    return (args as unknown[])
-      .map(String)
-      .filter((arg) => arg.length > 0);
-  return splitArgs(String(args ?? ''));
-}
-
-export function getPiCommandNameForOctocodeCommand(commandName: string): string {
-  return commandName === 'status'
-    ? 'octocode-cli-status'
-    : `octocode-${commandName}`;
-}
-
-export function truncateCommandOutput(text: string): string {
-  if (text.length <= MAX_COMMAND_OUTPUT_CHARS) return text;
-  return `${text.slice(0, MAX_COMMAND_OUTPUT_CHARS)}\n… truncated ${text.length - MAX_COMMAND_OUTPUT_CHARS} chars`;
 }
 
 export interface TruncateResult {

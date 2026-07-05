@@ -24,6 +24,7 @@ function parseJsonList(value) {
 
 // src/db.ts
 var REFERENCES_INDEX_VERSION = "1";
+var REFINEMENT_QUALITY_SCHEMA_VERSION = "2";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
 var FTS_INDEX_VERSION = "2";
@@ -121,7 +122,7 @@ function initDb(db2) {
       files_json TEXT NOT NULL DEFAULT '[]',
       reasoning TEXT NOT NULL,
       remember TEXT NOT NULL,
-      quality TEXT NOT NULL CHECK(quality IN ('good','bad')) DEFAULT 'good',
+      quality TEXT NOT NULL CHECK(quality IN ('good','bad','handoff')) DEFAULT 'good',
       state TEXT NOT NULL CHECK(state IN ('open','ongoing','done')) DEFAULT 'open',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -195,6 +196,7 @@ function initDb(db2) {
   `);
   ensureMemoryColumns(db2);
   ensureIntentColumns(db2);
+  ensureRefinementQualitySchema(db2);
   ensureMemoryReferencesVersion(db2);
   try {
     db2.exec(`
@@ -247,6 +249,53 @@ function ensureIntentColumns(db2) {
   if (!cols.has("files_json")) {
     db2.exec("ALTER TABLE agent_intents ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'");
   }
+}
+function rewriteLegacyHandoffRefinements(db2) {
+  db2.prepare(
+    "UPDATE refinements SET quality = 'handoff', updated_at = COALESCE(updated_at, created_at) WHERE quality <> 'handoff' AND remember LIKE 'Review session handoff%'"
+  ).run();
+}
+function ensureRefinementQualitySchema(db2) {
+  const row = db2.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'refinements'"
+  ).get();
+  if (!row?.sql) return;
+  if (!row.sql.includes("'handoff'")) {
+    db2.exec("ALTER TABLE refinements RENAME TO refinements_old_quality_migration");
+    db2.exec(`
+      CREATE TABLE refinements (
+        refinement_id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        workspace_path TEXT NOT NULL,
+        repo TEXT,
+        ref TEXT,
+        files_json TEXT NOT NULL DEFAULT '[]',
+        reasoning TEXT NOT NULL,
+        remember TEXT NOT NULL,
+        quality TEXT NOT NULL CHECK(quality IN ('good','bad','handoff')) DEFAULT 'good',
+        state TEXT NOT NULL CHECK(state IN ('open','ongoing','done')) DEFAULT 'open',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO refinements (
+        refinement_id, agent_id, workspace_path, repo, ref,
+        files_json, reasoning, remember, quality, state, created_at, updated_at
+      )
+      SELECT
+        refinement_id, agent_id, workspace_path, repo, ref,
+        files_json, reasoning, remember,
+        CASE WHEN remember LIKE 'Review session handoff%' THEN 'handoff' ELSE quality END,
+        state, created_at, updated_at
+      FROM refinements_old_quality_migration;
+      DROP TABLE refinements_old_quality_migration;
+    `);
+  }
+  rewriteLegacyHandoffRefinements(db2);
+  db2.prepare("INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('refinement_quality_schema_version', ?)").run(REFINEMENT_QUALITY_SCHEMA_VERSION);
+  db2.exec(`
+    CREATE INDEX IF NOT EXISTS idx_refinements_state ON refinements(state);
+    CREATE INDEX IF NOT EXISTS idx_refinements_repo ON refinements(repo);
+  `);
 }
 function hasFts(db2) {
   const row = db2.prepare(
@@ -330,12 +379,15 @@ function preFlightIntent(db2, params) {
     testPlan = "post-edit verification",
     targetFiles = [],
     lockType = "EXCLUSIVE",
-    ttlMs = null
+    ttlMs = 10 * 6e4
   } = params;
+  const maxTtlMs = 10 * 6e4;
+  const effectiveTtlMs = Math.min(Math.max(1, ttlMs ?? maxTtlMs), maxTtlMs);
   const intentId = "intent_" + randomUUID().replace(/-/g, "");
   const now = utcNow();
   const wsPath = workspacePath ?? process.cwd();
   const absFiles = targetFiles.map((f) => resolve3(f));
+  db2.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now);
   const conflicts = [];
   for (const absPath of absFiles) {
     const existing = db2.prepare(`
@@ -367,7 +419,7 @@ function preFlightIntent(db2, params) {
       (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
   `).run(intentId, agentId2, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
-  const expiresAt = ttlMs != null ? new Date(Date.now() + ttlMs).toISOString().replace(/\.\d{3}Z$/, "Z") : null;
+  const expiresAt = new Date(Date.now() + effectiveTtlMs).toISOString().replace(/\.\d{3}Z$/, "Z");
   const acquiredLocks = [];
   for (const absPath of absFiles) {
     const lockId = "lock_" + randomUUID().replace(/-/g, "");
@@ -593,6 +645,23 @@ function pruneStale(db2, params = {}) {
   }
   return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
 }
+function openRefinementCount(db2, params = {}) {
+  const scope = fillScope(
+    { workspace_path: params.workspacePath ?? null, repo: params.repo ?? null },
+    params.cwd ?? process.cwd()
+  );
+  const queryParams = [];
+  let sql = "SELECT COUNT(*) AS c FROM refinements WHERE state IN ('open','ongoing')";
+  if (!params.includeHandoffs) sql += " AND quality <> 'handoff'";
+  if (scope.repo) {
+    sql += " AND (repo = ? OR repo IS NULL)";
+    queryParams.push(scope.repo);
+  } else if (scope.workspace_path) {
+    sql += " AND (workspace_path = ? OR workspace_path IS NULL)";
+    queryParams.push(scope.workspace_path);
+  }
+  return db2.prepare(sql).get(...queryParams).c;
+}
 function notifyGet(db2, params = {}) {
   const wsPath = params.workspace ?? null;
   const format = params.format ?? "json";
@@ -647,16 +716,7 @@ function notifyGet(db2, params = {}) {
   } catch {
   }
   try {
-    const refConds = ["state = 'open'"];
-    const refParams = [];
-    if (wsPath) {
-      refConds.push("(workspace_path = ? OR workspace_path IS NULL)");
-      refParams.push(wsPath);
-    }
-    const refRow = db2.prepare(
-      `SELECT count(*) AS cnt FROM refinements WHERE ${refConds.join(" AND ")}`
-    ).get(...refParams);
-    const refCount = refRow?.cnt ?? 0;
+    const refCount = openRefinementCount(db2, { workspacePath: wsPath, cwd: process.cwd() });
     if (refCount > 0) {
       items.push({ kind: "refinement", text: `\u{1F4CB} ${refCount} open refinement(s) pending` });
     }
@@ -754,7 +814,7 @@ function sessionCapture(db2, params = {}) {
     `INSERT INTO refinements (
        refinement_id, agent_id, workspace_path, repo, ref,
        files_json, reasoning, remember, quality, state, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'bad', 'open', ?, ?)`
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'handoff', 'open', ?, ?)`
   ).run(
     refinementId,
     agentId2,
@@ -780,8 +840,15 @@ function sessionCapture(db2, params = {}) {
 }
 function digest(db2, params = {}) {
   const retentionDays = Number(params.retention_days ?? 90);
+  const handoffRetentionDays = Number(params.refinement_handoff_retention_days ?? params.refinementHandoffRetentionDays ?? 7);
+  const doneRetentionDays = Number(params.refinement_done_retention_days ?? params.refinementDoneRetentionDays ?? 30);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const cutoff = new Date(Date.now() - retentionDays * 864e5).toISOString();
+  const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 864e5).toISOString();
+  const doneCutoff = new Date(Date.now() - doneRetentionDays * 864e5).toISOString();
+  const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
+     WHERE (quality = 'handoff' AND created_at < ?)
+        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
   if (params.dry_run) {
     const wouldArchive = db2.prepare(
       `SELECT COUNT(*) AS c FROM agent_memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
@@ -792,17 +859,20 @@ function digest(db2, params = {}) {
     const wouldPruneLocks = db2.prepare(
       `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
     ).get(now).c;
+    const wouldPruneRefinements = db2.prepare(refinementRetentionSql).get(handoffCutoff, doneCutoff).c;
     return {
       ok: true,
       archived_memories: 0,
       pruned_old: 0,
       pruned_locks: 0,
+      pruned_refinements: 0,
       fts_rebuilt: false,
       schema_version: 1,
       dry_run: true,
       would_archive: wouldArchive,
       would_prune_old: wouldPruneOld,
-      would_prune_locks: wouldPruneLocks
+      would_prune_locks: wouldPruneLocks,
+      would_prune_refinements: wouldPruneRefinements
     };
   }
   const archiveRes = db2.prepare(
@@ -815,6 +885,11 @@ function digest(db2, params = {}) {
      WHERE state = 'SUPERSEDED' AND updated_at < ?`
   ).run(cutoff);
   const { pruned_locks } = pruneStale(db2, {});
+  const pruneRefinementsRes = db2.prepare(
+    `DELETE FROM refinements
+     WHERE (quality = 'handoff' AND created_at < ?)
+        OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
+  ).run(handoffCutoff, doneCutoff);
   let ftsRebuilt = false;
   try {
     if (hasFts(db2)) {
@@ -828,6 +903,7 @@ function digest(db2, params = {}) {
     archived_memories: archiveRes.changes,
     pruned_old: deleteRes.changes,
     pruned_locks,
+    pruned_refinements: pruneRefinementsRes.changes,
     fts_rebuilt: ftsRebuilt,
     schema_version: 1
   };
@@ -857,6 +933,18 @@ function addApplyPatchPaths(paths, command2) {
 function objectOrEmpty(value) {
   return value && typeof value === "object" ? value : {};
 }
+function addQueryPaths(paths, value) {
+  if (!Array.isArray(value)) return;
+  for (const query of value) {
+    const payload = objectOrEmpty(query);
+    addPathValue(paths, payload.path);
+    addPathValue(paths, payload.filePath);
+    addPathValue(paths, payload.file_path);
+    addPathValue(paths, payload.paths);
+    addPathValue(paths, payload.filePaths);
+    addPathValue(paths, payload.file_paths);
+  }
+}
 function extractPiWriteTargetPaths(toolName, input = {}) {
   const normalizedToolName = String(toolName ?? "").toLowerCase();
   const isWriteTool = ["write", "edit", "multi_edit", "multiedit", "notebookedit", "notebook_edit"].includes(normalizedToolName);
@@ -870,6 +958,7 @@ function extractPiWriteTargetPaths(toolName, input = {}) {
   addPathValue(paths, payload.paths);
   addPathValue(paths, payload.filePaths);
   addPathValue(paths, payload.file_paths);
+  addQueryPaths(paths, payload.queries);
   addApplyPatchPaths(paths, command2);
   return [...new Set(paths)];
 }
@@ -943,7 +1032,7 @@ async function runPreEdit(payload) {
       rationale: "auto: file edit via lifecycle hook",
       testPlan: "post-edit verification",
       targetFiles: files,
-      ttlMs: 15 * 6e4
+      ttlMs: 10 * 6e4
     });
     if (!result.ok) {
       console.error("octocode-awareness: target file is locked by another agent \u2014 edit blocked.");

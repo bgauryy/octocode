@@ -13,9 +13,9 @@ const distDir = path.join(packageRoot, 'dist');
 
 const require = createRequire(import.meta.url);
 
-// Resolve @octocodeai/octocode-memory package root via workspace link.
-// resolve('@octocodeai/octocode-memory') → dist/index.js; go up one level for the package root.
-const memoryPkgDir = path.resolve(path.dirname(require.resolve('@octocodeai/octocode-memory')), '..');
+// Resolve @octocodeai/octocode-awareness package root via workspace link.
+// resolve('@octocodeai/octocode-awareness') → dist/index.js; go up one level for the package root.
+const awarenessPkgDir = path.resolve(path.dirname(require.resolve('@octocodeai/octocode-awareness')), '..');
 
 // Resolve @octocodeai/config source via workspace link — no path hardcoding.
 const CONFIG_LOADER_SRC = require.resolve('@octocodeai/config');
@@ -28,12 +28,12 @@ const SOURCE_PATHS = {
   rootSkills: path.join(repoRoot, 'skills'),
   skills: path.join(packageRoot, 'skills'),
   systemPrompt: path.join(packageRoot, 'docs', 'PI', 'APPEND_SYSTEM.md'),
-  // awareness sources come directly from @octocodeai/octocode-memory — single source of truth.
-  // skill/scripts/ = canonical hooks + utilities; dist/bin/ = compiled awareness CLI.
-  awarenessScripts: path.join(memoryPkgDir, 'skill', 'scripts'),
-  awarenessAwarenessMjs: path.join(memoryPkgDir, 'dist', 'bin', 'awareness.js'),
-  awarenessExtractMjs: path.join(memoryPkgDir, 'dist', 'bin', 'extract-hook-files.js'),
-  awarenessSchemaGen: path.join(memoryPkgDir, 'skill', 'scripts', 'schema.mjs'),
+  // awareness sources come directly from @octocodeai/octocode-awareness — single source of truth.
+  // skills/octocode-awareness/scripts/ = canonical hooks + utilities; dist/bin/ = compiled awareness CLI.
+  awarenessScripts: path.join(awarenessPkgDir, 'skills', 'octocode-awareness', 'scripts'),
+  awarenessAwarenessMjs: path.join(awarenessPkgDir, 'dist', 'bin', 'awareness.js'),
+  awarenessExtractMjs: path.join(awarenessPkgDir, 'dist', 'bin', 'extract-hook-files.js'),
+  awarenessSchemaGen: path.join(awarenessPkgDir, 'skills', 'octocode-awareness', 'scripts', 'schema.mjs'),
 };
 
 const OUTPUT_PATHS = {
@@ -60,9 +60,8 @@ const SKIPPED_DIRECTORIES = new Set([
 // octocode-awareness is excluded from the skills list: the pi extension exposes
 // its memory operations through concise native `memory_*` tools.
 // The scripts are still bundled at dist/awareness/scripts/ for tool + hook use.
-// octocode (architecture docs) and octocode-stats are excluded as they are meta-docs/utilities.
-// octocode-stats is bundled — it reads ~/.octocode/stats.json which MCP creates.
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness']);
+// octocode (architecture docs) and octocode-stats are excluded as meta-docs/utilities.
+const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness', 'octocode-stats']);
 
 function isSecretEnvFile(name) {
   return name === '.env' || (name.startsWith('.env.') && name !== '.env.example');

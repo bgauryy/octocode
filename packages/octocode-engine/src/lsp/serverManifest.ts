@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -13,7 +14,7 @@ import { MANIFEST } from './serverManifestData.js';
  * managed-cache locator.
  *
  * Provisioning policy (see docs/context/LSP_GUIDE.md):
- *   OCTOCODE_LSP_AUTO_INSTALL = off (default) | prompt | auto
+ *   OCTOCODE_LSP_AUTO_INSTALL = prompt (default) | off | auto
  * Live network download is gated and requires a pinned `sha256` per asset.
  * Until SHAs are pinned the manifest still drives (a) honest detect-and-instruct
  * guidance and (b) reuse of a server a user/CI has pre-populated into the
@@ -49,8 +50,39 @@ export interface ManifestFile {
 
 export type ProvisionMode = 'off' | 'prompt' | 'auto';
 
+interface CacheMarker {
+  binarySha256: string;
+  size: number;
+}
+
 function loadManifest(): ManifestFile {
   return MANIFEST;
+}
+
+function sha256File(filePath: string): string | null {
+  try {
+    return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function readCacheMarker(markerPath: string): CacheMarker | null {
+  try {
+    const parsed = JSON.parse(readFileSync(markerPath, 'utf8')) as Partial<CacheMarker>;
+    if (
+      typeof parsed.binarySha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/u.test(parsed.binarySha256) ||
+      typeof parsed.size !== 'number' ||
+      !Number.isSafeInteger(parsed.size) ||
+      parsed.size < 0
+    ) {
+      return null;
+    }
+    return { binarySha256: parsed.binarySha256, size: parsed.size };
+  } catch {
+    return null;
+  }
 }
 
 /** The configured auto-install policy. Defaults to `prompt` when unset (asks before downloading). Set OCTOCODE_LSP_AUTO_INSTALL=off to disable all downloads, or =auto to skip the prompt. */
@@ -117,17 +149,30 @@ export function cachedServerBinPath(
 /**
  * If a managed binary is already present AND verified in the cache (downloaded
  * by a prior run, by CI, or pre-baked), return its absolute path. A binary is
- * only trusted when its sibling `<binName>.ok` completion marker exists — a
- * half-written binary from an interrupted install has no marker and is ignored,
- * so it never resolves as "installed". Read-only — always safe to call.
+ * only trusted when its sibling `<binName>.ok` completion marker contains the
+ * current binary's SHA-256 and size. A half-written or tampered binary from an
+ * interrupted install has no matching marker and is ignored, so it never
+ * resolves as "installed". Read-only — always safe to call.
  */
 export function resolveCachedServer(
   serverName: string,
   platformId: PlatformId = detectPlatformId()
 ): string | null {
   const binPath = cachedServerBinPath(serverName, platformId);
-  if (!binPath) return null;
-  return existsSync(binPath) && existsSync(`${binPath}.ok`) ? binPath : null;
+  if (!binPath || !existsSync(binPath)) return null;
+
+  const marker = readCacheMarker(`${binPath}.ok`);
+  if (!marker) return null;
+
+  let size: number;
+  try {
+    size = statSync(binPath).size;
+  } catch {
+    return null;
+  }
+  if (size !== marker.size) return null;
+
+  return sha256File(binPath) === marker.binarySha256 ? binPath : null;
 }
 
 /** Human-readable provisioning guidance for a server with no resolved binary. */

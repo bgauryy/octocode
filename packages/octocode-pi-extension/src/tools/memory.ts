@@ -1,5 +1,5 @@
 /**
- * Memory tools — direct calls into @octocodeai/octocode-memory (no subprocess).
+ * Memory tools — direct calls into @octocodeai/octocode-awareness (no subprocess).
  * Public Pi surface is split by operation; implementation stays shared.
  */
 import {
@@ -17,10 +17,12 @@ import {
   exportMemoryDoc,
   forgetMemory,
   insertNotification,
-} from '@octocodeai/octocode-memory';
+} from '@octocodeai/octocode-awareness';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { PiContext, ToolDefinition, ToolCallResult } from '../types.js';
+import type { PiContext, PiTheme, ToolDefinition, ToolCallResult } from '../types.js';
+import { buildMemoryRenderCall, buildMemoryRenderResult } from './render-helpers.js';
+import { stringEnumSchema } from './schema-helpers.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
@@ -55,13 +57,7 @@ const DEFAULT_IMPORTANCE: Record<string, number> = {
   ARCHITECTURE: 6,
 };
 
-function stringEnumSchema(
-  Type: TypeBoxBuilder,
-  values: readonly string[],
-  description: string,
-): Record<string, unknown> {
-  return Type.Unsafe({ type: 'string', enum: [...values], description });
-}
+
 
 function defaultImportance(label: string | undefined): number {
   return DEFAULT_IMPORTANCE[label?.toUpperCase() ?? ''] ?? 5;
@@ -343,6 +339,7 @@ function runMemoryOperation(
         workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
         repo: request['repo'] as string | undefined,
         states: request['state'] ? [(request['state'] as string)] : undefined,
+        includeHandoffs: Boolean(request['include_handoffs']),
         limit: (request['limit'] as number | undefined) ?? 5,
         cwd,
       }) as {
@@ -372,7 +369,7 @@ function runMemoryOperation(
 
     case 'audit_unverified': {
       const result = auditUnverified(db, {
-        agentId: request['agent_only'] === false ? null : getAgentId(ctx),
+        agentId: getAgentId(ctx),
         workspacePath: cwd,
       }) as {
         unverified: Array<{
@@ -443,8 +440,20 @@ function runMemoryOperation(
       const result = digest(db, digestParams);
 
       const payload: Record<string, unknown> = result.dry_run
-        ? { dry_run: true, would_archive: result.would_archive, would_prune_old: result.would_prune_old, would_prune_locks: result.would_prune_locks }
-        : { archived_memories: result.archived_memories, pruned_old: result.pruned_old, pruned_locks: result.pruned_locks, fts_rebuilt: result.fts_rebuilt };
+        ? {
+            dry_run: true,
+            would_archive: result.would_archive,
+            would_prune_old: result.would_prune_old,
+            would_prune_locks: result.would_prune_locks,
+            would_prune_refinements: result.would_prune_refinements,
+          }
+        : {
+            archived_memories: result.archived_memories,
+            pruned_old: result.pruned_old,
+            pruned_locks: result.pruned_locks,
+            pruned_refinements: result.pruned_refinements,
+            fts_rebuilt: result.fts_rebuilt,
+          };
 
       if (request['export_doc']) {
         try {
@@ -495,7 +504,7 @@ function runMemoryOperation(
         agentId: getAgentId(ctx),
         workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
         toAgent: request['to_agent'] as string | undefined ?? null,
-        kind: notifyKind as import('@octocodeai/octocode-memory').NotificationKind,
+        kind: notifyKind as import('@octocodeai/octocode-awareness').NotificationKind,
         subject: notifySubject,
         body: request['body'] as string | undefined ?? null,
         files: notifyFiles,
@@ -569,6 +578,12 @@ function registerMemoryTool(
       ctx?: PiContext,
     ): Promise<ToolCallResult> {
       return executeMemoryTool(tool.type, params, getAgentId, ctx);
+    },
+    renderCall(args: unknown, theme?: PiTheme) {
+      return buildMemoryRenderCall(tool.name, args, theme);
+    },
+    renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
+      return buildMemoryRenderResult(tool.name, result, opts, theme);
     },
   });
 }
@@ -707,6 +722,7 @@ export function buildMemoryToolDefinition(
       ],
       parameters: Type.Object({
         state: Type.Optional(Type.String({ description: 'open|ongoing|done. Default open/ongoing.' })),
+        include_handoffs: Type.Optional(Type.Boolean({ description: 'Include session handoff rows; default false so repo-fix refinements stay visible.' })),
         limit: optionalLimit(Type, 'Max refinements; default 5.'),
           ...repoScopeProps,
       }),
@@ -715,14 +731,12 @@ export function buildMemoryToolDefinition(
       name: 'memory_audit_unverified',
       type: 'audit_unverified' as const,
       label: 'Memory: Audit Unverified',
-      description: 'List pending edit intents that still need verification.',
+      description: 'List pending edit intents that still need verification. Auto-fires on agent_end; call manually only for a mid-turn check.',
       promptGuidelines: [
-        'Run after edits and before final response.',
+        'Run mid-turn when you suspect unverified edits; the agent_end hook already performs the final audit.',
         'If pending intents exist, run the stated checks and clear with memory_verify({intent_ids:[...], status}) for batch, memory_verify({allPending:true}) to clear all, or memory_verify({intent_id, status}) for one.',
       ],
-      parameters: Type.Object({
-        agent_only: Type.Optional(Type.Boolean({ description: 'Restrict to this agent; default true.' })),
-      }),
+      parameters: Type.Object({}),
     },
     {
       name: 'memory_verify',

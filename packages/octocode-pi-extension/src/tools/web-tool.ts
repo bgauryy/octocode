@@ -6,7 +6,7 @@
 import { runWebTool, renderWebResult } from '../web.js';
 import type { ToolDefinition, PiTheme, ToolCallResult } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
-import { truncateToWidth } from './render-helpers.js';
+import { makeRenderer, truncateToWidth } from './render-helpers.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
@@ -93,9 +93,16 @@ export function registerWebTool(
         params as Parameters<typeof runWebTool>[0],
         { signal },
       );
+      const errorMsg = (out as { error?: string }).error;
+      if (errorMsg) {
+        // Throw so Pi sets isError:true in the session and the LLM sees tool failure.
+        // Returning isError:true in the result object has no effect per Pi docs:
+        // "Returning a value never sets the error flag regardless of what properties
+        // you include in the return object." (extensions.md)
+        throw new Error(errorMsg);
+      }
       return {
         content: [{ type: 'text' as const, text: renderWebResult(out) }],
-        isError: Boolean((out as { error?: string }).error),
         details: out,
       };
     },
@@ -111,16 +118,13 @@ export function registerWebTool(
         ? (theme?.fg('dim', `"${query.length > 70 ? query.slice(0, 67) + '…' : query}"`) ?? `"${query}"`)
         : '';
       const rawLine = detail ? `${nameStr} ${detail}` : nameStr;
-      return {
-        render: (w: number) => [truncateToWidth(rawLine, w)],
-        invalidate() { /* no-op */ },
-      };
+      return makeRenderer((w) => [truncateToWidth(rawLine, w)]);
     },
 
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
       if (opts.isPartial) {
         const msg = theme?.fg('warning', 'Fetching…') ?? 'Fetching…';
-        return { render: (w: number) => [truncateToWidth(msg, w)], invalidate() { /* no-op */ } };
+        return makeRenderer((w) => [truncateToWidth(msg, w)]);
       }
       const ok = !result.isError;
       const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
@@ -141,23 +145,20 @@ export function registerWebTool(
       const header = `${icon} ${nameStr}${stat}`;
       if (!opts.expanded) {
         const hint = theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output';
-        return { render: (w: number) => [truncateToWidth(`${header}${hint}`, w)], invalidate() { /* no-op */ } };
+        return makeRenderer((w) => [truncateToWidth(`${header}${hint}`, w)]);
       }
       const text = (result.content as Array<{ type: string; text: string }>)
         ?.find?.((p) => p.type === 'text')?.text ?? '';
       const allLines = text.split('\n');
       const lines = allLines.slice(0, 20);
       const omitted = allLines.length - lines.length;
-      return {
-        render: (w: number) => [
-          truncateToWidth(header, w),
-          ...lines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
-          ...(omitted > 0
-            ? [truncateToWidth(theme?.fg('muted', `… ${omitted} more lines`) ?? `… ${omitted} more lines`, w)]
-            : []),
-        ],
-        invalidate() { /* no-op */ },
-      };
+      return makeRenderer((w) => [
+        truncateToWidth(header, w),
+        ...lines.map((l) => truncateToWidth(theme?.fg('dim', l) ?? l, w)),
+        ...(omitted > 0
+          ? [truncateToWidth(theme?.fg('muted', `… ${omitted} more lines`) ?? `… ${omitted} more lines`, w)]
+          : []),
+      ]);
     },
   } satisfies ToolDefinition);
 }

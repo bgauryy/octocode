@@ -195,8 +195,12 @@ function isHookScript(name) {
   return name.split('/').includes('hooks');
 }
 
+function isGeneratedSupportScript(name) {
+  return basename(name) === 'octocode-config.mjs';
+}
+
 function isAgentFacingScript(name) {
-  return isCodeScript(name) && !isHookScript(name);
+  return isCodeScript(name) && !isHookScript(name) && !isGeneratedSupportScript(name);
 }
 
 function hasScript(scriptFiles, mention) {

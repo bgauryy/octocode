@@ -127,7 +127,6 @@ search <file> --content-view exact
 2. Critic: strongest case against, each claim with reason + citation.
 3. Rebut each side's strongest claim.
 4. Keep survived claims, drop conceded claims, mark unresolved claims as decision points.
-
 ## Evidence Gates
 
 - Snippets are leads, not proof; exact content, AST, LSP, PR/commit evidence, binary metadata, or tests can prove.
@@ -136,11 +135,9 @@ search <file> --content-view exact
 - `target:"research"` and `target:"graph"` rows are candidates until upgraded.
 - Follow `next.*`, pagination, char offsets, match/file/comment/commit pages.
 - Cite local evidence as `path:line`; cite remote evidence as full URL or PR/commit id.
-
 ## Before Answering
 
 Confirm:
-
 1. The corpus is explicit: local path, package, owner/repo, branch/ref, PR number, artifact path, or materialized `localPath`.
 2. The surface is justified: MCP, `search`, OQL, raw tool, local shell, web, or skipped surface with reason.
 3. Tool calls used the correct schema: read the MCP tool description (Pi) or `npx octocode tools <name> --scheme` (CLI) before calling; OQL JSON was built after `search --scheme`.
@@ -149,37 +146,4 @@ Confirm:
 6. Diagnostics and provider limitations were handled.
 7. Claims distinguish syntax proof, semantic proof, history proof, binary proof, and runtime/test proof.
 8. Fallbacks are named when used.
-
----
-
-## Loop Mode
-
-Use when a question needs repeated Act→Observe→Learn cycles before the answer is trustworthy: convergence goals, local code-check loops, multi-source research, dead-code proof, or "keep going until evidence converges."
-
-### Iteration Unit
-
-```text
-Frame one question -> Act with one cheap call -> Observe status/results -> Learn -> choose next call
-```
-
-- **Act:** choose the smallest call that could change the answer. Start discovery/path/symbols/concise; spend exact reads, clone, AST/LSP, PRs, tests, or builds only on surviving leads.
-- **Observe:** read `status` first. `empty` = ran but matched nothing; adjust one variable before trusting it. `error` = broken call (auth, validation, rate limit, scope); fix it, never read it as absence.
-- **Learn:** update a small ledger: goal, anchors, hypotheses, tried query shapes, cheapest disconfirming step.
-
-### Ledger
-
-Carry anchors forward exactly: paths, lines, match ranges, repo/package/PR ids, branch/ref, cursors, returned `next.*`. Never invent offsets or paths. Keep at least two plausible explanations alive while the answer is unsettled.
-
-### Stop Tests
-
-Stop when any is true:
-- framed question is answered with grounded evidence and the alternate is killed;
-- no cheap next step can change the conclusion;
-- iteration/token/wall-clock budget is hit;
-- last iterations changed no state.
-
-If a loop stalls on the same `empty`/`error`, change surface or query shape: local ↔ GitHub ↔ npm ↔ history, text ↔ AST ↔ LSP ↔ path, broad ↔ narrow.
-
-### Loop Output
-
-Do not output a transcript. End with: **Answer**, **Evidence**, **Loop trace** (decisive iterations only), **Verification** that actually ran, **Open gaps**.
+For repeated Act→Observe→Learn cycles, convergence goals, local code-check loops, or "keep going until evidence converges", read `references/loop-mode.md`.

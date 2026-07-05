@@ -1,5 +1,5 @@
 // Contract tests for the pi-extension. The awareness bridge migrated to direct
-// imports from @octocodeai/octocode-memory (no subprocess, no Python). These tests
+// imports from @octocodeai/octocode-awareness (no subprocess, no Python). These tests
 // assert the live API: createAwarenessBridge({pendingToolFiles}), handleToolCall,
 // handleToolResult, and formatStatus using the real (isolated) SQLite store.
 import assert from 'node:assert/strict';
@@ -26,6 +26,7 @@ import {
   parseSetupScope,
   shouldAppendSystemPrompt,
   splitArgs,
+  cleanupSpawnedAgentsForShutdown,
   setAgentProcessFactoryForTests,
 } from '../src/index.js';
 import { applyCustomEditsToContent, clearEditReadStateForTests, recordFileReadState } from '../src/tools/edit-tool.js';
@@ -143,7 +144,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(fs.existsSync(path.join(distDir, 'bin', 'octocode.js')), false, 'Octocode CLI is NOT bundled — install separately via npm/npx');
   assert.equal(fs.existsSync(path.join(distDir, 'awareness', 'scripts', 'awareness.mjs')), true, 'awareness CLI remains bundled');
 
-  const SKIPPED = ['octocode', 'octocode-awareness'];
+  const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-stats'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
@@ -158,8 +159,8 @@ test('build copies bundled Octocode skills without secret env files', () => {
       'octocode-rfc-generator',
       'octocode-roast',
       'octocode-skills',
-      'octocode-stats',
-    ].sort(),
+      'octocode-subagents',
+      ].sort(),
   );
 
   const forbiddenEnv = path.join(distDir, 'skills', 'octocode-brainstorming', '.env');
@@ -206,7 +207,7 @@ test('formatStatus reports the dist assets and memory module', withTempMemoryHom
   const status = formatStatus(distDir);
   assert.match(status, /system prompt: found/);
   assert.match(status, /octocode-research/);
-  assert.match(status, /memory module: @octocodeai\/octocode-memory \(direct import\)/);
+  assert.match(status, /memory module: @octocodeai\/octocode-awareness \(direct import\)/);
   assert.match(status, /memory DB: not yet created/);
   assert.match(status, /octocode tools: 14 native Pi tools/);
   assert.match(status, /CLI: use `npx octocode`/);
@@ -293,12 +294,19 @@ test('awareness bridge blocks only on lock conflicts', withIsolatedDb(async (ctx
   });
 }));
 
-test('keeps Pi built-in read available and replaces built-in edit by custom tool override', async () => {
+test('disable built-in read in favor of localGetFileContent (records read state for edit stale-check)', async () => {
   const { activeTools, tools } = await captureExtensions();
-  assert.equal(activeTools.includes('read'), true);
-  assert.equal(activeTools.includes('bash'), true);
+  // The built-in `read` tool is removed so agents use localGetFileContent, which
+  // records read state via recordFileReadState — the input the edit tool's stale
+  // check relies on (see edit-tool.ts checkReadState).
+  assert.equal(activeTools.includes('read'), false, 'built-in read is disabled in favor of localGetFileContent');
+  assert.equal(activeTools.includes('bash'), true, 'bash remains available');
   assert.equal(activeTools.includes('edit'), true, 'edit remains active because the custom tool overrides the built-in by name');
+  assert.equal(tools.has('localGetFileContent'), true, 'localGetFileContent is registered as the canonical read tool');
+});
 
+test('replaces built-in edit by custom tool override', async () => {
+  const { tools } = await captureExtensions();
   const editTool = tools.get('edit')!;
   assert.equal(editTool.label, 'edit (Octocode)');
   assert.match(editTool.description!, /Replaces Pi built-in edit/);
@@ -396,6 +404,282 @@ test('custom edit returns diff and patch details', async () => {
   }
 });
 
+test('custom edit renderResult lists per-edit reasoning, red/green diff, line range, and file', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-peredit-'));
+  const target = path.join(tmp, 'checkout.ts');
+  // Two edits on disjoint lines so per-edit line ranges are distinct + non-overlapping.
+  fs.writeFileSync(target, 'import { a } from "a";\nconst x = submitOrder(payload);\nconst y = total(x);\n', 'utf8');
+  try {
+    const result = await invokeExecute(tools.get('edit')!, {
+      path: target,
+      edits: [
+        { oldText: 'submitOrder(payload)', newText: 'submitOrderV2(payload)', reasoning: 'rename to v2 handler' },
+        { oldText: 'const y = total(x);', newText: 'const y = sumTotal(x);', reasoning: 'rename total to sumTotal for clarity' },
+      ],
+    });
+    const themedLines = tools.get('edit')!.renderResult!(result, { expanded: true }, {
+      bold: (text: string) => `<b>${text}</b>`,
+      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+    }).render(160);
+
+    // The file is shown once as a group header.
+    assert.ok(themedLines.some((l) => /checkout\.ts/.test(l) && !l.includes('- ') && !l.includes('+ ')), 'file path shown as group header');
+
+    // Per-edit edit number + line range in the ORIGINAL file.
+    assert.ok(themedLines.some((l) => /edit #1/i.test(l)), 'edit #1 marker present');
+    assert.ok(themedLines.some((l) => /edit #2/i.test(l)), 'edit #2 marker present');
+    // Edit #1 touches line 2 (the submitOrder line); edit #2 touches line 3.
+    assert.ok(themedLines.some((l) => /#1.*\b2\b/.test(l) || /\b2\b.*#1/.test(l)), 'edit #1 carries its line number');
+    assert.ok(themedLines.some((l) => /#2.*\b3\b/.test(l) || /\b3\b.*#2/.test(l)), 'edit #2 carries its line number');
+
+    // Each edit reasoning is shown.
+    assert.ok(themedLines.some((l) => /rename to v2 handler/.test(l) && !l.includes('- ') && !l.includes('+ ')), 'edit #1 reasoning shown');
+    assert.ok(themedLines.some((l) => /rename total to sumTotal for clarity/.test(l) && !l.includes('- ') && !l.includes('+ ')), 'edit #2 reasoning shown');
+
+    // Red/green per-edit diffs: removed and added lines for each edit appear, themed.
+    assert.ok(themedLines.some((l) => l.includes('<error>- submitOrder(payload)</error>')), 'edit #1 removed line shown red');
+    assert.ok(themedLines.some((l) => l.includes('<success>+ submitOrderV2(payload)</success>')), 'edit #1 added line shown green');
+    assert.ok(themedLines.some((l) => l.includes('<error>- const y = total(x);</error>')), 'edit #2 removed line shown red');
+    assert.ok(themedLines.some((l) => l.includes('<success>+ const y = sumTotal(x);</success>')), 'edit #2 added line shown green');
+  } finally {
+    clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ─── adversarial / edge-case break attempts (validate the edit tool under stress) ───
+
+test('BREAK: edits apply to ORIGINAL content, not sequentially (2nd edit cannot match 1st edit output)', () => {
+  // edit2.oldText "X" only exists AFTER edit1 runs; it is NOT in the original → must throw not-found.
+  assert.throws(
+    () => applyCustomEditsToContent('a\nb\n', [
+      { oldText: 'a', newText: 'X', reasoning: 'first' },
+      { oldText: 'X', newText: 'Y', reasoning: 'depends on first' },
+    ], 'sample.txt'),
+    /Could not find/,
+  );
+});
+
+test('BREAK: adjacent (touching) edits are NOT flagged as overlap', () => {
+  // edit1 covers bytes 0-2 ("ab"), edit2 covers bytes 2-4 ("cd") — adjacent, not overlapping.
+  const result = applyCustomEditsToContent('abcd\n', [
+    { oldText: 'ab', newText: 'AB', reasoning: 'first half' },
+    { oldText: 'cd', newText: 'CD', reasoning: 'second half' },
+  ], 'sample.txt');
+  assert.equal(result.newContent, 'ABCD\n');
+  assert.equal(result.replacements, 2);
+});
+
+test('BREAK: overlapping edits throw (previous.end > current.start)', () => {
+  // edit1 "bcd" (bytes 1-4), edit2 "abc" (bytes 0-3) — they overlap at bytes 1-3.
+  assert.throws(
+    () => applyCustomEditsToContent('abcd\n', [
+      { oldText: 'bcd', newText: 'X', reasoning: 'overlap a' },
+      { oldText: 'abc', newText: 'Y', reasoning: 'overlap b' },
+    ], 'sample.txt'),
+    /overlap in/,
+  );
+});
+
+test('BREAK: oldText === newText is rejected as a no-op', () => {
+  assert.throws(
+    () => applyCustomEditsToContent('a\n', [{ oldText: 'a', newText: 'a', reasoning: 'no-op' }], 'sample.txt'),
+    /No changes made/,
+  );
+});
+
+test('BREAK: empty newText is a deletion that produces correct evidence', () => {
+  const result = applyCustomEditsToContent('foo bar baz\n', [
+    { oldText: 'bar ', newText: '', reasoning: 'delete the bar token' },
+  ], 'sample.txt');
+  assert.equal(result.newContent, 'foo baz\n');
+  assert.equal(result.edits.length, 1);
+  assert.deepEqual(result.edits[0]!.removedLines, ['bar ']);
+  assert.deepEqual(result.edits[0]!.addedLines, ['']);
+});
+
+test('BREAK: replaceAll with newText containing oldText does not loop and counts original occurrences', () => {
+  // 'a' -> 'aa' replaceAll: occurrences are scanned on the ORIGINAL (3 'a's), applied once each.
+  const result = applyCustomEditsToContent('a a a\n', [
+    { oldText: 'a', newText: 'aa', replaceAll: true, reasoning: 'double every a' },
+  ], 'sample.txt');
+  assert.equal(result.newContent, 'aa aa aa\n');
+  assert.equal(result.replacements, 3);
+  assert.equal(result.edits[0]!.removedLines.length, 3);
+  assert.equal(result.edits[0]!.addedLines.length, 3);
+});
+
+test('BREAK: normalized match handles NFKC ligature (ﬁ -> fi) with correct original-file offsets', () => {
+  // Content has the ﬁ ligature (U+FB01); oldText uses 'fi'. NFKC normalizes ﬁ -> fi.
+  // The byte offsets must index the ORIGINAL content (with ﬁ), not the normalized text.
+  const result = applyCustomEditsToContent('const ﬁle = 1;\n', [
+    { oldText: 'const file = 1;\n', newText: 'const file = 2;\n', matchMode: 'normalized', reasoning: 'nfkc ligature match' },
+  ], 'sample.ts');
+  assert.equal(result.newContent, 'const file = 2;\n');
+  assert.deepEqual(result.usedModes, ['normalized']);
+  assert.equal(result.edits[0]!.startLine, 1);
+  assert.equal(result.edits[0]!.endLine, 1);
+  assert.deepEqual(result.edits[0]!.removedLines, ['const ﬁle = 1;']);
+  assert.deepEqual(result.edits[0]!.addedLines, ['const file = 2;']);
+});
+
+test('BREAK: BOM + CRLF file round-trips through an edit preserving BOM and CRLF', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-bom-crlf-'));
+  const target = path.join(tmp, 'win.txt');
+  const bom = '\uFEFF';
+  fs.writeFileSync(target, `${bom}line one\r\nline two\r\n`, 'utf8');
+  try {
+    await recordFileReadState(target);
+    const result = await invokeExecute(tools.get('edit')!, {
+      path: target,
+      edits: [{ oldText: 'line two', newText: 'LINE TWO', reasoning: 'uppercase line 2' }],
+    });
+    const written = fs.readFileSync(target, 'utf8');
+    assert.ok(written.startsWith('\uFEFF'), 'BOM preserved');
+    assert.ok(written.includes('\r\n'), 'CRLF preserved');
+    assert.equal(written, `${bom}line one\r\nLINE TWO\r\n`);
+    assert.ok((result.details as { files: Array<{ edits: unknown[] }> }).files[0]!.edits.length > 0, 'per-edit evidence present');
+  } finally {
+    clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('BREAK: multi-line oldText evidence reports the full line span and all removed/added lines', () => {
+  const result = applyCustomEditsToContent('a\nb\nc\nd\n', [
+    { oldText: 'b\nc\nd', newText: 'X', reasoning: 'collapse 3 lines into 1' },
+  ], 'sample.txt');
+  assert.equal(result.newContent, 'a\nX\n');
+  assert.equal(result.edits[0]!.startLine, 2);
+  assert.equal(result.edits[0]!.endLine, 4);
+  assert.deepEqual(result.edits[0]!.removedLines, ['b', 'c', 'd']);
+  assert.deepEqual(result.edits[0]!.addedLines, ['X']);
+});
+
+test('BREAK: lineRange with matching oldText succeeds; mismatched oldText throws', () => {
+  const ok = applyCustomEditsToContent('one\ntwo\nthree\n', [
+    { newText: 'TWO\n', matchMode: 'lineRange', startLine: 2, endLine: 2, oldText: 'two\n', reasoning: 'lineRange with anchor' },
+  ], 'sample.txt');
+  assert.equal(ok.newContent, 'one\nTWO\nthree\n');
+
+  assert.throws(
+    () => applyCustomEditsToContent('one\ntwo\nthree\n', [
+      { newText: 'TWO\n', matchMode: 'lineRange', startLine: 2, endLine: 2, oldText: 'WRONG\n', reasoning: 'bad anchor' },
+    ], 'sample.txt'),
+    /oldText does not match the requested line range/,
+  );
+});
+
+test('BREAK: multi-file edit is all-or-nothing when one query requires read state it lacks', async () => {
+  clearEditReadStateForTests();
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-atomic-'));
+  const a = path.join(tmp, 'a.txt');
+  const b = path.join(tmp, 'b.txt');
+  fs.writeFileSync(a, 'A\n', 'utf8');
+  fs.writeFileSync(b, 'B\n', 'utf8');
+  try {
+    await assert.rejects(
+      () => invokeExecute(tools.get('edit')!, {
+        queries: [
+          { path: a, requireRecentRead: true, edits: [{ oldText: 'A', newText: 'AA', reasoning: 'x' }] },
+          { path: b, edits: [{ oldText: 'B', newText: 'BB', reasoning: 'x' }] },
+        ],
+      }),
+      /No prior localGetFileContent read state recorded/,
+    );
+    assert.equal(fs.readFileSync(a, 'utf8'), 'A\n', 'atomicity: a not written');
+    assert.equal(fs.readFileSync(b, 'utf8'), 'B\n', 'atomicity: b not written');
+  } finally {
+    clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('BREAK: nonexistent path rejects with a clear error and writes nothing', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-noent-'));
+  const missing = path.join(tmp, 'does-not-exist.txt');
+  try {
+    await assert.rejects(
+      () => invokeExecute(tools.get('edit')!, {
+        path: missing,
+        edits: [{ oldText: 'x', newText: 'y', reasoning: 'x' }],
+      }),
+    );
+    assert.equal(fs.existsSync(missing), false, 'no file created for a missing target');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('BREAK: an already-aborted signal rejects before any file read', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-abort-'));
+  const target = path.join(tmp, 'abort.txt');
+  fs.writeFileSync(target, 'original\n', 'utf8');
+  try {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await assert.rejects(
+      // invokeExecute hardcodes signal=undefined, so call execute() directly to pass the AbortSignal.
+      () => tools.get('edit')!.execute('call-id', { path: target, edits: [{ oldText: 'original', newText: 'CHANGED', reasoning: 'x' }] }, ctrl.signal, undefined, { cwd: process.cwd() }),
+      /Operation aborted/,
+    );
+    assert.equal(fs.readFileSync(target, 'utf8'), 'original\n', 'aborted before any write');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('per-edit line numbers stay in ORIGINAL-file coordinates even when earlier edits shift line counts', () => {
+  // Invariant: edits are matched against the ORIGINAL content and line numbers are
+  // computed from the ORIGINAL file's line spans — so each edit's reported
+  // startLine/endLine is its position BEFORE any edits, independent of other edits.
+  // This matches the git/unified-diff convention (@@ -<oldStart>,<oldCount> uses OLD-file lines)
+  // and what localGetFileContent showed the agent when it chose the edit.
+  // Regression-lock: a future switch to cumulative/post-prior-edits coordinates must fail here.
+  const original = 'L1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n';
+  const result = applyCustomEditsToContent(original, [
+    { oldText: 'L2\n', newText: 'A\nB\nC\nD\n', reasoning: 'expand line 2 into 4 lines (net +3, shifts everything below DOWN by 3 in the result)' },
+    { oldText: 'L6\nL7\n', newText: 'X\n', reasoning: 'collapse lines 6-7 into 1 (net -1)' },
+    { oldText: 'L10\n', newText: 'Z\n', reasoning: 'replace line 10 — sits BELOW all the shifting' },
+  ], 'sample.txt');
+
+  // Each edit reports its ORIGINAL-file line range, NOT its post-earlier-edits position.
+  assert.equal(result.edits[0]!.startLine, 2);   // L2 → original line 2
+  assert.equal(result.edits[0]!.endLine, 2);
+  assert.equal(result.edits[1]!.startLine, 6);   // L6-L7 → original lines 6-7 (NOT 9-10 as cumulative would give)
+  assert.equal(result.edits[1]!.endLine, 7);
+  assert.equal(result.edits[2]!.startLine, 10);  // L10 → original line 10 (NOT 12 as cumulative would give)
+  assert.equal(result.edits[2]!.endLine, 10);
+
+  // Evidence fidelity: removed lines are the ACTUAL original bytes, added lines the new bytes.
+  assert.deepEqual(result.edits[0]!.removedLines, ['L2']);
+  assert.deepEqual(result.edits[0]!.addedLines, ['A', 'B', 'C', 'D']);
+  assert.deepEqual(result.edits[1]!.removedLines, ['L6', 'L7']);
+  assert.deepEqual(result.edits[1]!.addedLines, ['X']);
+  assert.deepEqual(result.edits[2]!.removedLines, ['L10']);
+  assert.deepEqual(result.edits[2]!.addedLines, ['Z']);
+
+  // Final content is the 3 edits applied to the original (matches, locks correctness end-to-end).
+  assert.equal(result.newContent, 'L1\n' + 'A\nB\nC\nD\n' + 'L3\nL4\nL5\n' + 'X\n' + 'L8\nL9\n' + 'Z\n');
+});
+
+test('lineRange edit keeps ORIGINAL-file coordinates when an earlier edit inserts lines above it', () => {
+  // edit0 inserts 2 lines above edit1; edit1 uses lineRange(4,4) referencing the ORIGINAL file.
+  // Its reported startLine must be 4 (original), not 6 (where 'd' lands after the insert).
+  const result = applyCustomEditsToContent('a\nb\nc\nd\n', [
+    { oldText: 'a\n', newText: 'X\nY\nZ\n', reasoning: 'insert 2 lines above' },
+    { newText: 'NEW\n', matchMode: 'lineRange', startLine: 4, endLine: 4, reasoning: 'replace original line 4 (d) via lineRange' },
+  ], 'sample2.txt');
+  assert.equal(result.edits[1]!.startLine, 4, 'lineRange coords are original-file, not post-insert');
+  assert.equal(result.edits[1]!.endLine, 4);
+  assert.equal(result.newContent, 'X\nY\nZ\nb\nc\nNEW\n');
+});
+
 test('custom edit supports normalized and lineRange match modes', () => {
   const normalized = applyCustomEditsToContent(
     'const label = “hello”;\n',
@@ -463,6 +747,85 @@ test('custom edit rejects stale files when read state was recorded', async () =>
     );
   } finally {
     clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('custom edit requireRecentRead rejects an edit with no prior read state', async () => {
+  clearEditReadStateForTests();
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-require-read-'));
+  const target = path.join(tmp, 'unseen.txt');
+  fs.writeFileSync(target, 'original\n', 'utf8');
+  try {
+    // No recordFileReadState call: missing read state.
+    await assert.rejects(
+      () => invokeExecute(tools.get('edit')!, {
+        path: target,
+        edits: [{ oldText: 'original', newText: 'CHANGED', reasoning: 'test' }],
+        requireRecentRead: true,
+      }),
+      /No prior localGetFileContent read state recorded for this file/,
+    );
+    // The rejected edit must NOT have written the file.
+    assert.equal(fs.readFileSync(target, 'utf8'), 'original\n');
+  } finally {
+    clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('custom edit stale check is content-hash authoritative, not mtime', async () => {
+  clearEditReadStateForTests();
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-hash-'));
+  const target = path.join(tmp, 'same.txt');
+  fs.writeFileSync(target, 'same\n', 'utf8');
+  try {
+    await recordFileReadState(target);
+    // Re-write IDENTICAL content — mtime advances, content hash identical.
+    fs.writeFileSync(target, 'same\n', 'utf8');
+    const result = await invokeExecute(tools.get('edit')!, {
+      path: target,
+      edits: [{ oldText: 'same', newText: 'SAME', reasoning: 'content-hash must win over mtime' }],
+      requireRecentRead: true,
+    });
+    assert.match(result.content[0]!.text, /Read state: fresh/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'SAME\n');
+  } finally {
+    clearEditReadStateForTests();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('custom edit rejects a non-unique oldText without replaceAll', () => {
+  assert.throws(
+    () => applyCustomEditsToContent('dup\ndup\n', [{ oldText: 'dup', newText: 'DUP', reasoning: 'test' }], 'sample.txt'),
+    /Found 2 occurrences/,
+  );
+});
+
+test('custom edit lineRange rejects an out-of-range range', () => {
+  assert.throws(
+    () => applyCustomEditsToContent('one\ntwo\n', [{ newText: 'X\n', matchMode: 'lineRange', startLine: 1, endLine: 99, reasoning: 'test' }], 'sample.txt'),
+    /line range 1-99 is outside/,
+  );
+});
+
+test('custom edit generates a valid unified-diff hunk header', async () => {
+  const { tools } = await captureExtensions();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-patch-'));
+  const target = path.join(tmp, 'patch.txt');
+  fs.writeFileSync(target, 'a\nb\nc\n', 'utf8');
+  try {
+    const result = await invokeExecute(tools.get('edit')!, {
+      path: target,
+      edits: [{ oldText: 'b', newText: 'B', reasoning: 'change line 2' }],
+    });
+    const details = result.details as { patch: string };
+    // A valid unified-diff hunk header is @@ -<start>,<count> +<start>,<count> @@ (or @@ ... @@).
+    assert.match(details.patch, /@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/);
+  } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
@@ -999,11 +1362,11 @@ test('memory self-healing tools use lean outputs', withIsolatedDb(async (ctx) =>
   assert.ok(!('reasoning' in refinements.refinements[0]!));
 
   const digestResult = JSON.parse((await invokeExecute(tools.get('memory_digest')!, {}, ctx)).content[0]!.text) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(digestResult).sort(), ['archived_memories', 'fts_rebuilt', 'pruned_locks', 'pruned_old']);
+  assert.deepEqual(Object.keys(digestResult).sort(), ['archived_memories', 'fts_rebuilt', 'pruned_locks', 'pruned_old', 'pruned_refinements']);
 
   // dry_run mode returns prediction fields only
   const dryResult = JSON.parse((await invokeExecute(tools.get('memory_digest')!, { dry_run: true }, ctx)).content[0]!.text) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(dryResult).sort(), ['dry_run', 'would_archive', 'would_prune_locks', 'would_prune_old']);
+  assert.deepEqual(Object.keys(dryResult).sort(), ['dry_run', 'would_archive', 'would_prune_locks', 'would_prune_old', 'would_prune_refinements']);
   assert.equal(dryResult['dry_run'], true);
 }));
 
@@ -1097,6 +1460,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
       },
       { cwd: '/repo' },
     );
+    const collapsedSpawn = spawnTool.renderResult!(result, { expanded: false }).render(120)[0]!;
+    assert.match(collapsedSpawn, /spawnAgent · docs-scout · spawned/);
+    assert.doesNotMatch(collapsedSpawn, /running/);
 
     assert.equal(spawned.length, 1);
     assert.ok(spawned[0]!.args.includes('--mode'));
@@ -1113,10 +1479,10 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.match(spawned[0]!.proc.stdinWrites[0]!, /Context for this delegated agent/);
     assert.match(spawned[0]!.proc.stdinWrites[0]!, /check the docs/);
 
-          const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
-          const list = await invokeExecute(messageTool, { action: 'list' });
-          // list content shows shortId (first 8 chars) for readability; full agentId is in details
-          assert.match(list.content[0]!.text, new RegExp(agentId.slice(0, 8)));
+    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+    const list = await invokeExecute(messageTool, { action: 'list' });
+    // list content shows shortId (first 8 chars) for readability; full agentId is in details
+    assert.match(list.content[0]!.text, new RegExp(agentId.slice(0, 8)));
     spawned[0]!.proc.emitStdout({ type: 'agent_end', messages: [] });
     await invokeExecute(messageTool, { action: 'wait', agentId, timeoutMs: 1000 });
     await invokeExecute(messageTool, { action: 'send', agentId, message: 'also inspect tests' });
@@ -1173,6 +1539,268 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
     const killed = await invokeExecute(messageTool, { action: 'kill', agentId: secondId, remove: true });
     assert.match(killed.content[0]!.text, /killed/);
     assert.equal(spawned[1]!.killed, true);
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('AgentMessage abort sends Pi RPC abort command without killing the process', async () => {
+  const spawned: MockAgentProcess[] = [];
+  setAgentProcessFactoryForTests((_command, _args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push(proc);
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+
+    // Schema should include 'abort' in the action enum
+    const actionSchema = (messageTool.parameters as { properties: { action: { enum?: string[] } } })
+      .properties?.action;
+    assert.ok(Array.isArray(actionSchema?.enum) && actionSchema.enum.includes('abort'),
+      'abort must be in AgentMessage action schema');
+
+    const result = await invokeExecute(spawnTool, { task: 'analyze something', name: 'target' }, { cwd: '/repo' });
+    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+
+    // Send abort — process must NOT be killed
+    const aborted = await invokeExecute(messageTool, { action: 'abort', agentId });
+    assert.match(aborted.content[0]!.text, /aborted/i);
+    assert.equal(spawned[0]!.killed, undefined, 'abort must not kill the process');
+
+    // RPC must have sent { type: 'abort' }
+    const lastRpc = JSON.parse(spawned[0]!.stdinWrites.at(-1)!);
+    assert.equal(lastRpc.type, 'abort', 'abort action must send Pi RPC type:"abort"');
+
+    // Aborting an already-exited agent is a no-op (no extra RPC sent)
+    spawned[0]!.close(0);
+    const writesBefore = spawned[0]!.stdinWrites.length;
+    await invokeExecute(messageTool, { action: 'abort', agentId });
+    assert.equal(spawned[0]!.stdinWrites.length, writesBefore, 'abort on exited agent sends no extra RPC');
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('evictStaleAgents removes oldest terminal agents when registry reaches MAX_AGENT_RECORDS', async () => {
+  const spawned: MockAgentProcess[] = [];
+  setAgentProcessFactoryForTests((_command, _args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push(proc);
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+
+    // Spawn 50 agents (MAX_AGENT_RECORDS) and let them all exit
+    const ids: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const r = await invokeExecute(spawnTool, { task: `task ${i}`, name: `agent-${i}` }, { cwd: '/repo' });
+      ids.push((r.details as { agent: { agentId: string } }).agent.agentId);
+    }
+    // Let first 40 exit (terminal) — keep last 10 running
+    for (let i = 0; i < 40; i++) {
+      spawned[i]!.close(0);
+    }
+
+    // Spawn one more — should evict the oldest terminal agent (agent-0)
+    const overflow = await invokeExecute(spawnTool, { task: 'overflow', name: 'overflow-agent' }, { cwd: '/repo' });
+    const overflowId = (overflow.details as { agent: { agentId: string } }).agent.agentId;
+
+    // List should not include the evicted agent
+    const list = await invokeExecute(messageTool, { action: 'list' });
+    // overflow-agent must appear in list
+    assert.match(list.content[0]!.text, /overflow-agent/);
+    // Total agent count in the registry must be ≤ MAX_AGENT_RECORDS (50)
+    const agentCount = (list.details as { agents: unknown[] }).agents.length;
+    assert.ok(agentCount <= 50, `Registry must stay ≤ 50 agents, got ${agentCount}`);
+    // ids[0] (oldest terminal) must be gone
+    await assert.rejects(
+      () => invokeExecute(messageTool, { action: 'status', agentId: ids[0] }),
+      /No agent found/,
+      'Oldest evicted agent must not be in the registry',
+    );
+    void overflowId;
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('waitForAgent timeout error uses agent name, not internal UUID', async () => {
+  const spawned: MockAgentProcess[] = [];
+  setAgentProcessFactoryForTests((_command, _args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push(proc);
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+
+    const result = await invokeExecute(spawnTool, { task: 'run forever', name: 'my-named-agent' }, { cwd: '/repo' });
+    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+
+    // Wait with a tiny timeout — must mention the agent name, not the UUID
+    await assert.rejects(
+      () => invokeExecute(messageTool, { action: 'wait', agentId, timeoutMs: 1 }),
+      (err: Error) => {
+        assert.ok(err.message.includes('my-named-agent'), `Error must include agent name, got: ${err.message}`);
+        assert.ok(!err.message.includes(agentId), `Error must NOT expose internal UUID, got: ${err.message}`);
+        return true;
+      },
+    );
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('getAgent throws actionable error for missing or unknown agentId', async () => {
+  setAgentProcessFactoryForTests((_command, _args, _options) => createMockAgentProcess());
+  try {
+    const { tools } = await captureExtensions();
+    const messageTool = tools.get('AgentMessage')!;
+
+    // Missing agentId → clear message directing to action:"list"
+    await assert.rejects(
+      () => invokeExecute(messageTool, { action: 'status' }),
+      (err: Error) => {
+        assert.ok(err.message.includes('action:"list"'), `Must mention action:"list", got: ${err.message}`);
+        return true;
+      },
+    );
+
+    // Unknown agentId → mentions how many active agents exist
+    await assert.rejects(
+      () => invokeExecute(messageTool, { action: 'status', agentId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }),
+      (err: Error) => {
+        assert.ok(err.message.includes('No agent found'), `Must say "No agent found", got: ${err.message}`);
+        assert.ok(err.message.includes('action:"list"'), `Must mention action:"list", got: ${err.message}`);
+        return true;
+      },
+    );
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('AgentMessage wait with remove:true cleans up agent from registry after completion', async () => {
+  const spawned: MockAgentProcess[] = [];
+  setAgentProcessFactoryForTests((_command, _args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push(proc);
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+
+    const result = await invokeExecute(spawnTool, { task: 'do work', name: 'temp-worker' }, { cwd: '/repo' });
+    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+
+    // Complete the agent
+    spawned[0]!.emitStdout({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } });
+    spawned[0]!.emitStdout({ type: 'agent_end', messages: [] });
+
+    // Wait with remove:true
+    const waited = await invokeExecute(messageTool, { action: 'wait', agentId, timeoutMs: 1000, remove: true });
+    assert.match(waited.content[0]!.text, /completed/i);
+
+    // Agent must be gone from registry
+    await assert.rejects(
+      () => invokeExecute(messageTool, { action: 'status', agentId }),
+      /No agent found/,
+      'Agent must be removed from registry after wait+remove',
+    );
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('RPC response with success:false surfaces error in agent result', async () => {
+  const spawned: MockAgentProcess[] = [];
+  setAgentProcessFactoryForTests((_command, _args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push(proc);
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+
+    const result = await invokeExecute(spawnTool, { task: 'do something', name: 'rpc-test' }, { cwd: '/repo' });
+    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+
+    // Simulate Pi sending a failed RPC response (e.g. prompt rejected while streaming)
+    spawned[0]!.emitStdout({
+      type: 'response',
+      command: 'prompt',
+      success: false,
+      error: 'agent is already streaming — provide streamingBehavior',
+    });
+
+    // Status must surface the RPC error
+    const status = await invokeExecute(messageTool, { action: 'status', agentId });
+    assert.match(
+      status.content[0]!.text,
+      /already streaming|streamingBehavior|RPC command failed/,
+      'RPC error must appear in agent status output',
+    );
+    const det = status.details as { agent: { error?: string } };
+    assert.ok(det.agent.error, 'error field must be set on the agent record');
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('AgentMessage action schema includes all documented actions', async () => {
+  const { tools } = await captureExtensions();
+  const messageTool = tools.get('AgentMessage')!;
+  const actionSchema = (messageTool.parameters as { properties: { action: { enum?: string[] } } })
+    .properties?.action;
+  const expectedActions = ['list', 'status', 'send', 'steer', 'followUp', 'wait', 'kill', 'abort'];
+  for (const action of expectedActions) {
+    assert.ok(
+      actionSchema?.enum?.includes(action),
+      `AgentMessage action schema must include "${action}"`,
+    );
+  }
+});
+
+
+test('cleanupSpawnedAgentsForShutdown kills only non-terminal spawned workers', async () => {
+  const spawned: MockAgentProcess[] = [];
+  setAgentProcessFactoryForTests((_command, _args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push(proc);
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+
+    const finished = await invokeExecute(spawnTool, { task: 'finish', name: 'finished-worker' }, { cwd: '/repo' });
+    const finishedId = (finished.details as { agent: { agentId: string } }).agent.agentId;
+    spawned[0]!.close(0);
+
+    const running = await invokeExecute(spawnTool, { task: 'keep running', name: 'running-worker' }, { cwd: '/repo' });
+    const runningId = (running.details as { agent: { agentId: string } }).agent.agentId;
+
+    assert.equal(cleanupSpawnedAgentsForShutdown(), 1);
+    assert.equal(spawned[0]!.killed, undefined, 'terminal worker must not be killed again');
+    assert.equal(spawned[1]!.killed, true, 'running worker must be killed during shutdown cleanup');
+
+    const finishedStatus = await invokeExecute(messageTool, { action: 'status', agentId: finishedId });
+    assert.match(finishedStatus.content[0]!.text, /status: exited/);
+    const runningStatus = await invokeExecute(messageTool, { action: 'status', agentId: runningId });
+    assert.match(runningStatus.content[0]!.text, /status: killed/);
   } finally {
     setAgentProcessFactoryForTests(null);
   }

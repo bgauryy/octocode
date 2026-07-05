@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -79,19 +80,47 @@ describe('serverManifest', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('resolves a cached server only when the .ok completion marker exists', () => {
+  it('resolves a cached server only when the .ok marker matches the binary hash and size', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'octocode-lsp-cache-'));
     process.env.OCTOCODE_LSP_CACHE_DIR = dir;
     const binPath = cachedServerBinPath('rust-analyzer', 'linux-x64');
     expect(binPath).toBeTruthy();
     mkdirSync(path.dirname(binPath!), { recursive: true });
-    writeFileSync(binPath!, 'binary\n');
+    const binary = Buffer.from('binary\n');
+    writeFileSync(binPath!, binary);
 
     // Binary present but no marker → treated as a partial/corrupt install.
     expect(resolveCachedServer('rust-analyzer', 'linux-x64')).toBeNull();
 
-    // Marker written last → now trusted.
+    // Marker present but malformed → treated as corrupt.
     writeFileSync(`${binPath}.ok`, 'sha256\n');
+    expect(resolveCachedServer('rust-analyzer', 'linux-x64')).toBeNull();
+
+    // Marker hash mismatch → treated as corrupt.
+    writeFileSync(
+      `${binPath}.ok`,
+      JSON.stringify({ binarySha256: '0'.repeat(64), size: binary.length })
+    );
+    expect(resolveCachedServer('rust-analyzer', 'linux-x64')).toBeNull();
+
+    // Marker size mismatch → treated as corrupt.
+    writeFileSync(
+      `${binPath}.ok`,
+      JSON.stringify({
+        binarySha256: createHash('sha256').update(binary).digest('hex'),
+        size: binary.length + 1,
+      })
+    );
+    expect(resolveCachedServer('rust-analyzer', 'linux-x64')).toBeNull();
+
+    // Marker written last with matching binary hash + size → now trusted.
+    writeFileSync(
+      `${binPath}.ok`,
+      JSON.stringify({
+        binarySha256: createHash('sha256').update(binary).digest('hex'),
+        size: binary.length,
+      })
+    );
     expect(resolveCachedServer('rust-analyzer', 'linux-x64')).toBe(binPath);
 
     rmSync(dir, { recursive: true, force: true });
