@@ -22,6 +22,7 @@ const SOURCE_PATHS = {
   // has a scripts/ directory — zero npm publish dependency for standalone skills.
   configLoader: CONFIG_LOADER_SRC,
   rootSkills: path.join(repoRoot, 'skills'),
+  subagents: path.join(packageRoot, 'subagents'),
   skills: path.join(packageRoot, 'skills'),
   systemPrompt: path.join(packageRoot, 'docs', 'PI', 'APPEND_SYSTEM.md'),
   // octocode CLI — bundled at build time so the pi-extension is self-contained.
@@ -32,6 +33,7 @@ const SOURCE_PATHS = {
 const OUTPUT_PATHS = {
   extension: path.join(distDir, 'index.js'),
   skills: path.join(distDir, 'skills'),
+  subagents: path.join(distDir, 'subagents'),
   systemPrompt: path.join(distDir, 'system', 'APPEND_SYSTEM.md'),
   // bundled octocode CLI — agent uses: node $OCTOCODE_CLI <command>
   cli: path.join(distDir, 'cli'),
@@ -49,10 +51,12 @@ const SKIPPED_DIRECTORIES = new Set([
   'target',
 ]);
 
-// octocode-awareness is excluded from the pi-extension skill list: the complete
-// skill and scripts are owned by @octocodeai/octocode-awareness and consumed by import.
-// octocode (architecture docs) and octocode-stats are excluded as meta-docs/utilities.
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness', 'octocode-stats']);
+// Skills excluded from root/skills/ → packages/octocode-pi-extension/skills/ sync:
+//   octocode-awareness — owned by @octocodeai/octocode-awareness; consumed by direct import, not skill copy.
+//   octocode / octocode-stats — architecture docs and utilities, not user-facing skills.
+//   browser-agent — canonical source lives in packages/octocode-pi-extension/skills/browser-agent/;
+//                   it is NOT sourced from root/skills/ so refreshPackageSkills must not overwrite it.
+const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness', 'octocode-stats', 'browser-agent']);
 
 function isSecretEnvFile(name) {
   return name === '.env' || (name.startsWith('.env.') && name !== '.env.example');
@@ -242,6 +246,10 @@ function build() {
   copyFile(SOURCE_PATHS.configLoader, path.join(distDir, 'env.js'));
   copyFile(SOURCE_PATHS.systemPrompt, OUTPUT_PATHS.systemPrompt);
   copyDirectory(SOURCE_PATHS.skills, OUTPUT_PATHS.skills);
+  // Copy subagents/ to dist/subagents/ (SYSTEM_PROMPT.md files loaded at runtime)
+  if (fs.existsSync(SOURCE_PATHS.subagents)) {
+    copyDirectory(SOURCE_PATHS.subagents, OUTPUT_PATHS.subagents);
+  }
   // Inject @octocodeai/config source into every skill scripts/ dir — standalone, no npm needed.
   const configInjected = injectConfigIntoSkills(OUTPUT_PATHS.skills);
 

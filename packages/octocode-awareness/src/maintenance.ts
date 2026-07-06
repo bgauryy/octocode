@@ -14,7 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { hasFts, rebuildFts } from './db.js';
+import { hasFts, rebuildFts, evictExpiredLocks } from './db.js';
 import { fillScope } from './git.js';
 import { parseJsonList, utcNow } from './helpers.js';
 import { getNotifications } from './notifications.js';
@@ -153,6 +153,10 @@ function openRefinementCount(
  * — Count of open refinements
  * Designed to be called by notify-deliver.sh before every user prompt.
  */
+// MAINT-3: Briefing label allowlist as a named constant — previously buried inside
+// notifyGet making it invisible and hard to tune.
+const BRIEFING_LABELS = ['GOTCHA', 'BUG', 'DECISION', 'IMPROVEMENT', 'ARCHITECTURE', 'SECURITY'] as const;
+
 export function notifyGet(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
@@ -160,6 +164,9 @@ export function notifyGet(
   const wsPath = (params.workspace as string | undefined) ?? null;
   const format  = (params.format as string | undefined) ?? 'json';
   const agentId = String(params.agent_id ?? params.agentId ?? 'agent');
+  // MAINT-2: Use the cwd from params (workspace path) not process.cwd() which
+  // would be the shell directory, potentially different from the actual workspace.
+  const notifyCwd = wsPath ?? (params.cwd as string | undefined) ?? process.cwd();
 
   const items: BriefItem[] = [];
 
@@ -173,7 +180,7 @@ export function notifyGet(
       unreadOnly: true,
       markRead: false,
       limit: 5,
-      cwd: process.cwd(),
+      cwd: notifyCwd,
     });
     for (const n of inbox.notifications) {
       const target = n.to_agent ? `to ${n.to_agent}` : 'broadcast';
@@ -191,8 +198,9 @@ export function notifyGet(
   try {
     type MemRow = { memory_id: string; observation: string; label: string; importance_score: number };
     const conditions: string[] = ["state = 'ACTIVE'", "importance_score >= 6",
-      "label IN ('GOTCHA','BUG','DECISION','IMPROVEMENT','ARCHITECTURE','SECURITY')"];
-    const bindParams: (string | number)[] = [];
+      `label IN (${BRIEFING_LABELS.map(() => '?').join(',')})`];
+    // BRIEFING_LABELS binds must be pushed before wsPath so they match the IN(?) order in WHERE
+    const bindParams: (string | number)[] = [...BRIEFING_LABELS];
     if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
     const memRows = db.prepare(
       `SELECT memory_id, observation, label, importance_score
@@ -386,8 +394,8 @@ export function sessionCapture(
 }
 
 /**
- * REAL: Poll until target file locks clear, bounded by waitMs.
- * Uses Atomics.wait for efficient sleeping without busy-spin.
+ * Poll until target file locks clear, bounded by waitMs.
+ * Retries every retryIntervalMs using a spin-sleep (MAINT-1: no SharedArrayBuffer dependency).
  */
 export function waitForLock(
   db: DatabaseSync,
@@ -424,10 +432,18 @@ export function waitForLock(
   let conflicts = checkLocks();
   const waited = () => Date.now() - start;
 
+  // MAINT-1: Replace SharedArrayBuffer + Atomics.wait with synchronous sleep via
+  // a busy-wait on a Date.now() loop. SharedArrayBuffer requires crossOriginIsolated
+  // headers or --experimental-shared-memory and throws ReferenceError in restricted
+  // environments. The workaround is a simple spin-sleep; for long waits the retry
+  // interval is bounded by min(retryMs, remaining) so we don't overshoot.
+  function sleepMs(ms: number): void {
+    const until = Date.now() + ms;
+    while (Date.now() < until) { /* spin */ }
+  }
+
   while (conflicts.length > 0 && waited() < waitMs) {
-    // Atomics.wait blocks the thread cleanly (no spin)
-    const buf = new Int32Array(new SharedArrayBuffer(4));
-    Atomics.wait(buf, 0, 0, Math.min(retryMs, waitMs - waited()));
+    sleepMs(Math.min(retryMs, waitMs - waited()));
     conflicts = checkLocks();
   }
 
@@ -480,8 +496,12 @@ export function digest(
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 86400000).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 86400000).toISOString();
 
+  // MAINT-4: Use updated_at for both handoff and done retention.
+  // The old code used created_at for handoffs and updated_at for done refinements.
+  // A recently-updated handoff would be deleted if it was created long ago.
+  // updated_at reflects the last meaningful activity and is the correct basis.
   const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
-     WHERE (quality = 'handoff' AND created_at < ?)
+     WHERE (quality = 'handoff' AND updated_at < ?)
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
 
   // dry_run: count what would change without mutating anything
@@ -530,9 +550,10 @@ export function digest(
   const { pruned_locks } = pruneStale(db, {});
 
   // 4. Prune old session handoffs and completed repo-fix refinements.
+  // MAINT-4: Use updated_at for handoff retention (was created_at — see refinementRetentionSql above).
   const pruneRefinementsRes = db.prepare(
     `DELETE FROM refinements
-     WHERE (quality = 'handoff' AND created_at < ?)
+     WHERE (quality = 'handoff' AND updated_at < ?)
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
   ).run(handoffCutoff, doneCutoff) as { changes: number };
 
@@ -589,13 +610,11 @@ export function getWorkspaceStatus(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
 ): WorkspaceStatusResult {
-  const now = utcNow();
   const wsPath = (params.workspace_path as string | undefined) ?? null;
 
-  // Evict expired locks so they don't show as "active"
-  db.prepare(
-    'DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?'
-  ).run(now);
+  // ARCH-3: Delegate lock eviction to the shared evictExpiredLocks function
+  // instead of duplicating the DELETE statement.
+  evictExpiredLocks(db);
 
   const activeMemories = (db.prepare(
     `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'ACTIVE'`
@@ -692,8 +711,9 @@ export function exportMemoryDoc(
   for (const [label, mems] of Object.entries(byLabel)) {
     lines.push(`## ${label}`, '');
     for (const m of mems) {
-      const tags: string[] = (() => { try { return JSON.parse(m.tags_json) as string[]; } catch { return []; } })();
-      const refs: string[] = (() => { try { return JSON.parse(m.references_json) as string[]; } catch { return []; } })();
+      // MAINT-5 / ARCH-7: Use parseJsonList instead of duplicated inline IIFEs
+      const tags = parseJsonList(m.tags_json);
+      const refs = parseJsonList(m.references_json);
       lines.push(
         `### \`${m.memory_id}\` — importance ${m.importance_score}`,
         `**Context:** ${m.task_context}`,
@@ -714,51 +734,96 @@ export function exportMemoryDoc(
 // ─── Export harness ─────────────────────────────────────────────────────────────
 
 /**
- * Returns top recurring lessons formatted as an AGENTS.md block.
+ * Returns lessons formatted as an AGENTS.md block.
  * Never writes files — caller decides where to put the output.
+ *
+ * R-3: Two tiers, in priority order:
+ *   1. Harness memories — `harness`-tagged via `reflect fix_harness:` (any importance).
+ *      These are explicit agent-proposed skill improvements. Always included first.
+ *   2. High-importance general lessons — importance ≥ minImportance, label ≠ EXPERIENCE.
+ *      Raw reflections (EXPERIENCE) are excluded: they are inputs to the harness loop,
+ *      not standing guidance.
+ * `harness_only:true` returns tier 1 only (proposed improvements, no general wisdom).
  */
 export function exportHarness(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
-): { count: number; markdown: string; memories: Array<{ memory_id: string; label: string; importance: number; observation: string }> } {
+): { count: number; markdown: string; harness_count: number; memories: Array<{ memory_id: string; label: string; importance: number; observation: string; tier: 'harness' | 'general' }> } {
   const limit = Number(params.limit ?? 10);
   const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
   const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const harnessOnly = Boolean(params.harness_only ?? params.harnessOnly ?? false);
 
-  const conds: string[] = ["state = 'ACTIVE'", 'importance_score >= ?'];
-  const bindParams: (string | number)[] = [minImportance];
-  if (wsPath) { conds.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+  const scopeCond = wsPath ? '(workspace_path = ? OR workspace_path IS NULL)' : null;
+  const scopeParams: (string | number)[] = wsPath ? [wsPath] : [];
 
-  type MemRow = { memory_id: string; label: string; importance_score: number; observation: string };
-  const rows = db.prepare(
-    `SELECT memory_id, label, importance_score, observation
+  type MemRow = { memory_id: string; label: string; importance_score: number; observation: string; tags_text: string };
+
+  // Tier 1: harness-tagged memories (explicit skill improvement proposals)
+  const harnessRows = db.prepare(
+    `SELECT memory_id, label, importance_score, observation, tags_text
      FROM agent_memories
-     WHERE ${conds.join(' AND ')}
-     ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+     WHERE state = 'ACTIVE'
+       AND tags_text LIKE '%,harness,%'
+       ${ scopeCond ? `AND ${scopeCond}` : ''}
+     ORDER BY importance_score DESC, access_count DESC
      LIMIT ?`
-  ).all(...bindParams, limit) as unknown as MemRow[];
+  ).all(...scopeParams, limit) as unknown as MemRow[];
 
-  const memories = rows.map(r => ({
-    memory_id: r.memory_id,
-    label: r.label,
-    importance: r.importance_score,
-    observation: r.observation,
-  }));
+  const memories: Array<{ memory_id: string; label: string; importance: number; observation: string; tier: 'harness' | 'general' }> = [];
 
-  if (memories.length === 0) {
-    return { count: 0, markdown: '<!-- No high-importance memories to export -->', memories: [] };
+  for (const r of harnessRows) {
+    memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance_score, observation: r.observation, tier: 'harness' });
   }
 
+  // Tier 2: high-importance general lessons (not EXPERIENCE, not already in tier 1)
+  if (!harnessOnly && memories.length < limit) {
+    const harnessIds = new Set(memories.map(m => m.memory_id));
+    const remaining = limit - memories.length;
+    const generalRows = db.prepare(
+      `SELECT memory_id, label, importance_score, observation, tags_text
+       FROM agent_memories
+       WHERE state = 'ACTIVE'
+         AND importance_score >= ?
+         AND label <> 'EXPERIENCE'
+         AND tags_text NOT LIKE '%,harness,%'
+         ${ scopeCond ? `AND ${scopeCond}` : ''}
+       ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+       LIMIT ?`
+    ).all(minImportance, ...scopeParams, remaining * 2) as unknown as MemRow[];
+
+    for (const r of generalRows) {
+      if (!harnessIds.has(r.memory_id) && memories.length < limit) {
+        memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance_score, observation: r.observation, tier: 'general' });
+      }
+    }
+  }
+
+  if (memories.length === 0) {
+    return { count: 0, harness_count: 0, markdown: '<!-- No harness or high-importance memories to export -->', memories: [] };
+  }
+
+  const harnessCount = memories.filter(m => m.tier === 'harness').length;
   const lines = [
-    '## Agent lessons (auto-generated by octocode-awareness export-harness)',
+    '## Agent lessons (generated by octocode-awareness · memory_digest export_doc:true)',
     '',
-    '<!-- Do not edit manually. Re-run `awareness export-harness` to refresh. -->',
+    '<!-- Tier 1: harness proposals from memory_reflect fix_harness: -->',
     '',
   ];
-  for (const m of memories) {
-    lines.push(`- **[${m.label}:${m.importance}]** ${m.observation}`);
+
+  const harnessMems = memories.filter(m => m.tier === 'harness');
+  const generalMems = memories.filter(m => m.tier === 'general');
+
+  for (const m of harnessMems) {
+    lines.push(`- **[HARNESS:${m.importance}]** ${m.observation}`);
+  }
+  if (generalMems.length > 0) {
+    lines.push('', '<!-- Tier 2: high-importance general lessons -->', '');
+    for (const m of generalMems) {
+      lines.push(`- **[${m.label}:${m.importance}]** ${m.observation}`);
+    }
   }
   lines.push('');
 
-  return { count: memories.length, markdown: lines.join('\n'), memories };
+  return { count: memories.length, harness_count: harnessCount, markdown: lines.join('\n'), memories };
 }

@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { beforeAll, test } from 'vitest';
 import {
   MANAGED_BLOCK_END,
   MANAGED_BLOCK_START,
@@ -33,6 +34,30 @@ import { applyCustomEditsToContent, clearEditReadStateForTests, recordFileReadSt
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(packageRoot, 'dist');
+
+let distAssetsReady = false;
+
+function ensureDistAssetsForUnitTests(): void {
+  if (distAssetsReady) return;
+  const paths = getAssetPaths(distDir);
+  const sourceSkills = listBundledSkills(packageRoot);
+  const distSkills = listBundledSkills(distDir);
+  if (
+    !fs.existsSync(paths.systemPrompt) ||
+    sourceSkills.length === 0 ||
+    distSkills.join('\0') !== sourceSkills.join('\0')
+  ) {
+    execFileSync(process.execPath, [path.join(packageRoot, 'scripts', 'build.mjs')], {
+      cwd: packageRoot,
+      stdio: 'pipe',
+    });
+  }
+  distAssetsReady = true;
+}
+
+beforeAll(() => {
+  ensureDistAssetsForUnitTests();
+}, 120_000);
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -83,6 +108,7 @@ interface ToolDef {
   name: string;
   label?: string;
   description?: string;
+  promptSnippet?: string;
   promptGuidelines?: string[];
   parameters: Record<string, unknown>;
   execute: (id: string, params: Record<string, unknown>, sig?: unknown, upd?: unknown, ctx?: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean; details?: unknown }>;
@@ -398,16 +424,24 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
       type: 'lock',
       target_files: ['src/tool-lock.js'],
       ttl_ms: 1000,
+      reasoning: 'coordinate test edit',
     }, undefined, undefined, ctx);
-    const locked = JSON.parse(lockedResult.content[0]!.text) as { intentId: string; files: string[]; expiresAt: string };
+    const locked = JSON.parse(lockedResult.content[0]!.text) as { intentId: string; files: string[]; reasoning: string; acquiredAt: string; expiresAt: string; locks: Array<{ file_path: string; reasoning: string; acquired_at: string; expires_at: string }> };
     assert.match(locked.intentId, /^intent_/);
     assert.deepEqual(locked.files, [path.join(ctx.cwd, 'src/tool-lock.js')]);
+    assert.equal(locked.reasoning, 'coordinate test edit');
+    assert.ok(locked.acquiredAt);
     assert.ok(locked.expiresAt);
+    assert.equal(locked.locks[0]!.file_path, path.join(ctx.cwd, 'src/tool-lock.js'));
+    assert.equal(locked.locks[0]!.reasoning, 'coordinate test edit');
+    assert.ok(locked.locks[0]!.acquired_at);
+    assert.ok(locked.locks[0]!.expires_at);
 
     const statusResult = await tool.execute('status-1', { type: 'status' }, undefined, undefined, ctx);
-    const status = JSON.parse(statusResult.content[0]!.text) as { locks: Array<{ intent_id: string }> };
+    const status = JSON.parse(statusResult.content[0]!.text) as { locks: Array<{ intent_id: string; reasoning: string }> };
     assert.equal(status.locks.length, 1);
     assert.equal(status.locks[0]!.intent_id, locked.intentId);
+    assert.equal(status.locks[0]!.reasoning, 'coordinate test edit');
 
     const workspaceResult = await workspaceTool.execute('workspace-status', {}, undefined, undefined, ctx);
     const workspace = JSON.parse(workspaceResult.content[0]!.text) as { locks: Array<{ file: string }> };
@@ -1005,9 +1039,21 @@ test('registers all Octocode direct tools as native Pi tools', async () => {
   assert.equal(OCTOCODE_DIRECT_TOOL_NAMES.length, 13);
   assert.ok(!OCTOCODE_DIRECT_TOOL_NAMES.includes('unzip' as never), 'unzip is not a native Pi tool — use npx octocode unzip via bash');
 
+  for (const toolName of OCTOCODE_DIRECT_TOOL_NAMES) {
+    const tool = tools.get(toolName)!;
+    assert.equal(tool.name, toolName);
+    assert.ok(tool.label, `${toolName} has a label`);
+    assert.ok(tool.description, `${toolName} has a description`);
+    assert.ok(tool.promptSnippet, `${toolName} has a prompt snippet`);
+    assert.equal((tool.parameters as Record<string, unknown>)['type'], 'object', `${toolName} exposes an object schema`);
+    assert.ok((tool.parameters as { properties?: Record<string, unknown> }).properties, `${toolName} exposes schema properties`);
+    assert.equal(typeof tool.execute, 'function', `${toolName} has an executor`);
+    assert.equal(typeof tool.renderCall, 'function', `${toolName} has a call renderer`);
+    assert.equal(typeof tool.renderResult, 'function', `${toolName} has a result renderer`);
+  }
+
   const localViewStructure = tools.get('localViewStructure')!;
   assert.equal(localViewStructure.label, 'Local Code: Local View Structure');
-  assert.equal((localViewStructure.parameters as Record<string, unknown>)['type'], 'object');
   const props = (localViewStructure.parameters as { properties: Record<string, unknown> }).properties;
   assert.ok(props['queries'], 'bulk CLI tool schema exposed to Pi');
   const queriesItems = (props['queries'] as { items: { properties: Record<string, { maximum?: number }> } }).items;
@@ -1722,7 +1768,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.ok(spawnTool, 'spawnAgent registered');
     assert.ok(messageTool, 'AgentMessage registered');
     assert.match(spawnTool.promptGuidelines?.join('\n') ?? '', /delegation materially helps/);
+    assert.match(spawnTool.promptGuidelines?.join('\n') ?? '', /current Pi process/);
     assert.match(messageTool.promptGuidelines?.join('\n') ?? '', /synthesize findings instead of dumping raw worker JSON/);
+    assert.match(messageTool.promptGuidelines?.join('\n') ?? '', /in-memory/);
     assert.equal(tools.has('handoff_context'), false, 'legacy handoff_context removed');
 
     const result = await invokeExecute(
@@ -1803,9 +1851,15 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
 
     const first = await invokeExecute(spawnTool, { task: 'produce output', resourceMode: 'default' }, { cwd: '/repo' });
     const firstId = (first.details as { agent: { agentId: string } }).agent.agentId;
+    spawned[0]!.emitStdout({ type: 'tool_call', toolCallId: 'tool-1', toolName: 'localSearchCode' });
+    const runningStatus = await invokeExecute(messageTool, { action: 'status', agentId: firstId });
+    assert.match(runningStatus.content[0]!.text, /tools: localSearchCode:running/);
+    assert.equal((runningStatus.details as { agent: { activeTool?: string } }).agent.activeTool, 'localSearchCode');
+    spawned[0]!.emitStdout({ type: 'tool_result', toolCallId: 'tool-1', toolName: 'localSearchCode', isError: false });
     spawned[0]!.emitStdout({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'worker result' }] } });
     spawned[0]!.emitStdout({ type: 'agent_end', messages: [] });
     const waited = await invokeExecute(messageTool, { action: 'wait', agentId: firstId, timeoutMs: 1000 });
+    assert.match(waited.content[0]!.text, /tools: localSearchCode:done/);
     assert.match(waited.content[0]!.text, /worker result/);
     assert.ok(spawned[0]!.stdinWrites[0]!.includes('produce output'));
     assert.equal(spawned[0]!.stdinWrites[0]!.includes('spawnAgent'), false);

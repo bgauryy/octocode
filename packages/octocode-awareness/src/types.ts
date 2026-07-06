@@ -4,6 +4,37 @@
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
+// ─── Agent Identity (ARCH-5) ─────────────────────────────────────────────────
+
+export interface AgentIdentity {
+  agent_id: string;
+  agent_name: string;            // human-readable display name; '' if unknown
+  workspace_path: string | null; // primary workspace this agent was last seen in
+  context: string | null;        // tool context: 'pi' | 'cursor' | 'claude-code'
+  registered_at: string;
+  last_seen_at: string;
+}
+
+export interface RegisterAgentParams {
+  agentId: string;
+  agentName?: string | null;     // '' or omit if unknown
+  workspacePath?: string | null;
+  context?: string | null;       // 'pi' | 'cursor' | 'claude-code' | etc
+}
+
+export interface ListAgentsResult {
+  count: number;
+  agents: AgentIdentity[];
+}
+
+// ─── Embedding search (ARCH-6) ─────────────────────────────────────────────────
+
+/** Cosine-similarity result from searchByEmbedding(). */
+export interface EmbeddingSearchResult {
+  memory_id: string;
+  similarity: number; // 0–1
+}
+
 export type MemoryState = 'ACTIVE' | 'SUPERSEDED';
 export type LockType = 'EXCLUSIVE' | 'SHARED';
 export type IntentStatus = 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED';
@@ -102,6 +133,11 @@ export interface InsertMemoryParams {
   file?: string | null;
   fileTreeFingerprint?: string | null;
   cwd?: string;
+  /**
+   * TOOL-2: Pre-computed similar memories from a prior findSimilarMemories call.
+   * When provided, insertMemory skips its own internal findSimilarMemories query.
+   */
+  preComputedSimilar?: Array<{ memory_id: string; similarity: number }>;
 }
 
 export interface InsertMemoryResult {
@@ -242,6 +278,7 @@ export interface FileLockParams {
   targetFiles?: string[];
   lockType?: LockType;
   ttlMs?: number | null;
+  reasoning?: string | null;
   status?: IntentStatus;
   verified?: boolean;
   verifiedNote?: string;
@@ -264,13 +301,14 @@ export interface FileLockStatusEntry {
   agent_id: string;
   session_id: string | null;
   workspace_path: string | null;
+  reasoning: string;
   lock_type: LockType;
   acquired_at: string;
   expires_at: string | null;
 }
 
 export type FileLockResult =
-  | { ok: true; type: 'lock'; intentId: string; files: string[]; locks: FileLockStatusEntry[]; expiresAt: string | null }
+  | { ok: true; type: 'lock'; intentId: string; files: string[]; reasoning: string; acquiredAt: string | null; expiresAt: string | null; locks: FileLockStatusEntry[] }
   | { ok: false; type: 'lock'; conflict: true; conflicts: PreFlightIntentConflict['conflicts'] }
   | ({ ok: true; type: 'release' } & ReleaseFileLockResult)
   | { ok: true; type: 'status'; locks: FileLockStatusEntry[] }

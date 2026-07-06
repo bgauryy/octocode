@@ -4,7 +4,7 @@
 <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
 </div>
 
-> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 7 bundled skills, and a full operating-model system prompt. One package install.
+> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 8 bundled skills, and a full operating-model system prompt. One package install.
 
 ```bash
 pi install npm:@octocodeai/pi-extension
@@ -28,10 +28,10 @@ bash: node $OCTOCODE_CLI context               # show agent protocol
 |---|---|
 | System prompt (operating model) | 1 block |
 | Native Octocode tools | 13 |
-| Support tools (web, memory, agent) | 16 |
+| Support tools (web, chromeDebug, memory, agent) | 19 |
 | Custom edit tool | 1 |
 | Slash commands | 6 |
-| Bundled skills | 7 |
+| Bundled skills | 8 |
 
 ---
 
@@ -139,6 +139,14 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 |---|---|
 | `web` | Search the live web (`query`) or fetch clean page text (`url`). Provider order: Tavily → Serper → DuckDuckGo fallback. |
 
+### Browser DevTools (3)
+
+| Tool | Purpose |
+|---|---|
+| `chromeDebug` | Connect to Chrome DevTools Protocol (CDP) to debug, inspect, and control a live browser. `scheme` selects the debug need (`debug`, `network`, `console`, `screenshot`, `raw`, …). `scheme:"raw"` + `method:"Domain.method"` gives full CDP API control. Screenshots/PDFs are written to `<workspace>/.octocode/screenshots/`. Requires Chrome with `--remote-debugging-port=9222 --user-data-dir=~/.octocode/chrome-debug/profile`, or pass `launch:true`. Chrome ≥136: always uses a non-default `--user-data-dir`. |
+| `spawnSubagent` | Spawn a typed, pre-configured Pi subagent with the right tools, system prompt, and skill. Pass `agent:"browser-agent"` to spawn a Chrome DevTools specialist with `chromeDebug` + web + local read tools. The subagent stays alive for multi-turn interaction via `AgentMessage`. Accepts `url`, `port`, `launch`, `task`, `context`. Each subagent type lives under `subagents/<name>/` with its own `SYSTEM_PROMPT.md` and `skills/`. |
+| `browserAgent` | Generates a complete `spawnAgent` configuration for a dedicated browser debugging subagent. Pass `task` and optionally `url` + `port`. Returns a system prompt (with CDP reference + `chromeDebug` usage guide) and tool list `["chromeDebug"]` ready for `spawnAgent`. The spawned subagent stays alive for multi-turn interaction via `AgentMessage` — use for iterative browser work: navigate, analyze, steer, re-analyze. Pairs with the `browser-agent` skill which documents the communication protocol and all 57 CDP domains. |
+
 ### Context management (1)
 
 | Tool | Purpose |
@@ -149,8 +157,8 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 
 | Tool | Purpose |
 |---|---|
-| `spawnAgent` | Start a background Pi worker process over RPC. Returns `agentId`. Workers cannot spawn workers. |
-| `AgentMessage` | List, status, send, steer, followUp, wait, or kill spawned workers. |
+| `spawnAgent` | Start a background Pi worker process over RPC. Returns `agentId`. Workers cannot spawn workers. Registry/output previews are process-local. |
+| `AgentMessage` | List, status, send, steer, followUp, wait, abort, or kill spawned workers in the current Pi process. |
 
 ### Memory + coordination tools (12 agent tools + 2 user commands)
 
@@ -284,6 +292,8 @@ AgentMessage({ action: "wait", agentId })  →  collect result
 
 Workers run with `OCTOCODE_PI_SUBAGENT=1` in their environment. They are true child processes — not threads, not coroutines.
 
+The parent keeps worker records, output previews, and `agentId` lookup in memory. Collect needed results with `AgentMessage({ action: "wait" | "status" })` before session shutdown or reload; after that, spawn fresh workers instead of relying on old IDs.
+
 ### Resource modes
 
 | Mode | What the worker loads | When to use |
@@ -406,7 +416,13 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 
 ---
 
-## Bundled skills (7)
+## Bundled skills (8)
+
+### `browser-agent`
+
+Chrome DevTools Protocol specialist subagent. Load to understand when/how to spawn a browser debugging subagent via `spawnSubagent({agent:"browser-agent"})`. Covers: multi-turn CDP session management, `[FINDING]/[ACTION]/[DONE]` output protocol, all 57 CDP domains, `chromeDebug` scheme guide, and AgentMessage coordination patterns.
+
+**When to load:** any time browser debugging work needs multiple turns — security audits, network analysis, DOM inspection, coverage, workers/service workers, emulation, or automation.
 
 ### `octocode-research`
 

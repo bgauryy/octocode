@@ -118,9 +118,9 @@ function rowToMemory(row) {
 // src/db.ts
 var REFERENCES_INDEX_VERSION = "1";
 var REFINEMENT_QUALITY_SCHEMA_VERSION = "2";
+var FTS_INDEX_VERSION = "3";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
-var FTS_INDEX_VERSION = "2";
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
   if (configured?.trim()) return resolve2(configured.trim());
@@ -276,18 +276,61 @@ function initDb(db2) {
       PRIMARY KEY (notification_id, agent_id)
     );
 
+    -- ARCH-5: Agent identity registry \u2014 maps opaque agentIds to human-readable names.
+    -- Separate from agent_memories so the mapping persists even when memories are pruned.
+    -- ON CONFLICT logic in agents.ts ensures a non-empty name is never overwritten by ''.
+    CREATE TABLE IF NOT EXISTS agent_identities (
+      agent_id       TEXT PRIMARY KEY,
+      agent_name     TEXT NOT NULL DEFAULT '',
+      workspace_path TEXT,
+      context        TEXT,   -- 'pi' | 'cursor' | 'claude-code' | etc
+      registered_at  TEXT NOT NULL,
+      last_seen_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace ON agent_identities(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_identities_last_seen ON agent_identities(last_seen_at DESC);
+
     CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    -- DB-1: workspace_path and tags_text used in nearly every scope filter \u2014 previously unindexed
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_tags_text ON agent_memories(tags_text);
     CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_file_locks_acquired_at ON file_locks(acquired_at);
     CREATE INDEX IF NOT EXISTS idx_file_locks_expires_at ON file_locks(expires_at);
     CREATE INDEX IF NOT EXISTS idx_refinements_state ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_repo ON refinements(repo);
+    -- DB-2: notifications table had zero indexes; all inbox queries were full table scans
+    CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
+    CREATE INDEX IF NOT EXISTS idx_notifications_to_agent ON notifications(to_agent);
+    CREATE INDEX IF NOT EXISTS idx_notifications_workspace_path ON notifications(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+    -- Composite for getRefinements ORDER BY CASE state ... , updated_at DESC
+    CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
+
+    -- Critical missing indexes (verified from production DB) -------------------
+    -- agent_intents: status-only scan is a full table scan with 1679 rows in prod
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_status ON agent_intents(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
+    -- agent_memories: composite scope index covers (workspace_path, repo, ref) at once
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
+    -- file_locks: session-based release queries
+    CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id);
+    -- notifications: thread and to_agent inbox
+    CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
+    -- Deduplicate idx_notifications_to_agent; keep the shorter alias too
+    CREATE INDEX IF NOT EXISTS idx_notifications_to ON notifications(to_agent);
+    -- memory_references: cover both column name spellings from different migration versions
+    CREATE INDEX IF NOT EXISTS idx_memory_references_reference ON memory_references(reference);
   `);
   ensureMemoryColumns(db2);
   ensureIntentColumns(db2);
@@ -408,18 +451,8 @@ function hasFts(db2) {
 }
 function ftsTermsForRow(row) {
   const tags = parseJsonList(row.tags_json);
-  const refs = parseJsonList(row.references_json);
   const label = (row.label ?? "OTHER").toLowerCase();
-  return [
-    ...tags,
-    ...refs,
-    label,
-    row.file ?? "",
-    row.failure_signature ?? "",
-    row.workspace_path ?? "",
-    row.repo ?? "",
-    row.ref ?? ""
-  ].filter(Boolean).join(" ");
+  return [...tags, label].filter(Boolean).join(" ");
 }
 function referenceKind(reference) {
   if (/^https?:\/\//.test(reference)) return "url";
@@ -451,13 +484,18 @@ function ensureMemoryReferencesVersion(db2) {
 }
 function rebuildFts(db2) {
   db2.exec("DELETE FROM memory_fts");
-  const rows = db2.prepare("SELECT * FROM agent_memories").all();
+  const rows = db2.prepare(
+    "SELECT memory_id, task_context, observation, tags_json, label FROM agent_memories"
+  ).all();
   const insert = db2.prepare(
     "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
   );
   for (const row of rows) {
     insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
   }
+}
+function evictExpiredLocks(db2) {
+  db2.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(utcNow());
 }
 function ensureFtsVersion(db2) {
   if (!hasFts(db2)) return;
@@ -515,9 +553,41 @@ var ACCESS_SATURATION = 50;
 var SCORING_PREFETCH_FACTOR = 3;
 var SIMILARITY_THRESHOLD = 0.45;
 var SIMILARITY_PREFETCH = 12;
+var STOP_WORDS = /* @__PURE__ */ new Set([
+  // Articles / conjunctions
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "not",
+  // Demonstratives
+  "this",
+  "that",
+  "its",
+  // Question words
+  "what",
+  "when",
+  "about",
+  "before",
+  "after",
+  // Common verbs (too generic to be useful in memory search)
+  "are",
+  "was",
+  "has",
+  "had",
+  "can",
+  "did",
+  "use",
+  "used",
+  "using"
+]);
 function textTokens(text) {
-  const stopWords = /* @__PURE__ */ new Set(["the", "and", "for", "with", "this", "that", "about", "before", "after", "from", "into", "when", "what"]);
-  return new Set((text.toLowerCase().match(/[a-z0-9_:-]{3,}/g) ?? []).filter((t) => !stopWords.has(t)));
+  const split = text.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
+  return new Set(
+    (split.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
+  );
 }
 function jaccard(a, b) {
   if (a.size === 0 || b.size === 0) return 0;
@@ -556,13 +626,14 @@ function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
   return weights.importance * importance + weights.recency * recency + weights.access * Math.min(access, 1) + weights.lexical * lexNorm;
 }
 function buildFtsQuery(query) {
-  const stopWords = /* @__PURE__ */ new Set(["the", "and", "for", "with", "this", "that", "about", "before", "after"]);
+  const normalized = query.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
   const tokens = [
     ...new Set(
-      (query.toLowerCase().match(/[a-z0-9_]{2,}/g) ?? []).filter((t) => !stopWords.has(t))
+      (normalized.match(/[a-z0-9]{3,}/g) ?? []).filter((t) => !STOP_WORDS.has(t))
     )
   ].slice(0, 16);
-  return tokens.length > 0 ? tokens.join(" OR ") : null;
+  if (tokens.length === 0) return null;
+  return tokens.length <= 2 ? tokens.join(" ") : tokens.join(" OR ");
 }
 function fallbackSearch(db2, conditions, params, limit) {
   const sql = `
@@ -594,7 +665,7 @@ function lexicalSearch(db2, query, limit, minImportance, tags, labels, states) {
   if (ftsQuery && hasFts(db2)) {
     try {
       const sql = `
-        SELECT m.*, ABS(bm25(memory_fts)) AS _bm25
+        SELECT m.*, ABS(bm25(memory_fts, 0, 10, 7, 2)) AS _bm25
         FROM agent_memories m
         JOIN memory_fts ON memory_fts.memory_id = m.memory_id
         WHERE memory_fts MATCH ?
@@ -663,7 +734,7 @@ function insertMemory(db2, params) {
     { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
-  const similar = findSimilarMemories(db2, `${taskContext} ${observation}`);
+  const similar = params.preComputedSimilar ?? findSimilarMemories(db2, `${taskContext} ${observation}`);
   const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
   const similarMemoryIds = similar.map((m) => m.memory_id);
   db2.prepare(`
@@ -809,19 +880,15 @@ function getMemory(db2, params = {}) {
   }
   if (references.length > 0) {
     const refSet = new Set(references);
-    const fromTable = /* @__PURE__ */ new Set();
     try {
+      const fromTable = /* @__PURE__ */ new Set();
       for (const ref of references) {
         const rows = db2.prepare(
           "SELECT memory_id FROM memory_references WHERE reference = ?"
         ).all(ref);
         rows.forEach((r) => fromTable.add(r.memory_id));
       }
-      if (fromTable.size > 0) {
-        memories = memories.filter((m) => fromTable.has(m.memory_id));
-      } else {
-        memories = memories.filter((m) => (m.references ?? []).some((r) => refSet.has(r)));
-      }
+      memories = memories.filter((m) => fromTable.has(m.memory_id));
     } catch {
       memories = memories.filter((m) => (m.references ?? []).some((r) => refSet.has(r)));
     }
@@ -960,19 +1027,27 @@ function mineWeakness(db2, params = {}) {
     ORDER BY score DESC
     LIMIT ?
   `).all(...bindParams, minCount, limit);
+  const allSigs = rows.map((r) => r.failure_signature);
+  const repMap = /* @__PURE__ */ new Map();
+  if (allSigs.length > 0) {
+    const ph = allSigs.map(() => "?").join(",");
+    const repRows = db2.prepare(
+      `SELECT failure_signature, observation, max(importance_score)
+       FROM agent_memories
+       WHERE failure_signature IN (${ph}) AND state = 'ACTIVE'
+       GROUP BY failure_signature`
+    ).all(...allSigs);
+    for (const r of repRows) repMap.set(r.failure_signature, r.observation);
+  }
   const clusters = rows.map((row) => {
     const ids = row.ids.split(",");
-    const rep = db2.prepare(
-      `SELECT observation FROM agent_memories WHERE memory_id IN (${ids.map(() => "?").join(",")})
-       ORDER BY importance_score DESC LIMIT 1`
-    ).get(...ids);
     return {
       failure_signature: row.failure_signature,
       count: row.freq,
       avg_importance: Math.round(row.avg_imp * 10) / 10,
       score: Math.round(row.score * 10) / 10,
       memory_ids: ids,
-      representative: rep?.observation?.slice(0, 200) ?? "",
+      representative: (repMap.get(row.failure_signature) ?? "").slice(0, 200),
       labels: row.labels.split(",").filter(Boolean)
     };
   });
@@ -1150,7 +1225,7 @@ function preFlightIntent(db2, params) {
   const now = utcNow();
   const wsPath = workspaceRoot(workspacePath);
   const absFiles = resolveTargetFiles(targetFiles, wsPath);
-  db2.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now);
+  evictExpiredLocks(db2);
   const conflicts = [];
   for (const absPath of absFiles) {
     const conflictMode = lockType === "SHARED" ? "fl.lock_type = 'EXCLUSIVE'" : "1 = 1";
@@ -1251,8 +1326,22 @@ function releaseFileLock(db2, params) {
   const locks = db2.prepare(
     `SELECT fl.lock_id, fl.intent_id, fl.file_path FROM file_locks fl WHERE ${where}`
   ).all(...whereParams);
-  const deleteWhere = where.replace(/\bfl\./g, "");
-  db2.prepare(`DELETE FROM file_locks WHERE ${deleteWhere}`).run(...whereParams);
+  const deleteClauses = ["agent_id = ?"];
+  const deleteParams = [agentId];
+  if (sessionId) {
+    deleteClauses.push("session_id = ?");
+    deleteParams.push(sessionId);
+  }
+  if (intentId) {
+    deleteClauses.push("intent_id = ?");
+    deleteParams.push(intentId);
+  }
+  if (absFiles.length > 0) {
+    const ph = absFiles.map(() => "?").join(",");
+    deleteClauses.push(`file_path IN (${ph})`);
+    deleteParams.push(...absFiles);
+  }
+  db2.prepare(`DELETE FROM file_locks WHERE ${deleteClauses.join(" AND ")}`).run(...deleteParams);
   const intentIds = [.../* @__PURE__ */ new Set([
     ...intentId ? [intentId] : [],
     ...locks.map((l) => l.intent_id)
@@ -1288,9 +1377,13 @@ function releaseFileLock(db2, params) {
 // src/reflect.ts
 import { resolve as resolve4 } from "node:path";
 var VALID_OUTCOMES = ["worked", "partial", "failed"];
-var NEXT_MSG = "refine-get \u2192 repo fixes for the next agent \xB7 mine-weakness \u2192 recurring failures \xB7 export-harness \u2192 preview harness improvements. A human merges.";
-function normalizeScopePaths(paths = [], prefix) {
-  return [...new Set(paths.filter(Boolean).map((p) => `${prefix}:${resolve4(p)}`))];
+var NEXT_MSG = "memory_refine_get \u2192 repo fixes for the next agent \xB7 memory_mine_weakness \u2192 recurring failures \xB7 memory_digest export_doc:true \u2192 preview harness improvements. A human merges.";
+function normalizeScopePaths(paths = [], prefix, baseCwd) {
+  const base = baseCwd ?? process.cwd();
+  return [...new Set(paths.filter(Boolean).map((p) => {
+    const abs = p.startsWith("/") ? p : resolve4(base, p);
+    return `${prefix}:${abs}`;
+  }))];
 }
 function reflect(db2, params) {
   const {
@@ -1327,9 +1420,9 @@ function reflect(db2, params) {
   const sig = failSig ?? (resolvedOutcome === "failed" && fixHarness ? "harness:reflection|outcome:failed" : null);
   const scopeReferences = [
     ...references,
-    ...normalizeScopePaths(file ? [file] : [], "file"),
-    ...normalizeScopePaths(files, "file"),
-    ...normalizeScopePaths(folders, "dir")
+    ...normalizeScopePaths(file ? [file] : [], "file", cwd),
+    ...normalizeScopePaths(files, "file", cwd),
+    ...normalizeScopePaths(folders, "dir", cwd)
   ];
   const { memoryId, similarMemoryIds, noveltyScore } = insertMemory(db2, {
     agentId,
@@ -1351,11 +1444,12 @@ function reflect(db2, params) {
   });
   let refinementId = null;
   if (fixRepo) {
+    const refinementQuality = resolvedOutcome === "worked" ? "good" : "bad";
     const { refinementId: rid } = insertRefinement(db2, {
       agentId,
       reasoning: `Fix in repo (from ${resolvedOutcome} reflection): ${fixRepo}`,
       remember: fixRepo,
-      quality: "bad",
+      quality: refinementQuality,
       state: "open",
       workspacePath,
       repo: repoArg,
@@ -1395,20 +1489,9 @@ function rowToNotification(r) {
     kind: r.kind,
     subject: r.subject,
     body: r.body,
-    files: (() => {
-      try {
-        return JSON.parse(r.files_json);
-      } catch {
-        return [];
-      }
-    })(),
-    refs: (() => {
-      try {
-        return JSON.parse(r.refs_json);
-      } catch {
-        return [];
-      }
-    })(),
+    // ARCH-7: Use shared parseJsonList helper instead of duplicated inline IIFEs
+    files: parseJsonList(r.files_json),
+    refs: parseJsonList(r.refs_json),
     thread_id: r.thread_id,
     in_reply_to: r.in_reply_to,
     importance: r.importance,
@@ -1497,10 +1580,7 @@ function getNotifications(db2, params) {
     binds.push(agentId);
     if (unreadOnly) {
       where.push("n.status = 'open'");
-      where.push(
-        `NOT EXISTS (SELECT 1 FROM notification_reads nr WHERE nr.notification_id = n.notification_id AND nr.agent_id = ?)`
-      );
-      binds.push(agentId);
+      where.push("nr.notification_id IS NULL");
     }
   }
   if (kinds.length > 0) {
@@ -1508,13 +1588,16 @@ function getNotifications(db2, params) {
     binds.push(...kinds);
   }
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  const joinClause = unreadOnly && !threadId ? `LEFT JOIN notification_reads nr ON nr.notification_id = n.notification_id AND nr.agent_id = ?` : "";
+  const allBinds = unreadOnly && !threadId ? [agentId, ...binds] : binds;
   const sql = `
     SELECT n.* FROM notifications n
+    ${joinClause}
     ${whereClause}
     ORDER BY n.created_at DESC
     LIMIT ?
   `;
-  const rows = db2.prepare(sql).all(...binds, limit);
+  const rows = db2.prepare(sql).all(...allBinds, limit);
   const notifications = rows.map(rowToNotification);
   if (markRead && notifications.length > 0) {
     const now = utcNow();
@@ -1750,10 +1833,12 @@ function openRefinementCount(db2, params = {}) {
   }
   return db2.prepare(sql).get(...queryParams).c;
 }
+var BRIEFING_LABELS = ["GOTCHA", "BUG", "DECISION", "IMPROVEMENT", "ARCHITECTURE", "SECURITY"];
 function notifyGet(db2, params = {}) {
   const wsPath = params.workspace ?? null;
   const format = params.format ?? "json";
   const agentId = String(params.agent_id ?? params.agentId ?? "agent");
+  const notifyCwd = wsPath ?? params.cwd ?? process.cwd();
   const items = [];
   try {
     const inbox = getNotifications(db2, {
@@ -1762,7 +1847,7 @@ function notifyGet(db2, params = {}) {
       unreadOnly: true,
       markRead: false,
       limit: 5,
-      cwd: process.cwd()
+      cwd: notifyCwd
     });
     for (const n of inbox.notifications) {
       const target = n.to_agent ? `to ${n.to_agent}` : "broadcast";
@@ -1780,9 +1865,9 @@ function notifyGet(db2, params = {}) {
     const conditions = [
       "state = 'ACTIVE'",
       "importance_score >= 6",
-      "label IN ('GOTCHA','BUG','DECISION','IMPROVEMENT','ARCHITECTURE','SECURITY')"
+      `label IN (${BRIEFING_LABELS.map(() => "?").join(",")})`
     ];
-    const bindParams = [];
+    const bindParams = [...BRIEFING_LABELS];
     if (wsPath) {
       conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
       bindParams.push(wsPath);
@@ -1974,9 +2059,13 @@ function waitForLock(db2, params = {}) {
   };
   let conflicts = checkLocks();
   const waited = () => Date.now() - start;
+  function sleepMs(ms) {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+    }
+  }
   while (conflicts.length > 0 && waited() < waitMs) {
-    const buf = new Int32Array(new SharedArrayBuffer(4));
-    Atomics.wait(buf, 0, 0, Math.min(retryMs, waitMs - waited()));
+    sleepMs(Math.min(retryMs, waitMs - waited()));
     conflicts = checkLocks();
   }
   const elapsed = waited();
@@ -1999,7 +2088,7 @@ function digest(db2, params = {}) {
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 864e5).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 864e5).toISOString();
   const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
-     WHERE (quality = 'handoff' AND created_at < ?)
+     WHERE (quality = 'handoff' AND updated_at < ?)
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
   if (params.dry_run) {
     const wouldArchive = db2.prepare(
@@ -2039,7 +2128,7 @@ function digest(db2, params = {}) {
   const { pruned_locks } = pruneStale(db2, {});
   const pruneRefinementsRes = db2.prepare(
     `DELETE FROM refinements
-     WHERE (quality = 'handoff' AND created_at < ?)
+     WHERE (quality = 'handoff' AND updated_at < ?)
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
   ).run(handoffCutoff, doneCutoff);
   let ftsRebuilt = false;
@@ -2061,11 +2150,8 @@ function digest(db2, params = {}) {
   };
 }
 function getWorkspaceStatus(db2, params = {}) {
-  const now = utcNow();
   const wsPath = params.workspace_path ?? null;
-  db2.prepare(
-    "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?"
-  ).run(now);
+  evictExpiredLocks(db2);
   const activeMemories = db2.prepare(
     `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'ACTIVE'`
   ).get().c;
@@ -2134,20 +2220,8 @@ function exportMemoryDoc(db2, params = {}) {
   for (const [label, mems] of Object.entries(byLabel)) {
     lines.push(`## ${label}`, "");
     for (const m of mems) {
-      const tags = (() => {
-        try {
-          return JSON.parse(m.tags_json);
-        } catch {
-          return [];
-        }
-      })();
-      const refs = (() => {
-        try {
-          return JSON.parse(m.references_json);
-        } catch {
-          return [];
-        }
-      })();
+      const tags = parseJsonList(m.tags_json);
+      const refs = parseJsonList(m.references_json);
       lines.push(
         `### \`${m.memory_id}\` \u2014 importance ${m.importance_score}`,
         `**Context:** ${m.task_context}`,
@@ -2167,39 +2241,65 @@ function exportHarness(db2, params = {}) {
   const limit = Number(params.limit ?? 10);
   const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
   const wsPath = params.workspace_path ?? null;
-  const conds = ["state = 'ACTIVE'", "importance_score >= ?"];
-  const bindParams = [minImportance];
-  if (wsPath) {
-    conds.push("(workspace_path = ? OR workspace_path IS NULL)");
-    bindParams.push(wsPath);
-  }
-  const rows = db2.prepare(
-    `SELECT memory_id, label, importance_score, observation
+  const harnessOnly = Boolean(params.harness_only ?? params.harnessOnly ?? false);
+  const scopeCond = wsPath ? "(workspace_path = ? OR workspace_path IS NULL)" : null;
+  const scopeParams = wsPath ? [wsPath] : [];
+  const harnessRows = db2.prepare(
+    `SELECT memory_id, label, importance_score, observation, tags_text
      FROM agent_memories
-     WHERE ${conds.join(" AND ")}
-     ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+     WHERE state = 'ACTIVE'
+       AND tags_text LIKE '%,harness,%'
+       ${scopeCond ? `AND ${scopeCond}` : ""}
+     ORDER BY importance_score DESC, access_count DESC
      LIMIT ?`
-  ).all(...bindParams, limit);
-  const memories = rows.map((r) => ({
-    memory_id: r.memory_id,
-    label: r.label,
-    importance: r.importance_score,
-    observation: r.observation
-  }));
-  if (memories.length === 0) {
-    return { count: 0, markdown: "<!-- No high-importance memories to export -->", memories: [] };
+  ).all(...scopeParams, limit);
+  const memories = [];
+  for (const r of harnessRows) {
+    memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance_score, observation: r.observation, tier: "harness" });
   }
+  if (!harnessOnly && memories.length < limit) {
+    const harnessIds = new Set(memories.map((m) => m.memory_id));
+    const remaining = limit - memories.length;
+    const generalRows = db2.prepare(
+      `SELECT memory_id, label, importance_score, observation, tags_text
+       FROM agent_memories
+       WHERE state = 'ACTIVE'
+         AND importance_score >= ?
+         AND label <> 'EXPERIENCE'
+         AND tags_text NOT LIKE '%,harness,%'
+         ${scopeCond ? `AND ${scopeCond}` : ""}
+       ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+       LIMIT ?`
+    ).all(minImportance, ...scopeParams, remaining * 2);
+    for (const r of generalRows) {
+      if (!harnessIds.has(r.memory_id) && memories.length < limit) {
+        memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance_score, observation: r.observation, tier: "general" });
+      }
+    }
+  }
+  if (memories.length === 0) {
+    return { count: 0, harness_count: 0, markdown: "<!-- No harness or high-importance memories to export -->", memories: [] };
+  }
+  const harnessCount = memories.filter((m) => m.tier === "harness").length;
   const lines = [
-    "## Agent lessons (auto-generated by octocode-awareness export-harness)",
+    "## Agent lessons (generated by octocode-awareness \xB7 memory_digest export_doc:true)",
     "",
-    "<!-- Do not edit manually. Re-run `awareness export-harness` to refresh. -->",
+    "<!-- Tier 1: harness proposals from memory_reflect fix_harness: -->",
     ""
   ];
-  for (const m of memories) {
-    lines.push(`- **[${m.label}:${m.importance}]** ${m.observation}`);
+  const harnessMems = memories.filter((m) => m.tier === "harness");
+  const generalMems = memories.filter((m) => m.tier === "general");
+  for (const m of harnessMems) {
+    lines.push(`- **[HARNESS:${m.importance}]** ${m.observation}`);
+  }
+  if (generalMems.length > 0) {
+    lines.push("", "<!-- Tier 2: high-importance general lessons -->", "");
+    for (const m of generalMems) {
+      lines.push(`- **[${m.label}:${m.importance}]** ${m.observation}`);
+    }
   }
   lines.push("");
-  return { count: memories.length, markdown: lines.join("\n"), memories };
+  return { count: memories.length, harness_count: harnessCount, markdown: lines.join("\n"), memories };
 }
 
 // src/verify.ts
@@ -2247,7 +2347,50 @@ function auditUnverified(db2, params = {}) {
       }
     }
   }
-  return { ok: true, unverified, count: unverified.length };
+  const staleActive = [];
+  try {
+    const nowIso = utcNow();
+    const staleWhere = [
+      "ai.status = 'ACTIVE'",
+      // No live lock remains: all locks either deleted or expired
+      `NOT EXISTS (
+        SELECT 1 FROM file_locks fl
+        WHERE fl.intent_id = ai.intent_id
+          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+      )`
+    ];
+    const staleBinds = [nowIso];
+    if (params.agentId) {
+      staleWhere.push("ai.agent_id = ?");
+      staleBinds.push(params.agentId);
+    }
+    if (params.workspacePath) {
+      staleWhere.push("ai.workspace_path = ?");
+      staleBinds.push(params.workspacePath);
+    }
+    const staleRows = db2.prepare(
+      `SELECT ai.intent_id, ai.agent_id, ai.rationale, ai.workspace_path, ai.files_json, ai.created_at
+       FROM agent_intents ai
+       WHERE ${staleWhere.join(" AND ")}
+       ORDER BY ai.created_at ASC`
+    ).all(...staleBinds);
+    for (const r of staleRows) {
+      const ageMs = Date.now() - new Date(r.created_at).getTime();
+      staleActive.push({
+        intent_id: r.intent_id,
+        agent_id: r.agent_id,
+        status: "ACTIVE",
+        rationale: r.rationale,
+        target_files: parseJsonList(r.files_json),
+        workspace_path: r.workspace_path,
+        created_at: r.created_at,
+        age_hours: Math.round(ageMs / 36e5 * 10) / 10
+      });
+    }
+  } catch {
+  }
+  const total = unverified.length + staleActive.length;
+  return { ok: true, unverified, stale_active: staleActive, count: total };
 }
 function markVerified(db2, params) {
   const { agentId = "agent", allPending = false, workspacePath, message } = params;
@@ -2280,10 +2423,10 @@ function markVerified(db2, params) {
         }
       }
     }
-    return { ok: true, intent_id: "", intent_ids: ids, count: ids.length, status, updated_at: now2 };
+    return { ok: true, intent_id: null, intent_ids: ids, count: ids.length, status, updated_at: now2 };
   }
   if (!intentId) {
-    return { ok: false, error: "--intent-id is required (or use --all-pending)", intent_id: "" };
+    return { ok: false, error: "--intent-id is required (or use --all-pending)", intent_id: null };
   }
   if (!VALID_VERIFY_STATUSES.has(status)) {
     return {

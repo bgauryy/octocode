@@ -15,6 +15,8 @@ import {
   digest,
   getWorkspaceStatus,
   exportMemoryDoc,
+  exportHarness,
+  mineWeakness,
   forgetMemory,
   agentSignal,
   fileLock,
@@ -32,6 +34,21 @@ type Notifier = (ctx: PiContext | undefined, msg: string, level?: string) => voi
 type AgentIdResolver = (ctx: PiContext | undefined) => string;
 type RegisterFn = typeof registerUniqueTool;
 type DbType = ReturnType<typeof connectDb>;
+
+// TOOL-1: Module-level DB cache keyed by dbPath.
+// withMemoryDb previously called connectDb (which runs initDb with all migration
+// PRAGMAs) on every tool call. For a session with many memory_recall/record calls
+// this is extremely expensive. A cached connection is safe: node:sqlite
+// DatabaseSync is single-threaded and the module lives in one Node.js worker.
+const _piToolDbCache = new Map<string, DbType>();
+
+function cachedConnectDb(dbPath: string): DbType {
+  const cached = _piToolDbCache.get(dbPath);
+  if (cached) return cached;
+  const db = connectDb(dbPath);
+  _piToolDbCache.set(dbPath, db);
+  return db;
+}
 
 const MEMORY_LABEL_VALUES = [
   'BUG',
@@ -76,7 +93,9 @@ export type MemoryType =
   | 'forget'
   | 'notify'
   | 'agent_signal'
-  | 'file_lock';
+  | 'file_lock'
+  | 'mine_weakness'
+  | 'export_harness';
 
 const DEFAULT_IMPORTANCE: Record<string, number> = {
   BUG: 8,
@@ -130,11 +149,12 @@ function primaryScopePath(request: Record<string, unknown>): string | null {
 }
 
 function recallQuery(request: Record<string, unknown>, type: string): string {
-  const parts = [requireText(request, 'query', type)];
-  if (typeof request['file'] === 'string') parts.push(request['file']);
-  parts.push(...stringArray(request['files']), ...stringArray(request['folders']));
-  if (typeof request['repo'] === 'string') parts.push(request['repo']);
-  return parts.join(' ');
+  // TOOL-4: Only use the semantic query text for FTS search. File paths, folder
+  // paths, and repo names are STRUCTURAL scope filters — they must be passed as
+  // workspacePath/files params to getMemory, not appended to the FTS query string.
+  // Mixing filesystem paths into the FTS query corrupts BM25 ranking: a search
+  // for 'react' would match any memory whose workspace_path contains 'react'.
+  return requireText(request, 'query', type);
 }
 
 function runMemoryOperation(
@@ -208,6 +228,10 @@ function runMemoryOperation(
       const observation = requireText(request, 'observation', type);
       const label = ((request['label'] as string | undefined)?.toUpperCase()) ?? 'OTHER';
       const supersedes = normalizeSupersedes(request['supersedes']);
+      // TOOL-2 note: findSimilarMemories here is a pre-flight dedup GATE.
+      // insertMemory also calls findSimilarMemories internally for novelty metadata.
+      // These serve different purposes (gate vs. metadata) so the double call is
+      // accepted until insertMemory supports a preComputedSimilar param.
       const similar = findSimilarMemories(db, `${taskContext} ${observation}`, 5);
       const unsupersededSimilar = (similar as Array<{ memory_id: string; similarity: number }>)
         .filter((m) => !supersedes.includes(m.memory_id));
@@ -245,7 +269,7 @@ function runMemoryOperation(
         ref: request['ref'] as string | undefined,
         file: primaryScopePath(request),
         cwd,
-      }) as {
+      }) as unknown as {
         memory: {
           memory_id: string;
           importance_score: number;
@@ -309,7 +333,7 @@ function runMemoryOperation(
         repo: request['repo'] as string | undefined,
         ref: request['ref'] as string | undefined,
         cwd,
-      }) as {
+      }) as unknown as {
         outcome: string;
         learning_memory_id: string;
         novelty_score?: number;
@@ -377,7 +401,7 @@ function runMemoryOperation(
         includeHandoffs: Boolean(request['include_handoffs']),
         limit: (request['limit'] as number | undefined) ?? 5,
         cwd,
-      }) as {
+      }) as unknown as {
         refinements: Array<{
           refinement_id: string;
           state: string;
@@ -406,24 +430,31 @@ function runMemoryOperation(
       const result = auditUnverified(db, {
         agentId: getAgentId(ctx),
         workspacePath: cwd,
-      }) as {
-        unverified: Array<{
-          intent_id: string;
-          test_plan: string;
-          target_files?: string[];
-        }>;
+      }) as unknown as {
+        unverified: Array<{ intent_id: string; test_plan: string; target_files?: string[] }>;
+        stale_active: Array<{ intent_id: string; agent_id: string; age_hours: number; rationale: string; target_files?: string[] }>;
         count: number;
       };
       const pending = result.unverified.map((i) => {
+        const lean: Record<string, unknown> = { intent_id: i.intent_id, test_plan: i.test_plan };
+        if (i.target_files?.length) lean['files'] = i.target_files;
+        return lean;
+      });
+      // VER-2: Include stale ACTIVE intents (orphaned sessions) in audit output
+      const stale = (result.stale_active ?? []).map((i) => {
         const lean: Record<string, unknown> = {
           intent_id: i.intent_id,
-          test_plan: i.test_plan,
+          agent_id: i.agent_id,
+          age_hours: i.age_hours,
+          reason: `ACTIVE intent with no live file_locks (orphaned session) — ${i.rationale}`,
         };
         if (i.target_files?.length) lean['files'] = i.target_files;
         return lean;
       });
+      const payload: Record<string, unknown> = { count: result.count, pending };
+      if (stale.length > 0) payload['stale_active'] = stale;
       return {
-        content: [{ type: 'text', text: JSON.stringify({ count: pending.length, pending }) }],
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
         details: { exit: result.count ? 1 : 0 },
       };
     }
@@ -432,13 +463,30 @@ function runMemoryOperation(
       const singleId = request['intent_id'] as string | undefined;
       const batchIds = Array.isArray(request['intent_ids']) ? (request['intent_ids'] as unknown[]).map(String) : [];
       const allPending = Boolean(request['allPending']);
+      const verifyStatus = ((request['status'] as string | undefined) ?? 'SUCCESS') as 'SUCCESS' | 'FAILED';
+      const agentId = getAgentId(ctx);
 
-      // Collect IDs from all three sources, deduplicating
+      // TOOL-3: allPending=true delegates to markVerified(allPending:true) which runs
+      // a single UPDATE batch query instead of auditUnverified + N individual markVerified
+      // calls. Single + batch IDs are still handled individually so callers get
+      // per-intent results for those.
+      if (allPending && !singleId && batchIds.length === 0) {
+        const r = markVerified(db, { allPending: true, agentId, workspacePath: cwd, status: verifyStatus }) as unknown as {
+          ok: boolean; intent_id: string | null; intent_ids: string[]; count: number; status: string;
+        };
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ count: r.count, intent_ids: r.intent_ids, status: r.status }) }],
+          details: { exit: r.ok ? 0 : 1 },
+        };
+      }
+
+      // Collect IDs from explicit single + batch sources, deduplicating.
       const ids: string[] = [];
       if (singleId) ids.push(singleId);
       for (const id of batchIds) if (id && !ids.includes(id)) ids.push(id);
       if (allPending) {
-        const pending = auditUnverified(db, { agentId: getAgentId(ctx), workspacePath: cwd }) as {
+        // Mixed mode: allPending + explicit IDs — gather pending and merge.
+        const pending = auditUnverified(db, { agentId, workspacePath: cwd }) as unknown as {
           unverified: Array<{ intent_id: string }>;
         };
         for (const i of pending.unverified) if (!ids.includes(i.intent_id)) ids.push(i.intent_id);
@@ -448,11 +496,9 @@ function runMemoryOperation(
         throw new Error('memory_verify requires intent_id, intent_ids[], or allPending:true');
       }
 
-      const verifyStatus = ((request['status'] as string | undefined) ?? 'SUCCESS') as 'SUCCESS' | 'FAILED';
-      const agentId = getAgentId(ctx);
       const verifyResults = ids.map((intentId) => {
-        const r = markVerified(db, { intentId, agentId, status: verifyStatus }) as {
-          ok: boolean; intent_id: string; status?: string; error?: string;
+        const r = markVerified(db, { intentId, agentId, status: verifyStatus }) as unknown as {
+          ok: boolean; intent_id: string | null; status?: string; error?: string;
         };
         return r.ok
           ? { intent_id: r.intent_id, status: r.status }
@@ -525,6 +571,71 @@ function runMemoryOperation(
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
+        details: { exit: 0 },
+      };
+    }
+
+    case 'mine_weakness': {
+      // R-4: mineWeakness was CLI-only (mine-weakness command). Now a Pi tool.
+      // Clusters memories by failure_signature and ranks by support × avg-importance.
+      const result = mineWeakness(db, {
+        workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
+        agentId: request['agent_id'] ? String(request['agent_id']) : undefined,
+        minCount: (request['min_count'] as number | undefined) ?? 2,
+        limit: (request['limit'] as number | undefined) ?? 10,
+        cwd,
+      });
+      const clusters = result.clusters.map(c => ({
+        signature: c.failure_signature,
+        count: c.count,
+        avg_importance: c.avg_importance,
+        score: c.score,
+        memory_ids: c.memory_ids,
+        representative: c.representative,
+        labels: c.labels,
+      }));
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          total_signatures: result.total_signatures,
+          total_memories: result.total_memories,
+          count: clusters.length,
+          clusters,
+          next: clusters.length > 0
+            ? 'Use failure_signature values with memory_reflect to route lessons into fix_repo or fix_harness.'
+            : 'No recurring failure patterns found. Record failures with failure_signature to build the cluster.',
+        }) }],
+        details: { exit: 0 },
+      };
+    }
+
+    case 'export_harness': {
+      // Surfaces harness-tagged memories (tier 1) and high-importance lessons (tier 2).
+      // Output is markdown ready to paste into AGENTS.md or CLAUDE.md.
+      const result = exportHarness(db, {
+        limit: (request['limit'] as number | undefined) ?? 10,
+        min_importance: (request['min_importance'] as number | undefined) ?? 7,
+        workspace_path: (request['workspace_path'] as string | undefined) ?? cwd,
+        harness_only: Boolean(request['harness_only']),
+      }) as unknown as { count: number; harness_count?: number; markdown: string; memories: Array<{ memory_id: string; label: string; importance: number; tier?: number; observation: string }> };
+      const payload: Record<string, unknown> = {
+        count: result.count,
+        harness_count: result.harness_count,
+        memories: result.memories.map(m => ({
+          memory_id: m.memory_id,
+          label: m.label,
+          importance: m.importance,
+          tier: m.tier,
+          observation: m.observation.slice(0, 200),
+        })),
+        markdown: result.markdown,
+      };
+      if (result.count === 0) {
+        payload['next'] = 'No harness proposals yet. Use memory_reflect with fix_harness: to propose skill improvements.';
+      } else {
+        payload['next'] = 'Review the markdown block, then paste harness-tier entries into AGENTS.md or CLAUDE.md after human approval.';
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify(payload) }],
         details: { exit: 0 },
       };
     }
@@ -611,6 +722,7 @@ function runMemoryOperation(
         status: request['status'] as import('@octocodeai/octocode-awareness').IntentStatus | undefined,
         verified: request['verified'] as boolean | undefined,
         verifiedNote: (request['verifiedNote'] as string | undefined) ?? (request['verified_note'] as string | undefined),
+        reasoning: request['reasoning'] as string | undefined,
       });
       if (result.ok === false && request['signal_on_conflict'] !== false) {
         agentSignal(db, {
@@ -639,7 +751,8 @@ function withMemoryDb(
   getAgentId: AgentIdResolver,
   ctx: PiContext | undefined,
 ): ToolCallResult {
-  const db = connectDb(ctx?.dbPath ?? resolveDbPath(null));
+  // TOOL-1: Use cached connection — avoids re-running initDb on every tool call.
+  const db = cachedConnectDb(ctx?.dbPath ?? resolveDbPath(null));
   const cwd = ctx?.cwd ?? process.cwd();
   return runMemoryOperation(db, type, params, cwd, getAgentId, ctx);
 }
@@ -757,6 +870,26 @@ export function buildMemoryToolDefinition(
     valid_to: optionalNonEmptyString(Type, 'Memory expiry timestamp/ISO date; digest marks expired memories stale.'),
   };
 
+  // Shared schema objects — defined once, referenced by canonical + alias tools.
+  // Previously file_lock and memory_file_lock each copy-pasted all 12 params.
+  const fileLockParams = Type.Object({
+    type: fileLockTypeSchema,
+    target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
+    intent_id: optionalNonEmptyString(Type, 'Precise lock intent id returned by type:lock. Required for safe release/renew.'),
+    lock_type: Type.Optional(fileLockKindSchema),
+    ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
+    reasoning: optionalNonEmptyString(Type, 'Why this lock is needed; shown in lock/status output.'),
+    agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
+    session_id: optionalNonEmptyString(Type, 'Session id override; defaults to current Pi session id.'),
+    status: Type.Optional(Type.String({ description: 'Release status: PENDING, SUCCESS, or FAILED.' })),
+    verified: Type.Optional(Type.Boolean({ description: 'For release: mark SUCCESS only if verification actually ran.' })),
+    verified_note: optionalNonEmptyString(Type, 'Verification note stored with verified releases.'),
+    signal_on_conflict: Type.Optional(Type.Boolean({ description: 'Publish a blocker signal on lock conflict; default true.' })),
+    ...repoScopeProps,
+  });
+
+  const workspaceStatusParams = Type.Object({ ...repoScopeProps });
+
   const tools = [
     {
       name: 'memory_recall',
@@ -793,6 +926,7 @@ export function buildMemoryToolDefinition(
         'Record only reusable findings that can change future work.',
         'Never store routine status, secrets, raw logs, test output, or facts already in git/docs.',
         'Use supersedes for stale duplicates; allow_similar only for genuinely distinct evidence.',
+        'Prefer memory_reflect for post-task lessons — it also creates repo-fix refinements and clusters failure patterns automatically.',
       ],
       parameters: Type.Object({
         task_context: nonEmptyString(Type, 'Why a future agent needs this lesson.'),
@@ -846,9 +980,7 @@ export function buildMemoryToolDefinition(
         'Use to check if another agent is editing files you need, or to see what is locked.',
         'Use before long edits to verify no conflicts exist.',
       ],
-      parameters: Type.Object({
-        ...repoScopeProps,
-      }),
+      parameters: workspaceStatusParams,
     },
     {
       name: 'agent_signal',
@@ -890,21 +1022,9 @@ export function buildMemoryToolDefinition(
         'Prefer automatic edit/write locks; use this for explicit coordination across parallel agents.',
         'Release and renew by intentId whenever possible; agentId/sessionId are scope metadata, not precise lock handles.',
         'Set ttl_ms for bounded work; locks are capped by awareness to the maximum safe TTL.',
+        'Include reasoning so status output explains why the files are locked.',
       ],
-      parameters: Type.Object({
-        type: fileLockTypeSchema,
-        target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
-        intent_id: optionalNonEmptyString(Type, 'Precise lock intent id returned by type:lock. Required for safe release/renew.'),
-        lock_type: Type.Optional(fileLockKindSchema),
-        ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
-        agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
-        session_id: optionalNonEmptyString(Type, 'Session id override; defaults to current Pi session id.'),
-        status: Type.Optional(Type.String({ description: 'Release status: PENDING, SUCCESS, or FAILED.' })),
-        verified: Type.Optional(Type.Boolean({ description: 'For release: mark SUCCESS only if verification actually ran.' })),
-        verified_note: optionalNonEmptyString(Type, 'Verification note stored with verified releases.'),
-        signal_on_conflict: Type.Optional(Type.Boolean({ description: 'Publish a blocker signal on lock conflict; default true.' })),
-        ...repoScopeProps,
-      }),
+      parameters: fileLockParams,
     },
     {
       name: 'memory_workspace_status',
@@ -914,9 +1034,7 @@ export function buildMemoryToolDefinition(
       promptGuidelines: [
         'Prefer workspace_status for new usage; this alias is retained for compatibility.',
       ],
-      parameters: Type.Object({
-        ...repoScopeProps,
-      }),
+      parameters: workspaceStatusParams,
     },
     {
       name: 'memory_file_lock',
@@ -926,20 +1044,7 @@ export function buildMemoryToolDefinition(
       promptGuidelines: [
         'Prefer file_lock for new usage; this alias is retained for compatibility.',
       ],
-      parameters: Type.Object({
-        type: fileLockTypeSchema,
-        target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
-        intent_id: optionalNonEmptyString(Type, 'Precise lock intent id returned by type:lock. Required for safe release/renew.'),
-        lock_type: Type.Optional(fileLockKindSchema),
-        ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
-        agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
-        session_id: optionalNonEmptyString(Type, 'Session id override; defaults to current Pi session id.'),
-        status: Type.Optional(Type.String({ description: 'Release status: PENDING, SUCCESS, or FAILED.' })),
-        verified: Type.Optional(Type.Boolean({ description: 'For release: mark SUCCESS only if verification actually ran.' })),
-        verified_note: optionalNonEmptyString(Type, 'Verification note stored with verified releases.'),
-        signal_on_conflict: Type.Optional(Type.Boolean({ description: 'Publish a blocker signal on lock conflict; default true.' })),
-        ...repoScopeProps,
-      }),
+      parameters: fileLockParams,
     },
     {
       name: 'memory_refine_get',
@@ -983,6 +1088,23 @@ export function buildMemoryToolDefinition(
         intent_ids: Type.Optional(Type.Array(nonEmptyString(Type, 'Pending intent id to verify.'), { minItems: 1, description: 'Batch: list of pending intent ids to verify in one call.' })),
         allPending: Type.Optional(Type.Boolean({ description: 'Verify ALL pending intents for this agent in one call. Pair with status.' })),
         status: Type.Optional(verifyStatusSchema),
+      }),
+    },
+    {
+      name: 'memory_export_harness',
+      type: 'export_harness' as const,
+      label: 'Memory: Export Harness',
+      description: 'Export agent improvement proposals for AGENTS.md or CLAUDE.md. Tier 1: explicit harness proposals from memory_reflect fix_harness: (always first). Tier 2: high-importance general lessons. Raw reflections excluded. Never writes files — review and paste after human approval.',
+      promptGuidelines: [
+        'Never paste output into AGENTS.md without human review and explicit approval.',
+        'Use harness_only:true to see only explicit fix_harness proposals, not general lessons.',
+        'Call memory_mine_weakness first to ensure recurring failures have been routed via memory_reflect.',
+      ],
+      parameters: Type.Object({
+        harness_only: Type.Optional(Type.Boolean({ description: 'Return only harness-tagged proposals (tier 1). Omit general lessons.' })),
+        limit: optionalLimit(Type, 'Max memories; default 10.'),
+        min_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Minimum importance for tier 2 general lessons; default 7.' })),
+        ...repoScopeProps,
       }),
     },
     {

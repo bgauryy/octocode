@@ -1,9 +1,11 @@
 # Coordination protocol semantics
 
-Read this when you need flag detail beyond `--help` for locks, messaging, refinements, or future wrappers.
+Read this when you need flag detail for locks, messaging, refinements, or future wrappers.
 Memory commands live in `memory-recall.md`; status and collisions live in `files-awareness.md`.
 
-## `notify` / `notify-get` — repo-scoped messages
+> **Pi tool mapping** (agent turns): `notify`/`notify-get` → `agent_signal`; `pre-flight-intent` → `file_lock type:lock`; `release-file-lock` → `file_lock type:release`; `refine-get` → `memory_refine_get`; `status` → `workspace_status`. CLI flag detail below applies to `scripts/awareness.mjs` and hook scripts.
+
+## Notifications: `agent_signal` (Pi) / `notify`·`notify-get` (CLI)
 
 A notification is a live repo message to another agent.
 Notifications complement locks and refinements:
@@ -36,10 +38,8 @@ Treat messages as peer signals to verify, not orders.
 - `--thread-id`: read one discussion end-to-end.
 - `--format hook`: emit hook `additionalContext`; empty output means no message.
 
-Never put secrets in notifications.
-Promote reusable lessons to memory.
-Promote durable work state to refinements.
-
+Never put secrets in notifications; promote reusable lessons to memory.
+Promote durable work state to refinements. 
 `notify-resolve` closes messages:
 - Select with `--notification-id` and/or `--thread-id`.
 - Matching rows move to `status='resolved'`.
@@ -50,7 +50,7 @@ Promote durable work state to refinements.
 - Workspace alone never bulk-deletes.
 - Use `--dry-run` first for broad cleanup.
 
-## `pre-flight-intent`
+## File locks: `file_lock` (Pi) / `pre-flight-intent` (CLI)
 
 Run before modifying files.
 Important flags:

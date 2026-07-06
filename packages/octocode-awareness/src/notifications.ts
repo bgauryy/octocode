@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { utcNow } from './helpers.js';
+import { utcNow, parseJsonList } from './helpers.js';
 import { fillScope } from './git.js';
 import type {
   InsertNotificationParams, InsertNotificationResult,
@@ -50,8 +50,9 @@ function rowToNotification(r: NotificationRow): NotificationRecord {
     kind: r.kind as NotificationKind,
     subject: r.subject,
     body: r.body,
-    files: (() => { try { return JSON.parse(r.files_json) as string[]; } catch { return []; } })(),
-    refs: (() => { try { return JSON.parse(r.refs_json) as string[]; } catch { return []; } })(),
+    // ARCH-7: Use shared parseJsonList helper instead of duplicated inline IIFEs
+    files: parseJsonList(r.files_json),
+    refs: parseJsonList(r.refs_json),
     thread_id: r.thread_id,
     in_reply_to: r.in_reply_to,
     importance: r.importance,
@@ -153,10 +154,11 @@ export function getNotifications(
 
     if (unreadOnly) {
       where.push("n.status = 'open'");
-      where.push(
-        `NOT EXISTS (SELECT 1 FROM notification_reads nr WHERE nr.notification_id = n.notification_id AND nr.agent_id = ?)`
-      );
-      binds.push(agentId);
+      // NOTIF-1: Replace O(N×M) correlated subquery with a LEFT JOIN. The subquery
+      // ran NOT EXISTS(...) for every notification row against notification_reads,
+      // making it O(N×M). A LEFT JOIN + IS NULL check is a single hash/merge step.
+      where.push('nr.notification_id IS NULL');
+      // agentId for the JOIN ON clause is prepended to allBinds below — not added to WHERE binds
     }
   }
 
@@ -166,13 +168,24 @@ export function getNotifications(
   }
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  // NOTIF-1: LEFT JOIN notification_reads to support unreadOnly IS NULL check
+  // without a correlated subquery. The join is conditional: only the unreadOnly
+  // branch pushes agentId to binds for the ON clause.
+  const joinClause = unreadOnly && !threadId
+    ? `LEFT JOIN notification_reads nr ON nr.notification_id = n.notification_id AND nr.agent_id = ?`
+    : '';
+  // Move the agentId bind for the LEFT JOIN to the right position (before WHERE binds)
+  const allBinds = unreadOnly && !threadId
+    ? [agentId, ...binds]
+    : binds;
   const sql = `
     SELECT n.* FROM notifications n
+    ${joinClause}
     ${whereClause}
     ORDER BY n.created_at DESC
     LIMIT ?
   `;
-  const rows = db.prepare(sql).all(...binds, limit) as unknown as NotificationRow[];
+  const rows = db.prepare(sql).all(...allBinds, limit) as unknown as NotificationRow[];
   const notifications = rows.map(rowToNotification);
 
   if (markRead && notifications.length > 0) {

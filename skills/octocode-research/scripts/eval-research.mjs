@@ -41,18 +41,11 @@ function runPattern(pattern, text) {
   return new RegExp(pattern, 'ims').test(text);
 }
 
-const STOP_WORDS = new Set([
-  'about', 'after', 'again', 'answer', 'before', 'could', 'current', 'does', 'from',
-  'have', 'into', 'local', 'mode', 'more', 'only', 'prompt', 'research', 'safe',
-  'should', 'that', 'their', 'there', 'this', 'what', 'when', 'where', 'which',
-  'while', 'with', 'without', 'would',
-]);
-
 function extractIntentTerms(text, limit = 8) {
   const counts = new Map();
   for (const raw of String(text || '').toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []) {
     const term = raw.replace(/^-+|-+$/g, '');
-    if (!term || STOP_WORDS.has(term)) continue;
+    if (!term) continue;
     counts.set(term, (counts.get(term) || 0) + 1);
   }
   return [...counts.entries()]

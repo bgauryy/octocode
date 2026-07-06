@@ -1,9 +1,32 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { connectDb, resolveDbPath } from './db.js';
+
+// HOOK-1: Module-level DB singleton keyed by dbPath.
+// connectDb runs initDb (which runs all migration checks) on every call.
+// For a session with many tool calls this is extremely expensive.
+// A cached connection is safe: node:sqlite DatabaseSync is single-threaded and
+// the module lives in one Node.js worker.
+const _dbCache = new Map<string, DatabaseSync>();
+
+function cachedConnectDb(dbPath: string): DatabaseSync {
+  const cached = _dbCache.get(dbPath);
+  if (cached) return cached;
+  const db = connectDb(dbPath);
+  _dbCache.set(dbPath, db);
+  return db;
+}
+
+// HOOK-2: A one-time session startup token that survives process.pid reuse across
+// OS restarts. We combine the session file name (if available) with a UUID suffix
+// generated once at import time so the agentId is stable within a session but
+// unique across sessions even when PIDs repeat.
+const _sessionStartupToken = randomUUID().slice(0, 8);
 import { preFlightIntent, releaseFileLock } from './intents.js';
 import { auditUnverified } from './verify.js';
 import { notifyGet, sessionCapture } from './maintenance.js';
+import { registerAgent } from './agents.js';
 
 export interface PiLikeSessionManager {
   getSessionFile?: () => string | null | undefined;
@@ -100,7 +123,9 @@ export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}
 export function getPiAwarenessSessionId(ctx?: PiLikeContext): string {
   const sessionFile = ctx?.sessionManager?.getSessionFile?.();
   if (sessionFile) return `pi-session:${path.basename(sessionFile, path.extname(sessionFile))}`;
-  return `pi-session:${process.pid}`;
+  // HOOK-2: Same pid-reuse fix as getPiAwarenessAgentId — append startup token so
+  // sessions from different OS boots with the same PID don't share lock scope.
+  return `pi-session:${process.pid}-${_sessionStartupToken}`;
 }
 
 export function getPiAwarenessAgentId(ctx?: PiLikeContext): string {
@@ -109,7 +134,10 @@ export function getPiAwarenessAgentId(ctx?: PiLikeContext): string {
   const sessionFile = ctx?.sessionManager?.getSessionFile?.();
   if (sessionFile) return `pi:${path.basename(sessionFile, path.extname(sessionFile))}`;
 
-  return `pi:${process.pid}`;
+  // HOOK-2: Append the startup token to the pid so that two processes with the
+  // same pid (OS pid reuse across restarts) produce different agent IDs and do
+  // not mix memory contexts. The token is stable for the lifetime of this process.
+  return `pi:${process.pid}-${_sessionStartupToken}`;
 }
 
 function notify(ctx: PiLikeContext | undefined, message: string, level: string = 'info'): void {
@@ -117,7 +145,8 @@ function notify(ctx: PiLikeContext | undefined, message: string, level: string =
 }
 
 function defaultGetDb(options: PiAwarenessBridgeOptions, ctx?: PiLikeContext): DatabaseSync {
-  return connectDb(ctx?.dbPath ?? options.dbPath ?? resolveDbPath(null));
+  // HOOK-1: Use the cached connection; never call connectDb twice for the same path.
+  return cachedConnectDb(ctx?.dbPath ?? options.dbPath ?? resolveDbPath(null));
 }
 
 export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) {
@@ -190,6 +219,18 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     },
 
     async handleBeforeAgentStart(_event: Record<string, unknown> = {}, ctx?: PiLikeContext) {
+      // ARCH-5: Register / refresh agent identity at the start of each session.
+      // Uses OCTOCODE_AGENT_NAME env (if set) or session file basename as display name.
+      try {
+        const db = getDb(ctx);
+        const agentId = getPiAwarenessAgentId(ctx);
+        const envName = process.env.OCTOCODE_AGENT_NAME ?? '';
+        const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+        const derivedName = envName
+          || (sessionFile ? path.basename(sessionFile, path.extname(sessionFile)) : '');
+        registerAgent(db, { agentId, agentName: derivedName, workspacePath: ctx?.cwd ?? process.cwd(), context: 'pi' });
+      } catch { /* fail-open: identity registration is non-critical */ }
+
       if (process.env.OCTOCODE_NO_NOTIFY === '1') return undefined;
       try {
         const db = getDb(ctx);

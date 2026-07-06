@@ -32,6 +32,9 @@ import { buildMemoryToolDefinition, executeMemoryOperation } from './tools/memor
 import { registerContextTools } from './tools/context-tools.js';
 import { cleanupSpawnedAgentsForShutdown, registerAgentTools } from './tools/agent-tools.js';
 import { registerWebTool } from './tools/web-tool.js';
+import { registerChromeDebugTool } from './tools/chrome-debug-tool.js';
+import { registerBrowserAgentTool } from './tools/browser-agent-tool.js';
+import { registerSpawnSubagentTool } from './tools/spawn-subagent-tool.js';
 import { registerEditTool } from './tools/edit-tool.js';
 import { pickProvider } from './web.js';
 import type {
@@ -512,6 +515,12 @@ async function wireOctocodePiExtension(
 
     registerWebTool(pi, Type, registeredToolNames, registerUniqueTool);
 
+    if (process.env['OCTOCODE_CHROME_DEBUG'] !== '0') {
+      registerChromeDebugTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
+      registerBrowserAgentTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
+      registerSpawnSubagentTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
+    }
+
     registerContextTools(pi, Type, registeredToolNames, registerUniqueTool, notify);
 
     registerAgentTools(pi, Type, registeredToolNames, registerUniqueTool);
@@ -537,7 +546,7 @@ async function wireOctocodePiExtension(
 
   pi.registerCommand('octocode-harness', {
     description:
-      'List every Octocode Pi extension harness surface: native tools, CLI commands, extension commands, and skills.',
+      'List every Octocode Pi extension harness surface: native tools, support tools, extension commands, CLI entry point, and skills.',
     handler: async (_args, ctx) => {
       notify(ctx, renderExtensionHarness(), 'info');
     },

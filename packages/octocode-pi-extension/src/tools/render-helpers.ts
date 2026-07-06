@@ -614,6 +614,21 @@ function parseMemoryStat(toolName: string, text: string): string {
         const outcome = typeof data.outcome === 'string' ? ` (${data.outcome})` : '';
         return `reflected${outcome}`;
       }
+      case 'file_lock':
+      case 'memory_file_lock': {
+        if (data.type === 'lock') {
+          const files = Array.isArray(data.files) ? data.files.length : 0;
+          const expires = typeof data.expiresAt === 'string' ? ` until ${data.expiresAt}` : '';
+          return `locked ${files} file${files === 1 ? '' : 's'}${expires}`;
+        }
+        if (data.type === 'status') {
+          const locks = Array.isArray(data.locks) ? data.locks.length : 0;
+          return `${locks} lock${locks === 1 ? '' : 's'}`;
+        }
+        if (data.type === 'renew') return `${data.locks_renewed ?? 0} renewed`;
+        if (data.type === 'release') return `${data.locks_released ?? 0} released`;
+        return '';
+      }
       case 'memory_workspace_status': {
         const locks = Array.isArray(data.locks) ? data.locks.length : 0;
         const agents = Array.isArray(data.agents) ? data.agents.length : 0;

@@ -1,8 +1,10 @@
 # Files-awareness — status, timestamps, collisions
 
-Read this when multiple agents may touch the same local repo. It covers status, timestamps, and collision response. Per-command flags live in `coordination-protocol.md`; automatic hook enforcement lives in `hooks.md`.
+Read this when multiple agents may touch the same local repo. It covers status, timestamps, and collision response. Per-command flags live in `coordination-protocol.md`; hook enforcement lives in `hooks.md`.
 
-## `status` & files-awareness
+> **Pi tool mapping:** `status` → `workspace_status`; `pre-flight-intent` → `file_lock type:lock`; `refine-get` → `memory_refine_get`; `notify-get` → `agent_signal action:list`.
+
+## `workspace_status` (Pi) / `status` (CLI)
 
 Run `status` to read shared state at a glance: memory counts by lifecycle state, active intents, unverified intents, and recent file locks.
 Each lock shows `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-8601 UTC, newest first).

@@ -25,9 +25,9 @@ function parseJsonList(value) {
 // src/db.ts
 var REFERENCES_INDEX_VERSION = "1";
 var REFINEMENT_QUALITY_SCHEMA_VERSION = "2";
+var FTS_INDEX_VERSION = "3";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
-var FTS_INDEX_VERSION = "2";
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
   if (configured?.trim()) return resolve2(configured.trim());
@@ -183,18 +183,61 @@ function initDb(db2) {
       PRIMARY KEY (notification_id, agent_id)
     );
 
+    -- ARCH-5: Agent identity registry \u2014 maps opaque agentIds to human-readable names.
+    -- Separate from agent_memories so the mapping persists even when memories are pruned.
+    -- ON CONFLICT logic in agents.ts ensures a non-empty name is never overwritten by ''.
+    CREATE TABLE IF NOT EXISTS agent_identities (
+      agent_id       TEXT PRIMARY KEY,
+      agent_name     TEXT NOT NULL DEFAULT '',
+      workspace_path TEXT,
+      context        TEXT,   -- 'pi' | 'cursor' | 'claude-code' | etc
+      registered_at  TEXT NOT NULL,
+      last_seen_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace ON agent_identities(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_identities_last_seen ON agent_identities(last_seen_at DESC);
+
     CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    -- DB-1: workspace_path and tags_text used in nearly every scope filter \u2014 previously unindexed
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_tags_text ON agent_memories(tags_text);
     CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_file_locks_acquired_at ON file_locks(acquired_at);
     CREATE INDEX IF NOT EXISTS idx_file_locks_expires_at ON file_locks(expires_at);
     CREATE INDEX IF NOT EXISTS idx_refinements_state ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_repo ON refinements(repo);
+    -- DB-2: notifications table had zero indexes; all inbox queries were full table scans
+    CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
+    CREATE INDEX IF NOT EXISTS idx_notifications_to_agent ON notifications(to_agent);
+    CREATE INDEX IF NOT EXISTS idx_notifications_workspace_path ON notifications(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+    -- Composite for getRefinements ORDER BY CASE state ... , updated_at DESC
+    CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
+
+    -- Critical missing indexes (verified from production DB) -------------------
+    -- agent_intents: status-only scan is a full table scan with 1679 rows in prod
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_status ON agent_intents(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
+    -- agent_memories: composite scope index covers (workspace_path, repo, ref) at once
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
+    -- file_locks: session-based release queries
+    CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id);
+    -- notifications: thread and to_agent inbox
+    CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
+    -- Deduplicate idx_notifications_to_agent; keep the shorter alias too
+    CREATE INDEX IF NOT EXISTS idx_notifications_to ON notifications(to_agent);
+    -- memory_references: cover both column name spellings from different migration versions
+    CREATE INDEX IF NOT EXISTS idx_memory_references_reference ON memory_references(reference);
   `);
   ensureMemoryColumns(db2);
   ensureIntentColumns(db2);
@@ -315,18 +358,8 @@ function hasFts(db2) {
 }
 function ftsTermsForRow(row) {
   const tags = parseJsonList(row.tags_json);
-  const refs = parseJsonList(row.references_json);
   const label = (row.label ?? "OTHER").toLowerCase();
-  return [
-    ...tags,
-    ...refs,
-    label,
-    row.file ?? "",
-    row.failure_signature ?? "",
-    row.workspace_path ?? "",
-    row.repo ?? "",
-    row.ref ?? ""
-  ].filter(Boolean).join(" ");
+  return [...tags, label].filter(Boolean).join(" ");
 }
 function referenceKind(reference) {
   if (/^https?:\/\//.test(reference)) return "url";
@@ -358,13 +391,18 @@ function ensureMemoryReferencesVersion(db2) {
 }
 function rebuildFts(db2) {
   db2.exec("DELETE FROM memory_fts");
-  const rows = db2.prepare("SELECT * FROM agent_memories").all();
+  const rows = db2.prepare(
+    "SELECT memory_id, task_context, observation, tags_json, label FROM agent_memories"
+  ).all();
   const insert = db2.prepare(
     "INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
   );
   for (const row of rows) {
     insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
   }
+}
+function evictExpiredLocks(db2) {
+  db2.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(utcNow());
 }
 function ensureFtsVersion(db2) {
   if (!hasFts(db2)) return;
@@ -410,7 +448,7 @@ function preFlightIntent(db2, params) {
   const now = utcNow();
   const wsPath = workspaceRoot(workspacePath);
   const absFiles = resolveTargetFiles(targetFiles, wsPath);
-  db2.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(now);
+  evictExpiredLocks(db2);
   const conflicts = [];
   for (const absPath of absFiles) {
     const conflictMode = lockType === "SHARED" ? "fl.lock_type = 'EXCLUSIVE'" : "1 = 1";
@@ -511,8 +549,22 @@ function releaseFileLock(db2, params) {
   const locks = db2.prepare(
     `SELECT fl.lock_id, fl.intent_id, fl.file_path FROM file_locks fl WHERE ${where}`
   ).all(...whereParams);
-  const deleteWhere = where.replace(/\bfl\./g, "");
-  db2.prepare(`DELETE FROM file_locks WHERE ${deleteWhere}`).run(...whereParams);
+  const deleteClauses = ["agent_id = ?"];
+  const deleteParams = [agentId2];
+  if (sessionId) {
+    deleteClauses.push("session_id = ?");
+    deleteParams.push(sessionId);
+  }
+  if (intentId) {
+    deleteClauses.push("intent_id = ?");
+    deleteParams.push(intentId);
+  }
+  if (absFiles.length > 0) {
+    const ph = absFiles.map(() => "?").join(",");
+    deleteClauses.push(`file_path IN (${ph})`);
+    deleteParams.push(...absFiles);
+  }
+  db2.prepare(`DELETE FROM file_locks WHERE ${deleteClauses.join(" AND ")}`).run(...deleteParams);
   const intentIds = [.../* @__PURE__ */ new Set([
     ...intentId ? [intentId] : [],
     ...locks.map((l) => l.intent_id)
@@ -589,7 +641,50 @@ function auditUnverified(db2, params = {}) {
       }
     }
   }
-  return { ok: true, unverified, count: unverified.length };
+  const staleActive = [];
+  try {
+    const nowIso = utcNow();
+    const staleWhere = [
+      "ai.status = 'ACTIVE'",
+      // No live lock remains: all locks either deleted or expired
+      `NOT EXISTS (
+        SELECT 1 FROM file_locks fl
+        WHERE fl.intent_id = ai.intent_id
+          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+      )`
+    ];
+    const staleBinds = [nowIso];
+    if (params.agentId) {
+      staleWhere.push("ai.agent_id = ?");
+      staleBinds.push(params.agentId);
+    }
+    if (params.workspacePath) {
+      staleWhere.push("ai.workspace_path = ?");
+      staleBinds.push(params.workspacePath);
+    }
+    const staleRows = db2.prepare(
+      `SELECT ai.intent_id, ai.agent_id, ai.rationale, ai.workspace_path, ai.files_json, ai.created_at
+       FROM agent_intents ai
+       WHERE ${staleWhere.join(" AND ")}
+       ORDER BY ai.created_at ASC`
+    ).all(...staleBinds);
+    for (const r of staleRows) {
+      const ageMs = Date.now() - new Date(r.created_at).getTime();
+      staleActive.push({
+        intent_id: r.intent_id,
+        agent_id: r.agent_id,
+        status: "ACTIVE",
+        rationale: r.rationale,
+        target_files: parseJsonList(r.files_json),
+        workspace_path: r.workspace_path,
+        created_at: r.created_at,
+        age_hours: Math.round(ageMs / 36e5 * 10) / 10
+      });
+    }
+  } catch {
+  }
+  const total = unverified.length + staleActive.length;
+  return { ok: true, unverified, stale_active: staleActive, count: total };
 }
 
 // src/maintenance.ts
@@ -643,20 +738,9 @@ function rowToNotification(r) {
     kind: r.kind,
     subject: r.subject,
     body: r.body,
-    files: (() => {
-      try {
-        return JSON.parse(r.files_json);
-      } catch {
-        return [];
-      }
-    })(),
-    refs: (() => {
-      try {
-        return JSON.parse(r.refs_json);
-      } catch {
-        return [];
-      }
-    })(),
+    // ARCH-7: Use shared parseJsonList helper instead of duplicated inline IIFEs
+    files: parseJsonList(r.files_json),
+    refs: parseJsonList(r.refs_json),
     thread_id: r.thread_id,
     in_reply_to: r.in_reply_to,
     importance: r.importance,
@@ -692,10 +776,7 @@ function getNotifications(db2, params) {
     binds.push(agentId2);
     if (unreadOnly) {
       where.push("n.status = 'open'");
-      where.push(
-        `NOT EXISTS (SELECT 1 FROM notification_reads nr WHERE nr.notification_id = n.notification_id AND nr.agent_id = ?)`
-      );
-      binds.push(agentId2);
+      where.push("nr.notification_id IS NULL");
     }
   }
   if (kinds.length > 0) {
@@ -703,13 +784,16 @@ function getNotifications(db2, params) {
     binds.push(...kinds);
   }
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  const joinClause = unreadOnly && !threadId ? `LEFT JOIN notification_reads nr ON nr.notification_id = n.notification_id AND nr.agent_id = ?` : "";
+  const allBinds = unreadOnly && !threadId ? [agentId2, ...binds] : binds;
   const sql = `
     SELECT n.* FROM notifications n
+    ${joinClause}
     ${whereClause}
     ORDER BY n.created_at DESC
     LIMIT ?
   `;
-  const rows = db2.prepare(sql).all(...binds, limit);
+  const rows = db2.prepare(sql).all(...allBinds, limit);
   const notifications = rows.map(rowToNotification);
   if (markRead && notifications.length > 0) {
     const now = utcNow();
@@ -787,10 +871,12 @@ function openRefinementCount(db2, params = {}) {
   }
   return db2.prepare(sql).get(...queryParams).c;
 }
+var BRIEFING_LABELS = ["GOTCHA", "BUG", "DECISION", "IMPROVEMENT", "ARCHITECTURE", "SECURITY"];
 function notifyGet(db2, params = {}) {
   const wsPath = params.workspace ?? null;
   const format = params.format ?? "json";
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
+  const notifyCwd = wsPath ?? params.cwd ?? process.cwd();
   const items = [];
   try {
     const inbox = getNotifications(db2, {
@@ -799,7 +885,7 @@ function notifyGet(db2, params = {}) {
       unreadOnly: true,
       markRead: false,
       limit: 5,
-      cwd: process.cwd()
+      cwd: notifyCwd
     });
     for (const n of inbox.notifications) {
       const target = n.to_agent ? `to ${n.to_agent}` : "broadcast";
@@ -817,9 +903,9 @@ function notifyGet(db2, params = {}) {
     const conditions = [
       "state = 'ACTIVE'",
       "importance_score >= 6",
-      "label IN ('GOTCHA','BUG','DECISION','IMPROVEMENT','ARCHITECTURE','SECURITY')"
+      `label IN (${BRIEFING_LABELS.map(() => "?").join(",")})`
     ];
-    const bindParams = [];
+    const bindParams = [...BRIEFING_LABELS];
     if (wsPath) {
       conditions.push("(workspace_path = ? OR workspace_path IS NULL)");
       bindParams.push(wsPath);
@@ -994,7 +1080,7 @@ function digest(db2, params = {}) {
   const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 864e5).toISOString();
   const doneCutoff = new Date(Date.now() - doneRetentionDays * 864e5).toISOString();
   const refinementRetentionSql = `SELECT COUNT(*) AS c FROM refinements
-     WHERE (quality = 'handoff' AND created_at < ?)
+     WHERE (quality = 'handoff' AND updated_at < ?)
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`;
   if (params.dry_run) {
     const wouldArchive = db2.prepare(
@@ -1034,7 +1120,7 @@ function digest(db2, params = {}) {
   const { pruned_locks } = pruneStale(db2, {});
   const pruneRefinementsRes = db2.prepare(
     `DELETE FROM refinements
-     WHERE (quality = 'handoff' AND created_at < ?)
+     WHERE (quality = 'handoff' AND updated_at < ?)
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
   ).run(handoffCutoff, doneCutoff);
   let ftsRebuilt = false;
@@ -1058,6 +1144,8 @@ function digest(db2, params = {}) {
 
 // src/pi-hooks.ts
 import path from "node:path";
+import { randomUUID as randomUUID5 } from "node:crypto";
+var _sessionStartupToken = randomUUID5().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
     paths.push(value.trim());

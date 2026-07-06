@@ -23,9 +23,9 @@ reflect --agent-id <a> --task "<what I did>" --outcome worked|partial|failed \
 
 The `reflect` command records nothing new of its own — it **routes** the reflection into the existing surfaces so the right reader acts on each piece:
 
-- **Learning** (`--lesson`) → a general memory (§3 recall, §2 `mine-weakness` when given `--failure-signature`).
-- **Repo/code fix** (`--fix-repo`) → an open, `quality:bad` refinement the next agent sees via `refine-get` — your durable *"fix this here"* indication, stored with the repo.
-- **Harness improvement** (`--fix-harness`) → a `harness`-tagged memory that §4 `export-harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
+- **Learning** (`lesson:`) → a general memory (§3 recall, §2 `memory_mine_weakness` when given `failure_signature:`).
+- **Repo/code fix** (`fix_repo:`) → a refinement (`quality:good` if outcome=worked, `quality:bad` if partial/failed) visible via `memory_refine_get` — the durable *"fix this here"* queue.
+- **Harness improvement** (`fix_harness:`) → a `harness`-tagged memory that §4 `memory_export_harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
 
 Use `--judgment-note` when the conclusion needs nuance: name checked evidence, remaining uncertainty, and why any eval/checklist prompt mattered.
 Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness.
@@ -37,7 +37,7 @@ For subagent-heavy work, pair `--judgment-note` with the compact evidence receip
 
 Treat failed binary questions as diagnostic packets, not auto-patch instructions.
 
-- Record high-signal recurring failures with `reflect --lesson ... --failure-signature <failed-question.failureSignature>`.
+- Record high-signal recurring failures with `memory_reflect({ lesson: "...", failure_signature: "<sig>" })` (Pi) or `reflect --lesson ... --failure-signature <sig>` (CLI).
 - Prefer `reflect --eval-failure-json '[...]'` when the eval output is structured. Each entry keeps `id`, optional `dimension`, `failure_signature`, and `suggested_lesson`. `reflect` tags the memory as `eval` and uses the first provided signature for `mine-weakness` when `--failure-signature` is omitted.
 - If an eval emits `agenticEval`, use its generated questions as seed prompts for a semantic eval agent.
   The eval agent may rewrite, add, or drop questions based on intent; they guide judgment, not fixed pass/fail.
@@ -48,32 +48,29 @@ The flagship failure class is declaring success without checking the artifact.
 
 - At `pre-flight-intent` you already declare a `--test-plan`. After doing the work,
   **run it and record that it ran**:
-  - `verify --agent-id <a> --intent-id <id> --message "command=yarn test exit=0 artifact=skill docs result=273 passed evidence=<log/ref>"`, or
-  - `verify --agent-id <a> --workspace "$PWD" --all-pending --message "command=... exit=0 artifact=... result=... evidence=..."` after hook-managed edits, or
-  - `release-file-lock ... --status SUCCESS --verified --verified-note "ran it"`.
+  - **Pi:** `memory_verify({ intent_id: "...", status: "SUCCESS" })` or `memory_verify({ allPending: true })`
+  - **Pi:** `file_lock({ type: "release", intent_id: "...", verified: true, verified_note: "ran yarn test, 273 passed" })`
+  - **CLI:** `awareness.mjs verify --agent-id <a> --all-pending --message "command=... exit=0 evidence=<ref>"`
 - A `VERIFIED` event is written to `intent_events`. If you release `--status SUCCESS`
   on an intent that declared a test-plan but recorded no verification, the response
   carries an `unverifiedConclusion` warning and stores the intent as `PENDING`.
   The post-edit hook also releases file locks as `PENDING`, so coordination is
   unblocked while verification remains auditable.
-- The **Stop / SubagentStop hook** (`hooks/stop-verify.sh`) runs `audit-unverified`
-  for your session and blocks the conclusion **once** with a reminder if any active
-  or pending intent has a test-plan but no `VERIFIED` event. It is loop-guarded
-  (`stop_hook_active`) and opt-out via `OCTOCODE_NO_VERIFY_GATE=1`.
+- The **Stop/SubagentStop hook** runs `memory_audit_unverified` and blocks conclusion once if any intent has no `VERIFIED` event. Loop-guarded; opt-out via `OCTOCODE_NO_VERIFY_GATE=1`.
 
-`audit-unverified [--agent-id <a>]` lists intents missing verification and exits `1`
-when any exist (so it composes in scripts/hooks).
+`memory_audit_unverified` (Pi) / `audit-unverified --agent-id <a>` (CLI) lists unverified intents; exits `1` when any exist.
 
 ## 2. Mine recurring failures
 
 Tag a failure with a stable signature when you record it:
 
 ```bash
-tell-memory ... --failure-signature "mechanism:retry-loop|cause:test-timeout"
+memory_record({ ..., failure_signature: "mechanism:retry-loop|cause:test-timeout" })  # Pi
+# CLI: awareness.mjs tell-memory ... --failure-signature "mechanism:retry-loop|cause:test-timeout"
 ```
 
-`mine-weakness [--limit N]` clusters memories by `failure_signature` and ranks each
-cluster by **support × max-importance**, with up to three example observations. This
+`memory_mine_weakness` (Pi) / `mine-weakness [--limit N]` (CLI) clusters memories by `failure_signature` and ranks each
+cluster by **support × avg-importance**, with up to three example observations. This
 turns N anecdotal "failed again" rows into one ranked recurring-mechanism record.
 Exact-signature grouping is brittle on free text, so signatures power *this view only*
 — general recall still uses FTS5 + decay (below).
@@ -110,8 +107,10 @@ migrate automatically.
 ## 4. Refine the harness — the loop's last step
 
 A recurring lesson should stop being "might recall" and become standing guidance.
-`export-harness [--min-importance N] [--limit N]` previews top recurring **general**
-(file-less) lessons for `AGENTS.md` / `CLAUDE.md`. It is preview-only and never writes.
+`memory_export_harness` (Pi) / `export-harness` (CLI) previews lessons for `AGENTS.md` / `CLAUDE.md` in two tiers:
+- **Tier 1** (always first): `harness`-tagged memories from `memory_reflect fix_harness:`.
+- **Tier 2**: high-importance general memories (importance ≥ 7, label ≠ EXPERIENCE).
+`memory_export_harness` is preview-only and never writes files.
 
 ### Harness improvement gate
 
@@ -128,7 +127,7 @@ Before applying any harness change, ask the user with a concrete fix request:
 - Proposed change, risk/rollback, and verification plan.
 
 Until approved, keep the proposal in conversation or a proposal-only refinement; do not
-edit files or add/supersede/prune standing harness memories. Use `reflect --fix-harness`
+edit files or add/supersede/prune standing harness memories. Use `memory_reflect fix_harness:`
 only when the user asks for or approves durable proposal capture. One approval covers only
 the scoped change being discussed; never treat it as blanket permission.
 
@@ -138,7 +137,7 @@ the scoped change being discussed; never treat it as blanket permission.
   explicit human approval for the scoped change — never silently, never on `main`,
   never auto-merged.
 - No automatic prompt rewrite from failed binary questions or advisory `agenticEval`
-  prompts. They are evidence for `reflect`, `mine-weakness`, and human-reviewed
+  prompts. They are evidence for `memory_reflect`, `memory_mine_weakness`, and human-reviewed
   harness proposals.
 - No numeric regression-gate infrastructure (held-in/held-out splits + verifier
   services) — out of scope for a service-free local skill. Flag regressions in notes instead.

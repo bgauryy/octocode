@@ -11,10 +11,17 @@ import { insertRefinement } from './refinements.js';
 import type { ReflectParams, ReflectResult, ReflectionOutcome } from './types.js';
 
 const VALID_OUTCOMES: ReadonlyArray<string> = ['worked', 'partial', 'failed'];
-const NEXT_MSG = 'refine-get → repo fixes for the next agent · mine-weakness → recurring failures · export-harness → preview harness improvements. A human merges.';
+const NEXT_MSG = 'memory_refine_get → repo fixes for the next agent · memory_mine_weakness → recurring failures · memory_digest export_doc:true → preview harness improvements. A human merges.';
 
-function normalizeScopePaths(paths: string[] = [], prefix: 'file' | 'dir'): string[] {
-  return [...new Set(paths.filter(Boolean).map((p) => `${prefix}:${resolve(p)}`))];
+function normalizeScopePaths(paths: string[] = [], prefix: 'file' | 'dir', baseCwd?: string): string[] {
+  // RFLX-1: Resolve relative paths against the caller-supplied cwd, not process.cwd().
+  // Without this, a reflect() call with an explicit cwd would silently resolve file:
+  // references against the wrong directory.
+  const base = baseCwd ?? process.cwd();
+  return [...new Set(paths.filter(Boolean).map((p) => {
+    const abs = p.startsWith('/') ? p : resolve(base, p);
+    return `${prefix}:${abs}`;
+  }))];
 }
 
 /**
@@ -69,9 +76,9 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     ?? (resolvedOutcome === 'failed' && fixHarness ? 'harness:reflection|outcome:failed' : null);
     const scopeReferences = [
       ...references,
-      ...normalizeScopePaths(file ? [file] : [], 'file'),
-      ...normalizeScopePaths(files, 'file'),
-      ...normalizeScopePaths(folders, 'dir'),
+      ...normalizeScopePaths(file ? [file] : [], 'file', cwd),
+      ...normalizeScopePaths(files, 'file', cwd),
+      ...normalizeScopePaths(folders, 'dir', cwd),
     ];
 
   // Insert learning memory — direct call, no subprocess, no stdout capture
@@ -96,11 +103,16 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
   // Optional repo-fix refinement
   let refinementId: string | null = null;
   if (fixRepo) {
+    // R-2: Quality reflects whether this is a fix (broken path) or improvement (good path).
+    // worked  → quality:'good'  — the code works; this is an enhancement or clarification
+    // partial → quality:'bad'   — something was wrong; fix it
+    // failed  → quality:'bad'   — definitely broken
+    const refinementQuality = resolvedOutcome === 'worked' ? 'good' : 'bad';
     const { refinementId: rid } = insertRefinement(db, {
       agentId,
       reasoning: `Fix in repo (from ${resolvedOutcome} reflection): ${fixRepo}`,
       remember: fixRepo,
-      quality: 'bad',
+      quality: refinementQuality,
       state: 'open',
       workspacePath,
       repo: repoArg,

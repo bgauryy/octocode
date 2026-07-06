@@ -30,9 +30,33 @@ const SCORING_PREFETCH_FACTOR = 3;
 const SIMILARITY_THRESHOLD = 0.45;
 const SIMILARITY_PREFETCH = 12;
 
+/**
+ * Tokenize text for Jaccard similarity. Splits camelCase/PascalCase,
+ * lowercases, strips structural prefixes (file:, dir:, pr:, url:),
+ * and filters short/stop tokens.
+ */
+const STOP_WORDS = new Set([
+  // Articles / conjunctions
+  'the', 'and', 'for', 'with', 'from', 'into', 'not',
+  // Demonstratives
+  'this', 'that', 'its',
+  // Question words
+  'what', 'when', 'about', 'before', 'after',
+  // Common verbs (too generic to be useful in memory search)
+  'are', 'was', 'has', 'had', 'can', 'did', 'use', 'used', 'using',
+]);
+
 function textTokens(text: string): Set<string> {
-  const stopWords = new Set(['the', 'and', 'for', 'with', 'this', 'that', 'about', 'before', 'after', 'from', 'into', 'when', 'what']);
-  return new Set((text.toLowerCase().match(/[a-z0-9_:-]{3,}/g) ?? []).filter(t => !stopWords.has(t)));
+  // Split camelCase/PascalCase: workspacePath → workspace path
+  const split = text
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/[:_-]/g, ' ')   // treat separators as spaces
+    .toLowerCase();
+  return new Set(
+    (split.match(/[a-z0-9]{3,}/g) ?? [])
+      .filter(t => !STOP_WORDS.has(t))
+  );
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -91,13 +115,21 @@ export function decayScore(
 // ─── FTS helpers ──────────────────────────────────────────────────────────────
 
 function buildFtsQuery(query: string): string | null {
-  const stopWords = new Set(['the', 'and', 'for', 'with', 'this', 'that', 'about', 'before', 'after']);
+  // Apply same camelCase split as textTokens so FTS matches what Jaccard compares.
+  const normalized = query
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/[:_-]/g, ' ')
+    .toLowerCase();
   const tokens = [
     ...new Set(
-      (query.toLowerCase().match(/[a-z0-9_]{2,}/g) ?? []).filter(t => !stopWords.has(t))
+      (normalized.match(/[a-z0-9]{3,}/g) ?? []).filter(t => !STOP_WORDS.has(t))
     ),
   ].slice(0, 16);
-  return tokens.length > 0 ? tokens.join(' OR ') : null;
+  if (tokens.length === 0) return null;
+  // Short queries use AND (precise) — FTS5 returns only memories containing all tokens.
+  // Longer queries use OR (broad recall) — BM25 + decay scoring handles ranking.
+  return tokens.length <= 2 ? tokens.join(' ') : tokens.join(' OR ');
 }
 
 function fallbackSearch(
@@ -145,8 +177,12 @@ export function lexicalSearch(
   let rows: MemoryRow[];
   if (ftsQuery && hasFts(db)) {
     try {
+      // BM25 column weights: memory_id=UNINDEXED(0), task_context=10, observation=7, tags=2.
+      // Matches in task_context (what the agent was doing) score higher than
+      // observation (the lesson) which scores higher than tags (supplementary).
+      // bm25() returns negative values; ABS() + DESC gives best-match-first.
       const sql = `
-        SELECT m.*, ABS(bm25(memory_fts)) AS _bm25
+        SELECT m.*, ABS(bm25(memory_fts, 0, 10, 7, 2)) AS _bm25
         FROM agent_memories m
         JOIN memory_fts ON memory_fts.memory_id = m.memory_id
         WHERE memory_fts MATCH ?
@@ -230,7 +266,9 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     cwd ?? process.cwd()
   );
 
-  const similar = findSimilarMemories(db, `${taskContext} ${observation}`);
+  // TOOL-2: Use preComputedSimilar if provided (avoids the double findSimilarMemories call
+  // when the caller already ran a dedup gate check before deciding to insert).
+  const similar = params.preComputedSimilar ?? findSimilarMemories(db, `${taskContext} ${observation}`);
   const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
   const similarMemoryIds = similar.map(m => m.memory_id);
 
@@ -369,23 +407,24 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     memories = memories.filter(m => m.file != null && normFiles.has(m.file));
   }
 
-  // Reference filter — use memory_references table when available, fall back to inline JSON
+  // Reference filter — use memory_references table (always populated via replaceMemoryReferences).
+  // MEM-1: A zero result from the table means "no matches", not "table unavailable".
+  // The JSON scan fallback only fires when the table itself throws (e.g. very old DB without
+  // the table), not when it returns 0 rows.
   if (references.length > 0) {
     const refSet = new Set(references);
-    const fromTable = new Set<string>();
     try {
+      const fromTable = new Set<string>();
       for (const ref of references) {
         const rows = db.prepare(
           'SELECT memory_id FROM memory_references WHERE reference = ?'
         ).all(ref) as unknown as Array<{ memory_id: string }>;
         rows.forEach(r => fromTable.add(r.memory_id));
       }
-      if (fromTable.size > 0) {
-        memories = memories.filter(m => fromTable.has(m.memory_id));
-      } else {
-        memories = memories.filter(m => (m.references ?? []).some(r => refSet.has(r)));
-      }
+      // Authoritative result: fromTable may be empty if no memory matches these refs.
+      memories = memories.filter(m => fromTable.has(m.memory_id));
     } catch {
+      // Table does not exist (very old schema) — degrade to inline JSON scan.
       memories = memories.filter(m => (m.references ?? []).some(r => refSet.has(r)));
     }
   }
@@ -569,19 +608,32 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
     LIMIT ?
   `).all(...bindParams, minCount, limit) as unknown as ClusterRow[];
 
+  // Fix N+1: one query per cluster → one batch query for all representatives.
+  // SQLite's 'bare column with max()' picks the value from the row with the highest
+  // importance_score within each group (documented SQLite aggregate behavior).
+  const allSigs = rows.map(r => r.failure_signature);
+  type RepRow = { failure_signature: string; observation: string };
+  const repMap = new Map<string, string>();
+  if (allSigs.length > 0) {
+    const ph = allSigs.map(() => '?').join(',');
+    const repRows = db.prepare(
+      `SELECT failure_signature, observation, max(importance_score)
+       FROM agent_memories
+       WHERE failure_signature IN (${ph}) AND state = 'ACTIVE'
+       GROUP BY failure_signature`
+    ).all(...allSigs) as unknown as RepRow[];
+    for (const r of repRows) repMap.set(r.failure_signature, r.observation);
+  }
+
   const clusters: WeaknessCluster[] = rows.map(row => {
     const ids = row.ids.split(',');
-    const rep = db.prepare(
-      `SELECT observation FROM agent_memories WHERE memory_id IN (${ids.map(() => '?').join(',')})
-       ORDER BY importance_score DESC LIMIT 1`
-    ).get(...ids) as { observation: string } | undefined;
     return {
       failure_signature: row.failure_signature,
       count: row.freq,
       avg_importance: Math.round(row.avg_imp * 10) / 10,
       score: Math.round(row.score * 10) / 10,
       memory_ids: ids,
-      representative: rep?.observation?.slice(0, 200) ?? '',
+      representative: (repMap.get(row.failure_signature) ?? '').slice(0, 200),
       labels: row.labels.split(',').filter(Boolean),
     };
   });
@@ -593,4 +645,94 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   ).get() as unknown as TotalRow;
 
   return { ok: true, clusters, total_signatures: totals.sigs, total_memories: totals.mems };
+}
+
+// ─── Embedding storage + cosine search (ARCH-6) ─────────────────────────────
+
+/**
+ * Compute cosine similarity between two Float32 vectors.
+ * Returns 0 if either vector has zero magnitude.
+ */
+function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot  += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+/**
+ * Store a dense embedding for a memory.
+ * Uses the existing `embedding` BLOB + `embedding_model` TEXT columns
+ * (already in the schema; previously unused).
+ *
+ * The embedding source (API, local model) is the caller's responsibility —
+ * this function only handles persistence.
+ *
+ * @param embedding - Flat Float32Array from a text-embedding model
+ * @param model     - Model identifier, e.g. 'text-embedding-3-small'
+ */
+export function storeEmbedding(
+  db: DatabaseSync,
+  memoryId: string,
+  embedding: Float32Array,
+  model: string,
+): void {
+  // Serialize Float32Array → raw binary buffer stored as BLOB
+  const blob = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+  db.prepare(
+    `UPDATE agent_memories SET embedding = ?, embedding_model = ?, updated_at = ?
+     WHERE memory_id = ?`
+  ).run(blob, model, utcNow(), memoryId);
+}
+
+/**
+ * Search memories by cosine similarity against a query embedding.
+ *
+ * Retrieves all stored embeddings (optionally filtered by model) and ranks
+ * them in JS. For stores < ~10k memories this is fast enough; at larger
+ * scale, a proper vector index (e.g. sqlite-vss) would be needed.
+ *
+ * @param queryEmbedding - The embedding of the text to search for
+ * @param limit          - Maximum results to return (default 5)
+ * @param threshold      - Minimum cosine similarity 0–1 (default 0.75)
+ * @param model          - Only compare against embeddings from this model
+ */
+export function searchByEmbedding(
+  db: DatabaseSync,
+  queryEmbedding: Float32Array,
+  limit = 5,
+  threshold = 0.75,
+  model?: string,
+): Array<{ memory_id: string; similarity: number }> {
+  const conditions = ["state = 'ACTIVE'", 'embedding IS NOT NULL'];
+  const binds: string[] = [];
+  if (model) { conditions.push('embedding_model = ?'); binds.push(model); }
+
+  type EmbRow = { memory_id: string; embedding: Buffer; embedding_model: string };
+  const rows = db.prepare(
+    `SELECT memory_id, embedding, embedding_model FROM agent_memories
+     WHERE ${conditions.join(' AND ')}`
+  ).all(...binds) as unknown as EmbRow[];
+
+  const results: Array<{ memory_id: string; similarity: number }> = [];
+  for (const row of rows) {
+    try {
+      const stored = new Float32Array(
+        row.embedding.buffer,
+        row.embedding.byteOffset,
+        row.embedding.byteLength / 4,
+      );
+      const sim = cosineSimilarity(queryEmbedding, stored);
+      if (sim >= threshold) results.push({ memory_id: row.memory_id, similarity: sim });
+    } catch { /* corrupted BLOB — skip */ }
+  }
+
+  return results
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, limit);
 }

@@ -66,18 +66,11 @@ function checkPattern(text, check) {
   return compile(check.pattern).test(text);
 }
 
-const STOP_WORDS = new Set([
-  'about', 'after', 'again', 'answer', 'before', 'build', 'could', 'does', 'from',
-  'have', 'idea', 'into', 'local', 'mode', 'more', 'only', 'prompt', 'should',
-  'that', 'their', 'there', 'this', 'what', 'when', 'where', 'which', 'while',
-  'with', 'without', 'would',
-]);
-
 function extractIntentTerms(text, limit = 8) {
   const counts = new Map();
   for (const raw of String(text || '').toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []) {
     const term = raw.replace(/^-+|-+$/g, '');
-    if (!term || STOP_WORDS.has(term)) continue;
+    if (!term) continue;
     counts.set(term, (counts.get(term) || 0) + 1);
   }
   return [...counts.entries()]

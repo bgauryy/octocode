@@ -8,17 +8,18 @@ import { mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { homedir, platform } from 'node:os';
 
-import { parseJsonList } from './helpers.js';
+import { parseJsonList, utcNow } from './helpers.js';
 import type { TableInfoRow, MetaRow, MemoryRow } from './types.js';
 
 const REFERENCES_INDEX_VERSION = '1';
 const REFINEMENT_QUALITY_SCHEMA_VERSION = '2';
+// Bump when ftsTermsForRow changes what is indexed so initDb triggers a rebuild.
+const FTS_INDEX_VERSION = '3';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_DB_NAME = 'awareness.sqlite3';
 const MEMORY_HOME_ENV = 'OCTOCODE_MEMORY_HOME';
-const FTS_INDEX_VERSION = '2';
 
 // ─── Path resolution ──────────────────────────────────────────────────────────
 
@@ -190,18 +191,61 @@ export function initDb(db: DatabaseSync): void {
       PRIMARY KEY (notification_id, agent_id)
     );
 
+    -- ARCH-5: Agent identity registry — maps opaque agentIds to human-readable names.
+    -- Separate from agent_memories so the mapping persists even when memories are pruned.
+    -- ON CONFLICT logic in agents.ts ensures a non-empty name is never overwritten by ''.
+    CREATE TABLE IF NOT EXISTS agent_identities (
+      agent_id       TEXT PRIMARY KEY,
+      agent_name     TEXT NOT NULL DEFAULT '',
+      workspace_path TEXT,
+      context        TEXT,   -- 'pi' | 'cursor' | 'claude-code' | etc
+      registered_at  TEXT NOT NULL,
+      last_seen_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace ON agent_identities(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_identities_last_seen ON agent_identities(last_seen_at DESC);
+
     CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    -- DB-1: workspace_path and tags_text used in nearly every scope filter — previously unindexed
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_tags_text ON agent_memories(tags_text);
     CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
     CREATE INDEX IF NOT EXISTS idx_file_locks_acquired_at ON file_locks(acquired_at);
     CREATE INDEX IF NOT EXISTS idx_file_locks_expires_at ON file_locks(expires_at);
     CREATE INDEX IF NOT EXISTS idx_refinements_state ON refinements(state);
     CREATE INDEX IF NOT EXISTS idx_refinements_repo ON refinements(repo);
+    -- DB-2: notifications table had zero indexes; all inbox queries were full table scans
+    CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
+    CREATE INDEX IF NOT EXISTS idx_notifications_to_agent ON notifications(to_agent);
+    CREATE INDEX IF NOT EXISTS idx_notifications_workspace_path ON notifications(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+    -- Composite for getRefinements ORDER BY CASE state ... , updated_at DESC
+    CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
+
+    -- Critical missing indexes (verified from production DB) -------------------
+    -- agent_intents: status-only scan is a full table scan with 1679 rows in prod
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_status ON agent_intents(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
+    -- agent_memories: composite scope index covers (workspace_path, repo, ref) at once
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
+    -- file_locks: session-based release queries
+    CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id);
+    -- notifications: thread and to_agent inbox
+    CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
+    -- Deduplicate idx_notifications_to_agent; keep the shorter alias too
+    CREATE INDEX IF NOT EXISTS idx_notifications_to ON notifications(to_agent);
+    -- memory_references: cover both column name spellings from different migration versions
+    CREATE INDEX IF NOT EXISTS idx_memory_references_reference ON memory_references(reference);
   `);
 
   ensureMemoryColumns(db);
@@ -340,15 +384,19 @@ export function hasFts(db: DatabaseSync): boolean {
   return Boolean(row);
 }
 
+/**
+ * Build the FTS5 `tags` column value for a memory row.
+ *
+ * DB-3: Only index SEMANTIC content (tags + label). Structural metadata
+ * (workspace_path, repo, ref, file, failure_signature, references) must NOT
+ * appear in FTS — they corrupt BM25 ranking and cause false positives when a
+ * repo/path name matches an unrelated query. Structural fields are filtered
+ * via WHERE clauses in getMemory().
+ */
 export function ftsTermsForRow(row: Partial<MemoryRow>): string {
   const tags = parseJsonList(row.tags_json);
-  const refs = parseJsonList(row.references_json);
   const label = (row.label ?? 'OTHER').toLowerCase();
-  return [
-    ...tags, ...refs, label,
-    row.file ?? '', row.failure_signature ?? '',
-    row.workspace_path ?? '', row.repo ?? '', row.ref ?? '',
-  ].filter(Boolean).join(' ');
+  return [...tags, label].filter(Boolean).join(' ');
 }
 
 // ─── Memory references ───────────────────────────────────────────────────────────
@@ -390,14 +438,30 @@ export function ensureMemoryReferencesVersion(db: DatabaseSync): void {
 // ─── FTS ───────────────────────────────────────────────────────────────────
 
 export function rebuildFts(db: DatabaseSync): void {
+  // DB-4 reverted: 'delete-all' FTS5 command only works on content= (contentless)
+  // tables, not regular FTS5 tables. DELETE FROM is the correct approach for
+  // a standard fts5 table (it goes through the shadow tables properly).
   db.exec('DELETE FROM memory_fts');
-  const rows = db.prepare('SELECT * FROM agent_memories').all() as unknown as MemoryRow[];
+  // Select only the columns needed for FTS indexing — avoids loading the
+  // embedding BLOB (can be 1536 floats = 6KB per row) for all 229+ rows.
+  const rows = db.prepare(
+    'SELECT memory_id, task_context, observation, tags_json, label FROM agent_memories'
+  ).all() as unknown as Pick<MemoryRow, 'memory_id' | 'task_context' | 'observation' | 'tags_json' | 'label'>[];
   const insert = db.prepare(
     'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
   );
   for (const row of rows) {
     insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
   }
+}
+
+/**
+ * Evict expired file locks. Extracted as a named function so intents.ts
+ * and maintenance.ts call it explicitly rather than duplicating the DELETE
+ * as a side effect of read operations (ARCH-3).
+ */
+export function evictExpiredLocks(db: DatabaseSync): void {
+  db.prepare('DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(utcNow());
 }
 
 export function ensureFtsVersion(db: DatabaseSync): void {

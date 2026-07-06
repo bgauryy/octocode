@@ -28,10 +28,26 @@ export interface UnverifiedIntent {
   created_at: string;
 }
 
+/**
+ * VER-2: An ACTIVE intent whose file_locks have all been evicted (expired).
+ * These are orphaned sessions the old audit silently missed.
+ */
+export interface StaleActiveIntent {
+  intent_id: string;
+  agent_id: string;
+  status: 'ACTIVE';
+  rationale: string;
+  target_files: string[];
+  workspace_path: string | null;
+  created_at: string;
+  age_hours: number; // how long stuck ACTIVE with no live locks
+}
+
 export interface AuditUnverifiedResult {
   ok: true;
-  unverified: UnverifiedIntent[];
-  count: number;
+  unverified: UnverifiedIntent[];    // status=PENDING: released, awaiting verify
+  stale_active: StaleActiveIntent[]; // VER-2: ACTIVE with no live file_locks
+  count: number;                     // total = unverified.length + stale_active.length
 }
 
 export interface AuditUnverifiedParams {
@@ -53,7 +69,9 @@ export interface MarkVerifiedParams {
 
 export interface MarkVerifiedOk {
   ok: true;
-  intent_id: string;
+  // VER-1: null when allPending=true (no single intent applies in batch mode).
+  // Callers must guard for null when using allPending.
+  intent_id: string | null;
   intent_ids?: string[];   // set when allPending=true
   count?: number;          // set when allPending=true
   status: IntentStatus;
@@ -63,7 +81,7 @@ export interface MarkVerifiedOk {
 export interface MarkVerifiedErr {
   ok: false;
   error: string;
-  intent_id: string;
+  intent_id: string | null;
 }
 
 export type MarkVerifiedResult = MarkVerifiedOk | MarkVerifiedErr;
@@ -144,7 +162,49 @@ export function auditUnverified(
     }
   }
 
-  return { ok: true, unverified, count: unverified.length };
+  // VER-2: Detect ACTIVE intents whose file_locks have all expired/been evicted.
+  // These are orphaned sessions — the agent crashed or exited without releasing locks.
+  // We query for ACTIVE intents that have no remaining live file_locks.
+  const staleActive: StaleActiveIntent[] = [];
+  try {
+    const nowIso = utcNow();
+    const staleWhere: string[] = [
+      "ai.status = 'ACTIVE'",
+      // No live lock remains: all locks either deleted or expired
+      `NOT EXISTS (
+        SELECT 1 FROM file_locks fl
+        WHERE fl.intent_id = ai.intent_id
+          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+      )`,
+    ];
+    const staleBinds: (string | number)[] = [nowIso];
+    if (params.agentId) { staleWhere.push('ai.agent_id = ?'); staleBinds.push(params.agentId); }
+    if (params.workspacePath) { staleWhere.push('ai.workspace_path = ?'); staleBinds.push(params.workspacePath); }
+
+    const staleRows = db.prepare(
+      `SELECT ai.intent_id, ai.agent_id, ai.rationale, ai.workspace_path, ai.files_json, ai.created_at
+       FROM agent_intents ai
+       WHERE ${staleWhere.join(' AND ')}
+       ORDER BY ai.created_at ASC`
+    ).all(...staleBinds) as unknown as IntentDbRow[];
+
+    for (const r of staleRows) {
+      const ageMs = Date.now() - new Date(r.created_at).getTime();
+      staleActive.push({
+        intent_id: r.intent_id,
+        agent_id: r.agent_id,
+        status: 'ACTIVE',
+        rationale: r.rationale,
+        target_files: parseJsonList(r.files_json),
+        workspace_path: r.workspace_path,
+        created_at: r.created_at,
+        age_hours: Math.round(ageMs / 3600000 * 10) / 10,
+      });
+    }
+  } catch { /* file_locks table may not exist on very old schemas */ }
+
+  const total = unverified.length + staleActive.length;
+  return { ok: true, unverified, stale_active: staleActive, count: total };
 }
 
 /**
@@ -186,11 +246,12 @@ export function markVerified(
         } catch { /* intent_events may not exist */ }
       }
     }
-    return { ok: true, intent_id: '', intent_ids: ids, count: ids.length, status: status as IntentStatus, updated_at: now };
+    // VER-1: Return null for intent_id — no single intent applies in allPending batch mode.
+    return { ok: true, intent_id: null, intent_ids: ids, count: ids.length, status: status as IntentStatus, updated_at: now };
   }
 
   if (!intentId) {
-    return { ok: false, error: '--intent-id is required (or use --all-pending)', intent_id: '' };
+    return { ok: false, error: '--intent-id is required (or use --all-pending)', intent_id: null };
   }
 
   if (!VALID_VERIFY_STATUSES.has(status)) {

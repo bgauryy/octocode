@@ -6,10 +6,10 @@
  */
 
 // DB layer
-export { connectDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, ensureMemoryReferencesVersion } from './db.js';
+export { connectDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, ensureMemoryReferencesVersion, evictExpiredLocks } from './db.js';
 
 // Memory operations
-export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory } from './memory.js';
+export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding } from './memory.js';
 export type { MineWeaknessResult, MineWeaknessParams, WeaknessCluster } from './memory.js';
 
 // Refinements
@@ -49,9 +49,12 @@ export type {
 // Verify gate
 export { auditUnverified, markVerified } from './verify.js';
 export type {
-  AuditUnverifiedResult, AuditUnverifiedParams, UnverifiedIntent,
+  AuditUnverifiedResult, AuditUnverifiedParams, UnverifiedIntent, StaleActiveIntent,
   MarkVerifiedResult, MarkVerifiedOk, MarkVerifiedErr, MarkVerifiedParams, VerifyStatus,
 } from './verify.js';
+
+// Agent identity registry (ARCH-5)
+export { registerAgent, touchAgent, resolveAgentName, resolveAgentNames, listAgents } from './agents.js';
 
 // Pure helpers
 export {
@@ -65,6 +68,7 @@ export { detectGit, fillScope } from './git.js';
 
 // Types
 export type {
+  AgentIdentity, RegisterAgentParams, ListAgentsResult, EmbeddingSearchResult,
   MemoryRecord, RefinementRecord, IntentRecord, FileLock,
   InsertMemoryParams, InsertMemoryResult,
   GetMemoryParams, GetMemoryResult,

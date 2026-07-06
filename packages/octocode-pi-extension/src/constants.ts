@@ -24,6 +24,9 @@ export const DISABLED_BUILTIN_TOOL_NAMES = ['read', 'grep', 'find', 'ls'] as con
 
 export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'web',
+  'chromeDebug',
+  'browserAgent',
+  'spawnSubagent',
   'manage_context',
   'spawnAgent',
   'AgentMessage',

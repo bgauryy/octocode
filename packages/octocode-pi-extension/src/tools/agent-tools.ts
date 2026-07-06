@@ -13,8 +13,8 @@ import { stringEnumSchema } from './schema-helpers.js';
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
 
-type AgentStatus = 'starting' | 'running' | 'idle' | 'exited' | 'failed' | 'killed';
-type ResourceMode = 'lean' | 'octocode' | 'default';
+export type AgentStatus = 'starting' | 'running' | 'idle' | 'exited' | 'failed' | 'killed';
+export type ResourceMode = 'lean' | 'octocode' | 'default';
 type MessageAction = 'list' | 'status' | 'send' | 'steer' | 'followUp' | 'wait' | 'kill' | 'abort';
 
 type StreamHandler = (event: string, cb: (chunk: Buffer | string) => void) => void;
@@ -38,7 +38,7 @@ interface SpawnOptions {
 
 type AgentProcessFactory = (command: string, args: string[], options: SpawnOptions) => AgentProcess;
 
-interface SpawnAgentParams {
+export interface SpawnAgentParams {
   task?: string;
   prompt?: string;
   context?: string;
@@ -51,6 +51,17 @@ interface SpawnAgentParams {
   systemPrompt?: string;
   resourceMode?: ResourceMode;
   noSession?: boolean;
+  /** Absolute paths to skill directories to load via --skill (additive, works with --no-skills). */
+  skills?: string[];
+}
+
+interface AgentToolCall {
+  toolCallId?: string;
+  toolName: string;
+  status: 'running' | 'done' | 'error';
+  startedAt: number;
+  finishedAt?: number;
+  isError?: boolean;
 }
 
 interface AgentRecord {
@@ -70,6 +81,7 @@ interface AgentRecord {
   events: unknown[];
   messages: unknown[];
   responses: unknown[];
+  toolCalls: AgentToolCall[];
   lastOutput: string;
   promptFiles: string[];
   waiters: Set<() => void>;
@@ -211,6 +223,8 @@ function buildPiArgs(params: SpawnAgentParams, name: string, promptFiles: string
   const workerTools = getWorkerTools(params);
 
   if (params.noSession !== false) args.push('--no-session');
+  // Load specific skills even when --no-skills is active (additive)
+  for (const skillPath of params.skills ?? []) args.push('--skill', skillPath);
   args.push('--name', name);
   args.push('--exclude-tools', [...FORBIDDEN_WORKER_TOOLS].join(','));
 
@@ -265,6 +279,57 @@ function updateLastOutput(record: AgentRecord, message: unknown): void {
   if (text) record.lastOutput = text;
 }
 
+function getEventToolName(event: Record<string, unknown>): string {
+  return String(event['toolName'] ?? event['tool_name'] ?? event['tool'] ?? event['name'] ?? '').trim();
+}
+
+function getEventToolCallId(event: Record<string, unknown>): string | undefined {
+  const id = event['toolCallId'] ?? event['tool_call_id'] ?? event['id'];
+  return typeof id === 'string' && id.trim() ? id : undefined;
+}
+
+function recordToolStart(record: AgentRecord, event: Record<string, unknown>): void {
+  const toolName = getEventToolName(event);
+  if (!toolName) return;
+  pushCapped(record.toolCalls, {
+    toolCallId: getEventToolCallId(event),
+    toolName,
+    status: 'running',
+    startedAt: Date.now(),
+  });
+  touch(record, 'running');
+}
+
+function recordToolEnd(record: AgentRecord, event: Record<string, unknown>): void {
+  const toolName = getEventToolName(event);
+  const toolCallId = getEventToolCallId(event);
+  if (!toolName && !toolCallId) return;
+  const call = [...record.toolCalls].reverse().find((item) => (
+    toolCallId ? item.toolCallId === toolCallId : item.toolName === toolName
+  ) && item.status === 'running');
+  const isError = Boolean(event['isError'] ?? event['is_error'] ?? event['error']);
+  if (call) {
+    call.status = isError ? 'error' : 'done';
+    call.finishedAt = Date.now();
+    call.isError = isError;
+  } else if (toolName) {
+    pushCapped(record.toolCalls, {
+      toolCallId,
+      toolName,
+      status: isError ? 'error' : 'done',
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+      isError,
+    });
+  }
+  touch(record);
+}
+
+function formatToolCalls(toolCalls: AgentToolCall[], limit = 3): string {
+  const recent = toolCalls.slice(-limit);
+  return recent.map((call) => `${call.toolName}:${call.status}`).join(', ');
+}
+
 function processRpcLine(record: AgentRecord, line: string): void {
   if (!line.trim()) return;
   let event: unknown;
@@ -275,8 +340,13 @@ function processRpcLine(record: AgentRecord, line: string): void {
   }
 
   pushCapped(record.events, event);
+  const eventObject = event as Record<string, unknown>;
   const eventType = (event as { type?: string }).type;
-  if (eventType === 'response') {
+  if (eventType === 'tool_call' || eventType === 'tool_execution_start') {
+    recordToolStart(record, eventObject);
+  } else if (eventType === 'tool_result' || eventType === 'tool_execution_end') {
+    recordToolEnd(record, eventObject);
+  } else if (eventType === 'response') {
     pushCapped(record.responses, event);
     const resp = event as { success?: boolean; command?: string; error?: string };
     if (resp.success === false) {
@@ -305,7 +375,7 @@ function sendRpc(record: AgentRecord, payload: Record<string, unknown>): void {
   record.process.stdin.write(`${JSON.stringify({ id, ...payload })}\n`);
 }
 
-function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentRecord {
+export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentRecord {
   const task = buildInitialPrompt(params);
   if (!task) throw new Error('spawnAgent requires task or prompt.');
 
@@ -336,6 +406,7 @@ function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentRecord {
     events: [],
     messages: [],
     responses: [],
+    toolCalls: [],
     lastOutput: '',
     promptFiles,
     waiters: new Set(),
@@ -390,6 +461,8 @@ function summarizeAgent(record: AgentRecord) {
     error: record.error,
     lastOutput: preview.text,
     outputTruncated: preview.truncated,
+    toolCalls: record.toolCalls.slice(-10),
+    activeTool: [...record.toolCalls].reverse().find((call) => call.status === 'running')?.toolName,
   };
 }
 
@@ -434,7 +507,8 @@ function renderAgentResult(records: AgentRecord[], header: string): ToolCallResu
     const exit = s.exitCode !== undefined ? ` (exit ${s.exitCode})` : '';
     const elapsed = formatElapsed(new Date(s.startedAt).getTime());
     const preview = s.lastOutput ? ` \u2014 ${s.lastOutput.slice(0, 60).replace(/\n/g, ' ')}${s.outputTruncated ? '\u2026' : ''}` : '';
-    lines.push(`  ${s.name} (${shortId(s.agentId)}) \u00b7 ${s.status}${exit} \u00b7 ${elapsed}${preview}`);
+    const toolInfo = typeof s.activeTool === 'string' ? ` \u00b7 tool: ${s.activeTool}` : '';
+    lines.push(`  ${s.name} (${shortId(s.agentId)}) \u00b7 ${s.status}${exit} \u00b7 ${elapsed}${toolInfo}${preview}`);
   }
   return {
     content: [{ type: 'text', text: lines.join('\n') }],
@@ -457,6 +531,8 @@ function renderSingleAgentResult(record: AgentRecord, header: string): ToolCallR
     `agentId: ${record.id}`,
     statusParts,
   ];
+  const toolSummary = formatToolCalls(record.toolCalls);
+  if (toolSummary) contentParts.push(`tools: ${toolSummary}`);
   if (output.text) contentParts.push('', output.text);
   if (output.truncated) contentParts.push(`\u2026 output truncated (${output.omittedChars} chars hidden; full content in details)`);
   return {
@@ -522,6 +598,7 @@ export function registerAgentTools(
       'Do not spawn agents for ordinary bug fixes/refactors that need shared context; stay in the parent or batch independent tool calls instead.',
       'For useful parallelism, spawn all independent workers first, then use AgentMessage action:"wait" or action:"status" to collect results.',
       'spawnAgent defaults to resourceMode:"lean". Use resourceMode:"octocode" only when the worker needs Octocode extension tools.',
+      'Spawned-agent registry and output previews live in the current Pi process; collect needed results before session shutdown or reload.',
       'spawnAgent prevents recursive subagents: workers never receive spawnAgent or AgentMessage, even in resourceMode:"octocode" or resourceMode:"default".',
     ],
     parameters: Type.Object({
@@ -588,6 +665,7 @@ export function registerAgentTools(
     promptGuidelines: [
       'Use AgentMessage action:"list" or action:"status" before claiming a spawned worker is done.',
       'Use AgentMessage action:"wait" to collect a worker result; use action:"kill" for stale or incorrect workers.',
+      'AgentMessage reads the in-memory spawned-agent registry; after session shutdown or reload, spawn fresh workers instead of relying on old agentIds.',
       'Before final answers, wait/status every relevant worker, reconcile disagreements, and synthesize findings instead of dumping raw worker JSON.',
       'Use AgentMessage action:"send" for follow-up instructions; action:"steer" interrupts the next turn; action:"followUp" queues after completion.',
     ],

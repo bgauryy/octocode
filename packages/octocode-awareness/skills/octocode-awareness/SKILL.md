@@ -12,37 +12,37 @@ hooks:
 # Octocode Awareness
 Local SQLite memory, locks, notifications, session handoffs, and verify-before-conclude. Store: `~/.octocode/memory/awareness.sqlite3`, scoped by workspace/repo/ref.
 
+> **Pi tools:** `workspace_status` · `memory_recall` · `memory_refine_get` · `agent_signal` · `file_lock` · `memory_record` · `memory_reflect` · `memory_verify` · `memory_digest` · `memory_forget` · `memory_audit_unverified`. Hook scripts use `scripts/awareness.mjs <cmd>`.
+
 ## Agent loop
-1. **Attend** — run `workspace-status`, `get-memory`, `refine-get`, and `notify-get`; validate recalled facts against current files.
-2. **Claim** — before writes, call `pre-flight-intent --target-file <abs-path>`; exit `2` means stop or wait with `wait-for-lock`.
-3. **Work** — edit under the lock; record durable findings immediately with `tell-memory`.
-4. **Verify** — run the declared test plan; clear pending work with `verify --all-pending` or `release-file-lock --verified`.
-5. **Encode** — use memories for reusable lessons, refinements for repo-fix queues, notifications for live coordination.
-6. **Sleep** — run `reflect`, `digest --dry-run`, then `digest` when pruning is safe; `session-capture` writes unresolved session handoffs.
+1. **Attend** — `workspace_status`, `memory_recall`, `memory_refine_get`, `agent_signal action:list`; validate recalled facts against current files.
+2. **Claim** — `file_lock type:lock target_files:[<abs-path>]`; on conflict stop or `wait_for_lock` via CLI.
+3. **Work** — edit under the lock; record durable findings with `memory_record`.
+4. **Verify** — run the declared test plan; clear with `memory_verify allPending:true` or `file_lock type:release verified:true`.
+5. **Encode** — `memory_record`/`memory_reflect` for reusable lessons; `agent_signal` for live coordination.
+6. **Sleep** — `memory_reflect`, then `memory_digest dry_run:true`; run `memory_digest` when pruning is safe.
 
 ## References
-- `references/memory-recall.md` — when recording, recalling, labeling, superseding, or indexing memories.
-- `references/learning-capture.md` — when storing research conclusions with source references.
+- `references/memory-recall.md` — when recording, recalling, labeling, superseding, or capturing research conclusions.
 - `references/coordination-protocol.md` — when using locks, waits, releases, refinements, and notifications.
 - `references/files-awareness.md` — when dirty state or concurrent edits may collide.
 - `references/hooks.md` — before installing, auditing, tuning, or removing hooks.
 - `references/self-harness.md` — before proposing or applying approved harness/skill changes.
 - `references/brain-model.md` — when tuning recall, salience, cleanup, or sleep behavior.
 - `references/agentic-flows.md` — when composing hooks, handoffs, subagents, and cleanup.
-- `references/corpus.md` — when maintaining curated `~/.octocode/awareness/corpus/` notes.
+- `references/corpus.md` — when maintaining `~/.octocode/awareness/corpus/` notes.
 - `references/data-view.md` — when showing, viewing, or pruning awareness data on request.
 - `references/octocode.md` — when choosing Octocode MCP vs CLI for code research.
-- `references/similar-systems.md` — when comparing or redesigning agent-memory systems.
 
 ## Scripts
-- `scripts/awareness.mjs` — run memory, lock, verification, refinement, notification, digest, and session-capture commands.
-- `scripts/schema.mjs` — inspect or validate JSON payload contracts before building wrappers.
-- `scripts/install.mjs` — run `--check-only` before relying on local dependencies.
+- `scripts/awareness.mjs` — memory, lock, verification, refinement, notification, digest, and session-capture commands.
 - `scripts/install-hooks.mjs` — preview/install/remove file-lock hooks; get approval before writes.
 - `scripts/hook-runner.mjs` — lifecycle dispatcher used by shell hooks; inspect when debugging hook behavior.
-- `scripts/extract-hook-files.mjs` — inspect hook payload path extraction when adding host support.
-- `scripts/prune-stale-locks.sh` — run lock cleanup from cron or shell automation.
-- `scripts/smoke-multi-agent.mjs` — verify locks, notifications, pending verification, release, and stale-prune behavior.
+- `scripts/extract-hook-files.mjs` — inspect write-path extraction when adding new host tool support.
+- `scripts/prune-stale-locks.sh` — lock cleanup for cron or shell automation outside hook scope.
+- `scripts/install.mjs` — check local dependencies before relying on them; run with --check-only.
+- `scripts/schema.mjs` — inspect JSON payload contracts before building wrappers or MCP adapters.
+- `scripts/smoke-multi-agent.mjs` — verify locks, notifications, verification, release, and stale-prune behavior.
 
 ## Installation
-Preview hook changes with `node <skill_root>/scripts/install-hooks.mjs --dry-run --project-dir <repo>`. Runtime check: `node <skill_root>/scripts/install.mjs --check-only`.
+Preview: `node <skill_root>/scripts/install-hooks.mjs --dry-run --project-dir <repo>`.

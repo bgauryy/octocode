@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { utcNow } from './helpers.js';
+import { evictExpiredLocks } from './db.js';
 import type {
   PreFlightIntentParams, PreFlightIntentResult,
   ReleaseFileLockParams, ReleaseFileLockResult,
@@ -38,8 +39,11 @@ function activeLockRows(
   db: DatabaseSync,
   params: { workspacePath?: string | null; agentId?: string | null; sessionId?: string | null; intentId?: string | null } = {},
 ): FileLockStatusEntry[] {
-  const now = utcNow();
-  db.prepare('DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
+  // ARCH-3: Delegate eviction to the shared evictExpiredLocks instead of
+  // duplicating the DELETE. Note: eviction here is intentional — stale locks
+  // must be cleared before the caller decides whether a file is locked.
+  evictExpiredLocks(db);
+  const now = utcNow(); // re-read after eviction so the SELECT filter is consistent
 
   const clauses = ["ai.status = 'ACTIVE'", "(fl.expires_at IS NULL OR fl.expires_at > ?)"];
   const binds: (string | number)[] = [now];
@@ -62,7 +66,7 @@ function activeLockRows(
 
   return db.prepare(
     `SELECT fl.lock_id, fl.intent_id, fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path,
-            fl.lock_type, fl.acquired_at, fl.expires_at
+            ai.rationale AS reasoning, fl.lock_type, fl.acquired_at, fl.expires_at
        FROM file_locks fl
        JOIN agent_intents ai ON ai.intent_id = fl.intent_id
       WHERE ${clauses.join(' AND ')}
@@ -94,8 +98,8 @@ export function preFlightIntent(
   const wsPath = workspaceRoot(workspacePath);
   const absFiles = resolveTargetFiles(targetFiles, wsPath);
 
-  // Drop expired locks before checking conflicts so dangling locks never block new work.
-  db.prepare('DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
+  // ARCH-3: Drop expired locks before checking conflicts so dangling locks never block new work.
+  evictExpiredLocks(db);
 
   // Check for conflicts. Shared locks can coexist with shared locks; any exclusive edge conflicts.
   const conflicts: FileLockRow[] = [];
@@ -221,8 +225,19 @@ export function releaseFileLock(
     `SELECT fl.lock_id, fl.intent_id, fl.file_path FROM file_locks fl WHERE ${where}`
   ).all(...whereParams) as unknown as Array<{ lock_id: string; intent_id: string; file_path: string }>;
 
-  const deleteWhere = where.replace(/\bfl\./g, '');
-  db.prepare(`DELETE FROM file_locks WHERE ${deleteWhere}`).run(...whereParams);
+  // INT-2: Build the DELETE WHERE clause independently instead of string-replacing
+  // the SELECT WHERE clause to strip the 'fl.' table alias. String-replace is
+  // fragile: a bind value containing 'fl.' would silently corrupt the query.
+  const deleteClauses: string[] = ['agent_id = ?'];
+  const deleteParams: (string | number)[] = [agentId];
+  if (sessionId) { deleteClauses.push('session_id = ?'); deleteParams.push(sessionId); }
+  if (intentId) { deleteClauses.push('intent_id = ?'); deleteParams.push(intentId); }
+  if (absFiles.length > 0) {
+    const ph = absFiles.map(() => '?').join(',');
+    deleteClauses.push(`file_path IN (${ph})`);
+    deleteParams.push(...absFiles);
+  }
+  db.prepare(`DELETE FROM file_locks WHERE ${deleteClauses.join(' AND ')}`).run(...deleteParams);
 
   const intentIds = [...new Set([
     ...(intentId ? [intentId] : []),
@@ -269,7 +284,7 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
         targetFiles: params.targetFiles ?? [],
         lockType: params.lockType,
         ttlMs: params.ttlMs,
-        rationale: 'manual: fileLock lock',
+        rationale: params.reasoning?.trim() || 'manual: fileLock lock',
         testPlan: 'release or verify fileLock intent',
       });
       if (!result.ok) return { ok: false, type: 'lock', conflict: true, conflicts: result.conflicts };
@@ -279,8 +294,10 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
         type: 'lock',
         intentId: result.intent.intent_id,
         files: result.intent.target_files,
-        locks,
+        reasoning: params.reasoning?.trim() || 'manual: fileLock lock',
+        acquiredAt: result.intent.locks[0]?.acquired_at ?? null,
         expiresAt: result.intent.locks[0]?.expires_at ?? null,
+        locks,
       };
     }
     case 'release': {

@@ -2,6 +2,8 @@
 
 Guide to the Pi-extension memory flow, tool usage, schemas, and output quality.
 
+See also: [REFLECT.md](./REFLECT.md) — full documentation of the self-reflection and harness improvement loop.
+
 ## Validated surfaces
 
 - The extension wires memory-awareness hooks for session start, write/edit calls, tool results, agent end, and session shutdown.
@@ -47,6 +49,10 @@ flowchart TD
 | `memory_audit_unverified` | Mid-turn when unsure; final audit also runs automatically. | No params. | Returns pending intents with test plans; non-zero exit when pending. |
 | `memory_verify` | Only after running the stated verification. | One of `intent_id`, `intent_ids[]`, or `allPending:true`; optional `status`. | Single result or batch result; exit fails on per-id errors. |
 | `memory_notify` | Real multi-agent coordination: blocker, handoff, question, decision, or fyi. | `kind`, `subject`; optional `body`, `to_agent`, `files`, `importance`, scope. | Returns notification/thread/workspace identifiers. |
+| `memory_digest` | Background consolidation after long sessions. | `dry_run`, `retention_days`, `export_doc`. | Prune/archive counts; `doc_path` when export_doc used. |
+| `memory_forget` | Delete stale, wrong, or superseded memories. Always `dry_run:true` first. | `memory_ids`, `tags`, `before`, `max_importance`, `dry_run`. | `deleted` count and matched `memory_ids`. |
+| `memory_mine_weakness` | After several tagged failures — surface recurring patterns. | `min_count`, `limit`, `agent_id`, scope. | Ranked failure-signature clusters with representative observations. |
+| `memory_export_harness` | Before proposing AGENTS.md changes — human review required. | `harness_only`, `limit`, `min_importance`, scope. | Two-tier markdown block; never writes files. |
 
 ## User maintenance commands
 
