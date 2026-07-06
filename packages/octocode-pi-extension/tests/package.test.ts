@@ -163,7 +163,7 @@ function invokeExecute(tool: ToolDef, params: Record<string, unknown>, ctx: unkn
 
 test('build copies the canonical system prompt', () => {
   const paths = getAssetPaths(distDir);
-  const sourcePrompt = path.join(packageRoot, 'docs', 'PI', 'APPEND_SYSTEM.md');
+  const sourcePrompt = path.join(packageRoot, 'src', 'SYSTEM_PROMPT.md');
   assert.equal(fs.existsSync(paths.systemPrompt), true);
   assert.equal(
     fs.readFileSync(paths.systemPrompt, 'utf8'),

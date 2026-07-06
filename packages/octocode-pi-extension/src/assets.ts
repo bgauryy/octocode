@@ -19,7 +19,7 @@ export function getAssetPaths(baseDir = extensionDir): AssetPaths {
     baseDir,
     docsDir: path.join(baseDir, 'docs'),
     skillsDir: path.join(baseDir, 'skills'),
-    systemPrompt: path.join(baseDir, 'system', 'APPEND_SYSTEM.md'),
+    systemPrompt: path.join(baseDir, 'system', 'SYSTEM_PROMPT.md'),
     cliPath: path.join(baseDir, 'cli', 'octocode.js'),
   };
 }

@@ -24,7 +24,7 @@ const SOURCE_PATHS = {
   rootSkills: path.join(repoRoot, 'skills'),
   subagents: path.join(packageRoot, 'subagents'),
   skills: path.join(packageRoot, 'skills'),
-  systemPrompt: path.join(packageRoot, 'docs', 'PI', 'APPEND_SYSTEM.md'),
+  systemPrompt: path.join(packageRoot, 'src', 'SYSTEM_PROMPT.md'),
   // octocode CLI — bundled at build time so the pi-extension is self-contained.
   // The CLI must be built (yarn workspace octocode build) before building the extension.
   octocodeCLI: path.join(repoRoot, 'packages', 'octocode', 'out'),
@@ -34,7 +34,7 @@ const OUTPUT_PATHS = {
   extension: path.join(distDir, 'index.js'),
   skills: path.join(distDir, 'skills'),
   subagents: path.join(distDir, 'subagents'),
-  systemPrompt: path.join(distDir, 'system', 'APPEND_SYSTEM.md'),
+  systemPrompt: path.join(distDir, 'system', 'SYSTEM_PROMPT.md'),
   // bundled octocode CLI — agent uses: node $OCTOCODE_CLI <command>
   cli: path.join(distDir, 'cli'),
 };
