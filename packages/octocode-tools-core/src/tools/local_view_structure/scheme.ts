@@ -14,6 +14,8 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ItemPaginationSchema } from '../../scheme/pagination.js';
 
 const queryOverrides = {
   maxDepth: clampedInt(0, LOCAL_MAX_DEPTH).optional(),
@@ -37,3 +39,45 @@ export const LocalViewStructureBulkQuerySchema = createRelaxedBulkQuerySchema(
   ViewStructureQueryShape,
   { maxQueries: 5 }
 );
+
+// ---------------------------------------------------------------------------
+// Output schema — describes what localViewStructure returns per query result.
+// ---------------------------------------------------------------------------
+
+const ViewStructureEntrySchema = z.object({
+  name: z.string().optional(),
+  type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']),
+  path: z.string().optional(),
+  depth: z.number().optional(),
+  size: z.union([z.number(), z.string()]).optional(),
+  modified: z.string().optional(),
+  permissions: z.string().optional(),
+});
+
+const LocalViewStructureDataSchema = z.object({
+  path: z.string().optional(),
+  entries: z.array(ViewStructureEntrySchema).optional(),
+  // grouped list variants
+  files: z.array(z.string()).optional(),
+  folders: z.array(z.string()).optional(),
+  links: z.array(z.string()).optional(),
+  summary: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+  pagination: ItemPaginationSchema.optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+export const LocalViewStructureOutputSchema = z
+  .object({
+    results: z.array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['empty', 'error']).optional(),
+        data: LocalViewStructureDataSchema,
+      })
+    ),
+  })
+  .extend(bulkOutputEnvelopeFields);
+
+export type LocalViewStructureOutput = z.infer<
+  typeof LocalViewStructureOutputSchema
+>;

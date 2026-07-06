@@ -11,6 +11,7 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ItemPaginationSchema } from '../../scheme/pagination.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -26,6 +27,14 @@ export const GitHubCodeSearchBulkQueryLocalSchema =
   createRelaxedBulkQuerySchema(
     createQueryShapeSchema(CoreGitHubCodeSearchQuerySchema, queryOverrides)
   );
+
+// Search-specific pagination: extends the canonical base with fields that are
+// semantically unique to code-search (not aliases for existing canonical fields).
+const CodeSearchPaginationSchema = ItemPaginationSchema.extend({
+  totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
+  totalMatchesCapped: z.boolean().optional(),
+  uniqueFileCount: z.number().optional(),
+});
 
 export const GitHubCodeSearchOutputLocalSchema = z.object({
   base: z.string().optional(),
@@ -61,23 +70,7 @@ export const GitHubCodeSearchOutputLocalSchema = z.object({
             ),
           })
         ),
-        pagination: z
-          .object({
-            currentPage: z.number(),
-            totalPages: z.number(),
-            perPage: z.number(),
-            totalMatches: z.number(),
-            reportedTotalMatches: z.number().optional(),
-            reachableTotalMatches: z.number().optional(),
-            totalMatchesKind: z
-              .enum(['exact', 'reported', 'lowerBound'])
-              .optional(),
-            totalMatchesCapped: z.boolean().optional(),
-            hasMore: z.boolean(),
-            nextPage: z.number().optional(),
-            uniqueFileCount: z.number().optional(),
-          })
-          .optional(),
+        pagination: CodeSearchPaginationSchema.optional(),
       }),
     })
   ),

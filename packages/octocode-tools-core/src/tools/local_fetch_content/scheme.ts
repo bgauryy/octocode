@@ -12,6 +12,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import {
+  CharPaginationSchema,
+  ItemPaginationSchema,
+} from '../../scheme/pagination.js';
 
 const minifyField = z
   .enum(['none', 'standard', 'symbols'])
@@ -45,3 +50,54 @@ export const LocalFetchContentBulkQuerySchema = createRelaxedBulkQuerySchema(
   FetchContentQueryShape,
   { maxQueries: 5 }
 );
+
+// ---------------------------------------------------------------------------
+// Output schema — describes what localGetFileContent returns per query result.
+//
+// A single query can return either:
+//   - a char-paginated content window (startLine/endLine / matchString / full)
+//   - a line-range extraction result
+// Both modes share the same result row shape; pagination discriminates.
+// ---------------------------------------------------------------------------
+
+const FileContentMatchRangeSchema = z.object({
+  start: z.number(),
+  end: z.number(),
+});
+
+const LocalGetFileContentDataSchema = z.object({
+  path: z.string().optional(),
+  content: z.string().optional(),
+  contentView: z.enum(['none', 'standard', 'symbols']).optional(),
+  isSkeleton: z.boolean().optional(),
+  totalLines: z.number().optional(),
+  sourceChars: z.number().optional(),
+  startLine: z.number().optional(),
+  endLine: z.number().optional(),
+  isPartial: z.boolean().optional(),
+  matchRanges: z.array(FileContentMatchRangeSchema).optional(),
+  // Char pagination for content windows
+  pagination: z.union([CharPaginationSchema, ItemPaginationSchema]).optional(),
+  modified: z.string().optional(),
+  lastModified: z.string().optional(),
+  lastModifiedBy: z.string().optional(),
+  warnings: z.array(z.string()).optional(),
+  matchNotFound: z.boolean().optional(),
+  searchedFor: z.string().optional(),
+});
+
+export const LocalGetFileContentOutputSchema = z
+  .object({
+    results: z.array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['empty', 'error']).optional(),
+        data: LocalGetFileContentDataSchema,
+      })
+    ),
+  })
+  .extend(bulkOutputEnvelopeFields);
+
+export type LocalGetFileContentOutput = z.infer<
+  typeof LocalGetFileContentOutputSchema
+>;

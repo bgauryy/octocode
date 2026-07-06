@@ -15,7 +15,11 @@
  * module so engine-less runtimes (e.g. Codex.app Node) can read schemas.
  */
 import { z } from 'zod';
-import { OQL_SEARCH_TOOL_NAME, STATIC_TOOL_NAMES } from './toolNames.js';
+import {
+  isOqlEnabled,
+  OQL_SEARCH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
+} from './toolNames.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
 import {
   CloneRepoQueryLocalSchema,
@@ -94,7 +98,6 @@ export const DIRECT_TOOL_CATEGORIES: readonly DirectToolCategory[] = [
   'Package',
   'Other',
 ];
-
 const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
   [
     STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE,
@@ -109,10 +112,9 @@ const DIRECT_TOOL_RELEVANCE_ORDER = new Map<string, number>(
     STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE,
     LSP_GET_SEMANTICS_TOOL_NAME,
     STATIC_TOOL_NAMES.PACKAGE_SEARCH,
-    OQL_SEARCH_TOOL_NAME,
+    ...(isOqlEnabled() ? [OQL_SEARCH_TOOL_NAME] : []),
   ].map((name, index) => [name, index])
 );
-
 export interface DirectToolDisplayField {
   name: string;
   required: boolean;
@@ -143,7 +145,10 @@ export interface DirectToolMetadata {
 }
 
 type DirectToolAutoFilledField =
-  'id' | 'mainResearchGoal' | 'researchGoal' | 'reasoning';
+  | 'id'
+  | 'mainResearchGoal'
+  | 'researchGoal'
+  | 'reasoning';
 
 export interface PrepareDirectToolInputOptions {
   sourceLabel?: string;
@@ -269,11 +274,15 @@ export const DIRECT_TOOL_DEFINITIONS: DirectToolDefinition[] = [
     schema: LocalBinaryInspectQuerySchema,
     inputSchema: LocalBinaryInspectBulkQuerySchema,
   },
-  {
-    name: OQL_SEARCH_TOOL_NAME,
-    schema: OqlSearchQuerySchema,
-    inputSchema: OqlSearchInputSchema,
-  },
+  ...(isOqlEnabled()
+    ? [
+        {
+          name: OQL_SEARCH_TOOL_NAME,
+          schema: OqlSearchQuerySchema,
+          inputSchema: OqlSearchInputSchema,
+        },
+      ]
+    : []),
 ];
 
 export function findDirectToolDefinition(
@@ -331,9 +340,17 @@ export function formatDirectToolSchemaText(toolName: string): string {
   }
 
   try {
-    return JSON.stringify(z.toJSONSchema(tool.inputSchema, { io: 'input' }), null, 2);
+    return JSON.stringify(
+      z.toJSONSchema(tool.inputSchema, { io: 'input' }),
+      null,
+      2
+    );
   } catch {
-    return JSON.stringify(z.toJSONSchema(tool.schema, { io: 'input' }), null, 2);
+    return JSON.stringify(
+      z.toJSONSchema(tool.schema, { io: 'input' }),
+      null,
+      2
+    );
   }
 }
 
@@ -503,9 +520,9 @@ function buildKnownDirectToolCommandPatternQueries(
         label: 'PR search',
         query: {
           type: 'prs',
-          owner: 'facebook',
-          repo: 'react',
-          keywordsToSearch: ['useState'],
+          owner: 'bgauryy',
+          repo: 'octocode',
+          keywordsToSearch: ['localSearchCode'],
           concise: true,
           limit: 5,
         },
@@ -514,9 +531,9 @@ function buildKnownDirectToolCommandPatternQueries(
         label: 'commit history',
         query: {
           type: 'commits',
-          owner: 'facebook',
-          repo: 'react',
-          path: 'packages/react/src',
+          owner: 'bgauryy',
+          repo: 'octocode',
+          path: 'packages/octocode-tools-core/src',
           since: '2024-01-01T00:00:00Z',
           perPage: 5,
         },
@@ -530,8 +547,8 @@ function buildKnownDirectToolCommandPatternQueries(
         label: 'path search',
         query: {
           keywords: ['package.json'],
-          owner: 'facebook',
-          repo: 'react',
+          owner: 'bgauryy',
+          repo: 'octocode',
           match: 'path',
           concise: true,
           limit: 5,
@@ -540,10 +557,10 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'content search',
         query: {
-          keywords: ['useState'],
-          owner: 'facebook',
-          repo: 'react',
-          extension: 'js',
+          keywords: ['localSearchCode'],
+          owner: 'bgauryy',
+          repo: 'octocode',
+          extension: 'ts',
           limit: 5,
         },
       },
@@ -565,7 +582,7 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'owner repositories',
         query: {
-          owner: 'facebook',
+          owner: 'bgauryy',
           concise: true,
           limit: 5,
         },
@@ -578,8 +595,8 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'repo tree',
         query: {
-          owner: 'facebook',
-          repo: 'react',
+          owner: 'bgauryy',
+          repo: 'octocode',
           path: 'packages',
           maxDepth: 2,
           itemsPerPage: 50,
@@ -600,9 +617,9 @@ function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'subtree clone',
         query: {
-          owner: 'facebook',
-          repo: 'react',
-          sparsePath: 'packages/react',
+          owner: 'bgauryy',
+          repo: 'octocode',
+          sparsePath: 'packages/octocode-tools-core',
         },
       },
     ];
@@ -1161,9 +1178,9 @@ function buildScalarExampleValue(name: string, type: string): unknown {
     case 'uri':
       return '/path/to/file.ts';
     case 'owner':
-      return 'facebook';
+      return 'bgauryy';
     case 'repo':
-      return 'react';
+      return 'octocode';
     case 'extension':
       return 'ts';
     case 'filename':
@@ -1174,7 +1191,7 @@ function buildScalarExampleValue(name: string, type: string): unknown {
       return 'myFunction';
     case 'name':
     case 'packageName':
-      return 'react';
+      return 'zod';
     default:
       return name;
   }

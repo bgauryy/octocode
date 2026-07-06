@@ -17,23 +17,24 @@ export { insertRefinement, getRefinements, deleteRefinement } from './refinement
 export type { DeleteRefinementResult } from './refinements.js';
 
 // Intents / file locks
-export { preFlightIntent, releaseFileLock } from './intents.js';
+export { preFlightIntent, releaseFileLock, fileLock } from './intents.js';
 
 // Reflection
 export { reflect } from './reflect.js';
 
 // Background operations + smart briefing + harness export
-export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from './stubs.js';
-export type { DigestResult, BriefItem, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry, WaitForLockResult, PruneStaleResult } from './stubs.js';
+export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from './maintenance.js';
+export type { DigestResult, BriefItem, NotifyGetResult, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry, WaitForLockResult, PruneStaleResult } from './maintenance.js';
 
 // Notifications
-export { insertNotification, getNotifications, resolveNotification, pruneNotifications } from './notifications.js';
+export { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from './notifications.js';
 
 // Pi native hook adapter
 export {
   createPiAwarenessBridge,
   extractPiWriteTargetPaths,
   getPiAwarenessAgentId,
+  getPiAwarenessSessionId,
   wirePiAwarenessHooks,
 } from './pi-hooks.js';
 export type {
@@ -70,7 +71,7 @@ export type {
   InsertRefinementParams, InsertRefinementResult,
   GetRefinementsParams, GetRefinementsResult,
   PreFlightIntentParams, PreFlightIntentResult, PreFlightIntentSuccess, PreFlightIntentConflict,
-  ReleaseFileLockParams, ReleaseFileLockResult,
+  ReleaseFileLockParams, ReleaseFileLockResult, FileLockParams, FileLockResult, FileLockStatusEntry,
   ReflectParams, ReflectResult,
   Scope, ScopePartial,
   MemoryState, LockType, IntentStatus, RefinementQuality, RefinementState, ReflectionOutcome,
@@ -83,6 +84,7 @@ export type {
   GetNotificationsParams, GetNotificationsResult,
   ResolveNotificationParams, ResolveNotificationResult,
   PruneNotificationsParams, PruneNotificationsResult,
+  AgentSignalAction, AgentSignalParams, AgentSignalRecord, AgentSignalResult,
   NotificationRecord, NotificationKind, NotificationStatus,
   ExportHarnessParams, ExportHarnessResult,
   MemoryReferenceRow,

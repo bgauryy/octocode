@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { executeDirectTool } from '../../src/tools/directToolCatalog.js';
-import {
-  OQL_SEARCH_TOOL_NAME,
-  STATIC_TOOL_NAMES,
-} from '../../src/tools/toolNames.js';
+import { STATIC_TOOL_NAMES } from '../../src/tools/toolNames.js';
 import { cleanup } from '../../src/serverConfig.js';
 import {
   setRuntimeSurface,
@@ -128,6 +125,10 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     ).rejects.toThrow(/Unknown tool/);
   });
 
+  it('does not expose oqlSearch as a direct tool; use the CLI search command or OQL API instead', async () => {
+    await expect(executeDirectTool('oqlSearch', {})).rejects.toThrow(/Unknown tool/);
+  });
+
   // ENABLE_CLONE gate is MCP-only (packages/octocode-mcp/src/tools/toolFilters.ts).
   // tools-core no longer rejects based on ENABLE_CLONE — it is gate-free at
   // this layer. The MCP decides whether to register/expose ghCloneRepo at all.
@@ -181,89 +182,5 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     // tools-core must NOT emit "Directory fetch requires local clone support".
     const text = JSON.stringify(result.structuredContent);
     expect(text).not.toContain('Directory fetch requires local clone support');
-  });
-
-  it('wraps oqlSearch output once in the standard direct-tool results[].data shape', async () => {
-    setRuntimeSurface('cli');
-    cleanup();
-
-    const result = await executeDirectTool(OQL_SEARCH_TOOL_NAME, {
-      target: 'code',
-      from: { kind: 'local', path: 'src/oql' },
-      where: { kind: 'text', value: 'runOqlSearch' },
-      view: 'discovery',
-      limit: 2,
-    });
-
-    expect(result.isError).not.toBe(true);
-    const structured = result.structuredContent as {
-      results?: Array<{ id?: string; status?: string; data?: unknown }>;
-      oql?: unknown;
-    };
-    expect(Array.isArray(structured.results)).toBe(true);
-    expect(structured.results?.[0]?.id).toBe('oqlSearch-1');
-    expect(structured.results?.[0]?.status).toBeUndefined();
-    expect(structured).not.toHaveProperty('oql');
-    expect(
-      (structured.results?.[0]?.data as { results?: unknown[] }).results?.length
-    ).toBeGreaterThan(0);
-  });
-
-  it('deduplicates direct oqlSearch row continuation hints without dropping executable queries', async () => {
-    setRuntimeSurface('cli');
-    cleanup();
-
-    const result = await executeDirectTool(OQL_SEARCH_TOOL_NAME, {
-      target: 'code',
-      from: { kind: 'local', path: 'src/oql' },
-      where: { kind: 'text', value: 'runOqlSearch' },
-      view: 'discovery',
-      limit: 2,
-    });
-
-    expect(result.isError).not.toBe(true);
-    const structured = result.structuredContent as {
-      results?: Array<{
-        data?: {
-          nextHints?: Record<string, { why?: string; confidence?: string }>;
-          results?: Array<{
-            next?: Record<
-              string,
-              { query?: Record<string, unknown>; why?: string; confidence?: string }
-            >;
-          }>;
-        };
-      }>;
-    };
-    const data = structured.results?.[0]?.data;
-    const firstRowNext = data?.results?.[0]?.next;
-    expect(data?.nextHints?.['next.fetch']).toMatchObject({
-      why: 'Read the exact content at this hit.',
-      confidence: 'exact',
-    });
-    expect(firstRowNext?.['next.fetch']?.query).toMatchObject({
-      target: 'content',
-    });
-    expect(firstRowNext?.['next.fetch']).not.toHaveProperty('why');
-    expect(firstRowNext?.['next.fetch']).not.toHaveProperty('confidence');
-  });
-
-  it('marks zero-match oqlSearch rows as empty without failing the call', async () => {
-    setRuntimeSurface('cli');
-    cleanup();
-
-    const result = await executeDirectTool(OQL_SEARCH_TOOL_NAME, {
-      target: 'code',
-      from: { kind: 'local', path: 'src/oql' },
-      where: { kind: 'text', value: 'definitely-no-such-oql-symbol-xyz' },
-      view: 'discovery',
-      limit: 2,
-    });
-
-    expect(result.isError).not.toBe(true);
-    const structured = result.structuredContent as {
-      results?: Array<{ status?: string; data?: unknown }>;
-    };
-    expect(structured.results?.[0]?.status).toBe('empty');
   });
 });

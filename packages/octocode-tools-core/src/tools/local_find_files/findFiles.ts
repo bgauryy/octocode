@@ -242,7 +242,8 @@ function validateTimeFilterFormats(query: FindFilesQuery): string[] {
     {
       key: 'accessedWithin',
       value: (query as Record<string, unknown>).accessedWithin as
-        string | undefined,
+        | string
+        | undefined,
     },
   ];
   for (const { key, value } of fields) {

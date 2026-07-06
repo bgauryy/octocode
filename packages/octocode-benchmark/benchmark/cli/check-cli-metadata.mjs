@@ -45,13 +45,14 @@ function includesNormalized(haystack, needle) {
   return normalize(haystack).includes(normalize(needle));
 }
 
-function runCli(args) {
+function runCli(args, extraEnv = {}) {
   commandCount += 1;
   const result = spawnSync(process.execPath, [cliPath, ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     env: {
       ...process.env,
+      ...extraEnv,
       NO_COLOR: '1',
       OCTOCODE_NO_STALE_BUILD_WARNING:
         process.env.OCTOCODE_NO_STALE_BUILD_WARNING ?? '1',
@@ -232,12 +233,13 @@ function validateCanonicalCommandSpecs() {
 }
 
 function validateCliToolSurfaces(toolNames) {
-  const directToolNames = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
-  assert(
-    JSON.stringify([...directToolNames].sort()) ===
-      JSON.stringify([...toolNames].sort()),
-    'direct tool schema definitions and canonical tool metadata must list the same tools'
-  );
+  const liveToolNames = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
+  for (const directToolName of liveToolNames) {
+    assert(
+      toolNames.includes(directToolName),
+      `live direct tool ${directToolName} must exist in canonical tool metadata`
+    );
+  }
 
   const mainHelp = runCli(['--help', '--no-color']);
   assert(
@@ -245,7 +247,7 @@ function validateCliToolSurfaces(toolNames) {
     'main help must include AGENT_INSTRUCTIONS'
   );
   assert(
-    mainHelp.includes(`TOOLS (${toolNames.length})`),
+    mainHelp.includes(`TOOLS (${liveToolNames.length})`),
     'main help must show the live tool count'
   );
   assert(
@@ -259,14 +261,14 @@ function validateCliToolSurfaces(toolNames) {
 
   const toolsList = runCli(['tools', '--no-color']);
   assert(
-    toolsList.includes(`Octocode Tools (${toolNames.length})`),
+    toolsList.includes(`Octocode Tools (${liveToolNames.length})`),
     'tools list must show the live tool count'
   );
   assert(
     toolsList.includes('name + concise description'),
     'tools list must use the concise default catalog format'
   );
-  for (const toolName of toolNames) {
+  for (const toolName of liveToolNames) {
     assert(
       new RegExp(`\\n\\s+${toolName}\\s+`).test(toolsList),
       `tools list must include ${toolName}`
@@ -298,12 +300,12 @@ function validateCliToolSurfaces(toolNames) {
     'tools --json --full must emit the full catalog wrapper'
   );
   assert(
-    fullToolCatalog?.toolCount === toolNames.length &&
+    fullToolCatalog?.toolCount === liveToolNames.length &&
       Array.isArray(fullToolCatalog?.tools) &&
-      fullToolCatalog.tools.length === toolNames.length,
+      fullToolCatalog.tools.length === liveToolNames.length,
     'tools --json --full must include every live tool'
   );
-  for (const toolName of toolNames) {
+  for (const toolName of liveToolNames) {
     const entry = fullToolCatalog.tools.find(tool => tool?.name === toolName);
     assert(entry, `tools --json --full must include ${toolName}`);
     assert(
@@ -349,7 +351,7 @@ function validateCliToolSurfaces(toolNames) {
     );
   }
 
-  for (const toolName of toolNames) {
+  for (const toolName of liveToolNames) {
     const scheme = runCli([
       'tools',
       toolName,
@@ -448,9 +450,7 @@ function validateCliCommandSurfaces(commandNames) {
 
   const toolsHelp = runCli(['tools', '--help', '--no-color']);
   assert(
-    toolsHelp.includes(
-      `Octocode Tools (${Object.keys(completeMetadata.tools).length})`
-    ),
+    toolsHelp.includes(`Octocode Tools (${DIRECT_TOOL_DEFINITIONS.length})`),
     'tools --help must show the concise tool catalog'
   );
   assert(
@@ -562,13 +562,16 @@ function validateOqlScheme() {
     'compact search scheme JSON must be smaller than the full OQL schema JSON'
   );
 
-  const oqlToolScheme = runCli([
-    'tools',
-    'oqlSearch',
-    '--scheme',
-    '--compact',
-    '--no-color',
-  ]);
+  const oqlToolScheme = runCli(
+    [
+      'tools',
+      'oqlSearch',
+      '--scheme',
+      '--compact',
+      '--no-color',
+    ],
+    { ENABLE_OQL: '1' }
+  );
   for (const target of searchScheme?.activeTargets ?? []) {
     assert(
       oqlToolScheme.includes(target),

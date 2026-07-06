@@ -210,7 +210,7 @@ function normalizeForFuzzyMatch(text: string): string {
   return text
     .normalize('NFKC')
     .split('\n')
-    .map((line) => line.trimEnd())
+    .map((line) => line.trim())
     .join('\n')
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
@@ -231,8 +231,10 @@ function lineSpans(content: string): Array<{ start: number; end: number; line: s
 }
 
 function previewLine(line: string): string {
-  const trimmed = line.trim();
-  return trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed;
+  const visible = line
+    .replace(/^ +/u, (spaces) => '·'.repeat(spaces.length))
+    .replace(/^\t+/u, (tabs) => '→'.repeat(tabs.length));
+  return visible.length > 160 ? `${visible.slice(0, 160)}…` : visible;
 }
 
 function getSearchAnchor(oldText: string): string | null {
@@ -701,7 +703,7 @@ export function registerEditTool(
       'Before editing files that may have changed, re-read the target range with localGetFileContent so stale edits can be detected.',
       'Each edits[].oldText is matched against the original file content, not after earlier edits are applied.',
       'Use replaceAll:true only for intentional file-wide replacements; otherwise oldText must be unique.',
-      'Use matchMode:"normalized" only for whitespace/unicode quote/dash drift, and matchMode:"lineRange" only with freshly read line numbers.',
+      'Use matchMode:"normalized" for whitespace/indentation/unicode quote/dash drift when exact bytes copied from localGetFileContent do not match; use matchMode:"lineRange" only with freshly read line numbers.',
       'Use queries[] for multi-file edits only when every file belongs to the same logical change; all replacements are computed before writing.',
       'edits[].reasoning is REQUIRED for every edit — provide a non-empty string explaining why the change is necessary; edits without reasoning are rejected.',
       'Every edit output includes a Reasoning list and a Changes diff; read both to verify correctness before continuing.',

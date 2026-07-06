@@ -172,7 +172,8 @@ export interface SearchShorthand {
 }
 
 export type ShorthandResult =
-  { input: OqlInputQuery | OqlInputBatch } | { error: string };
+  | { input: OqlInputQuery | OqlInputBatch }
+  | { error: string };
 
 /**
  * Lower shorthand parts into the OQL sugar object. Predicate precedence:

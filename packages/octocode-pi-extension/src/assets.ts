@@ -10,6 +10,8 @@ export interface AssetPaths {
   docsDir: string;
   skillsDir: string;
   systemPrompt: string;
+  /** Absolute path to the bundled octocode CLI entry point (dist/cli/octocode.js). */
+  cliPath: string;
 }
 
 export function getAssetPaths(baseDir = extensionDir): AssetPaths {
@@ -18,7 +20,17 @@ export function getAssetPaths(baseDir = extensionDir): AssetPaths {
     docsDir: path.join(baseDir, 'docs'),
     skillsDir: path.join(baseDir, 'skills'),
     systemPrompt: path.join(baseDir, 'system', 'APPEND_SYSTEM.md'),
+    cliPath: path.join(baseDir, 'cli', 'octocode.js'),
   };
+}
+
+/**
+ * Returns the absolute path to the bundled octocode CLI entry point.
+ * Agents run it with: `node <cliPath> <command>`
+ * Also exposed via the OCTOCODE_CLI env var (set at extension load).
+ */
+export function getCLIPath(baseDir = extensionDir): string {
+  return path.join(baseDir, 'cli', 'octocode.js');
 }
 
 /**

@@ -7,35 +7,20 @@ import {
   createRelaxedBulkQuerySchema,
   lineNumberField,
 } from '../../scheme/fields.js';
-
-const minifyField = z
-  .enum(['none', 'standard', 'symbols'])
-  .optional()
-  .default('standard');
 import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ItemPaginationSchema } from '../../scheme/pagination.js';
 
-const PaginationInfoSchema = z.object({
-  currentPage: z.number(),
-  totalPages: z.number(),
-  hasMore: z.boolean(),
-  nextPage: z.number().optional(),
-  nextMatchPage: z.number().optional(),
-  charOffset: z.number().optional(),
-  charLength: z.number().optional(),
-  totalChars: z.number().optional(),
-  nextCharOffset: z.number().optional(),
-  filesPerPage: z.number().optional(),
-  totalFiles: z.number().optional(),
-  entriesPerPage: z.number().optional(),
-  totalEntries: z.number().optional(),
-  matchesPerPage: z.number().optional(),
-  totalMatches: z.number().optional(),
-});
+const minifyField = z
+  .enum(['none', 'standard', 'symbols'])
+  .optional()
+  .default('standard');
 
+// File entry pagination: item-level page navigation across files/matches.
+// Char window continuation lives in responsePagination at the top-level envelope.
 const GitHubFetchFileEntrySchema = z.object({
   path: z.string(),
   content: z.string(),
@@ -47,7 +32,7 @@ const GitHubFetchFileEntrySchema = z.object({
   sourceChars: z.number().optional(),
   sourceBytes: z.number().optional(),
   resolvedBranch: z.string().optional(),
-  pagination: PaginationInfoSchema.optional(),
+  pagination: ItemPaginationSchema.optional(),
   isPartial: z.boolean().optional(),
   startLine: z.number().optional(),
   endLine: z.number().optional(),
@@ -129,9 +114,6 @@ export const GitHubFetchContentOutputLocalSchema = z.object({
     .optional(),
   responsePagination: responseEnvelopeFields.responsePagination,
   results: z.array(
-    // Canonical row shape, aligned with every other tool: { id, data:{...} }.
-    // The previously-mirrored flat top-level owner/repo/files/directories were
-    // byte-identical duplicates of data.* and have been removed.
     z.object({
       id: z.string(),
       data: z

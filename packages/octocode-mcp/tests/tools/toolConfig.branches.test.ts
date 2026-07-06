@@ -83,7 +83,9 @@ describe('toolConfig branch coverage - getDescription fallback (line 26)', () =>
         expect(typeof config.fn).toBe('function');
       }
 
-      expect(ALL_TOOLS).toHaveLength(14);
+      for (const config of configs) {
+        expect(ALL_TOOLS.map(tool => tool.name)).toContain(config.name);
+      }
     });
 
     it('should have correct tool types assigned', async () => {

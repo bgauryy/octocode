@@ -67,7 +67,9 @@ function wrapExecution(
   // executionFn is typed as (input: never) so any specific tool function can be
   // assigned to it (contravariance). At the call site, the input has already been
   // parsed and validated by Zod's inputSchema — this cast reflects that invariant.
-  const typedFn = fn as unknown as (input: DirectToolInput) => Promise<CallToolResult>;
+  const typedFn = fn as unknown as (
+    input: DirectToolInput
+  ) => Promise<CallToolResult>;
   return input => typedFn(input);
 }
 

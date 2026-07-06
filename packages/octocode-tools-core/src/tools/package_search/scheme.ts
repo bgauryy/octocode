@@ -9,6 +9,7 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ItemPaginationSchema } from '../../scheme/pagination.js';
 
 const queryOverrides = {
   page: relaxedPageNumberField,
@@ -69,17 +70,7 @@ export const NpmSearchOutputLocalSchema = z
                     .passthrough()
                 )
                 .optional(),
-              pagination: z
-                .object({
-                  currentPage: z.number(),
-                  totalPages: z.number(),
-                  perPage: z.number(),
-                  totalFound: z.number(),
-                  returned: z.number(),
-                  hasMore: z.boolean(),
-                  nextPage: z.number().optional(),
-                })
-                .optional(),
+              pagination: ItemPaginationSchema.optional(),
             })
             .optional(),
           status: z.string().optional(),

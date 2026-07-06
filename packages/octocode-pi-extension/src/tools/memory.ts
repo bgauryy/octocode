@@ -16,7 +16,9 @@ import {
   getWorkspaceStatus,
   exportMemoryDoc,
   forgetMemory,
-  insertNotification,
+  agentSignal,
+  fileLock,
+  getPiAwarenessSessionId,
 } from '@octocodeai/octocode-awareness';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -31,10 +33,38 @@ type AgentIdResolver = (ctx: PiContext | undefined) => string;
 type RegisterFn = typeof registerUniqueTool;
 type DbType = ReturnType<typeof connectDb>;
 
-const MEMORY_LABELS =
-  'BUG|FEATURE|SUGGESTION|GOTCHA|IMPROVEMENT|DECISION|ARCHITECTURE|SECURITY|PERFORMANCE|TEST|BUILD|DOCS|CONFIG|WORKFLOW|REFACTOR|API|RELEASE|INCIDENT|EXPERIENCE|OTHER';
+const MEMORY_LABEL_VALUES = [
+  'BUG',
+  'FEATURE',
+  'SUGGESTION',
+  'GOTCHA',
+  'IMPROVEMENT',
+  'DECISION',
+  'ARCHITECTURE',
+  'SECURITY',
+  'PERFORMANCE',
+  'TEST',
+  'BUILD',
+  'DOCS',
+  'CONFIG',
+  'WORKFLOW',
+  'REFACTOR',
+  'API',
+  'RELEASE',
+  'INCIDENT',
+  'EXPERIENCE',
+  'OTHER',
+] as const;
+const MEMORY_LABELS = MEMORY_LABEL_VALUES.join('|');
+const MEMORY_STATES = ['ACTIVE', 'SUPERSEDED'] as const;
+const RECALL_SORTS = ['smart', 'importance', 'recent', 'accessed'] as const;
+const REFINEMENT_STATES = ['open', 'ongoing', 'done'] as const;
+const NOTIFICATION_KINDS = ['claim', 'handoff', 'question', 'reply', 'blocker', 'request', 'decision', 'fyi'] as const;
+const FILE_LOCK_TYPES = ['lock', 'release', 'status', 'renew'] as const;
+const FILE_LOCK_KINDS = ['EXCLUSIVE', 'SHARED'] as const;
+const AGENT_SIGNAL_ACTIONS = ['publish', 'list', 'reply', 'resolve', 'ack'] as const;
 
-type MemoryType =
+export type MemoryType =
   | 'recall'
   | 'record'
   | 'reflect'
@@ -44,7 +74,9 @@ type MemoryType =
   | 'verify'
   | 'digest'
   | 'forget'
-  | 'notify';
+  | 'notify'
+  | 'agent_signal'
+  | 'file_lock';
 
 const DEFAULT_IMPORTANCE: Record<string, number> = {
   BUG: 8,
@@ -312,6 +344,9 @@ function runMemoryOperation(
     case 'workspace_status': {
       const result = getWorkspaceStatus(db, {
         workspace_path: (request['workspace_path'] as string | undefined) ?? cwd,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
+        cwd,
       });
       const payload: Record<string, unknown> = {
         active_memories: result.active_memories,
@@ -500,19 +535,99 @@ function runMemoryOperation(
       if (!notifyKind || !notifySubject) throw new Error('memory notify requires kind and subject');
       const rawNFiles = request['files'];
       const notifyFiles = Array.isArray(rawNFiles) ? rawNFiles as string[] : [];
-      const result = insertNotification(db, {
+      const result = agentSignal(db, {
+        action: 'publish',
         agentId: getAgentId(ctx),
         workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
-        toAgent: request['to_agent'] as string | undefined ?? null,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
+        toAgents: request['to_agent'] ? [String(request['to_agent'])] : [],
         kind: notifyKind as import('@octocodeai/octocode-awareness').NotificationKind,
         subject: notifySubject,
         body: request['body'] as string | undefined ?? null,
         files: notifyFiles,
         importance: request['importance'] as number | undefined ?? 5,
+        cwd,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ ...result, alias: 'memory_notify', prefer: 'agent_signal' }) }],
+        details: { exit: 0 },
+      };
+    }
+
+    case 'agent_signal': {
+      const rawAction = request['action'];
+      if (rawAction !== 'publish' && rawAction !== 'list' && rawAction !== 'reply' && rawAction !== 'resolve' && rawAction !== 'ack') {
+        throw new Error('agent_signal requires action: publish | list | reply | resolve | ack');
+      }
+      const toAgents = Array.isArray(request['to_agents']) ? request['to_agents'] as string[] : request['to_agent'] ? [String(request['to_agent'])] : [];
+      const refs = Array.isArray(request['refs']) ? request['refs'] as string[] : [];
+      const kinds = Array.isArray(request['kinds']) ? request['kinds'] as import('@octocodeai/octocode-awareness').NotificationKind[] : [];
+      const result = agentSignal(db, {
+        action: rawAction,
+        agentId: (request['agent_id'] as string | undefined) ?? getAgentId(ctx),
+        workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
+        kind: request['kind'] as import('@octocodeai/octocode-awareness').NotificationKind | undefined,
+        subject: request['subject'] as string | undefined,
+        body: request['body'] as string | undefined ?? null,
+        toAgents,
+        files: stringArray(request['files']),
+        refs,
+        importance: request['importance'] as number | undefined,
+        inReplyTo: (request['in_reply_to'] as string | undefined) ?? null,
+        threadId: (request['thread_id'] as string | undefined) ?? null,
+        notificationIds: stringArray(request['notification_ids']),
+        unreadOnly: request['unread_only'] as boolean | undefined,
+        markRead: request['mark_read'] as boolean | undefined,
+        kinds,
+        limit: request['limit'] as number | undefined,
+        cwd,
       });
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
         details: { exit: 0 },
+      };
+    }
+
+    case 'file_lock': {
+      const rawType = request['type'];
+      if (rawType !== 'lock' && rawType !== 'release' && rawType !== 'status' && rawType !== 'renew') {
+        throw new Error('memory_file_lock requires type: lock | release | status | renew');
+      }
+      const agentId = (request['agentId'] as string | undefined) ?? (request['agent_id'] as string | undefined) ?? getAgentId(ctx);
+      const workspacePath = (request['workspace_path'] as string | undefined) ?? cwd;
+      const targetFiles = (request['targetFiles'] as string[] | undefined) ?? (request['target_files'] as string[] | undefined) ?? [];
+      const result = fileLock(db, {
+        type: rawType,
+        agentId,
+        sessionId: (request['sessionId'] as string | undefined) ?? (request['session_id'] as string | undefined) ?? getPiAwarenessSessionId(ctx),
+        workspacePath,
+        intentId: (request['intentId'] as string | undefined) ?? (request['intent_id'] as string | undefined) ?? null,
+        targetFiles,
+        lockType: request['lockType'] as import('@octocodeai/octocode-awareness').LockType | undefined ?? request['lock_type'] as import('@octocodeai/octocode-awareness').LockType | undefined,
+        ttlMs: (request['ttlMs'] as number | undefined) ?? (request['ttl_ms'] as number | undefined) ?? null,
+        status: request['status'] as import('@octocodeai/octocode-awareness').IntentStatus | undefined,
+        verified: request['verified'] as boolean | undefined,
+        verifiedNote: (request['verifiedNote'] as string | undefined) ?? (request['verified_note'] as string | undefined),
+      });
+      if (result.ok === false && request['signal_on_conflict'] !== false) {
+        agentSignal(db, {
+          action: 'publish',
+          agentId,
+          workspacePath,
+          kind: 'blocker',
+          subject: `File lock conflict: ${targetFiles.slice(0, 3).join(', ') || 'target file'}`,
+          body: JSON.stringify({ conflicts: result.conflicts }),
+          files: targetFiles,
+          importance: 7,
+          cwd,
+        });
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+        details: { exit: result.ok === false ? 2 : 0 },
       };
     }
   }
@@ -529,7 +644,7 @@ function withMemoryDb(
   return runMemoryOperation(db, type, params, cwd, getAgentId, ctx);
 }
 
-function executeMemoryTool(
+export function executeMemoryOperation(
   type: MemoryType,
   params: Record<string, unknown>,
   getAgentId: AgentIdResolver,
@@ -547,6 +662,18 @@ function executeMemoryTool(
 
 function optionalLimit(Type: TypeBoxBuilder, description: string): Record<string, unknown> {
   return Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description }));
+}
+
+function nonEmptyString(Type: TypeBoxBuilder, description: string): Record<string, unknown> {
+  return Type.String({ minLength: 1, description });
+}
+
+function optionalNonEmptyString(Type: TypeBoxBuilder, description: string): Record<string, unknown> {
+  return Type.Optional(nonEmptyString(Type, description));
+}
+
+function optionalStringArray(Type: TypeBoxBuilder, description: string): Record<string, unknown> {
+  return Type.Optional(Type.Array(nonEmptyString(Type, description), { description }));
 }
 
 function registerMemoryTool(
@@ -577,7 +704,7 @@ function registerMemoryTool(
       _onUpdate?: unknown,
       ctx?: PiContext,
     ): Promise<ToolCallResult> {
-      return executeMemoryTool(tool.type, params, getAgentId, ctx);
+      return executeMemoryOperation(tool.type, params, getAgentId, ctx);
     },
     renderCall(args: unknown, theme?: PiTheme) {
       return buildMemoryRenderCall(tool.name, args, theme);
@@ -596,9 +723,11 @@ export function buildMemoryToolDefinition(
   registeredToolNames: Set<string>,
   _notify: Notifier,
 ): void {
-  const labelSchema = Type.Optional(Type.String({
-    description: `Memory category. Allowed: ${MEMORY_LABELS}`,
-  }));
+  const labelSchema = Type.Optional(stringEnumSchema(
+    Type,
+    MEMORY_LABEL_VALUES,
+    `Memory category. Allowed: ${MEMORY_LABELS}.`,
+  ));
   const importanceSchema = Type.Optional(Type.Integer({
     minimum: 1,
     maximum: 10,
@@ -606,19 +735,26 @@ export function buildMemoryToolDefinition(
   }));
   const outcomeSchema = stringEnumSchema(Type, ['worked', 'partial', 'failed'], 'worked|partial|failed.');
   const verifyStatusSchema = stringEnumSchema(Type, ['SUCCESS', 'FAILED'], 'SUCCESS or FAILED; default SUCCESS.');
+  const memoryStateSchema = stringEnumSchema(Type, MEMORY_STATES, 'ACTIVE (default) or SUPERSEDED.');
+  const recallSortSchema = stringEnumSchema(Type, RECALL_SORTS, 'smart (default), importance, recent, or accessed.');
+  const refinementStateSchema = stringEnumSchema(Type, REFINEMENT_STATES, 'open|ongoing|done. Default open/ongoing.');
+  const notificationKindSchema = stringEnumSchema(Type, NOTIFICATION_KINDS, 'claim|handoff|question|reply|blocker|request|decision|fyi.');
+  const fileLockTypeSchema = stringEnumSchema(Type, FILE_LOCK_TYPES, 'lock|release|status|renew.');
+  const fileLockKindSchema = stringEnumSchema(Type, FILE_LOCK_KINDS, 'EXCLUSIVE or SHARED; default EXCLUSIVE.');
+  const agentSignalActionSchema = stringEnumSchema(Type, AGENT_SIGNAL_ACTIONS, 'publish|list|reply|resolve|ack.');
   const fileScopeProps = {
-    file: Type.Optional(Type.String({ description: 'Primary related file path.' })),
-    files: Type.Optional(Type.Array(Type.String(), { description: 'Related file paths.' })),
-    folders: Type.Optional(Type.Array(Type.String(), { description: 'Related folder paths.' })),
+    file: optionalNonEmptyString(Type, 'Primary related file path.'),
+    files: optionalStringArray(Type, 'Related file paths.'),
+    folders: optionalStringArray(Type, 'Related folder paths.'),
   };
   const repoScopeProps = {
-    workspace_path: Type.Optional(Type.String({ description: 'Workspace/repo root scope; defaults to cwd.' })),
-    repo: Type.Optional(Type.String({ description: 'Repository scope, e.g. owner/repo.' })),
-    ref: Type.Optional(Type.String({ description: 'Git ref/branch scope.' })),
+    workspace_path: optionalNonEmptyString(Type, 'Workspace/repo root scope; defaults to cwd.'),
+    repo: optionalNonEmptyString(Type, 'Repository scope, e.g. owner/repo.'),
+    ref: optionalNonEmptyString(Type, 'Git ref/branch scope.'),
   };
   const validityProps = {
-    valid_from: Type.Optional(Type.String({ description: 'Memory valid-from timestamp/ISO date.' })),
-    valid_to: Type.Optional(Type.String({ description: 'Memory expiry timestamp/ISO date; digest marks expired memories stale.' })),
+    valid_from: optionalNonEmptyString(Type, 'Memory valid-from timestamp/ISO date.'),
+    valid_to: optionalNonEmptyString(Type, 'Memory expiry timestamp/ISO date; digest marks expired memories stale.'),
   };
 
   const tools = [
@@ -632,20 +768,20 @@ export function buildMemoryToolDefinition(
         'Skip for routine tasks, obvious one-step edits, or facts already in context.',
       ],
       parameters: Type.Object({
-        query: Type.String({ description: 'What you are about to work on, in natural language.' }),
+        query: nonEmptyString(Type, 'What you are about to work on, in natural language.'),
         limit: optionalLimit(Type, 'Max memories; default 3.'),
         min_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Raise to filter low-signal noise.' })),
         smart: Type.Optional(Type.Boolean({ description: 'Broaden after zero results.' })),
         label: labelSchema,
         global_only: Type.Optional(Type.Boolean({ description: 'Search global memories only; skip workspace filtering.' })),
         strict_scope: Type.Optional(Type.Boolean({ description: 'Exact workspace match only; skip NULL-workspace global memories.' })),
-        sort: Type.Optional(Type.String({ description: 'smart (default), importance, recent, or accessed.' })),
-        state: Type.Optional(Type.String({ description: 'ACTIVE (default) or SUPERSEDED.' })),
-        references: Type.Optional(Type.Array(Type.String(), { description: 'Filter by exact provenance reference; e.g. npm:pkg, pr:owner/repo#N.' })),
-        regex: Type.Optional(Type.Array(Type.String(), { description: 'Regex patterns matched against all text fields.' })),
-        as_of: Type.Optional(Type.String({ description: 'ISO date for bi-temporal point-in-time recall.' })),
-          ...fileScopeProps,
-          ...repoScopeProps,
+        sort: Type.Optional(recallSortSchema),
+        state: Type.Optional(memoryStateSchema),
+        references: optionalStringArray(Type, 'Filter by exact provenance reference; e.g. npm:pkg, pr:owner/repo#N.'),
+        regex: optionalStringArray(Type, 'Regex patterns matched against all text fields.'),
+        as_of: optionalNonEmptyString(Type, 'ISO date for bi-temporal point-in-time recall.'),
+        ...fileScopeProps,
+        ...repoScopeProps,
       }),
     },
     {
@@ -659,18 +795,21 @@ export function buildMemoryToolDefinition(
         'Use supersedes for stale duplicates; allow_similar only for genuinely distinct evidence.',
       ],
       parameters: Type.Object({
-        task_context: Type.String({ description: 'Why a future agent needs this lesson.' }),
-        observation: Type.String({ description: 'Durable lesson: X caused Y because Z — do A; verify with B.' }),
+        task_context: nonEmptyString(Type, 'Why a future agent needs this lesson.'),
+        observation: nonEmptyString(Type, 'Durable lesson: X caused Y because Z — do A; verify with B.'),
         label: labelSchema,
         importance: importanceSchema,
-        tags: Type.Optional(Type.Array(Type.String(), { description: 'Recall keywords.' })),
-        references: Type.Optional(Type.Array(Type.String(), { description: 'Provenance such as file:/abs/path:line, pr:owner/repo#N, URL, npm:pkg@v.' })),
-          ...fileScopeProps,
-          ...repoScopeProps,
-          ...validityProps,
-        supersedes: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())], { description: 'Stale memory id(s) this one replaces.' })),
+        tags: optionalStringArray(Type, 'Recall keywords.'),
+        references: optionalStringArray(Type, 'Provenance such as file:/abs/path:line, pr:owner/repo#N, URL, npm:pkg@v.'),
+        ...fileScopeProps,
+        ...repoScopeProps,
+        ...validityProps,
+        supersedes: Type.Optional(Type.Union([
+          nonEmptyString(Type, 'Stale memory id this one replaces.'),
+          Type.Array(nonEmptyString(Type, 'Stale memory id this one replaces.'), { description: 'Stale memory id(s) this one replaces.' }),
+        ], { description: 'Stale memory id(s) this one replaces.' })),
         allow_similar: Type.Optional(Type.Boolean({ description: 'Bypass duplicate skip only for distinct new evidence.' })),
-        failure_signature: Type.Optional(Type.String({ description: 'Cluster key, e.g. mechanism:X|cause:Y.' })),
+        failure_signature: optionalNonEmptyString(Type, 'Cluster key, e.g. mechanism:X|cause:Y.'),
       }),
     },
     {
@@ -683,31 +822,122 @@ export function buildMemoryToolDefinition(
         'Skip if there is no lesson, no failure pattern, and no repo/harness fix to propagate.',
       ],
       parameters: Type.Object({
-        task: Type.String({ description: 'Task just completed.' }),
+        task: nonEmptyString(Type, 'Task just completed.'),
         outcome: Type.Optional(outcomeSchema),
-        lesson: Type.Optional(Type.String({ description: 'Durable reusable lesson; omit if none.' })),
-        worked: Type.Optional(Type.String({ description: 'Concise note on what worked.' })),
-        didnt_work: Type.Optional(Type.String({ description: 'Concise failure; used as lesson if lesson is omitted.' })),
-        fix_repo: Type.Optional(Type.String({ description: 'Concrete repo-fix note; creates an open refinement.' })),
-        fix_harness: Type.Optional(Type.String({ description: 'Harness/skill improvement; creates a harness-tagged memory.' })),
-        failure_signature: Type.Optional(Type.String({ description: 'Cluster key, e.g. mechanism:X|cause:Y.' })),
+        lesson: optionalNonEmptyString(Type, 'Durable reusable lesson; omit if none.'),
+        worked: optionalNonEmptyString(Type, 'Concise note on what worked.'),
+        didnt_work: optionalNonEmptyString(Type, 'Concise failure; used as lesson if lesson is omitted.'),
+        fix_repo: optionalNonEmptyString(Type, 'Concrete repo-fix note; creates an open refinement.'),
+        fix_harness: optionalNonEmptyString(Type, 'Harness/skill improvement; creates a harness-tagged memory.'),
+        failure_signature: optionalNonEmptyString(Type, 'Cluster key, e.g. mechanism:X|cause:Y.'),
         importance: importanceSchema,
-          references: Type.Optional(Type.Array(Type.String(), { description: 'Provenance such as file:/abs/path:line, pr:owner/repo#N, URL, npm:pkg@v.' })),
-          ...fileScopeProps,
-          ...repoScopeProps,
-          ...validityProps,
+        references: optionalStringArray(Type, 'Provenance such as file:/abs/path:line, pr:owner/repo#N, URL, npm:pkg@v.'),
+        ...fileScopeProps,
+        ...repoScopeProps,
+        ...validityProps,
+      }),
+    },
+    {
+      name: 'workspace_status',
+      type: 'workspace_status' as const,
+      label: 'Workspace Status',
+      description: 'Show active file locks, working agents, open signals/refinements, and memory store stats for the current workspace.',
+      promptGuidelines: [
+        'Use to check if another agent is editing files you need, or to see what is locked.',
+        'Use before long edits to verify no conflicts exist.',
+      ],
+      parameters: Type.Object({
+        ...repoScopeProps,
+      }),
+    },
+    {
+      name: 'agent_signal',
+      type: 'agent_signal' as const,
+      label: 'Agent Signal',
+      description: 'Common agent coordination inbox: publish/list/reply/resolve questions, handoffs, blockers, decisions, and FYIs.',
+      promptGuidelines: [
+        'Use for agent-to-agent coordination: questions, replies, handoffs, blockers, decisions, FYIs.',
+        'Use list to inspect unread signals; use reply/resolve to close loops instead of creating ad-hoc tools.',
+        'This is an awareness inbox, not the source of truth for locks or verification.',
+        'Use action:"ack" after processing a signal so hook delivery can safely replay until acknowledged.',
+      ],
+      parameters: Type.Object({
+        action: agentSignalActionSchema,
+        kind: Type.Optional(notificationKindSchema),
+        subject: optionalNonEmptyString(Type, 'One-line signal subject for publish/reply.'),
+        body: optionalNonEmptyString(Type, 'Optional detail.'),
+        to_agents: optionalStringArray(Type, 'Recipient agent ids; omit/empty for broadcast.'),
+        files: optionalStringArray(Type, 'Files this signal concerns.'),
+        refs: optionalStringArray(Type, 'Related ids or references: memory ids, intent ids, URLs, PRs.'),
+        importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Importance 1-10; default 5.' })),
+        in_reply_to: optionalNonEmptyString(Type, 'Parent notification id for reply threading.'),
+        thread_id: optionalNonEmptyString(Type, 'Thread id for list/resolve.'),
+        notification_ids: optionalStringArray(Type, 'Notification ids for resolve/ack.'),
+        unread_only: Type.Optional(Type.Boolean({ description: 'List only unread/open signals; default true.' })),
+        mark_read: Type.Optional(Type.Boolean({ description: 'Mark listed signals as read.' })),
+        kinds: Type.Optional(Type.Array(notificationKindSchema, { description: 'Filter list by signal kind.' })),
+        limit: optionalLimit(Type, 'Max signals; default 20.'),
+        agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
+        ...repoScopeProps,
+      }),
+    },
+    {
+      name: 'file_lock',
+      type: 'file_lock' as const,
+      label: 'File Lock',
+      description: 'Manage file locks for parallel agents. type lock/release/status/renew; uses intentId as the safe release handle.',
+      promptGuidelines: [
+        'Prefer automatic edit/write locks; use this for explicit coordination across parallel agents.',
+        'Release and renew by intentId whenever possible; agentId/sessionId are scope metadata, not precise lock handles.',
+        'Set ttl_ms for bounded work; locks are capped by awareness to the maximum safe TTL.',
+      ],
+      parameters: Type.Object({
+        type: fileLockTypeSchema,
+        target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
+        intent_id: optionalNonEmptyString(Type, 'Precise lock intent id returned by type:lock. Required for safe release/renew.'),
+        lock_type: Type.Optional(fileLockKindSchema),
+        ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
+        agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
+        session_id: optionalNonEmptyString(Type, 'Session id override; defaults to current Pi session id.'),
+        status: Type.Optional(Type.String({ description: 'Release status: PENDING, SUCCESS, or FAILED.' })),
+        verified: Type.Optional(Type.Boolean({ description: 'For release: mark SUCCESS only if verification actually ran.' })),
+        verified_note: optionalNonEmptyString(Type, 'Verification note stored with verified releases.'),
+        signal_on_conflict: Type.Optional(Type.Boolean({ description: 'Publish a blocker signal on lock conflict; default true.' })),
+        ...repoScopeProps,
       }),
     },
     {
       name: 'memory_workspace_status',
       type: 'workspace_status' as const,
       label: 'Memory: Workspace Status',
-      description: 'Show active file locks, working agents, and memory store stats for the current workspace.',
+      description: 'Compatibility alias for workspace_status.',
       promptGuidelines: [
-        'Use to check if another agent is editing files you need, or to see what is locked.',
-        'Use before long edits to verify no conflicts exist.',
+        'Prefer workspace_status for new usage; this alias is retained for compatibility.',
       ],
       parameters: Type.Object({
+        ...repoScopeProps,
+      }),
+    },
+    {
+      name: 'memory_file_lock',
+      type: 'file_lock' as const,
+      label: 'Memory: File Lock',
+      description: 'Compatibility alias for file_lock.',
+      promptGuidelines: [
+        'Prefer file_lock for new usage; this alias is retained for compatibility.',
+      ],
+      parameters: Type.Object({
+        type: fileLockTypeSchema,
+        target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
+        intent_id: optionalNonEmptyString(Type, 'Precise lock intent id returned by type:lock. Required for safe release/renew.'),
+        lock_type: Type.Optional(fileLockKindSchema),
+        ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
+        agent_id: optionalNonEmptyString(Type, 'Agent id override; defaults to current Pi agent id.'),
+        session_id: optionalNonEmptyString(Type, 'Session id override; defaults to current Pi session id.'),
+        status: Type.Optional(Type.String({ description: 'Release status: PENDING, SUCCESS, or FAILED.' })),
+        verified: Type.Optional(Type.Boolean({ description: 'For release: mark SUCCESS only if verification actually ran.' })),
+        verified_note: optionalNonEmptyString(Type, 'Verification note stored with verified releases.'),
+        signal_on_conflict: Type.Optional(Type.Boolean({ description: 'Publish a blocker signal on lock conflict; default true.' })),
         ...repoScopeProps,
       }),
     },
@@ -721,7 +951,7 @@ export function buildMemoryToolDefinition(
         'Use memory_recall for broad prior lessons instead.',
       ],
       parameters: Type.Object({
-        state: Type.Optional(Type.String({ description: 'open|ongoing|done. Default open/ongoing.' })),
+        state: Type.Optional(refinementStateSchema),
         include_handoffs: Type.Optional(Type.Boolean({ description: 'Include session handoff rows; default false so repo-fix refinements stay visible.' })),
         limit: optionalLimit(Type, 'Max refinements; default 5.'),
           ...repoScopeProps,
@@ -749,59 +979,27 @@ export function buildMemoryToolDefinition(
         'Prefer intent_ids[] or allPending:true to clear multiple intents in a single tool call instead of looping.',
       ],
       parameters: Type.Object({
-        intent_id: Type.Optional(Type.String({ description: 'Single pending intent id to verify.' })),
-        intent_ids: Type.Optional(Type.Array(Type.String(), { description: 'Batch: list of pending intent ids to verify in one call.' })),
+        intent_id: optionalNonEmptyString(Type, 'Single pending intent id to verify.'),
+        intent_ids: Type.Optional(Type.Array(nonEmptyString(Type, 'Pending intent id to verify.'), { minItems: 1, description: 'Batch: list of pending intent ids to verify in one call.' })),
         allPending: Type.Optional(Type.Boolean({ description: 'Verify ALL pending intents for this agent in one call. Pair with status.' })),
         status: Type.Optional(verifyStatusSchema),
-      }),
-    },    {
-      name: 'memory_digest',
-      type: 'digest' as const,
-      label: 'Memory: Digest',
-      description: 'Review, deduplicate, and prune the memory store. Supports dry_run preview and export_doc to write a markdown report of all active memories.',
-      promptGuidelines: [
-        'Use dry_run:true first to preview what would be removed without mutating anything.',
-        'Use export_doc:true to write a full memory report to .octocode/memory-reports/ for human review.',
-      ],
-      parameters: Type.Object({
-        retention_days: Type.Optional(Type.Integer({ minimum: 1, maximum: 3650, description: 'Delete old superseded memories after this many days; default 90.' })),
-        dry_run: Type.Optional(Type.Boolean({ description: 'Preview what would be archived/pruned without making any changes.' })),
-        export_doc: Type.Optional(Type.Boolean({ description: 'Write a full markdown report of all active memories to .octocode/memory-reports/.' })),
-        workspace_path: Type.Optional(Type.String({ description: 'Scope to this workspace root; defaults to cwd.' })),
-      }),
-    },
-    {
-      name: 'memory_forget',
-      type: 'forget' as const,
-      label: 'Memory: Forget',
-      description: 'Delete memories by id, tag, age, or importance ceiling. Use dry_run:true first to preview.',
-      promptGuidelines: [
-        'Use dry_run:true first to see what would be deleted before committing.',
-        'Always set max_importance to avoid deleting important memories accidentally.',
-      ],
-      parameters: Type.Object({
-        memory_ids: Type.Optional(Type.Array(Type.String(), { description: 'Specific memory ids to delete.' })),
-        tags: Type.Optional(Type.Array(Type.String(), { description: 'Delete memories with any of these tags.' })),
-        before: Type.Optional(Type.String({ description: 'ISO timestamp — delete memories created before this date.' })),
-        max_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Safety ceiling — only delete at or below this importance score.' })),
-        dry_run: Type.Optional(Type.Boolean({ description: 'Preview what would be deleted without actually deleting.' })),
       }),
     },
     {
       name: 'memory_notify',
       type: 'notify' as const,
       label: 'Memory: Notify',
-      description: 'Post a workspace-scoped message to other agents (handoff, blocker, question, decision, etc.).',
+      description: 'Compatibility alias for agent_signal({action:"publish"}). Prefer agent_signal for list/reply/resolve.',
       promptGuidelines: [
-        'Use for real multi-agent coordination: blockers, handoffs, decisions that other agents need to act on.',
-        'Skip for single-agent sessions with no parallel workers.',
+        'Prefer agent_signal for new coordination; memory_notify only publishes a signal.',
+        'Use for simple legacy handoffs/blockers/questions when no reply/list/resolve is needed.',
       ],
       parameters: Type.Object({
-        kind: Type.String({ description: 'claim|handoff|question|reply|blocker|request|decision|fyi' }),
-        subject: Type.String({ description: 'One-line summary of the message.' }),
-        body: Type.Optional(Type.String({ description: 'Optional detail.' })),
-        to_agent: Type.Optional(Type.String({ description: 'Recipient agent id; omit to broadcast to all agents on this workspace.' })),
-        files: Type.Optional(Type.Array(Type.String(), { description: 'Files this message concerns.' })),
+        kind: notificationKindSchema,
+        subject: nonEmptyString(Type, 'One-line summary of the message.'),
+        body: optionalNonEmptyString(Type, 'Optional detail.'),
+        to_agent: optionalNonEmptyString(Type, 'Recipient agent id; omit to broadcast to all agents on this workspace.'),
+        files: optionalStringArray(Type, 'Files this message concerns.'),
         importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Importance 1-10; default 5.' })),
         ...repoScopeProps,
       }),

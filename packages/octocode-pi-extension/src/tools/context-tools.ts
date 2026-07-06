@@ -1,6 +1,6 @@
 /**
  * Context session-management tools:
- * compact_context | clear_context
+ * manage_context (type:"compact" | type:"new")
  *
  * IMPORTANT — session-control APIs (ctx.newSession, ctx.reload) are ONLY
  * available in ExtensionCommandContext (registerCommand handlers). They are
@@ -48,11 +48,19 @@ export function registerContextTools(
           'info',
         );
       }
+      const continuation =
+        'Auto-compaction complete. Re-orient from the compacted context, then continue the user task.';
       ctx.compact?.({
         onComplete: () => {
           if (ctx.hasUI) {
-            ctx.ui?.notify?.('Auto-compaction complete.', 'info');
+            ctx.ui?.notify?.('Auto-compaction complete. Resuming…', 'info');
           }
+          // ctx.compact() drives pi's manual compaction path, which aborts the
+          // running agent operation and never auto-continues (willRetry:false).
+          // Without a queued turn the agent loop halts idle after compaction —
+          // the "stuck after compaction" state. Queue a followUp to resume,
+          // mirroring the compact_context tool.
+          pi.sendUserMessage(continuation, { deliverAs: 'followUp' });
         },
         onError: (error: Error) => {
           if (ctx.hasUI) {
@@ -83,16 +91,21 @@ export function registerContextTools(
   }
 
   registerFn(pi, registeredToolNames, {
-    name: 'compact_context',
-    label: 'Compact Context',
+    name: 'manage_context',
+    label: 'Manage Context',
     description:
-      'Compact conversation history to free context window space. Call autonomously when context is ≥ 60 % full AND the next task is large, at a research→execution boundary, or when an unrelated task starts mid-session.',
-    promptSnippet: 'Compact conversation history to free context window space',
+      'Compact or reset the conversation context. ' +
+      'type:"compact" — summarize history to free context window space; call when ≥60% full, at a research→execution boundary, or before a large task. ' +
+      'type:"new" — start a fresh session with no prior context; call only when the next task is fully unrelated to the current conversation.',
+    promptSnippet: 'Compact or reset conversation context',
     parameters: Type.Object({
+      type: Type.Union(
+        [Type.Literal('compact'), Type.Literal('new')],
+        { description: '"compact" summarizes history to free space. "new" starts a completely fresh session.' },
+      ),
       instructions: Type.Optional(
         Type.String({
-          description:
-            'Optional focus instructions for the compaction summary (e.g. "focus on recent file changes").',
+          description: 'Focus instructions for the compaction summary (e.g. "focus on recent file changes"). Only used when type:"compact".',
         }),
       ),
     }),
@@ -103,8 +116,21 @@ export function registerContextTools(
       _onUpdate?: unknown,
       ctx?: PiContext,
     ) {
+      if (params['type'] === 'new') {
+        pi.sendUserMessage('/_octocode-clear-context-impl', { deliverAs: 'followUp' });
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'New session queued. The context will be cleared after this turn completes.',
+            },
+          ],
+        };
+      }
+
+      // type === 'compact'
       if (!ctx?.compact) {
-        throw new Error('compact_context: ctx.compact is not available in this runtime. Use /compact manually.');
+        throw new Error('manage_context: ctx.compact is not available in this runtime. Use /compact manually.');
       }
 
       const continuation =
@@ -137,65 +163,25 @@ export function registerContextTools(
 
     renderCall(args: unknown, theme?: PiTheme) {
       const a = (args ?? {}) as Record<string, unknown>;
-      const instructions = typeof a.instructions === 'string' && a.instructions ? a.instructions : '';
-      const nameStr = theme?.fg('toolTitle', theme.bold('compact_context')) ?? 'compact_context';
+      const type = typeof a['type'] === 'string' ? a['type'] : 'compact';
+      const instructions = type === 'compact' && typeof a['instructions'] === 'string' && a['instructions'] ? a['instructions'] : '';
+      const nameStr = theme?.fg('toolTitle', theme.bold('manage_context')) ?? 'manage_context';
+      const typeStr = theme?.fg('dim', ` (${type})`) ?? ` (${type})`;
       const detail = instructions
         ? (theme?.fg('dim', ` "${instructions.length > 50 ? instructions.slice(0, 47) + '…' : instructions}"`) ?? ` "${instructions}"`)
         : '';
-      return simpleRenderer(`${nameStr}${detail}`);
+      return simpleRenderer(`${nameStr}${typeStr}${detail}`);
     },
 
     renderResult(result, opts, theme?: PiTheme) {
       if (opts.isPartial) {
-        return simpleRenderer(theme?.fg('warning', 'Compacting…') ?? 'Compacting…');
+        return simpleRenderer(theme?.fg('warning', 'Processing…') ?? 'Processing…');
       }
       const ok = !result.isError;
       const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
-      const nameStr = theme?.fg('toolTitle', 'compact_context') ?? 'compact_context';
+      const nameStr = theme?.fg('toolTitle', 'manage_context') ?? 'manage_context';
       const msg = ok
-        ? (theme?.fg('dim', ' · compaction triggered') ?? ' · compaction triggered')
-        : '';
-      return simpleRenderer(`${icon} ${nameStr}${msg}`);
-    },
-  } satisfies ToolDefinition);
-
-  registerFn(pi, registeredToolNames, {
-    name: 'clear_context',
-    label: 'Clear Context',
-    description:
-      'Start a new session with no prior context. Call autonomously when the next task is unrelated to the current conversation.',
-    promptSnippet: 'Start a new session with no prior context',
-    parameters: Type.Object({}),
-    async execute(
-      _toolCallId: string,
-      _params: Record<string, unknown>,
-      _signal?: AbortSignal,
-    ) {
-      pi.sendUserMessage('/_octocode-clear-context-impl', { deliverAs: 'followUp' });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: 'New session queued. The context will be cleared after this turn completes.',
-          },
-        ],
-      };
-    },
-
-    renderCall(_args: unknown, theme?: PiTheme) {
-      const nameStr = theme?.fg('toolTitle', theme.bold('clear_context')) ?? 'clear_context';
-      return simpleRenderer(nameStr);
-    },
-
-    renderResult(result, opts, theme?: PiTheme) {
-      if (opts.isPartial) {
-        return simpleRenderer(theme?.fg('warning', 'Clearing…') ?? 'Clearing…');
-      }
-      const ok = !result.isError;
-      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
-      const nameStr = theme?.fg('toolTitle', 'clear_context') ?? 'clear_context';
-      const msg = ok
-        ? (theme?.fg('dim', ' · new session queued') ?? ' · new session queued')
+        ? (theme?.fg('dim', ' · done') ?? ' · done')
         : '';
       return simpleRenderer(`${icon} ${nameStr}${msg}`);
     },

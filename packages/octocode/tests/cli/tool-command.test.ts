@@ -1,4 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+
+const oqlEnv = vi.hoisted(() => {
+  const previous = process.env.ENABLE_OQL;
+  process.env.ENABLE_OQL = '1';
+  return { previous };
+});
 
 const publicMocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -98,6 +112,11 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
 });
 
 describe('toolCommand', () => {
+  afterAll(() => {
+    if (oqlEnv.previous === undefined) delete process.env.ENABLE_OQL;
+    else process.env.ENABLE_OQL = oqlEnv.previous;
+  });
+
   let consoleSpy: ReturnType<typeof vi.spyOn>;
   let originalExitCode: typeof process.exitCode;
 

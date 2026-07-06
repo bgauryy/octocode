@@ -57,11 +57,13 @@ function ghFileContentResult(result: CallToolResult): {
   error?: unknown;
 } {
   const sc = result.structuredContent as
-    { results?: Array<Record<string, unknown>> } | undefined;
+    | { results?: Array<Record<string, unknown>> }
+    | undefined;
   const row = sc?.results?.[0];
   if (!row) return {};
   const data = ('data' in row ? row.data : row) as
-    Record<string, unknown> | undefined;
+    | Record<string, unknown>
+    | undefined;
   const fileRow =
     (data?.files as Array<Record<string, unknown>> | undefined)?.[0] ??
     (data?.results as Array<Record<string, unknown>> | undefined)?.[0] ??
@@ -368,9 +370,7 @@ function stableId(
         : (s('url') ?? valueLeadingToken(d));
     case 'commit':
       return (
-        s('sha')?.slice(0, 12) ??
-        s('oid')?.slice(0, 12) ??
-        valueLeadingToken(d)
+        s('sha')?.slice(0, 12) ?? s('oid')?.slice(0, 12) ?? valueLeadingToken(d)
       );
     case 'artifact':
       return s('localPath') ?? s('path');
@@ -541,7 +541,8 @@ function semanticDiagnostics(
 ): OqlDiagnostic[] {
   const diagnostics: OqlDiagnostic[] = [];
   const lsp = data?.lsp as
-    { serverAvailable?: boolean; source?: string } | undefined;
+    | { serverAvailable?: boolean; source?: string }
+    | undefined;
   if (lsp?.serverAvailable === false) {
     diagnostics.push(
       diagnostic(

@@ -1,5 +1,5 @@
 /**
- * Registration of the 14 native Octocode direct tools.
+ * Registration of the 13 native Octocode direct tools.
  *
  * The tool schema + description are loaded from @octocodeai/octocode-tools-core/schema
  * (engine-free). Execution loads /direct + /config lazily so the native addon is
@@ -17,10 +17,6 @@ import type { TSchema, ToolDefinition, ToolCallResult, PiTheme } from '../types.
 
 // ─── Shared rendering helpers (ANSI truncation + smart call/result renderers) ──
 import {
-  makeRenderer,
-  truncateToWidth,
-  singleLineRenderer,
-  buildToolCallSummary,
   buildOctocodeRenderCall,
   buildOctocodeRenderResult,
 } from './render-helpers.js';
@@ -197,79 +193,12 @@ export function registerUniqueTool(
   pi.registerTool?.(toolDefinition);
 }
 
-/**
- * Register the `unzip` tool.
- *
- * Schema and execution both delegate to `localBinaryInspect` — no schema
- * duplication. The tool is a named alias that makes the unpack workflow
- * discoverable without agents having to know about mode:'unpack'.
- */
-async function registerUnzipTool(
-  pi: { registerTool?(def: ToolDefinition): void },
-  Type: TypeBoxBuilder,
-  registeredToolNames: Set<string>,
-): Promise<void> {
-  // Reuse the canonical localBinaryInspect schema from octocode-core.
-  const schema = await getOctocodeToolSchema('localBinaryInspect');
-  const description =
-    'Unpack an archive (.zip, .jar, .tar.gz, .7z, .deb, .dmg, etc.) to a local directory ' +
-    'under Octocode home, then research it with local tools. ' +
-    'Pass mode:"unpack" — execution routes to localBinaryInspect. ' +
-    'Returns localPath — follow up with localViewStructure, localSearchCode, or localGetFileContent.';
-
-  registerUniqueTool(pi, registeredToolNames, {
-    name: 'unzip',
-    label: 'Local Code: Unzip Archive',
-    description,
-    promptSnippet: 'Unpack an archive for local research. Pass mode:"unpack". Required: path.',
-    promptGuidelines: [
-      'unzip is a native Pi tool backed by the bundled Octocode CLI tools command; pass arguments using this tool\'s Pi schema directly.',
-      'unzip local paths should be absolute when possible; strip a leading @ if the model copied a Pi file reference.',
-      'unzip uses the localBinaryInspect schema — always pass mode:"unpack". Follow the returned localPath with localViewStructure, localSearchCode, or localGetFileContent.',
-    ],
-    parameters: buildOctocodeToolParameters(Type, schema),
-    async execute(_toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal, _onUpdate?: unknown, ctx?: { cwd?: string }) {
-      // Route directly to localBinaryInspect — shared execution, no duplication.
-      return executeOctocodeToolForPi('localBinaryInspect', params, signal, ctx);
-    },
-    renderCall(args: unknown, theme?: PiTheme) {
-      // Use 'unzip' as the display name, not 'localBinaryInspect'
-      const summary = buildToolCallSummary('localBinaryInspect', args);
-      const nameStr = theme?.fg('toolTitle', theme.bold('unzip')) ?? 'unzip';
-      const summaryStr = summary ? (theme?.fg('dim', summary) ?? summary) : '';
-      const rawLine = summaryStr ? `${nameStr} ${summaryStr}` : nameStr;
-      return singleLineRenderer(rawLine);
-    },
-    renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
-      if (opts.isPartial) {
-        const msg = theme?.fg('warning', 'Unpacking…') ?? 'Unpacking…';
-        return makeRenderer((w) => [truncateToWidth(msg, w)]);
-      }
-      // Show localPath prominently in collapsed view
-      const ok = !result.isError;
-      const details = result.details as { results?: Array<{ data?: { localPath?: string } }> } | null;
-      const localPath = details?.results?.[0]?.data?.localPath;
-      const icon = theme?.fg(ok ? 'success' : 'error', ok ? '✓' : '✗') ?? (ok ? '✓' : '✗');
-      const nameStr = theme?.fg('toolTitle', 'unzip') ?? 'unzip';
-      const pathStr = localPath ? (theme?.fg('dim', ` → ${localPath}`) ?? ` → ${localPath}`) : '';
-      const header = `${icon} ${nameStr}${pathStr}`;
-      if (!opts.expanded) {
-        const hint = theme?.fg('dim', ' · expand for full output') ?? ' · expand for full output';
-        return makeRenderer((w) => [truncateToWidth(`${header}${hint}`, w)]);
-      }
-      return buildOctocodeRenderResult('localBinaryInspect', result, opts, theme);
-    },
-  });
-}
-
 export async function registerOctocodeTools(
   pi: { registerTool?(def: ToolDefinition): void },
   Type: TypeBoxBuilder,
   registeredToolNames: Set<string>,
 ): Promise<void> {
   for (const toolName of OCTOCODE_DIRECT_TOOL_NAMES) {
-    // unzip is registered separately — it wraps localBinaryInspect, not a schema tool.
-    if (toolName === 'unzip') continue;
     const schema = await getOctocodeToolSchema(toolName);
     const description = schema.fullDescription || schema.description || `${toolName} Octocode tool`;
     const fieldPreview = getToolFieldPreview(schema);
@@ -298,5 +227,4 @@ export async function registerOctocodeTools(
     });
   }
 
-  await registerUnzipTool(pi, Type, registeredToolNames);
 }

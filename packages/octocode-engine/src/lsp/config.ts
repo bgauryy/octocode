@@ -173,9 +173,10 @@ function withBundledJsServer(
 
   // 2) Language-keyed: a different bundled server than the native default
   //    (e.g. pyright for Python); use the bundled server's own launch args.
-  const byLanguage = config.languageId
-    ? BUNDLED_BY_LANGUAGE[config.languageId]
-    : undefined;
+  const byLanguage =
+    path.basename(config.command) === config.command && config.languageId
+      ? BUNDLED_BY_LANGUAGE[config.languageId]
+      : undefined;
   if (byLanguage) {
     const cliPath = resolveBundledCli(byLanguage.cli);
     if (cliPath) {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Octocode Research"
+  short_description: "Evidence-first technical research with exact citations."
+  default_prompt: "Use $octocode-research to investigate this technical question across local code, GitHub, packages, history, docs, and artifacts with exact evidence."

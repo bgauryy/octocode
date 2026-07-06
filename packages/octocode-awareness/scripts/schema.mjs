@@ -444,6 +444,31 @@ export const schemas = {
     .strict()
     .describe("Post a message to other agents working this repo, or reply in a thread."),
 
+  agent_signal: z
+    .object({
+      action: z.enum(["publish", "list", "reply", "resolve", "ack"]).describe("Coordination action."),
+      agent_id: agentId.describe("Acting/reading agent id."),
+      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
+      repo: z.string().trim().min(1).max(256).optional(),
+      ref: z.string().trim().min(1).max(256).optional(),
+      kind: notificationKind.optional().describe("Signal kind for publish."),
+      subject: nonEmptyText("One-line subject for publish/reply.", 200).optional(),
+      body: nonEmptyText("Optional detail for publish/reply.", 4000).optional(),
+      to_agents: z.array(agentId).max(50).default([]).describe("Recipients; empty means broadcast."),
+      files: fileList,
+      refs: refIds,
+      importance: importanceScore.default(5),
+      in_reply_to: z.string().trim().min(1).max(128).optional().describe("Notification id this replies to."),
+      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id for list/resolve/ack."),
+      notification_id: z.array(z.string().trim().min(1).max(128)).max(200).default([]).describe("Notification ids for resolve/ack."),
+      unread_only: z.boolean().default(true),
+      mark_read: z.boolean().default(false),
+      kinds: z.array(notificationKind).max(8).default([]),
+      limit: z.number().int().min(1).max(200).default(20),
+    })
+    .strict()
+    .describe("Common agent coordination inbox: publish/list/reply/resolve signals."),
+
   notify_query: z
     .object({
       agent_id: agentId.describe("Reader — delivery targets this agent."),
@@ -645,6 +670,17 @@ export const examples = {
     refinement_id: ["ref_abc123"],
     dry_run: true,
   },
+  agent_signal: {
+    action: "publish",
+    agent_id: "claude-1",
+    to_agents: ["codex-2"],
+    kind: "question",
+    subject: "Can you review the lock handoff?",
+    body: "Please reply in this thread after checking the file lock state.",
+    files: ["src/intents.ts"],
+    refs: ["intent_123"],
+    importance: 7,
+  },
   notify: {
     agent_id: "codex-2",
     repo: "octocode-mcp",
@@ -696,7 +732,7 @@ const listableSchemas = [
   "tell_memory", "get_memory", "status", "memory_index",
   "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify",
   "forget_memory", "refinement", "refine_query", "refine_delete",
-  "notify", "notify_query", "notify_resolve", "notify_prune",
+  "agent_signal", "notify", "notify_query", "notify_resolve", "notify_prune",
   "workspace_status", "export_harness", "reflect",
 ];
 

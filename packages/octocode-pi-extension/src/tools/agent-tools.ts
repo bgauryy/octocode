@@ -454,6 +454,7 @@ function renderSingleAgentResult(record: AgentRecord, header: string): ToolCallR
   ].filter(Boolean).join(' \u00b7 ');
   const contentParts: string[] = [
     `${header} [${record.name}]`,
+    `agentId: ${record.id}`,
     statusParts,
   ];
   if (output.text) contentParts.push('', output.text);

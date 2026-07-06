@@ -3,14 +3,72 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { utcNow } from './helpers.js';
 import type {
   PreFlightIntentParams, PreFlightIntentResult,
   ReleaseFileLockParams, ReleaseFileLockResult,
   FileLockRow,
+  FileLockParams,
+  FileLockResult,
+  FileLockStatusEntry,
 } from './types.js';
+
+const MAX_LOCK_TTL_MS = 10 * 60_000;
+
+function effectiveTtlMs(ttlMs: number | null | undefined): number {
+  return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
+}
+
+function expiresAtFromNow(ttlMs: number | null | undefined): string {
+  return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function workspaceRoot(workspacePath?: string | null): string {
+  return workspacePath ? resolve(workspacePath) : process.cwd();
+}
+
+function resolveTargetFiles(targetFiles: string[] = [], workspacePath?: string | null): string[] {
+  const root = workspaceRoot(workspacePath);
+  return targetFiles.map((file) => isAbsolute(file) ? resolve(file) : resolve(root, file));
+}
+
+function activeLockRows(
+  db: DatabaseSync,
+  params: { workspacePath?: string | null; agentId?: string | null; sessionId?: string | null; intentId?: string | null } = {},
+): FileLockStatusEntry[] {
+  const now = utcNow();
+  db.prepare('DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
+
+  const clauses = ["ai.status = 'ACTIVE'", "(fl.expires_at IS NULL OR fl.expires_at > ?)"];
+  const binds: (string | number)[] = [now];
+  if (params.workspacePath) {
+    clauses.push('ai.workspace_path = ?');
+    binds.push(workspaceRoot(params.workspacePath));
+  }
+  if (params.agentId) {
+    clauses.push('ai.agent_id = ?');
+    binds.push(params.agentId);
+  }
+  if (params.sessionId) {
+    clauses.push('ai.session_id = ?');
+    binds.push(params.sessionId);
+  }
+  if (params.intentId) {
+    clauses.push('fl.intent_id = ?');
+    binds.push(params.intentId);
+  }
+
+  return db.prepare(
+    `SELECT fl.lock_id, fl.intent_id, fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path,
+            fl.lock_type, fl.acquired_at, fl.expires_at
+       FROM file_locks fl
+       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY fl.acquired_at DESC`
+  ).all(...binds) as unknown as FileLockStatusEntry[];
+}
 
 /**
  * Claim file locks for an agent write operation.
@@ -22,34 +80,34 @@ export function preFlightIntent(
 ): PreFlightIntentResult {
   const {
     agentId = 'agent',
+    sessionId = null,
     workspacePath,
     rationale = 'agent write operation',
     testPlan = 'post-edit verification',
     targetFiles = [],
     lockType = 'EXCLUSIVE',
-    ttlMs = 10 * 60_000,
+    ttlMs = MAX_LOCK_TTL_MS,
   } = params;
 
-  const maxTtlMs = 10 * 60_000;
-  const effectiveTtlMs = Math.min(Math.max(1, ttlMs ?? maxTtlMs), maxTtlMs);
   const intentId = 'intent_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
-  const wsPath = workspacePath ?? process.cwd();
-  const absFiles = targetFiles.map(f => resolve(f));
+  const wsPath = workspaceRoot(workspacePath);
+  const absFiles = resolveTargetFiles(targetFiles, wsPath);
 
   // Drop expired locks before checking conflicts so dangling locks never block new work.
   db.prepare('DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(now);
 
-  // Check for conflicts (EXCLUSIVE locks on these files by other agents)
+  // Check for conflicts. Shared locks can coexist with shared locks; any exclusive edge conflicts.
   const conflicts: FileLockRow[] = [];
   for (const absPath of absFiles) {
+    const conflictMode = lockType === 'SHARED' ? "fl.lock_type = 'EXCLUSIVE'" : '1 = 1';
     const existing = db.prepare(`
       SELECT fl.*, ai.agent_id AS intent_agent_id FROM file_locks fl
       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
       WHERE fl.file_path = ?
         AND ai.agent_id <> ?
         AND ai.status = 'ACTIVE'
-        AND fl.lock_type = 'EXCLUSIVE'
+        AND ${conflictMode}
         AND (fl.expires_at IS NULL OR fl.expires_at > ?)
     `).all(absPath, agentId, now) as unknown as FileLockRow[];
     conflicts.push(...existing);
@@ -71,20 +129,20 @@ export function preFlightIntent(
 
   db.prepare(`
     INSERT INTO agent_intents
-      (intent_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
-  `).run(intentId, agentId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
+      (intent_id, agent_id, session_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+  `).run(intentId, agentId, sessionId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
 
-  const expiresAt = new Date(Date.now() + effectiveTtlMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const expiresAt = expiresAtFromNow(ttlMs);
 
   const acquiredLocks: Array<{ lock_id: string; file_path: string; lock_type: 'EXCLUSIVE' | 'SHARED'; expires_at: string | null }> = [];
   for (const absPath of absFiles) {
     const lockId = 'lock_' + randomUUID().replace(/-/g, '');
     db.prepare(`
       INSERT OR REPLACE INTO file_locks
-        (lock_id, file_path, intent_id, agent_id, lock_type, acquired_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(lockId, absPath, intentId, agentId, lockType, now, expiresAt);
+        (lock_id, file_path, intent_id, agent_id, session_id, lock_type, acquired_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(lockId, absPath, intentId, agentId, sessionId, lockType, now, expiresAt);
     acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
   }
 
@@ -93,6 +151,7 @@ export function preFlightIntent(
     intent: {
       intent_id: intentId,
       agent_id: agentId,
+      session_id: sessionId,
       lock_type: lockType,
       workspace_path: wsPath,
       target_files: absFiles,
@@ -101,6 +160,7 @@ export function preFlightIntent(
         file_path: l.file_path,
         lock_type: l.lock_type,
         agent_id: agentId,
+        session_id: sessionId,
         acquired_at: now,
         expires_at: l.expires_at,
       })),
@@ -119,6 +179,8 @@ export function releaseFileLock(
 ): ReleaseFileLockResult {
   const {
     agentId = 'agent',
+    sessionId = null,
+    workspacePath = null,
     intentId = null,
     targetFiles = [],
     status: statusArg = 'SUCCESS',
@@ -137,12 +199,17 @@ export function releaseFileLock(
   const whereClauses: string[] = ['fl.agent_id = ?'];
   const whereParams: (string | number)[] = [agentId];
 
+  if (sessionId) {
+    whereClauses.push('fl.session_id = ?');
+    whereParams.push(sessionId);
+  }
+
   if (intentId) {
     whereClauses.push('fl.intent_id = ?');
     whereParams.push(intentId);
   }
 
-  const absFiles = targetFiles.map(f => resolve(f));
+  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
   if (absFiles.length > 0) {
     const ph = absFiles.map(() => '?').join(',');
     whereClauses.push(`fl.file_path IN (${ph})`);
@@ -190,4 +257,79 @@ export function releaseFileLock(
       ? { unverifiedConclusion: 'SUCCESS requested without --verified; stored as PENDING until verify records the test result.' }
       : {}),
   };
+}
+
+export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResult {
+  switch (params.type) {
+    case 'lock': {
+      const result = preFlightIntent(db, {
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        workspacePath: params.workspacePath,
+        targetFiles: params.targetFiles ?? [],
+        lockType: params.lockType,
+        ttlMs: params.ttlMs,
+        rationale: 'manual: fileLock lock',
+        testPlan: 'release or verify fileLock intent',
+      });
+      if (!result.ok) return { ok: false, type: 'lock', conflict: true, conflicts: result.conflicts };
+      const locks = activeLockRows(db, { intentId: result.intent.intent_id });
+      return {
+        ok: true,
+        type: 'lock',
+        intentId: result.intent.intent_id,
+        files: result.intent.target_files,
+        locks,
+        expiresAt: result.intent.locks[0]?.expires_at ?? null,
+      };
+    }
+    case 'release': {
+      if (!params.intentId && (!params.targetFiles || params.targetFiles.length === 0)) {
+        throw new Error('fileLock release requires intentId or targetFiles');
+      }
+      return {
+        ok: true,
+        type: 'release',
+        ...releaseFileLock(db, {
+          agentId: params.agentId,
+          sessionId: params.sessionId,
+          workspacePath: params.workspacePath,
+          intentId: params.intentId,
+          targetFiles: params.targetFiles,
+          status: params.status,
+          verified: params.verified,
+          verifiedNote: params.verifiedNote,
+        }),
+      };
+    }
+    case 'status':
+      return {
+        ok: true,
+        type: 'status',
+        locks: activeLockRows(db, {
+          workspacePath: params.workspacePath,
+          agentId: params.agentId,
+          sessionId: params.sessionId,
+          intentId: params.intentId,
+        }),
+      };
+    case 'renew': {
+      if (!params.intentId) throw new Error('fileLock renew requires intentId');
+      const agentId = params.agentId ?? 'agent';
+      const expiresAt = expiresAtFromNow(params.ttlMs);
+      const res = db.prepare(
+        `UPDATE file_locks SET expires_at = ? WHERE intent_id = ? AND agent_id = ?`
+      ).run(expiresAt, params.intentId, agentId) as { changes: number };
+      db.prepare('UPDATE agent_intents SET updated_at = ? WHERE intent_id = ? AND agent_id = ?')
+        .run(utcNow(), params.intentId, agentId);
+      return {
+        ok: true,
+        type: 'renew',
+        intentId: params.intentId,
+        renewed: res.changes > 0,
+        locks_renewed: res.changes,
+        expiresAt: res.changes > 0 ? expiresAt : null,
+      };
+    }
+  }
 }

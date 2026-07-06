@@ -9,6 +9,7 @@ import type {
 } from '@octocodeai/octocode-tools-core';
 import {
   ALL_TOOLS as CORE_ALL_TOOLS,
+  OQL_SEARCH as CORE_OQL_SEARCH,
   STATIC_TOOL_NAMES,
   LSP_GET_SEMANTICS_TOOL_NAME,
   OQL_SEARCH_TOOL_NAME,
@@ -112,4 +113,7 @@ export const LSP_GET_SEMANTIC_CONTENT = ALL_TOOLS.find(
 export const LOCAL_BINARY_INSPECT = ALL_TOOLS.find(
   t => t.name === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
 )!;
-export const OQL_SEARCH = ALL_TOOLS.find(t => t.name === OQL_SEARCH_TOOL_NAME)!;
+export const OQL_SEARCH: McpToolConfig = {
+  ...CORE_OQL_SEARCH,
+  fn: registerOqlSearchTool,
+};

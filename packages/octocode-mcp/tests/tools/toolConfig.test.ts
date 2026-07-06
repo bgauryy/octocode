@@ -31,8 +31,8 @@ const removedLspToolNames = [
 
 describe('Tool Configuration', () => {
   describe('ALL_TOOLS', () => {
-    it('should contain all expected tools (6 GitHub + 1 Clone + 4 Local + 1 LSP + 1 BinaryInspect + 1 OQL = 14)', () => {
-      expect(ALL_TOOLS).toHaveLength(14);
+    it('should contain all expected tools by default (6 GitHub + 1 Clone + 4 Local + 1 LSP + 1 BinaryInspect = 13)', () => {
+      expect(ALL_TOOLS).toHaveLength(13);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
       expect([...toolNames].sort()).toEqual(
@@ -50,7 +50,6 @@ describe('Tool Configuration', () => {
           TOOL_NAMES.LOCAL_FETCH_CONTENT,
           LSP_GET_SEMANTICS_TOOL_NAME,
           TOOL_NAMES.LOCAL_BINARY_INSPECT,
-          OQL_SEARCH_TOOL_NAME,
         ].sort()
       );
 
@@ -67,7 +66,7 @@ describe('Tool Configuration', () => {
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_FETCH_CONTENT);
       expect(toolNames).toContain(TOOL_NAMES.LOCAL_BINARY_INSPECT);
       expect(toolNames).toContain(LSP_GET_SEMANTICS_TOOL_NAME);
-      expect(toolNames).toContain(OQL_SEARCH_TOOL_NAME);
+      expect(toolNames).not.toContain(OQL_SEARCH_TOOL_NAME);
       for (const removedName of removedLspToolNames) {
         expect(toolNames).not.toContain(removedName);
       }
@@ -88,7 +87,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for GitHub tools', () => {
       const remoteCapableTools = ALL_TOOLS.filter(t => !t.isLocal);
-      expect(remoteCapableTools).toHaveLength(7);
+      expect(remoteCapableTools).toHaveLength(6);
       remoteCapableTools.forEach(tool => {
         expect(tool.isLocal).toBe(false);
       });
@@ -246,7 +245,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(13);
+      expect(nonCloneTools).toHaveLength(12);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

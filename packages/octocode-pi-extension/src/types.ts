@@ -373,7 +373,7 @@ export interface PiInstance {
 
 // ─── Extension options ───────────────────────────────────────────────────────
 
-export type PromptMode = 'append' | 'replace';
+export type PromptMode = 'append' | 'octocode-first' | 'replace';
 
 export interface OctocodePiExtensionOptions {
   promptMode?: PromptMode;

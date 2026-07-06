@@ -9,7 +9,9 @@ export class ToolError extends Error {
   public readonly errorCode: LocalToolErrorCode;
   public readonly category: LocalToolErrorCategory;
   public readonly recoverability:
-    'recoverable' | 'unrecoverable' | 'user-action-required';
+    | 'recoverable'
+    | 'unrecoverable'
+    | 'user-action-required';
   public readonly context?: Record<string, unknown>;
 
   constructor(

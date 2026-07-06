@@ -17,7 +17,6 @@ export const OCTOCODE_DIRECT_TOOL_NAMES = [
   'lspGetSemantics',
   'localBinaryInspect',
   'npmSearch',
-  'unzip',
 ] as const;
 
 // Replaced by superior Octocode tools: localGetFileContent, localSearchCode, localFindFiles, localViewStructure
@@ -25,18 +24,19 @@ export const DISABLED_BUILTIN_TOOL_NAMES = ['read', 'grep', 'find', 'ls'] as con
 
 export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'web',
-  'compact_context',
-  'clear_context',
+  'manage_context',
   'spawnAgent',
   'AgentMessage',
   'memory_recall',
   'memory_record',
   'memory_reflect',
+  'workspace_status',
   'memory_workspace_status',
-  'memory_forget',
+  'agent_signal',
+  'file_lock',
+  'memory_file_lock',
   'memory_notify',
   'memory_refine_get',
   'memory_audit_unverified',
   'memory_verify',
-  'memory_digest',
 ] as const;

@@ -57,8 +57,8 @@ describe('direct-tool command patterns', () => {
       label: 'path search',
       query: {
         keywords: ['package.json'],
-        owner: 'facebook',
-        repo: 'react',
+        owner: 'bgauryy',
+        repo: 'octocode',
         match: 'path',
         limit: 5,
       },
@@ -66,10 +66,10 @@ describe('direct-tool command patterns', () => {
     expect(patterns[1]).toMatchObject({
       label: 'content search',
       query: {
-        keywords: ['useState'],
-        owner: 'facebook',
-        repo: 'react',
-        extension: 'js',
+        keywords: ['localSearchCode'],
+        owner: 'bgauryy',
+        repo: 'octocode',
+        extension: 'ts',
         limit: 5,
       },
     });
@@ -112,5 +112,30 @@ describe('direct-tool command patterns', () => {
 
     it('returns no patterns for unknown tools', () => {
       expect(buildDirectToolCommandPatterns('missingTool')).toEqual([]);
+    });
+
+    it('generates no examples referencing facebook/react', () => {
+      const allToolNames = [
+        ...Object.values(STATIC_TOOL_NAMES),
+        LSP_GET_SEMANTICS_TOOL_NAME,
+      ];
+      for (const name of allToolNames) {
+        const patterns = buildDirectToolCommandPatterns(name);
+        for (const pattern of patterns) {
+          const serialized = JSON.stringify(pattern.query);
+          expect(serialized).not.toContain('facebook');
+          expect(pattern.command ?? '').not.toContain('facebook');
+          // repo field should not be 'react' when owner context implies GitHub
+          if (
+            typeof pattern.query === 'object' &&
+            pattern.query !== null &&
+            'owner' in pattern.query
+          ) {
+            expect((pattern.query as Record<string, unknown>).owner).not.toBe(
+              'facebook'
+            );
+          }
+        }
+      }
     });
 });

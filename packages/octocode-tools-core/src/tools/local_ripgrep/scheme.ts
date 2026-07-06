@@ -11,6 +11,11 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import {
+  ItemPaginationSchema,
+  ToolContinuationSchema,
+} from '../../scheme/pagination.js';
 
 const LOCAL_SEARCH_MODES = [
   'paginated',
@@ -169,3 +174,50 @@ export const LocalRipgrepBulkQuerySchema = createRelaxedBulkQuerySchema(
   RipgrepQueryShape,
   { maxQueries: 5 }
 );
+
+// ---------------------------------------------------------------------------
+// Output schema — describes what localSearchCode returns per query result row.
+// ---------------------------------------------------------------------------
+
+const SearchMatchSchema = z.object({
+  line: z.number(),
+  endLine: z.number().optional(),
+  value: z.string().optional(),
+  column: z.number().optional(),
+  count: z.number().optional(),
+  metavars: z.record(z.string(), z.array(z.string())).optional(),
+});
+
+const SearchFileSchema = z.object({
+  path: z.string(),
+  matches: z.array(SearchMatchSchema).optional(),
+  totalOccurrences: z.number().optional(),
+  totalMatchedLines: z.number().optional(),
+  totalMatchRows: z.number().optional(),
+  returnedMatchRows: z.number().optional(),
+  matchPagination: ItemPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
+});
+
+const LocalSearchCodeDataSchema = z.object({
+  files: z.array(SearchFileSchema).optional(),
+  summary: z.string().optional(),
+  searchEngine: z.string().optional(),
+  pagination: ItemPaginationSchema.optional(),
+  next: z.record(z.string(), ToolContinuationSchema).optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+export const LocalSearchCodeOutputSchema = z
+  .object({
+    results: z.array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['empty', 'error']).optional(),
+        data: LocalSearchCodeDataSchema,
+      })
+    ),
+  })
+  .extend(bulkOutputEnvelopeFields);
+
+export type LocalSearchCodeOutput = z.infer<typeof LocalSearchCodeOutputSchema>;

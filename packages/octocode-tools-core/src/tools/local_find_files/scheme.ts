@@ -10,6 +10,8 @@ import {
   createQueryShapeSchema,
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
+import { bulkOutputEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ItemPaginationSchema } from '../../scheme/pagination.js';
 
 const queryOverrides = {
   maxDepth: clampedInt(0, 100).optional(),
@@ -65,3 +67,39 @@ export const LocalFindFilesBulkQuerySchema = createRelaxedBulkQuerySchema(
   FindFilesQueryShape,
   { maxQueries: 5 }
 );
+
+// ---------------------------------------------------------------------------
+// Output schema — describes what localFindFiles returns per query result.
+// ---------------------------------------------------------------------------
+
+const FindFilesEntrySchema = z.object({
+  name: z.string().optional(),
+  path: z.string().optional(),
+  type: z.enum(['file', 'dir', 'directory', 'link', 'symlink']).optional(),
+  size: z.union([z.number(), z.string()]).optional(),
+  modified: z.string().optional(),
+  accessed: z.string().optional(),
+  created: z.string().optional(),
+  permissions: z.string().optional(),
+});
+
+const LocalFindFilesDataSchema = z.object({
+  files: z.array(FindFilesEntrySchema).optional(),
+  summary: z.string().optional(),
+  pagination: ItemPaginationSchema.optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+export const LocalFindFilesOutputSchema = z
+  .object({
+    results: z.array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['empty', 'error']).optional(),
+        data: LocalFindFilesDataSchema,
+      })
+    ),
+  })
+  .extend(bulkOutputEnvelopeFields);
+
+export type LocalFindFilesOutput = z.infer<typeof LocalFindFilesOutputSchema>;

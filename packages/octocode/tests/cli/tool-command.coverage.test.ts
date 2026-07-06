@@ -1,4 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+
+const oqlEnv = vi.hoisted(() => {
+  const previous = process.env.ENABLE_OQL;
+  process.env.ENABLE_OQL = '1';
+  return { previous };
+});
 
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -96,6 +110,11 @@ vi.mock('@octocodeai/octocode-tools-core/direct', async importOriginal => {
 });
 
 describe('tool-command coverage', () => {
+  afterAll(() => {
+    if (oqlEnv.previous === undefined) delete process.env.ENABLE_OQL;
+    else process.env.ENABLE_OQL = oqlEnv.previous;
+  });
+
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -711,7 +730,7 @@ describe('tool-command coverage', () => {
 
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"packageName"');
-    expect(output).toContain('react');
+    expect(output).toContain('zod');
     expect(output).not.toContain('"page":');
     expect(output).not.toContain('"limit"');
   });
@@ -743,8 +762,8 @@ describe('tool-command coverage', () => {
     });
 
     const output = consoleSpy.mock.calls.flat().join('\n');
-    expect(output).toContain('"owner":"facebook"');
-    expect(output).toContain('"repo":"react"');
+    expect(output).toContain('"owner":"bgauryy"');
+    expect(output).toContain('"repo":"octocode"');
   });
 
   it('reports first failing query in a multi-query array', async () => {
@@ -944,9 +963,9 @@ describe('tool-command coverage', () => {
     });
     expect(buildDirectToolExampleQuery('ghHistoryResearch')).toMatchObject({
       type: 'prs',
-      owner: 'facebook',
-      repo: 'react',
-      keywordsToSearch: ['useState'],
+      owner: 'bgauryy',
+      repo: 'octocode',
+      keywordsToSearch: ['localSearchCode'],
     });
     expect(buildDirectToolExampleQuery('ghHistoryResearch')).not.toHaveProperty(
       'content.patches.ranges.file'
@@ -956,8 +975,8 @@ describe('tool-command coverage', () => {
       field => field.name === 'target'
     );
     expect(oqlTarget?.type).toContain('materialize');
-    expect(oqlTarget?.type).not.toContain('fixes');
-    expect(oqlTarget?.type).not.toContain('dataflow');
+    expect(oqlTarget?.type).toContain('fixes');
+    expect(oqlTarget?.type).toContain('dataflow');
   });
 
   it('shows the tool list when no positional tool name is given', async () => {

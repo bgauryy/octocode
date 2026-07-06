@@ -12,6 +12,7 @@ import {
   describeQuerySchema,
 } from '../../../scheme/coreSchemas.js';
 import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
+import { ItemPaginationSchema } from '../../../scheme/pagination.js';
 
 const requiredLineHintField = clampedInt(1, 1_000_000_000).describe(
   '1-based source line for symbol-anchored semantic operations. Get it from search/localSearchCode, structural AST captures, or documentSymbols; never guess.'
@@ -116,14 +117,8 @@ const EmptyStateSchema = z.object({
   reason: z.string(),
 });
 
-const PaginationSchema = z.object({
-  currentPage: z.number(),
-  totalPages: z.number(),
-  totalResults: z.number(),
-  hasMore: z.boolean(),
-  itemsPerPage: z.number(),
-  nextPage: z.number().optional(),
-});
+// Use the canonical shared pagination schema — no inline duplicates.
+const PaginationSchema = ItemPaginationSchema;
 
 const CompactSymbolSchema = z.object({
   name: z.string(),

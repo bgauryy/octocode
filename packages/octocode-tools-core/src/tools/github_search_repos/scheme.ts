@@ -11,6 +11,7 @@ import {
   describeQuerySchema,
 } from '../../scheme/coreSchemas.js';
 import { responseEnvelopeFields } from '../../scheme/responseEnvelope.js';
+import { ItemPaginationSchema } from '../../scheme/pagination.js';
 
 const queryOverrides = {
   limit: clampedInt(1, GITHUB_SEARCH_MAX_LIMIT).optional(),
@@ -49,27 +50,18 @@ const LocalRepositoryDetailSchema = z.object({
   updatedAt: z.string().optional(),
 });
 
-const RepositoryPaginationSchema = z
-  .object({
-    currentPage: z.number(),
-    totalPages: z.number(),
-    hasMore: z.boolean(),
-    perPage: z.number().optional(),
-    totalMatches: z.number().optional(),
-    reportedTotalMatches: z.number().optional(),
-    reachableTotalMatches: z.number().optional(),
-    totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
-    totalMatchesCapped: z.boolean().optional(),
-    nextPage: z.number().optional(),
-  })
-  .optional();
+// Repo-search-specific pagination: canonical base + search-confidence fields.
+const RepoSearchPaginationSchema = ItemPaginationSchema.extend({
+  totalMatchesKind: z.enum(['exact', 'reported', 'lowerBound']).optional(),
+  totalMatchesCapped: z.boolean().optional(),
+}).optional();
 
 const RepositoryResultDataSchema = z
   .object({
     repositories: z
       .array(z.union([z.string(), LocalRepositoryDetailSchema]))
       .optional(),
-    pagination: RepositoryPaginationSchema,
+    pagination: RepoSearchPaginationSchema,
   })
   .passthrough();
 

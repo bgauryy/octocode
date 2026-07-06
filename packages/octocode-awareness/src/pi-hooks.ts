@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { connectDb, resolveDbPath } from './db.js';
 import { preFlightIntent, releaseFileLock } from './intents.js';
 import { auditUnverified } from './verify.js';
-import { notifyGet, sessionCapture } from './stubs.js';
+import { notifyGet, sessionCapture } from './maintenance.js';
 
 export interface PiLikeSessionManager {
   getSessionFile?: () => string | null | undefined;
@@ -33,6 +33,7 @@ export interface PiToolEvent {
 
 export interface PiAwarenessBridgeOptions {
   pendingToolFiles?: Map<string, string[]>;
+  pendingToolIntents?: Map<string, string>;
   dbPath?: string | null;
   getDb?: (ctx?: PiLikeContext) => DatabaseSync;
 }
@@ -96,6 +97,12 @@ export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}
   return [...new Set(paths)];
 }
 
+export function getPiAwarenessSessionId(ctx?: PiLikeContext): string {
+  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+  if (sessionFile) return `pi-session:${path.basename(sessionFile, path.extname(sessionFile))}`;
+  return `pi-session:${process.pid}`;
+}
+
 export function getPiAwarenessAgentId(ctx?: PiLikeContext): string {
   if (process.env.OCTOCODE_AGENT_ID) return process.env.OCTOCODE_AGENT_ID;
 
@@ -115,10 +122,12 @@ function defaultGetDb(options: PiAwarenessBridgeOptions, ctx?: PiLikeContext): D
 
 export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) {
   const pendingToolFiles = options.pendingToolFiles ?? new Map<string, string[]>();
+  const pendingToolIntents = options.pendingToolIntents ?? new Map<string, string>();
   const getDb = options.getDb ?? ((ctx?: PiLikeContext) => defaultGetDb(options, ctx));
 
   return {
     pendingToolFiles,
+    pendingToolIntents,
 
     async handleToolCall(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
@@ -129,6 +138,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         const db = getDb(ctx);
         const result = preFlightIntent(db, {
           agentId,
+          sessionId: getPiAwarenessSessionId(ctx),
           workspacePath: ctx?.cwd ?? process.cwd(),
           rationale: 'auto: Pi write/edit tool call via octocode-awareness',
           testPlan: targetFiles.length > 0
@@ -145,7 +155,10 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
           return { block: true, reason: `Octocode awareness blocked this edit: ${detail || 'conflict'}` };
         }
 
-        if (event?.toolCallId) pendingToolFiles.set(event.toolCallId, targetFiles);
+        if (event?.toolCallId) {
+          pendingToolFiles.set(event.toolCallId, targetFiles);
+          pendingToolIntents.set(event.toolCallId, result.intent.intent_id);
+        }
         return undefined;
       } catch (error) {
         notify(ctx, `Octocode awareness warning; continuing: ${error instanceof Error ? error.message : String(error)}`, 'warning');
@@ -155,14 +168,19 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
 
     async handleToolResult(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = event?.toolCallId ? pendingToolFiles.get(event.toolCallId) : undefined;
-      if (!targetFiles) return undefined;
+      const intentId = event?.toolCallId ? pendingToolIntents.get(event.toolCallId) : undefined;
+      if (!targetFiles && !intentId) return undefined;
 
       pendingToolFiles.delete(event.toolCallId!);
+      pendingToolIntents.delete(event.toolCallId!);
       try {
         const db = getDb(ctx);
         releaseFileLock(db, {
           agentId: getPiAwarenessAgentId(ctx),
-          targetFiles,
+          sessionId: getPiAwarenessSessionId(ctx),
+          intentId,
+          targetFiles: intentId ? [] : targetFiles,
+          workspacePath: ctx?.cwd ?? process.cwd(),
           status: 'PENDING',
         });
       } catch (error) {

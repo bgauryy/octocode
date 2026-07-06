@@ -22,7 +22,6 @@ const TOOL_PAGINATION_KNOBS: Record<string, string[]> = {
   localGetFileContent: ['startLine', 'endLine'],
   localBinaryInspect: ['path', 'mode'],
   lspGetSemantics: ['uri', 'lineHint', 'type'],
-  oqlSearch: ['page', 'itemsPerPage'],
 };
 
 describe('all-tools pagination contract', () => {

@@ -94,29 +94,34 @@ interface CaptureResult {
   tools: Map<string, ToolDef>;
   commands: Map<string, { description: string; handler: (args: string, ctx: unknown) => Promise<void> }>;
   sentUserMessages: Array<{ msg: string; opts?: Record<string, unknown> }>;
+  handlers: Map<string, Array<(event: unknown, ctx: unknown) => void | Promise<void>>>;
   pi: {
     getActiveTools(): string[];
     setActiveTools(names: string[]): void;
   };
   activeTools: string[];
 }
-
 async function captureExtensions(): Promise<CaptureResult> {
   const tools = new Map<string, ToolDef>();
   const commands = new Map<string, { description: string; handler: (args: string, ctx: unknown) => Promise<void> }>();
   const sentUserMessages: Array<{ msg: string; opts?: Record<string, unknown> }> = [];
   const activeTools = ['read', 'bash', 'edit', 'write'];
+  const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => void | Promise<void>>>();
   const pi = {
     registerTool: (def: ToolDef) => { tools.set(def.name, def); },
     registerCommand: (name: string, cmd: { description: string; handler: (args: string, ctx: unknown) => Promise<void> }) => { commands.set(name, cmd); },
     sendUserMessage: (msg: string, opts?: Record<string, unknown>) => { sentUserMessages.push({ msg, opts }); },
     getActiveTools: () => [...activeTools],
     setActiveTools: (names: string[]) => { activeTools.splice(0, activeTools.length, ...names); },
-    on: () => { /* no-op */ },
+    on: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => {
+      const arr = handlers.get(event) ?? [];
+      arr.push(handler);
+      handlers.set(event, arr);
+    },
   };
   const extension = ((await import('../src/index.js')) as { default: (pi: unknown) => Promise<void> }).default;
   await extension(pi);
-  return { tools, commands, sentUserMessages, pi, activeTools };
+  return { tools, commands, sentUserMessages, handlers, pi, activeTools };
 }
 
 async function captureMemoryTools(): Promise<Map<string, ToolDef>> {
@@ -142,7 +147,7 @@ test('build copies the canonical system prompt', () => {
 
 test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(fs.existsSync(path.join(distDir, 'bin', 'octocode.js')), false, 'Octocode CLI is NOT bundled — install separately via npm/npx');
-  assert.equal(fs.existsSync(path.join(distDir, 'awareness', 'scripts', 'awareness.mjs')), true, 'awareness CLI remains bundled');
+  assert.equal(fs.existsSync(path.join(distDir, 'awareness')), false, 'awareness assets are owned by @octocodeai/octocode-awareness, not copied into pi-extension');
 
   const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-stats'];
   const skills = listBundledSkills(distDir);
@@ -209,8 +214,8 @@ test('formatStatus reports the dist assets and memory module', withTempMemoryHom
   assert.match(status, /octocode-research/);
   assert.match(status, /memory module: @octocodeai\/octocode-awareness \(direct import\)/);
   assert.match(status, /memory DB: not yet created/);
-  assert.match(status, /octocode tools: 14 native Pi tools/);
-  assert.match(status, /CLI: use `npx octocode`/);
+  assert.match(status, /octocode tools: 13 native Pi tools/);
+  assert.match(status, /bundled CLI:.*octocode\.js/);
   assert.match(status, /disabled\/replaced built-ins: edit \(custom Octocode tool\)/);
 }));
 
@@ -249,6 +254,7 @@ test('awareness bridge claims a lock and releases it PENDING via the real DB', w
     );
     assert.equal(result, undefined);
     assert.deepEqual(bridge.pendingToolFiles.get('tool-1'), ['src/a.js']);
+    assert.match(bridge.pendingToolIntents.get('tool-1')!, /^intent_/);
 
     assert.equal(fs.existsSync(ctx.dbPath), true);
     const { DatabaseSync } = await import('node:sqlite');
@@ -291,6 +297,130 @@ test('awareness bridge blocks only on lock conflicts', withIsolatedDb(async (ctx
     assert.match(result.reason, /Octocode awareness blocked this edit/);
     assert.match(result.reason, /other-agent/, 'conflict message names the holding agent');
     assert.equal(bridge.pendingToolFiles.has('tool-2'), false);
+  });
+}));
+
+test('agent_signal tool publishes, lists, replies, and resolves', withIsolatedDb(async (ctx) => {
+  await withAgentId('agent-a', async () => {
+    const { tools } = await captureExtensions();
+    const tool = tools.get('agent_signal')!;
+    assert.ok(tool, 'agent_signal is registered');
+
+    const publishedResult = await tool.execute('signal-publish', {
+      action: 'publish',
+      kind: 'question',
+      subject: 'review this?',
+      body: 'please check the signal tool',
+      to_agents: ['agent-b'],
+      refs: ['intent_1'],
+    }, undefined, undefined, ctx);
+    const published = JSON.parse(publishedResult.content[0]!.text) as { notification_id: string; thread_id: string };
+    assert.match(published.notification_id, /^ntf_/);
+
+    const listResult = await tool.execute('signal-list', {
+      action: 'list',
+      agent_id: 'agent-b',
+      unread_only: true,
+    }, undefined, undefined, ctx);
+    const listed = JSON.parse(listResult.content[0]!.text) as { signals: Array<{ subject: string; to_agents: string[] }> };
+    assert.equal(listed.signals[0]!.subject, 'review this?');
+    assert.deepEqual(listed.signals[0]!.to_agents, ['agent-b']);
+
+    const replyResult = await tool.execute('signal-reply', {
+      action: 'reply',
+      agent_id: 'agent-b',
+      to_agents: ['agent-a'],
+      subject: 'reviewed',
+      in_reply_to: published.notification_id,
+    }, undefined, undefined, ctx);
+    const reply = JSON.parse(replyResult.content[0]!.text) as { thread_id: string };
+    assert.equal(reply.thread_id, published.thread_id);
+
+    const resolveResult = await tool.execute('signal-resolve', {
+      action: 'resolve',
+      thread_id: published.thread_id,
+    }, undefined, undefined, ctx);
+    const resolved = JSON.parse(resolveResult.content[0]!.text) as { resolved: number };
+    assert.equal(resolved.resolved, 2);
+  });
+}));
+
+test('memory_notify remains a publishing alias for agent_signal', withIsolatedDb(async (ctx) => {
+  await withAgentId('agent-a', async () => {
+    const { tools } = await captureExtensions();
+    const notifyTool = tools.get('memory_notify')!;
+    const signalTool = tools.get('agent_signal')!;
+    assert.ok(notifyTool, 'memory_notify is registered');
+
+    const notifyResult = await notifyTool.execute('notify-alias', {
+      kind: 'handoff',
+      subject: 'legacy notify alias',
+      body: 'alias body',
+      to_agent: 'agent-b',
+    }, undefined, undefined, ctx);
+    const notify = JSON.parse(notifyResult.content[0]!.text) as { notification_id: string; alias: string; prefer: string };
+    assert.match(notify.notification_id, /^ntf_/);
+    assert.equal(notify.alias, 'memory_notify');
+    assert.equal(notify.prefer, 'agent_signal');
+
+    const listResult = await signalTool.execute('signal-list', {
+      action: 'list',
+      agent_id: 'agent-b',
+      unread_only: true,
+    }, undefined, undefined, ctx);
+    const listed = JSON.parse(listResult.content[0]!.text) as { signals: Array<{ subject: string }> };
+    assert.equal(listed.signals[0]!.subject, 'legacy notify alias');
+  });
+}));
+
+test('memory_file_lock tool locks, reports, releases, and signals conflicts', withIsolatedDb(async (ctx) => {
+  await withAgentId('pi-test-agent', async () => {
+    const { tools } = await captureExtensions();
+    const tool = tools.get('memory_file_lock')!;
+    const signalTool = tools.get('agent_signal')!;
+    assert.ok(tool, 'memory_file_lock is registered');
+
+    const lockedResult = await tool.execute('lock-1', {
+      type: 'lock',
+      target_files: ['src/tool-lock.js'],
+      ttl_ms: 1000,
+    }, undefined, undefined, ctx);
+    const locked = JSON.parse(lockedResult.content[0]!.text) as { intentId: string; files: string[]; expiresAt: string };
+    assert.match(locked.intentId, /^intent_/);
+    assert.deepEqual(locked.files, [path.join(ctx.cwd, 'src/tool-lock.js')]);
+    assert.ok(locked.expiresAt);
+
+    const statusResult = await tool.execute('status-1', { type: 'status' }, undefined, undefined, ctx);
+    const status = JSON.parse(statusResult.content[0]!.text) as { locks: Array<{ intent_id: string }> };
+    assert.equal(status.locks.length, 1);
+    assert.equal(status.locks[0]!.intent_id, locked.intentId);
+
+    const conflictResult = await tool.execute('lock-conflict', {
+      type: 'lock',
+      agent_id: 'other-agent',
+      target_files: ['src/tool-lock.js'],
+      ttl_ms: 1000,
+    }, undefined, undefined, ctx);
+    const conflict = JSON.parse(conflictResult.content[0]!.text) as { ok: boolean; conflict: boolean };
+    assert.equal(conflict.ok, false);
+    assert.equal(conflict.conflict, true);
+
+    const signalResult = await signalTool.execute('signal-list', {
+      action: 'list',
+      agent_id: 'other-agent',
+      unread_only: true,
+    }, undefined, undefined, ctx);
+    const signals = JSON.parse(signalResult.content[0]!.text) as { signals: Array<{ kind: string; subject: string }> };
+    assert.ok(signals.signals.some((s) => s.kind === 'blocker' && s.subject.includes('File lock conflict')));
+
+    const releaseResult = await tool.execute('release-1', {
+      type: 'release',
+      intent_id: locked.intentId,
+      status: 'PENDING',
+    }, undefined, undefined, ctx);
+    const released = JSON.parse(releaseResult.content[0]!.text) as { released: boolean; locks_released: number };
+    assert.equal(released.released, true);
+    assert.equal(released.locks_released, 1);
   });
 }));
 
@@ -337,6 +467,14 @@ test('custom edit not-found errors include current-file recovery guidance', () =
   assert.throws(
     () => applyCustomEditsToContent('const value = 1;\n', [{ oldText: 'const value = 2;', newText: 'const value = 3;', reasoning: 'test' }], 'sample.ts'),
     /Re-read the target range and retry with a smaller unique oldText/,
+  );
+});
+
+
+test('custom edit not-found diagnostics preserve visible leading whitespace in similar-line hints', () => {
+  assert.throws(
+    () => applyCustomEditsToContent('    const value = 1;\n', [{ oldText: '      const value = 1;', newText: '      const value = 2;', reasoning: 'test indentation drift diagnostic' }], 'sample.ts'),
+    /line 1: ····const value = 1;/,
   );
 });
 
@@ -698,6 +836,15 @@ test('custom edit supports normalized and lineRange match modes', () => {
   assert.deepEqual(lineRange.usedModes, ['lineRange']);
 });
 
+
+test('custom edit normalized mode tolerates leading indentation drift', () => {
+  const result = applyCustomEditsToContent('    const value = 1;\n', [
+    { oldText: '      const value = 1;\n', newText: '      const value = 2;\n', matchMode: 'normalized', reasoning: 'recover from rendered indentation drift' },
+  ], 'sample.ts');
+  assert.equal(result.newContent, '      const value = 2;\n');
+  assert.deepEqual(result.usedModes, ['normalized']);
+});
+
 test('custom edit supports all-or-nothing multi-file queries', async () => {
   const { tools } = await captureExtensions();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-queries-'));
@@ -837,8 +984,8 @@ test('registers all Octocode direct tools as native Pi tools', async () => {
     [],
     'every direct Octocode tool is registered as a Pi tool',
   );
-  assert.equal(OCTOCODE_DIRECT_TOOL_NAMES.length, 14);
-  assert.ok(OCTOCODE_DIRECT_TOOL_NAMES.includes('unzip' as never), 'unzip is registered as a native tool');
+  assert.equal(OCTOCODE_DIRECT_TOOL_NAMES.length, 13);
+  assert.ok(!OCTOCODE_DIRECT_TOOL_NAMES.includes('unzip' as never), 'unzip is not a native Pi tool — use npx octocode unzip via bash');
 
   const localViewStructure = tools.get('localViewStructure')!;
   assert.equal(localViewStructure.label, 'Local Code: Local View Structure');
@@ -927,7 +1074,9 @@ test('CLI slash commands removed — extension commands are lean', async () => {
   assert.equal(commands.has('octocode-harness'), true, 'harness listing command is registered');
   assert.equal(commands.has('octocode-setup'), true, 'setup command is registered');
   assert.equal(commands.has('octocode-skills-update'), true, 'skills-update command is registered');
-  // Session-control internal trampoline stays for clear_context only.
+  assert.equal(commands.has('octocode-memory-digest'), true, 'memory digest command is registered');
+  assert.equal(commands.has('octocode-memory-forget'), true, 'memory forget command is registered');
+  // Session-control internal trampoline stays for manage_context type:"new" path.
   assert.equal(commands.has('_octocode-handoff-impl'), false, 'legacy handoff command removed');
   assert.equal(commands.has('_octocode-clear-context-impl'), true, 'internal clear command registered for command-context session control');
   // CLI slash commands are gone — users use `npx octocode` instead.
@@ -944,36 +1093,56 @@ test('registers split typed memory support tools with strict schemas', async () 
     'memory_record',
     'memory_reflect',
     'memory_workspace_status',
+    'memory_notify',
     'memory_refine_get',
     'memory_audit_unverified',
     'memory_verify',
-    'memory_digest',
   ];
 
   for (const toolName of memoryTools) {
     assert.equal(tools.has(toolName), true, `${toolName} registered`);
     assert.ok(OCTOCODE_SUPPORT_TOOL_NAMES.includes(toolName as never));
   }
+  assert.equal(tools.has('memory_digest'), false, 'memory_digest is a user command, not an agent tool');
+  assert.equal(tools.has('memory_forget'), false, 'memory_forget is a user command, not an agent tool');
   assert.equal(tools.has('memory'), false, 'legacy type-discriminated memory tool removed');
   assert.equal(tools.has('memory_mine_weakness'), false, 'memory_mine_weakness removed — notifyGet briefing covers it');
 
-  const recallParams = tools.get('memory_recall')!.parameters as { required?: string[] };
+  const recallParams = tools.get('memory_recall')!.parameters as { required?: string[]; properties: Record<string, Record<string, unknown>> };
   assert.deepEqual(recallParams.required, ['query']);
-  const recordParams = tools.get('memory_record')!.parameters as { required?: string[] };
-  assert.deepEqual(recordParams.required, ['task_context', 'observation']);
-        const verifyParams = tools.get('memory_verify')!.parameters as { required?: string[] };
-        // All inputs are optional in schema — intent_id | intent_ids[] | allPending:true; runtime enforces at least one
-        assert.deepEqual(verifyParams.required, undefined);});
+  assert.equal(recallParams.properties['query']?.['minLength'], 1);
+  assert.deepEqual(recallParams.properties['sort']?.['enum'], ['smart', 'importance', 'recent', 'accessed']);
+  assert.deepEqual(recallParams.properties['state']?.['enum'], ['ACTIVE', 'SUPERSEDED']);
 
-test('compact_context queues a continuation after compaction completes', async () => {
+  const recordParams = tools.get('memory_record')!.parameters as { required?: string[]; properties: Record<string, Record<string, unknown>> };
+  assert.deepEqual(recordParams.required, ['task_context', 'observation']);
+  assert.equal(recordParams.properties['task_context']?.['minLength'], 1);
+  assert.ok((recordParams.properties['label']?.['enum'] as string[]).includes('EXPERIENCE'));
+
+  const refineParams = tools.get('memory_refine_get')!.parameters as { properties: Record<string, Record<string, unknown>> };
+  assert.deepEqual(refineParams.properties['state']?.['enum'], ['open', 'ongoing', 'done']);
+
+  const notifyParams = tools.get('memory_notify')!.parameters as { required?: string[]; properties: Record<string, Record<string, unknown>> };
+  assert.deepEqual(notifyParams.required, ['kind', 'subject']);
+  assert.deepEqual(notifyParams.properties['kind']?.['enum'], ['claim', 'handoff', 'question', 'reply', 'blocker', 'request', 'decision', 'fyi']);
+  assert.equal(notifyParams.properties['subject']?.['minLength'], 1);
+
+  const verifyParams = tools.get('memory_verify')!.parameters as { required?: string[]; properties: Record<string, Record<string, unknown>> };
+  // All inputs are optional in schema — intent_id | intent_ids[] | allPending:true; runtime enforces at least one.
+  assert.deepEqual(verifyParams.required, undefined);
+  assert.equal(verifyParams.properties['intent_id']?.['minLength'], 1);
+  assert.deepEqual(verifyParams.properties['status']?.['enum'], ['SUCCESS', 'FAILED']);
+});
+
+test('manage_context type:compact queues a continuation after compaction completes', async () => {
   const { tools, sentUserMessages } = await captureExtensions();
-  const compactTool = tools.get('compact_context')!;
+  const compactTool = tools.get('manage_context')!;
   let compactOptions: { customInstructions?: string; onComplete?: (opts?: unknown) => void; onError?: (err: Error) => void } = {};
   const notifications: Array<{ message: string; level: string }> = [];
 
   const result = await invokeExecute(
     compactTool,
-    { instructions: 'focus on recent file changes' },
+    { type: 'compact', instructions: 'focus on recent file changes' },
     {
       // hasUI:true required so onComplete notification fires (notify is guarded in TUI/RPC mode)
       hasUI: true,
@@ -996,15 +1165,15 @@ test('compact_context queues a continuation after compaction completes', async (
   });
 });
 
-test('compact_context reports compaction errors without queueing continuation', async () => {
+test('manage_context type:compact reports compaction errors without queueing continuation', async () => {
   const { tools, sentUserMessages } = await captureExtensions();
-  const compactTool = tools.get('compact_context')!;
+  const compactTool = tools.get('manage_context')!;
   let compactOptions: { onError?: (err: Error) => void } = {};
   const notifications: Array<{ message: string; level: string }> = [];
 
   await invokeExecute(
     compactTool,
-    {},
+    { type: 'compact' },
     {
       // hasUI:true required so onError notification fires (notify is guarded in TUI/RPC mode)
       hasUI: true,
@@ -1021,13 +1190,70 @@ test('compact_context reports compaction errors without queueing continuation', 
   });
 });
 
+test('turn_end auto-compact queues a continuation after compaction completes (no stuck agent)', async () => {
+  const { handlers, sentUserMessages } = await captureExtensions();
+  const turnEndHandlers = handlers.get('turn_end');
+  assert.ok(turnEndHandlers && turnEndHandlers.length > 0, 'turn_end handler registered by extension');
+  const handler = turnEndHandlers![0]!;
+
+  let compactOptions: { onComplete?: (opts?: unknown) => void; onError?: (err: Error) => void } = {};
+  const notifications: Array<{ message: string; level?: string }> = [];
+  const ctx = (usage: { tokens: number; contextWindow: number }) => ({
+    hasUI: true,
+    getContextUsage: () => usage,
+    compact: (options: typeof compactOptions) => { compactOptions = options; },
+    ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+  });
+
+  // Sub-threshold: must NOT trigger compaction.
+  await handler(undefined, ctx({ tokens: 100, contextWindow: 1000 }));
+  assert.ok(compactOptions.onComplete === undefined, 'no compaction below 80% threshold');
+
+  // Rising edge across 80%: triggers ctx.compact(); capture options, fire onComplete.
+  await handler(undefined, ctx({ tokens: 810, contextWindow: 1000 }));
+  // Read into a fresh local with an explicit union type so prior assert.ok(...) === undefined
+  // narrowing of the property cannot collapse it to `never` on a non-null call.
+  const onComplete = compactOptions.onComplete as ((opts?: unknown) => void) | undefined;
+  assert.ok(typeof onComplete === 'function', 'compaction triggered at 81% rising edge');
+  assert.deepEqual(notifications[0], {
+    message: 'Auto-compacting: context at 81% of context window.',
+    level: 'info',
+  });
+  assert.equal(sentUserMessages.length, 0, 'no continuation queued before onComplete fires');
+
+  onComplete!();
+  assert.equal(sentUserMessages.length, 1, 'followUp queued after auto-compaction completes (prevents stuck agent)');
+  assert.match(sentUserMessages[0]!.msg, /Auto-compaction complete.*continue the user task/i);
+  assert.equal(sentUserMessages[0]!.opts?.['deliverAs'], 'followUp');
+  assert.deepEqual(notifications[1], { message: 'Auto-compaction complete. Resuming…', level: 'info' });
+});
+
+test('turn_end auto-compact reports errors without queueing a continuation', async () => {
+  const { handlers, sentUserMessages } = await captureExtensions();
+  const handler = handlers.get('turn_end')![0]!;
+  let compactOptions: { onComplete?: (opts?: unknown) => void; onError?: (err: Error) => void } = {};
+  const notifications: Array<{ message: string; level?: string }> = [];
+
+  await handler(undefined, {
+    hasUI: true,
+    getContextUsage: () => ({ tokens: 850, contextWindow: 1000 }),
+    compact: (options: typeof compactOptions) => { compactOptions = options; },
+    ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+  });
+
+  const onError = compactOptions.onError as (err: Error) => void;
+  onError(new Error('summary request failed'));
+  assert.equal(sentUserMessages.length, 0, 'no continuation on compaction error');
+  assert.deepEqual(notifications[1], { message: 'Auto-compaction failed: summary request failed', level: 'error' });
+});
+
 test('lists every extension harness surface', () => {
   const harness = listExtensionHarness(distDir);
   assert.deepEqual(harness.tools, OCTOCODE_DIRECT_TOOL_NAMES);
   assert.deepEqual(harness.supportTools, OCTOCODE_SUPPORT_TOOL_NAMES);
   assert.ok(harness.extensionCommands.includes('/octocode-harness'));
   assert.ok(harness.skills.includes('octocode-research'));
-  assert.match(harness.cliNote, /npx octocode/, 'cliNote directs users to npx octocode');
+  assert.match(harness.cliNote, /bundled CLI.*octocode\.js/, 'cliNote shows bundled CLI path');
   assert.ok(!('cliCommands' in harness), 'cliCommands removed from harness');
 });
 
@@ -1250,8 +1476,10 @@ test('memory_record stores file/folder/repo scope and memory_recall can find it'
   assert.equal(scoped['repo'], 'bgauryy/octocode');
 }));
 
-test('memory_digest marks expired valid_to memories stale', withIsolatedDb(async (ctx) => {
-  const tools = await captureMemoryTools();
+test('memory maintenance digest is a user command, not an agent tool', withIsolatedDb(async (ctx) => {
+  const { tools, commands } = await captureExtensions();
+  assert.equal(tools.has('memory_digest'), false, 'digest is not exposed to agents');
+
   await invokeExecute(tools.get('memory_record')!, {
     task_context: 'Temporary migration workaround.',
     observation: 'This workaround expires immediately.',
@@ -1259,11 +1487,46 @@ test('memory_digest marks expired valid_to memories stale', withIsolatedDb(async
     valid_to: '2000-01-01T00:00:00Z',
   }, ctx);
 
-  const digestResult = JSON.parse((await invokeExecute(tools.get('memory_digest')!, {}, ctx)).content[0]!.text) as { archived_memories: number };
-  assert.equal(digestResult.archived_memories, 1);
+  const notifications: Array<{ message: string; level?: string }> = [];
+  await commands.get('octocode-memory-digest')!.handler('--apply --yes', {
+    ...ctx,
+    hasUI: false,
+    ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+  });
+  assert.match(notifications.at(-1)?.message ?? '', /memory_digest applied/);
+  assert.match(notifications.at(-1)?.message ?? '', /archived_memories/);
 
   const recall = JSON.parse((await invokeExecute(tools.get('memory_recall')!, { query: 'Temporary migration workaround', limit: 5 }, ctx)).content[0]!.text) as { count: number };
   assert.equal(recall.count, 0, 'expired memory no longer appears in ACTIVE recall');
+}));
+
+test('memory maintenance forget command previews by default and requires filters', withIsolatedDb(async (ctx) => {
+  const { tools, commands } = await captureExtensions();
+  assert.equal(tools.has('memory_forget'), false, 'forget is not exposed to agents');
+
+  const record = await invokeExecute(tools.get('memory_record')!, {
+    task_context: 'Forget command preview.',
+    observation: 'Preview must not delete this memory.',
+    label: 'EXPERIENCE',
+    tags: ['delete-me'],
+  }, ctx);
+  const memoryId = (JSON.parse(record.content[0]!.text) as { memory_id: string }).memory_id;
+  const notifications: Array<{ message: string; level?: string }> = [];
+  const commandCtx = {
+    ...ctx,
+    hasUI: false,
+    ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+  };
+
+  await commands.get('octocode-memory-forget')!.handler('', commandCtx);
+  assert.equal(notifications.at(-1)?.level, 'error');
+  assert.match(notifications.at(-1)?.message ?? '', /requires --id/);
+
+  await commands.get('octocode-memory-forget')!.handler('--tag delete-me --max-importance 10', commandCtx);
+  assert.match(notifications.at(-1)?.message ?? '', /memory_forget preview/);
+  assert.match(notifications.at(-1)?.message ?? '', /would_delete/);
+  const stillThere = JSON.parse((await invokeExecute(tools.get('memory_recall')!, { query: 'Preview must not delete', limit: 5 }, ctx)).content[0]!.text) as { memories: Array<{ memory_id: string }> };
+  assert.ok(stillThere.memories.some((m) => m.memory_id === memoryId), 'dry-run did not delete memory');
 }));
 
 test('memory_audit_unverified and memory_verify clear pending edit intents', withIsolatedDb(async (ctx) => {
@@ -1361,13 +1624,8 @@ test('memory self-healing tools use lean outputs', withIsolatedDb(async (ctx) =>
   assert.ok(refinements.refinements[0]!.refinement_id.startsWith('ref_'));
   assert.ok(!('reasoning' in refinements.refinements[0]!));
 
-  const digestResult = JSON.parse((await invokeExecute(tools.get('memory_digest')!, {}, ctx)).content[0]!.text) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(digestResult).sort(), ['archived_memories', 'fts_rebuilt', 'pruned_locks', 'pruned_old', 'pruned_refinements']);
-
-  // dry_run mode returns prediction fields only
-  const dryResult = JSON.parse((await invokeExecute(tools.get('memory_digest')!, { dry_run: true }, ctx)).content[0]!.text) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(dryResult).sort(), ['dry_run', 'would_archive', 'would_prune_locks', 'would_prune_old', 'would_prune_refinements']);
-  assert.equal(dryResult['dry_run'], true);
+  assert.equal(tools.has('memory_digest'), false, 'digest maintenance moved to a user command');
+  assert.equal(tools.has('memory_forget'), false, 'forget maintenance moved to a user command');
 }));
 
 test('awareness bridge fails open on non-conflict errors', async () => {

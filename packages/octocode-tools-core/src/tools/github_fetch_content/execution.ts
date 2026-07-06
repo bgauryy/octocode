@@ -30,7 +30,6 @@ import {
 } from '../providerExecution.js';
 import { buildGithubFetchContentFinalizer } from './finalizer.js';
 
-
 type FileContentInputQuery = z.input<typeof FileContentQueryLocalSchema>;
 
 type PartialFileContentQuery = z.output<typeof FileContentQueryLocalSchema> & {

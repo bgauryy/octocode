@@ -354,7 +354,7 @@ function repositoryFullName(repo: GitHubRepositoryOutput): string {
   return `${repo.owner}/${repo.repo}`;
 }
 
-function buildResultPagination(pagination: {
+export function buildResultPagination(pagination: {
   currentPage: number;
   totalPages: number;
   hasMore: boolean;
@@ -368,8 +368,22 @@ function buildResultPagination(pagination: {
   return {
     currentPage: pagination.currentPage,
     totalPages: pagination.totalPages,
-    perPage: pagination.entriesPerPage || 10,
-    totalMatches: pagination.totalMatches || 0,
+    perPage: pagination.entriesPerPage ?? 10,
+    ...(pagination.totalMatches !== undefined
+      ? { totalMatches: pagination.totalMatches }
+      : {}),
+    ...(pagination.reportedTotalMatches !== undefined
+      ? { reportedTotalMatches: pagination.reportedTotalMatches }
+      : {}),
+    ...(pagination.reachableTotalMatches !== undefined
+      ? { reachableTotalMatches: pagination.reachableTotalMatches }
+      : {}),
+    ...(pagination.totalMatchesKind !== undefined
+      ? { totalMatchesKind: pagination.totalMatchesKind }
+      : {}),
+    ...(pagination.totalMatchesCapped !== undefined
+      ? { totalMatchesCapped: pagination.totalMatchesCapped }
+      : {}),
     hasMore: pagination.hasMore,
     ...(pagination.hasMore ? { nextPage: pagination.currentPage + 1 } : {}),
   };

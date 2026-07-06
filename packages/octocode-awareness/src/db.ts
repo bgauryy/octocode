@@ -98,6 +98,7 @@ export function initDb(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS agent_intents (
       intent_id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
+      session_id TEXT,
       plan_doc_ref TEXT,
       rationale TEXT NOT NULL,
       test_plan TEXT NOT NULL,
@@ -113,6 +114,7 @@ export function initDb(db: DatabaseSync): void {
       file_path TEXT NOT NULL,
       intent_id TEXT NOT NULL,
       agent_id TEXT NOT NULL,
+      session_id TEXT,
       lock_type TEXT NOT NULL CHECK(lock_type IN ('SHARED','EXCLUSIVE')),
       acquired_at TEXT NOT NULL,
       expires_at TEXT,
@@ -265,6 +267,15 @@ export function ensureIntentColumns(db: DatabaseSync): void {
   if (!cols.has('files_json')) {
     db.exec("ALTER TABLE agent_intents ADD COLUMN files_json TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!cols.has('session_id')) {
+    db.exec('ALTER TABLE agent_intents ADD COLUMN session_id TEXT');
+  }
+
+  const lockCols = tableColumns(db, 'file_locks');
+  if (!lockCols.has('session_id')) {
+    db.exec('ALTER TABLE file_locks ADD COLUMN session_id TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id)');
 }
 
 function rewriteLegacyHandoffRefinements(db: DatabaseSync): void {

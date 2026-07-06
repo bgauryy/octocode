@@ -31,10 +31,10 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.79.4",
+    "@earendil-works/pi-coding-agent": "0.80.3",
     "@octocodeai/pi-extension": "workspace:*"
   },
   "scripts": {

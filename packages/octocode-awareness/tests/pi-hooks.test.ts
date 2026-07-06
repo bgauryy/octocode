@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { connectDb } from '../src/db.js';
 import { createPiAwarenessBridge, extractPiWriteTargetPaths, wirePiAwarenessHooks } from '../src/pi-hooks.js';
 import { preFlightIntent } from '../src/intents.js';
+import { insertNotification } from '../src/notifications.js';
 
 function tempDb() {
   const dir = mkdtempSync(join(tmpdir(), 'oc-pi-hooks-'));
@@ -43,6 +44,7 @@ describe('createPiAwarenessBridge', () => {
 
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
       expect(bridge.pendingToolFiles.get('tool-1')).toEqual(['src/a.ts']);
+      expect(bridge.pendingToolIntents.get('tool-1')).toMatch(/^intent_/);
       expect((db.prepare("SELECT COUNT(*) AS c FROM agent_intents WHERE status='ACTIVE'").get() as { c: number }).c).toBe(1);
 
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
@@ -74,6 +76,34 @@ describe('createPiAwarenessBridge', () => {
       tmp.cleanup();
     }
   });
+
+  it('releases only the matching intent for overlapping same-agent tool calls', async () => {
+    const tmp = tempDb();
+    try {
+      const db = connectDb(tmp.dbPath);
+      const bridge = createPiAwarenessBridge({ getDb: () => db });
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'session.jsonl') } };
+
+      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
+      await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-2', input: { path: 'src/a.ts' } }, ctx);
+      const secondIntent = bridge.pendingToolIntents.get('tool-2');
+      expect((db.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number }).c).toBe(2);
+
+      await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number }).c).toBe(1);
+      const remaining = db.prepare('SELECT intent_id FROM file_locks').get() as { intent_id: string };
+      expect(remaining.intent_id).toBe(secondIntent);
+
+      const blocked = await createPiAwarenessBridge({ getDb: () => db }).handleToolCall(
+        { toolName: 'edit', toolCallId: 'tool-3', input: { path: 'src/a.ts' } },
+        { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'other.jsonl') } },
+      );
+      expect(blocked).toMatchObject({ block: true });
+      db.close();
+    } finally {
+      tmp.cleanup();
+    }
+  });
 });
 
 describe('wirePiAwarenessHooks', () => {
@@ -87,6 +117,37 @@ describe('wirePiAwarenessHooks', () => {
     expect(events).toEqual(['tool_call', 'tool_result', 'before_agent_start', 'agent_end', 'session_shutdown']);
   });
 
+
+  it('delivers unread notifications through before_agent_start context', async () => {
+    const tmp = tempDb();
+    const previousAgentId = process.env.OCTOCODE_AGENT_ID;
+    process.env.OCTOCODE_AGENT_ID = 'agent-b';
+    try {
+      const db = connectDb(tmp.dbPath);
+      insertNotification(db, {
+        agentId: 'agent-a',
+        toAgent: 'agent-b',
+        kind: 'handoff',
+        subject: 'hook handoff works',
+        body: 'check the notification path',
+        workspacePath: tmp.dir,
+      });
+      const bridge = wirePiAwarenessHooks({ on: () => undefined }, { getDb: () => db })!;
+      const result = await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir });
+
+      expect(result?.message?.customType).toBe('octocode-awareness-briefing');
+      expect(String(result?.message?.content)).toContain('hook handoff works');
+      expect(String(result?.message?.content)).toContain('agent-a');
+
+      const second = await bridge.handleBeforeAgentStart({}, { cwd: tmp.dir });
+      expect(String(second?.message?.content ?? '')).toContain('hook handoff works');
+      db.close();
+    } finally {
+      if (previousAgentId === undefined) delete process.env.OCTOCODE_AGENT_ID;
+      else process.env.OCTOCODE_AGENT_ID = previousAgentId;
+      tmp.cleanup();
+    }
+  });
 
   it('sends a verify-gate follow-up message when pending intents remain', async () => {
     const tmp = tempDb();

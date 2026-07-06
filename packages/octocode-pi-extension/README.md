@@ -11,10 +11,13 @@ pi install npm:@octocodeai/pi-extension
 /octocode-status
 ```
 
-The Octocode CLI is **not bundled**. For CLI workflows (auth, search, clone, cache, install, lsp-server):
+The Octocode CLI is **bundled** at `dist/cli/octocode.js` and exposed as `$OCTOCODE_CLI` at startup.
+Run it with: `node $OCTOCODE_CLI <command>`
 
 ```bash
-npm install -g octocode   # or: npx octocode <command>
+bash: node $OCTOCODE_CLI unzip archive.zip    # unpack archive
+bash: node $OCTOCODE_CLI skill --list          # list available skills
+bash: node $OCTOCODE_CLI context               # show agent protocol
 ```
 
 ---
@@ -24,10 +27,10 @@ npm install -g octocode   # or: npx octocode <command>
 | Surface | Count |
 |---|---|
 | System prompt (operating model) | 1 block |
-| Native Octocode tools | 14 |
-| Support tools (web, memory, agent) | 15 |
+| Native Octocode tools | 13 |
+| Support tools (web, memory, agent) | 16 |
 | Custom edit tool | 1 |
-| Slash commands | 4 |
+| Slash commands | 6 |
 | Bundled skills | 7 |
 
 ---
@@ -38,9 +41,9 @@ When Pi loads the extension, four things happen automatically:
 
 1. **System prompt injected.** The Octocode operating model block is appended to Pi's system prompt — authority model, tool-routing rules, research proof ladder, memory protocol, code discipline, and safety gates. The block is idempotent: appended once, never duplicated.
 
-2. **Native tools registered.** 14 Octocode tools (GitHub/local/LSP/npm/binary) execute directly through `@octocodeai/octocode-tools-core`. No MCP server is spawned for these calls.
+2. **Native tools registered.** 13 Octocode tools (GitHub/local/LSP/npm/binary) execute directly through `@octocodeai/octocode-tools-core`. No MCP server is spawned for these calls.
 
-3. **Support tools registered.** Web search, context management, agent spawning, and 10 typed memory tools are registered as Pi tools.
+3. **Support tools registered.** Web search, context management, agent spawning, and 14 typed memory/coordination tools are registered as Pi tools.
 
 4. **Slash commands registered.** Four harness commands: `/octocode-status`, `/octocode-harness`, `/octocode-setup`, `/octocode-skills-update`.
 
@@ -48,7 +51,7 @@ When Pi loads the extension, four things happen automatically:
 - No repo is cloned without explicit agent/user invocation.
 - No destructive command runs without the normal Pi/tool confirmation path.
 - No GitHub token is read from `.env`; tokens use shell env or Octocode auth storage.
-- The Octocode CLI is not bundled; use `npx octocode` or install globally.
+- No extra install is needed for the CLI — it is bundled at `dist/cli/octocode.js` and available as `$OCTOCODE_CLI`.
 
 ---
 
@@ -88,7 +91,7 @@ The injected system prompt defines eight protocol blocks that govern agent behav
 
 ---
 
-## Native Octocode tools (14)
+## Native Octocode tools (13)
 
 Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no network hop.
 
@@ -128,7 +131,7 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 
 ---
 
-## Support tools (15)
+## Support tools (16)
 
 ### Web search (1)
 
@@ -136,12 +139,11 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 |---|---|
 | `web` | Search the live web (`query`) or fetch clean page text (`url`). Provider order: Tavily → Serper → DuckDuckGo fallback. |
 
-### Context management (2)
+### Context management (1)
 
 | Tool | Purpose |
 |---|---|
-| `compact_context` | Summarize conversation history to free context window space. Auto-triggered at ≥60% full before large tasks. |
-| `clear_context` | Start a fresh unrelated session when Pi exposes session control. Otherwise use `/new` manually. |
+| `manage_context` | `type:"compact"` — summarize history to free context window space; auto-triggered at ≥60% full. `type:"new"` — start a fresh session; otherwise use `/new` manually. |
 
 ### Agent spawning (2)
 
@@ -150,22 +152,33 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 | `spawnAgent` | Start a background Pi worker process over RPC. Returns `agentId`. Workers cannot spawn workers. |
 | `AgentMessage` | List, status, send, steer, followUp, wait, or kill spawned workers. |
 
-### Memory tools (10)
+### Memory + coordination tools (12 agent tools + 2 user commands)
 
 All memory is stored in a local SQLite DB under Octocode memory home (`~/.octocode/memory/` by default).
+
+Detailed code-validated agent flow and examples: [`docs/PI/MEMORY_AGENT_FLOW.md`](docs/PI/MEMORY_AGENT_FLOW.md).
 
 | Tool | Purpose |
 |---|---|
 | `memory_recall` | Recall durable lessons before risky/unfamiliar work. Accepts `query`, `smart:true`, `references`, `regex`, `sort`, `strict_scope`. |
 | `memory_record` | Store a root cause, decision, workaround, or verified gotcha. Attaches `file`/`files`/`folders`/`repo`/`workspace_path` scope. Skips duplicates unless `supersedes` or `allow_similar:true`. |
 | `memory_reflect` | Capture a reusable lesson after non-trivial work. Prefer over `memory_record` when `fix_repo`, `fix_harness`, or `failure_signature` apply — creates refinements and clusters failure patterns. |
-| `memory_workspace_status` | Show active file locks, working agents, and memory store stats for current workspace. |
+| `workspace_status` | Show active file locks, working agents, and memory/coordination stats for current workspace. |
+| `memory_workspace_status` | Compatibility alias for `workspace_status`. |
+| `agent_signal` | Common agent coordination inbox: publish/list/reply/resolve/ack questions, handoffs, blockers, decisions, and FYIs. |
+| `file_lock` | Stateful file lock manager for parallel agents: lock/release/status/renew by `intent_id`. |
+| `memory_file_lock` | Compatibility alias for `file_lock`. |
 | `memory_refine_get` | List open repo-fix refinements. Use after reflections may have left actionable fixes. |
 | `memory_audit_unverified` | List pending edit intents that still need verification. Use after every edit batch. |
 | `memory_verify` | Mark a pending edit intent as verified or failed. Three call forms: `{intent_id}` (single), `{intent_ids:[...]}` (batch array), `{allPending:true}` (clear all pending for this agent in one call). |
-| `memory_digest` | Review, deduplicate, and prune the memory store. `dry_run:true` previews; `export_doc:true` writes markdown report. |
-| `memory_forget` | Delete memories by id, tag, age, or importance ceiling. Always `dry_run:true` first. |
-| `memory_notify` | Post a workspace-scoped message to other agents (kinds: claim / handoff / question / reply / blocker / request / decision / fyi). |
+| `memory_notify` | Compatibility alias for `agent_signal({action:"publish"})`; prefer `agent_signal` for list/reply/resolve. |
+
+User-owned maintenance commands:
+
+| Command | Purpose |
+|---|---|
+| `/octocode-memory-digest` | Preview or apply memory cleanup. Default is dry-run; `--apply` mutates after confirmation. Use `--export-doc` to write a markdown report. |
+| `/octocode-memory-forget` | Preview or apply memory deletion by `--id`, `--tag`, `--before`, or `--max-importance`. Default is dry-run; `--apply` mutates after confirmation. |
 
 ---
 
@@ -238,14 +251,17 @@ When multiple agents work in the same workspace, `memory_workspace_status` shows
 
 ```bash
 # Preview what would be pruned
-memory_digest({ dry_run: true })
+/octocode-memory-digest
 
 # Export a full markdown report
-memory_digest({ export_doc: true })
+/octocode-memory-digest --export-doc
 # writes to .octocode/memory-reports/
 
-# Delete by tag or age
-memory_forget({ tags: ["EXPERIENCE"], before: "2026-01-01", max_importance: 5, dry_run: true })
+# Preview deletion by tag or age
+/octocode-memory-forget --tag EXPERIENCE --before 2026-01-01 --max-importance 5
+
+# Apply after confirmation
+/octocode-memory-forget --tag EXPERIENCE --before 2026-01-01 --max-importance 5 --apply
 ```
 
 The `supersedes` field on `memory_record` / `memory_reflect` replaces stale entries instead of accumulating duplicates.
@@ -380,7 +396,7 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 | Exact current-file matching | `oldText` matched against original file content, not after earlier edits are applied |
 | Batch edits | Multiple `edits[]` replacements in one call, computed before writing |
 | Multi-file queries | `queries[]` for logically-related changes across files, all computed before any file is written |
-| `matchMode:"normalized"` | Opt-in fuzzy matching for whitespace/unicode quote/dash drift |
+| `matchMode:"normalized"` | Opt-in fuzzy matching for whitespace/indentation/unicode quote/dash drift when exact copied bytes do not match |
 | `matchMode:"lineRange"` | Replace by freshly-read line range |
 | Stale-read detection | Detects edits against stale content and surfaces actionable mismatch diagnostics |
 | `replaceAll` | File-wide replacement when intentional |
@@ -482,7 +498,7 @@ Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and 
 
 ---
 
-## Slash commands (4)
+## Slash commands (6)
 
 | Command | Purpose |
 |---|---|
@@ -490,6 +506,8 @@ Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and 
 | `/octocode-harness` | List every registered tool, command, and skill with surface counts. |
 | `/octocode-setup` | Install/update the managed `APPEND_SYSTEM.md` block. `--global` writes to `~/.pi/agent/`. |
 | `/octocode-skills-update` | `pi update <source>` for this package + reload Pi resources. Prompts for confirmation. |
+| `/octocode-memory-digest` | Preview/apply memory cleanup. Default dry-run; `--apply` mutates after confirmation. |
+| `/octocode-memory-forget` | Preview/apply memory deletion by id/tag/age/importance. Default dry-run; `--apply` mutates after confirmation. |
 
 ---
 
@@ -520,8 +538,8 @@ export GITHUB_TOKEN=ghp_...
 export GH_TOKEN=ghp_...
 
 # Or: Octocode auth storage
-npx octocode login
-npx octocode auth status
+node $OCTOCODE_CLI auth login
+node $OCTOCODE_CLI auth status
 ```
 
 Full config docs: [CONFIGURATION.md](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION.md) · [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md)
@@ -598,7 +616,7 @@ The awareness bridge runs automatically on every Pi edit/write tool call:
 4. **Stop hook:** When `install-hooks.mjs` is active, Pi's stop hook can block conclusion while any `PENDING` intent remains unverified.
 
 ```bash
-node dist/awareness/scripts/install.mjs   # install hooks into current project
+node packages/octocode-awareness/skills/octocode-awareness/scripts/install-hooks.mjs --project-dir . --dry-run
 ```
 
 To bypass a stuck hook (misfires only):
@@ -617,7 +635,7 @@ OCTOCODE_NO_VERIFY_GATE=1 pi ...
 | Model stops mid-answer | Set `maxTokens` to the provider's real published limit in `~/.pi/agent/models.json`. |
 | Model missing from `/model` | Check `apiKey`, `baseUrl`, and `api` value in `models.json`. |
 | Web search is weak or slow | Add `TAVILY_API_KEY` or `SERPER_API_KEY` to Octocode env. |
-| GitHub calls are unauthenticated | Run `npx octocode login` or export `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` in shell env. |
+| GitHub calls are unauthenticated | Run `node $OCTOCODE_CLI auth login` or export `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` in shell env. |
 | Agent uses `grep`/`cat`/`curl` instead of native tools | Run `/octocode-harness`; remind the agent to use native Octocode tools. |
 | Verify gate blocks conclusion | Run the stated verification, then call `memory_verify({ allPending: true })` to clear all in one call (or `{ intent_ids: [...] }` for a subset). If no stop hook is installed, pending intents appear in `memory_audit_unverified` but do not block the UI. |
 | Stuck pending intents from a dead session | Call `memory_audit_unverified({abandon:true})` to dismiss orphaned PENDING intents. |

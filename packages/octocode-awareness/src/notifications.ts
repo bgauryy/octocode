@@ -15,6 +15,7 @@ import type {
   ResolveNotificationParams, ResolveNotificationResult,
   PruneNotificationsParams, PruneNotificationsResult,
   NotificationRecord, NotificationKind, NotificationStatus,
+  AgentSignalParams, AgentSignalResult, AgentSignalRecord,
 } from './types.js';
 
 // ─── Internal row type ────────────────────────────────────────────────────────
@@ -217,6 +218,112 @@ export function resolveNotification(
 }
 
 // ─── pruneNotifications ────────────────────────────────────────────────────────
+
+function signalRecord(n: NotificationRecord): AgentSignalRecord {
+  return { ...n, to_agents: n.to_agent ? [n.to_agent] : [] };
+}
+
+function requireSignalText(value: string | null | undefined, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`agent_signal ${field} is required`);
+  }
+  return value;
+}
+
+function acknowledgeNotifications(
+  db: DatabaseSync,
+  agentId: string,
+  notificationIds: string[] = [],
+  threadId: string | null = null,
+): { acknowledged: number; notification_ids: string[] } {
+  const ids = [...notificationIds];
+  if (threadId) {
+    const rows = db.prepare(
+      `SELECT notification_id FROM notifications
+       WHERE thread_id = ? AND status = 'open' AND (to_agent IS NULL OR to_agent = ?)`
+    ).all(threadId, agentId) as unknown as Array<{ notification_id: string }>;
+    ids.push(...rows.map((r) => r.notification_id));
+  }
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length === 0) return { acknowledged: 0, notification_ids: [] };
+
+  const now = utcNow();
+  const insertRead = db.prepare(
+    'INSERT OR IGNORE INTO notification_reads(notification_id, agent_id, read_at) VALUES (?, ?, ?)'
+  );
+  let acknowledged = 0;
+  for (const id of uniqueIds) {
+    const result = insertRead.run(id, agentId, now) as { changes: number };
+    acknowledged += result.changes;
+  }
+  return { acknowledged, notification_ids: uniqueIds };
+}
+
+export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentSignalResult {
+  switch (params.action) {
+    case 'publish':
+    case 'reply': {
+      const toAgents = params.toAgents?.length ? params.toAgents : [null];
+      const results = toAgents.map((toAgent) => insertNotification(db, {
+        agentId: params.agentId,
+        workspacePath: params.workspacePath,
+        repo: params.repo,
+        ref: params.ref,
+        toAgent,
+        kind: params.action === 'reply' ? 'reply' : params.kind ?? 'fyi',
+        subject: requireSignalText(params.subject, 'subject'),
+        body: params.body ?? null,
+        files: params.files ?? [],
+        refIds: params.refs ?? [],
+        inReplyTo: params.inReplyTo ?? null,
+        importance: params.importance ?? 5,
+        cwd: params.cwd,
+      }));
+      return {
+        action: params.action,
+        notification_id: results[0]!.notification_id,
+        notification_ids: results.map((r) => r.notification_id),
+        thread_id: results[0]!.thread_id,
+        workspace_path: results[0]!.workspace_path,
+      };
+    }
+    case 'list': {
+      const result = getNotifications(db, {
+        agentId: params.agentId,
+        workspacePath: params.workspacePath,
+        repo: params.repo,
+        ref: params.ref,
+        kinds: params.kinds ?? [],
+        threadId: params.threadId ?? null,
+        unreadOnly: params.unreadOnly ?? true,
+        markRead: params.markRead ?? false,
+        limit: params.limit ?? 20,
+        cwd: params.cwd,
+      });
+      return {
+        action: 'list',
+        count: result.count,
+        signals: result.notifications.map(signalRecord),
+        unread_only: result.unread_only,
+      };
+    }
+    case 'resolve': {
+      const result = resolveNotification(db, {
+        notificationIds: params.notificationIds ?? [],
+        threadId: params.threadId ?? null,
+        workspacePath: params.workspacePath,
+        cwd: params.cwd,
+      });
+      return { action: 'resolve', ...result };
+    }
+    case 'ack': {
+      return {
+        action: 'ack',
+        ...acknowledgeNotifications(db, params.agentId, params.notificationIds ?? [], params.threadId ?? null),
+      };
+    }
+  }
+}
 
 export function pruneNotifications(
   db: DatabaseSync,

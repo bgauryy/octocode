@@ -3,10 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockGetConfigSync = vi.hoisted(() => vi.fn());
 const mockInvalidateConfigCache = vi.hoisted(() => vi.fn());
 
-vi.mock('../../octocode-tools-core/src/shared/index.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../octocode-tools-core/src/shared/index.js')
-  >('../../octocode-tools-core/src/shared/index.js');
+vi.mock('@octocodeai/config', async () => {
+  const actual =
+    await vi.importActual<typeof import('@octocodeai/config')>(
+      '@octocodeai/config'
+    );
 
   return {
     ...actual,

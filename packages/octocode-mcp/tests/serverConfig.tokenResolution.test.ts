@@ -444,10 +444,7 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
       expect(await getTokenSource()).toBe('none');
     });
 
-    it('should resolve fresh source on each getTokenSource call', async () => {
-      mockResolveTokenFull.mockResolvedValueOnce(
-        mockTokenResult('env-token', 'env:GITHUB_TOKEN')
-      );
+    it('should return cached source while initialized and resolve fresh after cleanup', async () => {
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('env-token', 'env:GITHUB_TOKEN')
       );
@@ -457,6 +454,9 @@ describe('Token Resolution Priority (AUTHENTICATION_SETUP.md)', () => {
       mockResolveTokenFull.mockResolvedValueOnce(
         mockTokenResult('cli-token', 'gh-cli')
       );
+      expect(await getTokenSource()).toBe('env:GITHUB_TOKEN');
+
+      cleanup();
       expect(await getTokenSource()).toBe('gh-cli');
 
       mockResolveTokenFull.mockResolvedValueOnce(null);

@@ -8,7 +8,7 @@
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
-import { digest, notifyGet, sessionCapture } from '../src/stubs.js';
+import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
 import { extractPiWriteTargetPaths } from '../src/pi-hooks.js';
 
 const command = process.argv[2] ?? 'help';

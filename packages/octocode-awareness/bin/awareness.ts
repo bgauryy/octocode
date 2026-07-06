@@ -23,8 +23,8 @@ import { insertMemory, getMemory, mineWeakness, forgetMemory } from '../src/memo
 import { insertRefinement, getRefinements, deleteRefinement } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { reflect } from '../src/reflect.js';
-import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from '../src/stubs.js';
-import { insertNotification, getNotifications, resolveNotification, pruneNotifications } from '../src/notifications.js';
+import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from '../src/maintenance.js';
+import { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from '../src/notifications.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
 import {
   utcNow, normalizeLabel,
@@ -38,6 +38,7 @@ type ParsedArgs = Record<string, ArgValue> & { _: string[] };
 const ARRAY_FLAGS = new Set([
   'tag', 'reference', 'file', 'target_file', 'supersedes', 'label', 'state',
   'memory_id', 'refinement_id', 'notification_id', 'ref_id', 'regex', 'file_regex',
+  'to_agent', 'kind',
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -458,6 +459,45 @@ function cmdNotifyResolve(db: DatabaseSync, args: ParsedArgs, dbPath: string, op
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 
+function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  if (!args['agent_id']) return emit({ error: '--agent-id is required' }, 1, opts);
+  const action = String(args['action'] ?? '');
+  if (!['publish', 'list', 'reply', 'resolve', 'ack'].includes(action)) {
+    return emit({ error: '--action must be publish, list, reply, resolve, or ack' }, 1, opts);
+  }
+  const rawTo = args['to_agent'] ?? args['to'];
+  const toAgents = Array.isArray(rawTo) ? rawTo : rawTo ? [String(rawTo)] : [];
+  const rawFiles = args['file'];
+  const files = Array.isArray(rawFiles) ? rawFiles : rawFiles ? [String(rawFiles)] : [];
+  const rawRefs = args['ref_id'];
+  const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
+  const rawKinds = args['kind'];
+  const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
+  const rawNotificationIds = args['notification_id'];
+  const notificationIds = Array.isArray(rawNotificationIds) ? rawNotificationIds : rawNotificationIds ? [String(rawNotificationIds)] : [];
+  const result = agentSignal(db, {
+    action: action as import('../src/types.js').AgentSignalAction,
+    agentId: String(args['agent_id']),
+    workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
+    kind: args['kind'] && !Array.isArray(args['kind']) ? String(args['kind']) as import('../src/types.js').NotificationKind : undefined,
+    subject: args['subject'] ? String(args['subject']) : undefined,
+    body: args['body'] ? String(args['body']) : null,
+    toAgents,
+    files,
+    refs,
+    importance: args['importance'] ? parseInt(String(args['importance']), 10) : undefined,
+    inReplyTo: args['in_reply_to'] ? String(args['in_reply_to']) : null,
+    threadId: args['thread_id'] ? String(args['thread_id']) : null,
+    notificationIds,
+    unreadOnly: args['all'] ? false : args['unread_only'] as boolean | undefined,
+    markRead: Boolean(args['mark_read']),
+    kinds: kinds as import('../src/types.js').NotificationKind[],
+  });
+  return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
 function cmdNotifyPrune(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const rawIds = args['notification_id'];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
@@ -563,7 +603,7 @@ const HELP = `usage: awareness <command> [options]
 commands: tell-memory  get-memory  forget  reflect  refine-set  refine-get  refine-delete
           pre-flight-intent  release-file-lock  status  workspace-status  init  self-test
           prune-stale-locks  audit-unverified  verify  mine-weakness  export-harness  memory-index
-          notify  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
+          notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
 
 common options:
   --db <path>     Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)
@@ -789,6 +829,7 @@ try {
     case 'refine-delete':   exitCode = cmdRefineDelete(db, args, dbPath, opts); break;
     case 'export-harness':  exitCode = cmdExportHarness(db, args, dbPath, opts); break;
     case 'notify':          exitCode = cmdNotify(db, args, dbPath, opts); break;
+    case 'agent-signal':    exitCode = cmdAgentSignal(db, args, dbPath, opts); break;
     case 'notify-resolve':  exitCode = cmdNotifyResolve(db, args, dbPath, opts); break;
     case 'notify-prune':    exitCode = cmdNotifyPrune(db, args, dbPath, opts); break;
     default:

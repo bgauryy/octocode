@@ -40,16 +40,20 @@ export function mergeManagedAppendSystem(
 /**
  * Resolve the harness prompt mode.
  * Precedence: explicit option > OCTOCODE_PROMPT_MODE env > 'append'.
+ * `replace` is kept as a compatibility alias for the accurate `octocode-first` mode.
  */
 export function resolvePromptMode(option?: string): PromptMode {
-  if (option === 'replace' || option === 'append') return option;
-  return process.env['OCTOCODE_PROMPT_MODE'] === 'replace' ? 'replace' : 'append';
+  if (option === 'append' || option === 'octocode-first') return option;
+  if (option === 'replace') return 'octocode-first';
+  const envMode = process.env['OCTOCODE_PROMPT_MODE'];
+  if (envMode === 'octocode-first' || envMode === 'replace') return 'octocode-first';
+  return 'append';
 }
 
 /**
  * Build the system prompt the extension hands back to Pi.
  * - append (default): Pi's prompt, then the Octocode harness addendum.
- * - replace: the Octocode harness leads as authoritative, Pi's prompt preserved below.
+ * - octocode-first: the Octocode harness leads, with Pi's prompt preserved below.
  */
 export function composeSystemPrompt(opts: {
   piSystemPrompt: string;
@@ -57,7 +61,7 @@ export function composeSystemPrompt(opts: {
   promptMode: PromptMode;
 }): string {
   const addendum = renderSystemPromptAddendum(opts.octocodePrompt);
-  if (opts.promptMode === 'replace') {
+  if (opts.promptMode === 'octocode-first' || opts.promptMode === 'replace') {
     return `${addendum}\n\n${opts.piSystemPrompt}`;
   }
   return `${opts.piSystemPrompt}\n\n${addendum}`;

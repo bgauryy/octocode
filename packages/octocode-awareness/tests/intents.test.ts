@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
-import { preFlightIntent, releaseFileLock } from '../src/intents.js';
+import { fileLock, preFlightIntent, releaseFileLock } from '../src/intents.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -45,6 +45,23 @@ describe('preFlightIntent', () => {
       if (!b.ok) {
         expect(b.conflicts).toHaveLength(1);
         expect(b.conflicts[0]!.agent_id).toBe('agent-a');
+      }
+    } finally { cleanup(); }
+  });
+
+  it('resolves relative target files under workspacePath', () => {
+    const db = freshDb();
+    const { dir, cleanup } = tempFile();
+    try {
+      const result = preFlightIntent(db, {
+        agentId: 'agent-a',
+        workspacePath: dir,
+        targetFiles: ['src/a.ts'],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.intent.target_files).toEqual([join(dir, 'src/a.ts')]);
+        expect(result.intent.locks[0]!.file_path).toBe(join(dir, 'src/a.ts'));
       }
     } finally { cleanup(); }
   });
@@ -134,6 +151,24 @@ describe('releaseFileLock', () => {
     } finally { cleanup(); }
   });
 
+  it('releasing one same-agent overlapping intent keeps sibling locks active', () => {
+    const db = freshDb();
+    const { path, cleanup } = tempFile();
+    try {
+      const first = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      const second = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
+      if (!first.ok || !second.ok) throw new Error('claims failed');
+
+      const release = releaseFileLock(db, { agentId: 'agent-a', intentId: first.intent.intent_id });
+      expect(release.locks_released).toBe(1);
+      const locks = db.prepare('SELECT intent_id FROM file_locks WHERE file_path = ? ORDER BY acquired_at').all(path) as Array<{ intent_id: string }>;
+      expect(locks.map((l) => l.intent_id)).toEqual([second.intent.intent_id]);
+
+      const other = preFlightIntent(db, { agentId: 'agent-b', targetFiles: [path] });
+      expect(other.ok).toBe(false);
+    } finally { cleanup(); }
+  });
+
   it('releases by target file', () => {
     const db = freshDb();
     const { path, cleanup } = tempFile();
@@ -203,6 +238,50 @@ describe('releaseFileLock', () => {
       const intent = db.prepare('SELECT status FROM agent_intents WHERE intent_id = ?')
         .get(a.intent.intent_id) as { status: string };
       expect(intent.status).toBe('SUCCESS');
+    } finally { cleanup(); }
+  });
+});
+
+describe('fileLock', () => {
+  it('locks, reports status, renews, and releases by intent id', () => {
+    const db = freshDb();
+    const { dir, cleanup } = tempFile();
+    try {
+      const locked = fileLock(db, {
+        type: 'lock',
+        agentId: 'agent-a',
+        sessionId: 'session-a',
+        workspacePath: dir,
+        targetFiles: ['src/a.ts'],
+        ttlMs: 1000,
+      });
+      expect(locked.ok).toBe(true);
+      expect(locked.type).toBe('lock');
+      if (!locked.ok || locked.type !== 'lock') throw new Error('lock failed');
+      expect(locked.intentId).toMatch(/^intent_/);
+      expect(locked.files).toEqual([join(dir, 'src/a.ts')]);
+      expect(locked.expiresAt).toBeTruthy();
+
+      const status = fileLock(db, { type: 'status', workspacePath: dir, sessionId: 'session-a' });
+      expect(status.type).toBe('status');
+      if (status.type !== 'status') throw new Error('status failed');
+      expect(status.locks).toHaveLength(1);
+      expect(status.locks[0]!.intent_id).toBe(locked.intentId);
+
+      const renewed = fileLock(db, { type: 'renew', agentId: 'agent-a', intentId: locked.intentId, ttlMs: 60 * 60_000 });
+      expect(renewed.type).toBe('renew');
+      if (renewed.type !== 'renew') throw new Error('renew failed');
+      expect(renewed.renewed).toBe(true);
+      expect(Date.parse(renewed.expiresAt!)).toBeGreaterThanOrEqual(Date.parse(locked.expiresAt!));
+
+      const released = fileLock(db, { type: 'release', agentId: 'agent-a', intentId: locked.intentId, status: 'PENDING' });
+      expect(released.type).toBe('release');
+      if (released.type !== 'release') throw new Error('release failed');
+      expect(released.released).toBe(true);
+      const emptyStatus = fileLock(db, { type: 'status', workspacePath: dir });
+      expect(emptyStatus.type).toBe('status');
+      if (emptyStatus.type !== 'status') throw new Error('status failed');
+      expect(emptyStatus.locks).toHaveLength(0);
     } finally { cleanup(); }
   });
 });

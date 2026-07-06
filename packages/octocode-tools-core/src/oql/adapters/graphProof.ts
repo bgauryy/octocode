@@ -215,7 +215,8 @@ async function proveSymbolPacketWithLsp(
       };
     }
     const lsp = data?.lsp as
-      { serverAvailable?: boolean; source?: string } | undefined;
+      | { serverAvailable?: boolean; source?: string }
+      | undefined;
     if (lsp?.serverAvailable === false) {
       return {
         status: 'unavailable',
@@ -233,7 +234,8 @@ async function proveSymbolPacketWithLsp(
         ? (data.payload as Record<string, unknown>)
         : undefined;
     const pagination = data?.pagination as
-      { hasMore?: boolean; totalItems?: number } | undefined;
+      | { hasMore?: boolean; totalItems?: number }
+      | undefined;
     const totalReferences =
       numberFrom(data?.totalReferences) ??
       numberFrom(payload?.totalReferences) ??

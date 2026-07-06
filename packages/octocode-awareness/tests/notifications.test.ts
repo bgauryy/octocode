@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db.js';
-import { insertNotification, getNotifications, resolveNotification, pruneNotifications } from '../src/notifications.js';
+import { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from '../src/notifications.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -62,5 +62,72 @@ describe('notifications', () => {
       workspacePath: '/repo-b',
     });
     expect(deleted.deleted).toBe(1);
+  });
+
+  it('agentSignal publishes, lists, replies, and resolves a thread', () => {
+    const db = freshDb();
+    const published = agentSignal(db, {
+      action: 'publish',
+      agentId: 'agent-a',
+      toAgents: ['agent-b'],
+      kind: 'question',
+      subject: 'can you review?',
+      body: 'please check this file',
+      files: ['src/a.ts'],
+      refs: ['intent_1'],
+      workspacePath: '/repo',
+      importance: 8,
+    });
+    expect(published.action).toBe('publish');
+    if (published.action !== 'publish') throw new Error('publish failed');
+    expect(published.notification_ids).toHaveLength(1);
+
+    const inbox = agentSignal(db, {
+      action: 'list',
+      agentId: 'agent-b',
+      workspacePath: '/repo',
+    });
+    expect(inbox.action).toBe('list');
+    if (inbox.action !== 'list') throw new Error('list failed');
+    expect(inbox.signals).toHaveLength(1);
+    expect(inbox.signals[0]!.kind).toBe('question');
+    expect(inbox.signals[0]!.to_agents).toEqual(['agent-b']);
+
+    const ack = agentSignal(db, {
+      action: 'ack',
+      agentId: 'agent-b',
+      notificationIds: [published.notification_id],
+      workspacePath: '/repo',
+    });
+    expect(ack.action).toBe('ack');
+    if (ack.action !== 'ack') throw new Error('ack failed');
+    expect(ack.acknowledged).toBe(1);
+    const afterAck = agentSignal(db, { action: 'list', agentId: 'agent-b', workspacePath: '/repo' });
+    expect(afterAck.action).toBe('list');
+    if (afterAck.action !== 'list') throw new Error('list failed');
+    expect(afterAck.signals).toHaveLength(0);
+
+    const reply = agentSignal(db, {
+      action: 'reply',
+      agentId: 'agent-b',
+      toAgents: ['agent-a'],
+      subject: 'reviewed',
+      body: 'looks good',
+      inReplyTo: published.notification_id,
+      workspacePath: '/repo',
+    });
+    expect(reply.action).toBe('reply');
+    if (reply.action !== 'reply') throw new Error('reply failed');
+    expect(reply.thread_id).toBe(published.thread_id);
+
+    const resolved = agentSignal(db, {
+      action: 'resolve',
+      agentId: 'agent-a',
+      threadId: published.thread_id,
+      workspacePath: '/repo',
+    });
+    expect(resolved.action).toBe('resolve');
+    if (resolved.action !== 'resolve') throw new Error('resolve failed');
+    expect(resolved.resolved).toBe(2);
   });
 });

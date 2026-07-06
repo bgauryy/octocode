@@ -470,6 +470,9 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
 
 const CATALOG_TOOL_NAMES = ALL_TOOLS.map(tool => tool.name).sort();
 const SANITIZATION_TOOL_NAMES = Object.keys(TOOL_RESULT_SHAPES).sort();
+const LIVE_SANITIZATION_TOOL_NAMES = SANITIZATION_TOOL_NAMES.filter(name =>
+  CATALOG_TOOL_NAMES.includes(name)
+);
 
 describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization proxy', () => {
   describe('Per-tool realistic result sanitization', () => {
@@ -545,13 +548,13 @@ describe('ALL-TOOLS: Unified output sanitization via withOutputSanitization prox
 
   describe('Proxy chain integrity', () => {
     it('covers every registered tool in the live catalog', () => {
-      expect(SANITIZATION_TOOL_NAMES).toEqual(CATALOG_TOOL_NAMES);
+      expect(LIVE_SANITIZATION_TOOL_NAMES).toEqual(CATALOG_TOOL_NAMES);
     });
 
     it('all catalog tools register through the proxy', () => {
       const { mockServer, proxy } = createProxyChain();
 
-      for (const toolName of Object.keys(TOOL_RESULT_SHAPES)) {
+      for (const toolName of CATALOG_TOOL_NAMES) {
         proxy.registerTool(toolName, {} as never, (() => {}) as never);
       }
 

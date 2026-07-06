@@ -329,7 +329,12 @@ export function mapRepoSearchToolQuery(
     goodFirstIssues: extra.goodFirstIssues as string | undefined,
     match: query.match,
     sort: query.sort as
-      'stars' | 'forks' | 'updated' | 'created' | 'best-match' | undefined,
+      | 'stars'
+      | 'forks'
+      | 'updated'
+      | 'created'
+      | 'best-match'
+      | undefined,
     limit: (query as Record<string, unknown>).limit as number | undefined,
     page: query.page,
     mainResearchGoal: query.mainResearchGoal,
@@ -418,7 +423,8 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     teamMentions: query['team-mentions'],
     project: query.project,
     archived: (query as Record<string, unknown>).archived as
-      boolean | undefined,
+      | boolean
+      | undefined,
     content: (query as { content?: unknown }).content,
     reviewMode: (query as { reviewMode?: 'summary' | 'full' }).reviewMode,
     filePage: (query as { filePage?: number }).filePage,

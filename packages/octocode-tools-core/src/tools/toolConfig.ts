@@ -72,7 +72,7 @@ import { executeViewStructure } from './local_view_structure/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { executeOqlSearchTool } from './oql_search/execution.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
-import { OQL_SEARCH_TOOL_NAME } from './toolNames.js';
+import { isOqlEnabled, OQL_SEARCH_TOOL_NAME } from './toolNames.js';
 import {
   DEFAULT_TOOL_METADATA_GATEWAY,
   type ToolMetadataGateway,
@@ -377,7 +377,7 @@ function createToolCatalog(
     LOCAL_FETCH_CONTENT,
     LSP_GET_SEMANTIC_CONTENT,
     LOCAL_BINARY_INSPECT,
-    OQL_SEARCH,
+    ...(isOqlEnabled() ? [OQL_SEARCH] : []),
   ];
 
   return {

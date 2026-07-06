@@ -1913,7 +1913,8 @@ describe('searchPackage - NPM CLI Repository Fetching', () => {
       name: '@scope/monorepo-package',
       mainResearchGoal: 'Test CLI repository URL fetching',
       researchGoal: 'Test object URL format',
-      reasoning: 'Verify CLI handles scoped package with object repository format',
+      reasoning:
+        'Verify CLI handles scoped package with object repository format',
     };
 
     const result = await searchPackage(query);

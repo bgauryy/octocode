@@ -85,6 +85,7 @@ const repoRoot    = resolve(__dirname, '../..');
 const skillDest   = join(repoRoot, 'skills', 'octocode-awareness');
 const skillSrc    = join(__dirname, 'skills', 'octocode-awareness');
 const scriptDest  = join(skillDest, 'scripts');
+const packageScriptDest = join(skillSrc, 'scripts');
 const distBin     = join(__dirname, 'dist', 'bin');
 
 // Wipe and rebuild so removed files don't linger.
@@ -97,10 +98,13 @@ cpSync(skillSrc, skillDest, {
   filter: (src) => !src.includes('node_modules'),
 });
 mkdirSync(scriptDest, { recursive: true });
+mkdirSync(packageScriptDest, { recursive: true });
 
 // 2. Compiled CLI — the ONLY awareness binary all platforms share.
-copyFileSync(join(distBin, 'awareness.js'),          join(scriptDest, 'awareness.mjs'));
-copyFileSync(join(distBin, 'extract-hook-files.js'), join(scriptDest, 'extract-hook-files.mjs'));
-copyFileSync(join(distBin, 'hook-runner.js'),        join(scriptDest, 'hook-runner.mjs'));
+for (const dest of [scriptDest, packageScriptDest]) {
+  copyFileSync(join(distBin, 'awareness.js'),          join(dest, 'awareness.mjs'));
+  copyFileSync(join(distBin, 'extract-hook-files.js'), join(dest, 'extract-hook-files.mjs'));
+  copyFileSync(join(distBin, 'hook-runner.js'),        join(dest, 'hook-runner.mjs'));
+}
 
 console.log('✓ skills/octocode-awareness/ synced from packages/octocode-awareness/skills/ + dist/bin/');

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runOqlSearch } from '../../src/oql/run.js';
-import { formatDirectToolSchemaText } from '../../src/tools/directToolCatalog.meta.js';
+import { OqlDisplayQuerySchema } from '../../src/oql/schema.js';
 import {
   isBatchEnvelope,
   type OqlResultEnvelope,
@@ -292,10 +292,18 @@ describe('OQL runner: validation + dry-run + GitHub routing', () => {
     );
   });
 
-  it('direct tool input schema admits reserved targets so runtime can diagnose them', () => {
-    const schema = JSON.parse(formatDirectToolSchemaText('oqlSearch'));
-    expect(schema.properties.target.enum).toContain('dataflow');
-    expect(schema.properties.target.enum).toContain('fixes');
+  it('OQL display schema admits reserved targets so runtime can diagnose them', () => {
+    const schema = OqlDisplayQuerySchema.safeParse({
+      target: 'dataflow',
+      from: { kind: 'local', path: '.' },
+    });
+    expect(schema.success).toBe(true);
+    expect(
+      OqlDisplayQuerySchema.safeParse({
+        target: 'fixes',
+        from: { kind: 'local', path: '.' },
+      }).success
+    ).toBe(true);
   });
 
   it('dry-run returns a plan without executing', async () => {

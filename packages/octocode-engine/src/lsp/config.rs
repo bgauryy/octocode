@@ -43,21 +43,37 @@ pub fn default_server_for_file(
     workspace_root: String,
 ) -> Option<JsLanguageServerConfig> {
     let extension = extension_key(&file_path)?;
+    let spec = spec_for_extension(&extension);
+
+    // Explicit env overrides are the top of the resolution ladder for known
+    // languages. They must win even when .octocode/lsp-servers.json exists.
+    if let Some(spec) = spec.filter(spec_has_env_override) {
+        return Some(config_from_spec(spec, workspace_root));
+    }
+
     if let Some(config) = user_server_for_extension(&extension, &workspace_root) {
         return Some(config);
     }
 
-    let spec = spec_for_extension(&extension)?;
-    let (command, args) = resolve_spec_invocation(&spec, &workspace_root);
+    spec.map(|spec| config_from_spec(spec, workspace_root))
+}
 
-    Some(JsLanguageServerConfig {
+fn spec_has_env_override(spec: &ServerSpec) -> bool {
+    spec.env_var
+        .and_then(|key| std::env::var(key).ok())
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn config_from_spec(spec: ServerSpec, workspace_root: String) -> JsLanguageServerConfig {
+    let (command, args) = resolve_spec_invocation(&spec, &workspace_root);
+    JsLanguageServerConfig {
         command,
         args: Some(args),
         workspace_root,
         language_id: Some(spec.language_id.to_owned()),
         initialization_options: None,
         env: None,
-    })
+    }
 }
 
 /// True for the JS/TS server spec (the one fronting the TS backend selection).

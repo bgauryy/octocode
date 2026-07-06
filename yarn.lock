@@ -646,21 +646,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-agent-core@npm:^0.79.4":
-  version: 0.79.10
-  resolution: "@earendil-works/pi-agent-core@npm:0.79.10"
+"@earendil-works/pi-agent-core@npm:^0.80.3":
+  version: 0.80.3
+  resolution: "@earendil-works/pi-agent-core@npm:0.80.3"
   dependencies:
-    "@earendil-works/pi-ai": "npm:^0.79.10"
+    "@earendil-works/pi-ai": "npm:^0.80.3"
     ignore: "npm:7.0.5"
     typebox: "npm:1.1.38"
     yaml: "npm:2.9.0"
-  checksum: 10c0/ae38c7f54bffde883338a8c59da330626b0b54f084bc2d8fd7844daab439336dd7f55435310a23e4cbaebba791b8dd17871c4b407231b4dd7439ceb6539399d4
+  checksum: 10c0/59b6396f07c6b2f1385808a33f0aabf1a90838454d7d9801fb48e111771a8ccbb870d26e439d505d0aa05db39c94c2a179364cda0eb9e07d1030c756ec9509bb
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-ai@npm:^0.79.10, @earendil-works/pi-ai@npm:^0.79.4":
-  version: 0.79.10
-  resolution: "@earendil-works/pi-ai@npm:0.79.10"
+"@earendil-works/pi-ai@npm:^0.80.3":
+  version: 0.80.3
+  resolution: "@earendil-works/pi-ai@npm:0.80.3"
   dependencies:
     "@anthropic-ai/sdk": "npm:0.91.1"
     "@aws-sdk/client-bedrock-runtime": "npm:3.1048.0"
@@ -675,17 +675,17 @@ __metadata:
     typebox: "npm:1.1.38"
   bin:
     pi-ai: dist/cli.js
-  checksum: 10c0/938861f6469ef5cce6b1652c9c6c0c009bbaa5da9efaa4317708205109943cc19c16fa54e56ce3af9da9edb2cbfdc11702be0f086f605764791b6ec5837b1e40
+  checksum: 10c0/368e83b70647e3e89e92051e5134d5c991bb7af78c2ffb898f67bae0835895a1bd424483bf1b8bde3f97b48efd6d3775c032bf19dd7219f216cb9e0dba33ce1d
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-coding-agent@npm:0.79.4":
-  version: 0.79.4
-  resolution: "@earendil-works/pi-coding-agent@npm:0.79.4"
+"@earendil-works/pi-coding-agent@npm:0.80.3":
+  version: 0.80.3
+  resolution: "@earendil-works/pi-coding-agent@npm:0.80.3"
   dependencies:
-    "@earendil-works/pi-agent-core": "npm:^0.79.4"
-    "@earendil-works/pi-ai": "npm:^0.79.4"
-    "@earendil-works/pi-tui": "npm:^0.79.4"
+    "@earendil-works/pi-agent-core": "npm:^0.80.3"
+    "@earendil-works/pi-ai": "npm:^0.80.3"
+    "@earendil-works/pi-tui": "npm:^0.80.3"
     "@mariozechner/clipboard": "npm:0.3.9"
     "@silvia-odwyer/photon-node": "npm:0.3.4"
     chalk: "npm:5.6.2"
@@ -700,24 +700,24 @@ __metadata:
     proper-lockfile: "npm:4.1.2"
     semver: "npm:7.8.0"
     typebox: "npm:1.1.38"
-    undici: "npm:8.3.0"
+    undici: "npm:8.5.0"
     yaml: "npm:2.9.0"
   dependenciesMeta:
     "@mariozechner/clipboard":
       optional: true
   bin:
     pi: dist/cli.js
-  checksum: 10c0/2527b6683afa0e231906a05ff9a9b95625ba548316027bfe09a1d20f663cde5914c5f5e529677e44c4e2bd5a8364eecdfd2a1936934e43ad8e5ebcedbf8f9286
+  checksum: 10c0/af289d6459250aba72b3947e8b5435af0e90a61dafcbf878ceee302115809cc7db8945f444a4fc3e5b4f70f5696df89458babe3e64e8b6d51c7e7d9cd05d2f12
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-tui@npm:^0.79.4":
-  version: 0.79.10
-  resolution: "@earendil-works/pi-tui@npm:0.79.10"
+"@earendil-works/pi-tui@npm:^0.80.3":
+  version: 0.80.3
+  resolution: "@earendil-works/pi-tui@npm:0.80.3"
   dependencies:
     get-east-asian-width: "npm:1.6.0"
     marked: "npm:18.0.5"
-  checksum: 10c0/e7d8a807e3d976273674e5640c455184db456de1212f1dd54cc3f9e073ddbcad6614750d195d5a3cfae833ed3a68712ceaad3962b889dc58d751dda48a5216b5
+  checksum: 10c0/99dcbef012dc690c57b83fe83ef33e7425c7af3268d0f7e9346a729606799affb033d4ab5ac1cbb60fb01037e07fefa2e861be362c9bfbf09bc8d3eefafa6dd0
   languageName: node
   linkType: hard
 
@@ -2220,37 +2220,37 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Fmcp%40workspace%3Apackages%2Foctocode-mcp":
   version: 16.7.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=%40octocodeai%2Fmcp%40workspace%3Apackages%2Foctocode-mcp"
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=ff017c&locator=%40octocodeai%2Fmcp%40workspace%3Apackages%2Foctocode-mcp"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  checksum: 10c0/7d3ef363b9ec426281a5ddce83e34fa9576109a09a42d983f17737cb927f98d94e7542fb18af528ca4841ed61ec194e2a671b038f0f445b564da8afc22d6f720
   languageName: node
   linkType: hard
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core":
   version: 16.7.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=ff017c&locator=%40octocodeai%2Foctocode-tools-core%40workspace%3Apackages%2Foctocode-tools-core"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  checksum: 10c0/7d3ef363b9ec426281a5ddce83e34fa9576109a09a42d983f17737cb927f98d94e7542fb18af528ca4841ed61ec194e2a671b038f0f445b564da8afc22d6f720
   languageName: node
   linkType: hard
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=%40octocodeai%2Fpi-extension%40workspace%3Apackages%2Foctocode-pi-extension":
   version: 16.7.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=%40octocodeai%2Fpi-extension%40workspace%3Apackages%2Foctocode-pi-extension"
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=ff017c&locator=%40octocodeai%2Fpi-extension%40workspace%3Apackages%2Foctocode-pi-extension"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  checksum: 10c0/7d3ef363b9ec426281a5ddce83e34fa9576109a09a42d983f17737cb927f98d94e7542fb18af528ca4841ed61ec194e2a671b038f0f445b564da8afc22d6f720
   languageName: node
   linkType: hard
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode%40workspace%3Apackages%2Foctocode":
   version: 16.7.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=363a25&locator=octocode%40workspace%3Apackages%2Foctocode"
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=ff017c&locator=octocode%40workspace%3Apackages%2Foctocode"
   peerDependencies:
     zod: ">=4.0.0"
-  checksum: 10c0/49efdadf8593f34cba4263b6f34b57d353fad06a72480259b7fb443d4f3675a0e408a4a1b99f653f4176d1fee7eccd27bcf81a8614726d178ed60fe9b93650e2
+  checksum: 10c0/7d3ef363b9ec426281a5ddce83e34fa9576109a09a42d983f17737cb927f98d94e7542fb18af528ca4841ed61ec194e2a671b038f0f445b564da8afc22d6f720
   languageName: node
   linkType: hard
 
@@ -2372,12 +2372,6 @@ __metadata:
   peerDependenciesMeta:
     typebox:
       optional: true
-  languageName: unknown
-  linkType: soft
-
-"@octocodeai/skills@workspace:skills":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/skills@workspace:skills"
   languageName: unknown
   linkType: soft
 
@@ -7422,7 +7416,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "octocode-agent@workspace:packages/octocode-agent"
   dependencies:
-    "@earendil-works/pi-coding-agent": "npm:0.79.4"
+    "@earendil-works/pi-coding-agent": "npm:0.80.3"
     "@octocodeai/pi-extension": "workspace:*"
   bin:
     octocode-agent: ./bin/octocode-agent.mjs
@@ -9218,10 +9212,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"undici@npm:8.3.0":
-  version: 8.3.0
-  resolution: "undici@npm:8.3.0"
-  checksum: 10c0/6a67e46aefc7b882702e76878c4d317040f1ae04aefbab3a3639bcb07b255a050eaf3202ea56b80c42ba5c7140d990cf0096412ca50d6c825a2e1c57c59d1e28
+"undici@npm:8.5.0":
+  version: 8.5.0
+  resolution: "undici@npm:8.5.0"
+  checksum: 10c0/7c25fd96a4dcc607b905995f6feec948f74a6759cadbea4c6eb9402517aab4887987c8001c80d482297d04f975f44a383325b89577ac21e587983ed088408065
   languageName: node
   linkType: hard
 

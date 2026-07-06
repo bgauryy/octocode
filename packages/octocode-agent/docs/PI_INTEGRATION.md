@@ -3,8 +3,8 @@
 How the `octocode-agent` platform drives the Pi host, and how the Octocode harness
 (`@octocodeai/pi-extension`, **the core**) plugs in. All Pi facts below are verified
 against the live docs of `@earendil-works/pi-coding-agent` (npm `0.80.3`, repo
-`earendil-works/pi`, `packages/coding-agent/docs/*`). Where the RFC (pinned to `0.79.4`)
-differs, the delta is called out.
+`earendil-works/pi`, `packages/coding-agent/docs/*`). The launcher pins Pi to `0.80.3`
+so the documented SDK/extension behavior and runtime dependency stay aligned.
 
 ---
 
@@ -22,8 +22,8 @@ harness (prompt + skills + tools + memory) is a Pi *package*, and octocode-agent
 launcher that boots Pi with that package as the authoritative core.
 
 **Layers:**
-- `octocode-agent` — platform/launcher (this package). Bundles Pi + the core; owns the branded launch and the update path.
-- `@octocodeai/pi-extension` — **the core**. A Pi package: `pi.extensions` (the harness wiring) + `pi.skills` (6 research skills) + the bundled system prompt.
+- `octocode-agent` — platform/launcher (this package). Depends on Pi + the core; owns the branded launch and the update path.
+- `@octocodeai/pi-extension` — **the core**. A Pi package: `pi.extensions` (the harness wiring) + bundled research skills + the bundled system prompt.
 - `@earendil-works/pi-coding-agent` — the Pi host runtime. An internal detail of the platform.
 
 ---
@@ -42,12 +42,13 @@ pi -e <coreRoot> [--no-extensions --no-skills] [passthrough…]
 - `-e <directory>` loads by **package rules**, so one flag brings the extension **and its
   bundled skills** (`packages.md` §Local Paths). We point it at the resolved package root
   of `@octocodeai/pi-extension`.
-- The launcher sets `OCTOCODE_PROMPT_MODE=replace` + `OCTOCODE_AGENT=1` in the child env;
+- The launcher sets `OCTOCODE_PROMPT_MODE=octocode-first` + `OCTOCODE_AGENT=1` in the child env;
   the core reads the mode (no divergent code path — same package works under plain
-  `pi install` in append mode).
+  `pi install` in append mode). Legacy `replace` is accepted as an alias.
 - `OCTOCODE_AGENT_EXTENSION_SPEC` overrides the spec (`npm:…@ver`, `git:…`, path).
-- `OCTOCODE_AGENT_CLEAN=1` adds `--no-extensions --no-skills` → only the Octocode harness
-  loads (deterministic branded agent). Default is additive with the user's Pi env.
+- Project `AGENTS.md`/`CLAUDE.md` context files load by default so repository rules remain authoritative.
+  `OCTOCODE_AGENT_NO_CONTEXT_FILES=1` or `OCTOCODE_AGENT_CLEAN=1` adds `--no-context-files`.
+- `OCTOCODE_AGENT_CLEAN=1` adds `--no-skills --no-context-files` → deterministic harness-only mode.
 
 This replaced an earlier `pi install <spec>` approach, which mutated global settings and
 required trust — `-e` is side-effect-free and the documented "load exactly what you need"
@@ -72,7 +73,7 @@ import { createOctocodePiExtension } from "@octocodeai/pi-extension"; // the fac
 const createRuntime = async ({ cwd, sessionManager, sessionStartEvent }) => {
   const loader = new DefaultResourceLoader({
     cwd, agentDir: getAgentDir(),
-    extensionFactories: [ createOctocodePiExtension({ promptMode: "replace" }) ], // core, in-process
+    extensionFactories: [ createOctocodePiExtension({ promptMode: "octocode-first" }) ], // core, in-process
     // systemPromptOverride, skillsOverride, themes… all available here
   });
   await loader.reload();
@@ -88,7 +89,7 @@ await new InteractiveMode(runtime, { /* initialMessage, … */ }).run();
 ```
 
 **Why this is the "platform" endgame:** `extensionFactories` takes `(pi) => …` functions —
-exactly what `createOctocodePiExtension({promptMode:'replace'})` returns. We get in-process
+exactly what `createOctocodePiExtension({promptMode:'octocode-first'})` returns. We get in-process
 type safety, direct control of tools/prompt/theme, and no reliance on Pi's package
 discovery. Trade-off: it couples to Pi's SDK exports (documented and stable, unlike the
 internal `dist/` paths the RFC's replace-mode mirrors) and must re-`bindExtensions` on
@@ -151,10 +152,10 @@ Our core injects via the `before_agent_start` event, which on 0.80.x hands the e
 (`extensions.md` §before_agent_start). Returning `{ systemPrompt }` replaces it for the turn.
 
 - **append mode (default):** Pi prompt first, harness addendum after. Unchanged legacy behavior.
-- **replace mode (launcher):** harness leads as authority, Pi's prompt preserved below.
-  *Faithful* reconstruction (mirroring Pi's `customPrompt` branch, honoring
-  `appendSystemPrompt` + project context) is RFC Phase 2 — now confirmed feasible on 0.80.x
-  because `systemPromptOptions` exposes exactly those fields. Until then replace-mode prepends.
+- **octocode-first mode (launcher):** harness leads as authority, Pi's prompt is preserved below.
+  `replace` remains a legacy alias, but the behavior is intentionally prepend-not-drop.
+  A true full replacement can be implemented later with the SDK `systemPromptOverride` /
+  `systemPromptOptions` path if product branding needs it.
 
 ---
 
@@ -192,7 +193,8 @@ is a launcher, not a Pi package).
 
 **Update path (the user's requirement — updating the core updates the agent):**
 - `octocode-agent update` → self-update the platform globally (`npm i -g octocode-agent@latest`), which pins a newer core.
-- `octocode-agent update core` → `npm update @octocodeai/pi-extension` in place (bring-your-own-Pi / dev).
+- `octocode-agent update core` → `npm install --prefix <launcher-root> --omit=dev @octocodeai/pi-extension@latest`.
+  That updates the dependency inside the current launcher install, including npm/npx cache installs.
 - Because the launcher loads the core via `-e <resolved local path>`, refreshing the
   dependency immediately changes what launches — no Pi-side reinstall needed.
 - Pi's own `pi update [--all|--self|--extensions]` manages Pi + globally-installed
@@ -203,16 +205,11 @@ is a launcher, not a Pi package).
 
 ## 8. Open items / risks
 
-- **Version pin drift.** RFC verified `0.79.4`; npm latest is `0.80.3`. The extension API
-  (events, `setActiveTools`, `registerCommand`, `ctx.*`) is intact, and command-collision
-  behavior *improved*. Decide whether to pin the launcher's Pi dep to `0.80.3` (the RFC
-  exact-pin discipline) — currently `0.79.4` in `package.json`; bump + smoke-test.
-- **The `-e` seam is unvalidated at runtime.** Pi is not installed in this workspace, so
-  the subprocess launch is verified only by docs + unit tests with injected spawn. Validate
-  once `yarn install` fetches Pi: `octocode-agent --version` resolves both deps, and a real
-  `pi -e <core>` loads the extension + 6 skills and injects the prompt in replace mode.
-- **Faithful replace-mode prompt (RFC Phase 2)** and **SDK-embed launcher (§2)** remain
-  designed-not-built; both are now grounded in verified 0.80.x APIs above.
+- **Install freshness.** After changing dependency pins, run `yarn install` so `node_modules`
+  matches `package.json`; launcher smoke tests verify real Pi/core package resolution without
+  running an interactive Pi session.
+- **Full SDK embed (§2)** remains designed-not-built. It is the path for deeper branding,
+  direct session control, and a true `systemPromptOverride` if octocode-first prepend is not enough.
 
 ## Sources
 `earendil-works/pi` `packages/coding-agent/docs/{usage,packages,sdk,extensions}.md` (branch `main`, npm `0.80.3`);

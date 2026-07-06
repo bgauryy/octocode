@@ -49,6 +49,7 @@ export interface FileLock {
   file_path: string;
   lock_type: LockType;
   agent_id: string;
+  session_id?: string | null;
   acquired_at: string;
   expires_at: string | null;
 }
@@ -71,6 +72,7 @@ export interface RefinementRecord {
 export interface IntentRecord {
   intent_id: string;
   agent_id: string;
+  session_id?: string | null;
   lock_type: LockType;
   workspace_path: string;
   target_files: string[];
@@ -192,6 +194,7 @@ export interface GetRefinementsResult {
 
 export interface PreFlightIntentParams {
   agentId?: string;
+  sessionId?: string | null;
   workspacePath?: string | null;
   rationale?: string;
   testPlan?: string;
@@ -221,11 +224,27 @@ export type PreFlightIntentResult = PreFlightIntentSuccess | PreFlightIntentConf
 
 export interface ReleaseFileLockParams {
   agentId?: string;
+  sessionId?: string | null;
+  workspacePath?: string | null;
   intentId?: string | null;
   targetFiles?: string[];
   status?: IntentStatus;
   verified?: boolean;          // record that test_plan was actually run
   verifiedNote?: string;       // what was verified (e.g. 'yarn test: 273 passed')
+}
+
+export interface FileLockParams {
+  type: 'lock' | 'release' | 'status' | 'renew';
+  agentId?: string;
+  sessionId?: string | null;
+  workspacePath?: string | null;
+  intentId?: string | null;
+  targetFiles?: string[];
+  lockType?: LockType;
+  ttlMs?: number | null;
+  status?: IntentStatus;
+  verified?: boolean;
+  verifiedNote?: string;
 }
 
 export interface ReleaseFileLockResult {
@@ -237,6 +256,25 @@ export interface ReleaseFileLockResult {
   updated_at: string;
   unverifiedConclusion?: string;
 }
+
+export interface FileLockStatusEntry {
+  lock_id: string;
+  intent_id: string;
+  file_path: string;
+  agent_id: string;
+  session_id: string | null;
+  workspace_path: string | null;
+  lock_type: LockType;
+  acquired_at: string;
+  expires_at: string | null;
+}
+
+export type FileLockResult =
+  | { ok: true; type: 'lock'; intentId: string; files: string[]; locks: FileLockStatusEntry[]; expiresAt: string | null }
+  | { ok: false; type: 'lock'; conflict: true; conflicts: PreFlightIntentConflict['conflicts'] }
+  | ({ ok: true; type: 'release' } & ReleaseFileLockResult)
+  | { ok: true; type: 'status'; locks: FileLockStatusEntry[] }
+  | { ok: true; type: 'renew'; intentId: string; renewed: boolean; locks_renewed: number; expiresAt: string | null };
 
 export interface ReflectParams {
   agentId?: string;
@@ -570,6 +608,41 @@ export interface PruneNotificationsResult {
   would_delete?: number;
   notification_ids: string[];
 }
+
+export type AgentSignalAction = 'publish' | 'list' | 'reply' | 'resolve' | 'ack';
+
+export interface AgentSignalParams {
+  action: AgentSignalAction;
+  agentId: string;
+  workspacePath?: string | null;
+  repo?: string | null;
+  ref?: string | null;
+  kind?: NotificationKind;
+  subject?: string;
+  body?: string | null;
+  toAgents?: string[];
+  files?: string[];
+  refs?: string[];
+  importance?: number;
+  inReplyTo?: string | null;
+  threadId?: string | null;
+  notificationIds?: string[];
+  unreadOnly?: boolean;
+  markRead?: boolean;
+  kinds?: NotificationKind[];
+  limit?: number;
+  cwd?: string;
+}
+
+export interface AgentSignalRecord extends NotificationRecord {
+  to_agents: string[];
+}
+
+export type AgentSignalResult =
+  | { action: 'publish' | 'reply'; notification_id: string; notification_ids: string[]; thread_id: string; workspace_path: string }
+  | { action: 'list'; count: number; signals: AgentSignalRecord[]; unread_only: boolean }
+  | { action: 'resolve'; resolved: number; notification_ids: string[] }
+  | { action: 'ack'; acknowledged: number; notification_ids: string[] };
 
 // ─── Export harness ──────────────────────────────────────────────────────────
 

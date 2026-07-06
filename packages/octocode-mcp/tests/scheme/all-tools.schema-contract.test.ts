@@ -278,8 +278,11 @@ describe('all-tools schema contract', () => {
   );
 
   describe('global invariants', () => {
-    it('ALL_TOOLS contains exactly 14 tools', () => {
-      expect(ALL_TOOLS).toHaveLength(14);
+    it('ALL_TOOLS contains a non-empty live default tool catalog', () => {
+      expect(ALL_TOOLS.length).toBeGreaterThan(0);
+      expect(new Set(ALL_TOOLS.map(tool => tool.name)).size).toBe(
+        ALL_TOOLS.length
+      );
     });
 
     it('every tool has a MINIMAL_QUERY entry in this test', () => {
