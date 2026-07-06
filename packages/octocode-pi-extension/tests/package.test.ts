@@ -326,6 +326,14 @@ test('agent_signal tool publishes, lists, replies, and resolves', withIsolatedDb
     assert.equal(listed.signals[0]!.subject, 'review this?');
     assert.deepEqual(listed.signals[0]!.to_agents, ['agent-b']);
 
+    const ackResult = await tool.execute('signal-ack', {
+      action: 'ack',
+      agent_id: 'agent-b',
+      notification_ids: [published.notification_id],
+    }, undefined, undefined, ctx);
+    const ack = JSON.parse(ackResult.content[0]!.text) as { acknowledged: number };
+    assert.equal(ack.acknowledged, 1);
+
     const replyResult = await tool.execute('signal-reply', {
       action: 'reply',
       agent_id: 'agent-b',
@@ -373,12 +381,18 @@ test('memory_notify remains a publishing alias for agent_signal', withIsolatedDb
   });
 }));
 
-test('memory_file_lock tool locks, reports, releases, and signals conflicts', withIsolatedDb(async (ctx) => {
+test('file_lock tool locks, reports, releases, and signals conflicts', withIsolatedDb(async (ctx) => {
   await withAgentId('pi-test-agent', async () => {
     const { tools } = await captureExtensions();
-    const tool = tools.get('memory_file_lock')!;
+    const tool = tools.get('file_lock')!;
+    const aliasTool = tools.get('memory_file_lock')!;
+    const workspaceTool = tools.get('workspace_status')!;
+    const workspaceAliasTool = tools.get('memory_workspace_status')!;
     const signalTool = tools.get('agent_signal')!;
-    assert.ok(tool, 'memory_file_lock is registered');
+    assert.ok(tool, 'file_lock is registered');
+    assert.ok(aliasTool, 'memory_file_lock alias is registered');
+    assert.ok(workspaceTool, 'workspace_status is registered');
+    assert.ok(workspaceAliasTool, 'memory_workspace_status alias is registered');
 
     const lockedResult = await tool.execute('lock-1', {
       type: 'lock',
@@ -394,6 +408,10 @@ test('memory_file_lock tool locks, reports, releases, and signals conflicts', wi
     const status = JSON.parse(statusResult.content[0]!.text) as { locks: Array<{ intent_id: string }> };
     assert.equal(status.locks.length, 1);
     assert.equal(status.locks[0]!.intent_id, locked.intentId);
+
+    const workspaceResult = await workspaceTool.execute('workspace-status', {}, undefined, undefined, ctx);
+    const workspace = JSON.parse(workspaceResult.content[0]!.text) as { locks: Array<{ file: string }> };
+    assert.ok(workspace.locks.some((l) => l.file.endsWith('src/tool-lock.js')));
 
     const conflictResult = await tool.execute('lock-conflict', {
       type: 'lock',
