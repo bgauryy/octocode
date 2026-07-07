@@ -1,7 +1,8 @@
 # Output — chat brief, decisions, evidence rules
 
 Load at Present (Workflow step 8), assigning confidence, or preparing an RFC handoff. Present in chat first; scale sections to real content.
-When the user confirms a save, write the fuller brief with `brief-template.md` and offer: "Save this brief to `.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`?" (workspace `.octocode/`; fall back to global `~/.octocode/brainstorming/` only when the workspace has no `.octocode/` or is unwritable — see `<doc_placement>`).
+When the user confirms a save, write the fuller brief with `brief-template.md` and offer: "Save this brief to `.octocode/brainstorming/<YYYY-MM-DD>-<topic-slug>.md`?"
+Default to the workspace `.octocode/`; fall back to global `~/.octocode/brainstorming/` only when the workspace has no `.octocode/` or is unwritable — see `<doc_placement>`.
 
 ## Compact chat skeleton
 
@@ -51,11 +52,9 @@ Decision labels: `Build RFC` = hand off to `octocode/octocode-rfc-generator`; `P
 
 Every prior-art entry MUST carry one; mark `weak` and note why if unsure.
 
-| Marker | Criteria |
-|--------|----------|
-| `strong` | Multiple independent validated sources, or direct code/data proof plus strong usage/activity signals |
-| `moderate` | One validated source, or credible source plus corroborating repo/package activity |
-| `weak` | Popularity alone, marketing/forum copy, stale/inactive project, or no independent validation |
+- `strong` — multiple independent validated sources, or direct code/data proof plus strong usage/activity signals
+- `moderate` — one validated source, or credible source plus corroborating repo/package activity
+- `weak` — popularity alone, marketing/forum copy, stale/inactive project, or no independent validation
 
 ## Evidence rules
 

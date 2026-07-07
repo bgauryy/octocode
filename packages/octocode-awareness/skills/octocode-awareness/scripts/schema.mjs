@@ -56,7 +56,7 @@ const memorySort = z
   .enum(["smart", "score", "importance", "recent", "updated", "accessed", "access", "label", "file"])
   .default("smart")
   .describe("Result order. smart/score use salience; alternatives sort by explicit fields.");
-const importanceScore = z
+const importanceLevel = z
   .number()
   .int()
   .min(1)
@@ -116,7 +116,7 @@ export const schemas = {
       agent_id: agentId,
       task_context: nonEmptyText("What goal or script produced the lesson.", 1000),
       observation: nonEmptyText("Exact lesson learned; specific enough to act on later.", 4000),
-      importance: importanceScore,
+      importance: importanceLevel,
       label: memoryLabel,
       tags,
       references,
@@ -239,7 +239,7 @@ export const schemas = {
   memory_index: z
     .object({
       limit: z.number().int().min(1).max(500).default(30),
-      min_importance: importanceScore.optional().describe("Only include active memories at or above this importance."),
+      min_importance: importanceLevel.optional().describe("Only include active memories at or above this importance."),
       workspace_path: workspacePath.optional().describe("Workspace scope for the generated index."),
       artifact: artifactScope.optional(),
       repo: repoScope.optional().describe("Repository scope for the generated index."),
@@ -456,7 +456,7 @@ export const schemas = {
         .max(128)
         .optional()
         .describe("signal_id this replies to; inherits its thread so agents can discuss."),
-      importance: importanceScore.default(5),
+      importance: importanceLevel.default(5),
     })
     .strict()
     .describe("Post a message to other agents working this repo, or reply in a thread."),
@@ -475,7 +475,7 @@ export const schemas = {
       to_agents: z.array(agentId).max(50).default([]).describe("Recipients; empty means broadcast."),
       files: fileList,
       refs: refIds,
-      importance: importanceScore.default(5),
+      importance: importanceLevel.default(5),
       in_reply_to: z.string().trim().min(1).max(128).optional().describe("Signal id this replies to."),
       thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id for list/resolve/ack."),
       signal_id: z.array(z.string().trim().min(1).max(128)).max(200).default([]).describe("Signal ids for resolve/ack."),
@@ -579,7 +579,7 @@ export const schemas = {
       ref: z.string().trim().min(1).max(256).optional(),
       workspace_path: z.string().trim().min(1).max(1024).optional(),
       artifact: artifactScope.optional(),
-      importance: importanceScore.optional().describe("Override the outcome-derived importance (failed 8 / partial 6 / worked 5)."),
+      importance: importanceLevel.optional().describe("Override the outcome-derived importance (failed 8 / partial 6 / worked 5)."),
       duo: z
         .boolean()
         .optional()

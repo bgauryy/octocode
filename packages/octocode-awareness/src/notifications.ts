@@ -288,15 +288,15 @@ function requireSignalText(value: string | null | undefined, field: string): str
 function acknowledgeNotifications(
   db: DatabaseSync,
   agentId: string,
-  notificationIds: string[] = [],
+  signalIds: string[] = [],
   threadId: string | null = null,
   params: { workspacePath?: string | null; artifact?: string | null; cwd?: string } = {},
 ): { acknowledged: number; signal_ids: string[] } {
   const where: string[] = ["status = 'open'", '(to_agent IS NULL OR to_agent = ?)', 'from_agent <> ?'];
   const binds: (string | number)[] = [agentId, agentId];
-  if (notificationIds.length > 0) {
-    where.push(`signal_id IN (${notificationIds.map(() => '?').join(',')})`);
-    binds.push(...notificationIds);
+  if (signalIds.length > 0) {
+    where.push(`signal_id IN (${signalIds.map(() => '?').join(',')})`);
+    binds.push(...signalIds);
   }
   if (threadId) {
     where.push('thread_id = ?');
@@ -306,7 +306,7 @@ function acknowledgeNotifications(
     { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: null, ref: null },
     params.cwd ?? process.cwd(),
   );
-  if (notificationIds.length === 0) {
+  if (signalIds.length === 0) {
     appendSignalScope(where, binds, scope, '');
   }
   const rows = db.prepare(`SELECT signal_id FROM signals WHERE ${where.join(' AND ')}`)
@@ -378,7 +378,7 @@ export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentS
     }
     case 'resolve': {
       const result = resolveNotification(db, {
-        notificationIds: params.notificationIds ?? [],
+        notificationIds: params.signalIds ?? [],
         threadId: params.threadId ?? null,
         workspacePath: params.workspacePath,
         artifact: params.artifact,
@@ -389,7 +389,7 @@ export function agentSignal(db: DatabaseSync, params: AgentSignalParams): AgentS
     case 'ack': {
       return {
         action: 'ack',
-        ...acknowledgeNotifications(db, params.agentId, params.notificationIds ?? [], params.threadId ?? null, {
+        ...acknowledgeNotifications(db, params.agentId, params.signalIds ?? [], params.threadId ?? null, {
           workspacePath: params.workspacePath,
           artifact: params.artifact,
           cwd: params.cwd,

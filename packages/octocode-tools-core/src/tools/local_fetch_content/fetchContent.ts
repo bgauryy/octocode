@@ -640,7 +640,11 @@ function buildSymbolsSkeletonResult(
   secretWarning: string | undefined,
   defaultOutputCharLength: number
 ): LocalGetFileContentToolResult {
-  const window = paginateContentWindow(skeleton, query, defaultOutputCharLength);
+  const window = paginateContentWindow(
+    skeleton,
+    query,
+    defaultOutputCharLength
+  );
   const warnings = [
     ...(window.autoPaginateWarning ? [window.autoPaginateWarning] : []),
     ...(secretWarning ? [secretWarning] : []),

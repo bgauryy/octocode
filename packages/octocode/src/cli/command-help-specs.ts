@@ -58,26 +58,16 @@ function patchSkillCommandSpec(spec: CLICommandSpec): CLICommandSpec {
 
   return {
     ...spec,
-    description:
-      'Install one GitHub Agent Skill folder, every skill in a GitHub skills library path, one named Octocode skill, or every official Octocode skill into supported local skill directories.',
     usage:
       'skill --list\nskill (--add <github-path> | --name <octocode-skill> | --install-all) [--platform common|cursor|claude|codex|opencode|pi|copilot|gemini|all] [--mode symlink|copy|hybrid] [--force|--update] [--dry-run] [--verbose] [--branch <ref>] [--json]',
     scheme: [
-      'required source: pass exactly one of --add <github-path>, --name <octocode-skill>, or --install-all. --add accepts a GitHub skill folder URL or owner/repo/path shorthand; a library path such as owner/repo/skills installs every direct child skill folder with SKILL.md.',
-      '--name must be a safe Octocode skill folder name such as octocode-research. Run --list to see the live named-skill catalog.',
-      '--platform (alias --target, default: common) accepts comma-separated values: common, cursor, claude, codex, opencode, pi, copilot, gemini, or all. --all is shorthand for --platform all.',
-      'platform paths: common -> ~/.agents/skills, cursor -> ~/.cursor/skills, claude -> ~/.claude/skills plus ~/.claude-desktop/skills, codex -> ~/.agents/skills, opencode -> ~/.config/opencode/skills, pi -> ~/.pi/agent/skills, copilot -> ~/.copilot/skills, gemini -> ~/.gemini/skills. Windows uses platform-appropriate home/AppData paths.',
-      'install mode: symlink (default) refreshes ~/.octocode/skills/<skill> and links selected clients to that canonical source. copy duplicates the refreshed source into each destination. hybrid copies Claude targets and symlinks the rest.',
-      '--force (alias --update) replaces existing destination folders or links. The canonical source in ~/.octocode/skills refreshes on every install attempt.',
-      '--dry-run previews source and destination paths without fetching or writing anything.',
-      'output: human output prints mode, platforms, canonical source path, every destination path, and a final summary. --json returns skills[] entries plus top-level platforms, mode, and aggregate summary.',
+      ...(spec.scheme ?? []),
+      '--install-all installs every current official Octocode skill; --all-skills is an alias.',
+      'additional platforms: copilot and gemini are accepted by this CLI build.',
     ],
     whenToUse: [
-      'Use --list to discover all available Octocode named skills before installing.',
-      'Use --name for Octocode-maintained skills like octocode-research; use --add for arbitrary GitHub skill folders or GitHub skills libraries.',
-      'Omit --platform to install to the default shared location (~/.agents/skills); use --platform all for every supported local skill destination.',
+      ...(spec.whenToUse ?? []),
       'Use --install-all to install every current official Octocode skill without a shell loop.',
-      'Use --dry-run before broad installs or forced overwrites.',
     ],
     examples: [
       'skill --list',

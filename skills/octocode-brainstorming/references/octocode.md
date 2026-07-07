@@ -47,17 +47,22 @@ Use `npx octocode auth login` when GitHub or private data requires authenticatio
 - A concept (words only) → synonym-regex text search (e.g. `halfLife|half_life|HALF_LIFE`), then a symbols view of the top file.
 - An identifier → LSP workspaceSymbol, then callers/callees (callables) or references (everything else). Skip grep for locating.
 - A code shape → structural AST search. A pattern must match a COMPLETE node (body, return type); use a rule (`kind`/`has`/`inside`/`not`, `stopBy: end`) for partial or relational matches; `foo($$$A)` does not match `x.foo($$$A)`.
-- A package name → node_modules FIRST (`excludeDir: []` required — the default exclusion list silently skips it): the installed version is ground truth; GitHub's default branch is not. npm lookup only to resolve the source repo.
+- A package name → node_modules FIRST (`excludeDir: []` required, or the default exclusion skips it) — the installed version is ground truth, not GitHub's default branch; npm lookup only finds the source repo.
 - A "why"/history question → PR search (keywords + match:title + concise) and commit history on the path.
 - A binary/archive → binary inspect (list before extract; strings for leads).
 
-**Reads:** matchString first — it returns merged slices plus `matchRanges[]` line anchors that feed LSP `lineHint` directly; line ranges second; fullContent last (small files only). Map a file with `minify:"symbols"` (~10x smaller; constants keep values; the line gutter is an anchor sheet). Quote/diff/edit only from `minify:"none"` — standard mode is lossy (rewrites quotes, strips comments).
+**Reads:** matchString first — it returns merged slices plus `matchRanges[]` line anchors that feed LSP `lineHint` directly; line ranges second; fullContent last (small files only).
+Map a file with `minify:"symbols"` (~10x smaller; constants keep values; the line gutter is an anchor sheet).
+Quote/diff/edit only from `minify:"none"` — standard mode is lossy (rewrites quotes, strips comments).
 
-**Local↔external gate:** workspace code → local tools; installed dependency → node_modules IS local; previously materialized repo → its localPath. Only then go external — and materialize back to local (clone or directory fetch; depths file/tree/repo) the moment you need AST, LSP, multi-file regex, or a 3rd+ read into the same remote area. After one bridge call the full local loop (AST + LSP + matchString) runs on the returned localPath.
+**Local↔external gate:** workspace code → local tools; installed dependency → node_modules IS local; previously materialized repo → its localPath.
+Only then go external — and materialize back to local (clone or directory fetch; depths file/tree/repo) once you need AST, LSP, multi-file regex, or a 3rd+ read into the same remote area.
+After one bridge call, the full local loop (AST + LSP + matchString) runs on the returned localPath.
 
 **Evidence discipline (non-negotiable):**
 
-- Grades: semantic (LSP — proven identity, project-scoped) / structural (AST — proven shape) / lexical (grep — total coverage, proves nothing about identity) / provider (GitHub index — weakest). Never conclude impact or absence from one grade.
+- Grades: semantic (LSP — proven identity, project-scoped) / structural (AST — proven shape) / lexical (grep — total coverage, proves nothing about identity) / provider (GitHub index — weakest).
+- Never conclude impact or absence from one grade.
 - Before any "unused / only-used-in-Y" claim: diff one package-wide grep (including tests/scripts/configs) against the LSP result — every lexical hit LSP missed is a finding (re-export, shadow copy, string/config reference).
 - Empty ≠ absence: `status:"empty"` proves only the searched scope; GitHub code search is default-branch-only and blind to archived/renamed repos — verify the path exists or materialize+grep before claiming absence.
 - Read completeness metadata (`truncatedByDepth`, `dynamicCallsExcluded`, skipped counts) before claiming full impact; LSP "unsupported" = capability absence, not "no usage".

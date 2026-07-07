@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-awareness",
   "version": "1.0.0",
-  "description": "Octocode Awareness: unified memory, file-lock, reflection, and skill harness — zero npm runtime deps.",
+  "description": "Octocode Awareness: shared workspace coordination plus reflection/learning skills — zero npm runtime deps.",
   "keywords": [
     "octocode",
     "memory",
@@ -45,8 +45,8 @@
     "clean": "rm -rf dist/",
     "lint": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --coverage",
-    "test:quiet": "vitest run --reporter=dot --silent",
+    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "self-test": "node dist/bin/awareness.js self-test",
     "verify": "yarn lint && yarn test && yarn build"
   },

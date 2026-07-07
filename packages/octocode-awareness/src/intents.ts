@@ -308,7 +308,7 @@ export function releaseFileLock(
               `INSERT INTO task_log(event_id, task_id, agent_id, event_type, message, created_at)
                VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
             ).run('evt_' + randomUUID().replace(/-/g, ''), tid, agentId, verifiedNote, now);
-          } catch { /* task_log may not exist on older DBs */ }
+          } catch { /* non-critical audit log */ }
         }
       }
     }

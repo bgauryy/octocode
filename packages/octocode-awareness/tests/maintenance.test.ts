@@ -1,16 +1,8 @@
 /**
- * maintenance.test.ts — Behavioural tests for maintenance functions against the new schema.
+ * maintenance.test.ts — Behavioural tests for maintenance functions against the current schema.
  *
- * All functions must work with the new table names:
- *   memories (not agent_memories)
- *   tasks    (not agent_intents)
- *   locks    (not file_locks)
- *
- * Column renames:
- *   importance_score → importance
- *   intent_id        → task_id
- *   tags_text        → (gone; use tags_json JSON array)
- *   references_json  → (gone; use memory_refs table)
+ * Core tables: memories, tasks, locks.
+ * Core columns: importance, task_id, tags_json, memory_refs.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -35,7 +27,7 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-/** Insert a memory using the NEW memories table. */
+/** Insert a memory using the memories table. */
 function insertMem(
   db: DatabaseSync,
   opts: {
@@ -103,9 +95,9 @@ function insertLock(
   return lockId;
 }
 
-// ─── 1. pruneStale — uses locks + tasks (not file_locks / agent_intents) ──────
+// ─── 1. pruneStale — uses locks + tasks ──────────────────────────────────────
 
-describe('pruneStale — new schema (locks + tasks)', () => {
+describe('pruneStale — locks + tasks', () => {
   it('dry_run returns would_prune without deleting', () => {
     const db = freshDb();
     const taskId = insertTask(db);
@@ -122,7 +114,7 @@ describe('pruneStale — new schema (locks + tasks)', () => {
     expect(lockCount).toBe(1);
   });
 
-  it('prunes expired locks from the locks table (not file_locks)', () => {
+  it('prunes expired locks from the locks table', () => {
     const db = freshDb();
     const taskId = insertTask(db);
     const past = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -165,7 +157,7 @@ describe('pruneStale — new schema (locks + tasks)', () => {
 
 // ─── 2. getWorkspaceStatus — uses memories + tasks + locks ────────────────────
 
-describe('getWorkspaceStatus — new schema', () => {
+describe('getWorkspaceStatus — current schema', () => {
   it('returns active_memories count from the memories table', () => {
     const db = freshDb();
     insertMem(db);
@@ -193,7 +185,7 @@ describe('getWorkspaceStatus — new schema', () => {
     expect(status.active_tasks).toBeGreaterThanOrEqual(1);
   });
 
-  it('returns active locks from locks table (not file_locks)', () => {
+  it('returns active locks from locks table', () => {
     const db = freshDb();
     const taskId = insertTask(db);
     const future = new Date(Date.now() + 10 * 60_000).toISOString();
@@ -206,7 +198,7 @@ describe('getWorkspaceStatus — new schema', () => {
   });
 });
 
-// ─── 3. notifyGet — reads from memories (not agent_memories) ─────────────────
+// ─── 3. notifyGet — reads from memories ──────────────────────────────────────
 
 describe('notifyGet — smart briefing from memories table', () => {
   it('returns empty briefing when no memories exist', () => {
@@ -215,7 +207,7 @@ describe('notifyGet — smart briefing from memories table', () => {
     expect(res.ok).toBe(true);
   });
 
-  it('surfaces high-importance memories from memories table using importance column (not importance_score)', () => {
+  it('surfaces high-importance memories from memories table using importance column', () => {
     const db = freshDb();
     insertMem(db, {
       importance: 8,
@@ -246,10 +238,10 @@ describe('notifyGet — smart briefing from memories table', () => {
   });
 });
 
-// ─── 4. exportHarness — JSON tag matching, no tags_text column ────────────────
+// ─── 4. exportHarness — JSON tag matching ────────────────────────────────────
 
-describe('exportHarness — new schema tag matching', () => {
-  it('surfaces harness-tagged memories using tags_json (not tags_text)', () => {
+describe('exportHarness — tag matching', () => {
+  it('surfaces harness-tagged memories using tags_json', () => {
     const db = freshDb();
     insertMem(db, {
       importance: 8,
@@ -299,7 +291,7 @@ describe('exportHarness — new schema tag matching', () => {
   });
 });
 
-// ─── 5. sessionCapture — uses tasks table (not agent_intents) ─────────────────
+// ─── 5. sessionCapture — uses tasks table ────────────────────────────────────
 
 describe('sessionCapture — tasks table', () => {
   it('returns captured=false when no active/pending tasks exist', () => {

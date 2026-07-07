@@ -230,34 +230,35 @@ Param: `instructions` — focus hint for compaction summary (used with `compact`
 
 ---
 
-## Memory / Awareness Tools
+## Memory / Awareness And Reflection Tools
 
-See [`MEMORY_AGENT_FLOW.md`](./MEMORY_AGENT_FLOW.md) and [`REFLECT.md`](./REFLECT.md) for detailed flow diagrams and usage patterns.
+See [`MEMORY_AGENT_FLOW.md`](./MEMORY_AGENT_FLOW.md) for live coordination and [`REFLECT.md`](./REFLECT.md) for the `octocode-reflection` learning loop.
 
 ### Lifecycle pattern
 
 ```
-[Start of work]  memory_recall → memory_refine_get → workspace_status
-[During work]    memory_record (root causes, decisions, gotchas)
-                 agent_signal  (coordination inbox: questions, handoffs, blockers)
+[Awareness/start] memory_recall → memory_refine_get → workspace_status
+[Awareness/work]  agent_signal  (coordination inbox: questions, handoffs, blockers)
                  file_lock     (parallel-safe edit coordination)
-[After edits]    memory_audit_unverified → memory_verify(allPending:true)
-[End of work]    memory_reflect (lesson, fix_repo, fix_harness)
+[Awareness/after] memory_audit_unverified → memory_verify(allPending:true)
+[Reflection/end] memory_record (verified root causes, decisions, gotchas)
+                 memory_reflect (lesson, fix_repo, fix_harness)
 ```
 
 ### Tool quick-reference
 
 | Tool | Purpose |
 |------|---------|
-| `memory_recall` | Retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
-| `memory_record` | Store verified root cause, decision, workaround, gotcha; reports novelty + similar-memory candidates for supersede decisions |
-| `memory_reflect` | Capture post-task lesson; creates repo-fix refinements, clusters failure patterns; supports `judgment_note`, `duo`, `eval_failures` |
+| `memory_recall` | Awareness: retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
+| `memory_record` | Reflection: store verified root cause, decision, workaround, gotcha; reports novelty + similar-memory candidates for supersede decisions |
+| `memory_reflect` | Reflection: capture post-task lesson; creates repo-fix refinements, clusters failure patterns; supports `judgment_note`, `duo`, `eval_failures` |
 | `workspace_status` | Show active locks, working agents, open signals/refinements, store stats |
 | `agent_signal` | Coordination inbox — actions: `publish` · `list` · `reply` · `resolve` · `ack` |
 | `file_lock` | Explicit file locks for parallel agents — types: `lock` · `release` · `status` · `renew` |
 | `memory_refine_get` | List open repo-fix refinements |
-| `memory_audit_unverified` | List pending edit intents needing verification |
-| `memory_verify` | Mark intents verified/failed — prefer `allPending:true` for batch |
+| `memory_audit_unverified` | List pending edit tasks needing verification |
+| `memory_verify` | Mark tasks verified/failed — prefer `allPending:true` for batch |
+| `memory_export_harness` | Reflection: export human-reviewed skill/harness proposals; never writes files |
 
 ### Aliases (compatibility)
 

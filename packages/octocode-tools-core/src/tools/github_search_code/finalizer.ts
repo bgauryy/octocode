@@ -50,8 +50,7 @@ function hasScopedGitHubQuery(
   const queriesById = queryById(queries);
   return emptyQueries.some(empty => {
     const query = queriesById.get(empty.id) as
-      | (QueryWithPagination & { owner?: unknown; repo?: unknown })
-      | undefined;
+      (QueryWithPagination & { owner?: unknown; repo?: unknown }) | undefined;
     return typeof query?.owner === 'string' && typeof query?.repo === 'string';
   });
 }

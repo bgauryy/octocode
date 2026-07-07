@@ -42,8 +42,8 @@
     "build": "node build.mjs",
     "clean": "rm -rf dist/",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --coverage",
-    "test:quiet": "vitest run --reporter=dot --silent",
+    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify": "yarn lint && yarn test && yarn build"
   },

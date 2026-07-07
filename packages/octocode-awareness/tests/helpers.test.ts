@@ -98,7 +98,7 @@ describe('REFLECTION_IMPORTANCE', () => {
 });
 
 describe('rowToMemory', () => {
-  it('deserializes tags_json and optional references_json (new schema)', () => {
+  it('deserializes tags_json and leaves references empty when not joined', () => {
     const row = {
       memory_id: 'm1', agent_id: 'a', task_context: 't', observation: 'o',
       importance: 5, state: 'ACTIVE', label: 'BUG',
@@ -116,7 +116,7 @@ describe('rowToMemory', () => {
     expect(mem.state).toBe('ACTIVE');
   });
 
-  it('returns empty references when no references_json is present (standard new-schema query)', () => {
+  it('returns empty references for a plain memory row', () => {
     const row = {
       memory_id: 'm2', agent_id: 'a', task_context: 't', observation: 'o',
       importance: 7, state: 'ACTIVE', label: 'DECISION',
@@ -127,7 +127,7 @@ describe('rowToMemory', () => {
       expired_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: null,
     };
     const mem = rowToMemory(row as Parameters<typeof rowToMemory>[0]);
-    // references are in memory_refs table; absent from plain m.* query → empty array
+    // references are in memory_refs table; absent from plain m.* query -> empty array
     expect(mem.references).toEqual([]);
     expect(mem.tags).toEqual([]);
     expect(mem.importance).toBe(7);

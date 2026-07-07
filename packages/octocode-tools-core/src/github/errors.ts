@@ -25,8 +25,7 @@ export function isNoResultsSearchError(error: unknown): boolean {
 
   const errors = (
     error.response?.data as
-      | { errors?: Array<{ message?: unknown }> }
-      | undefined
+      { errors?: Array<{ message?: unknown }> } | undefined
   )?.errors;
   if (!Array.isArray(errors) || errors.length === 0) return false;
 

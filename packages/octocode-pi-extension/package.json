@@ -60,13 +60,14 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:skills": "node scripts/build.mjs --skills-only",
     "clean": "node scripts/build.mjs --clean",
     "lint": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "yarn build && vitest run",
-    "test:unit": "vitest run",
-    "test:watch": "vitest --watch",
-    "test:coverage": "vitest run --coverage",
+    "test": "yarn build && node ../../node_modules/vitest/vitest.mjs run",
+    "test:unit": "node ../../node_modules/vitest/vitest.mjs run",
+    "test:watch": "node ../../node_modules/vitest/vitest.mjs --watch",
+    "test:coverage": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "verify": "yarn typecheck && yarn test",
     "check:no-workspace": "node scripts/check-no-workspace-protocol.mjs",
     "prepack": "node scripts/check-no-workspace-protocol.mjs && yarn build",
@@ -77,7 +78,9 @@
     "extensions": [
       "./dist/index.js"
     ],
-    "skills": []
+    "skills": [
+      "./dist/skills"
+    ]
   },
   "publishConfig": {
     "access": "public"

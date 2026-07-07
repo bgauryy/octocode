@@ -96,7 +96,7 @@ describe('notifications', () => {
     const ack = agentSignal(db, {
       action: 'ack',
       agentId: 'agent-b',
-      notificationIds: [published.signal_id],
+      signalIds: [published.signal_id],
       workspacePath: '/repo',
     });
     expect(ack.action).toBe('ack');

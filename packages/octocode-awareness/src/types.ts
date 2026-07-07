@@ -808,7 +808,7 @@ export interface AgentSignalParams {
   importance?: number;
   inReplyTo?: string | null;
   threadId?: string | null;
-  notificationIds?: string[];
+  signalIds?: string[];
   unreadOnly?: boolean;
   markRead?: boolean;
   kinds?: NotificationKind[];

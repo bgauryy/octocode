@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { connectDb, resolveDbPath } from './db.js';
 
 // HOOK-1: Module-level DB singleton keyed by dbPath.
-// connectDb runs initDb (which runs all migration checks) on every call.
+// connectDb runs initDb on every call so local stores stay ready for hooks.
 // For a session with many tool calls this is extremely expensive.
 // A cached connection is safe: node:sqlite DatabaseSync is single-threaded and
 // the module lives in one Node.js worker.
@@ -58,7 +58,7 @@ export interface PiToolEvent {
 
 export interface PiAwarenessBridgeOptions {
   pendingToolFiles?: Map<string, string[]>;
-  pendingToolIntents?: Map<string, string>;
+  pendingToolTasks?: Map<string, string>;
   dbPath?: string | null;
   getDb?: (ctx?: PiLikeContext) => DatabaseSync;
 }
@@ -187,15 +187,15 @@ function defaultGetDb(options: PiAwarenessBridgeOptions, ctx?: PiLikeContext): D
 
 export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) {
   const pendingToolFiles = options.pendingToolFiles ?? new Map<string, string[]>();
-  const pendingToolIntents = options.pendingToolIntents ?? new Map<string, string>();
+  const pendingToolTasks = options.pendingToolTasks ?? new Map<string, string>();
   const getDb = options.getDb ?? ((ctx?: PiLikeContext) => defaultGetDb(options, ctx));
 
   return {
     pendingToolFiles,
-    pendingToolIntents,
+    pendingToolTasks,
 
     async handleToolCall(event: PiToolEvent, ctx?: PiLikeContext) {
-      if (event?.toolCallId && pendingToolIntents.has(event.toolCallId)) return undefined;
+      if (event?.toolCallId && pendingToolTasks.has(event.toolCallId)) return undefined;
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
       if (targetFiles.length === 0) return undefined;
 
@@ -224,7 +224,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
 
         if (event?.toolCallId) {
           pendingToolFiles.set(event.toolCallId, targetFiles);
-          pendingToolIntents.set(event.toolCallId, result.task.task_id);
+          pendingToolTasks.set(event.toolCallId, result.task.task_id);
         }
         return undefined;
       } catch (error) {
@@ -235,21 +235,21 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
 
     async handleToolResult(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = event?.toolCallId ? pendingToolFiles.get(event.toolCallId) : undefined;
-      const intentId = event?.toolCallId ? pendingToolIntents.get(event.toolCallId) : undefined;
+      const taskId = event?.toolCallId ? pendingToolTasks.get(event.toolCallId) : undefined;
       const fallbackFiles = targetFiles ?? extractPiWriteTargetPaths(event?.toolName, event?.input);
-      if (fallbackFiles.length === 0 && !intentId) return undefined;
+      if (fallbackFiles.length === 0 && !taskId) return undefined;
 
       if (event?.toolCallId) {
         pendingToolFiles.delete(event.toolCallId);
-        pendingToolIntents.delete(event.toolCallId);
+        pendingToolTasks.delete(event.toolCallId);
       }
       try {
         const db = getDb(ctx);
         releaseFileLock(db, {
           agentId: getPiAwarenessAgentId(ctx),
           sessionId: getPiAwarenessSessionId(ctx),
-          taskId: intentId,
-          targetFiles: intentId ? [] : fallbackFiles,
+          taskId,
+          targetFiles: taskId ? [] : fallbackFiles,
           workspacePath: ctx?.cwd ?? process.cwd(),
           artifact: artifactFrom(ctx, event as Record<string, unknown>),
           status: 'PENDING',

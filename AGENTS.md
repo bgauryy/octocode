@@ -93,6 +93,11 @@ No backward compat by default — refactor freely, delete dead paths, add shims 
 Local skills: .agents/skills/ — octocode (architecture) · rust-package-node (napi-rs).
 Use octocode-awareness (.agents/skills/octocode-awareness) for cross-run memory.
 
+Awareness skills source of truth: `packages/octocode-awareness/skills/`.
+Edit `packages/octocode-awareness/skills/octocode-awareness` and
+`packages/octocode-awareness/skills/octocode-reflection` there, not under root `skills/`.
+Root `skills/` copies are generated/install surfaces only; `skills/octocode-reflection` must not exist.
+
 Access: packages/*/src/, tests/, docs/ ✅ · *.json, *.config.*, Cargo.toml, scripts/ ⚠️ ask · .env*, node_modules/, dist/, out/, target/ ❌
 
 ## Docs (docs/)

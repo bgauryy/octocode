@@ -22,8 +22,17 @@ import {
   fileLock,
   getPiAwarenessSessionId,
 } from '@octocodeai/octocode-awareness';
+import type {
+  AgentSignalResult,
+  FileLockResult,
+  InsertMemoryResult,
+  LockType,
+  MarkVerifiedResult,
+  NotificationKind,
+  TaskStatus,
+} from '@octocodeai/octocode-awareness';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import type { PiContext, PiTheme, ToolDefinition, ToolCallResult } from '../types.js';
 import { buildMemoryRenderCall, buildMemoryRenderResult } from './render-helpers.js';
 import { stringEnumSchema } from './schema-helpers.js';
@@ -143,11 +152,6 @@ function scopeReferences(request: Record<string, unknown>): string[] {
   return [...references, ...file, ...files, ...folders];
 }
 
-function primaryScopePath(request: Record<string, unknown>): string | null {
-  if (typeof request['file'] === 'string') return request['file'];
-  return stringArray(request['files'])[0] ?? stringArray(request['folders'])[0] ?? null;
-}
-
 function recallQuery(request: Record<string, unknown>, type: string): string {
   // TOOL-4: Only use the semantic query text for FTS search. File paths, folder
   // paths, and repo names are STRUCTURAL scope filters — they must be passed as
@@ -198,14 +202,13 @@ function runMemoryOperation(
         observation?: string;
         task_context?: string;
         label?: string;
-        importance_score?: number;
+        importance?: number;
         score?: number;
         tags?: string[];
         references?: string[];
         failure_signature?: string;
         repo?: string;
         ref?: string;
-        file?: string;
       };
       const memories = (result.memories as MemRecord[]).map((m) => {
         const lean: Record<string, unknown> = {
@@ -213,7 +216,7 @@ function runMemoryOperation(
           observation: m.observation,
           task_context: m.task_context,
           label: m.label,
-          importance: m.importance_score,
+          importance: m.importance,
           score: Math.round((m.score ?? 0) * 100) / 100,
         };
         if (m.tags?.length) lean['tags'] = m.tags;
@@ -221,7 +224,14 @@ function runMemoryOperation(
         if (m.failure_signature) lean['failure_signature'] = m.failure_signature;
         if (m.repo) lean['repo'] = m.repo;
         if (m.ref) lean['ref'] = m.ref;
-        if (m.file) lean['file'] = m.file;
+        const requestedFile = typeof request['file'] === 'string' ? resolve(cwd, request['file']) : null;
+        const fileRefs = (m.references ?? [])
+          .filter((ref) => ref.startsWith('file:') && !ref.startsWith('file://'))
+          .map((ref) => ref.slice('file:'.length));
+        const fileRef = requestedFile
+          ? fileRefs.find((ref) => (isAbsolute(ref) ? resolve(ref) : resolve(cwd, ref)) === requestedFile) ?? fileRefs[0]
+          : fileRefs[0];
+        if (fileRef) lean['file'] = isAbsolute(fileRef) ? fileRef : resolve(cwd, fileRef);
         return lean;
       });
       const recallPayload: Record<string, unknown> = { count: result.count, memories };
@@ -270,7 +280,7 @@ function runMemoryOperation(
         agentId: getAgentId(ctx),
         taskContext,
         observation,
-        importanceScore: (request['importance'] as number | undefined) ?? defaultImportance(label),
+        importance: (request['importance'] as number | undefined) ?? defaultImportance(label),
         label,
         tags: (request['tags'] as string[] | undefined) ?? [],
         references: scopeReferences(request),
@@ -281,27 +291,18 @@ function runMemoryOperation(
         workspacePath: request['workspace_path'] as string | undefined,
         repo: request['repo'] as string | undefined,
         ref: request['ref'] as string | undefined,
-        file: primaryScopePath(request),
         cwd,
-      }) as unknown as {
-        memory: {
-          memory_id: string;
-          importance_score: number;
-          label: string;
-          novelty_score?: number;
-          similar_memory_ids?: string[];
-        };
-        superseded: string[];
-      };
+        preComputedSimilar: similar,
+      }) as InsertMemoryResult;
       const payload: Record<string, unknown> = {
         memory_id: memory.memory_id,
-        importance: memory.importance_score,
+        importance: memory.importance,
         label: memory.label,
       };
       if (typeof memory.novelty_score === 'number') {
         payload['novelty'] = Math.round(memory.novelty_score * 100) / 100;
       }
-      if (memory.similar_memory_ids?.length) payload['similar'] = memory.similar_memory_ids;
+      if (similar.length) payload['similar'] = similar.map((m) => m.memory_id);
       if (superseded.length) payload['superseded'] = superseded;
       return {
         content: [{ type: 'text', text: JSON.stringify(payload) }],
@@ -401,13 +402,14 @@ function runMemoryOperation(
       });
       const payload: Record<string, unknown> = {
         active_memories: result.active_memories,
-        pending_intents: result.pending_intents,
-        active_intents: result.active_intents,
+        pending_tasks: result.pending_tasks,
+        active_tasks: result.active_tasks,
         open_refinements: result.open_refinements,
       };
       if (result.locks.length > 0) {
         payload['locks'] = result.locks.map((l) => ({
           file: l.file_path,
+          task_id: l.task_id,
           agent: l.agent_id,
           type: l.lock_type,
           since: l.acquired_at,
@@ -458,22 +460,22 @@ function runMemoryOperation(
         agentId: getAgentId(ctx),
         workspacePath: cwd,
       }) as unknown as {
-        unverified: Array<{ intent_id: string; test_plan: string; target_files?: string[] }>;
-        stale_active: Array<{ intent_id: string; agent_id: string; age_hours: number; rationale: string; target_files?: string[] }>;
+        unverified: Array<{ task_id: string; test_plan: string; target_files?: string[] }>;
+        stale_active: Array<{ task_id: string; agent_id: string; age_hours: number; rationale: string; target_files?: string[] }>;
         count: number;
       };
       const pending = result.unverified.map((i) => {
-        const lean: Record<string, unknown> = { intent_id: i.intent_id, test_plan: i.test_plan };
+        const lean: Record<string, unknown> = { task_id: i.task_id, test_plan: i.test_plan };
         if (i.target_files?.length) lean['files'] = i.target_files;
         return lean;
       });
-      // VER-2: Include stale ACTIVE intents (orphaned sessions) in audit output
+      // VER-2: Include stale ACTIVE tasks (orphaned sessions) in audit output
       const stale = (result.stale_active ?? []).map((i) => {
         const lean: Record<string, unknown> = {
-          intent_id: i.intent_id,
+          task_id: i.task_id,
           agent_id: i.agent_id,
           age_hours: i.age_hours,
-          reason: `ACTIVE intent with no live file_locks (orphaned session) — ${i.rationale}`,
+          reason: `ACTIVE task with no live locks (orphaned session) — ${i.rationale}`,
         };
         if (i.target_files?.length) lean['files'] = i.target_files;
         return lean;
@@ -487,8 +489,8 @@ function runMemoryOperation(
     }
 
     case 'verify': {
-      const singleId = request['intent_id'] as string | undefined;
-      const batchIds = Array.isArray(request['intent_ids']) ? (request['intent_ids'] as unknown[]).map(String) : [];
+      const singleId = request['task_id'] as string | undefined;
+      const batchIds = Array.isArray(request['task_ids']) ? (request['task_ids'] as unknown[]).map(String) : [];
       const allPending = Boolean(request['allPending']);
       const verifyStatus = ((request['status'] as string | undefined) ?? 'SUCCESS') as 'SUCCESS' | 'FAILED';
       const agentId = getAgentId(ctx);
@@ -496,14 +498,18 @@ function runMemoryOperation(
       // TOOL-3: allPending=true delegates to markVerified(allPending:true) which runs
       // a single UPDATE batch query instead of auditUnverified + N individual markVerified
       // calls. Single + batch IDs are still handled individually so callers get
-      // per-intent results for those.
+      // per-task results for those.
       if (allPending && !singleId && batchIds.length === 0) {
-        const r = markVerified(db, { allPending: true, agentId, workspacePath: cwd, status: verifyStatus }) as unknown as {
-          ok: boolean; intent_id: string | null; intent_ids: string[]; count: number; status: string;
-        };
+        const r = markVerified(db, { allPending: true, agentId, workspacePath: cwd, status: verifyStatus }) as MarkVerifiedResult;
+        if (!r.ok) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ task_id: r.task_id, error: r.error }) }],
+            details: { exit: 1 },
+          };
+        }
         return {
-          content: [{ type: 'text', text: JSON.stringify({ count: r.count, intent_ids: r.intent_ids, status: r.status }) }],
-          details: { exit: r.ok ? 0 : 1 },
+          content: [{ type: 'text', text: JSON.stringify({ count: r.count, task_ids: r.task_ids ?? [], status: r.status }) }],
+          details: { exit: 0 },
         };
       }
 
@@ -514,22 +520,20 @@ function runMemoryOperation(
       if (allPending) {
         // Mixed mode: allPending + explicit IDs — gather pending and merge.
         const pending = auditUnverified(db, { agentId, workspacePath: cwd }) as unknown as {
-          unverified: Array<{ intent_id: string }>;
+          unverified: Array<{ task_id: string }>;
         };
-        for (const i of pending.unverified) if (!ids.includes(i.intent_id)) ids.push(i.intent_id);
+        for (const i of pending.unverified) if (!ids.includes(i.task_id)) ids.push(i.task_id);
       }
 
       if (ids.length === 0) {
-        throw new Error('memory_verify requires intent_id, intent_ids[], or allPending:true');
+        throw new Error('memory_verify requires task_id, task_ids[], or allPending:true');
       }
 
-      const verifyResults = ids.map((intentId) => {
-        const r = markVerified(db, { intentId, agentId, status: verifyStatus }) as unknown as {
-          ok: boolean; intent_id: string | null; status?: string; error?: string;
-        };
+      const verifyResults = ids.map((taskId) => {
+        const r = markVerified(db, { taskId, agentId, status: verifyStatus }) as MarkVerifiedResult;
         return r.ok
-          ? { intent_id: r.intent_id, status: r.status }
-          : { intent_id: r.intent_id, error: r.error };
+          ? { task_id: r.task_id, status: r.status }
+          : { task_id: r.task_id, error: r.error };
       });
 
       const allOk = verifyResults.every((r) => !('error' in r));
@@ -680,7 +684,7 @@ function runMemoryOperation(
         repo: request['repo'] as string | undefined,
         ref: request['ref'] as string | undefined,
         toAgents: request['to_agent'] ? [String(request['to_agent'])] : [],
-        kind: notifyKind as import('@octocodeai/octocode-awareness').NotificationKind,
+        kind: notifyKind as NotificationKind,
         subject: notifySubject,
         body: request['body'] as string | undefined ?? null,
         files: notifyFiles,
@@ -700,14 +704,14 @@ function runMemoryOperation(
       }
       const toAgents = Array.isArray(request['to_agents']) ? request['to_agents'] as string[] : request['to_agent'] ? [String(request['to_agent'])] : [];
       const refs = Array.isArray(request['refs']) ? request['refs'] as string[] : [];
-      const kinds = Array.isArray(request['kinds']) ? request['kinds'] as import('@octocodeai/octocode-awareness').NotificationKind[] : [];
+      const kinds = Array.isArray(request['kinds']) ? request['kinds'] as NotificationKind[] : [];
       const result = agentSignal(db, {
         action: rawAction,
         agentId: (request['agent_id'] as string | undefined) ?? getAgentId(ctx),
         workspacePath: (request['workspace_path'] as string | undefined) ?? cwd,
         repo: request['repo'] as string | undefined,
         ref: request['ref'] as string | undefined,
-        kind: request['kind'] as import('@octocodeai/octocode-awareness').NotificationKind | undefined,
+        kind: request['kind'] as NotificationKind | undefined,
         subject: request['subject'] as string | undefined,
         body: request['body'] as string | undefined ?? null,
         toAgents,
@@ -716,13 +720,13 @@ function runMemoryOperation(
         importance: request['importance'] as number | undefined,
         inReplyTo: (request['in_reply_to'] as string | undefined) ?? null,
         threadId: (request['thread_id'] as string | undefined) ?? null,
-        notificationIds: stringArray(request['notification_ids']),
+        signalIds: stringArray(request['signal_ids']),
         unreadOnly: request['unread_only'] as boolean | undefined,
         markRead: request['mark_read'] as boolean | undefined,
         kinds,
         limit: request['limit'] as number | undefined,
         cwd,
-      });
+      }) as AgentSignalResult;
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
         details: { exit: 0 },
@@ -742,20 +746,22 @@ function runMemoryOperation(
         agentId,
         sessionId: (request['sessionId'] as string | undefined) ?? (request['session_id'] as string | undefined) ?? getPiAwarenessSessionId(ctx),
         workspacePath,
-        intentId: (request['intentId'] as string | undefined) ?? (request['intent_id'] as string | undefined) ?? null,
+        taskId: (request['taskId'] as string | undefined) ?? (request['task_id'] as string | undefined) ?? null,
         targetFiles,
-        lockType: request['lockType'] as import('@octocodeai/octocode-awareness').LockType | undefined ?? request['lock_type'] as import('@octocodeai/octocode-awareness').LockType | undefined,
+        lockType: request['lockType'] as LockType | undefined ?? request['lock_type'] as LockType | undefined,
         ttlMs: (request['ttlMs'] as number | undefined) ?? (request['ttl_ms'] as number | undefined) ?? null,
-        status: request['status'] as import('@octocodeai/octocode-awareness').IntentStatus | undefined,
+        status: request['status'] as TaskStatus | undefined,
         verified: request['verified'] as boolean | undefined,
         verifiedNote: (request['verifiedNote'] as string | undefined) ?? (request['verified_note'] as string | undefined),
         reasoning: request['reasoning'] as string | undefined,
-      });
-      if (result.ok === false && request['signal_on_conflict'] !== false) {
+      }) as FileLockResult;
+      if (result.type === 'lock' && result.ok === false && request['signal_on_conflict'] !== false) {
+        const conflictAgents = [...new Set(result.conflicts.map((conflict) => conflict.agent_id))];
         agentSignal(db, {
           action: 'publish',
           agentId,
           workspacePath,
+          toAgents: conflictAgents,
           kind: 'blocker',
           subject: `File lock conflict: ${targetFiles.slice(0, 3).join(', ') || 'target file'}`,
           body: JSON.stringify({ conflicts: result.conflicts }),
@@ -912,7 +918,7 @@ export function buildMemoryToolDefinition(
   const fileLockParams = Type.Object({
     type: fileLockTypeSchema,
     target_files: optionalStringArray(Type, 'Files to lock or release. Relative paths resolve under workspace_path/cwd.'),
-    intent_id: optionalNonEmptyString(Type, 'Precise lock intent id returned by type:lock. Required for safe release/renew.'),
+    task_id: optionalNonEmptyString(Type, 'Precise task id returned by type:lock. Required for safe release/renew.'),
     lock_type: Type.Optional(fileLockKindSchema),
     ttl_ms: Type.Optional(Type.Integer({ minimum: 1, description: 'Requested lock TTL in milliseconds; capped by awareness.' })),
     reasoning: optionalNonEmptyString(Type, 'Why this lock is needed; shown in lock/status output.'),
@@ -1047,11 +1053,11 @@ export function buildMemoryToolDefinition(
         body: optionalNonEmptyString(Type, 'Optional detail.'),
         to_agents: optionalStringArray(Type, 'Recipient agent ids; omit/empty for broadcast.'),
         files: optionalStringArray(Type, 'Files this signal concerns.'),
-        refs: optionalStringArray(Type, 'Related ids or references: memory ids, intent ids, URLs, PRs.'),
+        refs: optionalStringArray(Type, 'Related ids or references: memory ids, task ids, signal ids, URLs, PRs.'),
         importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Importance 1-10; default 5.' })),
-        in_reply_to: optionalNonEmptyString(Type, 'Parent notification id for reply threading.'),
+        in_reply_to: optionalNonEmptyString(Type, 'Parent signal id for reply threading.'),
         thread_id: optionalNonEmptyString(Type, 'Thread id for list/resolve.'),
-        notification_ids: optionalStringArray(Type, 'Notification ids for resolve/ack.'),
+        signal_ids: optionalStringArray(Type, 'Signal ids for resolve/ack.'),
         unread_only: Type.Optional(Type.Boolean({ description: 'List only unread/open signals; default true.' })),
         mark_read: Type.Optional(Type.Boolean({ description: 'Mark listed signals as read.' })),
         kinds: Type.Optional(Type.Array(notificationKindSchema, { description: 'Filter list by signal kind.' })),
@@ -1064,10 +1070,10 @@ export function buildMemoryToolDefinition(
       name: 'file_lock',
       type: 'file_lock' as const,
       label: 'File Lock',
-      description: 'Manage file locks for parallel agents. type lock/release/status/renew; uses intentId as the safe release handle.',
+      description: 'Manage file locks for parallel agents. type lock/release/status/renew; uses task_id as the safe release handle.',
       promptGuidelines: [
         'Prefer automatic edit/write locks; use this for explicit coordination across parallel agents.',
-        'Release and renew by intentId whenever possible; agentId/sessionId are scope metadata, not precise lock handles.',
+        'Release and renew by task_id whenever possible; agentId/sessionId are scope metadata, not precise lock handles.',
         'Set ttl_ms for bounded work; locks are capped by awareness to the maximum safe TTL.',
         'Include reasoning so status output explains why the files are locked.',
       ],
@@ -1115,27 +1121,27 @@ export function buildMemoryToolDefinition(
       name: 'memory_audit_unverified',
       type: 'audit_unverified' as const,
       label: 'Memory: Audit Unverified',
-      description: 'List pending edit intents that still need verification. Auto-fires on agent_end; call manually only for a mid-turn check.',
+      description: 'List pending edit tasks that still need verification. Auto-fires on agent_end; call manually only for a mid-turn check.',
       promptGuidelines: [
         'Run mid-turn when you suspect unverified edits; the agent_end hook already performs the final audit.',
-        'If pending intents exist, run the stated checks and clear with memory_verify({intent_ids:[...], status}) for batch, memory_verify({allPending:true}) to clear all, or memory_verify({intent_id, status}) for one.',
+        'If pending tasks exist, run the stated checks and clear with memory_verify({task_ids:[...], status}) for batch, memory_verify({allPending:true}) to clear all, or memory_verify({task_id, status}) for one.',
       ],
       parameters: Type.Object({}),
     },
     {
       name: 'memory_verify',
       type: 'verify' as const,
-      label: 'Memory: Verify Intent',
-      description: 'Mark a pending edit intent as verified or failed after running its check. Accepts a single intent_id, a batch intent_ids[] array, or allPending:true to clear every pending intent for this agent in one call.',
+      label: 'Memory: Verify Task',
+      description: 'Mark a pending edit task as verified or failed after running its check. Accepts a single task_id, a batch task_ids[] array, or allPending:true to clear every pending task for this agent in one call.',
       promptGuidelines: [
-        'Use only after running the stated verification for the intent.',
+        'Use only after running the stated verification for the task.',
         'Never mark SUCCESS just to clear the gate.',
-        'Prefer intent_ids[] or allPending:true to clear multiple intents in a single tool call instead of looping.',
+        'Prefer task_ids[] or allPending:true to clear multiple tasks in a single tool call instead of looping.',
       ],
       parameters: Type.Object({
-        intent_id: optionalNonEmptyString(Type, 'Single pending intent id to verify.'),
-        intent_ids: Type.Optional(Type.Array(nonEmptyString(Type, 'Pending intent id to verify.'), { minItems: 1, description: 'Batch: list of pending intent ids to verify in one call.' })),
-        allPending: Type.Optional(Type.Boolean({ description: 'Verify ALL pending intents for this agent in one call. Pair with status.' })),
+        task_id: optionalNonEmptyString(Type, 'Single pending task id to verify.'),
+        task_ids: Type.Optional(Type.Array(nonEmptyString(Type, 'Pending task id to verify.'), { minItems: 1, description: 'Batch: list of pending task ids to verify in one call.' })),
+        allPending: Type.Optional(Type.Boolean({ description: 'Verify ALL pending tasks for this agent in one call. Pair with status.' })),
         status: Type.Optional(verifyStatusSchema),
       }),
     },

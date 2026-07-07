@@ -547,9 +547,7 @@ export async function searchMultipleGitHubRepos(
         // thin result set isn't read as a confident, complete answer.
         const warnings = buildPartialFailureWarnings(failedVariants);
 
-        const resultData = warnings
-          ? { ...shape.data, warnings }
-          : shape.data;
+        const resultData = warnings ? { ...shape.data, warnings } : shape.data;
 
         return createSuccessResult(
           query,

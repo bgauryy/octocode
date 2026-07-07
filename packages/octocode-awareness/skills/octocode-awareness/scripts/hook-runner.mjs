@@ -7,6 +7,8 @@ process.on('warning', (w) => {
 
 // bin/hook-runner.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
+import { mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
+import { join as join2 } from "node:path";
 
 // src/db.ts
 import { DatabaseSync } from "node:sqlite";
@@ -1100,13 +1102,12 @@ function notifyGet(db2, params = {}) {
   } catch {
   }
   if (items.length === 0) {
-    return { ok: true, count: 0, notifications: [], schema_version: 1 };
+    return { ok: true, count: 0, notifications: [] };
   }
   const result = {
     ok: true,
     count: items.length,
-    notifications: items,
-    schema_version: 1
+    notifications: items
   };
   if (format === "hook") {
     const lines = [
@@ -1271,7 +1272,6 @@ function digest(db2, params = {}) {
       pruned_locks: 0,
       pruned_refinements: 0,
       fts_rebuilt: false,
-      schema_version: 1,
       dry_run: true,
       would_archive: wouldArchive,
       would_prune_old: wouldPruneOld,
@@ -1308,8 +1308,7 @@ function digest(db2, params = {}) {
     pruned_old: deleteRes.changes,
     pruned_locks,
     pruned_refinements: pruneRefinementsRes.changes,
-    fts_rebuilt: ftsRebuilt,
-    schema_version: 1
+    fts_rebuilt: ftsRebuilt
   };
 }
 
@@ -1551,15 +1550,19 @@ function maybeRunDigest(payload) {
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
-  const markerKey = "__octocode_last_digest_epoch_ms";
+  const markerPath = join2(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
-    database.exec("CREATE TABLE IF NOT EXISTS awareness_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-    const row = database.prepare("SELECT value FROM awareness_meta WHERE key = ?").get(markerKey);
-    const last = Number(row?.value ?? 0);
+    let last = 0;
+    try {
+      last = Number(readFileSync(markerPath, "utf8").trim() || 0);
+    } catch {
+      last = 0;
+    }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
-      database.prepare("INSERT OR REPLACE INTO awareness_meta (key, value) VALUES (?, ?)").run(markerKey, String(now));
+      mkdirSync2(memoryHome2, { recursive: true });
+      writeFileSync(markerPath, String(now), "utf8");
       digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
     }
   } catch {

@@ -232,18 +232,13 @@ describe('endSession', () => {
 
 // ─── 4. session_id links correctly to memories ────────────────────────────────
 //
-// Requires memories.session_id TEXT REFERENCES sessions(session_id) ON DELETE SET NULL.
-// The column does not yet exist in the schema; these tests degrade to a schema-shape
-// assertion until the migration adds the column.
+// Document the planned memories.session_id link without requiring it yet.
 
 describe('session_id links correctly to memories', () => {
-  it('memories table eventually gains a session_id column', () => {
+  it('documents whether memories has a session_id column', () => {
     const db = freshDb();
     const cols = tableColumns(db, 'memories');
-    // Drive the migration: this assertion will fail (and be fixed) when the
-    // column is added.  Until then it documents the gap.
     if (!cols.has('session_id')) {
-      // Column absent — document and skip FK assertions.
       expect(cols.has('session_id')).toBe(false);
       return;
     }

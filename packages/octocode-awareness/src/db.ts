@@ -255,7 +255,7 @@ export function initDb(db: DatabaseSync): void {
     );
   `);
 
-  // Additive migrations for stores created by earlier clean-schema builds.
+  // Keep current schema columns present when a local dev database is reused.
   ensureColumn(db, 'sessions', 'artifact', 'TEXT');
   ensureColumn(db, 'memories', 'artifact', 'TEXT');
   ensureColumn(db, 'tasks', 'artifact', 'TEXT');

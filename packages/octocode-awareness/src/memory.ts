@@ -251,7 +251,7 @@ export function lexicalSearch(
     conditions.push(`m.label IN (${labels.map(() => '?').join(',')})`);
     params.push(...labels);
   }
-  // Use json_each subquery for tag filtering (tags_text column removed).
+  // Use json_each subquery for tag filtering.
   for (const tag of tags) {
     conditions.push('EXISTS (SELECT 1 FROM json_each(m.tags_json) WHERE value = ?)');
     params.push(tag);
@@ -292,6 +292,31 @@ export function lexicalSearch(
     mem.score = decayScore(mem, lexical);
     return mem;
   });
+}
+
+function attachMemoryReferences(db: DatabaseSync, memories: MemoryRecord[]): void {
+  if (memories.length === 0) return;
+  try {
+    const ids = [...new Set(memories.map(m => m.memory_id))];
+    const ph = ids.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${ph})
+       ORDER BY memory_id, ordinal`
+    ).all(...ids) as unknown as Array<{ memory_id: string; reference: string }>;
+    const refsByMemory = new Map<string, string[]>();
+    for (const row of rows) {
+      const refs = refsByMemory.get(row.memory_id) ?? [];
+      refs.push(row.reference);
+      refsByMemory.set(row.memory_id, refs);
+    }
+    for (const memory of memories) {
+      memory.references = refsByMemory.get(memory.memory_id) ?? [];
+    }
+  } catch (e) {
+    if (!(e instanceof Error && e.message.includes('no such table'))) throw e;
+  }
 }
 
 // ─── bumpAccess ───────────────────────────────────────────────────────────────
@@ -505,6 +530,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
       cwd: cwdParam,
     },
   );
+  attachMemoryReferences(db, memories);
 
   // Workspace scope filter
   const resolvedScope = fillScope(
@@ -516,9 +542,12 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   // now tracked via memory_refs with prefix "file:"). For forward compatibility we
   // keep the filter logic but match against the references array instead.
   if (files.length > 0) {
-    const normFiles = new Set(
-      files.map(f => normalizeFilePath(f, cwdParam ?? workspacePath ?? undefined) ?? f)
-    );
+    const normFiles = new Set<string>();
+    for (const file of files) {
+      normFiles.add(file);
+      const normalized = normalizeFilePath(file, cwdParam ?? workspacePath ?? undefined);
+      if (normalized) normFiles.add(normalized);
+    }
     const normFileRefs = new Set([...normFiles].map(f => `file:${f}`));
     memories = memories.filter(m =>
       m.references.some(r => normFiles.has(r) || normFileRefs.has(r))
@@ -527,69 +556,62 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
 
   // Reference filter — use memory_refs table (always populated via replaceMemoryReferences).
   // MEM-1: A zero result from the table means "no matches", not "table unavailable".
-  // The JSON scan fallback only fires when the table itself throws (e.g. very old DB without
-  // the table), not when it returns 0 rows.
   // MEM-2: Apply the reference filter BEFORE the FTS prefetch cap matters: fetch all reference-
   // matched memory_ids from the table first, then load any that were outside the FTS prefetch
   // window directly (bypassing the cap). Without this, a low-BM25 memory that matches the
   // reference but isn't in the top limit×3 FTS rows is silently dropped.
   if (references.length > 0) {
-    const refSet = new Set(references);
-    try {
-      const fromTable = new Set<string>();
-      for (const ref of references) {
-        const rows = db.prepare(
-          'SELECT memory_id FROM memory_refs WHERE reference = ?'
-        ).all(ref) as unknown as Array<{ memory_id: string }>;
-        rows.forEach(r => fromTable.add(r.memory_id));
-      }
-      if (fromTable.size > 0) {
-        // Load any reference-matched memories that didn't make it through the FTS prefetch cap.
-        const existingIds = new Set(memories.map(m => m.memory_id));
-        const missingIds = [...fromTable].filter(id => !existingIds.has(id));
-        if (missingIds.length > 0) {
-          const ph = missingIds.map(() => '?').join(',');
-          type MRow = MemoryRow & { _bm25?: number };
-
-          // FIX #7 (P1): apply the same workspace/scope filters to the "extra" query so
-          // reference-matched rows that missed the FTS cap still respect scope boundaries.
-          const extraConditions: string[] = [
-            `m.memory_id IN (${ph})`,
-            `m.importance >= ?`,
-            `m.state IN (${states.map(() => '?').join(',')})`,
-          ];
-          const extraParams: (string | number)[] = [...missingIds, minImportance, ...states];
-
-          if (globalOnly) {
-            extraConditions.push('m.workspace_path IS NULL', 'm.artifact IS NULL', 'm.repo IS NULL', 'm.ref IS NULL');
-          } else {
-            applyScopeConditions(extraConditions, extraParams, {
-              workspacePath: resolvedScope.workspace_path,
-              artifact: resolvedScope.artifact,
-              repo: resolvedScope.repo,
-              ref: resolvedScope.ref,
-              strictScope,
-              cwd: cwdParam,
-            });
-          }
-
-          const extra = db.prepare(
-            `SELECT m.*, 0 AS _bm25 FROM memories m WHERE ${extraConditions.join(' AND ')}`
-          ).all(...extraParams) as unknown as MRow[];
-          for (const row of extra) {
-            const mem = rowToMemory(row);
-            mem.lexical = 0;
-            mem.score = decayScore(mem, 0);
-            memories.push(mem);
-          }
-        }
-      }
-      // Authoritative result: fromTable may be empty if no memory matches these refs.
-      memories = memories.filter(m => fromTable.has(m.memory_id));
-    } catch {
-      // Table does not exist (very old schema) — degrade to inline JSON scan.
-      memories = memories.filter(m => (m.references ?? []).some(r => refSet.has(r)));
+    const fromTable = new Set<string>();
+    for (const ref of references) {
+      const rows = db.prepare(
+        'SELECT memory_id FROM memory_refs WHERE reference = ?'
+      ).all(ref) as unknown as Array<{ memory_id: string }>;
+      rows.forEach(r => fromTable.add(r.memory_id));
     }
+    if (fromTable.size > 0) {
+      // Load any reference-matched memories that didn't make it through the FTS prefetch cap.
+      const existingIds = new Set(memories.map(m => m.memory_id));
+      const missingIds = [...fromTable].filter(id => !existingIds.has(id));
+      if (missingIds.length > 0) {
+        const ph = missingIds.map(() => '?').join(',');
+        type MRow = MemoryRow & { _bm25?: number };
+
+        // FIX #7 (P1): apply the same workspace/scope filters to the "extra" query so
+        // reference-matched rows that missed the FTS cap still respect scope boundaries.
+        const extraConditions: string[] = [
+          `m.memory_id IN (${ph})`,
+          `m.importance >= ?`,
+          `m.state IN (${states.map(() => '?').join(',')})`,
+        ];
+        const extraParams: (string | number)[] = [...missingIds, minImportance, ...states];
+
+        if (globalOnly) {
+          extraConditions.push('m.workspace_path IS NULL', 'm.artifact IS NULL', 'm.repo IS NULL', 'm.ref IS NULL');
+        } else {
+          applyScopeConditions(extraConditions, extraParams, {
+            workspacePath: resolvedScope.workspace_path,
+            artifact: resolvedScope.artifact,
+            repo: resolvedScope.repo,
+            ref: resolvedScope.ref,
+            strictScope,
+            cwd: cwdParam,
+          });
+        }
+
+        const extra = db.prepare(
+          `SELECT m.*, 0 AS _bm25 FROM memories m WHERE ${extraConditions.join(' AND ')}`
+        ).all(...extraParams) as unknown as MRow[];
+        for (const row of extra) {
+          const mem = rowToMemory(row);
+          mem.lexical = 0;
+          mem.score = decayScore(mem, 0);
+          memories.push(mem);
+        }
+        attachMemoryReferences(db, memories);
+      }
+    }
+    // Authoritative result: fromTable may be empty if no memory matches these refs.
+    memories = memories.filter(m => fromTable.has(m.memory_id));
   }
 
   // Regex filter
@@ -716,7 +738,7 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
   const attrConds: string[] = [];
   const attrBinds: (string | number)[] = [];
   if (tags.length > 0) {
-    // Use json_each subquery for tag filtering (tags_text column removed).
+    // Use json_each subquery for tag filtering.
     attrConds.push(
       `(${tags.map(() => 'EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value = ?)').join(' OR ')})`
     );

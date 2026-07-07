@@ -3,14 +3,7 @@
  *
  * Thin wrapper: parse args → call domain functions → emit JSON.
  * Compiled to dist/bin/awareness.js by build.mjs.
- * Requires Node >=22.
  */
-
-// Fail fast if Node is too old
-if (parseInt(process.version.slice(1), 10) < 22) {
-  process.stderr.write(`awareness requires Node >=22 (got ${process.version})\n`);
-  process.exit(1);
-}
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -133,14 +126,13 @@ interface EmitOptions { compact?: boolean }
 
 function emit(payload: Record<string, unknown>, exitCode = 0, opts: EmitOptions = {}): number {
   payload['ok'] = payload['ok'] ?? (exitCode === 0);
-  payload['schema_version'] = 1;
   const compact = opts.compact === true || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
   process.stdout.write((compact ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)) + '\n');
   return exitCode;
 }
 
 function die(message: string, extras: Record<string, unknown> = {}): never {
-  process.stdout.write(JSON.stringify({ ok: false, error: message, schema_version: 1, ...extras }, null, 2) + '\n');
+  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, 2) + '\n');
   process.exit(1);
 }
 
@@ -150,11 +142,11 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const agentId = String(args['agent_id'] ?? 'agent');
   const taskContext = String(args['task_context'] ?? '');
   const observation = String(args['observation'] ?? '');
-  const importanceScore = args['importance'];
+  const importanceLevel = args['importance'];
 
   if (!taskContext) die('--task-context is required');
   if (!observation) die('--observation is required');
-  const imp = parseInt(String(importanceScore), 10);
+  const imp = parseInt(String(importanceLevel), 10);
   if (isNaN(imp) || imp < 1 || imp > 10) die('--importance must be 1–10');
 
   const rawTag = args['tag'];
@@ -658,8 +650,8 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
   const rawKinds = args['kind'];
   const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
-  const rawNotificationIds = args['signal_id'];
-  const notificationIds = Array.isArray(rawNotificationIds) ? rawNotificationIds : rawNotificationIds ? [String(rawNotificationIds)] : [];
+  const rawSignalIds = args['signal_id'];
+  const signalIds = Array.isArray(rawSignalIds) ? rawSignalIds : rawSignalIds ? [String(rawSignalIds)] : [];
   const result = agentSignal(db, {
     action: action as import('../src/types.js').AgentSignalAction,
     agentId: String(args['agent_id']),
@@ -676,7 +668,7 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     importance: args['importance'] ? parseInt(String(args['importance']), 10) : undefined,
     inReplyTo: args['in_reply_to'] ? String(args['in_reply_to']) : null,
     threadId: args['thread_id'] ? String(args['thread_id']) : null,
-    notificationIds,
+    signalIds,
     unreadOnly: args['all'] ? false : args['unread_only'] as boolean | undefined,
     markRead: Boolean(args['mark_read']),
     kinds: kinds as import('../src/types.js').NotificationKind[],
@@ -937,7 +929,6 @@ if (command && KNOWN_FLAGS[command]) {
       ok: false,
       error: `unknown flag(s) for ${command}: ${unknown.map((f) => `--${f.replace(/_/g, '-')}`).join(', ')}`,
       known_flags: KNOWN_FLAGS[command].map((f) => `--${f.replace(/_/g, '-')}`),
-      schema_version: 1,
     }, null, 2) + '\n');
     process.exit(1);
   }

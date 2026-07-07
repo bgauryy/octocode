@@ -72,7 +72,8 @@ function createShutdownHandler(server: McpServer, state: ShutdownState) {
         clearTimeout(state.timeout);
         state.timeout = null;
       }
-      const message = error instanceof Error ? error.message : String(error ?? 'unknown');
+      const message =
+        error instanceof Error ? error.message : String(error ?? 'unknown');
       process.stderr.write(`Shutdown error: ${message}\n`);
       process.exit(1);
     }
@@ -158,7 +159,8 @@ async function startServer() {
       startCacheGC(getOctocodeDir());
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error ?? 'unknown');
+    const message =
+      error instanceof Error ? error.message : String(error ?? 'unknown');
     process.stderr.write(`Server initialization failed: ${message}\n`);
     process.exit(1);
   }

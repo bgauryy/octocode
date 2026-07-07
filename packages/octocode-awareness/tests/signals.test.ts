@@ -1,9 +1,8 @@
 /**
- * signals.test.ts — Behavioural tests for the renamed `signals` / `signal_reads` tables.
+ * signals.test.ts — Behavioural tests for the `signals` / `signal_reads` tables.
  *
- * The old `notifications` / `notification_reads` tables have been renamed.
  * These tests verify:
- *   1. insertSignal creates a row identified by signal_id (not notification_id).
+ *   1. insertSignal creates a row identified by signal_id.
  *   2. resolveSignal sets status='resolved' AND populates resolved_at.
  *   3. reply_to threading: a reply row inherits the parent's thread_id.
  *   4. reply_to missing parent throws (no silent orphaned threads).
@@ -83,7 +82,7 @@ function resolveSignal(db: DatabaseSync, signalIds: string[]): void {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('signals', () => {
-  // ── 1. insertSignal creates a row with signal_id (not notification_id) ──────
+  // ── 1. insertSignal creates a row with signal_id ───────────────────────────
   it('insertSignal creates a row identified by signal_id', () => {
     const db = freshDb();
     const id = insertSignal(db, { subject: 'hello' });
@@ -96,7 +95,6 @@ describe('signals', () => {
     expect(row!.signal_id).toBe(id);
     expect(row!.status).toBe('open');
 
-    // The old column name must NOT exist on this table
     const cols = (
       db.prepare("PRAGMA table_info(signals)").all() as unknown as Array<{ name: string }>
     ).map(r => r.name);

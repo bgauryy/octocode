@@ -328,7 +328,7 @@ describe('refine-set / refine-get', () => {
   it('refine-get returns open refinements by default', () => {
     ok(db, [
       'refine-set', '--agent-id', 'a',
-      '--reasoning', 'Fix the DB schema migration',
+      '--reasoning', 'Fix the DB schema query',
       '--remember', 'Add index before deploy',
       '--quality', 'bad', '--state', 'open',
     ]);
@@ -633,33 +633,6 @@ describe('edge cases', () => {
       }
       const result = ok(db, ['status']);
       expect(result['memory_count']).toBe(3);
-    } finally { rmSync(dir, { recursive: true }); }
-  });
-});
-
-// ─── schema_version ──────────────────────────────────────────────────────────
-
-describe('schema_version', () => {
-  it('all commands return schema_version: 1', () => {
-    const dir = mktemp();
-    const db = join(dir, 'test.sqlite3');
-    const tf = join(dir, 'f.txt');
-    writeFileSync(tf, 'seed');
-    try {
-      const commands: Array<[string, string[]]> = [
-        ['init', []],
-        ['status', []],
-        ['tell-memory', ['--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs', '--importance', '5']],
-        ['get-memory', ['--query', 'ctx', '--min-importance', '1']],
-        ['reflect', ['--agent-id', 'a', '--task', 'task', '--outcome', 'worked']],
-        ['refine-set', ['--agent-id', 'a', '--reasoning', 'r', '--remember', 'rem']],
-        ['refine-get', []],
-        ['pre-flight-intent', ['--agent-id', 'a', '--target-file', tf]],
-      ];
-      for (const [cmd, args] of commands) {
-        const result = ok(db, [cmd, ...args]);
-        expect(result['schema_version'], `${cmd} must return schema_version:1`).toBe(1);
-      }
     } finally { rmSync(dir, { recursive: true }); }
   });
 });

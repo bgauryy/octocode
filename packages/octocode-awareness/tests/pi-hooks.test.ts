@@ -44,7 +44,7 @@ describe('createPiAwarenessBridge', () => {
 
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
       expect(bridge.pendingToolFiles.get('tool-1')).toEqual(['src/a.ts']);
-      expect(bridge.pendingToolIntents.get('tool-1')).toMatch(/^task_/);
+      expect(bridge.pendingToolTasks.get('tool-1')).toMatch(/^task_/);
       expect((db.prepare("SELECT COUNT(*) AS c FROM tasks WHERE status='ACTIVE'").get() as { c: number }).c).toBe(1);
 
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
@@ -86,13 +86,13 @@ describe('createPiAwarenessBridge', () => {
 
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-2', input: { path: 'src/a.ts' } }, ctx);
-      const secondIntent = bridge.pendingToolIntents.get('tool-2');
+      const secondTask = bridge.pendingToolTasks.get('tool-2');
       expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(2);
 
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
       expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(1);
       const remaining = db.prepare('SELECT task_id FROM locks').get() as { task_id: string };
-      expect(remaining.task_id).toBe(secondIntent);
+      expect(remaining.task_id).toBe(secondTask);
 
       const blocked = await createPiAwarenessBridge({ getDb: () => db }).handleToolCall(
         { toolName: 'edit', toolCallId: 'tool-3', input: { path: 'src/a.ts' } },

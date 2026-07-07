@@ -12,7 +12,7 @@
 
 import * as esbuild from 'esbuild';
 import { rm } from 'node:fs/promises';
-import { cpSync, copyFileSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -93,37 +93,70 @@ execSync(`${tscBin} --emitDeclarationOnly --outDir dist -p tsconfig.build.json`,
 
 console.log('✓ @octocodeai/octocode-awareness built → dist/');
 
-// ─── Sync octocode-awareness skill ─────────────────────────────────────────
-// The complete octocode-awareness skill is owned by this package. The repo-root
-// skills/octocode-awareness directory is generated from packages/octocode-awareness/skills/.
+// ─── Sync package-owned skills ─────────────────────────────────────────────
+// The complete awareness/reflection skills are owned by this package. The
+// package skill folders are canonical; only compatibility mirrors listed in
+// rootSyncedSkills are generated into repo-root skills/.
 
 const repoRoot    = resolve(__dirname, '../..');
-const skillDest   = join(repoRoot, 'skills', 'octocode-awareness');
-const skillSrc    = join(__dirname, 'skills', 'octocode-awareness');
-const scriptDest  = join(skillDest, 'scripts');
-const packageScriptDest = join(skillSrc, 'scripts');
+const skillsDestRoot = join(repoRoot, 'skills');
+const skillsSrcRoot  = join(__dirname, 'skills');
 const distBin     = join(__dirname, 'dist', 'bin');
+const rootSyncedSkills = new Set(['octocode-awareness']);
 
-// Wipe and rebuild so removed files don't linger.
-rmSync(skillDest, { recursive: true, force: true });
-mkdirSync(skillDest, { recursive: true });
-
-// 1. Canonical skill docs/references/scripts.
-cpSync(skillSrc, skillDest, {
-  recursive: true,
-  filter: (src) => !src.includes('node_modules'),
-});
-mkdirSync(scriptDest, { recursive: true });
-mkdirSync(packageScriptDest, { recursive: true });
-
-// 2. Compiled CLI — the ONLY awareness binary all platforms share.
-// schema.mjs is hand-maintained at packages/octocode-awareness/scripts/ and
-// synced here too — the two copies drifted when this was manual.
-for (const dest of [scriptDest, packageScriptDest]) {
-  copyFileSync(join(distBin, 'awareness.js'),          join(dest, 'awareness.mjs'));
-  copyFileSync(join(distBin, 'extract-hook-files.js'), join(dest, 'extract-hook-files.mjs'));
-  copyFileSync(join(distBin, 'hook-runner.js'),        join(dest, 'hook-runner.mjs'));
-  copyFileSync(join(__dirname, 'scripts', 'schema.mjs'), join(dest, 'schema.mjs'));
+const packageSkills = [];
+for (const entry of readdirSync(skillsSrcRoot, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const skillSrc = join(skillsSrcRoot, entry.name);
+  if (!existsSync(join(skillSrc, 'SKILL.md'))) continue;
+  packageSkills.push(entry.name);
 }
 
-console.log('✓ skills/octocode-awareness/ synced from packages/octocode-awareness/skills/ + dist/bin/');
+for (const skillName of packageSkills) {
+  const skillSrc = join(skillsSrcRoot, skillName);
+  const skillDest = join(skillsDestRoot, skillName);
+  const packageScriptDest = join(skillSrc, 'scripts');
+
+  // 1. Compiled scripts. All package-owned skills share the awareness CLI and
+  // schema contract; only octocode-awareness owns live edit hook helpers.
+  const scriptCopies = [
+    [join(distBin, 'awareness.js'), 'awareness.mjs'],
+    [join(__dirname, 'scripts', 'schema.mjs'), 'schema.mjs'],
+  ];
+  if (skillName === 'octocode-awareness') {
+    scriptCopies.push(
+      [join(distBin, 'extract-hook-files.js'), 'extract-hook-files.mjs'],
+      [join(distBin, 'hook-runner.js'), 'hook-runner.mjs'],
+    );
+  }
+
+  mkdirSync(packageScriptDest, { recursive: true });
+  for (const [src, fileName] of scriptCopies) {
+    copyFileSync(src, join(packageScriptDest, fileName));
+  }
+
+  if (!rootSyncedSkills.has(skillName)) {
+    // The package source is canonical. Keep root skills/ free of package-only
+    // reflection skills so agents do not edit generated/stale copies.
+    rmSync(skillDest, { recursive: true, force: true });
+    continue;
+  }
+
+  const rootScriptDest = join(skillDest, 'scripts');
+
+  // 2. Wipe and rebuild generated root copies so removed files don't linger.
+  rmSync(skillDest, { recursive: true, force: true });
+  mkdirSync(skillDest, { recursive: true });
+
+  cpSync(skillSrc, skillDest, {
+    recursive: true,
+    filter: (src) => !src.includes('node_modules'),
+  });
+
+  mkdirSync(rootScriptDest, { recursive: true });
+  for (const [src, fileName] of scriptCopies) {
+    copyFileSync(src, join(rootScriptDest, fileName));
+  }
+}
+
+console.log(`✓ package-owned skills refreshed: ${packageSkills.join(', ')}`);

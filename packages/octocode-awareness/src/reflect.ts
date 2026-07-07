@@ -13,7 +13,7 @@ import { insertHarnessLog } from './audit.js';
 import type { ReflectParams, ReflectResult, ReflectionOutcome } from './types.js';
 
 const VALID_OUTCOMES: ReadonlyArray<string> = ['worked', 'partial', 'failed'];
-const NEXT_MSG = 'memory_refine_get → repo fixes for the next agent · mine-weakness (CLI) → recurring failures · memory_digest export_doc:true → preview harness improvements. A human merges.';
+const NEXT_MSG = 'memory_refine_get → repo fixes for the next agent · octocode-reflection mine-weakness/digest → recurring failures and harness previews. A human merges.';
 
 function normalizeScopePaths(paths: string[] = [], prefix: 'file' | 'dir', baseCwd?: string): string[] {
   // RFLX-1: Resolve relative paths against the caller-supplied cwd, not process.cwd().
@@ -185,7 +185,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
         artifact: scope.artifact,
       },
     });
-  } catch { /* non-fatal — harness_log table may not exist on very old DBs */ }
+  } catch { /* non-critical harness log */ }
 
   const result: ReflectResult = {
     outcome: resolvedOutcome,

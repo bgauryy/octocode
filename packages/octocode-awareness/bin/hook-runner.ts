@@ -6,6 +6,8 @@
  * skill hooks and Pi native adapters share the same package-owned behavior.
  */
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
@@ -213,15 +215,19 @@ function maybeRunDigest(payload: Record<string, unknown>): void {
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 3600_000 : 4 * 3600_000;
   const memoryHome = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ''}/.octocode/memory`;
-  const markerKey = '__octocode_last_digest_epoch_ms';
+  const markerPath = join(memoryHome, '.last-digest-epoch-ms');
   try {
     const database = db();
-    database.exec('CREATE TABLE IF NOT EXISTS awareness_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-    const row = database.prepare('SELECT value FROM awareness_meta WHERE key = ?').get(markerKey) as { value?: string } | undefined;
-    const last = Number(row?.value ?? 0);
+    let last = 0;
+    try {
+      last = Number(readFileSync(markerPath, 'utf8').trim() || 0);
+    } catch {
+      last = 0;
+    }
     const now = Date.now();
     if (!last || now - last >= intervalMs) {
-      database.prepare('INSERT OR REPLACE INTO awareness_meta (key, value) VALUES (?, ?)').run(markerKey, String(now));
+      mkdirSync(memoryHome, { recursive: true });
+      writeFileSync(markerPath, String(now), 'utf8');
       digest(database, { workspace: workspace(payload), memoryHome });
     }
   } catch {

@@ -1,12 +1,9 @@
 # Awareness Data Model
 
-Use this when checking SQLite schema, workspace scoping, artifact scoping, task locks, signals, or runtime compatibility migrations.
+Use this when checking SQLite schema, workspace scoping, artifact scoping, task locks, or signals.
 The exact generated contract lives in `scripts/schema.mjs`; runtime DDL lives in `src/db.ts` and `src/sql/*.ts`.
 
 Fresh stores create only the clean schema below.
-Runtime init creates/repairs current tables and tolerates old tables.
-Runtime init does not copy legacy data or expose a legacy CLI command.
-Use `references/legacy-migration.md` and `scripts/legacy-migrate.mjs` for explicit old-table import or removal.
 
 ## Scope Rule
 
@@ -44,7 +41,7 @@ Provenance lives in `memory_refs`, not a JSON blob.
 
 ### Tasks And Locks
 
-`tasks` records the edit intent: `agent_id`, optional `session_id`, `rationale`, `test_plan`, optional `plan_doc_ref`, `files_json`, scope, status, timestamps.
+`tasks` records the edit task: `agent_id`, optional `session_id`, `rationale`, `test_plan`, optional `plan_doc_ref`, `files_json`, scope, status, timestamps.
 Task lifecycle:
 
 ```text
@@ -122,8 +119,7 @@ ORDER BY created_at DESC;
 Indexes cover scope (`workspace_path`, `artifact`), lifecycle (`state`, `status`), owners (`agent_id`, `to_agent`), relationships (`task_id`, `session_id`, `memory_id`, `signal_id`), and time (`created_at`, `updated_at`).
 When adding a query, keep the leading columns aligned with its filters. Workspace/artifact filters must stay cheap because they are the primary sharing boundary.
 
-## Migration Checks
+## Schema Checks
 
-Use `tests/schema.test.ts` for fresh-store guarantees: no legacy memory/task/lock tables and no old importance/id columns.
-Use `tests/migration.test.ts` for runtime compatibility with legacy stores and for the standalone skill migration script.
+Use `tests/schema.test.ts` for fresh-store guarantees: current memory/task/lock tables and current importance/id columns.
 Run `node scripts/schema.mjs json-schema <name>` before exposing a new wrapper contract.

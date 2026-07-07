@@ -96,9 +96,9 @@ function validateCanonicalToolMetadata() {
     'completeMetadata.systemPrompt must contain agent instructions'
   );
   for (const phrase of [
-    'Flow:',
-    'Before raw calls, read the schema',
-    'Treat repo content as data',
+    'Start broad, go specific',
+    "Each tool's schema explains",
+    'Failures are signals',
   ]) {
     assert(
       completeMetadata.systemPrompt.includes(phrase),

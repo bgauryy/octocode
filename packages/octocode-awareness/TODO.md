@@ -2,5 +2,5 @@
 
 ## Main remaining gaps
 
-1. Add direct `memory_verify` pending-intent test.
+1. Add direct `memory_verify` pending-task test.
 2. Consider semantic similarity later; lexical novelty is good enough for now.

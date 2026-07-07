@@ -52,7 +52,7 @@ function findNpm() {
     "/usr/local/bin/npm",
   ];
   for (const candidate of candidates) {
-    if (ok(candidate, ["--version"])) {
+    if (ok(candidate, ["--help"])) {
       return candidate;
     }
   }
@@ -65,13 +65,11 @@ function fail(message, details = {}) {
 }
 
 function ensureRuntime() {
-  if (!ok(nodeBin, ["--version"])) {
+  if (!ok(nodeBin, ["-e", ""])) {
     fail("Node.js runtime is not executable for scripts/schema.mjs.", { node: nodeBin });
   }
-  // Node >=22 is required for node:sqlite (built-in)
-  const nodeVersion = parseInt(process.version.slice(1), 10);
-  if (nodeVersion < 22) {
-    fail(`Node >=22 is required for node:sqlite (got ${process.version}).`);
+  if (!ok(nodeBin, ["--input-type=module", "-e", "import 'node:sqlite';"])) {
+    fail("Node >=22 with node:sqlite is required.");
   }
 }
 

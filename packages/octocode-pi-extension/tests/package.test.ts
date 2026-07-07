@@ -1,7 +1,6 @@
-// Contract tests for the pi-extension. The awareness bridge migrated to direct
-// imports from @octocodeai/octocode-awareness (no subprocess, no Python). These tests
-// assert the live API: createAwarenessBridge({pendingToolFiles}), handleToolCall,
-// handleToolResult, and formatStatus using the real (isolated) SQLite store.
+// Contract tests for the pi-extension. The awareness bridge uses direct imports
+// from @octocodeai/octocode-awareness for runtime behavior, while the package also
+// bundles the awareness/reflection skill folders for Pi's skill loader.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -173,26 +172,27 @@ test('build copies the canonical system prompt', () => {
 
 test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(fs.existsSync(path.join(distDir, 'bin', 'octocode.js')), false, 'Octocode CLI is NOT bundled — install separately via npm/npx');
-  assert.equal(fs.existsSync(path.join(distDir, 'awareness')), false, 'awareness assets are owned by @octocodeai/octocode-awareness, not copied into pi-extension');
+  assert.equal(fs.existsSync(path.join(distDir, 'awareness')), false, 'awareness runtime assets are not copied as a separate dist/awareness directory');
 
-  const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-stats'];
-  // Skills whose canonical source lives in the package (not repo-root skills/), so
-  // they legitimately appear in the package but not in root — mirror build.mjs PI_NATIVE_SKILLS.
-  const PI_NATIVE = ['octocode-subagents'];
+  const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-reflection', 'octocode-stats'];
+  // Skills whose canonical source lives in @octocodeai/octocode-awareness.
+  const AWARENESS_OWNED = ['octocode-awareness', 'octocode-reflection'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
   assert.deepEqual(skills, sourceSkills, 'dist matches package skills');
   assert.deepEqual(
     rootSkills.filter((s) => !SKIPPED.includes(s)),
-    sourceSkills.filter((s) => !PI_NATIVE.includes(s)),
-    'package skills = synced root skills + pi-native skills',
+    sourceSkills.filter((s) => !AWARENESS_OWNED.includes(s)),
+    'package skills = synced root skills + awareness-owned skills',
   );
   assert.deepEqual(
     skills,
     [
+      'octocode-awareness',
       'octocode-brainstorming',
       'octocode-prompt-optimizer',
+      'octocode-reflection',
       'octocode-research',
       'octocode-rfc-generator',
       'octocode-roast',
@@ -200,6 +200,19 @@ test('build copies bundled Octocode skills without secret env files', () => {
       'octocode-subagents',
       ].sort(),
   );
+  assert.equal(
+    fs.readFileSync(path.join(distDir, 'skills', 'octocode-awareness', 'SKILL.md'), 'utf8'),
+    fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-awareness/SKILL.md'), 'utf8'),
+  );
+  assert.equal(
+    fs.readFileSync(path.join(distDir, 'skills', 'octocode-reflection', 'SKILL.md'), 'utf8'),
+    fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-reflection/SKILL.md'), 'utf8'),
+  );
+
+  const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
+    pi?: { skills?: string[] };
+  };
+  assert.deepEqual(packageJson.pi?.skills, ['./dist/skills']);
 
   const forbiddenEnv = path.join(distDir, 'skills', 'octocode-brainstorming', '.env');
   assert.equal(fs.existsSync(forbiddenEnv), false);
@@ -287,14 +300,14 @@ test('awareness bridge claims a lock and releases it PENDING via the real DB', w
     );
     assert.equal(result, undefined);
     assert.deepEqual(bridge.pendingToolFiles.get('tool-1'), ['src/a.js']);
-    assert.match(bridge.pendingToolIntents.get('tool-1')!, /^intent_/);
+    assert.match(bridge.pendingToolTasks.get('tool-1')!, /^task_/);
 
     assert.equal(fs.existsSync(ctx.dbPath), true);
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(ctx.dbPath);
-    const active = db.prepare("SELECT COUNT(*) AS c FROM agent_intents WHERE status='ACTIVE'").get() as { c: number };
+    const active = db.prepare("SELECT COUNT(*) AS c FROM tasks WHERE status='ACTIVE'").get() as { c: number };
     assert.equal(active.c, 1);
-    const locks = db.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number };
+    const locks = db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number };
     assert.equal(locks.c, 1);
     db.close();
 
@@ -302,9 +315,9 @@ test('awareness bridge claims a lock and releases it PENDING via the real DB', w
     assert.equal(bridge.pendingToolFiles.has('tool-1'), false);
 
     const db2 = new DatabaseSync(ctx.dbPath);
-    const pending = db2.prepare("SELECT COUNT(*) AS c FROM agent_intents WHERE status='PENDING'").get() as { c: number };
-    assert.equal(pending.c, 1, 'release sets intent status PENDING (verification still owed)');
-    const noLocks = db2.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number };
+    const pending = db2.prepare("SELECT COUNT(*) AS c FROM tasks WHERE status='PENDING'").get() as { c: number };
+    assert.equal(pending.c, 1, 'release sets task status PENDING (verification still owed)');
+    const noLocks = db2.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number };
     assert.equal(noLocks.c, 0, 'lock rows are deleted on release');
     db2.close();
   });
@@ -345,10 +358,10 @@ test('agent_signal tool publishes, lists, replies, and resolves', withIsolatedDb
       subject: 'review this?',
       body: 'please check the signal tool',
       to_agents: ['agent-b'],
-      refs: ['intent_1'],
+      refs: ['task_1'],
     }, undefined, undefined, ctx);
-    const published = JSON.parse(publishedResult.content[0]!.text) as { notification_id: string; thread_id: string };
-    assert.match(published.notification_id, /^ntf_/);
+    const published = JSON.parse(publishedResult.content[0]!.text) as { signal_id: string; thread_id: string };
+    assert.match(published.signal_id, /^ntf_/);
 
     const listResult = await tool.execute('signal-list', {
       action: 'list',
@@ -362,7 +375,7 @@ test('agent_signal tool publishes, lists, replies, and resolves', withIsolatedDb
     const ackResult = await tool.execute('signal-ack', {
       action: 'ack',
       agent_id: 'agent-b',
-      notification_ids: [published.notification_id],
+      signal_ids: [published.signal_id],
     }, undefined, undefined, ctx);
     const ack = JSON.parse(ackResult.content[0]!.text) as { acknowledged: number };
     assert.equal(ack.acknowledged, 1);
@@ -372,7 +385,7 @@ test('agent_signal tool publishes, lists, replies, and resolves', withIsolatedDb
       agent_id: 'agent-b',
       to_agents: ['agent-a'],
       subject: 'reviewed',
-      in_reply_to: published.notification_id,
+      in_reply_to: published.signal_id,
     }, undefined, undefined, ctx);
     const reply = JSON.parse(replyResult.content[0]!.text) as { thread_id: string };
     assert.equal(reply.thread_id, published.thread_id);
@@ -399,8 +412,8 @@ test('memory_notify remains a publishing alias for agent_signal', withIsolatedDb
       body: 'alias body',
       to_agent: 'agent-b',
     }, undefined, undefined, ctx);
-    const notify = JSON.parse(notifyResult.content[0]!.text) as { notification_id: string; alias: string; prefer: string };
-    assert.match(notify.notification_id, /^ntf_/);
+    const notify = JSON.parse(notifyResult.content[0]!.text) as { signal_id: string; alias: string; prefer: string };
+    assert.match(notify.signal_id, /^ntf_/);
     assert.equal(notify.alias, 'memory_notify');
     assert.equal(notify.prefer, 'agent_signal');
 
@@ -433,8 +446,8 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
       ttl_ms: 1000,
       reasoning: 'coordinate test edit',
     }, undefined, undefined, ctx);
-    const locked = JSON.parse(lockedResult.content[0]!.text) as { intentId: string; files: string[]; reasoning: string; acquiredAt: string; expiresAt: string; locks: Array<{ file_path: string; reasoning: string; acquired_at: string; expires_at: string }> };
-    assert.match(locked.intentId, /^intent_/);
+    const locked = JSON.parse(lockedResult.content[0]!.text) as { taskId: string; files: string[]; reasoning: string; acquiredAt: string; expiresAt: string; locks: Array<{ task_id: string; file_path: string; reasoning: string; acquired_at: string; expires_at: string }> };
+    assert.match(locked.taskId, /^task_/);
     assert.deepEqual(locked.files, [path.join(ctx.cwd, 'src/tool-lock.js')]);
     assert.equal(locked.reasoning, 'coordinate test edit');
     assert.ok(locked.acquiredAt);
@@ -445,9 +458,9 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
     assert.ok(locked.locks[0]!.expires_at);
 
     const statusResult = await tool.execute('status-1', { type: 'status' }, undefined, undefined, ctx);
-    const status = JSON.parse(statusResult.content[0]!.text) as { locks: Array<{ intent_id: string; reasoning: string }> };
+    const status = JSON.parse(statusResult.content[0]!.text) as { locks: Array<{ task_id: string; reasoning: string }> };
     assert.equal(status.locks.length, 1);
-    assert.equal(status.locks[0]!.intent_id, locked.intentId);
+    assert.equal(status.locks[0]!.task_id, locked.taskId);
     assert.equal(status.locks[0]!.reasoning, 'coordinate test edit');
 
     const workspaceResult = await workspaceTool.execute('workspace-status', {}, undefined, undefined, ctx);
@@ -466,7 +479,7 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
 
     const signalResult = await signalTool.execute('signal-list', {
       action: 'list',
-      agent_id: 'other-agent',
+      agent_id: 'pi-test-agent',
       unread_only: true,
     }, undefined, undefined, ctx);
     const signals = JSON.parse(signalResult.content[0]!.text) as { signals: Array<{ kind: string; subject: string }> };
@@ -474,7 +487,7 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
 
     const releaseResult = await tool.execute('release-1', {
       type: 'release',
-      intent_id: locked.intentId,
+      task_id: locked.taskId,
       status: 'PENDING',
     }, undefined, undefined, ctx);
     const released = JSON.parse(releaseResult.content[0]!.text) as { released: boolean; locks_released: number };
@@ -1199,9 +1212,9 @@ test('registers split typed memory support tools with strict schemas', async () 
   assert.equal(notifyParams.properties['subject']?.['minLength'], 1);
 
   const verifyParams = tools.get('memory_verify')!.parameters as { required?: string[]; properties: Record<string, Record<string, unknown>> };
-  // All inputs are optional in schema — intent_id | intent_ids[] | allPending:true; runtime enforces at least one.
+  // All inputs are optional in schema — task_id | task_ids[] | allPending:true; runtime enforces at least one.
   assert.deepEqual(verifyParams.required, undefined);
-  assert.equal(verifyParams.properties['intent_id']?.['minLength'], 1);
+  assert.equal(verifyParams.properties['task_id']?.['minLength'], 1);
   assert.deepEqual(verifyParams.properties['status']?.['enum'], ['SUCCESS', 'FAILED']);
 });
 
@@ -1429,7 +1442,13 @@ test('memory_recall output omits bookkeeping fields and null/empty provenance', 
     memories: Array<Record<string, unknown>>;
   };
 
-  assert.deepEqual(Object.keys(payload).sort(), ['count', 'memories']);
+  const recallKeys = Object.keys(payload).sort();
+  assert.ok(recallKeys.includes('count'));
+  assert.ok(recallKeys.includes('memories'));
+  assert.deepEqual(
+    recallKeys.filter((key) => !['count', 'judgment_reason', 'judgment_required', 'memories'].includes(key)),
+    [],
+  );
   assert.ok(payload.count >= 1);
 
   const gotcha = payload.memories.find((m) => m['label'] === 'GOTCHA');
@@ -1600,7 +1619,7 @@ test('memory maintenance forget command previews by default and requires filters
   assert.ok(stillThere.memories.some((m) => m.memory_id === memoryId), 'dry-run did not delete memory');
 }));
 
-test('memory_audit_unverified and memory_verify clear pending edit intents', withIsolatedDb(async (ctx) => {
+test('memory_audit_unverified and memory_verify clear pending edit tasks', withIsolatedDb(async (ctx) => {
   await withAgentId('pi-test-agent', async () => {
     const tools = await captureMemoryTools();
     const bridge = createAwarenessBridge();
@@ -1613,16 +1632,16 @@ test('memory_audit_unverified and memory_verify clear pending edit intents', wit
     const audit = await invokeExecute(tools.get('memory_audit_unverified')!, {}, ctx);
     const auditPayload = JSON.parse(audit.content[0]!.text) as {
       count: number;
-      pending: Array<{ intent_id: string; test_plan: string; files?: string[] }>;
+      pending: Array<{ task_id: string; test_plan: string; files?: string[] }>;
     };
     assert.equal((audit.details as { exit: number }).exit, 1, 'pending edits make audit exit non-zero');
     assert.equal(auditPayload.count, 1);
-    assert.match(auditPayload.pending[0]!.intent_id, /^intent_/);
+    assert.match(auditPayload.pending[0]!.task_id, /^task_/);
     assert.equal(auditPayload.pending[0]!.files?.length, 1);
     assert.ok(auditPayload.pending[0]!.files![0]!.endsWith('/src/a.js'));
 
     const verify = await invokeExecute(tools.get('memory_verify')!, {
-      intent_id: auditPayload.pending[0]!.intent_id,
+      task_id: auditPayload.pending[0]!.task_id,
       status: 'SUCCESS',
     }, ctx);
     const verifyPayload = JSON.parse(verify.content[0]!.text) as { status: string };
@@ -1680,8 +1699,8 @@ test('memory self-healing tools use lean outputs', withIsolatedDb(async (ctx) =>
   // workspace_status replaces mine_weakness — shows locks and counts
   const wsStatus = JSON.parse((await invokeExecute(tools.get('memory_workspace_status')!, {}, ctx)).content[0]!.text) as {
     active_memories: number;
-    pending_intents: number;
-    active_intents: number;
+    pending_tasks: number;
+    active_tasks: number;
     open_refinements: number;
   };
   assert.ok(typeof wsStatus.active_memories === 'number', 'active_memories is a number');

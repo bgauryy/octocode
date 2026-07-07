@@ -30,14 +30,10 @@ const CONFIG_SRC = path.resolve(__dirname, '../../packages/octocode-config/dist/
 // Skills managed separately by the pi-extension — not synced here.
 //   octocode          — local-only meta-skill
 //   octocode-stats    — local-only dashboard skill
-//   octocode-awareness — bundled as dist/awareness/ tools, not as a skill dir
-//   octocode-subagents — Pi-only skill; canonical source lives in
-//                        packages/octocode-pi-extension/skills/octocode-subagents/
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-stats', 'octocode-awareness', 'octocode-subagents']);
-
-// Pi-native skills whose canonical source lives directly in DEST — the sync
-// (and --clean) must never delete them.
-const PRESERVED_DEST_SKILLS = new Set(['octocode-subagents']);
+//   octocode-awareness / octocode-reflection — canonical source lives in
+//                        packages/octocode-awareness/skills/ and is copied by
+//                        packages/octocode-pi-extension/scripts/build.mjs.
+const SKIPPED_SKILLS = new Set(['octocode', 'octocode-stats', 'octocode-awareness', 'octocode-reflection']);
 
 // Directories that are never copied (build artefacts, VCS internals).
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', 'dist', 'out', 'target', '__pycache__', 'coverage']);
@@ -120,11 +116,10 @@ const args = new Set(process.argv.slice(2));
 const dryRun = args.has('--dry-run');
 const clean = args.has('--clean');
 
-/** Remove everything in DEST except Pi-native skills (their canonical source lives there). */
+/** Remove every generated skill copy from DEST. */
 function clearDest(dryRun) {
   if (!fs.existsSync(DEST) || dryRun) return;
   for (const entry of fs.readdirSync(DEST, { withFileTypes: true })) {
-    if (PRESERVED_DEST_SKILLS.has(entry.name)) continue;
     fs.rmSync(path.join(DEST, entry.name), { recursive: true, force: true });
   }
 }
@@ -132,7 +127,7 @@ function clearDest(dryRun) {
 // ── clean ────────────────────────────────────────────────────────────────────
 if (clean) {
   clearDest(dryRun);
-  console.log(`${dryRun ? '[dry-run] would clean' : 'Cleaned'} ${path.relative(process.cwd(), DEST)} (preserved: ${[...PRESERVED_DEST_SKILLS].join(', ')})`);
+  console.log(`${dryRun ? '[dry-run] would clean' : 'Cleaned'} ${path.relative(process.cwd(), DEST)}`);
   process.exit(0);
 }
 

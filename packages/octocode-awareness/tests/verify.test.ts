@@ -11,7 +11,7 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-/** Create a PENDING intent: claim then immediately release with status PENDING. */
+/** Create a PENDING task: claim then immediately release with status PENDING. */
 function makePending(
   db: DatabaseSync,
   agentId: string,
@@ -38,9 +38,9 @@ describe('auditUnverified', () => {
     expect(result.unverified).toEqual([]);
   });
 
-  it('ignores ACTIVE intents — only PENDING is unverified', () => {
+  it('ignores ACTIVE tasks — only PENDING is unverified', () => {
     const db = freshDb();
-    // Claim a lock but do NOT release it → intent stays ACTIVE
+    // Claim a lock but do NOT release it -> task stays ACTIVE
     preFlightIntent(db, {
       agentId: 'agent-a',
       workspacePath: '/tmp/ws-a',
@@ -62,7 +62,7 @@ describe('auditUnverified', () => {
     });
   });
 
-  it('filters by agentId — only returns that agent\'s PENDING intents', () => {
+  it('filters by agentId — only returns that agent\'s PENDING tasks', () => {
     const db = freshDb();
     const aId = makePending(db, 'agent-a', '/tmp/ws-a', 'a-plan');
     makePending(db, 'agent-b', '/tmp/ws-b', 'b-plan');
@@ -72,7 +72,7 @@ describe('auditUnverified', () => {
     expect(result.unverified[0]!.task_id).toBe(aId);
   });
 
-  it('filters by workspacePath — only returns that workspace\'s PENDING intents', () => {
+  it('filters by workspacePath — only returns that workspace\'s PENDING tasks', () => {
     const db = freshDb();
     const aId = makePending(db, 'agent-a', '/tmp/ws-a', 'a-plan');
     makePending(db, 'agent-b', '/tmp/ws-b', 'b-plan');
@@ -103,7 +103,7 @@ describe('auditUnverified', () => {
 });
 
 describe('markVerified', () => {
-  it('transitions a PENDING intent to SUCCESS and clears it from auditUnverified', () => {
+  it('transitions a PENDING task to SUCCESS and clears it from auditUnverified', () => {
     const db = freshDb();
     const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
     expect(auditUnverified(db).count).toBe(1);
@@ -117,7 +117,7 @@ describe('markVerified', () => {
     expect(auditUnverified(db).count).toBe(0);
   });
 
-  it('transitions a PENDING intent to FAILED', () => {
+  it('transitions a PENDING task to FAILED', () => {
     const db = freshDb();
     const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
     const result = markVerified(db, { taskId, agentId: 'agent-a', status: 'FAILED' });

@@ -21,7 +21,7 @@ Load when the user chooses to create a skill from findings or asks to synthesize
 
 Write the skill with a concise purpose, workflow, tool and resource rules, gates, output UX, and recovery paths. Defer to a dedicated skill-creation skill when one is available.
 
-Add `references/`, `scripts/`, or `assets/` only when they reduce repeated work or keep `SKILL.md` lean.
+Add `references/`, `scripts/`, or `assets/` only when they reduce repeated work or keep `SKILL.md` lean. If the new skill needs a lifecycle hook (pre/post tool use, stop, session start/end), read `hooks.md` before writing frontmatter or `scripts/hooks/`.
 
 MUST also create `references/references.md` inside the new skill folder using the shape in `references-template.md`. Populate it with every source you actually consulted. This file is a research audit trail, not a bibliography template.
 

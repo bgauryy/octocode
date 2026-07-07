@@ -1,6 +1,6 @@
 # Octocode Awareness
 
-`octocode-awareness` gives the agent awareness. It lets one agent know what has happened in a workspace, what files are being touched, what another run already learned, what still needs verification, and what should be handed to the next agent.
+`octocode-awareness` gives the agent live workspace awareness. It lets one agent know what has happened in a workspace, what files are being touched, what another run already learned, what still needs verification, and what should be handed to the next agent.
 
 The skill is especially useful when several agents work together in the same repo, even when those agents come from different vendors or hosts. They do not need to share raw chat logs to coordinate; they share a local awareness layer.
 
@@ -8,20 +8,19 @@ The skill is especially useful when several agents work together in the same rep
 
 Coding agents are usually stateless between runs. One agent may edit a file while another is reading stale context. A later run may rediscover a lesson that was already learned. A handoff can be buried in chat, and a success claim can be made without a recorded check.
 
-`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the memory, lock, handoff, signal, and verification layer around engineering work.
+`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine, test runner, or self-improvement loop. It is the memory recall, lock, handoff, signal, and verification layer around engineering work.
 
 ## Capabilities
 
-- Shared memory for reusable lessons, failure signatures, decisions, and gotchas.
+- Scoped recall for reusable lessons, failure signatures, decisions, and gotchas.
 - Workspace and branch-scoped handoffs for unfinished or ongoing work.
 - File claims so agents can see overlapping edits before they collide.
 - Verification records that connect an edit task to the check that actually ran.
 - Agent-to-agent signals for blockers, questions, claims, replies, and handoffs.
 - Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
-- Reflection and weakness-mining flows that turn repeated failures into better future behavior.
-- Reasoned self-harness proposals for `AGENTS.md`, docs, standing memory-corpus changes, and the skill code itself, always behind user approval before edits.
-- Optional local semantic recall while keeping SQLite and text search as the dependable default.
-- A local viewer for inspecting memories, locks, tasks, refinements, and signals.
+- A local view of active memories, locks, tasks, refinements, and signals.
+
+Post-task learning, memory hygiene, skill learning, and harness proposals live in the sibling `octocode-reflection` skill. Both skills use the same package and SQLite store; they differ by when an agent should load their instructions.
 
 ## Operating Model
 
@@ -33,7 +32,7 @@ The mental model is:
 ATTEND -> FOCUS -> CLAIM -> WORK -> VERIFY -> ENCODE -> SLEEP
 ```
 
-An agent attends to the current state, focuses the intended work, claims files when editing, does the work, records verification, encodes reusable lessons or repo handoffs, then leaves the workspace clean for the next run.
+An agent attends to the current state, focuses the intended work, claims files when editing, does the work, records verification, leaves repo handoffs visible, then invokes `octocode-reflection` only if the outcome produced a durable lesson or cleanup decision.
 
 Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
 
@@ -61,7 +60,6 @@ For users, the value is less drama in shared workspaces. The agent can say which
 
 The skill also makes collaboration more honest. A conclusion can carry a recorded verification trail, and a future agent can distinguish "someone thought about this" from "someone proved this."
 
-When repeated evidence shows the harness itself should improve, the agent may propose updates to project instructions, docs, standing memory guidance, or the awareness skill. Those proposals must explain why the change is needed and wait for user approval before files or standing memories are changed.
 
 ## Installation
 

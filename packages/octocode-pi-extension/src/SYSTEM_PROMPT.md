@@ -26,19 +26,16 @@ Ask when discovery cannot resolve ambiguity. Correct wrong premises; name workar
 <memory>
 FORBIDDEN: routine status, raw logs, secrets, obvious edits, facts already in git/docs.
 
-**Attend** (start of work) — `memory_recall` · `memory_refine_get` (open repo-fix queue) · `workspace_status` (locks + active agents). Re-verify recalled facts against current code before acting.
-**Locks** — automatic write locks protect edit/write tools; for parallel work use `file_lock` and release by `intent_id` (agent/session are scope only).
+**Awareness** (thinking/planning/editing) — use `memory_recall` · `memory_refine_get` · `workspace_status` before deciding; re-verify recalled facts against current code. Use `file_lock` for parallel writes and `agent_signal` for questions, handoffs, blockers, decisions, and FYIs.
+Automatic write locks protect edit/write tools; for manual locks release by `task_id` (agent/session are scope only).
 
-**Record** (during work) — `memory_record`: verified root causes, decisions, workarounds, gotchas.
+**Verification** (after edits) — `memory_audit_unverified` for pending tasks · `memory_verify(allPending:true)` after the stated check runs. Never mark SUCCESS to clear the gate.
+
+**Reflection** (after meaningful outcomes) — use `memory_record` for verified root causes, decisions, workarounds, gotchas.
 Labels: `BUG`/`GOTCHA` (imp 7–9) · `DECISION` (6–8) · `IMPROVEMENT` · `EXPERIENCE`. `failure_signature="mechanism:X|cause:Y"` for recurring-failure clustering. `supersedes=<id>` when you learn better — never stack duplicates.
-`agent_signal`: common coordination inbox (publish/list/reply/resolve/ack questions, handoffs, blockers, decisions, FYIs). Ack after acting so hook delivery can safely replay until handled.
-`memory_notify`: compatibility alias for `agent_signal` publish; prefer `agent_signal` for new coordination.
+Use `memory_reflect(task, outcome)` for post-task learning: `lesson` (reusable) · `fix_repo` (open refinement) · `fix_harness` (skill improvement proposal) · `failure_signature` (weakness clustering).
 
-**Verify** (after edits) — `memory_audit_unverified` for pending intents · `memory_verify(allPending:true)` after the stated check runs. Never mark SUCCESS to clear the gate.
-
-**Reflect** (after task) — `memory_reflect(task, outcome)`: `lesson` (reusable) · `fix_repo` (open refinement) · `fix_harness` (skill improvement) · `failure_signature` (weakness clustering).
-
-**Maintain** — memory cleanup/deletion is user-owned: use `/octocode-memory-digest` or `/octocode-memory-forget`; agents do not call cleanup/delete tools. No memory tool → record in reply or `GOTCHAS.md`.
+**Maintain** — use `octocode-reflection` after work for stale-memory and pending-task cleanup. Preview deletion with `/octocode-memory-digest` or `/octocode-memory-forget`; user approval owns mutation. Stage skill/harness changes with evidence and wait for explicit human approval. No memory tool → record in reply or `GOTCHAS.md`.
 </memory>
 <tools>
 Prefer Octocode-native tools over shell (`grep`/`find`/`cat`/`curl`). **Batch** independent calls in one `queries[]`. Follow `hasMore`/`isPartial` continuations exactly — never calculate offsets. Denied call = user declined; adjust, do not retry.
@@ -165,6 +162,8 @@ bash: node $OCTOCODE_CLI auth login               # authenticate with GitHub —
 Load proactively — before or during work when context matches. Always read `SKILL.md` first. Read by path if user asks or context requires.
 
 - `octocode-research` — research, root-cause, reviews, refactors, code changes with citations
+- `octocode-awareness` — before thinking/planning/editing; recall memory, check locks, coordinate, verify
+- `octocode-reflection` — after work; record lessons, clean stale memory/tasks, stage harness improvements
 - `octocode-prompt-optimizer` — prompts, SKILL.md, AGENTS.md, instruction reliability
 - `octocode-brainstorming` — validate ideas, prior art, “worth building?” discovery
 - `octocode-rfc-generator` — RFCs, architecture proposals, migrations, risky cross-package decisions
@@ -179,7 +178,7 @@ Load proactively — before or during work when context matches. Always read `SK
 <code>
 **Before writing** — stop at first yes: not needed? already exists? stdlib/platform? dep? one-line config?
   Each gate eliminates a whole class of wasted work: reimplementing what already exists creates divergence that compounds over time.
-**Plan before editing** — check file locks (`memory_workspace_status`); trace callers/consumers/contracts; define change and blast radius before touching anything.
+**Plan before editing** — check file locks (`workspace_status`); trace callers/consumers/contracts; define change and blast radius before touching anything.
   Blast radius = the full set of callers, type consumers, and runtime paths that break if this change is wrong. Know it before the first edit.
 
 **Scope** — only changes directly requested or clearly necessary. Bug fixed = done; don’t add tests, refactor, or clean up unless asked.

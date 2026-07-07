@@ -5,7 +5,7 @@
  * displays. A lightweight SQLite table lets callers register a human-readable
  * name once and resolve it on any read.
  *
- * Schema: `agents` table (renamed from agent_identities in the new schema).
+ * Schema: `agents` table.
  */
 
 import type { DatabaseSync } from 'node:sqlite';
@@ -57,7 +57,7 @@ export function registerAgent(
 export function touchAgent(db: DatabaseSync, agentId: string, workspacePath: string | null = null, artifact: string | null = null): void {
   try {
     db.prepare(AGENTS_UPDATE_LAST_SEEN).run(utcNow(), workspacePath, normalizeArtifact(artifact), agentId);
-  } catch { /* ignore — table may not exist yet on very old DBs */ }
+  } catch { /* non-critical registry touch */ }
 }
 
 // ─── Resolve ──────────────────────────────────────────────────────────────────

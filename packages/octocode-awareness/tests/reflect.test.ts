@@ -159,7 +159,7 @@ describe('reflect', () => {
       validTo: '2099-01-01T00:00:00Z',
       fixRepo: 'update scoped docs',
     });
-    // References are stored in memory_refs (not references_json column — removed in schema v2)
+    // References are stored in memory_refs.
     const refs = (db.prepare(
       'SELECT reference FROM memory_refs WHERE memory_id = ? ORDER BY ordinal'
     ).all(result.learning_memory_id) as Array<{ reference: string }>).map(r => r.reference);

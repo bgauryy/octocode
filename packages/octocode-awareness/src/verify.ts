@@ -177,7 +177,7 @@ export function auditUnverified(
         db.prepare(TASK_LOG_INSERT_ABANDONED).run(
           'evt_' + randomUUID().replace(/-/g, ''), intent.task_id, intent.agent_id, now,
         );
-      } catch { /* task_log may not exist on legacy DBs */ }
+      } catch { /* non-critical audit log */ }
     }
   }
 
@@ -229,7 +229,7 @@ export function auditUnverified(
         db.prepare(TASK_LOG_INSERT_STALE_ABANDONED).run(
           'evt_' + randomUUID().replace(/-/g, ''), intent.task_id, intent.agent_id, now,
         );
-      } catch { /* task_log may not exist on legacy DBs */ }
+      } catch { /* non-critical audit log */ }
     }
   }
 
@@ -275,7 +275,7 @@ export function markVerified(
           db.prepare(TASK_LOG_INSERT_VERIFIED).run(
             'evt_' + randomUUID().replace(/-/g, ''), row.task_id, agentId, message, now,
           );
-        } catch { /* task_log may not exist on legacy DBs */ }
+        } catch { /* non-critical audit log */ }
       }
     }
     // VER-1: Return null for task_id — no single task applies in allPending batch mode.
@@ -325,7 +325,7 @@ export function markVerified(
       db.prepare(TASK_LOG_INSERT_VERIFIED).run(
         'evt_' + randomUUID().replace(/-/g, ''), taskId, agentId, message, now,
       );
-    } catch { /* task_log may not exist on legacy DBs */ }
+    } catch { /* non-critical audit log */ }
   }
 
   return { ok: true, task_id: taskId, status: status as TaskStatus, updated_at: now };

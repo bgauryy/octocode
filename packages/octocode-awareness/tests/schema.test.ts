@@ -2,10 +2,9 @@
  * schema.test.ts — Structural tests for the clean db.ts schema.
  *
  * Verifies:
- *  - new table names are created
- *  - old/removed table names are absent
- *  - column names match the new schema (importance, task_id, signal_id, etc.)
- *  - legacy columns are absent (importance_score, intent_id, tags_text, etc.)
+ *  - current table names are created
+ *  - no extra application tables are created
+ *  - column names match the current schema
  *  - FTS5 virtual table is created and functional
  *  - initDb is idempotent
  */
@@ -24,7 +23,7 @@ function freshDb(): DatabaseSync {
 }
 
 
-// ─── 1. New tables are created ────────────────────────────────────────────────
+// ─── 1. Current tables are created ────────────────────────────────────────────
 
 describe('initDb creates all required tables', () => {
   const db = freshDb();
@@ -40,6 +39,9 @@ describe('initDb creates all required tables', () => {
     'signal_reads',
     'agents',
     'sessions',
+    'refinements',
+    'edit_log',
+    'harness_log',
   ] as const;
 
   for (const table of requiredTables) {
@@ -53,106 +55,114 @@ describe('initDb creates all required tables', () => {
   }
 });
 
-// ─── 2. Old/removed table names are absent ────────────────────────────────────
+// ─── 2. Table set stays constrained ──────────────────────────────────────────
 
-describe('initDb does NOT create legacy tables', () => {
+describe('initDb table set', () => {
   const db = freshDb();
 
-  const removedTables = [
-    'agent_memories',
-    'agent_intents',
-    'file_locks',
-    'notifications',
-    'agent_identities',
-    'awareness_meta',
-  ] as const;
-
-  for (const table of removedTables) {
-    it(`does not create legacy table "${table}"`, () => {
-      const row = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?"
-      ).get(table) as { name: string } | undefined;
-      expect(row, `legacy table "${table}" must not exist`).toBeUndefined();
-    });
-  }
+  it('creates only known application tables plus FTS internals', () => {
+    const allowed = new Set([
+      'sessions',
+      'memories',
+      'tasks',
+      'locks',
+      'task_log',
+      'refinements',
+      'signals',
+      'signal_reads',
+      'memory_refs',
+      'agents',
+      'edit_log',
+      'harness_log',
+    ]);
+    const rows = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ).all() as Array<{ name: string }>;
+    const unexpected = rows
+      .map(r => r.name)
+      .filter(name => !allowed.has(name) && !name.startsWith('memories_fts'));
+    expect(unexpected).toEqual([]);
+  });
 });
 
 // ─── 3. memories table columns ────────────────────────────────────────────────
 
 describe('memories table column names', () => {
   const db = freshDb();
-  const cols = tableColumns(db, 'memories');
+  const cols = [...tableColumns(db, 'memories')].sort();
 
-  it('has "importance" column', () => {
-    expect(cols.has('importance')).toBe(true);
-  });
-
-  it('does NOT have "importance_score"', () => {
-    expect(cols.has('importance_score')).toBe(false);
-  });
-
-  it('does NOT have "tags_text"', () => {
-    expect(cols.has('tags_text')).toBe(false);
-  });
-
-  it('does NOT have "references_json"', () => {
-    expect(cols.has('references_json')).toBe(false);
-  });
-
-  it('does NOT have "similar_memory_ids_json"', () => {
-    expect(cols.has('similar_memory_ids_json')).toBe(false);
-  });
-
-  it('has core identity and content columns', () => {
-    for (const col of ['memory_id', 'agent_id', 'task_context', 'observation', 'state', 'label']) {
-      expect(cols.has(col), `missing column: ${col}`).toBe(true);
-    }
-  });
-
-  it('has tags_json (not tags_text)', () => {
-    expect(cols.has('tags_json')).toBe(true);
+  it('matches the current memory column set', () => {
+    expect(cols).toEqual([
+      'access_count',
+      'agent_id',
+      'artifact',
+      'created_at',
+      'decay_half_life_days',
+      'embedding',
+      'embedding_model',
+      'expired_at',
+      'failure_signature',
+      'file_tree_fingerprint',
+      'importance',
+      'label',
+      'last_accessed_at',
+      'memory_id',
+      'novelty_score',
+      'observation',
+      'ref',
+      'repo',
+      'state',
+      'superseded_by',
+      'tags_json',
+      'task_context',
+      'updated_at',
+      'valid_from',
+      'valid_to',
+      'workspace_path',
+    ]);
   });
 });
 
-// ─── 4. tasks table: task_id not intent_id ────────────────────────────────────
+// ─── 4. tasks table ──────────────────────────────────────────────────────────
 
 describe('tasks table column names', () => {
   const db = freshDb();
-  const cols = tableColumns(db, 'tasks');
+  const cols = [...tableColumns(db, 'tasks')].sort();
 
-  it('has "task_id" as primary key column', () => {
-    expect(cols.has('task_id')).toBe(true);
-  });
-
-  it('does NOT have "intent_id"', () => {
-    expect(cols.has('intent_id')).toBe(false);
-  });
-
-  it('has expected task columns', () => {
-    for (const col of ['agent_id', 'session_id', 'rationale', 'test_plan', 'status', 'workspace_path', 'files_json', 'created_at', 'updated_at']) {
-      expect(cols.has(col), `missing column: ${col}`).toBe(true);
-    }
+  it('matches the current task column set', () => {
+    expect(cols).toEqual([
+      'agent_id',
+      'artifact',
+      'created_at',
+      'files_json',
+      'rationale',
+      'session_id',
+      'status',
+      'task_id',
+      'test_plan',
+      'updated_at',
+      'workspace_path',
+    ]);
   });
 });
 
-// ─── 5. locks table: task_id FK not intent_id ────────────────────────────────
+// ─── 5. locks table ──────────────────────────────────────────────────────────
 
 describe('locks table column names', () => {
   const db = freshDb();
-  const cols = tableColumns(db, 'locks');
+  const cols = [...tableColumns(db, 'locks')].sort();
 
-  it('has "task_id" foreign key column', () => {
-    expect(cols.has('task_id')).toBe(true);
-  });
-
-  it('does NOT have "intent_id"', () => {
-    expect(cols.has('intent_id')).toBe(false);
-  });
-
-  it('has expected lock columns', () => {
-    for (const col of ['lock_id', 'file_path', 'agent_id', 'session_id', 'lock_type', 'acquired_at', 'expires_at']) {
-      expect(cols.has(col), `missing column: ${col}`).toBe(true);
-    }
+  it('matches the current lock column set', () => {
+    expect(cols).toEqual([
+      'acquired_at',
+      'agent_id',
+      'expires_at',
+      'file_path',
+      'lock_id',
+      'lock_type',
+      'session_id',
+      'task_id',
+    ]);
   });
 });
 
@@ -160,28 +170,29 @@ describe('locks table column names', () => {
 
 describe('signals table column names', () => {
   const db = freshDb();
-  const cols = tableColumns(db, 'signals');
+  const cols = [...tableColumns(db, 'signals')].sort();
 
-  it('has "signal_id" as primary key column', () => {
-    expect(cols.has('signal_id')).toBe(true);
-  });
-
-  it('has "reply_to" column', () => {
-    expect(cols.has('reply_to')).toBe(true);
-  });
-
-  it('has "resolved_at" column', () => {
-    expect(cols.has('resolved_at')).toBe(true);
-  });
-
-  it('has expected signal columns', () => {
-    for (const col of ['workspace_path', 'from_agent', 'to_agent', 'kind', 'subject', 'body', 'thread_id', 'status', 'created_at']) {
-      expect(cols.has(col), `missing column: ${col}`).toBe(true);
-    }
-  });
-
-  it('does NOT have old "notification_id" column', () => {
-    expect(cols.has('notification_id')).toBe(false);
+  it('matches the current signal column set', () => {
+    expect(cols).toEqual([
+      'artifact',
+      'body',
+      'created_at',
+      'files_json',
+      'from_agent',
+      'importance',
+      'kind',
+      'ref',
+      'refs_json',
+      'reply_to',
+      'repo',
+      'resolved_at',
+      'signal_id',
+      'status',
+      'subject',
+      'thread_id',
+      'to_agent',
+      'workspace_path',
+    ]);
   });
 });
 
