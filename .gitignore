@@ -25,9 +25,11 @@ coverage
 !/skills/octocode-research/output/
 # Build artifact injected by skills/scripts/sync.mjs — regenerated from packages/octocode-config/dist/
 /skills/*/scripts/octocode-config.mjs
-# Build artifact: regenerated from packages/octocode-awareness/skills/ + dist/bin/ on every build
+# Package-owned awareness skill mirrors regenerated from packages/octocode-awareness/skills/.
+/skills/octocode-agent-communication/
 /skills/octocode-awareness/
-# Build artifact: regenerated from root skills/ + packages/octocode-awareness/skills/
+/skills/octocode-reflection/
+# Build artifact regenerated from root skills/ + packages/octocode-awareness/skills/.
 /packages/octocode-pi-extension/skills/
 # sqlite DB
 mcp.sqlite

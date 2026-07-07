@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@octocodeai/octocode-awareness": "workspace:*",
-    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core",
+    "@octocodeai/octocode-core": "^16.6.3",
     "@octocodeai/octocode-tools-core": "workspace:*"
   },
   "devDependencies": {

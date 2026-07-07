@@ -2066,6 +2066,21 @@ var SIGNALS_SELECT_IDS_FOR_PRUNE = "SELECT signal_id FROM signals WHERE";
 var SIGNAL_READS_INSERT_IGNORE = "INSERT OR IGNORE INTO signal_reads(signal_id, agent_id, read_at) VALUES (?, ?, ?)";
 var SIGNAL_READS_DELETE_BY_SIGNAL_IDS = (ph) => `DELETE FROM signal_reads WHERE signal_id IN (${ph})`;
 
+// src/sql/agents.ts
+var AGENTS_UPSERT = `INSERT INTO agents (agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(agent_id) DO UPDATE SET
+     agent_name     = CASE WHEN excluded.agent_name <> '' THEN excluded.agent_name ELSE agent_name END,
+     workspace_path = COALESCE(excluded.workspace_path, workspace_path),
+     artifact       = COALESCE(excluded.artifact, artifact),
+     context        = COALESCE(excluded.context, context),
+     last_seen_at   = excluded.last_seen_at`;
+var AGENTS_LIST_SELECT = `SELECT agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at
+   FROM agents`;
+var AGENTS_LIST_CLAUSE_WORKSPACE_PATH = `(workspace_path = ? OR workspace_path IS NULL)`;
+var AGENTS_LIST_CLAUSE_ARTIFACT = `(artifact = ? OR artifact IS NULL)`;
+var AGENTS_LIST_ORDER = `ORDER BY last_seen_at DESC`;
+
 // src/notifications.ts
 function rowToNotification(r) {
   return {
@@ -3293,6 +3308,40 @@ function markVerified(db2, params) {
   return { ok: true, task_id: taskId, status, updated_at: now };
 }
 
+// src/agents.ts
+function registerAgent(db2, params) {
+  const agentId = params.agentId;
+  const agentName = params.agentName ?? "";
+  const workspacePath = params.workspacePath ?? null;
+  const artifact = normalizeArtifact(params.artifact);
+  const context = params.context ?? null;
+  const now = utcNow();
+  db2.prepare(AGENTS_UPSERT).run(agentId, agentName, workspacePath, artifact, context, now, now);
+  return { agent_id: agentId, agent_name: agentName, workspace_path: workspacePath, artifact, context, registered_at: now, last_seen_at: now };
+}
+function listAgents(db2, params = {}) {
+  try {
+    const binds = [];
+    let sql = AGENTS_LIST_SELECT;
+    const clauses = [];
+    if (params.workspacePath) {
+      clauses.push(AGENTS_LIST_CLAUSE_WORKSPACE_PATH);
+      binds.push(params.workspacePath);
+    }
+    const artifact = normalizeArtifact(params.artifact);
+    if (artifact) {
+      clauses.push(AGENTS_LIST_CLAUSE_ARTIFACT);
+      binds.push(artifact);
+    }
+    if (clauses.length > 0) sql += ` WHERE ${clauses.join(" AND ")}`;
+    sql += ` ${AGENTS_LIST_ORDER}`;
+    const rows = db2.prepare(sql).all(...binds);
+    return { count: rows.length, agents: rows };
+  } catch {
+    return { count: 0, agents: [] };
+  }
+}
+
 // bin/awareness.ts
 var ARRAY_FLAGS = /* @__PURE__ */ new Set([
   "tag",
@@ -3371,6 +3420,7 @@ var KNOWN_FLAGS = {
   "doc-staleness": ["agent_id", "workspace", "artifact", "targets_json", "min_edits", "min_lines", "propose", "session_id"],
   "export-harness": ["limit", "min_importance", "workspace", "artifact"],
   "memory-index": ["limit", "min_importance", "out", "stdout", "workspace", "artifact", "repo", "ref"],
+  "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
   "notify": ["agent_id", "to", "kind", "subject", "body", "file", "ref_id", "in_reply_to", "importance", "workspace", "artifact", "repo", "ref"],
   "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "mark_read", "limit"],
   "notify-get": ["agent_id", "workspace", "artifact", "repo", "ref", "all", "mark_read", "kind", "thread_id", "limit", "format"],
@@ -3880,6 +3930,7 @@ function cmdAgentSignal(db2, args2, dbPath2, opts2) {
   const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
   const rawKinds = args2["kind"];
   const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
+  const publishKind = kinds[0];
   const rawSignalIds = args2["signal_id"];
   const signalIds = Array.isArray(rawSignalIds) ? rawSignalIds : rawSignalIds ? [String(rawSignalIds)] : [];
   const result = agentSignal(db2, {
@@ -3889,7 +3940,7 @@ function cmdAgentSignal(db2, args2, dbPath2, opts2) {
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null,
-    kind: args2["kind"] && !Array.isArray(args2["kind"]) ? String(args2["kind"]) : void 0,
+    kind: publishKind,
     subject: args2["subject"] ? String(args2["subject"]) : void 0,
     body: args2["body"] ? String(args2["body"]) : null,
     toAgents,
@@ -3917,6 +3968,37 @@ function cmdNotifyPrune(db2, args2, dbPath2, opts2) {
     dryRun: Boolean(args2["dry_run"])
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdAgentRegistry(db2, args2, dbPath2, opts2) {
+  const action = String(args2["action"] ?? "list");
+  if (!["list", "register"].includes(action)) {
+    return emit({ error: "--action must be list or register" }, 1, opts2);
+  }
+  const workspacePath = args2["workspace"] ? String(args2["workspace"]) : null;
+  const artifact = args2["artifact"] ? String(args2["artifact"]) : null;
+  if (action === "register") {
+    if (!args2["agent_id"]) return emit({ error: "--agent-id is required for register" }, 1, opts2);
+    const agent = registerAgent(db2, {
+      agentId: String(args2["agent_id"]),
+      agentName: args2["agent_name"] ? String(args2["agent_name"]) : "",
+      workspacePath,
+      artifact,
+      context: args2["context"] ? String(args2["context"]) : null
+    });
+    return emit({ db_path: dbPath2, action: "register", agent }, 0, opts2);
+  }
+  const limit = Math.min(200, Math.max(1, parseInt(String(args2["limit"] ?? "50"), 10) || 50));
+  const result = listAgents(db2, { workspacePath, artifact });
+  const agents = result.agents.slice(0, limit);
+  return emit({
+    db_path: dbPath2,
+    action: "list",
+    count: agents.length,
+    total_count: result.count,
+    agents,
+    workspace_path: workspacePath,
+    artifact
+  }, 0, opts2);
 }
 function cmdStatus(db2, dbPath2, args2, opts2) {
   evictExpiredLocks(db2);
@@ -4036,7 +4118,7 @@ var HELP = `usage: awareness <command> [options]
 commands: tell-memory  get-memory  forget  reflect  refine-set  refine-get  refine-delete
           pre-flight-intent  release-file-lock  status  workspace-status  init  self-test
           prune-stale-locks  audit-unverified  verify  mine-weakness  doc-staleness  export-harness  memory-index
-          notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
+          agent-registry  notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
 
 common options:
   --db <path>     Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)
@@ -4062,6 +4144,11 @@ refine-delete:
 export-harness:
   [--limit <n>]  [--min-importance <n>]  [--workspace <path>]
   preview top lessons as an AGENTS.md block
+
+agent-registry:
+  [--action list|register]  [--workspace <path>]  [--artifact <name>]  [--limit <n>]
+  register: --agent-id <id>  [--agent-name <name>]  [--context <host>]
+  list known agents from the same SQLite store, ordered by last_seen_at
 
 notify:
   --agent-id <id>  --kind claim|handoff|question|reply|blocker|request|decision|fyi
@@ -4326,6 +4413,9 @@ try {
       break;
     case "export-harness":
       exitCode = cmdExportHarness(db, args, dbPath, opts);
+      break;
+    case "agent-registry":
+      exitCode = cmdAgentRegistry(db, args, dbPath, opts);
       break;
     case "notify":
       exitCode = cmdNotify(db, args, dbPath, opts);

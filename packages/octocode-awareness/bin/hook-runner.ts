@@ -8,6 +8,8 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import { registerAgent } from '../src/agents.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
@@ -46,6 +48,16 @@ function payloadInput(payload: Record<string, unknown>): unknown {
 function agentId(payload: Record<string, unknown>): string {
   return process.env.OCTOCODE_AGENT_ID
     || String(payload.session_id ?? payload.sessionId ?? payload.agent_id ?? payload.agentId ?? 'claude-agent');
+}
+
+function agentName(payload: Record<string, unknown>): string {
+  const value =
+    process.env.OCTOCODE_AGENT_NAME
+    ?? payload.agent_name
+    ?? payload.agentName
+    ?? payload.agent_display_name
+    ?? payload.agentDisplayName;
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
 function workspace(payload: Record<string, unknown>): string | null {
@@ -96,6 +108,31 @@ function db() {
   return connectDb(resolveDbPath(null));
 }
 
+function hookAgentContext(payload: Record<string, unknown>, hookName: string): string {
+  const value =
+    process.env.OCTOCODE_AGENT_CONTEXT
+    ?? process.env.OCTOCODE_AGENT_HOST
+    ?? payload.context
+    ?? payload.host
+    ?? payload.client
+    ?? payload.source;
+  return typeof value === 'string' && value.trim() ? value.trim() : hookName;
+}
+
+function registerHookAgent(database: DatabaseSync, payload: Record<string, unknown>, hookName: string): void {
+  try {
+    registerAgent(database, {
+      agentId: agentId(payload),
+      agentName: agentName(payload),
+      workspacePath: workspace(payload),
+      artifact: artifact(payload),
+      context: hookAgentContext(payload, hookName),
+    });
+  } catch {
+    // Registry identity is useful for delivery, but hooks must fail open.
+  }
+}
+
 function scopeArgs(payload: Record<string, unknown>): { workspacePath?: string; artifact?: string } {
   const ws = workspace(payload);
   const art = artifact(payload);
@@ -109,7 +146,9 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
   try {
-    const result = preFlightIntent(db(), {
+    const database = db();
+    registerHookAgent(database, payload, 'hook:pre-edit');
+    const result = preFlightIntent(database, {
       agentId: agentId(payload),
       workspacePath: workspace(payload) ?? process.cwd(),
       artifact: artifact(payload),
@@ -134,7 +173,9 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
   const files = extractFiles(payload);
   if (files.length === 0) return 0;
   try {
-    releaseFileLock(db(), {
+    const database = db();
+    registerHookAgent(database, payload, 'hook:post-edit');
+    releaseFileLock(database, {
       agentId: agentId(payload),
       workspacePath: workspace(payload) ?? undefined,
       artifact: artifact(payload),
@@ -192,7 +233,9 @@ function gitBranchOf(dir: string): string | null {
 async function runStopVerify(payload: Record<string, unknown>): Promise<number> {
   if (process.env.OCTOCODE_NO_VERIFY_GATE === '1' || isStopHookActive(payload)) return 0;
   try {
-    const report = auditUnverified(db(), { agentId: agentId(payload), ...scopeArgs(payload) });
+    const database = db();
+    registerHookAgent(database, payload, 'hook:stop-verify');
+    const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
       const parts: string[] = [];
       if (report.unverified.length > 0) {
@@ -239,11 +282,13 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
   if (process.env.OCTOCODE_NO_NOTIFY === '1') return 0;
   maybeRunDigest(payload);
   try {
-      const result = notifyGet(db(), {
-        agent_id: agentId(payload),
-        workspace: workspace(payload) ?? undefined,
-        artifact: artifact(payload) ?? undefined,
-        format: 'hook',
+    const database = db();
+    registerHookAgent(database, payload, 'hook:notify-deliver');
+    const result = notifyGet(database, {
+      agent_id: agentId(payload),
+      workspace: workspace(payload) ?? undefined,
+      artifact: artifact(payload) ?? undefined,
+      format: 'hook',
     }) as { additionalContext?: string };
     if (result.additionalContext) {
       process.stdout.write(JSON.stringify({ additionalContext: result.additionalContext }) + '\n');
@@ -257,7 +302,9 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
 async function runSessionEnd(payload: Record<string, unknown>): Promise<number> {
   if (process.env.OCTOCODE_NO_SESSION_CAPTURE === '1' || hookReason(payload) === 'clear') return 0;
   try {
-    sessionCapture(db(), {
+    const database = db();
+    registerHookAgent(database, payload, 'hook:session-end');
+    sessionCapture(database, {
       agent_id: agentId(payload),
       workspace: workspace(payload) ?? undefined,
       artifact: artifact(payload) ?? undefined,

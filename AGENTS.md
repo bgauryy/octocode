@@ -46,6 +46,15 @@ packages/octocode-pi-extension (@octocodeai/pi-extension)
   Pi harness. Bundles MCP server, injects Octocode context into the pi system prompt.
   Build: injects octocode-config.mjs into every skill scripts/ dir (standalone, no npm needed).
 
+packages/octocode-agent (octocode-agent)
+  Self-working coding agent CLI. Launches Pi with @octocodeai/pi-extension as its harness — one
+  branded command (`octocode-agent`), one update path.
+
+packages/octocode-awareness (@octocodeai/octocode-awareness)
+  Shared workspace coordination + reflection/learning skills (memory, hooks, sqlite locks, zero
+  npm runtime deps). Canonical source of the octocode-awareness / octocode-reflection /
+  octocode-agent-communication skills — see "Working in this repo" below.
+
 packages/octocode-benchmark (@octocodeai/octocode-benchmark)
   Benchmarks/evals. Flow benchmarks, AST grep comparisons, format support matrix.
 
@@ -90,19 +99,20 @@ Methodology: Plan → TDD → `yarn workspace <pkg> test` → `yarn lint` → ve
 
 No backward compat by default — refactor freely, delete dead paths, add shims only when asked.
 
-Local skills: .agents/skills/ — octocode (architecture) · rust-package-node (napi-rs).
 Use octocode-awareness (.agents/skills/octocode-awareness) for cross-run memory.
 
-Awareness skills source of truth: `packages/octocode-awareness/skills/`.
-Edit `packages/octocode-awareness/skills/octocode-awareness` and
-`packages/octocode-awareness/skills/octocode-reflection` there, not under root `skills/`.
-Root `skills/` copies are generated/install surfaces only; `skills/octocode-reflection` must not exist.
+Awareness skills source of truth: `packages/octocode-awareness/skills/` (owns
+`octocode-awareness`, `octocode-reflection`, `octocode-agent-communication`). Edit them there —
+`packages/octocode-awareness/build.mjs` mirrors all three into root `skills/`,
+`packages/octocode-pi-extension/skills/`, and the gitignored local install surface
+`.agents/skills/` on every awareness build. Never hand-edit the mirrors; run
+`yarn workspace @octocodeai/octocode-awareness build` to regenerate them.
 
 Access: packages/*/src/, tests/, docs/ ✅ · *.json, *.config.*, Cargo.toml, scripts/ ⚠️ ask · .env*, node_modules/, dist/, out/, target/ ❌
 
 ## Docs (docs/)
 
-docs/OCTOCODE_MCP.md · docs/CONFIGURATION.md · docs/AUTHENTICATION.md — MCP overview, env vars, GitHub token/OAuth
+docs/OCTOCODE_MCP.md · docs/CONFIGURATION.md — MCP overview, env vars, GitHub token/OAuth
 docs/OCTOCODE_TOOLS.md — all 13 tools, behavior, params, clone workflow
 docs/OCTOCODE_CLI.md · docs/OCTOCODE_QUERY_LANGUAGE.md — CLI commands/flags, OQL syntax
 docs/SECURITY.md · docs/LSP_SERVER_LIFECYCLE.md — secret redaction, path validation, LSP lifecycle, 151-ext format matrix

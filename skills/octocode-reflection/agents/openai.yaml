@@ -1,0 +1,4 @@
+interface:
+  display_name: "Octocode Reflection"
+  short_description: "Post-task learning and memory hygiene."
+  default_prompt: "Use octocode-reflection after meaningful work, user corrections, repeated failures, stale-memory cleanup requests, or self-improvement proposals. Record durable lessons, reflect on outcomes, preview pruning, and stage human-reviewed repo, skill, or harness changes."

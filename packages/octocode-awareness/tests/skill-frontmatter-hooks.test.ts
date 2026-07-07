@@ -19,7 +19,7 @@ function frontmatter(path: string): string {
   const text = readFileSync(path, 'utf8');
   const match = /^---\n([\s\S]*?)\n---/.exec(text);
   if (!match) throw new Error(`no frontmatter block in ${path}`);
-  return match[1];
+  return match[1]!;
 }
 
 describe('SKILL.md hook frontmatter', () => {
@@ -31,7 +31,7 @@ describe('SKILL.md hook frontmatter', () => {
 
   it('uses ${CLAUDE_SKILL_DIR} for every bundled hook script path', () => {
     const fm = frontmatter(SKILL_MD);
-    const commands = [...fm.matchAll(/command\s*:\s*"([^"]+)"/g)].map((m) => m[1]);
+    const commands = [...fm.matchAll(/command\s*:\s*"([^"]+)"/g)].map((m) => m[1]!);
     expect(commands.length).toBeGreaterThan(0);
     for (const command of commands) {
       if (command.includes('scripts/hooks/')) {

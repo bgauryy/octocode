@@ -100,9 +100,18 @@ console.log('✓ @octocodeai/octocode-awareness built → dist/');
 
 const repoRoot    = resolve(__dirname, '../..');
 const skillsDestRoot = join(repoRoot, 'skills');
+const piExtensionSkillsRoot = join(repoRoot, 'packages', 'octocode-pi-extension', 'skills');
+// Local-only skill install surface for repo agents. This is intentionally not
+// package source and is ignored by git via the repo-level `.agents` rule.
+const agentSkillsRoot = join(repoRoot, '.agents', 'skills');
 const skillsSrcRoot  = join(__dirname, 'skills');
 const distBin     = join(__dirname, 'dist', 'bin');
-const rootSyncedSkills = new Set(['octocode-awareness']);
+const mirroredPackageSkills = new Set([
+  'octocode-agent-communication',
+  'octocode-awareness',
+  'octocode-reflection',
+]);
+const generatedSkillMirrorRoots = [skillsDestRoot, piExtensionSkillsRoot, agentSkillsRoot];
 
 const packageSkills = [];
 for (const entry of readdirSync(skillsSrcRoot, { withFileTypes: true })) {
@@ -114,7 +123,6 @@ for (const entry of readdirSync(skillsSrcRoot, { withFileTypes: true })) {
 
 for (const skillName of packageSkills) {
   const skillSrc = join(skillsSrcRoot, skillName);
-  const skillDest = join(skillsDestRoot, skillName);
   const packageScriptDest = join(skillSrc, 'scripts');
 
   // 1. Compiled scripts. All package-owned skills share the awareness CLI and
@@ -135,28 +143,35 @@ for (const skillName of packageSkills) {
     copyFileSync(src, join(packageScriptDest, fileName));
   }
 
-  if (!rootSyncedSkills.has(skillName)) {
+  if (!mirroredPackageSkills.has(skillName)) {
     // The package source is canonical. Keep root skills/ free of package-only
-    // reflection skills so agents do not edit generated/stale copies.
-    rmSync(skillDest, { recursive: true, force: true });
+    // skills so agents do not edit generated/stale copies.
+    for (const mirrorRoot of generatedSkillMirrorRoots) {
+      rmSync(join(mirrorRoot, skillName), { recursive: true, force: true });
+    }
     continue;
   }
 
-  const rootScriptDest = join(skillDest, 'scripts');
+  // 2. Wipe and rebuild generated mirrors so removed files don't linger.
+  for (const mirrorRoot of generatedSkillMirrorRoots) {
+    const skillDest = join(mirrorRoot, skillName);
+    const scriptDest = join(skillDest, 'scripts');
 
-  // 2. Wipe and rebuild generated root copies so removed files don't linger.
-  rmSync(skillDest, { recursive: true, force: true });
-  mkdirSync(skillDest, { recursive: true });
+    rmSync(skillDest, { recursive: true, force: true });
+    mkdirSync(skillDest, { recursive: true });
 
-  cpSync(skillSrc, skillDest, {
-    recursive: true,
-    filter: (src) => !src.includes('node_modules'),
-  });
+    cpSync(skillSrc, skillDest, {
+      recursive: true,
+      filter: (src) => !src.includes('node_modules'),
+    });
 
-  mkdirSync(rootScriptDest, { recursive: true });
-  for (const [src, fileName] of scriptCopies) {
-    copyFileSync(src, join(rootScriptDest, fileName));
+    mkdirSync(scriptDest, { recursive: true });
+    for (const [src, fileName] of scriptCopies) {
+      copyFileSync(src, join(scriptDest, fileName));
+    }
   }
 }
 
 console.log(`✓ package-owned skills refreshed: ${packageSkills.join(', ')}`);
+console.log(`✓ package-owned skill mirrors refreshed: ${[...mirroredPackageSkills].join(', ')} → skills/, packages/octocode-pi-extension/skills/`);
+console.log('✓ local agent skill install mirror refreshed → .agents/skills/ (ignored, not source)');

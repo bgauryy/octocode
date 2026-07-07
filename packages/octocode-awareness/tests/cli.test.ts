@@ -522,6 +522,44 @@ describe('status', () => {
   });
 });
 
+// ─── agent-registry ───────────────────────────────────────────────────────────
+
+describe('agent-registry', () => {
+  let dir: string;
+  let db: string;
+  beforeAll(() => { dir = mktemp(); db = join(dir, 'test.sqlite3'); });
+  afterAll(() => rmSync(dir, { recursive: true }));
+
+  it('registers and lists known agents from the same DB', () => {
+    const registered = ok(db, [
+      'agent-registry', '--action', 'register',
+      '--agent-id', 'codex-a',
+      '--agent-name', 'Codex A',
+      '--workspace', dir,
+      '--artifact', 'packages/octocode-awareness',
+      '--context', 'codex',
+    ]);
+    expect(registered['action']).toBe('register');
+    expect((registered['agent'] as Record<string, unknown>)['agent_name']).toBe('Codex A');
+
+    const listed = ok(db, [
+      'agent-registry', '--action', 'list',
+      '--workspace', dir,
+      '--artifact', 'packages/octocode-awareness',
+    ]);
+    expect(listed['action']).toBe('list');
+    const agents = listed['agents'] as Record<string, unknown>[];
+    expect(agents).toHaveLength(1);
+    expect(agents[0]?.['agent_id']).toBe('codex-a');
+    expect(agents[0]?.['context']).toBe('codex');
+  });
+
+  it('requires agent id when registering', () => {
+    const result = fail(db, ['agent-registry', '--action', 'register']);
+    expect(result?.['error']).toContain('--agent-id is required');
+  });
+});
+
 // ─── self-test ────────────────────────────────────────────────────────────────
 
 describe('self-test', () => {
@@ -633,6 +671,35 @@ describe('edge cases', () => {
       }
       const result = ok(db, ['status']);
       expect(result['memory_count']).toBe(3);
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+});
+
+// ─── agent-signal ────────────────────────────────────────────────────────────
+
+describe('agent-signal', () => {
+  it('preserves publish kind while still allowing kind filters', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      ok(db, [
+        'agent-signal', '--action', 'publish',
+        '--agent-id', 'agent-a',
+        '--to-agent', 'agent-b',
+        '--kind', 'question',
+        '--subject', 'Kind check',
+        '--workspace', dir,
+      ]);
+
+      const listed = ok(db, [
+        'agent-signal', '--action', 'list',
+        '--agent-id', 'agent-b',
+        '--kind', 'question',
+        '--workspace', dir,
+      ]);
+      expect(listed['count']).toBe(1);
+      const signal = (listed['signals'] as Record<string, unknown>[])[0]!;
+      expect(signal['kind']).toBe('question');
     } finally { rmSync(dir, { recursive: true }); }
   });
 });

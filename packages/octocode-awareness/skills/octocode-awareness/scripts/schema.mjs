@@ -503,7 +503,7 @@ export const schemas = {
       mark_read: z
         .boolean()
         .default(false)
-        .describe("Advance my read cursor over the returned messages (delivery hook sets this true)."),
+        .describe("Advance my read cursor over returned messages only when explicitly requested; delivery hooks leave this false."),
       limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
@@ -550,6 +550,22 @@ export const schemas = {
       message: "notify_prune requires a selector: signal_id, resolved, or older_than_days.",
     })
     .describe("Delete signals by id, resolved status, or age (retention for the repo channel)."),
+
+  agent_registry: z
+    .object({
+      action: z.enum(["list", "register"]).default("list").describe("Registry action."),
+      agent_id: agentId.optional().describe("Stable id to register. Required for register."),
+      agent_name: z.string().trim().max(256).optional().describe("Human-readable display name."),
+      workspace: workspacePath.optional().describe("Workspace scope for this agent identity."),
+      artifact: artifactScope.optional(),
+      context: z.string().trim().min(1).max(64).optional().describe("Host/runtime context such as codex, pi, claude-code, or cursor."),
+      limit: z.number().int().min(1).max(200).default(50).describe("Maximum rows for list."),
+    })
+    .strict()
+    .refine((d) => d.action !== "register" || d.agent_id !== undefined, {
+      message: "agent_id is required when action is register.",
+    })
+    .describe("Register or list known agents in the shared awareness SQLite store."),
 
   reflect: z
     .object({
@@ -745,6 +761,15 @@ export const examples = {
     older_than_days: 7,
     dry_run: true,
   },
+  agent_registry: {
+    action: "register",
+    agent_id: "codex-2",
+    agent_name: "Codex repo worker",
+    workspace: "/repo",
+    artifact: "packages/octocode-awareness",
+    context: "codex",
+    limit: 50,
+  },
   reflect: {
     agent_id: "codex-local",
     task: "Add equality pushdown to the OQL planner",
@@ -771,7 +796,7 @@ const listableSchemas = [
   "tell_memory", "get_memory", "status", "memory_index",
   "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify",
   "forget_memory", "refinement", "refine_query", "refine_delete",
-  "agent_signal", "notify", "notify_query", "notify_resolve", "notify_prune",
+  "agent_registry", "agent_signal", "notify", "notify_query", "notify_resolve", "notify_prune",
   "workspace_status", "export_harness", "reflect",
 ];
 

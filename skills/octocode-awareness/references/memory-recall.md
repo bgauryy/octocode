@@ -1,0 +1,60 @@
+# Memory Recall
+
+Use this before planning, editing, or trusting a remembered fact. Recording, reflection, forgetting, digest cleanup, and skill learning live in `octocode-reflection`.
+
+## Canonical Payload Contract
+
+Use `scripts/schema.mjs` as the canonical JSON contract. CLI flags are not always field names: `--target-file` maps to `target_files`.
+
+```bash
+node <skill_root>/scripts/schema.mjs list
+node <skill_root>/scripts/schema.mjs json-schema get_memory
+node <skill_root>/scripts/schema.mjs example get_memory
+```
+
+The CLI accepts underscore aliases: `get_memory` -> `get-memory`, `pre_flight_intent` -> `pre-flight-intent`, `notify_get` -> `notify-get`. Unknown flags are hard errors with the known-flag list.
+
+For token-efficient agent reads, pass `--compact` after the command or set `OCTOCODE_AWARENESS_COMPACT=1`; it minifies JSON without changing fields.
+
+## `get-memory`
+
+Run before planning or editing when prior lessons may matter.
+
+Important flags:
+- `--query`: natural-language recall query.
+- `--limit`: maximum memories, default `3`.
+- `--min-importance`: filter low-value memories, default `1`.
+- `--label`: repeatable category filter such as `BUG`, `GOTCHA`, `DECISION`, `ARCHITECTURE`, `SECURITY`, `OVERRIDE`, or `OTHER`.
+- `--tag`: optional repeated tag filter.
+- `--state`: repeatable lifecycle filter; default `ACTIVE` only. Pass `--state SUPERSEDED` only to inspect replaced memories.
+- `--file`: repeatable exact stored file-path filter, normalized to an absolute path.
+- `--file-regex`: repeatable regex matched against stored memory file paths.
+- `--reference`: repeatable exact provenance filter, matched against structured `references[]`.
+- `--workspace` / `--artifact` / `--repo` / `--ref`: applicability filters. Default recall includes exact scope plus broader `NULL` rows.
+- `--strict-scope` / `--global-only`: exact scope only, or only unscoped lessons.
+- `--regex`: repeatable regex matched against task, observation, tags, references, label, workspace/repo/ref, file, and failure signature.
+- `--sort`: `smart`/`score` (default salience blend), `importance`, `recent`, or `accessed`.
+- `--explain`: attach `score_components` to each result.
+- `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters.
+- `--as-of <ISO>`: point-in-time recall using memory validity windows.
+
+## Judgment Rules
+
+- A zero-result recall is not proof of absence. Retry with `--smart` or drop label/tag filters before concluding no match.
+- Low-confidence recall returns `judgment_required: true` plus `judgment_reason`; verify against current files or broaden the query before relying on it.
+- Current code, tests, docs, and user instructions beat memory.
+- Validate code memories against current files before relying on them.
+- If a remembered fact is stale, finish the live work safely, then use `octocode-reflection` to supersede or forget it.
+
+## Pi Form
+
+```typescript
+memory_recall({
+  query: "auth lock gotcha",
+  workspace_path: "/abs/repo",
+  smart: true,
+  limit: 5,
+})
+```
+
+Use recall to inform the plan, not to prove the answer. Proof still comes from current files, commands, tests, or source evidence.

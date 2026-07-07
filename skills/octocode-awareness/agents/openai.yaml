@@ -1,0 +1,4 @@
+interface:
+  display_name: "Octocode Awareness"
+  short_description: "Shared workspace state, locks, signals, and verification."
+  default_prompt: "Use octocode-awareness before planning or editing in a shared workspace: recall relevant memories, inspect refinements/signals/status, claim files, coordinate conflicts, run declared verification, clear pending tasks, and leave handoffs visible. Use octocode-reflection separately for post-task learning, cleanup, or skill/harness improvement proposals."

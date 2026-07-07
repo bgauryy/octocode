@@ -21,6 +21,7 @@ import type { EvalFailure } from '../src/types.js';
 import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from '../src/maintenance.js';
 import { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from '../src/notifications.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
+import { registerAgent, listAgents } from '../src/agents.js';
 import {
   normalizeLabel,
 } from '../src/helpers.js';
@@ -89,6 +90,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
   'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
   'memory-index': ['limit', 'min_importance', 'out', 'stdout', 'workspace', 'artifact', 'repo', 'ref'],
+  'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
   'notify': ['agent_id', 'to', 'kind', 'subject', 'body', 'file', 'ref_id', 'in_reply_to', 'importance', 'workspace', 'artifact', 'repo', 'ref'],
   'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'mark_read', 'limit'],
   'notify-get': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'all', 'mark_read', 'kind', 'thread_id', 'limit', 'format'],
@@ -650,6 +652,7 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
   const rawKinds = args['kind'];
   const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
+  const publishKind = kinds[0] as import('../src/types.js').NotificationKind | undefined;
   const rawSignalIds = args['signal_id'];
   const signalIds = Array.isArray(rawSignalIds) ? rawSignalIds : rawSignalIds ? [String(rawSignalIds)] : [];
   const result = agentSignal(db, {
@@ -659,7 +662,7 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
-    kind: args['kind'] && !Array.isArray(args['kind']) ? String(args['kind']) as import('../src/types.js').NotificationKind : undefined,
+    kind: publishKind,
     subject: args['subject'] ? String(args['subject']) : undefined,
     body: args['body'] ? String(args['body']) : null,
     toAgents,
@@ -688,6 +691,41 @@ function cmdNotifyPrune(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     dryRun: Boolean(args['dry_run']),
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
+function cmdAgentRegistry(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const action = String(args['action'] ?? 'list');
+  if (!['list', 'register'].includes(action)) {
+    return emit({ error: '--action must be list or register' }, 1, opts);
+  }
+
+  const workspacePath = args['workspace'] ? String(args['workspace']) : null;
+  const artifact = args['artifact'] ? String(args['artifact']) : null;
+
+  if (action === 'register') {
+    if (!args['agent_id']) return emit({ error: '--agent-id is required for register' }, 1, opts);
+    const agent = registerAgent(db, {
+      agentId: String(args['agent_id']),
+      agentName: args['agent_name'] ? String(args['agent_name']) : '',
+      workspacePath,
+      artifact,
+      context: args['context'] ? String(args['context']) : null,
+    });
+    return emit({ db_path: dbPath, action: 'register', agent }, 0, opts);
+  }
+
+  const limit = Math.min(200, Math.max(1, parseInt(String(args['limit'] ?? '50'), 10) || 50));
+  const result = listAgents(db, { workspacePath, artifact });
+  const agents = result.agents.slice(0, limit);
+  return emit({
+    db_path: dbPath,
+    action: 'list',
+    count: agents.length,
+    total_count: result.count,
+    agents,
+    workspace_path: workspacePath,
+    artifact,
+  }, 0, opts);
 }
 
 function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: EmitOptions): number {
@@ -805,7 +843,7 @@ const HELP = `usage: awareness <command> [options]
 commands: tell-memory  get-memory  forget  reflect  refine-set  refine-get  refine-delete
           pre-flight-intent  release-file-lock  status  workspace-status  init  self-test
           prune-stale-locks  audit-unverified  verify  mine-weakness  doc-staleness  export-harness  memory-index
-          notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
+          agent-registry  notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
 
 common options:
   --db <path>     Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)
@@ -831,6 +869,11 @@ refine-delete:
 export-harness:
   [--limit <n>]  [--min-importance <n>]  [--workspace <path>]
   preview top lessons as an AGENTS.md block
+
+agent-registry:
+  [--action list|register]  [--workspace <path>]  [--artifact <name>]  [--limit <n>]
+  register: --agent-id <id>  [--agent-name <name>]  [--context <host>]
+  list known agents from the same SQLite store, ordered by last_seen_at
 
 notify:
   --agent-id <id>  --kind claim|handoff|question|reply|blocker|request|decision|fyi
@@ -1076,6 +1119,7 @@ try {
     case 'forget':          exitCode = cmdForget(db, args, dbPath, opts); break;
     case 'refine-delete':   exitCode = cmdRefineDelete(db, args, dbPath, opts); break;
     case 'export-harness':  exitCode = cmdExportHarness(db, args, dbPath, opts); break;
+    case 'agent-registry':  exitCode = cmdAgentRegistry(db, args, dbPath, opts); break;
     case 'notify':          exitCode = cmdNotify(db, args, dbPath, opts); break;
     case 'agent-signal':    exitCode = cmdAgentSignal(db, args, dbPath, opts); break;
     case 'notify-resolve':  exitCode = cmdNotifyResolve(db, args, dbPath, opts); break;
