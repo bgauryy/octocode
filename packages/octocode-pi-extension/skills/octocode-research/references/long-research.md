@@ -1,7 +1,6 @@
 # Long Research
 
-Read this when an Octocode research task needs a durable decision brief, claim-level traceability, or a frozen campaign plan.
-Keep the normal chat flow for small answers; this reference is for longer, contested, public, or multi-surface research.
+**Rare path — skip by default.** Read this only when an Octocode research task needs a durable decision brief, claim-level traceability, or a frozen campaign plan. Keep the normal chat flow for small answers; evidence grades and the router still come from `references/algorithm.md`.
 
 ## When To Use
 

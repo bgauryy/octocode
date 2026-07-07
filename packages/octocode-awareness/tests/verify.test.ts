@@ -25,8 +25,8 @@ function makePending(
     testPlan,
   });
   if (!claim.ok) throw new Error('claim failed');
-  releaseFileLock(db, { agentId, intentId: claim.intent.intent_id, status: 'PENDING' });
-  return claim.intent.intent_id;
+  releaseFileLock(db, { agentId, taskId: claim.task.task_id, status: 'PENDING' });
+  return claim.task.task_id;
 }
 
 describe('auditUnverified', () => {
@@ -50,13 +50,13 @@ describe('auditUnverified', () => {
     expect(result.count).toBe(0);
   });
 
-  it('returns PENDING intents with intent_id, status, and test_plan', () => {
+  it('returns PENDING tasks with task_id, status, and test_plan', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a', 'run vitest + lint');
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a', 'run vitest + lint');
     const result = auditUnverified(db);
     expect(result.count).toBe(1);
     expect(result.unverified[0]).toMatchObject({
-      intent_id: intentId,
+      task_id: taskId,
       status: 'PENDING',
       test_plan: 'run vitest + lint',
     });
@@ -69,7 +69,7 @@ describe('auditUnverified', () => {
 
     const result = auditUnverified(db, { agentId: 'agent-a' });
     expect(result.count).toBe(1);
-    expect(result.unverified[0]!.intent_id).toBe(aId);
+    expect(result.unverified[0]!.task_id).toBe(aId);
   });
 
   it('filters by workspacePath — only returns that workspace\'s PENDING intents', () => {
@@ -79,7 +79,7 @@ describe('auditUnverified', () => {
 
     const result = auditUnverified(db, { workspacePath: '/tmp/ws-a' });
     expect(result.count).toBe(1);
-    expect(result.unverified[0]!.intent_id).toBe(aId);
+    expect(result.unverified[0]!.task_id).toBe(aId);
   });
 
   it('filters by both agentId and workspacePath', () => {
@@ -89,7 +89,7 @@ describe('auditUnverified', () => {
 
     const result = auditUnverified(db, { agentId: 'agent-a', workspacePath: '/tmp/ws-a' });
     expect(result.count).toBe(1);
-    expect(result.unverified[0]!.intent_id).toBe(aId);
+    expect(result.unverified[0]!.task_id).toBe(aId);
   });
 
   it('returns all PENDING when no filter given', () => {
@@ -98,20 +98,20 @@ describe('auditUnverified', () => {
     const bId = makePending(db, 'agent-b', '/tmp/ws-b');
     const result = auditUnverified(db);
     expect(result.count).toBe(2);
-    expect(result.unverified.map(u => u.intent_id).sort()).toEqual([aId, bId].sort());
+    expect(result.unverified.map(u => u.task_id).sort()).toEqual([aId, bId].sort());
   });
 });
 
 describe('markVerified', () => {
   it('transitions a PENDING intent to SUCCESS and clears it from auditUnverified', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
     expect(auditUnverified(db).count).toBe(1);
 
-    const result = markVerified(db, { intentId, agentId: 'agent-a', status: 'SUCCESS' });
+    const result = markVerified(db, { taskId, agentId: 'agent-a', status: 'SUCCESS' });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.intent_id).toBe(intentId);
+      expect(result.task_id).toBe(taskId);
       expect(result.status).toBe('SUCCESS');
     }
     expect(auditUnverified(db).count).toBe(0);
@@ -119,26 +119,26 @@ describe('markVerified', () => {
 
   it('transitions a PENDING intent to FAILED', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a');
-    const result = markVerified(db, { intentId, agentId: 'agent-a', status: 'FAILED' });
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const result = markVerified(db, { taskId, agentId: 'agent-a', status: 'FAILED' });
     expect(result.ok).toBe(true);
-    const row = db.prepare('SELECT status FROM agent_intents WHERE intent_id = ?').get(intentId);
+    const row = db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId);
     expect((row as { status: string }).status).toBe('FAILED');
   });
 
   it('defaults to SUCCESS when status is omitted', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a');
-    const result = markVerified(db, { intentId, agentId: 'agent-a' });
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const result = markVerified(db, { taskId, agentId: 'agent-a' });
     expect(result.ok).toBe(true);
-    const row = db.prepare('SELECT status FROM agent_intents WHERE intent_id = ?').get(intentId);
+    const row = db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId);
     expect((row as { status: string }).status).toBe('SUCCESS');
   });
 
-  it('returns ok=false for an unknown intent_id — not silent ok', () => {
+  it('returns ok=false for an unknown task_id — not silent ok', () => {
     const db = freshDb();
     const result = markVerified(db, {
-      intentId: 'intent_does-not-exist',
+      taskId: 'task_does-not-exist',
       agentId: 'agent-a',
       status: 'SUCCESS',
     });
@@ -148,17 +148,17 @@ describe('markVerified', () => {
 
   it('returns ok=false when the intent belongs to a different agent', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a');
-    const result = markVerified(db, { intentId, agentId: 'agent-b', status: 'SUCCESS' });
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const result = markVerified(db, { taskId, agentId: 'agent-b', status: 'SUCCESS' });
     expect(result.ok).toBe(false);
   });
 
   it('returns ok=false for an invalid status value', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
     // PENDING is not a valid verify status (can't "verify" into PENDING)
     const result = markVerified(db, {
-      intentId,
+      taskId,
       agentId: 'agent-a',
       status: 'PENDING' as 'SUCCESS',
     });
@@ -167,11 +167,11 @@ describe('markVerified', () => {
 
   it('returns ok=false when verifying an already-SUCCESS intent — not PENDING', () => {
     const db = freshDb();
-    const intentId = makePending(db, 'agent-a', '/tmp/ws-a');
-    const first = markVerified(db, { intentId, agentId: 'agent-a', status: 'SUCCESS' });
+    const taskId = makePending(db, 'agent-a', '/tmp/ws-a');
+    const first = markVerified(db, { taskId, agentId: 'agent-a', status: 'SUCCESS' });
     expect(first.ok).toBe(true);
     // Second verify attempt: intent is now SUCCESS, not PENDING
-    const second = markVerified(db, { intentId, agentId: 'agent-a', status: 'SUCCESS' });
+    const second = markVerified(db, { taskId, agentId: 'agent-a', status: 'SUCCESS' });
     expect(second.ok).toBe(false);
   });
 });

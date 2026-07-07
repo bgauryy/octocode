@@ -62,7 +62,7 @@ describe('reflect', () => {
       task: 'auth refactor', outcome: 'worked',
       lesson: 'always verify JWT expiry',
     });
-    const mem = db.prepare('SELECT observation FROM agent_memories WHERE memory_id = ?')
+    const mem = db.prepare('SELECT observation FROM memories WHERE memory_id = ?')
       .get(result.learning_memory_id) as { observation: string };
     expect(mem.observation).toContain('always verify JWT expiry');
   });
@@ -73,7 +73,7 @@ describe('reflect', () => {
       task: 'routing', outcome: 'partial',
       worked: 'basic routes pass', didntWork: 'nested routes fail',
     });
-    const mem = db.prepare('SELECT observation FROM agent_memories WHERE memory_id = ?')
+    const mem = db.prepare('SELECT observation FROM memories WHERE memory_id = ?')
       .get(result.learning_memory_id) as { observation: string };
     expect(mem.observation).toContain('basic routes pass');
     expect(mem.observation).toContain('nested routes fail');
@@ -98,7 +98,7 @@ describe('reflect', () => {
     const result = reflect(db, {
       task: 't', outcome: 'failed', failureSignature: 'mechanism:test|cause:unit',
     });
-    const mem = db.prepare('SELECT label, failure_signature FROM agent_memories WHERE memory_id = ?')
+    const mem = db.prepare('SELECT label, failure_signature FROM memories WHERE memory_id = ?')
       .get(result.learning_memory_id) as { label: string; failure_signature: string };
     expect(mem.label).toBe('EXPERIENCE');
     expect(mem.failure_signature).toBe('mechanism:test|cause:unit');
@@ -109,7 +109,7 @@ describe('reflect', () => {
     const result = reflect(db, {
       task: 't', outcome: 'failed', fixHarness: 'fix something',
     });
-    const mem = db.prepare('SELECT tags_json FROM agent_memories WHERE memory_id = ?')
+    const mem = db.prepare('SELECT tags_json FROM memories WHERE memory_id = ?')
       .get(result.learning_memory_id) as { tags_json: string };
     const tags: string[] = JSON.parse(mem.tags_json);
     expect(tags).toContain('reflection');
@@ -141,9 +141,9 @@ describe('reflect', () => {
   it('custom importance overrides the default', () => {
     const db = freshDb();
     const result = reflect(db, { task: 't', outcome: 'worked', importance: 9 });
-    const mem = db.prepare('SELECT importance_score FROM agent_memories WHERE memory_id = ?')
-      .get(result.learning_memory_id) as { importance_score: number };
-    expect(mem.importance_score).toBe(9);
+    const mem = db.prepare('SELECT importance FROM memories WHERE memory_id = ?')
+      .get(result.learning_memory_id) as { importance: number };
+    expect(mem.importance).toBe(9);
   });
 
   it('stores scope references, primary file, expiry, and refinement files', () => {
@@ -159,15 +159,19 @@ describe('reflect', () => {
       validTo: '2099-01-01T00:00:00Z',
       fixRepo: 'update scoped docs',
     });
-    const mem = db.prepare('SELECT file, references_json, valid_to FROM agent_memories WHERE memory_id = ?')
-      .get(result.learning_memory_id) as { file: string; references_json: string; valid_to: string };
-    expect(mem.file.endsWith('/src/index.ts')).toBe(true);
-    expect(JSON.parse(mem.references_json)).toEqual(expect.arrayContaining([
+    // References are stored in memory_refs (not references_json column — removed in schema v2)
+    const refs = (db.prepare(
+      'SELECT reference FROM memory_refs WHERE memory_id = ? ORDER BY ordinal'
+    ).all(result.learning_memory_id) as Array<{ reference: string }>).map(r => r.reference);
+    expect(refs).toEqual(expect.arrayContaining([
       'file:AGENTS.md',
       expect.stringMatching(/^file:.*src\/index\.ts$/),
       expect.stringMatching(/^file:.*src\/tools\/memory\.ts$/),
       expect.stringMatching(/^dir:.*docs$/),
     ]));
+    // valid_to still lives on the memories row
+    const mem = db.prepare('SELECT valid_to FROM memories WHERE memory_id = ?')
+      .get(result.learning_memory_id) as { valid_to: string };
     expect(mem.valid_to).toBe('2099-01-01T00:00:00Z');
 
     const ref = db.prepare('SELECT files_json FROM refinements WHERE refinement_id = ?')

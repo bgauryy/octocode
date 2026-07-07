@@ -8,24 +8,24 @@ The skill is especially useful when several agents work together in the same rep
 
 Coding agents are usually stateless between runs. One agent may edit a file while another is reading stale context. A later run may rediscover a lesson that was already learned. A handoff can be buried in chat, and a success claim can be made without a recorded check.
 
-`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the memory, lock, handoff, notification, and verification layer around engineering work.
+`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the memory, lock, handoff, signal, and verification layer around engineering work.
 
 ## Capabilities
 
 - Shared memory for reusable lessons, failure signatures, decisions, and gotchas.
 - Workspace and branch-scoped handoffs for unfinished or ongoing work.
 - File claims so agents can see overlapping edits before they collide.
-- Verification records that connect a work intent to the check that actually ran.
-- Agent-to-agent notifications for blockers, questions, claims, replies, and handoffs.
+- Verification records that connect an edit task to the check that actually ran.
+- Agent-to-agent signals for blockers, questions, claims, replies, and handoffs.
 - Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
 - Reflection and weakness-mining flows that turn repeated failures into better future behavior.
 - Reasoned self-harness proposals for `AGENTS.md`, docs, standing memory-corpus changes, and the skill code itself, always behind user approval before edits.
 - Optional local semantic recall while keeping SQLite and text search as the dependable default.
-- A local viewer for inspecting memories, locks, intents, refinements, and notifications.
+- A local viewer for inspecting memories, locks, tasks, refinements, and signals.
 
 ## Operating Model
 
-The skill uses a shared local SQLite store under the user's Octocode state directory. Records are scoped by workspace, repo, branch/ref, file path, state, and agent id, so the same memory layer can support multiple projects without needing a separate database per repo.
+The skill uses a shared local SQLite store under the user's Octocode state directory. Workspace path is the primary scope key, with optional artifact/package/service, repo, branch/ref, file path, state, and agent id filters layered under it, so the same memory layer can support multiple projects without needing a separate database per repo.
 
 The mental model is:
 

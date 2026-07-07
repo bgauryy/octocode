@@ -12,6 +12,7 @@ const tag = z
   .regex(/^[a-zA-Z0-9_.:-]+$/, "tags may contain letters, numbers, underscore, dot, colon, or dash");
 const tags = z.array(tag).max(32).default([]).describe("Fast filtering keywords.");
 const workspacePath = z.string().trim().min(1).max(1024).describe("Local workspace root.");
+const artifactScope = z.string().trim().min(1).max(256).describe("Optional package/service/artifact slice inside a workspace.");
 const repoScope = z.string().trim().min(1).max(256).describe("Repository name or project slug.");
 const refScope = z.string().trim().min(1).max(256).describe("Branch name, tag, or commit hash.");
 const references = z
@@ -67,7 +68,7 @@ const targetFiles = z
   .max(200)
   .describe("Absolute or workspace-relative files likely to be modified or affected.");
 
-// Notifications — repo-scoped agent-to-agent messages. The `kind` enum is the
+// Signals — repo-scoped agent-to-agent messages. The `kind` enum is the
 // "smart" part: typed messages let recipients filter (e.g. only blockers) and
 // act, instead of parsing free prose.
 const NOTIFICATION_KINDS = [
@@ -90,7 +91,7 @@ const refIds = z
   .array(z.string().trim().min(1).max(128))
   .max(50)
   .default([])
-  .describe("Ids this message is about: intent_id / refinement_id / memory_id / notification_id — makes it actionable.");
+  .describe("Ids this message is about: task_id / refinement_id / memory_id / signal_id — makes it actionable.");
 const evalFailure = z
   .object({
     id: z.string().trim().min(1).max(128).describe("Failed eval question/check id."),
@@ -115,13 +116,14 @@ export const schemas = {
       agent_id: agentId,
       task_context: nonEmptyText("What goal or script produced the lesson.", 1000),
       observation: nonEmptyText("Exact lesson learned; specific enough to act on later.", 4000),
-      importance_score: importanceScore,
+      importance: importanceScore,
       label: memoryLabel,
       tags,
       references,
       workspace_path: workspacePath
         .optional()
         .describe("Optional memory scope. Omit for global developer/harness gotchas; set for repo-specific lessons."),
+      artifact: artifactScope.optional(),
       repo: repoScope.optional().describe("Optional repository scope; auto-fill from workspace git when omitted by the CLI."),
       ref: refScope.optional().describe("Optional branch/commit scope; auto-fill from workspace git when omitted by the CLI."),
       file: z
@@ -180,6 +182,7 @@ export const schemas = {
         .describe("Regex patterns matched against task, observation, tags, references, label, file, and failure signature."),
       references: references.describe("Exact stored provenance references to match; all provided references must be present."),
       workspace_path: workspacePath.optional().describe("Exact stored workspace root to match."),
+      artifact: artifactScope.optional(),
       repo: repoScope.optional().describe("Exact stored repository scope to match."),
       ref: refScope.optional().describe("Exact stored branch/commit scope to match."),
       strict_scope: z
@@ -226,17 +229,19 @@ export const schemas = {
 
   status: z
     .object({
-      workspace_path: workspacePath.optional().describe("Filter displayed locks/unverified intents under this workspace path."),
+      workspace_path: workspacePath.optional().describe("Filter displayed locks/unverified tasks under this workspace path."),
+      artifact: artifactScope.optional(),
       limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
-    .describe("Show shared DB health: FTS, memory labels/states, active locks, open refinements, and unverified intents."),
+    .describe("Show shared DB health: FTS, memory labels/states, active locks, open refinements, and unverified tasks."),
 
   memory_index: z
     .object({
       limit: z.number().int().min(1).max(500).default(30),
       min_importance: importanceScore.optional().describe("Only include active memories at or above this importance."),
       workspace_path: workspacePath.optional().describe("Workspace scope for the generated index."),
+      artifact: artifactScope.optional(),
       repo: repoScope.optional().describe("Repository scope for the generated index."),
       ref: refScope.optional().describe("Branch/commit scope for the generated index."),
       strict_scope: z.boolean().default(false).describe("Index exact scope matches only."),
@@ -251,6 +256,7 @@ export const schemas = {
     .object({
       agent_id: agentId,
       workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace root for verification scoping."),
+      artifact: artifactScope.optional(),
       plan_doc_ref: z.string().trim().min(1).max(1024).optional(),
       rationale: nonEmptyText("Detailed reason why this change is necessary.", 2000),
       target_files: targetFiles,
@@ -261,11 +267,13 @@ export const schemas = {
       ttl_minutes: z.number().int().min(1).max(10080).default(240),
     })
     .strict()
-    .describe("Register edit intent and acquire target file locks."),
+    .describe("Register an edit task and acquire target file locks."),
 
   wait_for_lock: z
     .object({
       agent_id: agentId.describe("Waiting agent id; used so an agent does not wait on its own locks."),
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
       target_files: targetFiles,
       lock_type: z.enum(["SHARED", "EXCLUSIVE"]).default("EXCLUSIVE"),
       wait_seconds: z.number().int().min(0).max(3600).default(60),
@@ -279,22 +287,26 @@ export const schemas = {
       older_than_minutes: z.number().int().min(1).max(10080).default(20),
       expired_only: z.boolean().default(false),
       agent_id: agentId.optional().describe("Optional holder filter."),
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
       target_files: z.array(z.string().trim().min(1).max(1024)).max(200).default([]),
       dry_run: z.boolean().default(false),
     })
     .strict()
-    .describe("Delete expired or age-stale locks. Affected ACTIVE intents become PENDING, never SUCCESS."),
+    .describe("Delete expired or age-stale locks. Affected ACTIVE tasks become PENDING, never SUCCESS."),
 
   release_file_lock: z
     .object({
       agent_id: agentId,
-      intent_id: z.string().trim().min(1).max(128).optional(),
+      task_id: z.string().trim().min(1).max(128).optional(),
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
       target_files: z.array(z.string().trim().min(1).max(1024)).max(200).optional(),
       status: z.enum(["PENDING", "SUCCESS", "FAILED"]).default("SUCCESS"),
       verified: z
         .boolean()
         .default(false)
-        .describe("Record that the intent's test_plan was actually run before releasing."),
+        .describe("Record that the task's test_plan was actually run before releasing."),
       verified_note: z.string().trim().min(1).max(2000).optional().describe("What was verified."),
     })
     .strict()
@@ -304,16 +316,17 @@ export const schemas = {
     .object({
       agent_id: agentId,
       workspace: z.string().trim().min(1).max(1024).optional().describe("Restrict --all-pending to this workspace."),
-      intent_id: z
+      artifact: artifactScope.optional(),
+      task_id: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Intent ids whose work was checked; empty when all_pending is true."),
-      all_pending: z.boolean().default(false).describe("Verify every unverified pending/live intent for this agent."),
+        .describe("Task ids whose work was checked; empty when all_pending is true."),
+      all_pending: z.boolean().default(false).describe("Verify every unverified pending/live task for this agent."),
       message: z.string().trim().min(1).max(2000).optional().describe("What was verified (test output, artifact)."),
     })
     .strict()
-    .describe("Record that an intent's work was actually checked (validate-before-conclude)."),
+    .describe("Record that a task's work was actually checked (validate-before-conclude)."),
 
   forget_memory: z
     .object({
@@ -359,6 +372,7 @@ export const schemas = {
         .min(1)
         .max(1024)
         .describe("Local workspace root the refinement belongs to."),
+      artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional().describe("Repository name."),
       ref: z.string().trim().min(1).max(256).optional().describe("Branch name or commit hash."),
       files: z
@@ -381,6 +395,7 @@ export const schemas = {
     .object({
       workspace_path: z.string().trim().min(1).max(1024).optional(),
       refinement_id: z.string().trim().min(1).max(128).optional(),
+      artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
       quality: z.enum(["good", "bad"]).optional(),
@@ -400,6 +415,7 @@ export const schemas = {
   refine_delete: z
     .object({
       workspace_path: z.string().trim().min(1).max(1024).optional(),
+      artifact: artifactScope.optional(),
       refinement_id: z
         .array(z.string().trim().min(1).max(128))
         .min(1)
@@ -420,6 +436,7 @@ export const schemas = {
         .max(1024)
         .optional()
         .describe("The repo channel this message belongs to (workspace root). Default: cwd."),
+      artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional().describe("Repository name (auto-filled from git if omitted)."),
       ref: z.string().trim().min(1).max(256).optional().describe("Branch or commit (auto-filled from git if omitted)."),
       to: agentId
@@ -438,7 +455,7 @@ export const schemas = {
         .min(1)
         .max(128)
         .optional()
-        .describe("notification_id this replies to; inherits its thread so agents can discuss."),
+        .describe("signal_id this replies to; inherits its thread so agents can discuss."),
       importance: importanceScore.default(5),
     })
     .strict()
@@ -449,6 +466,7 @@ export const schemas = {
       action: z.enum(["publish", "list", "reply", "resolve", "ack"]).describe("Coordination action."),
       agent_id: agentId.describe("Acting/reading agent id."),
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
+      artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
       kind: notificationKind.optional().describe("Signal kind for publish."),
@@ -458,9 +476,9 @@ export const schemas = {
       files: fileList,
       refs: refIds,
       importance: importanceScore.default(5),
-      in_reply_to: z.string().trim().min(1).max(128).optional().describe("Notification id this replies to."),
+      in_reply_to: z.string().trim().min(1).max(128).optional().describe("Signal id this replies to."),
       thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id for list/resolve/ack."),
-      notification_id: z.array(z.string().trim().min(1).max(128)).max(200).default([]).describe("Notification ids for resolve/ack."),
+      signal_id: z.array(z.string().trim().min(1).max(128)).max(200).default([]).describe("Signal ids for resolve/ack."),
       unread_only: z.boolean().default(true),
       mark_read: z.boolean().default(false),
       kinds: z.array(notificationKind).max(8).default([]),
@@ -473,6 +491,7 @@ export const schemas = {
     .object({
       agent_id: agentId.describe("Reader — delivery targets this agent."),
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel to read. Default: cwd."),
+      artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
       unread_only: z
@@ -493,27 +512,29 @@ export const schemas = {
   notify_resolve: z
     .object({
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
-      notification_id: z
+      artifact: artifactScope.optional(),
+      signal_id: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Notification ids to resolve."),
+        .describe("Signal ids to resolve."),
       thread_id: z.string().trim().min(1).max(128).optional().describe("Resolve every message in this thread."),
     })
     .strict()
-    .refine((d) => d.notification_id.length > 0 || d.thread_id !== undefined, {
-      message: "notify_resolve requires notification_id or thread_id.",
+    .refine((d) => d.signal_id.length > 0 || d.thread_id !== undefined, {
+      message: "notify_resolve requires signal_id or thread_id.",
     })
     .describe("Mark messages resolved (close a message or a whole thread)."),
 
   notify_prune: z
     .object({
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
-      notification_id: z
+      artifact: artifactScope.optional(),
+      signal_id: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Notification ids to delete."),
+        .describe("Signal ids to delete."),
       resolved: z.boolean().default(false).describe("Delete only messages already marked resolved."),
       older_than_days: z
         .number()
@@ -525,10 +546,10 @@ export const schemas = {
       dry_run: z.boolean().default(false).describe("Report matches without deleting."),
     })
     .strict()
-    .refine((d) => d.notification_id.length > 0 || d.resolved || d.older_than_days !== undefined, {
-      message: "notify_prune requires a selector: notification_id, resolved, or older_than_days.",
+    .refine((d) => d.signal_id.length > 0 || d.resolved || d.older_than_days !== undefined, {
+      message: "notify_prune requires a selector: signal_id, resolved, or older_than_days.",
     })
-    .describe("Delete notifications by id, resolved status, or age (retention for the repo channel)."),
+    .describe("Delete signals by id, resolved status, or age (retention for the repo channel)."),
 
   reflect: z
     .object({
@@ -557,6 +578,7 @@ export const schemas = {
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
       workspace_path: z.string().trim().min(1).max(1024).optional(),
+      artifact: artifactScope.optional(),
       importance: importanceScore.optional().describe("Override the outcome-derived importance (failed 8 / partial 6 / worked 5)."),
       duo: z
         .boolean()
@@ -574,11 +596,12 @@ export const examples = {
       "Refactoring auth router validation; reason: future agents need to preserve lookup order without rediscovering the tenant bug",
     observation:
       "The auth router normalizes tenant IDs before policy lookup; keep that order or cross-tenant tests fail.",
-    importance_score: 8,
+    importance: 8,
     label: "GOTCHA",
     tags: ["auth", "routing"],
     references: ["pr:acme/auth#482", "https://docs.acme.dev/tenancy", "file:src/auth/router.ts"],
     workspace_path: "/repo",
+    artifact: "packages/auth",
     repo: "octocode-mcp",
     ref: "support-OQL",
     file: "src/auth/router.ts",
@@ -593,6 +616,7 @@ export const examples = {
     tags: ["auth"],
     references: ["file:src/auth/router.ts"],
     workspace_path: "/repo",
+    artifact: "packages/auth",
     repo: "octocode-mcp",
     strict_scope: false,
     sort: "smart",
@@ -600,10 +624,13 @@ export const examples = {
   },
   status: {
     workspace_path: "/repo",
+    artifact: "packages/auth",
     limit: 20,
-  },  memory_index: {
+  },
+  memory_index: {
     limit: 30,
     min_importance: 4,
+    artifact: "packages/auth",
     repo: "octocode-mcp",
     strict_scope: false,
     stdout: false,
@@ -611,6 +638,7 @@ export const examples = {
   pre_flight_intent: {
     agent_id: "codex-local",
     workspace: "/repo",
+    artifact: "packages/auth",
     plan_doc_ref: "docs/designs/active_plan.md",
     rationale: "Refactor auth router validation without breaking tenant policy order.",
     target_files: ["src/auth/router.ts", "src/auth/router.test.ts"],
@@ -619,6 +647,8 @@ export const examples = {
   },
   wait_for_lock: {
     agent_id: "codex-local",
+    workspace: "/repo",
+    artifact: "packages/auth",
     target_files: ["src/auth/router.ts"],
     lock_type: "EXCLUSIVE",
     wait_seconds: 120,
@@ -627,12 +657,16 @@ export const examples = {
   prune_stale_locks: {
     older_than_minutes: 20,
     expired_only: false,
+    workspace: "/repo",
+    artifact: "packages/auth",
     target_files: ["src/auth/router.ts"],
     dry_run: true,
   },
   release_file_lock: {
     agent_id: "codex-local",
-    intent_id: "intent_abc123",
+    task_id: "task_abc123",
+    workspace: "/repo",
+    artifact: "packages/auth",
     status: "SUCCESS",
     verified: true,
     verified_note: "yarn test src/auth/router.test.ts: 273 passed",
@@ -640,7 +674,8 @@ export const examples = {
   verify: {
     agent_id: "codex-local",
     workspace: "/repo",
-    intent_id: ["intent_abc123"],
+    artifact: "packages/auth",
+    task_id: ["task_abc123"],
     all_pending: false,
     message: "yarn test src/auth/router.test.ts: 273 passed",
   },
@@ -652,6 +687,7 @@ export const examples = {
   refinement: {
     agent_id: "codex-local",
     workspace_path: "/Users/me/work/octocode-mcp",
+    artifact: "packages/octocode-core",
     repo: "octocode-mcp",
     ref: "support-OQL",
     files: ["src/oql/planner.ts"],
@@ -678,28 +714,31 @@ export const examples = {
     subject: "Can you review the lock handoff?",
     body: "Please reply in this thread after checking the file lock state.",
     files: ["src/intents.ts"],
-    refs: ["intent_123"],
+    artifact: "packages/octocode-core",
+    refs: ["task_123"],
     importance: 7,
   },
   notify: {
     agent_id: "codex-2",
+    artifact: "packages/octocode-core",
     repo: "octocode-mcp",
     ref: "support-OQL",
     kind: "blocker",
     subject: "Mid-refactor on oql/planner.ts — tests red",
     body: "Hold off editing src/oql/planner.ts until I push; pushdown rewrite in progress.",
     files: ["src/oql/planner.ts"],
-    refs: ["intent_abc123"],
+    refs: ["task_abc123"],
     importance: 8,
   },
   notify_query: {
     agent_id: "claude-1",
+    artifact: "packages/octocode-core",
     repo: "octocode-mcp",
     unread_only: true,
     mark_read: true,
   },
   notify_resolve: {
-    thread_id: "ntf_966efa90808a48648dea6cb858e8e0c6",
+    thread_id: "sig_966efa90808a48648dea6cb858e8e0c6",
   },
   notify_prune: {
     resolved: true,

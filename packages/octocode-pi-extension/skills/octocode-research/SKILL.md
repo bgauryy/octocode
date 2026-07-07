@@ -13,28 +13,29 @@ Map/Validate for landscape, prior art, or whether to add/build something. Invest
 
 ## Operating Rules
 
-- State corpus, question, mode, and active/skipped surfaces in one line.
-- Use MCP tools when exposed; otherwise use `npx octocode` after reading schemas/help.
-- Start cheap with tree/path/package/repo discovery; deep-read exact slices only after anchors appear.
-- Cross-pollinate surfaces: local clues feed GitHub/npm/web, and external claims feed code reads.
-- Keep a claim ledger; promote snippets to proof only after exact source, AST/LSP, history, artifact, or test evidence.
-- Recall prior lessons first; record durable findings only when a reusable lesson survives rebuttal.
-- Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
-- For code edits, make the smallest scoped patch and report actual verification.
+1. State corpus, question, mode, and active/skipped surfaces in one line.
+2. Route by what you already hold (`references/algorithm.md`) — never a fixed grep→AST→LSP pipeline.
+3. Use MCP tools when exposed; otherwise `npx octocode` after reading schemas/help.
+4. Start cheap: tree/path/package/repo discovery. Deep-read exact slices only after anchors appear.
+5. Cross-pollinate surfaces: local clues feed GitHub/npm/web; external claims feed code reads.
+6. Keep a claim ledger; promote a snippet to proof only after exact source, AST/LSP, history, artifact, or test evidence — never from a single evidence grade.
+7. Recall prior lessons first; record durable findings only when a reusable lesson survives rebuttal.
+8. Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
+9. For code edits, make the smallest scoped patch and report actual verification.
 
 ## Reference Map
 
-- `references/octocode.md` — when choosing transport, auth, install, schema, or CLI/MCP fallback behavior.
-- `references/research-flow.md` — when running Map, Validate, Investigate, prior-art, PR/history, package, or multi-surface research.
+- `references/algorithm.md` — **read first, every task.** The router (route by what you hold), evidence grades, matchString-first, node_modules-first, anti-patterns, and failure signals. Every other reference assumes it.
+- `references/octocode.md` — when choosing transport (MCP vs CLI), picking a tool, or needing auth/install/schema/CLI syntax. Full tool matrix.
+- `references/research-flow.md` — when running Map, Validate, Investigate, Plan, prior-art, PR/history, package, or multi-surface research.
+- `references/code-research.md` — when doing implementation, review, refactor, architecture, dead-code, binary, or blast-radius work, or before presenting/dismissing a finding (proof ladder + confidence rules included).
 - `references/loop-mode.md` — when repeating Act→Observe→Learn cycles until evidence converges.
-- `references/code-research.md` — when doing implementation, review, refactor, architecture, dead-code, binary, or blast-radius work.
-- `references/finding-checks.md` — when validating, dismissing, or presenting findings before a report or patch.
-- `references/long-research.md` — when writing a durable decision brief, saved artifacts, or audit trail.
-- `references/github-landscape.md` — when comparing GitHub repos, packages, reuse options, or ecosystem candidates.
+- `references/long-research.md` — rare path: durable decision brief, saved artifacts, or audit trail.
+- `references/github-landscape.md` — rare path: comparing GitHub repos, packages, reuse options, or ecosystem candidates.
 
 ## Route Quick Pick
 
-Map/Validate → `research-flow`; Investigate/Review → `research-flow` + `code-research` + `finding-checks`; Plan/Change → `code-research`; Loop → `loop-mode`; Long/contested → `long-research`; ecosystem comparison → `github-landscape`.
+`algorithm.md` first, always. Map/Validate → `research-flow`; Investigate/Review → `research-flow` + `code-research`; Plan/Change → `code-research`; Loop → `loop-mode`; long/contested → `long-research`; ecosystem comparison → `github-landscape`.
 
 ## Scripts
 

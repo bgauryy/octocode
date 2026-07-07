@@ -6,14 +6,14 @@ Read this when multiple agents may touch the same local repo. It covers status, 
 
 ## `workspace_status` (Pi) / `status` (CLI)
 
-Run `status` to read shared state at a glance: memory counts by lifecycle state, active intents, unverified intents, and recent file locks.
+Run `status` to read shared state at a glance: memory counts by lifecycle state, active tasks, unverified tasks, and recent file locks.
 Each lock shows `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-8601 UTC, newest first).
 Status shows who is editing now. Status also shows which edits still owe verification.
 
-Flags: `--workspace` filters displayed locks/intents under one workspace path; `--limit` caps listed locks/pending intents.
-Expired locks are cleaned on each call and their intents become `PENDING`, so what you see is live without erasing verification debt.
+Flags: `--workspace` filters displayed locks/tasks under one workspace path; `--artifact` narrows to one package/service/artifact; `--limit` caps listed locks/pending tasks.
+Expired locks are cleaned on each call and their tasks become `PENDING`, so what you see is live without erasing verification debt.
 
-`status` shows memories, intents, and locks, but **not** refinements.
+`status` shows memories, tasks, and locks, but **not** refinements.
 For the work-handoff view, run `refine-get` separately.
 Everything lives in one shared store now, so a handoff can't "land in the wrong file."
 Refinements are still keyed by `repo`/`ref`; mismatched scope means `refine-get` will miss them.
@@ -56,13 +56,13 @@ The `PostToolUse` hook/TTL is still the mechanical unblock signal.
 
 Use `prune-stale-locks --older-than-minutes 20 --dry-run` when a lock may be abandoned.
 If the dry-run facts look right, run `scripts/prune-stale-locks.sh 20` or the direct command without `--dry-run`.
-Stale cleanup releases files while preserving the intent as `PENDING`; it is cleanup, not success.
+Stale cleanup releases files while preserving the task as `PENDING`; it is cleanup, not success.
 
 ## Per-repo/project + running-env context
 
 Orient in a new session by combining the shared store with plain git:
 
-- `status` / `workspace-status` — memory counts, active/pending intents, live locks.
+- `status` / `workspace-status` — memory counts, active/pending tasks, live locks.
 - `refine-get` — open/ongoing handoffs for this repo/ref.
 - `git status --porcelain` and `git rev-parse --abbrev-ref HEAD` — dirty files and branch; the store never mirrors the working tree.
 - Refinements auto-fill `repo`/`ref` from the **workspace's** git when omitted; a workspace that is not a git repo stays unscoped rather than inheriting the caller's cwd repo.
@@ -70,7 +70,7 @@ Orient in a new session by combining the shared store with plain git:
 
 ## Observability
 
-- **`status`** — memory counts by state and label, active intent count, open refinements, live locks.
+- **`status`** — memory counts by state and label, active task count, open refinements, live locks.
 - **`mine-weakness`** — top recurring failure clusters by `failure_signature` (support × avg-importance).
 - **`digest --dry-run`** — preview archive/prune counts before any cleanup mutates.
 - **`memory-index`** — regenerate the browsable `MEMORY.md` index for the store.

@@ -44,13 +44,13 @@ describe('createPiAwarenessBridge', () => {
 
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
       expect(bridge.pendingToolFiles.get('tool-1')).toEqual(['src/a.ts']);
-      expect(bridge.pendingToolIntents.get('tool-1')).toMatch(/^intent_/);
-      expect((db.prepare("SELECT COUNT(*) AS c FROM agent_intents WHERE status='ACTIVE'").get() as { c: number }).c).toBe(1);
+      expect(bridge.pendingToolIntents.get('tool-1')).toMatch(/^task_/);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM tasks WHERE status='ACTIVE'").get() as { c: number }).c).toBe(1);
 
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
       expect(bridge.pendingToolFiles.has('tool-1')).toBe(false);
-      expect((db.prepare("SELECT COUNT(*) AS c FROM agent_intents WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
-      expect((db.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number }).c).toBe(0);
+      expect((db.prepare("SELECT COUNT(*) AS c FROM tasks WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(0);
       db.close();
     } finally {
       tmp.cleanup();
@@ -77,7 +77,7 @@ describe('createPiAwarenessBridge', () => {
     }
   });
 
-  it('releases only the matching intent for overlapping same-agent tool calls', async () => {
+  it('releases only the matching task for overlapping same-agent tool calls', async () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);
@@ -87,12 +87,12 @@ describe('createPiAwarenessBridge', () => {
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-1', input: { path: 'src/a.ts' } }, ctx);
       await bridge.handleToolCall({ toolName: 'write', toolCallId: 'tool-2', input: { path: 'src/a.ts' } }, ctx);
       const secondIntent = bridge.pendingToolIntents.get('tool-2');
-      expect((db.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number }).c).toBe(2);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(2);
 
       await bridge.handleToolResult({ toolCallId: 'tool-1' }, ctx);
-      expect((db.prepare('SELECT COUNT(*) AS c FROM file_locks').get() as { c: number }).c).toBe(1);
-      const remaining = db.prepare('SELECT intent_id FROM file_locks').get() as { intent_id: string };
-      expect(remaining.intent_id).toBe(secondIntent);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(1);
+      const remaining = db.prepare('SELECT task_id FROM locks').get() as { task_id: string };
+      expect(remaining.task_id).toBe(secondIntent);
 
       const blocked = await createPiAwarenessBridge({ getDb: () => db }).handleToolCall(
         { toolName: 'edit', toolCallId: 'tool-3', input: { path: 'src/a.ts' } },
@@ -114,7 +114,16 @@ describe('wirePiAwarenessHooks', () => {
     const bridge = wirePiAwarenessHooks(pi);
 
     expect(bridge).toBeTruthy();
-    expect(events).toEqual(['tool_call', 'tool_result', 'before_agent_start', 'agent_end', 'session_shutdown']);
+    expect(events).toEqual([
+      'tool_call',
+      'tool_result',
+      'tool_execution_start',
+      'tool_execution_end',
+      'before_agent_start',
+      'agent_end',
+      'session_before_compact',
+      'session_shutdown',
+    ]);
   });
 
 
@@ -149,7 +158,7 @@ describe('wirePiAwarenessHooks', () => {
     }
   });
 
-  it('sends a verify-gate follow-up message when pending intents remain', async () => {
+  it('sends a verify-gate follow-up message when pending tasks remain', async () => {
     const tmp = tempDb();
     try {
       const db = connectDb(tmp.dbPath);

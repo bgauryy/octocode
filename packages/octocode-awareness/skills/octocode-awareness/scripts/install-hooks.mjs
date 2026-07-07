@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Merge the octocode-awareness file-claim hooks into a project's
-// .claude/settings.json so enforcement is session-wide (active even when the
-// skill is not loaded). Idempotent and non-destructive: it never touches hooks
-// other than its own. ALWAYS run only after the user has approved it.
+// Merge the octocode-awareness lifecycle hooks into a project's .claude/settings.json
+// so awareness is session-wide (active even when the skill is not loaded).
+// Idempotent and non-destructive: it never touches hooks other than its own.
+// ALWAYS run only after the user has approved it.
 //
 // Usage:
 //   node scripts/install-hooks.mjs [--project-dir <path>]   install/merge
@@ -25,8 +25,8 @@ const opt = (name, def) => {
 function printHelp() {
   console.log(`Usage: node scripts/install-hooks.mjs [options]
 
-Install, check, dry-run, or remove octocode-awareness PreToolUse/PostToolUse
-file-lock hooks in Claude settings.
+Install, check, dry-run, or remove octocode-awareness lifecycle hooks in Claude
+settings: edit locks, harness guard, verify gate, signals, and session capture.
 
 Options:
   --project-dir <path>  Target <path>/.claude/settings.json (default: cwd).
@@ -59,7 +59,7 @@ const settingsPath = globalMode
 // Resolve hook scripts from THIS installer's location so the command works
 // wherever the skill lives, not just a hardcoded repo path.
 const hookDirAbs = join(dirname(fileURLToPath(import.meta.url)), "hooks");
-const MATCHER = "Write|Edit|MultiEdit|NotebookEdit";
+const WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch";
 
 function hookCommand(name) {
   const abs = join(hookDirAbs, name);
@@ -73,10 +73,15 @@ function hookCommand(name) {
   return abs;
 }
 
-const COMMANDS = {
-  PreToolUse: hookCommand("pre-edit.sh"),
-  PostToolUse: hookCommand("post-edit.sh"),
-};
+const HOOKS = [
+  { event: "PreToolUse", matcher: WRITE_MATCHER, command: hookCommand("pre-edit.sh") },
+  { event: "PreToolUse", matcher: WRITE_MATCHER, command: hookCommand("harness-guard.sh") },
+  { event: "PostToolUse", matcher: WRITE_MATCHER, command: hookCommand("post-edit.sh") },
+  { event: "Stop", command: hookCommand("stop-verify.sh") },
+  { event: "SubagentStop", command: hookCommand("stop-verify.sh") },
+  { event: "SessionEnd", command: hookCommand("session-end.sh") },
+  { event: "UserPromptSubmit", command: hookCommand("notify-deliver.sh") },
+];
 
 function load() {
   if (!existsSync(settingsPath)) return {};
@@ -87,8 +92,11 @@ function load() {
   }
 }
 
-function entry(command) {
-  return { matcher: MATCHER, hooks: [{ type: "command", command, timeout: 20 }] };
+function entry(spec) {
+  return {
+    ...(spec.matcher ? { matcher: spec.matcher } : {}),
+    hooks: [{ type: "command", command: spec.command, timeout: 20 }],
+  };
 }
 
 function hasCommand(groups, command) {
@@ -118,8 +126,9 @@ const remove = flag("--remove");
 
 const status = {
   settingsPath,
-  PreToolUse: hasCommand(settings.hooks?.PreToolUse, COMMANDS.PreToolUse),
-  PostToolUse: hasCommand(settings.hooks?.PostToolUse, COMMANDS.PostToolUse),
+  hooks: Object.fromEntries(
+    HOOKS.map((spec) => [`${spec.event}:${spec.command.split(/[\\/]/).pop()}`, hasCommand(settings.hooks?.[spec.event], spec.command)]),
+  ),
 };
 
 if (check) {
@@ -131,19 +140,19 @@ let changed = false;
 settings.hooks ||= {};
 
 if (remove) {
-  for (const event of Object.keys(COMMANDS)) {
-    const result = removeCommand(settings.hooks[event], COMMANDS[event]);
+  for (const spec of HOOKS) {
+    const result = removeCommand(settings.hooks[spec.event], spec.command);
     if (result.removed) {
       changed = true;
-      if (result.groups.length > 0) settings.hooks[event] = result.groups;
-      else delete settings.hooks[event];
+      if (result.groups.length > 0) settings.hooks[spec.event] = result.groups;
+      else delete settings.hooks[spec.event];
     }
   }
   if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
 } else {
-  for (const event of Object.keys(COMMANDS)) {
-    if (!hasCommand(settings.hooks[event], COMMANDS[event])) {
-      (settings.hooks[event] ||= []).push(entry(COMMANDS[event]));
+  for (const spec of HOOKS) {
+    if (!hasCommand(settings.hooks[spec.event], spec.command)) {
+      (settings.hooks[spec.event] ||= []).push(entry(spec));
       changed = true;
     }
   }

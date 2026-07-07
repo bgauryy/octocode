@@ -4,8 +4,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { utcNow, parseJsonList } from './helpers.js';
+import { normalizeArtifact, utcNow, parseJsonList } from './helpers.js';
 import { fillScope } from './git.js';
+import { REFINEMENTS_INSERT, REFINEMENTS_DELETE } from './sql/refinements.js';
 import type {
   InsertRefinementParams, InsertRefinementResult,
   GetRefinementsParams, GetRefinementsResult,
@@ -27,6 +28,7 @@ export function insertRefinement(
     quality = 'good',
     state = 'open',
     workspacePath,
+    artifact,
     repo: repoArg,
     ref: refArg,
     files = [],
@@ -36,18 +38,14 @@ export function insertRefinement(
   const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
   const scope = fillScope(
-    { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
+    { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
 
-  db.prepare(`
-    INSERT INTO refinements (
-      refinement_id, agent_id, workspace_path, repo, ref,
-      files_json, reasoning, remember, quality, state, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  db.prepare(REFINEMENTS_INSERT).run(
     refinementId, agentId,
     scope.workspace_path ?? process.cwd(),
+    scope.artifact,
     scope.repo ?? null,
     scope.ref ?? null,
     JSON.stringify(files),
@@ -60,6 +58,7 @@ export function insertRefinement(
       refinement_id: refinementId,
       agent_id: agentId,
       workspace_path: scope.workspace_path ?? process.cwd(),
+      artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
       files,
@@ -82,7 +81,9 @@ export function getRefinements(
 ): GetRefinementsResult {
   const {
     workspacePath,
+    artifact,
     repo: repoArg,
+    ref: refArg,
     quality,
     includeHandoffs = false,
     states: statesRaw,
@@ -94,7 +95,7 @@ export function getRefinements(
   const states = statesRaw ?? ['open', 'ongoing'];
 
   const scope = fillScope(
-    { workspace_path: workspacePath ?? null, repo: repoArg ?? null },
+    { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
 
@@ -109,12 +110,21 @@ export function getRefinements(
     sql += " AND quality <> 'handoff'";
   }
 
+  if (scope.workspace_path) {
+    sql += ' AND (workspace_path = ? OR workspace_path IS NULL)';
+    queryParams.push(scope.workspace_path);
+  }
+  if (scope.artifact) {
+    sql += ' AND (artifact = ? OR artifact IS NULL)';
+    queryParams.push(scope.artifact);
+  }
   if (scope.repo) {
     sql += ' AND (repo = ? OR repo IS NULL)';
     queryParams.push(scope.repo);
-  } else if (scope.workspace_path) {
-    sql += ' AND (workspace_path = ? OR workspace_path IS NULL)';
-    queryParams.push(scope.workspace_path);
+  }
+  if (scope.ref) {
+    sql += ' AND (ref = ? OR ref IS NULL)';
+    queryParams.push(scope.ref);
   }
 
   sql += ` ORDER BY CASE state WHEN 'ongoing' THEN 0 ELSE 1 END, updated_at DESC LIMIT ?`;
@@ -125,6 +135,7 @@ export function getRefinements(
     refinement_id: r.refinement_id,
     agent_id: r.agent_id,
     workspace_path: r.workspace_path,
+    artifact: r.artifact ?? null,
     repo: r.repo,
     ref: r.ref,
     files: parseJsonList(r.files_json),
@@ -189,6 +200,7 @@ export function updateRefinement(
       refinement_id: row.refinement_id,
       agent_id: row.agent_id,
       workspace_path: row.workspace_path,
+      artifact: row.artifact ?? null,
       repo: row.repo,
       ref: row.ref,
       files: parseJsonList(row.files_json),
@@ -213,7 +225,7 @@ export interface DeleteRefinementResult {
 
 export function deleteRefinement(
   db: DatabaseSync,
-  params: { refinementIds: string[]; workspacePath?: string; dryRun?: boolean },
+  params: { refinementIds: string[]; workspacePath?: string; artifact?: string | null; dryRun?: boolean },
 ): DeleteRefinementResult {
   const { refinementIds, workspacePath, dryRun = false } = params;
 
@@ -229,6 +241,11 @@ export function deleteRefinement(
     where.push('(workspace_path = ? OR workspace_path IS NULL)');
     binds.push(workspacePath);
   }
+  const artifact = normalizeArtifact(params.artifact);
+  if (artifact) {
+    where.push('(artifact = ? OR artifact IS NULL)');
+    binds.push(artifact);
+  }
 
   const rows = db.prepare(
     `SELECT refinement_id FROM refinements WHERE ${where.join(' AND ')}`
@@ -241,7 +258,7 @@ export function deleteRefinement(
 
   if (ids.length > 0) {
     const delPh = ids.map(() => '?').join(',');
-    db.prepare(`DELETE FROM refinements WHERE refinement_id IN (${delPh})`).run(...ids);
+    db.prepare(`${REFINEMENTS_DELETE}(${delPh})`).run(...ids);
   }
 
   return { deleted: ids.length, refinement_ids: ids };

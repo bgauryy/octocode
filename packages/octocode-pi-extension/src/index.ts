@@ -239,18 +239,18 @@ async function installAppendSystem(args: string, ctx: PiContext | undefined): Pr
   }
   const scope = parseSetupScope(args);
   const targetPath = getAppendSystemTarget(scope, ctx?.cwd ?? process.cwd());
-  // In non-UI mode (--mode json, -p), the confirm dialog is a no-op.
-  // Proceed directly so /octocode-setup still works from non-interactive invocations.
-  if (ctx?.hasUI) {
-    const ok = await confirm(
-      ctx,
-      'Install Octocode APPEND_SYSTEM.md?',
-      `Write the managed Octocode harness block to ${targetPath}?`,
-    );
-    if (!ok) {
-      notify(ctx, 'Octocode setup cancelled.', 'info');
-      return;
-    }
+  if (!ctx?.hasUI) {
+    notify(ctx, '/octocode-setup requires an interactive session to confirm. Run from the Pi UI.', 'error');
+    return;
+  }
+  const ok = await confirm(
+    ctx,
+    'Install Octocode APPEND_SYSTEM.md?',
+    `Write the managed Octocode harness block to ${targetPath}?`,
+  );
+  if (!ok) {
+    notify(ctx, 'Octocode setup cancelled.', 'info');
+    return;
   }
   const existing = readTextIfExists(targetPath);
   const nextContent = mergeManagedAppendSystem(existing, prompt);

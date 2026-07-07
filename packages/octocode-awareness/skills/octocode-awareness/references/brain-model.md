@@ -22,7 +22,7 @@ Use this reference when improving awareness behavior around memory layers, clean
 3. **Retrieve:** treat recalled memories as cues, then verify against current files or commands before relying on them. If lexical recall misses, broaden the query. Use exact `references:` / `regex:` filters when source anchors matter.
 4. **Act:** claim files before edits. The lock is the agent's motor plan: it binds intention, target files, and test plan.
 5. **Reward:** run the declared test plan. A passing verification strengthens the path; a failed or skipped check becomes a failure signature, not a success story.
-6. **Sleep:** finish by auditing idle state, then consolidate and clean: reflect, mark refinements done, supersede stale memories, prune resolved notifications, update corpus notes when the knowledge should be browsable, and release locks.
+6. **Sleep:** finish by auditing idle state, then consolidate and clean: reflect, mark refinements done, supersede stale memories, prune resolved signals, update corpus notes when the knowledge should be browsable, and release locks.
 
 ## When sleep runs
 
@@ -30,7 +30,7 @@ Sleep is explicit, not time-based.
 Run it when the task is complete, the session is ending, a subagent hands off, or the user asks for cleanup.
 Do not infer sleep from silence alone.
 
-Treat a run as idle only after an audit shows no live locks, active intents, missing verification, or unresolved blocker/question messages.
+Treat a run as idle only after an audit shows no live locks, active tasks, missing verification, or unresolved blocker/question signals.
 Run `workspace_status`, `memory_audit_unverified`, `agent_signal action:list`, and refinement checks are enough.
 If any check is unclear, leave a handoff.
 
@@ -38,8 +38,8 @@ If any check is unclear, leave a handoff.
 
 Cleanup should be preview-first:
 
-- `workspace_status` / `memory_audit_unverified`: identify locks, active intents, and missing verification.
-- `memory_digest dry_run:true` (for locks/notifications): preview message cleanup; prune resolved or old threads only when safe.
+- `workspace_status` / `memory_audit_unverified`: identify locks, active tasks, and missing verification.
+- `memory_digest dry_run:true` (for locks/signals): preview message cleanup; prune resolved or old threads only when safe.
 - `memory_forget dry_run:true`: preview stale or superseded memories before deletion; prefer `memory_record supersedes:`  for better replacements.
 - `memory_refine_get`: find open/ongoing handoffs; mark `done` only when the current state was verified.
 - `mine-weakness` (CLI): cluster memories by `failure_signature` to surface recurring patterns before turning them into harness proposals.
@@ -52,7 +52,7 @@ Audit records should preserve evidence, decisions, and judgment notes. Do not st
 - Record memories only when they change a future decision. Routine progress belongs in the conversation or a refinement, not a reusable memory.
 - Supersede stale memories instead of letting old conclusions compete with better ones.
 - Promote repeated high-value memories into corpus docs when an agent would benefit from reading the whole pattern, not just recalling one row.
-- Prune notifications after threads are resolved; they are collaboration traces, not permanent knowledge.
+- Prune signals after threads are resolved; they are collaboration traces, not permanent knowledge.
 - Never store secrets in any layer.
 
 ## "Sleep" checklist

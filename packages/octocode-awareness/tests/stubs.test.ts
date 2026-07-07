@@ -31,7 +31,7 @@ describe('pruneStale', () => {
     const db = freshDb();
     const result = pruneStale(db, {});
     expect(result.pruned_locks).toBe(0);
-    expect(result.updated_intents).toBe(0);
+    expect(result.updated_tasks).toBe(0);
   });
 
   it('prunes expired locks', () => {
@@ -44,8 +44,8 @@ describe('pruneStale', () => {
       if (!result.ok) throw new Error('claim failed');
       // Age the lock to the past
       const past = new Date(Date.now() - 5000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-      db.prepare('UPDATE file_locks SET expires_at = ? WHERE intent_id = ?')
-        .run(past, result.intent.intent_id);
+      db.prepare('UPDATE locks SET expires_at = ? WHERE task_id = ?')
+        .run(past, result.task.task_id);
 
       const pruned = pruneStale(db, {});
       expect(pruned.pruned_locks).toBeGreaterThanOrEqual(1);
@@ -61,12 +61,12 @@ describe('pruneStale', () => {
       });
       if (!claim.ok) throw new Error('claim failed');
       const past = new Date(Date.now() - 5000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-      db.prepare('UPDATE file_locks SET expires_at = ? WHERE intent_id = ?')
-        .run(past, claim.intent.intent_id);
+      db.prepare('UPDATE locks SET expires_at = ? WHERE task_id = ?')
+        .run(past, claim.task.task_id);
 
       pruneStale(db, {});
-      const intent = db.prepare('SELECT status FROM agent_intents WHERE intent_id = ?')
-        .get(claim.intent.intent_id) as { status: string };
+      const intent = db.prepare('SELECT status FROM tasks WHERE task_id = ?')
+        .get(claim.task.task_id) as { status: string };
       expect(intent.status).toBe('PENDING');
     } finally { cleanup(); }
   });
@@ -96,7 +96,7 @@ describe('notifyGet', () => {
     insertMemory(db, {
       taskContext: 'notify briefing',
       observation: 'Important gotcha should appear in briefing',
-      importanceScore: 8,
+      importance: 8,
       label: 'GOTCHA',
     });
     const result = notifyGet(db, { format: 'hook' });
@@ -136,16 +136,16 @@ describe('digest dry_run', () => {
     insertMemory(db, {
       taskContext: 'dry_run test',
       observation: 'this should be archived',
-      importanceScore: 7,
+      importance: 7,
       label: 'GOTCHA',
       validTo: new Date(Date.now() - 1000).toISOString(),
     });
-    const before = (db.prepare("SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'ACTIVE'").get() as { c: number }).c;
+    const before = (db.prepare("SELECT COUNT(*) AS c FROM memories WHERE state = 'ACTIVE'").get() as { c: number }).c;
     const result = digest(db, { dry_run: true });
     expect(result.dry_run).toBe(true);
     expect(result.would_archive).toBeGreaterThanOrEqual(1);
     expect(result.archived_memories).toBe(0); // nothing actually changed
-    const after = (db.prepare("SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'ACTIVE'").get() as { c: number }).c;
+    const after = (db.prepare("SELECT COUNT(*) AS c FROM memories WHERE state = 'ACTIVE'").get() as { c: number }).c;
     expect(after).toBe(before); // state unchanged
   });
 
@@ -157,21 +157,21 @@ describe('digest dry_run', () => {
 });
 
 describe('digest', () => {
-  it('rebuilds memory_fts from agent_memories source of truth', () => {
+  it('rebuilds memories_fts from memories source of truth', () => {
     const db = freshDb();
     insertMemory(db, {
       taskContext: 'digest fts source',
       observation: 'fresh digest term survives rebuild',
-      importanceScore: 7,
+      importance: 7,
       label: 'GOTCHA',
     });
 
-    db.exec('DELETE FROM memory_fts');
-    expect(db.prepare('SELECT count(*) AS count FROM memory_fts').get()).toMatchObject({ count: 0 });
+    db.exec('DELETE FROM memories_fts');
+    expect(db.prepare('SELECT count(*) AS count FROM memories_fts').get()).toMatchObject({ count: 0 });
 
     const result = digest(db, {});
     expect(result.fts_rebuilt).toBe(true);
-    const row = db.prepare('SELECT memory_id FROM memory_fts WHERE memory_fts MATCH ?').get('digest') as Record<string, unknown> | undefined;
+    const row = db.prepare('SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?').get('digest') as Record<string, unknown> | undefined;
     expect(row?.['memory_id']).toBeTruthy();
   });
 
@@ -180,15 +180,15 @@ describe('digest', () => {
     const { memoryId } = insertMemory(db, {
       taskContext: 'digest stale row',
       observation: 'stale term cleanup',
-      importanceScore: 7,
+      importance: 7,
       label: 'GOTCHA',
     });
     rebuildFts(db);
-    db.prepare('DELETE FROM agent_memories WHERE memory_id = ?').run(memoryId);
+    db.prepare('DELETE FROM memories WHERE memory_id = ?').run(memoryId);
 
     const result = digest(db, {});
     expect(result.fts_rebuilt).toBe(true);
-    const stale = db.prepare('SELECT memory_id FROM memory_fts WHERE memory_fts MATCH ?').get('stale') as Record<string, unknown> | undefined;
+    const stale = db.prepare('SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?').get('stale') as Record<string, unknown> | undefined;
     expect(stale).toBeUndefined();
   });
   it('prunes old handoffs and completed refinements while keeping active repo fixes', () => {
@@ -217,8 +217,8 @@ describe('getWorkspaceStatus', () => {
     const result = getWorkspaceStatus(db, {});
     expect(result.ok).toBe(true);
     expect(typeof result.active_memories).toBe('number');
-    expect(typeof result.pending_intents).toBe('number');
-    expect(typeof result.active_intents).toBe('number');
+    expect(typeof result.pending_tasks).toBe('number');
+    expect(typeof result.active_tasks).toBe('number');
     expect(typeof result.open_refinements).toBe('number');
     expect(Array.isArray(result.locks)).toBe(true);
   });
@@ -228,7 +228,7 @@ describe('getWorkspaceStatus', () => {
     insertMemory(db, {
       taskContext: 'workspace status test',
       observation: 'a test memory',
-      importanceScore: 7,
+      importance: 7,
       label: 'GOTCHA',
     });
     const result = getWorkspaceStatus(db, {});
@@ -255,7 +255,7 @@ describe('exportMemoryDoc', () => {
     insertMemory(db, {
       taskContext: 'export doc test',
       observation: 'a memorable observation for the report',
-      importanceScore: 8,
+      importance: 8,
       label: 'DECISION',
       tags: ['export', 'test'],
     });
@@ -269,8 +269,8 @@ describe('exportMemoryDoc', () => {
 
   it('includes stats header with counts and labels', () => {
     const db = freshDb();
-    insertMemory(db, { taskContext: 'c1', observation: 'o1', importanceScore: 7, label: 'GOTCHA' });
-    insertMemory(db, { taskContext: 'c2', observation: 'o2', importanceScore: 6, label: 'DECISION' });
+    insertMemory(db, { taskContext: 'c1', observation: 'o1', importance: 7, label: 'GOTCHA' });
+    insertMemory(db, { taskContext: 'c2', observation: 'o2', importance: 6, label: 'DECISION' });
     const doc = exportMemoryDoc(db, {});
     expect(doc).toContain('**Total active memories:** 2');
     expect(doc).toContain('GOTCHA(1)');
@@ -320,7 +320,7 @@ describe('sessionCapture', () => {
       expect(result.ok).toBe(true);
       expect(result.captured).toBe(true);
       expect(result.refinement_id).toMatch(/^ref_/);
-      expect(result.active_intents).toBe(1);
+      expect(result.active_tasks).toBe(1);
       expect(result.files).toContain(path);
 
       const refinement = db.prepare(
@@ -375,14 +375,14 @@ describe('exportHarness', () => {
       taskContext: 'ctx',
       observation: 'high-imp lesson',
       label: 'GOTCHA',
-      importanceScore: 9,
+      importance: 9,
     });
     insertMemory(db, {
       agentId: 'agent1',
       taskContext: 'ctx2',
       observation: 'low-imp lesson',
       label: 'OTHER',
-      importanceScore: 3,
+      importance: 3,
     });
     const result = exportHarness(db, { min_importance: 7, limit: 10 });
     expect(result.count).toBe(1);
@@ -400,7 +400,7 @@ describe('exportHarness', () => {
         taskContext: `ctx${i}`,
         observation: `lesson ${i}`,
         label: 'DECISION',
-        importanceScore: 8,
+        importance: 8,
       });
     }
     const result = exportHarness(db, { min_importance: 7, limit: 2 });
@@ -415,7 +415,7 @@ describe('exportHarness', () => {
       taskContext: 'ctx',
       observation: 'test observation',
       label: 'BUG',
-      importanceScore: 8,
+      importance: 8,
     });
     const result = exportHarness(db, { min_importance: 7 });
     expect(result.markdown).toContain('Agent lessons (generated by octocode-awareness');

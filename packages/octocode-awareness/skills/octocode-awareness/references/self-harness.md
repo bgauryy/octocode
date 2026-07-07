@@ -1,11 +1,6 @@
 # Self-harness reference
 
-The store is not just a passive memory — it drives a closed improvement loop:
-**mine recurring failures → propose a fix → a human validates**. Performance is set
-as much by the *harness* (prompts, tools, checks, recovery rules) as by the model,
-and many failures are harness failures: concluding without checking an artifact,
-retrying an unproductive pattern, or losing the source of truth in long context.
-These surfaces make the skill enforce its own stated philosophy.
+The store drives a closed improvement loop: **mine recurring failures -> propose a fix -> a human validates**. Many failures are harness failures: unverified conclusions, repeated bad recovery, or lost source-of-truth context.
 
 ## 0. Reflect — the front door
 
@@ -21,18 +16,17 @@ reflect --agent-id <a> --task "<what I did>" --outcome worked|partial|failed \
   [--fix-harness "<improve this skill>"] [--duo]
 ```
 
-The `reflect` command records nothing new of its own — it **routes** the reflection into the existing surfaces so the right reader acts on each piece:
+`reflect` routes the reflection into existing surfaces:
 
 - **Learning** (`lesson:`) → a general memory (§3 recall, §2 `mine-weakness` when given `failure_signature:`).
 - **Repo/code fix** (`fix_repo:`) → a refinement (`quality:good` if outcome=worked, `quality:bad` if partial/failed) visible via `memory_refine_get` — the durable *"fix this here"* queue.
 - **Harness improvement** (`fix_harness:`) → a `harness`-tagged memory that §4 `export-harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
 
-Use `--judgment-note` when the conclusion needs nuance: name checked evidence, remaining uncertainty, and why any eval/checklist prompt mattered.
-Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness.
-`--duo` adds a `reflection_duo` packet with two advisory reviewer roles.
-The packet is not stored, scored, or enforced.
+Use `--judgment-note` for checked evidence, uncertainty, and eval/checklist relevance.
+Use `--duo` for substantial or ambiguous outcomes; it emits an advisory `reflection_duo` packet and does not affect storage.
+For subagent-heavy work, pair `--judgment-note` with the compact evidence receipt from `agentic-flows.md`.
+For awareness maintenance, include the preview and verification evidence in `--judgment-note` (for example `legacy-migrate` preview/write counts, `digest --dry-run`, recall after cleanup, or test output).
 
-For subagent-heavy work, pair `--judgment-note` with the compact evidence receipt from `agentic-flows.md`: scope, claims, evidence anchors, verification status, decision impact, and open questions.
 ### Binary-question eval failures
 
 Treat failed binary questions as diagnostic packets, not auto-patch instructions.
@@ -48,21 +42,21 @@ The flagship failure class is declaring success without checking the artifact.
 
 - At `pre-flight-intent` you already declare a `--test-plan`. After doing the work,
   **run it and record that it ran**:
-  - **Pi:** `memory_verify({ intent_id: "...", status: "SUCCESS" })` or `memory_verify({ allPending: true })`
-  - **Pi:** `file_lock({ type: "release", intent_id: "...", verified: true, verified_note: "ran yarn test, 273 passed" })`
+  - **Pi:** `memory_verify({ task_id: "...", status: "SUCCESS" })` or `memory_verify({ allPending: true })`
+  - **Pi:** `file_lock({ type: "release", task_id: "...", verified: true, verified_note: "ran yarn test, 273 passed" })`
   - **CLI:** `awareness.mjs verify --agent-id <a> --all-pending --message "command=... exit=0 evidence=<ref>"`
-- A `VERIFIED` event is written to `intent_events`. If you release `--status SUCCESS`
-  on an intent that declared a test-plan but recorded no verification, the response
-  carries an `unverifiedConclusion` warning and stores the intent as `PENDING`.
+- A `VERIFIED` event is written to `task_log`. If you release `--status SUCCESS`
+  on a task that declared a test-plan but recorded no verification, the response
+  carries an `unverifiedConclusion` warning and stores the task as `PENDING`.
   The post-edit hook also releases file locks as `PENDING`, so coordination is
   unblocked while verification remains auditable.
-- The **Stop/SubagentStop hook** runs `memory_audit_unverified` and blocks conclusion once if any intent has no `VERIFIED` event. Loop-guarded; opt-out via `OCTOCODE_NO_VERIFY_GATE=1`.
+- The **Stop/SubagentStop hook** runs `memory_audit_unverified` and blocks conclusion once if any task has no `VERIFIED` event. Loop-guarded; opt-out via `OCTOCODE_NO_VERIFY_GATE=1`.
 
-`audit-unverified` returns two intent categories — both count toward the gate:
-- **`unverified`** — `PENDING` intents: file lock released, but no verify call recorded. Normal post-edit state; run the declared test plan and call `memory_verify`.
-- **`stale_active`** — `ACTIVE` intents whose file locks have all expired without an explicit release (orphaned by a crash or unexpected exit). Clear with `audit-unverified --abandon` (marks FAILED, records ABANDONED event) if the work was abandoned, or verify explicitly if the work was actually completed. Do not confuse stale-active with PENDING: PENDING means "released but unverified"; stale-active means "lock TTL expired before any release."
+`audit-unverified` returns two task categories — both count toward the gate:
+- **`unverified`** — `PENDING` tasks: locks released, verify call missing. Run the declared test plan and call `memory_verify`.
+- **`stale_active`** — `ACTIVE` tasks whose locks expired without explicit release. Use `audit-unverified --abandon` if abandoned, or verify if completed. `PENDING` means released but unverified; stale-active means TTL expired before release.
 
-`memory_audit_unverified` (Pi) / `audit-unverified --agent-id <a>` (CLI) lists unverified intents; exits `1` when any exist.
+`memory_audit_unverified` (Pi) / `audit-unverified --agent-id <a>` (CLI) lists unverified tasks; exits `1` when any exist.
 
 ## 2. Mine recurring failures
 
@@ -81,53 +75,36 @@ mechanism:fts-miss|cause:empty-store|surface:briefing-miss
 mechanism:lock-conflict|cause:ttl-expired|surface:lock-conflict
 ```
 
-Valid surfaces: `verify-gate`, `lock-conflict`, `fts-miss`, `briefing-miss`, `doc-drift`. Including the surface helps Stage 2 (`export-harness`) target the right file when generating a harness proposal. It does NOT change clustering: `mine-weakness` merges signatures that share the same `mechanism:X|cause:Y` base (stripping `|surface:Z`) into one cluster and reports the distinct surfaces found. A cluster with `surfaces: ["verify-gate"]` means every failure in it hit the verify gate — strong signal for which harness surface to fix.
+Valid surfaces: `verify-gate`, `lock-conflict`, `fts-miss`, `briefing-miss`, `doc-drift`.
+The surface helps `export-harness` target a proposal. Clustering strips `|surface:Z` and reports distinct surfaces separately.
 
-`mine-weakness [--min-count N] [--limit N]` (CLI only — deliberately not a Pi tool)
-clusters memories by `failure_signature` (base only, surface stripped) and ranks each
-cluster by **support × avg-importance**, with up to three example observations. Clusters need
-`--min-count` occurrences (default 2) — one-off failures stay out of the view. A Jaccard diversity
-filter (threshold 0.5) prevents the output from showing N variants of the same mechanism; each
-returned cluster covers a distinct failure pattern. This turns N anecdotal "failed again" rows
-into one ranked recurring-mechanism record.
-Exact-signature grouping is brittle on free text, so signatures power *this view only*
-— general recall still uses FTS5 + decay (below).
+`mine-weakness [--min-count N] [--limit N]` is CLI-only.
+`mine-weakness` clusters by base `failure_signature`, ranks by **support x avg-importance**, and includes up to three example observations.
+`--min-count` defaults to `2`; one-off failures stay out of the view.
+A Jaccard diversity filter prevents near-duplicate mechanisms from filling the result.
+Signatures power this view only; general recall still uses FTS5 plus decay.
 
-## 3. Salience-decayed recall
+## 3. Salience-Decayed Recall
 
-`get-memory` ranks by a blend, not importance alone:
+`get-memory` ranks by a blend:
 
 ```
-recency    = exp(-ln2 * age_days / half_life)   # age from LAST USE — re-use keeps it fresh
-importance = importance_score / 10
+recency    = exp(-ln2 * age_days / half_life)   # age from last use
+importance = importance / 10
 access     = log1p(access_count) / log1p(50)     # saturating
 relevance  = query match, normalized to 0..1    # the "lexical" weight slot
 final = 0.25*importance + 0.30*recency + 0.15*access + 0.30*relevance
 ```
 
-The `relevance` term (the `lexical` weight) is normalized to `0..1` so the weights
-mean what they say:
-- **lexical** (the CLI's only mode): FTS5 `bm25` normalized as `bm25 / (poolMax + 1)` —
-  a weak-pool guard, so the best hit of an all-weak pool no longer inflates to `1.0`
-  (strong matches land ~0.6–0.9). When the pool's bm25 is degenerate (near-empty store
-  or a term present in every row, IDF collapse) relevance is neutral `0.5`; same for
-  the no-FTS fallback. Inspect with `--explain`.
-- **`judgment_required`**: zero results, FTS-fallback mode, or a top relevance below
-  `0.35` sets `judgment_required: true` + `judgment_reason` on the response — recall
-  is a lead, not an answer; verify before relying on it.
-- **semantic** exists only at the library level: `storeEmbedding()` persists vectors
-  (the embedding source — API or local model — is the caller's responsibility) and
-  `semanticSearch()` ranks by cosine similarity. The CLI has no embedding source, so
-  `get-memory --semantic` returns lexical results plus an explicit warning — it never
-  pretends to be semantic.
+| Term | Behavior |
+|---|---|
+| lexical | CLI mode; normalized FTS5 BM25, neutral `0.5` on weak/no-FTS fallback |
+| `judgment_required` | Set on zero results, fallback mode, or top relevance below `0.35` |
+| semantic | Library-only vectors; CLI `--semantic` warns and returns lexical results |
 
-Every recall bumps `access_count` + `last_accessed_at` for the rows it returns, so
-frequently-useful lessons stay near the top. Half-life is per-memory
-(`decay_half_life_days`), defaulted by label at write time: durable labels
-(`DECISION`/`ARCHITECTURE`/`SECURITY`/`GOTCHA`) 90d, `EXPERIENCE` reflections 14d,
-everything else 30d. Flags: `--sort` (`smart`/`score`, `importance`, `recent`,
-`accessed`), `--explain` (emit `score_components` per result — use it to tune).
-Older databases migrate automatically.
+Every recall bumps `access_count` and `last_accessed_at`.
+Half-life defaults by label: durable labels 90d, `EXPERIENCE` 14d, everything else 30d.
+Use `--sort` and `--explain` to inspect scoring.
 
 ## 4. Refine the harness — the loop's last step
 
@@ -139,10 +116,9 @@ A recurring lesson should stop being "might recall" and become standing guidance
 
 ### Harness improvement gate
 
-Valid surfaces include `AGENTS.md`/`CLAUDE.md`, docs/READMEs/reference files, standing
-memory-corpus changes, and this skill's prompts, hooks, scripts, schemas, and tests.
+Valid surfaces include `AGENTS.md`/`CLAUDE.md`, docs, reference files, memory-corpus changes, and this skill's prompts, hooks, scripts, schemas, and tests.
 Propose changes when the user asks, or when evidence shows a repeated failure/opportunity:
-`mine-weakness`, user correction, eval failure, unverified intent, recurring gotcha, or a missing check.
+`mine-weakness`, user correction, eval failure, unverified task, recurring gotcha, or a missing check.
 
 Before applying any harness change, ask the user with a concrete fix request:
 - Target surface/files.
@@ -151,19 +127,14 @@ Before applying any harness change, ask the user with a concrete fix request:
 - Evidence source: memory/refinement/eval/user correction/file.
 - Proposed change, risk/rollback, and verification plan.
 
-Until approved, keep the proposal in conversation or a proposal-only refinement; do not
-edit files or add/supersede/prune standing harness memories. Use `memory_reflect fix_harness:`
-only when the user asks for or approves durable proposal capture. One approval covers only
-the scoped change being discussed; never treat it as blanket permission.
+Until approved, keep the proposal in conversation or a proposal-only refinement.
+Do not edit files or mutate standing harness memories.
+Use `memory_reflect fix_harness:` only when the user asks for durable proposal capture.
+One approval covers only the scoped change.
 
 ## Hard NOs
 
-- No **unattended** self-modifying loop. An agent may edit the skill **only** after
-  explicit human approval for the scoped change — never silently, never on `main`,
-  never auto-merged.
-- No automatic prompt rewrite from failed binary questions or advisory `agenticEval`
-  prompts. They are evidence for `memory_reflect`, `mine-weakness` (CLI), and human-reviewed
-  harness proposals.
-- No numeric regression-gate infrastructure (held-in/held-out splits + verifier
-  services) — out of scope for a service-free local skill. Flag regressions in notes instead.
+- No **unattended** self-modifying loop. Edit the skill only after explicit human approval for the scoped change.
+- No automatic prompt rewrite from failed binary questions or advisory `agenticEval` prompts. Treat them as evidence for human-reviewed proposals.
+- No numeric regression-gate infrastructure. This service-free local skill flags regressions in notes instead.
 - Failure signatures are for the weakness view only — never the sole recall path.

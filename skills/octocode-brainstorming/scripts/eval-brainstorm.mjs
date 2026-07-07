@@ -258,6 +258,9 @@ Cases file: ${CASES_PATH}`;
 function strongSample() {
   return `Mode: Validate
 
+## TL;DR
+Issue-to-plan CLI has thin prior art; worth a bounded prototype. Research limits: none.
+
 ## Surface Plan
 Local active; GitHub/packages active; Web active.
 

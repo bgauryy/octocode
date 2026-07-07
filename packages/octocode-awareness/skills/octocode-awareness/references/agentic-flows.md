@@ -1,6 +1,6 @@
 # Agentic Flows
 
-Use this when combining Awareness' manual loop, lifecycle hooks, subagent handoffs, reflection, and cleanup. One operating model is the goal: skill teaches intent, hooks catch lifecycle moments, and reflection improves future behavior.
+Use this when combining Awareness' manual loop, lifecycle hooks, subagent handoffs, reflection, and cleanup. One operating model is the goal: skill teaches the task intent, hooks catch lifecycle moments, and reflection improves future behavior.
 
 ## Three flow layers
 
@@ -16,7 +16,7 @@ Hooks should make the right behavior harder to forget. They do not replace the a
 
 ### Read-only research
 
-Run `memory_recall smart:true`, `memory_refine_get`, `workspace_status`, and `agent_signal action:list`. Treat memories and notifications as leads, then prove claims from current files, commands, or Octocode research. No file lock is needed unless the work will write files.
+Run `memory_recall smart:true`, `memory_refine_get`, `workspace_status`, and `agent_signal action:list`. Treat memories and signals as leads, then prove claims from current files, commands, or Octocode research. No file lock is needed unless the work will write files.
 
 ### Single-agent edit
 
@@ -82,7 +82,7 @@ Use hooks for checkpoints that line up with the host lifecycle:
 - `Stop` / `SubagentStop`: block one unverified conclusion and force the agent to verify or hand off.
 - `SessionEnd`: capture a best-effort refinement from dirty state and active work.
 
-The installer (`scripts/install-hooks.mjs`) manages only file-lock hooks for session-wide enforcement. `Stop`, `SessionEnd`, and `UserPromptSubmit` are skill-scoped and run while this skill is loaded.
+The installer (`scripts/install-hooks.mjs`) manages the Claude lifecycle hook set for session-wide enforcement: prompt delivery, pre-edit lock/guard, post-edit release, stop/subagent verification, and session capture.
 
 ## Agentic guardrails
 

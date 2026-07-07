@@ -38,7 +38,7 @@ describe('reflect — judgment_note / duo / eval_failures', () => {
     expect(r.reflection_duo?.advisory).toBe(true);
     expect(r.reflection_duo?.roles.map((x) => x.role)).toEqual(['supporter', 'skeptic']);
     // Only the single learning memory exists — the packet is not stored.
-    const count = (db.prepare('SELECT COUNT(*) c FROM agent_memories').get() as { c: number }).c;
+    const count = (db.prepare('SELECT COUNT(*) c FROM memories').get() as { c: number }).c;
     expect(count).toBe(1);
   });
 
@@ -55,7 +55,7 @@ describe('reflect — judgment_note / duo / eval_failures', () => {
     expect(r.eval_failure_ids).toHaveLength(2);
 
     const rows = db.prepare(
-      "SELECT memory_id, failure_signature, observation, tags_json FROM agent_memories"
+      "SELECT memory_id, failure_signature, observation, tags_json FROM memories"
     ).all() as Array<{ memory_id: string; failure_signature: string | null; observation: string; tags_json: string }>;
     // Main lesson memory inherits the first eval failure signature.
     const main = rows.find((x) => x.memory_id === r.learning_memory_id);
@@ -90,7 +90,7 @@ describe('refinement update lifecycle', () => {
 describe('getMemory explain', () => {
   it('attaches score_components whose weighted sum equals the score', () => {
     const db = freshDb();
-    insertMemory(db, { taskContext: 'auth router', observation: 'tenant order matters', importanceScore: 8 });
+    insertMemory(db, { taskContext: 'auth router', observation: 'tenant order matters', importance: 8 });
     const { memories } = getMemory(db, { query: 'auth router', limit: 1, explain: true });
     const c = memories[0]!.score_components!;
     expect(c.final).toBeCloseTo(memories[0]!.score!, 10);
@@ -109,16 +109,16 @@ describe('pruneStale — documented filters', () => {
       const claim = preFlightIntent(db, {
         agentId: agent, workspacePath: '/tmp/ws', rationale: 'r', testPlan: 't', targetFiles: [file],
       });
-      return (claim as { intent: { intent_id: string } }).intent.intent_id;
+      return (claim as { task: { task_id: string } }).task.task_id;
     });
   }
-  function age(db: DatabaseSync, intentId: string, minutesOld: number, expired: boolean) {
+  function age(db: DatabaseSync, taskId: string, minutesOld: number, expired: boolean) {
     const acquired = new Date(Date.now() - minutesOld * 60000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     const expires = expired
       ? new Date(Date.now() - 60000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       : new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    db.prepare('UPDATE file_locks SET acquired_at = ?, expires_at = ? WHERE intent_id = ?')
-      .run(acquired, expires, intentId);
+    db.prepare('UPDATE locks SET acquired_at = ?, expires_at = ? WHERE task_id = ?')
+      .run(acquired, expires, taskId);
   }
 
   it('older-than-minutes also prunes old live locks; dry-run matches the real prune', () => {

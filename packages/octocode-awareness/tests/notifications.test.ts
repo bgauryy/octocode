@@ -28,15 +28,15 @@ describe('notifications', () => {
       workspacePath: '/repo',
     });
 
-    resolveNotification(db, { notificationIds: [first.notification_id] });
+    resolveNotification(db, { notificationIds: [first.signal_id] });
 
     const unread = getNotifications(db, { agentId: 'agent-b', workspacePath: '/repo' });
-    expect(unread.notifications).toHaveLength(1);
-    expect(unread.notifications[0]!.subject).toBe('still open');
-    expect(unread.notifications[0]!.status).toBe('open');
+    expect(unread.signals).toHaveLength(1);
+    expect(unread.signals[0]!.subject).toBe('still open');
+    expect(unread.signals[0]!.status).toBe('open');
 
     const all = getNotifications(db, { agentId: 'agent-b', workspacePath: '/repo', unreadOnly: false });
-    expect(all.notifications.map(n => n.status)).toEqual(expect.arrayContaining(['open', 'resolved']));
+    expect(all.signals.map(n => n.status)).toEqual(expect.arrayContaining(['open', 'resolved']));
   });
 
   it('prunes explicit notification ids regardless of inferred workspace', () => {
@@ -50,15 +50,15 @@ describe('notifications', () => {
     });
 
     const dryRun = pruneNotifications(db, {
-      notificationIds: [notification.notification_id],
+      notificationIds: [notification.signal_id],
       workspacePath: '/repo-b',
       dryRun: true,
     });
     expect(dryRun.would_delete).toBe(1);
-    expect(dryRun.notification_ids).toEqual([notification.notification_id]);
+    expect(dryRun.signal_ids).toEqual([notification.signal_id]);
 
     const deleted = pruneNotifications(db, {
-      notificationIds: [notification.notification_id],
+      notificationIds: [notification.signal_id],
       workspacePath: '/repo-b',
     });
     expect(deleted.deleted).toBe(1);
@@ -80,7 +80,7 @@ describe('notifications', () => {
     });
     expect(published.action).toBe('publish');
     if (published.action !== 'publish') throw new Error('publish failed');
-    expect(published.notification_ids).toHaveLength(1);
+    expect(published.signal_ids).toHaveLength(1);
 
     const inbox = agentSignal(db, {
       action: 'list',
@@ -96,7 +96,7 @@ describe('notifications', () => {
     const ack = agentSignal(db, {
       action: 'ack',
       agentId: 'agent-b',
-      notificationIds: [published.notification_id],
+      notificationIds: [published.signal_id],
       workspacePath: '/repo',
     });
     expect(ack.action).toBe('ack');
@@ -113,7 +113,7 @@ describe('notifications', () => {
       toAgents: ['agent-a'],
       subject: 'reviewed',
       body: 'looks good',
-      inReplyTo: published.notification_id,
+      inReplyTo: published.signal_id,
       workspacePath: '/repo',
     });
     expect(reply.action).toBe('reply');

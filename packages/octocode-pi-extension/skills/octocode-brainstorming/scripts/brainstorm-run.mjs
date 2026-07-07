@@ -2,12 +2,17 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = resolve(__dirname, '..');
 const REPO_ROOT = resolve(SKILL_DIR, '..', '..');
+
+function die(message, code = 1) {
+  process.stderr.write(`ERROR: ${message}\n`);
+  process.exitCode = code;
+}
 
 function now() {
   return new Date().toISOString();
@@ -336,4 +341,4 @@ async function main() {
   }
 }
 
-main();
+main().catch(err => die(err.message || String(err)));

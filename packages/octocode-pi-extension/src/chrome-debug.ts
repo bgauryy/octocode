@@ -446,7 +446,7 @@ export async function launchChrome(opts: {
   userDataDir: string;
   headless?: boolean;
   url?: string;
-}): Promise<{ pid: number }> {
+}): Promise<{ pid: number | undefined }> {
   const chromePath = findChromePath();
   const { port, userDataDir, headless = false, url } = opts;
 
@@ -497,7 +497,7 @@ export async function launchChrome(opts: {
   const child = spawn(chromePath, args, { detached: true, stdio: 'ignore' });
   child.unref();
 
-  return { pid: child.pid ?? 0 };
+  return { pid: child.pid };
 }
 
 // ─── Session metadata ─────────────────────────────────────────────────────────

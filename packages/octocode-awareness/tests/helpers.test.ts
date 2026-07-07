@@ -98,21 +98,38 @@ describe('REFLECTION_IMPORTANCE', () => {
 });
 
 describe('rowToMemory', () => {
-  it('deserializes tags_json / references_json', () => {
+  it('deserializes tags_json and optional references_json (new schema)', () => {
     const row = {
       memory_id: 'm1', agent_id: 'a', task_context: 't', observation: 'o',
-      importance_score: 5, state: 'ACTIVE', label: 'BUG',
-      superseded_by: null, tags_json: '["foo","bar"]', tags_text: ',foo,bar,',
-      references_json: '["https://x"]', workspace_path: null, repo: null,
-      ref: null, file_tree_fingerprint: null, file: null,
-      novelty_score: null, similar_memory_ids_json: '[]',
+      importance: 5, state: 'ACTIVE', label: 'BUG',
+      superseded_by: null, tags_json: '["foo","bar"]',
+      workspace_path: null, repo: null,
+      ref: null, file_tree_fingerprint: null,
+      novelty_score: null,
       last_accessed_at: null, access_count: 0, decay_half_life_days: null,
       failure_signature: null, valid_from: null, valid_to: null,
       expired_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: null,
     };
-    const mem = rowToMemory(row);
+    const mem = rowToMemory(row as Parameters<typeof rowToMemory>[0]);
     expect(mem.tags).toEqual(['foo', 'bar']);
-    expect(mem.references).toEqual(['https://x']);
+    expect(mem.references).toEqual([]); // references live in memory_refs; empty when not joined
     expect(mem.state).toBe('ACTIVE');
+  });
+
+  it('returns empty references when no references_json is present (standard new-schema query)', () => {
+    const row = {
+      memory_id: 'm2', agent_id: 'a', task_context: 't', observation: 'o',
+      importance: 7, state: 'ACTIVE', label: 'DECISION',
+      superseded_by: null, tags_json: '[]',
+      workspace_path: null, repo: null, ref: null, file_tree_fingerprint: null,
+      novelty_score: null, last_accessed_at: null, access_count: 0, decay_half_life_days: null,
+      failure_signature: null, valid_from: null, valid_to: null,
+      expired_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: null,
+    };
+    const mem = rowToMemory(row as Parameters<typeof rowToMemory>[0]);
+    // references are in memory_refs table; absent from plain m.* query → empty array
+    expect(mem.references).toEqual([]);
+    expect(mem.tags).toEqual([]);
+    expect(mem.importance).toBe(7);
   });
 });

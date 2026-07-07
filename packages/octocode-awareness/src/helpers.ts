@@ -94,6 +94,13 @@ export function normalizeFilePath(filePath: unknown, cwd?: string): string | nul
   return cwd ? resolve(cwd, p) : resolve(p);
 }
 
+/** Normalize the optional workspace sub-scope (package/service/artifact name). */
+export function normalizeArtifact(value: unknown): string | null {
+  if (value == null) return null;
+  const cleaned = String(value).trim().slice(0, 256);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 // ─── Row-to-shape serializer ──────────────────────────────────────────────────
 
 /** Serialize a raw DB row to a clean MemoryRecord. */
@@ -103,18 +110,18 @@ export function rowToMemory(row: MemoryRow): MemoryRecord {
     agent_id: row.agent_id,
     task_context: row.task_context,
     observation: row.observation,
-    importance_score: row.importance_score,
+    importance: row.importance,
     state: (row.state as 'ACTIVE' | 'SUPERSEDED') ?? 'ACTIVE',
     label: row.label ?? 'OTHER',
     superseded_by: row.superseded_by ?? null,
     tags: parseJsonList(row.tags_json),
-    references: parseJsonList(row.references_json),
+    // references are stored in memory_refs table; populated separately via JOIN
+    references: [],
     workspace_path: row.workspace_path ?? null,
+    artifact: row.artifact ?? null,
     repo: row.repo ?? null,
     ref: row.ref ?? null,
-    file: row.file ?? null,
     novelty_score: row.novelty_score ?? null,
-    similar_memory_ids: parseJsonList(row.similar_memory_ids_json),
     failure_signature: row.failure_signature ?? null,
     access_count: row.access_count ?? 0,
     last_accessed_at: row.last_accessed_at ?? null,

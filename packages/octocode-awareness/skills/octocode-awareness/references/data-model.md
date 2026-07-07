@@ -1,0 +1,129 @@
+# Awareness Data Model
+
+Use this when checking SQLite schema, workspace scoping, artifact scoping, task locks, signals, or runtime compatibility migrations.
+The exact generated contract lives in `scripts/schema.mjs`; runtime DDL lives in `src/db.ts` and `src/sql/*.ts`.
+
+Fresh stores create only the clean schema below.
+Runtime init creates/repairs current tables and tolerates old tables.
+Runtime init does not copy legacy data or expose a legacy CLI command.
+Use `references/legacy-migration.md` and `scripts/legacy-migrate.mjs` for explicit old-table import or removal.
+
+## Scope Rule
+
+`workspace_path` is the primary local key. `artifact` is an optional package/service/artifact slice inside that workspace.
+`repo` and `ref` refine git context. Scoped reads usually match exact scope plus broader `NULL` rows.
+Explicit IDs such as `memory_id`, `task_id`, or `signal_id` are stable handles.
+
+## Tables
+
+| Table | Purpose | Primary key |
+|---|---|---|
+| `agents` | Agent registry and last-seen scope | `agent_id` |
+| `sessions` | Contiguous work period for an agent/workspace | `session_id` |
+| `memories` | Durable lessons and reflections | `memory_id` |
+| `memories_fts` | FTS5 index over memory text | virtual |
+| `memory_refs` | Normalized memory provenance | `(memory_id, reference)` |
+| `tasks` | Edit task lifecycle: claim, release, verify | `task_id` |
+| `locks` | Per-file locks owned by a task | `lock_id` |
+| `task_log` | Verification/abandon events | `event_id` |
+| `signals` | Agent-to-agent workspace messages | `signal_id` |
+| `signal_reads` | Read cursor per signal/agent | `(signal_id, agent_id)` |
+| `refinements` | Repo or harness follow-up queue | `refinement_id` |
+| `edit_log` | File edit audit records | `edit_id` |
+| `harness_log` | Harness lifecycle records | `harness_id` |
+
+## Core Entities
+
+### Memories
+
+Required: `memory_id`, `agent_id`, `task_context`, `observation`, `importance`, `label`, `state`, timestamps.
+Scope: `workspace_path`, `artifact`, `repo`, `ref`, optional `file_tree_fingerprint`.
+Recall fields: `tags_json`, `failure_signature`, `access_count`, `last_accessed_at`, `decay_half_life_days`, `valid_from`, `valid_to`, `expired_at`, `novelty_score`.
+Lifecycle: `ACTIVE -> SUPERSEDED` via `superseded_by`.
+Provenance lives in `memory_refs`, not a JSON blob.
+
+### Tasks And Locks
+
+`tasks` records the edit intent: `agent_id`, optional `session_id`, `rationale`, `test_plan`, optional `plan_doc_ref`, `files_json`, scope, status, timestamps.
+Task lifecycle:
+
+```text
+ACTIVE --release--> PENDING --verify SUCCESS--> SUCCESS
+                         \--verify FAILED----> FAILED
+```
+
+`locks` records each claimed file: `file_path`, `task_id`, `agent_id`, optional `session_id`, `lock_type`, `acquired_at`, `expires_at`.
+Locks are deleted on release; the parent task remains as verification debt until cleared.
+`task_log` stores events such as `VERIFIED`, `FAILED`, and `ABANDONED`.
+
+### Signals
+
+`signals` stores live agent messages: scope, `from_agent`, optional `to_agent`, `kind`, `subject`, optional `body`, `files_json`, `refs_json`, `thread_id`, optional `reply_to`, `importance`, `status`, timestamps.
+Kinds: `claim`, `handoff`, `question`, `reply`, `blocker`, `request`, `decision`, `fyi`.
+Lifecycle:
+
+```text
+open --resolve--> resolved
+```
+
+`signal_reads` stores idempotent read receipts. `notify-get` returns `signals[]`; `agent_signal action:list` returns the same row shape with `to_agents`.
+
+### Refinements, Sessions, Audit
+
+`refinements` is the durable follow-up queue. `quality` is `good`, `bad`, or `handoff`; `state` is `open`, `ongoing`, or `done`.
+`sessions` anchors optional module-level work periods; `session-capture` writes a handoff refinement and does not require a `sessions` row.
+`edit_log` records file edits when callers use the audit API. It includes `session_id`, `task_id`, `agent_id`, `file_path`, operation, diff stats, hash, scope, and timestamp.
+`harness_log` records self-harness events: `mine`, `propose`, `validate`, `apply`, `capture`, `reflect`.
+
+## Relationships
+
+```text
+agents
+  -> sessions
+  -> memories
+sessions
+  -> memories / tasks / edit_log / harness_log
+tasks
+  -> locks
+  -> task_log
+  -> edit_log
+signals
+  -> signal_reads
+  -> signals(reply_to/thread_id)
+memories
+  -> memory_refs
+  -> memories(superseded_by)
+```
+
+## Query Patterns
+
+```sql
+-- Active locks in a workspace/artifact
+SELECT l.file_path, l.lock_type, t.agent_id, l.expires_at
+FROM locks l JOIN tasks t ON t.task_id = l.task_id
+WHERE t.workspace_path = ? AND (t.artifact = ? OR t.artifact IS NULL)
+  AND t.status = 'ACTIVE';
+
+-- Pending verification for an agent
+SELECT task_id, test_plan, files_json
+FROM tasks
+WHERE agent_id = ? AND status = 'PENDING'
+ORDER BY updated_at DESC;
+
+-- Open signals for a workspace
+SELECT signal_id, kind, subject, from_agent, to_agent
+FROM signals
+WHERE workspace_path = ? AND status = 'open'
+ORDER BY created_at DESC;
+```
+
+## Index Families
+
+Indexes cover scope (`workspace_path`, `artifact`), lifecycle (`state`, `status`), owners (`agent_id`, `to_agent`), relationships (`task_id`, `session_id`, `memory_id`, `signal_id`), and time (`created_at`, `updated_at`).
+When adding a query, keep the leading columns aligned with its filters. Workspace/artifact filters must stay cheap because they are the primary sharing boundary.
+
+## Migration Checks
+
+Use `tests/schema.test.ts` for fresh-store guarantees: no legacy memory/task/lock tables and no old importance/id columns.
+Use `tests/migration.test.ts` for runtime compatibility with legacy stores and for the standalone skill migration script.
+Run `node scripts/schema.mjs json-schema <name>` before exposing a new wrapper contract.

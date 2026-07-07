@@ -20,6 +20,7 @@ import {
   connectDb, initDb, hasFts, resolveDbPath, evictExpiredLocks,
 } from '../src/db.js';
 import { insertMemory, getMemory, mineWeakness, forgetMemory } from '../src/memory.js';
+import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
 import { insertRefinement, getRefinements, updateRefinement, deleteRefinement } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { reflect } from '../src/reflect.js';
@@ -38,7 +39,7 @@ type ParsedArgs = Record<string, ArgValue> & { _: string[] };
 
 const ARRAY_FLAGS = new Set([
   'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state',
-  'memory_id', 'refinement_id', 'notification_id', 'ref_id', 'regex', 'file_regex',
+  'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'regex', 'file_regex',
   'to_agent', 'kind',
 ]);
 
@@ -75,33 +76,34 @@ function parseArgs(argv: string[]): ParsedArgs {
 // ignored were the #1 source of doc drift — unknown flags are now hard errors.
 const GLOBAL_FLAGS = ['db', 'compact', 'help'];
 const KNOWN_FLAGS: Record<string, string[]> = {
-  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance_score', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'repo', 'ref', 'file', 'file_tree_fingerprint'],
-  'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic'],
+  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint'],
+  'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'artifact', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic'],
   'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'dry_run'],
-  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'repo', 'ref'],
-  'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'repo', 'ref', 'file', 'refinement_id'],
-  'refine-get': ['workspace', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
-  'refine-delete': ['refinement_id', 'workspace', 'dry_run'],
-  'pre-flight-intent': ['agent_id', 'workspace', 'rationale', 'test_plan', 'plan_doc_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds'],
-  'release-file-lock': ['agent_id', 'intent_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace'],
-  'status': ['workspace', 'limit'],
-  'workspace-status': ['workspace'],
+  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref'],
+  'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id'],
+  'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
+  'refine-delete': ['refinement_id', 'workspace', 'artifact', 'dry_run'],
+  'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'rationale', 'test_plan', 'plan_doc_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds'],
+  'release-file-lock': ['agent_id', 'task_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace', 'artifact'],
+  'status': ['workspace', 'artifact', 'limit'],
+  'workspace-status': ['workspace', 'artifact'],
   'init': [],
   'self-test': [],
-  'prune-stale-locks': ['older_than_minutes', 'expired_only', 'agent_id', 'target_file', 'dry_run'],
-  'audit-unverified': ['agent_id', 'workspace', 'abandon'],
-  'verify': ['intent_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace'],
-  'mine-weakness': ['agent_id', 'workspace', 'min_count', 'limit', 'cwd'],
-  'export-harness': ['limit', 'min_importance', 'workspace'],
-  'memory-index': ['limit', 'min_importance', 'out', 'stdout', 'workspace'],
-  'notify': ['agent_id', 'to', 'kind', 'subject', 'body', 'file', 'ref_id', 'in_reply_to', 'importance', 'workspace', 'repo', 'ref'],
-  'agent-signal': ['action', 'agent_id', 'workspace', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'notification_id', 'all', 'mark_read', 'limit'],
-  'notify-get': ['agent_id', 'workspace', 'repo', 'all', 'mark_read', 'kind', 'thread_id', 'limit', 'format'],
-  'notify-resolve': ['notification_id', 'thread_id', 'workspace'],
-  'notify-prune': ['notification_id', 'resolved', 'older_than_days', 'dry_run', 'workspace'],
-  'session-capture': ['agent_id', 'workspace', 'repo', 'ref', 'reason', 'cwd'],
-  'wait-for-lock': ['agent_id', 'target_file', 'file', 'wait_seconds', 'retry_interval'],
-  'digest': ['retention_days', 'dry_run', 'export_doc', 'workspace'],
+  'prune-stale-locks': ['older_than_minutes', 'expired_only', 'agent_id', 'target_file', 'workspace', 'artifact', 'dry_run'],
+  'audit-unverified': ['agent_id', 'workspace', 'artifact', 'abandon'],
+  'verify': ['task_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace', 'artifact'],
+  'mine-weakness': ['agent_id', 'workspace', 'artifact', 'min_count', 'limit', 'cwd'],
+  'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
+  'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
+  'memory-index': ['limit', 'min_importance', 'out', 'stdout', 'workspace', 'artifact', 'repo', 'ref'],
+  'notify': ['agent_id', 'to', 'kind', 'subject', 'body', 'file', 'ref_id', 'in_reply_to', 'importance', 'workspace', 'artifact', 'repo', 'ref'],
+  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'mark_read', 'limit'],
+  'notify-get': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'all', 'mark_read', 'kind', 'thread_id', 'limit', 'format'],
+  'notify-resolve': ['signal_id', 'thread_id', 'workspace', 'artifact'],
+  'notify-prune': ['signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
+  'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
+  'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'lock_type', 'wait_seconds', 'retry_interval'],
+  'digest': ['retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
 };
 
 function validateFlags(command: string, args: ParsedArgs): string[] {
@@ -148,12 +150,12 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const agentId = String(args['agent_id'] ?? 'agent');
   const taskContext = String(args['task_context'] ?? '');
   const observation = String(args['observation'] ?? '');
-  const importanceScore = args['importance_score'];
+  const importanceScore = args['importance'];
 
   if (!taskContext) die('--task-context is required');
   if (!observation) die('--observation is required');
   const imp = parseInt(String(importanceScore), 10);
-  if (isNaN(imp) || imp < 1 || imp > 10) die('--importance-score must be 1–10');
+  if (isNaN(imp) || imp < 1 || imp > 10) die('--importance must be 1–10');
 
   const rawTag = args['tag'];
   const tags = Array.isArray(rawTag) ? rawTag : rawTag ? [String(rawTag)] : [];
@@ -165,16 +167,16 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? '');
 
   const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db, {
-    agentId, taskContext, observation, importanceScore: imp,
+    agentId, taskContext, observation, importance: imp,
     label: normalizeLabel(label),
     tags, references, supersedes,
     failureSignature: args['failure_signature'] ? String(args['failure_signature']) : null,
     validFrom: args['valid_from'] ? String(args['valid_from']) : null,
     validTo: args['valid_to'] ? String(args['valid_to']) : null,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
-    file: args['file'] ? String(args['file']) : null,
     fileTreeFingerprint: args['file_tree_fingerprint'] ? String(args['file_tree_fingerprint']) : null,
   });
 
@@ -217,6 +219,9 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
     tags,
     smart: args['smart'] === true || args['smart'] === 'true',
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
     states,
     sort: String(args['sort'] ?? 'smart'),
     globalOnly: Boolean(args['global_only']),
@@ -274,6 +279,7 @@ function cmdRefineSet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
     quality: (String(args['quality'] ?? 'good')) as 'good' | 'bad' | 'handoff',
     state: (stateVal ?? 'open') as 'open' | 'ongoing' | 'done',
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     files,
@@ -288,7 +294,9 @@ function cmdRefineGet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
 
   const result = getRefinements(db, {
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
     quality: args['quality'] ? String(args['quality']) as 'good' | 'bad' | 'handoff' : undefined,
     includeHandoffs: Boolean(args['include_handoffs']),
     states,
@@ -328,6 +336,7 @@ function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Em
     evalFailures,
     files: Array.isArray(args['fix_file']) ? (args['fix_file'] as string[]) : [],
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
   });
@@ -347,9 +356,9 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   const claimParams = {
     agentId: String(args['agent_id'] ?? 'agent'),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     rationale: String(args['rationale'] ?? 'agent write operation'),
     testPlan: String(args['test_plan'] ?? 'post-edit verification'),
-    planDocRef: args['plan_doc_ref'] ? String(args['plan_doc_ref']) : null,
     targetFiles,
     lockType: (String(args['lock_type'] ?? 'EXCLUSIVE')) as 'EXCLUSIVE' | 'SHARED',
     ttlMs,
@@ -364,6 +373,9 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     const wait = waitForLock(db, {
       agent_id: claimParams.agentId,
       target_files: targetFiles,
+      workspace: claimParams.workspacePath ?? undefined,
+      artifact: claimParams.artifact ?? undefined,
+      lock_type: claimParams.lockType,
       wait_ms: waitSeconds * 1000,
     });
     if (wait.lock_free) result = preFlightIntent(db, claimParams);
@@ -377,6 +389,7 @@ function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   const result = auditUnverified(db, {
     agentId: args['agent_id'] ? String(args['agent_id']) : null,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     abandon: Boolean(args['abandon']),
   });
   return emit({ db_path: dbPath, ...result }, result.count > 0 ? 1 : 0, opts);
@@ -384,18 +397,19 @@ function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
 
 function cmdVerify(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const allPending = Boolean(args['all_pending']);
-  if (!allPending && !args['intent_id']) {
-    return emit({ error: '--intent-id is required (or use --all-pending)' }, 1, opts);
+  if (!allPending && !args['task_id']) {
+    return emit({ error: '--task-id is required (or use --all-pending)' }, 1, opts);
   }
   const statusArg = args['status'] ? String(args['status']) : 'SUCCESS';
   if (statusArg !== 'SUCCESS' && statusArg !== 'FAILED') {
     return emit({ error: `--status must be SUCCESS or FAILED, got "${statusArg}"` }, 1, opts);
   }
   const result = markVerified(db, {
-    intentId: args['intent_id'] ? String(args['intent_id']) : undefined,
+    taskId: args['task_id'] ? String(args['task_id']) : undefined,
     agentId: String(args['agent_id'] ?? 'agent'),
     allPending,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     message: args['message'] ? String(args['message']) : undefined,
     status: statusArg as 'SUCCESS' | 'FAILED',
   });
@@ -408,13 +422,15 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     ? (Array.isArray(rawTarget) ? rawTarget : [String(rawTarget)])
     : [];
 
-  if (!args['intent_id'] && targetFiles.length === 0) {
-    return emit({ error: 'release-file-lock requires --intent-id or --target-file' }, 1, opts);
+  if (!args['task_id'] && targetFiles.length === 0) {
+    return emit({ error: 'release-file-lock requires --task-id or --target-file' }, 1, opts);
   }
 
   const result = releaseFileLock(db, {
     agentId: String(args['agent_id'] ?? 'agent'),
-    intentId: args['intent_id'] ? String(args['intent_id']) : null,
+    workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    taskId: args['task_id'] ? String(args['task_id']) : null,
     targetFiles,
     status: (String(args['status'] ?? 'SUCCESS')) as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
     verified: Boolean(args['verified']),
@@ -439,14 +455,17 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const wsPath = args['workspace'] ? String(args['workspace']) : null;
   const conds: (string | number)[] = [];
   const binds: (string | number)[] = [minImportance];
-  let sql = `SELECT memory_id, label, importance_score, task_context, observation, file, tags_json, created_at
-     FROM agent_memories WHERE state = 'ACTIVE' AND importance_score >= ?`;
+  let sql = `SELECT memory_id, label, importance, task_context, observation, tags_json, created_at
+     FROM memories WHERE state = 'ACTIVE' AND importance >= ?`;
   if (wsPath) { sql += ' AND (workspace_path = ? OR workspace_path IS NULL)'; binds.push(wsPath); }
-  sql += ' ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC LIMIT ?';
+  if (args['artifact']) { sql += ' AND (artifact = ? OR artifact IS NULL)'; binds.push(String(args['artifact'])); }
+  if (args['repo']) { sql += ' AND (repo = ? OR repo IS NULL)'; binds.push(String(args['repo'])); }
+  if (args['ref']) { sql += ' AND (ref = ? OR ref IS NULL)'; binds.push(String(args['ref'])); }
+  sql += ' ORDER BY importance DESC, access_count DESC, last_accessed_at DESC LIMIT ?';
   binds.push(limit);
   void conds;
 
-  type MemRow = { memory_id: string; label: string; importance_score: number; task_context: string; observation: string; file: string | null; tags_json: string; created_at: string };
+  type MemRow = { memory_id: string; label: string; importance: number; task_context: string; observation: string; tags_json: string; created_at: string };
   const rows = db.prepare(sql).all(...binds) as unknown as MemRow[];
 
   const now = new Date().toISOString().slice(0, 10);
@@ -459,10 +478,9 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   ];
   for (const m of rows) {
     const tags = (() => { try { return (JSON.parse(m.tags_json) as string[]).join(', '); } catch { return ''; } })();
-    lines.push(`## [${m.label}:${m.importance_score}] ${m.task_context.slice(0, 80)}`);
+    lines.push(`## [${m.label}:${m.importance}] ${m.task_context.slice(0, 80)}`);
     lines.push(`> ${m.observation.slice(0, 200)}`);
     if (tags) lines.push(`*Tags: ${tags}*`);
-    if (m.file) lines.push(`*File: ${m.file}*`);
     lines.push('');
   }
 
@@ -508,6 +526,7 @@ function cmdRefineDelete(db: DatabaseSync, args: ParsedArgs, dbPath: string, opt
   const result = deleteRefinement(db, {
     refinementIds,
     workspacePath: args['workspace'] ? String(args['workspace']) : undefined,
+    artifact: args['artifact'] ? String(args['artifact']) : undefined,
     dryRun: Boolean(args['dry_run']),
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
@@ -518,8 +537,54 @@ function cmdExportHarness(db: DatabaseSync, args: ParsedArgs, dbPath: string, op
     limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
     min_importance: args['min_importance'] ? parseInt(String(args['min_importance']), 10) : undefined,
     workspace_path: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
+function cmdDocStaleness(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const rawTargets = args['targets_json'];
+  if (!rawTargets || typeof rawTargets !== 'string') {
+    return emit({ error: '--targets-json is required, e.g. \'[{"docFile":"pkg/ARCHITECTURE.md","sourceDirs":["pkg/src"]}]\'' }, 1, opts);
+  }
+  let targets: Array<{ docFile: string; sourceDirs: string[] }>;
+  try {
+    const parsed = JSON.parse(rawTargets) as unknown;
+    if (!Array.isArray(parsed)) throw new Error('not an array');
+    targets = parsed.map((t) => {
+      const obj = t as { docFile?: unknown; doc_file?: unknown; sourceDirs?: unknown; source_dirs?: unknown };
+      const docFile = String(obj.docFile ?? obj.doc_file ?? '');
+      const rawDirs = obj.sourceDirs ?? obj.source_dirs;
+      const sourceDirs = Array.isArray(rawDirs) ? rawDirs.map(String) : [];
+      if (!docFile || sourceDirs.length === 0) throw new Error('each target needs docFile and sourceDirs');
+      return { docFile, sourceDirs };
+    });
+  } catch (err) {
+    return emit({ error: `--targets-json is invalid: ${(err as Error).message}` }, 1, opts);
+  }
+
+  const workspacePath = args['workspace'] ? String(args['workspace']) : null;
+  const artifact = args['artifact'] ? String(args['artifact']) : null;
+  const result = mineDocStaleness(db, {
+    targets,
+    workspacePath,
+    artifact,
+    minEditsSinceSync: args['min_edits'] ? Number(args['min_edits']) : undefined,
+    minLinesSinceSync: args['min_lines'] ? Number(args['min_lines']) : undefined,
+  });
+
+  const proposed: Array<{ target_file: string; harness_id: string }> = [];
+  if (Boolean(args['propose'])) {
+    const agentId = String(args['agent_id'] ?? 'agent');
+    const sessionId = args['session_id'] ? String(args['session_id']) : null;
+    for (const entry of result.entries) {
+      if (!entry.stale) continue;
+      const harnessId = proposeDocRefresh(db, entry, { agentId, sessionId, workspacePath, artifact });
+      proposed.push({ target_file: entry.doc_file, harness_id: harnessId });
+    }
+  }
+
+  return emit({ db_path: dbPath, ...result, proposed }, 0, opts);
 }
 
 function cmdNotify(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
@@ -533,6 +598,7 @@ function cmdNotify(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emi
   const result = insertNotification(db, {
     agentId: String(args['agent_id']),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     toAgent: args['to'] ? String(args['to']) : null,
@@ -554,7 +620,9 @@ function cmdNotifyGet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
   const result = getNotifications(db, {
     agentId: String(args['agent_id']),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
     kinds: kinds as import('../src/types.js').NotificationKind[],
     threadId: args['thread_id'] ? String(args['thread_id']) : null,
     unreadOnly: args['all'] ? false : true,
@@ -565,12 +633,13 @@ function cmdNotifyGet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
 }
 
 function cmdNotifyResolve(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawIds = args['notification_id'];
+  const rawIds = args['signal_id'];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
   const result = resolveNotification(db, {
     notificationIds,
     threadId: args['thread_id'] ? String(args['thread_id']) : null,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
@@ -589,12 +658,13 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const refs = Array.isArray(rawRefs) ? rawRefs : rawRefs ? [String(rawRefs)] : [];
   const rawKinds = args['kind'];
   const kinds = Array.isArray(rawKinds) ? rawKinds : rawKinds ? [String(rawKinds)] : [];
-  const rawNotificationIds = args['notification_id'];
+  const rawNotificationIds = args['signal_id'];
   const notificationIds = Array.isArray(rawNotificationIds) ? rawNotificationIds : rawNotificationIds ? [String(rawNotificationIds)] : [];
   const result = agentSignal(db, {
     action: action as import('../src/types.js').AgentSignalAction,
     agentId: String(args['agent_id']),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     kind: args['kind'] && !Array.isArray(args['kind']) ? String(args['kind']) as import('../src/types.js').NotificationKind : undefined,
@@ -615,10 +685,11 @@ function cmdAgentSignal(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
 }
 
 function cmdNotifyPrune(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawIds = args['notification_id'];
+  const rawIds = args['signal_id'];
   const notificationIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
   const result = pruneNotifications(db, {
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
     notificationIds,
     resolvedOnly: Boolean(args['resolved']),
     olderThanDays: args['older_than_days'] ? parseInt(String(args['older_than_days']), 10) : undefined,
@@ -630,24 +701,46 @@ function cmdNotifyPrune(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
 function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: EmitOptions): number {
   // Use the canonical evictExpiredLocks (<=) instead of duplicating the DELETE with < (off by one).
   evictExpiredLocks(db);
+  const wsPath = args['workspace'] ? String(args['workspace']) : null;
+  const artifact = args['artifact'] ? String(args['artifact']) : null;
 
-  const memCount = (db.prepare('SELECT COUNT(*) AS count FROM agent_memories').get() as { count: number }).count;
+  const memScope: string[] = [];
+  const memScopeBinds: (string | number)[] = [];
+  if (wsPath) { memScope.push('(workspace_path = ? OR workspace_path IS NULL)'); memScopeBinds.push(wsPath); }
+  if (artifact) { memScope.push('(artifact = ? OR artifact IS NULL)'); memScopeBinds.push(artifact); }
+  const memWhere = memScope.length > 0 ? `WHERE ${memScope.join(' AND ')}` : '';
+  const memCount = (db.prepare(`SELECT COUNT(*) AS count FROM memories ${memWhere}`).get(...memScopeBinds) as { count: number }).count;
   const memStates = Object.fromEntries(
-    (db.prepare("SELECT state, COUNT(*) AS count FROM agent_memories GROUP BY state").all() as Array<{ state: string; count: number }>)
+    (db.prepare(`SELECT state, COUNT(*) AS count FROM memories ${memWhere} GROUP BY state`).all(...memScopeBinds) as Array<{ state: string; count: number }>)
       .map(r => [r.state, r.count])
   );
   const memLabels = Object.fromEntries(
-    (db.prepare("SELECT COALESCE(label,'OTHER') AS label, COUNT(*) AS count FROM agent_memories GROUP BY label").all() as Array<{ label: string; count: number }>)
+    (db.prepare(`SELECT COALESCE(label,'OTHER') AS label, COUNT(*) AS count FROM memories ${memWhere} GROUP BY label`).all(...memScopeBinds) as Array<{ label: string; count: number }>)
       .map(r => [r.label, r.count])
   );
-  const activeIntents = (db.prepare("SELECT COUNT(*) AS count FROM agent_intents WHERE status='ACTIVE'").get() as { count: number }).count;
+  const taskScope: string[] = ["status='ACTIVE'"];
+  const taskBinds: (string | number)[] = [];
+  if (wsPath) { taskScope.push('workspace_path = ?'); taskBinds.push(wsPath); }
+  if (artifact) { taskScope.push('(artifact = ? OR artifact IS NULL)'); taskBinds.push(artifact); }
+  const activeTasks = (db.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE ${taskScope.join(' AND ')}`).get(...taskBinds) as { count: number }).count;
   const limit = Math.min(100, Math.max(1, parseInt(String(args['limit'] ?? '20'), 10) || 20));
+  const lockWhere: string[] = [];
+  const lockBinds: (string | number)[] = [];
+  if (wsPath) { lockWhere.push('ai.workspace_path = ?'); lockBinds.push(wsPath); }
+  if (artifact) { lockWhere.push('(ai.artifact = ? OR ai.artifact IS NULL)'); lockBinds.push(artifact); }
   const locks = db.prepare(
-    'SELECT file_path, intent_id, agent_id, lock_type, acquired_at, expires_at FROM file_locks ORDER BY acquired_at DESC LIMIT ?'
-  ).all(limit);
+    `SELECT fl.file_path, fl.task_id, ai.agent_id, ai.workspace_path, ai.artifact, fl.lock_type, fl.acquired_at, fl.expires_at
+       FROM locks fl
+       JOIN tasks ai ON ai.task_id = fl.task_id
+       ${lockWhere.length > 0 ? `WHERE ${lockWhere.join(' AND ')}` : ''}
+       ORDER BY fl.acquired_at DESC LIMIT ?`
+  ).all(...lockBinds, limit);
   const openRefinements = (db.prepare(
-    "SELECT COUNT(*) AS count FROM refinements WHERE state IN ('open','ongoing')"
-  ).get() as { count: number }).count;
+    `SELECT COUNT(*) AS count FROM refinements
+      WHERE state IN ('open','ongoing')
+      ${wsPath ? 'AND (workspace_path = ? OR workspace_path IS NULL)' : ''}
+      ${artifact ? 'AND (artifact = ? OR artifact IS NULL)' : ''}`
+  ).get(...[...(wsPath ? [wsPath] : []), ...(artifact ? [artifact] : [])]) as { count: number }).count;
 
   return emit({
     db_path: dbPath,
@@ -655,15 +748,16 @@ function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: Emi
     memory_count: memCount,
     memory_states: memStates,
     memory_labels: memLabels,
-    active_intent_count: activeIntents,
+    active_task_count: activeTasks,
     open_refinements: openRefinements,
     locks,
-    workspace_path: args['workspace'] ? String(args['workspace']) : null,
+    workspace_path: wsPath,
+    artifact,
   }, 0, opts);
 }
 
 function cmdInit(db: DatabaseSync, dbPath: string, opts: EmitOptions): number {
-  const memCount = (db.prepare('SELECT COUNT(*) AS count FROM agent_memories').get() as { count: number }).count;
+  const memCount = (db.prepare('SELECT COUNT(*) AS count FROM memories').get() as { count: number }).count;
   return emit({ db_path: dbPath, initialized: true, memory_count: memCount }, 0, opts);
 }
 
@@ -679,7 +773,7 @@ function cmdSelfTest(opts: EmitOptions): number {
     agentId: testAgent,
     taskContext: 'self-test task',
     observation: 'This is a smoke-test memory.',
-    importanceScore: 7,
+    importance: 7,
     label: 'GOTCHA',
     tags: ['smoke-test'],
   });
@@ -718,7 +812,7 @@ const HELP = `usage: awareness <command> [options]
 
 commands: tell-memory  get-memory  forget  reflect  refine-set  refine-get  refine-delete
           pre-flight-intent  release-file-lock  status  workspace-status  init  self-test
-          prune-stale-locks  audit-unverified  verify  mine-weakness  export-harness  memory-index
+          prune-stale-locks  audit-unverified  verify  mine-weakness  doc-staleness  export-harness  memory-index
           notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
 
 common options:
@@ -727,7 +821,7 @@ common options:
 
 tell-memory:
   --agent-id <id>  --task-context <text>  --observation <text>
-  --importance-score <1-10>  --label <LABEL>  [--tag <t>]...  [--reference <r>]...
+  --importance <1-10>  --label <LABEL>  [--tag <t>]...  [--reference <r>]...
 
 get-memory:
   --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
@@ -749,13 +843,13 @@ export-harness:
 notify:
   --agent-id <id>  --kind claim|handoff|question|reply|blocker|request|decision|fyi
   --subject <text>  [--to <agent-id>]  [--body <text>]  [--file <path>]...
-  [--ref-id <id>]...  [--in-reply-to <notification-id>]  [--importance <1-10>]
+  [--ref-id <id>]...  [--in-reply-to <signal-id>]  [--importance <1-10>]
 
 notify-resolve:
-  [--notification-id <id>]...  [--thread-id <id>]
+  [--signal-id <id>]...  [--thread-id <id>]
 
 notify-prune:
-  [--notification-id <id>]...  [--resolved]  [--older-than-days <n>]  [--dry-run]
+  [--signal-id <id>]...  [--resolved]  [--older-than-days <n>]  [--dry-run]
 
 reflect:
   --agent-id <id>  --task <text>  --outcome worked|partial|failed
@@ -781,11 +875,19 @@ prune-stale-locks:
   expired locks always qualify; --older-than-minutes also catches old live locks
 
 workspace-status:
-  [--workspace <path>]   show active locks, agent intents, and memory counts
+  [--workspace <path>] [--artifact <name>]   show active locks, agent tasks, and memory counts
 
 mine-weakness:
   [--agent-id <id>]  [--workspace <path>]  [--min-count <n>]  [--limit <n>]
   find recurring failure patterns grouped by failure_signature
+
+doc-staleness:
+  --targets-json '<[{"docFile":"pkg/ARCHITECTURE.md","sourceDirs":["pkg/src"]}]>'
+  [--workspace <path>]  [--min-edits <n>]  [--min-lines <n>]
+  [--propose]  [--agent-id <id>]  [--session-id <id>]
+  compares edit_log activity under sourceDirs against docFile's own last edit_log
+  timestamp; --propose records a harness_log 'propose' event (failure_signature
+  'doc-staleness') for each stale entry
 
 digest:
   [--retention-days <n>]  [--dry-run]  [--export-doc [path]]
@@ -797,18 +899,18 @@ pre-flight-intent:
   --agent-id <id>  [--workspace <path>]  [--target-file <path>]...  [--ttl-minutes <n>]
 
 release-file-lock:
-  --agent-id <id>  (--intent-id <id> | --target-file <path>)  [--status SUCCESS|PENDING|FAILED]
+  --agent-id <id>  (--task-id <id> | --target-file <path>)  [--status SUCCESS|PENDING|FAILED]
   [--verified]  [--verified-note <text>]
 
 audit-unverified:
-  [--agent-id <id>]  [--workspace <path>]  [--abandon]
-  exits 1 when unverified (PENDING) intents exist; exits 0 when clear
-  --abandon: dismiss all PENDING intents as FAILED (clear orphaned sessions)
+  [--agent-id <id>]  [--workspace <path>]  [--artifact <name>]  [--abandon]
+  exits 1 when unverified (PENDING) tasks exist; exits 0 when clear
+  --abandon: dismiss all PENDING tasks as FAILED (clear orphaned sessions)
 
 verify:
-  (--intent-id <id> | --all-pending)  --agent-id <id>
-  [--status SUCCESS|FAILED]  [--message <text>]  [--workspace <path>]
-  marks a PENDING intent as verified; --all-pending clears every PENDING for this agent
+  (--task-id <id> | --all-pending)  --agent-id <id>
+  [--status SUCCESS|FAILED]  [--message <text>]  [--workspace <path>]  [--artifact <name>]
+  marks a PENDING task as verified; --all-pending clears every PENDING task for this agent
 `;
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
@@ -871,8 +973,7 @@ try {
     case 'refine-set':     exitCode = cmdRefineSet(db, args, dbPath, opts); break;
     case 'refine-get':     exitCode = cmdRefineGet(db, args, dbPath, opts); break;
     case 'pre-flight-intent': exitCode = cmdPreFlightIntent(db, args, dbPath, opts); break;
-    case 'release-file-lock':
-    case 'release-intent': exitCode = cmdReleaseFileLock(db, args, dbPath, opts); break;
+    case 'release-file-lock': exitCode = cmdReleaseFileLock(db, args, dbPath, opts); break;
     case 'status':         exitCode = cmdStatus(db, dbPath, args, opts); break;
     case 'init':           exitCode = cmdInit(db, dbPath, opts); break;
     case 'prune-stale-locks': exitCode = emit({ db_path: dbPath, ...pruneStale(db, args) }, 0, opts); break;
@@ -888,6 +989,7 @@ try {
       } else {
         const ngParams: Record<string, unknown> = {
           workspace: args['workspace'] as string | undefined,
+          artifact: args['artifact'] as string | undefined,
           format: ngFormat,
           agent_id: ngAgentId,
         };
@@ -905,6 +1007,7 @@ try {
       ...sessionCapture(db, {
         agent_id: args['agent_id'],
         workspace: args['workspace'],
+        artifact: args['artifact'],
         repo: args['repo'],
         ref: args['ref'],
         reason: args['reason'],
@@ -915,6 +1018,7 @@ try {
       const mwParams = {
         agentId:       args['agent_id'] as string | undefined,
         workspacePath: args['workspace'] as string | undefined,
+        artifact:      args['artifact'] as string | undefined,
         minCount:      args['min_count'] ? Number(args['min_count']) : undefined,
         limit:         args['limit']     ? Number(args['limit'])     : undefined,
         cwd:           args['cwd']       as string | undefined,
@@ -922,9 +1026,11 @@ try {
       exitCode = emit({ db_path: dbPath, ...mineWeakness(db, mwParams) }, 0, opts);
       break;
     }
+    case 'doc-staleness': exitCode = cmdDocStaleness(db, args, dbPath, opts); break;
     case 'workspace-status': {
       const wsStatusResult = getWorkspaceStatus(db, {
         workspace_path: args['workspace'] as string | undefined,
+        artifact: args['artifact'] as string | undefined,
       });
       exitCode = emit({ db_path: dbPath, ...wsStatusResult }, 0, opts);
       break;
@@ -940,6 +1046,7 @@ try {
       if (!isDryRun && (args['export_doc'] ?? args['export-doc'])) {
         try {
           const wsPath = (args['workspace'] as string | undefined) ?? process.cwd();
+          const artifact = args['artifact'] as string | undefined;
           const { mkdirSync, writeFileSync } = await import('node:fs');
           const { join } = await import('node:path');
           const docDir = join(wsPath, '.octocode', 'memory-reports');
@@ -948,7 +1055,7 @@ try {
           const docPath = (typeof (args['export_doc'] ?? args['export-doc']) === 'string'
             ? args['export_doc'] ?? args['export-doc']
             : join(docDir, `memory-report-${dateStr}.md`)) as string;
-          writeFileSync(docPath, exportMemoryDoc(db, { workspace_path: wsPath }), 'utf8');
+          writeFileSync(docPath, exportMemoryDoc(db, { workspace_path: wsPath, artifact }), 'utf8');
           payload['doc_path'] = docPath;
         } catch (err) {
           payload['doc_warning'] = `Could not write doc: ${(err as Error).message}`;
@@ -965,6 +1072,9 @@ try {
       const waitResult = waitForLock(db, {
         agent_id: args['agent_id'],
         target_files: waitTargets,
+        workspace: args['workspace'],
+        artifact: args['artifact'],
+        lock_type: args['lock_type'],
         wait_ms: waitSecs != null ? waitSecs * 1000 : undefined,
         retry_interval_ms: retrySecs != null ? retrySecs * 1000 : undefined,
       });

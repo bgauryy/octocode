@@ -1,5 +1,8 @@
 Mode: Validate
 
+## TL;DR
+SQLite-first team memory is worth prototyping, but evidence on vector stores conflicts: contested claims mean the decision narrows to Prototype First rather than a full build. Research limits: none.
+
 ## Surface Plan
 Local active because the idea touches this skill. GitHub/packages active because memory systems have competing prior art. Web active for formal docs and current project guidance.
 

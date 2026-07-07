@@ -23,6 +23,7 @@ function cachedConnectDb(dbPath: string): DatabaseSync {
 // generated once at import time so the agentId is stable within a session but
 // unique across sessions even when PIDs repeat.
 const _sessionStartupToken = randomUUID().slice(0, 8);
+import { normalizeArtifact } from './helpers.js';
 import { preFlightIntent, releaseFileLock } from './intents.js';
 import { auditUnverified } from './verify.js';
 import { notifyGet, sessionCapture } from './maintenance.js';
@@ -39,6 +40,7 @@ export interface PiLikeUi {
 export interface PiLikeContext {
   cwd?: string;
   dbPath?: string;
+  artifact?: string;
   sessionManager?: PiLikeSessionManager;
   ui?: PiLikeUi;
 }
@@ -86,6 +88,13 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 function addQueryPaths(paths: string[], value: unknown): void {
   if (!Array.isArray(value)) return;
   for (const query of value) {
@@ -101,9 +110,20 @@ function addQueryPaths(paths: string[], value: unknown): void {
 
 export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}): string[] {
   const normalizedToolName = String(toolName ?? '').toLowerCase();
-  const isWriteTool = ['write', 'edit', 'multi_edit', 'multiedit', 'notebookedit', 'notebook_edit'].includes(normalizedToolName);
+  const isWriteTool = [
+    'write',
+    'edit',
+    'multi_edit',
+    'multiedit',
+    'notebookedit',
+    'notebook_edit',
+    'apply_patch',
+    'applypatch',
+  ].includes(normalizedToolName);
   const payload = objectOrEmpty(input);
-  const command = payload.command;
+  const command = typeof input === 'string'
+    ? input
+    : firstString(payload.command, payload.patch, payload.text, payload.content);
 
   if (!isWriteTool && typeof command !== 'string') return [];
 
@@ -118,6 +138,22 @@ export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}
   addApplyPatchPaths(paths, command);
 
   return [...new Set(paths)];
+}
+
+function artifactFrom(ctx?: PiLikeContext, event?: Record<string, unknown>): string | null {
+  const input = objectOrEmpty(event?.input);
+  return normalizeArtifact(firstString(
+    process.env.OCTOCODE_ARTIFACT,
+    process.env.OCTOCODE_PACKAGE,
+    process.env.OCTOCODE_SERVICE,
+    ctx?.artifact,
+    event?.artifact,
+    event?.package,
+    event?.service,
+    input.artifact,
+    input.package,
+    input.service,
+  ));
 }
 
 export function getPiAwarenessSessionId(ctx?: PiLikeContext): string {
@@ -159,6 +195,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     pendingToolIntents,
 
     async handleToolCall(event: PiToolEvent, ctx?: PiLikeContext) {
+      if (event?.toolCallId && pendingToolIntents.has(event.toolCallId)) return undefined;
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
       if (targetFiles.length === 0) return undefined;
 
@@ -169,6 +206,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
           agentId,
           sessionId: getPiAwarenessSessionId(ctx),
           workspacePath: ctx?.cwd ?? process.cwd(),
+          artifact: artifactFrom(ctx, event as Record<string, unknown>),
           rationale: 'auto: Pi write/edit tool call via octocode-awareness',
           testPlan: targetFiles.length > 0
             ? `verify edit applied to: ${targetFiles.slice(0, 3).join(', ')}${targetFiles.length > 3 ? ` + ${targetFiles.length - 3} more` : ''}`
@@ -186,7 +224,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
 
         if (event?.toolCallId) {
           pendingToolFiles.set(event.toolCallId, targetFiles);
-          pendingToolIntents.set(event.toolCallId, result.intent.intent_id);
+          pendingToolIntents.set(event.toolCallId, result.task.task_id);
         }
         return undefined;
       } catch (error) {
@@ -198,18 +236,22 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
     async handleToolResult(event: PiToolEvent, ctx?: PiLikeContext) {
       const targetFiles = event?.toolCallId ? pendingToolFiles.get(event.toolCallId) : undefined;
       const intentId = event?.toolCallId ? pendingToolIntents.get(event.toolCallId) : undefined;
-      if (!targetFiles && !intentId) return undefined;
+      const fallbackFiles = targetFiles ?? extractPiWriteTargetPaths(event?.toolName, event?.input);
+      if (fallbackFiles.length === 0 && !intentId) return undefined;
 
-      pendingToolFiles.delete(event.toolCallId!);
-      pendingToolIntents.delete(event.toolCallId!);
+      if (event?.toolCallId) {
+        pendingToolFiles.delete(event.toolCallId);
+        pendingToolIntents.delete(event.toolCallId);
+      }
       try {
         const db = getDb(ctx);
         releaseFileLock(db, {
           agentId: getPiAwarenessAgentId(ctx),
           sessionId: getPiAwarenessSessionId(ctx),
-          intentId,
-          targetFiles: intentId ? [] : targetFiles,
+          taskId: intentId,
+          targetFiles: intentId ? [] : fallbackFiles,
           workspacePath: ctx?.cwd ?? process.cwd(),
+          artifact: artifactFrom(ctx, event as Record<string, unknown>),
           status: 'PENDING',
         });
       } catch (error) {
@@ -228,7 +270,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         const sessionFile = ctx?.sessionManager?.getSessionFile?.();
         const derivedName = envName
           || (sessionFile ? path.basename(sessionFile, path.extname(sessionFile)) : '');
-        registerAgent(db, { agentId, agentName: derivedName, workspacePath: ctx?.cwd ?? process.cwd(), context: 'pi' });
+        registerAgent(db, { agentId, agentName: derivedName, workspacePath: ctx?.cwd ?? process.cwd(), artifact: artifactFrom(ctx, _event), context: 'pi' });
       } catch { /* fail-open: identity registration is non-critical */ }
 
       if (process.env.OCTOCODE_NO_NOTIFY === '1') return undefined;
@@ -237,6 +279,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         const result = notifyGet(db, {
           agent_id: getPiAwarenessAgentId(ctx),
           workspace: ctx?.cwd ?? process.cwd(),
+          artifact: artifactFrom(ctx, _event),
           format: 'hook',
         }) as { additionalContext?: string };
         if (!result.additionalContext) return undefined;
@@ -261,6 +304,7 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
         sessionCapture(db, {
           agent_id: getPiAwarenessAgentId(ctx),
           workspace: ctx?.cwd ?? process.cwd(),
+          artifact: artifactFrom(ctx, event),
           reason: event.reason,
         });
       } catch {
@@ -277,6 +321,15 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
 
   pi.on('tool_call', async (event, ctx) => bridge.handleToolCall(event as PiToolEvent, ctx));
   pi.on('tool_result', async (event, ctx) => bridge.handleToolResult(event as PiToolEvent, ctx));
+  pi.on('tool_execution_start', async (event, ctx) => bridge.handleToolCall({
+    toolCallId: String(event?.toolCallId ?? ''),
+    toolName: String(event?.toolName ?? ''),
+    input: event?.args,
+  }, ctx));
+  pi.on('tool_execution_end', async (event, ctx) => bridge.handleToolResult({
+    toolCallId: String(event?.toolCallId ?? ''),
+    toolName: String(event?.toolName ?? ''),
+  }, ctx));
   pi.on('before_agent_start', async (event, ctx) => bridge.handleBeforeAgentStart(event, ctx));
   pi.on('agent_end', async (_event, ctx) => {
     if (process.env.OCTOCODE_NO_VERIFY_GATE === '1') return undefined;
@@ -285,18 +338,23 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
       const result = auditUnverified(db, {
         agentId: getPiAwarenessAgentId(ctx),
         workspacePath: ctx?.cwd ?? process.cwd(),
+        artifact: artifactFrom(ctx, _event),
       });
       if (result.count === 0) return undefined;
       const plans = result.unverified
-        .map((intent) => `${intent.status}:${intent.intent_id}: ${intent.test_plan}`)
+        .map((intent) => `${intent.status}:${intent.task_id}: ${intent.test_plan}`)
+        .join('; ');
+      const stale = result.stale_active
+        .map((intent) => `STALE:${intent.task_id}: ${intent.rationale}`)
         .join('; ');
       pi.sendMessage?.({
         customType: 'octocode-awareness-verify-gate',
         content: [
           'Octocode awareness verify gate: you have unverified edits before concluding.',
-          `Pending: ${plans}`,
-          'Run the stated verification, then call memory_verify or octocode-awareness verify to clear the pending intents.',
-        ].join('\n'),
+          plans ? `Pending: ${plans}` : '',
+          stale ? `Expired active locks: ${stale}` : '',
+          'Run the stated verification, then call memory_verify or octocode-awareness verify to clear the pending tasks.',
+        ].filter(Boolean).join('\n'),
         display: true,
       }, { deliverAs: 'followUp', triggerTurn: true });
       return undefined;
@@ -305,6 +363,9 @@ export function wirePiAwarenessHooks(pi: PiLikeApi, options: PiAwarenessBridgeOp
       return undefined;
     }
   });
+  pi.on('session_before_compact', async (event, ctx) => bridge.handleSessionShutdown({
+    reason: typeof event?.reason === 'string' ? `compact:${event.reason}` : 'compact',
+  }, ctx));
   pi.on('session_shutdown', async (event, ctx) => bridge.handleSessionShutdown(event, ctx));
 
   return bridge;

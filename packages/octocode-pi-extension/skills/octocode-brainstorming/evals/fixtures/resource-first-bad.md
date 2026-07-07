@@ -1,5 +1,8 @@
 Mode: Map
 
+## TL;DR
+Found several repos on GitHub, so this idea is ready to build.
+
 ## Surface Plan
 Local skipped. GitHub active.
 

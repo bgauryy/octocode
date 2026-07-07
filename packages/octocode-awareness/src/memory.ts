@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
 import {
-  utcNow, tagsText,
+  normalizeArtifact, utcNow,
   normalizeTags, normalizeReferences, normalizeLabel, normalizeFilePath,
   rowToMemory,
 } from './helpers.js';
@@ -92,12 +92,13 @@ export function findSimilarMemories(
   text: string,
   limit = 3,
   excludeMemoryId: string | null = null,
+  scopeOptions: LexicalScopeOptions = {},
 ): Array<{ memory_id: string; similarity: number }> {
   const queryTokens = textTokens(text);
   if (queryTokens.size === 0) return [];
 
   const candidates = lexicalSearch(
-    db, text, SIMILARITY_PREFETCH, 1, [], [], ['ACTIVE']
+    db, text, SIMILARITY_PREFETCH, 1, [], [], ['ACTIVE'], scopeOptions,
   ).filter(m => m.memory_id !== excludeMemoryId);
 
   return candidates
@@ -122,7 +123,7 @@ export function decayComponents(
     const ageDays = Math.max(0, (Date.now() - new Date(lastUsedStr).getTime()) / 86400000);
     recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
   }
-  const importance = (memory.importance_score ?? 0) / 10;
+  const importance = (memory.importance ?? 0) / 10;
   const access = Math.min(
     Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION), 1
   );
@@ -171,12 +172,61 @@ function fallbackSearch(
 ): MemoryRow[] {
   const sql = `
     SELECT m.*, 0 AS _bm25
-    FROM agent_memories m
+    FROM memories m
     WHERE ${conditions.join(' AND ')}
-    ORDER BY m.importance_score DESC, m.created_at DESC
+    ORDER BY m.importance DESC, m.created_at DESC
     LIMIT ?
   `;
   return db.prepare(sql).all(...params, limit) as unknown as MemoryRow[];
+}
+
+interface LexicalScopeOptions {
+  workspacePath?: string | null;
+  artifact?: string | null;
+  repo?: string | null;
+  ref?: string | null;
+  strictScope?: boolean;
+  globalOnly?: boolean;
+  cwd?: string;
+}
+
+function applyScopeConditions(
+  conditions: string[],
+  params: (string | number)[],
+  options: LexicalScopeOptions = {},
+): void {
+  const artifact = normalizeArtifact(options.artifact);
+  const scope = fillScope(
+    {
+      workspace_path: options.workspacePath ?? null,
+      artifact,
+      repo: options.repo ?? null,
+      ref: options.ref ?? null,
+    },
+    options.cwd ?? options.workspacePath ?? process.cwd(),
+  );
+
+  if (options.globalOnly) {
+    conditions.push('m.workspace_path IS NULL', 'm.artifact IS NULL', 'm.repo IS NULL', 'm.ref IS NULL');
+    return;
+  }
+
+  if (scope.workspace_path) {
+    conditions.push(options.strictScope ? 'm.workspace_path = ?' : '(m.workspace_path IS NULL OR m.workspace_path = ?)');
+    params.push(scope.workspace_path);
+  }
+  if (scope.artifact) {
+    conditions.push(options.strictScope ? 'm.artifact = ?' : '(m.artifact IS NULL OR m.artifact = ?)');
+    params.push(scope.artifact);
+  }
+  if (scope.repo) {
+    conditions.push(options.strictScope ? 'm.repo = ?' : '(m.repo IS NULL OR m.repo = ?)');
+    params.push(scope.repo);
+  }
+  if (scope.ref) {
+    conditions.push(options.strictScope ? 'm.ref = ?' : '(m.ref IS NULL OR m.ref = ?)');
+    params.push(scope.ref);
+  }
 }
 
 export function lexicalSearch(
@@ -187,11 +237,12 @@ export function lexicalSearch(
   tags: string[],
   labels: string[],
   states: string[],
+  scopeOptions: LexicalScopeOptions = {},
 ): MemoryRecord[] {
   const ftsQuery = query ? buildFtsQuery(query) : null;
   const params: (string | number)[] = [];
   const conditions: string[] = [
-    'm.importance_score >= ?',
+    'm.importance >= ?',
     `m.state IN (${states.map(() => '?').join(',')})`,
   ];
   params.push(minImportance, ...states);
@@ -200,10 +251,12 @@ export function lexicalSearch(
     conditions.push(`m.label IN (${labels.map(() => '?').join(',')})`);
     params.push(...labels);
   }
+  // Use json_each subquery for tag filtering (tags_text column removed).
   for (const tag of tags) {
-    conditions.push('m.tags_text LIKE ?');
-    params.push(`%,${tag},%`);
+    conditions.push('EXISTS (SELECT 1 FROM json_each(m.tags_json) WHERE value = ?)');
+    params.push(tag);
   }
+  applyScopeConditions(conditions, params, scopeOptions);
 
   let rows: MemoryRow[];
   if (ftsQuery && hasFts(db)) {
@@ -213,10 +266,10 @@ export function lexicalSearch(
       // observation (the lesson) which scores higher than tags (supplementary).
       // bm25() returns negative values; ABS() + DESC gives best-match-first.
       const sql = `
-        SELECT m.*, ABS(bm25(memory_fts, 0, 10, 7, 2)) AS _bm25
-        FROM agent_memories m
-        JOIN memory_fts ON memory_fts.memory_id = m.memory_id
-        WHERE memory_fts MATCH ?
+        SELECT m.*, ABS(bm25(memories_fts, 0, 10, 7, 2)) AS _bm25
+        FROM memories m
+        JOIN memories_fts ON memories_fts.memory_id = m.memory_id
+        WHERE memories_fts MATCH ?
           AND ${conditions.join(' AND ')}
         ORDER BY _bm25 DESC
         LIMIT ?
@@ -248,7 +301,7 @@ export function bumpAccess(db: DatabaseSync, memoryIds: string[]): void {
   const now = utcNow();
   const placeholders = memoryIds.map(() => '?').join(',');
   db.prepare(`
-    UPDATE agent_memories
+    UPDATE memories
     SET access_count = COALESCE(access_count, 0) + 1, last_accessed_at = ?
     WHERE memory_id IN (${placeholders})
   `).run(now, ...memoryIds);
@@ -265,7 +318,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     agentId = 'agent',
     taskContext,
     observation,
-    importanceScore,
+    importance,
     label,
     tags = [],
     tagsCsv = '',
@@ -275,16 +328,16 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
     validFrom: vf,
     validTo: vt,
     workspacePath,
+    artifact,
     repo: repoArg,
     ref: refArg,
-    file: fileArg,
     fileTreeFingerprint = null,
     cwd,
   } = params;
 
-  const imp = Number(importanceScore);
+  const imp = Number(importance);
   if (!Number.isInteger(imp) || imp < 1 || imp > 10) {
-    throw new Error(`importanceScore must be 1–10, got ${String(importanceScore)}`);
+    throw new Error(`importance must be 1–10, got ${String(importance)}`);
   }
 
   const memoryId = 'mem_' + randomUUID().replace(/-/g, '');
@@ -293,39 +346,51 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label);
   const createdAt = utcNow();
   const validFromVal = vf ?? createdAt;
-  const memFile = normalizeFilePath(fileArg, cwd);
 
   const scope = fillScope(
-    { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
+    { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
     cwd ?? process.cwd()
   );
 
-  // TOOL-2: Use preComputedSimilar if provided (avoids the double findSimilarMemories call
-  // when the caller already ran a dedup gate check before deciding to insert).
-  const similar = params.preComputedSimilar ?? findSimilarMemories(db, `${taskContext} ${observation}`);
-  const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
-  const similarMemoryIds = similar.map(m => m.memory_id);
-
   const halfLifeDefault = LABEL_HALF_LIFE_DAYS[normalizedLabel] ?? null;
+
+  // Variables assigned inside the transaction (declared outside for return scope).
+  let noveltyScore = 0;
+  let similarMemoryIds: string[] = [];
+  const superseded: string[] = [];
 
   db.exec('BEGIN IMMEDIATE');
   try {
+    // FIX #8 (P1): findSimilarMemories moved inside the transaction for read consistency —
+    // ensures the similarity check and the insert see the same set of ACTIVE memories.
+    // TOOL-2: Use preComputedSimilar if provided (avoids double findSimilarMemories call
+    // when the caller already ran a dedup gate check before deciding to insert).
+    const similar = params.preComputedSimilar ?? findSimilarMemories(db, `${taskContext} ${observation}`, 3, null, {
+      workspacePath: scope.workspace_path,
+      artifact: scope.artifact,
+      repo: scope.repo,
+      ref: scope.ref,
+      cwd,
+    });
+    noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
+    similarMemoryIds = similar.map(m => m.memory_id);
+
     db.prepare(`
-      INSERT INTO agent_memories (
-        memory_id, agent_id, task_context, observation, importance_score,
-        label, tags_json, tags_text, references_json, workspace_path, repo, ref,
-        file_tree_fingerprint, file, novelty_score, similar_memory_ids_json, created_at, updated_at,
+      INSERT INTO memories (
+        memory_id, agent_id, task_context, observation, importance,
+        label, tags_json, workspace_path, artifact, repo, ref,
+        file_tree_fingerprint, novelty_score, created_at, updated_at,
         last_accessed_at, access_count, failure_signature, valid_from, valid_to, decay_half_life_days
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
     `).run(
       memoryId, agentId, taskContext, observation, imp,
-      normalizedLabel, JSON.stringify(tagList), tagsText(tagList), JSON.stringify(refList),
-      scope.workspace_path, scope.repo, scope.ref,
-      fileTreeFingerprint, memFile, noveltyScore, JSON.stringify(similarMemoryIds), createdAt, createdAt,
+      normalizedLabel, JSON.stringify(tagList),
+      scope.workspace_path, scope.artifact, scope.repo, scope.ref,
+      fileTreeFingerprint, noveltyScore, createdAt, createdAt,
       createdAt, failureSignature ?? null, validFromVal, vt ?? null, halfLifeDefault
     );
 
-    // Populate structured reference index (Python-compatible memory_references table)
+    // Populate structured reference index (memory_refs table)
     if (refList.length > 0) {
       try {
         replaceMemoryReferences(db, memoryId, refList);
@@ -336,37 +401,32 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
 
     if (hasFts(db)) {
       db.prepare(
-        'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
+        'INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
       ).run(
         memoryId, taskContext, observation,
         ftsTermsForRow({
           tags_json: JSON.stringify(tagList),
-          references_json: JSON.stringify(refList),
           label: normalizedLabel,
-          file: memFile,
-          failure_signature: failureSignature ?? null,
-          workspace_path: scope.workspace_path,
-          repo: scope.repo,
-          ref: scope.ref,
         })
       );
     }
+    // FIX #1 (P0): supersede UPDATE loop moved INSIDE BEGIN IMMEDIATE (before COMMIT)
+    // so the supersede and insert are atomic — no window where the old memory is still
+    // ACTIVE after the new one is visible to concurrent readers.
+    for (const oldId of supersedes) {
+      const r = db.prepare(`
+        UPDATE memories
+        SET state = 'SUPERSEDED', superseded_by = ?, updated_at = ?,
+            valid_to = COALESCE(valid_to, ?), expired_at = ?
+        WHERE memory_id = ? AND memory_id <> ?
+      `).run(memoryId, createdAt, validFromVal, createdAt, oldId, memoryId) as { changes: number };
+      if (r.changes) superseded.push(oldId);
+    }
+
     db.exec('COMMIT');
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
     throw e;
-  }
-
-  // Supersede old memories
-  const superseded: string[] = [];
-  for (const oldId of supersedes) {
-    const r = db.prepare(`
-      UPDATE agent_memories
-      SET state = 'SUPERSEDED', superseded_by = ?, updated_at = ?,
-          valid_to = COALESCE(valid_to, ?), expired_at = ?
-      WHERE memory_id = ? AND memory_id <> ?
-    `).run(memoryId, createdAt, validFromVal, createdAt, oldId, memoryId) as { changes: number };
-    if (r.changes) superseded.push(oldId);
   }
 
   return {
@@ -376,17 +436,16 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
       agent_id: agentId,
       task_context: taskContext,
       observation,
-      importance_score: imp,
+      importance: imp,
       label: normalizedLabel,
       tags: tagList,
       references: refList,
       workspace_path: scope.workspace_path,
+      artifact: scope.artifact,
       repo: scope.repo,
       ref: scope.ref,
-      file: memFile,
       failure_signature: failureSignature ?? null,
       novelty_score: noveltyScore,
-      similar_memory_ids: similarMemoryIds,
       state: 'ACTIVE' as const,
       created_at: createdAt,
     },
@@ -410,6 +469,9 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     tags = [],
     smart = false,
     workspacePath,
+    artifact,
+    repo: repoArg,
+    ref: refArg,
     states: statesRaw,
     sort = 'smart',
     globalOnly = false,
@@ -433,30 +495,37 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     : [];
 
   let memories = lexicalSearch(
-    db, query, limit * SCORING_PREFETCH_FACTOR, minImportance, tags, labels, states
+    db, query, limit * SCORING_PREFETCH_FACTOR, minImportance, tags, labels, states, {
+      workspacePath: workspacePath ?? cwdParam ?? null,
+      artifact,
+      repo: repoArg,
+      ref: refArg,
+      strictScope,
+      globalOnly,
+      cwd: cwdParam,
+    },
   );
 
   // Workspace scope filter
-  let scope = workspacePath;
-  if (!globalOnly && scope) {
-    scope = fillScope({ workspace_path: null }, scope).workspace_path ?? scope;
-    if (strictScope) {
-      memories = memories.filter(m => m.workspace_path === scope);
-    } else {
-      memories = memories.filter(m => !m.workspace_path || m.workspace_path === scope);
-    }
-  }
-  if (globalOnly) {
-    memories = memories.filter(m => !m.workspace_path && !m.repo && !m.ref);
-  }
+  const resolvedScope = fillScope(
+    { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
+    cwdParam ?? workspacePath ?? process.cwd(),
+  );
 
-  // Exact file filter
+  // Exact file filter — the `file` column was removed from the schema (files are
+  // now tracked via memory_refs with prefix "file:"). For forward compatibility we
+  // keep the filter logic but match against the references array instead.
   if (files.length > 0) {
-    const normFiles = new Set(files.map(f => normalizeFilePath(f, cwdParam) ?? f));
-    memories = memories.filter(m => m.file != null && normFiles.has(m.file));
+    const normFiles = new Set(
+      files.map(f => normalizeFilePath(f, cwdParam ?? workspacePath ?? undefined) ?? f)
+    );
+    const normFileRefs = new Set([...normFiles].map(f => `file:${f}`));
+    memories = memories.filter(m =>
+      m.references.some(r => normFiles.has(r) || normFileRefs.has(r))
+    );
   }
 
-  // Reference filter — use memory_references table (always populated via replaceMemoryReferences).
+  // Reference filter — use memory_refs table (always populated via replaceMemoryReferences).
   // MEM-1: A zero result from the table means "no matches", not "table unavailable".
   // The JSON scan fallback only fires when the table itself throws (e.g. very old DB without
   // the table), not when it returns 0 rows.
@@ -470,7 +539,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
       const fromTable = new Set<string>();
       for (const ref of references) {
         const rows = db.prepare(
-          'SELECT memory_id FROM memory_references WHERE reference = ?'
+          'SELECT memory_id FROM memory_refs WHERE reference = ?'
         ).all(ref) as unknown as Array<{ memory_id: string }>;
         rows.forEach(r => fromTable.add(r.memory_id));
       }
@@ -481,12 +550,32 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
         if (missingIds.length > 0) {
           const ph = missingIds.map(() => '?').join(',');
           type MRow = MemoryRow & { _bm25?: number };
+
+          // FIX #7 (P1): apply the same workspace/scope filters to the "extra" query so
+          // reference-matched rows that missed the FTS cap still respect scope boundaries.
+          const extraConditions: string[] = [
+            `m.memory_id IN (${ph})`,
+            `m.importance >= ?`,
+            `m.state IN (${states.map(() => '?').join(',')})`,
+          ];
+          const extraParams: (string | number)[] = [...missingIds, minImportance, ...states];
+
+          if (globalOnly) {
+            extraConditions.push('m.workspace_path IS NULL', 'm.artifact IS NULL', 'm.repo IS NULL', 'm.ref IS NULL');
+          } else {
+            applyScopeConditions(extraConditions, extraParams, {
+              workspacePath: resolvedScope.workspace_path,
+              artifact: resolvedScope.artifact,
+              repo: resolvedScope.repo,
+              ref: resolvedScope.ref,
+              strictScope,
+              cwd: cwdParam,
+            });
+          }
+
           const extra = db.prepare(
-            `SELECT m.*, 0 AS _bm25 FROM agent_memories m
-             WHERE m.memory_id IN (${ph})
-               AND m.importance_score >= ?
-               AND m.state IN (${states.map(() => '?').join(',')})`
-          ).all(...missingIds, minImportance, ...states) as unknown as MRow[];
+            `SELECT m.*, 0 AS _bm25 FROM memories m WHERE ${extraConditions.join(' AND ')}`
+          ).all(...extraParams) as unknown as MRow[];
           for (const row of extra) {
             const mem = rowToMemory(row);
             mem.lexical = 0;
@@ -517,14 +606,15 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     const compiledFileRegex = fileRegex.map(compileRegex);
     memories = memories.filter(m => {
       if (compiledFileRegex.length > 0) {
-        const fv = m.file ?? '';
-        if (!compiledFileRegex.every(re => re.test(fv))) return false;
+        // Match fileRegex against file: prefixed references (no standalone file column)
+        const fileRefs = (m.references ?? []).filter(r => r.startsWith('file:'));
+        if (!compiledFileRegex.every(re => fileRefs.some(r => re.test(r)))) return false;
       }
       if (compiledRegex.length > 0) {
         const haystack = [
           m.task_context, m.observation,
           ...(m.tags ?? []), ...(m.references ?? []),
-          m.label, m.workspace_path, m.repo, m.ref, m.file, m.failure_signature,
+          m.label, m.workspace_path, m.artifact, m.repo, m.ref, m.failure_signature,
         ].filter(Boolean).join(' ');
         if (!compiledRegex.every(re => re.test(haystack))) return false;
       }
@@ -547,7 +637,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   // Sort
   if (sort === 'importance') {
     memories.sort((a, b) =>
-      (b.importance_score - a.importance_score) || ((b.score ?? 0) - (a.score ?? 0)));
+      (b.importance - a.importance) || ((b.score ?? 0) - (a.score ?? 0)));
   } else if (sort === 'recent') {
     memories.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
   } else if (sort === 'accessed') {
@@ -560,7 +650,9 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   memories = memories.slice(0, limit);
   if (explain) {
     for (const m of memories) {
-      m.score_components = decayComponents(m, m.lexical ?? 0);
+      const components = decayComponents(m, m.lexical ?? 0);
+      m.score_components = components;
+      m.score = components.final;
     }
   }
   bumpAccess(db, memories.map(m => m.memory_id));
@@ -624,8 +716,11 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
   const attrConds: string[] = [];
   const attrBinds: (string | number)[] = [];
   if (tags.length > 0) {
-    attrConds.push(`(${tags.map(() => 'tags_text LIKE ?').join(' OR ')})`);
-    attrBinds.push(...tags.map(t => `%,${t},%`));
+    // Use json_each subquery for tag filtering (tags_text column removed).
+    attrConds.push(
+      `(${tags.map(() => 'EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value = ?)').join(' OR ')})`
+    );
+    attrBinds.push(...tags);
   }
   if (before) {
     attrConds.push('created_at < ?');
@@ -638,7 +733,7 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
       maxImportance = SALIENCE_FLOOR - 1;
       salienceFloorApplied = true;
     }
-    attrConds.push('importance_score <= ?');
+    attrConds.push('importance <= ?');
     attrBinds.push(maxImportance);
     selectorGroups.push(`(${attrConds.join(' AND ')})`);
     bindParams.push(...attrBinds);
@@ -650,7 +745,7 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
 
   const where = selectorGroups.join(' OR ');
   const rows = db.prepare(
-    `SELECT memory_id FROM agent_memories WHERE ${where}`
+    `SELECT memory_id FROM memories WHERE ${where}`
   ).all(...bindParams) as unknown as Array<{ memory_id: string }>;
   const ids = rows.map(r => r.memory_id);
 
@@ -661,15 +756,24 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
     };
   }
 
+  // FIX #5 (P0): wrap all three DELETEs in a transaction so FTS and refs rows are
+  // never left orphaned if one of the deletes fails mid-way.
   if (ids.length > 0) {
     const ph = ids.map(() => '?').join(',');
-    db.prepare(`DELETE FROM agent_memories WHERE memory_id IN (${ph})`).run(...ids);
-    if (hasFts(db)) {
-      db.prepare(`DELETE FROM memory_fts WHERE memory_id IN (${ph})`).run(...ids);
-    }
+    db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare(`DELETE FROM memory_references WHERE memory_id IN (${ph})`).run(...ids);
-    } catch { /* ignore if table missing */ }
+      db.prepare(`DELETE FROM memories WHERE memory_id IN (${ph})`).run(...ids);
+      if (hasFts(db)) {
+        db.prepare(`DELETE FROM memories_fts WHERE memory_id IN (${ph})`).run(...ids);
+      }
+      try {
+        db.prepare(`DELETE FROM memory_refs WHERE memory_id IN (${ph})`).run(...ids);
+      } catch { /* ignore if table missing */ }
+      db.exec('COMMIT');
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw e;
+    }
   }
 
   return {
@@ -702,6 +806,7 @@ export interface MineWeaknessResult {
 export interface MineWeaknessParams {
   agentId?: string | null;
   workspacePath?: string | null;
+  artifact?: string | null;
   minCount?: number;
   limit?: number;
   cwd?: string;
@@ -728,12 +833,6 @@ function sigTokens(sig: string): Set<string> {
   );
 }
 
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  const intersection = [...a].filter(t => b.has(t)).length;
-  const union = a.size + b.size - intersection;
-  return union === 0 ? 0 : intersection / union;
-}
-
 /**
  * Cluster memories by failure_signature to surface recurring failure patterns.
  * Sorted by count × avg_importance so the most impactful patterns appear first.
@@ -749,10 +848,12 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   const { minCount = 2, limit = 20, cwd } = params;
   const wsPath = params.workspacePath
     ?? (cwd ? fillScope({ workspace_path: null }, cwd).workspace_path : null);
+  const artifact = normalizeArtifact(params.artifact);
 
   const conditions: string[] = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
   const bindParams: (string | number)[] = [];
   if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+  if (artifact) { conditions.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
   if (params.agentId) { conditions.push('agent_id = ?'); bindParams.push(params.agentId); }
 
   // Fetch extra rows so merging surface variants doesn't leave the final list short.
@@ -761,11 +862,11 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   const rows = db.prepare(`
     SELECT failure_signature,
            count(*) AS freq,
-           avg(importance_score) AS avg_imp,
-           count(*) * avg(importance_score) AS score,
+           avg(importance) AS avg_imp,
+           count(*) * avg(importance) AS score,
            group_concat(memory_id, ',') AS ids,
            group_concat(DISTINCT label) AS labels
-    FROM agent_memories
+    FROM memories
     WHERE ${conditions.join(' AND ')}
     GROUP BY failure_signature
     HAVING freq >= ?
@@ -823,8 +924,8 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   if (allRawSigs.length > 0) {
     const ph = allRawSigs.map(() => '?').join(',');
     const repRows = db.prepare(
-      `SELECT failure_signature, observation, max(importance_score)
-       FROM agent_memories
+      `SELECT failure_signature, observation, max(importance)
+       FROM memories
        WHERE failure_signature IN (${ph}) AND state = 'ACTIVE'
        GROUP BY failure_signature`
     ).all(...allRawSigs) as unknown as RepRow[];
@@ -836,8 +937,9 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   for (const m of merged) {
     if (selected.length >= limit) break;
     const toks = sigTokens(m.base_sig);
+    // FIX #10: use single jaccard() function (jaccardSimilarity removed as redundant duplicate).
     const tooSimilar = selected.some(
-      sel => jaccardSimilarity(sigTokens(sel.base_signature), toks) >= 0.5,
+      sel => jaccard(sigTokens(sel.base_signature), toks) >= 0.5,
     );
     if (tooSimilar) continue;
     selected.push({
@@ -856,7 +958,7 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   type TotalRow = { sigs: number; mems: number };
   const totals = db.prepare(
     `SELECT count(DISTINCT failure_signature) AS sigs, count(*) AS mems
-     FROM agent_memories WHERE failure_signature IS NOT NULL AND state = 'ACTIVE'`
+     FROM memories WHERE failure_signature IS NOT NULL AND state = 'ACTIVE'`
   ).get() as unknown as TotalRow;
 
   return { ok: true, clusters: selected, total_signatures: totals.sigs, total_memories: totals.mems };
@@ -900,7 +1002,7 @@ export function storeEmbedding(
   // Serialize Float32Array → raw binary buffer stored as BLOB
   const blob = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
   db.prepare(
-    `UPDATE agent_memories SET embedding = ?, embedding_model = ?, updated_at = ?
+    `UPDATE memories SET embedding = ?, embedding_model = ?, updated_at = ?
      WHERE memory_id = ?`
   ).run(blob, model, utcNow(), memoryId);
 }
@@ -931,7 +1033,7 @@ export function searchByEmbedding(
   type EmbRow = { memory_id: string; embedding: Buffer; embedding_model: string };
   // Limit to avoid loading unbounded embedding blobs into JS heap; cosine-rank within the cap.
   const rows = db.prepare(
-    `SELECT memory_id, embedding, embedding_model FROM agent_memories
+    `SELECT memory_id, embedding, embedding_model FROM memories
      WHERE ${conditions.join(' AND ')}
      ORDER BY COALESCE(last_accessed_at, created_at) DESC
      LIMIT 2000`

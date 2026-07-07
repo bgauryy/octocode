@@ -5,9 +5,11 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
-import { REFLECTION_IMPORTANCE } from './helpers.js';
+import { normalizeArtifact, REFLECTION_IMPORTANCE } from './helpers.js';
+import { fillScope } from './git.js';
 import { insertMemory } from './memory.js';
 import { insertRefinement } from './refinements.js';
+import { insertHarnessLog } from './audit.js';
 import type { ReflectParams, ReflectResult, ReflectionOutcome } from './types.js';
 
 const VALID_OUTCOMES: ReadonlyArray<string> = ['worked', 'partial', 'failed'];
@@ -50,6 +52,7 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       validFrom,
       validTo,
       workspacePath,
+      artifact,
     repo: repoArg,
     ref: refArg,
     cwd,
@@ -86,6 +89,10 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
   const failSig = failSigArg ?? evalFailures.find((f) => f.failure_signature)?.failure_signature ?? null;
   const sig = failSig
     ?? (resolvedOutcome === 'failed' && fixHarness ? 'harness:reflection|outcome:failed' : null);
+  const scope = fillScope(
+    { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
+    cwd ?? process.cwd(),
+  );
     const scopeReferences = [
       ...references,
       ...normalizeScopePaths(file ? [file] : [], 'file', cwd),
@@ -98,17 +105,17 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
     agentId,
     taskContext: task,
     observation,
-    importanceScore: importance,
+    importance: importance,
     label: 'EXPERIENCE', // distinct label so reflections are filterable and excluded from briefings
     tags,
       references: scopeReferences,
       failureSignature: sig,
       validFrom,
       validTo,
-      workspacePath,
-    repo: repoArg,
-    ref: refArg,
-      file: file ?? files[0] ?? folders[0] ?? null,
+      workspacePath: scope.workspace_path,
+      artifact: scope.artifact,
+      repo: scope.repo,
+      ref: scope.ref,
       cwd,
   });
 
@@ -123,13 +130,14 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       agentId,
       taskContext: `[eval:${failure.id}]${failure.dimension ? ` ${failure.dimension} —` : ''} ${task}`,
       observation: lessonText,
-      importanceScore: importance,
+      importance: importance,
       label: 'EXPERIENCE',
       tags: ['reflection', 'eval', resolvedOutcome],
       failureSignature: failure.failure_signature ?? sig,
-      workspacePath,
-      repo: repoArg,
-      ref: refArg,
+      workspacePath: scope.workspace_path,
+      artifact: scope.artifact,
+      repo: scope.repo,
+      ref: scope.ref,
       cwd,
     });
     evalFailureIds.push(evalMemId);
@@ -149,14 +157,35 @@ export function reflect(db: DatabaseSync, params: ReflectParams): ReflectResult 
       remember: fixRepo,
       quality: refinementQuality,
       state: 'open',
-      workspacePath,
-      repo: repoArg,
-      ref: refArg,
+      workspacePath: scope.workspace_path,
+      artifact: scope.artifact,
+      repo: scope.repo,
+      ref: scope.ref,
         files: [...normalizeScopePaths(files, 'file', cwd), ...normalizeScopePaths(folders, 'dir', cwd)],
         cwd,
     });
     refinementId = rid;
   }
+
+  // Record harness loop lifecycle event
+  try {
+    insertHarnessLog(db, {
+      agentId,
+      eventType: 'reflect',
+      memoryId,
+      workspacePath: scope.workspace_path,
+      artifact: scope.artifact,
+      payload: {
+        outcome: resolvedOutcome,
+        novelty_score: noveltyScore,
+        harness_fix: Boolean(fixHarness),
+        refinement_id: refinementId,
+        eval_count: evalFailureIds.length,
+        workspace_path: scope.workspace_path,
+        artifact: scope.artifact,
+      },
+    });
+  } catch { /* non-fatal — harness_log table may not exist on very old DBs */ }
 
   const result: ReflectResult = {
     outcome: resolvedOutcome,

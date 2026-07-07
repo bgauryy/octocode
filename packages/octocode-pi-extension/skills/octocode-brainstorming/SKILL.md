@@ -36,7 +36,7 @@ STOP, recommend one option, and wait when any gate trips:
 - `references/brief-template.md` — when the user confirms saving a fuller decision brief.
 - `references/hook-communication.md` — before substantial, multi-turn, or subagent-heavy research.
 - `references/grounding.md` — when challenged on methods, SCAMPER, or web-engine contracts.
-- `references/octocode.md` — when choosing transport, auth, install, or CLI/MCP fallback behavior.
+- `references/octocode.md` — when choosing transport, auth, install, or CLI/MCP fallback behavior, and before local/GitHub/npm research: its Research Algorithm section (route by what you hold, matchString-first reads, node_modules-first, evidence grades, empty≠absence) governs how to search.
 
 ## Scripts
 

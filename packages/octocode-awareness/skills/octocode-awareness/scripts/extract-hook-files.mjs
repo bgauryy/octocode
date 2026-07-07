@@ -24,15 +24,36 @@ process.stdin.on("end", () => {
       }
     };
     var add = add2;
-    const data = JSON.parse(raw);
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = raw;
+    }
     const root = data !== null && typeof data === "object" ? data : {};
-    const toolInput = root.tool_input ?? root.input ?? root.args ?? null;
-    const ti = toolInput !== null && typeof toolInput === "object" ? toolInput : root;
+    const toolInput = root.tool_input ?? root.input ?? root.args ?? data;
+    const ti = toolInput !== null && typeof toolInput === "object" ? toolInput : {};
     const paths = [];
     add2(ti["file_path"]);
     add2(ti["path"]);
+    add2(ti["filePath"]);
+    add2(ti["paths"]);
     add2(ti["file_paths"]);
-    const command = ti["command"];
+    add2(ti["filePaths"]);
+    const queries = ti["queries"];
+    if (Array.isArray(queries)) {
+      for (const query of queries) {
+        if (!query || typeof query !== "object") continue;
+        const q = query;
+        add2(q["file_path"]);
+        add2(q["path"]);
+        add2(q["filePath"]);
+        add2(q["paths"]);
+        add2(q["file_paths"]);
+        add2(q["filePaths"]);
+      }
+    }
+    const command = typeof toolInput === "string" ? toolInput : ti["command"] ?? ti["patch"] ?? ti["text"] ?? ti["content"];
     if (typeof command === "string") {
       for (const line of command.split("\n")) {
         const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);

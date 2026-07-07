@@ -53,18 +53,19 @@ export function detectGit(cwd?: string): GitResult {
 export function fillScope(partial: ScopePartial, cwd?: string): Scope {
   const scope: Scope = {
     workspace_path: partial.workspace_path ?? null,
+    artifact: partial.artifact ?? null,
     repo: partial.repo ?? null,
     ref: partial.ref ?? null,
   };
-
-  if (scope.workspace_path && scope.repo) return scope;
 
   // Detect from the explicit workspace when given — falling back to cwd here
   // used to tag a non-git workspace with whatever repo the process ran from.
   const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
   if (!git.is_repo) return scope;
 
-  if (!scope.workspace_path && git.root) scope.workspace_path = git.root;
+  // Workspace scope is repo-root based. If a caller passes a package/subdir as
+  // workspace_path, normalize it so sibling package recalls meet the same row.
+  if (git.root) scope.workspace_path = git.root;
   if (!scope.repo && git.repo) scope.repo = git.repo;
   if (!scope.ref && git.branch) scope.ref = git.branch;
 

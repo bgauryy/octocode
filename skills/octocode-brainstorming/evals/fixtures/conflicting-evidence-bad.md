@@ -1,5 +1,8 @@
 Mode: Validate
 
+## TL;DR
+Persistent team memory is useful and both SQLite and vector stores work, so build it.
+
 ## Surface Plan
 Local active. GitHub/packages active. Web active.
 

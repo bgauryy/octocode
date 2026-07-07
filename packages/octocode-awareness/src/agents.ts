@@ -5,18 +5,22 @@
  * displays. A lightweight SQLite table lets callers register a human-readable
  * name once and resolve it on any read.
  *
- * Research finding (Claude Code reverse-engineering): Claude Code uses NO
- * persistent agent registry — identity is prompt-injected at assembly time.
- * Worker IDs are UUIDs tracked in coordinator context only. For octocode's
- * cross-session SQLite persistence model, a simple mapping table is the
- * right call since agent IDs are stored alongside memories and locks.
- *
- * Schema: `agent_identities` table added via ensureAgentIdentitiesSchema()
- * in db.ts (called by initDb on every connect — IF NOT EXISTS is safe).
+ * Schema: `agents` table (renamed from agent_identities in the new schema).
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { utcNow } from './helpers.js';
+import { normalizeArtifact, utcNow } from './helpers.js';
+import {
+  AGENTS_UPSERT,
+  AGENTS_UPDATE_LAST_SEEN,
+  AGENTS_SELECT_NAME_BY_ID,
+  AGENTS_SELECT_NAMES_BY_IDS_PREFIX,
+  AGENTS_SELECT_NAMES_NONEMPTY_SUFFIX,
+  AGENTS_LIST_SELECT,
+  AGENTS_LIST_CLAUSE_WORKSPACE_PATH,
+  AGENTS_LIST_CLAUSE_ARTIFACT,
+  AGENTS_LIST_ORDER,
+} from './sql/agents.js';
 import type { AgentIdentity, RegisterAgentParams, ListAgentsResult } from './types.js';
 
 // ─── Register / touch ────────────────────────────────────────────────────────
@@ -37,34 +41,23 @@ export function registerAgent(
   const agentId = params.agentId;
   const agentName = params.agentName ?? '';  // null/undefined both become ''
   const workspacePath = params.workspacePath ?? null;
+  const artifact = normalizeArtifact(params.artifact);
   const context = params.context ?? null;
   const now = utcNow();
 
-  try {
-    db.prepare(`
-      INSERT INTO agent_identities(agent_id, agent_name, workspace_path, context, registered_at, last_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(agent_id) DO UPDATE SET
-        agent_name     = CASE WHEN excluded.agent_name <> '' THEN excluded.agent_name ELSE agent_name END,
-        workspace_path = COALESCE(excluded.workspace_path, workspace_path),
-        context        = COALESCE(excluded.context, context),
-        last_seen_at   = excluded.last_seen_at
-    `).run(agentId, agentName, workspacePath, context, now, now);
-  } catch { /* agent_identities table may not exist on very old DBs */ }
+  db.prepare(AGENTS_UPSERT).run(agentId, agentName, workspacePath, artifact, context, now, now);
 
-  return { agent_id: agentId, agent_name: agentName, workspace_path: workspacePath, context, registered_at: now, last_seen_at: now };
+  return { agent_id: agentId, agent_name: agentName, workspace_path: workspacePath, artifact, context, registered_at: now, last_seen_at: now };
 }
 
 /**
  * Bump last_seen_at for an existing identity without changing the name.
  * Lightweight — call on every tool invocation to keep the registry fresh.
  */
-export function touchAgent(db: DatabaseSync, agentId: string): void {
+export function touchAgent(db: DatabaseSync, agentId: string, workspacePath: string | null = null, artifact: string | null = null): void {
   try {
-    db.prepare(
-      `UPDATE agent_identities SET last_seen_at = ? WHERE agent_id = ?`
-    ).run(utcNow(), agentId);
-  } catch { /* ignore — table may not exist yet */ }
+    db.prepare(AGENTS_UPDATE_LAST_SEEN).run(utcNow(), workspacePath, normalizeArtifact(artifact), agentId);
+  } catch { /* ignore — table may not exist yet on very old DBs */ }
 }
 
 // ─── Resolve ──────────────────────────────────────────────────────────────────
@@ -77,9 +70,7 @@ export function touchAgent(db: DatabaseSync, agentId: string): void {
  */
 export function resolveAgentName(db: DatabaseSync, agentId: string): string | null {
   try {
-    const row = db.prepare(
-      `SELECT agent_name FROM agent_identities WHERE agent_id = ?`
-    ).get(agentId) as { agent_name: string } | undefined;
+    const row = db.prepare(AGENTS_SELECT_NAME_BY_ID).get(agentId) as { agent_name: string } | undefined;
     const name = row?.agent_name ?? '';
     return name !== '' ? name : null;
   } catch {
@@ -100,7 +91,7 @@ export function resolveAgentNames(
   try {
     const ph = agentIds.map(() => '?').join(',');
     const rows = db.prepare(
-      `SELECT agent_id, agent_name FROM agent_identities WHERE agent_id IN (${ph}) AND agent_name <> ''`
+      `${AGENTS_SELECT_NAMES_BY_IDS_PREFIX}(${ph}) ${AGENTS_SELECT_NAMES_NONEMPTY_SUFFIX}`
     ).all(...agentIds) as unknown as Array<{ agent_id: string; agent_name: string }>;
     for (const row of rows) result.set(row.agent_id, row.agent_name);
   } catch { /* ignore */ }
@@ -117,18 +108,23 @@ export function resolveAgentNames(
  */
 export function listAgents(
   db: DatabaseSync,
-  params: { workspacePath?: string | null } = {},
+  params: { workspacePath?: string | null; artifact?: string | null } = {},
 ): ListAgentsResult {
   try {
-    let sql =
-      `SELECT agent_id, agent_name, workspace_path, context, registered_at, last_seen_at
-       FROM agent_identities`;
     const binds: string[] = [];
+    let sql = AGENTS_LIST_SELECT;
+    const clauses: string[] = [];
     if (params.workspacePath) {
-      sql += ` WHERE (workspace_path = ? OR workspace_path IS NULL)`;
+      clauses.push(AGENTS_LIST_CLAUSE_WORKSPACE_PATH);
       binds.push(params.workspacePath);
     }
-    sql += ` ORDER BY last_seen_at DESC`;
+    const artifact = normalizeArtifact(params.artifact);
+    if (artifact) {
+      clauses.push(AGENTS_LIST_CLAUSE_ARTIFACT);
+      binds.push(artifact);
+    }
+    if (clauses.length > 0) sql += ` WHERE ${clauses.join(' AND ')}`;
+    sql += ` ${AGENTS_LIST_ORDER}`;
     const rows = db.prepare(sql).all(...binds) as unknown as AgentIdentity[];
     return { count: rows.length, agents: rows };
   } catch {

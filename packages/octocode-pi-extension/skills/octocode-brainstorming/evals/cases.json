@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "description": "Machine-checkable smoke evals for octocode-brainstorming final answers. These checks verify observable output structure and guardrails; human review still judges research quality. Run the evaluator with --agentic to emit advisory intent-derived question seeds that guide a semantic eval agent without affecting pass/fail.",
   "rubric": [
+    "Opens with a TL;DR stating framing, verdict, and research limits.",
     "Declares mode and surface plan when research is required.",
     "Shows divergence before convergence.",
     "Uses evidence/citations for material claims.",
@@ -17,14 +18,23 @@
       "minScore": 0.8,
       "minCitationCount": 2,
       "required": [
-        { "name": "mode", "pattern": "\\bMode:\\s*Validate\\b|\\bValidate mode\\b" },
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
         { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
         { "name": "framings", "pattern": "\\bFramings? Considered\\b|\\bframing slate\\b" },
         { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
-        { "name": "decision label", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" },
+        { "name": "decision label", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" },
         { "name": "next step", "pattern": "\\bRecommended Next Step\\b|\\bNext step:\\b" }
       ],
       "binaryQuestions": [
+        {
+          "id": "opens-with-tldr",
+          "dimension": "presentation",
+          "question": "Does the answer open with a TL;DR stating the framing, verdict, and research limits before the detailed sections?",
+          "passPattern": "^##\\s*TL;DR\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:tldr-missing",
+          "suggestedLesson": "Every brainstorming answer must open with a TL;DR summarizing framing, verdict, and research limits before the detailed sections."
+        },
         {
           "id": "declares-surface-plan",
           "dimension": "research-setup",
@@ -53,7 +63,7 @@
           "id": "decision-has-next-step",
           "dimension": "decision",
           "question": "Does the answer pair a decision label with one next step?",
-          "passPattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b[\\s\\S]*(\\bRecommended Next Step\\b|\\bNext step:\\b)",
+          "passPattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b[\\s\\S]*(\\bRecommended Next Step\\b|\\bNext step:\\b)",
           "failureSignature": "mechanism:brainstorm-answer|cause:no-actionable-decision",
           "suggestedLesson": "Every brainstorm verdict should end with a decision label and one concrete next step."
         }
@@ -70,10 +80,11 @@
       "minScore": 0.8,
       "minCitationCount": 2,
       "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
         { "name": "local first", "pattern": "\\bAlready in the Workspace\\b|\\bLocal first\\b|\\borient(?:ed)? locally\\b" },
         { "name": "scripts detected", "pattern": "\\bserper-search\\.mjs\\b.*\\btavily-search\\.mjs\\b|\\btavily-search\\.mjs\\b.*\\bserper-search\\.mjs\\b" },
         { "name": "secret safety", "pattern": "\\bsecret\\b|\\bAPI key\\b|\\b\\.env\\b" },
-        { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+        { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
       ],
       "binaryQuestions": [
         {
@@ -105,7 +116,8 @@
       "minScore": 0.75,
       "minCitationCount": 2,
       "required": [
-        { "name": "map mode", "pattern": "\\bMode:\\s*Map\\b|\\bMap mode\\b" },
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "map mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bMap\\b|\\bMap mode\\b" },
         { "name": "prior art", "pattern": "\\bPrior Art\\b|\\bLandscape\\b" },
         { "name": "confidence markers", "pattern": "`(strong|moderate|weak)`|\\b(strong|moderate|weak)\\b" },
         { "name": "formal sources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bspec\\b|\\bdocs\\b" }
@@ -139,13 +151,14 @@
       "minScore": 0.82,
       "minCitationCount": 2,
       "required": [
-        { "name": "mode", "pattern": "\\bMode:\\s*Map\\b|\\bMap mode\\b" },
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bMap\\b|\\bMap mode\\b" },
         { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
         { "name": "resource-first loop", "pattern": "\\b(Resource[- ]first|Top Resources First|articles/resources first|resources?\\s*(?:->|→)\\s*repos?)\\b" },
         { "name": "formal resources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bdocs\\b|\\barticles?\\b" },
         { "name": "repo follow-up", "pattern": "\\bRepo/Code Follow-up\\b|\\bGitHub/packages\\b|\\brepos?/packages\\b|\\bcode follow-up\\b" },
         { "name": "loop back", "pattern": "\\bloop(?:ed)? back\\b|\\breturned to resources\\b|\\bcross-pollinat(?:e|ed)\\b" },
-        { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+        { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
       ],
       "binaryQuestions": [
         {
@@ -188,13 +201,14 @@
       "minScore": 0.82,
       "minCitationCount": 2,
       "required": [
-        { "name": "mode", "pattern": "\\bMode:\\s*Validate\\b|\\bValidate mode\\b" },
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
         { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
         { "name": "conflict named", "pattern": "\\bconflict(?:ing)? evidence\\b|\\bevidence conflicts\\b|\\bcontradict(?:s|ory|ion)\\b" },
         { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
         { "name": "conceded claim", "pattern": "\\bConceded\\b" },
         { "name": "decision delta", "pattern": "\\bDecision Delta\\b" },
-        { "name": "decision", "pattern": "\\bDecision:\\s*(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+        { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
       ],
       "binaryQuestions": [
         {
@@ -272,8 +286,9 @@
       "minScore": 0.85,
       "minCitationCount": 2,
       "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
         { "name": "worker budget", "pattern": "\\b5-worker\\b|\\bworker ceiling\\b|\\bperspective review shortened\\b" },
-        { "name": "build rfc decision", "pattern": "\\bDecision:\\s*Build RFC\\b" },
+        { "name": "build rfc decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\bBuild RFC\\b" },
         { "name": "rfc handoff packet", "pattern": "\\bRFC Handoff\\b|\\bhandoff packet\\b" },
         { "name": "handoff fields", "pattern": "\\bproblem\\b.*\\bframing\\b.*\\bevidence\\b.*\\balternatives\\b.*\\brisks\\b" },
         { "name": "no implementation", "pattern": "\\bdo not start implementation\\b|\\bnot editing code\\b|\\bRFC\\b" }

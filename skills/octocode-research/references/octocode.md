@@ -1,25 +1,47 @@
-# Octocode MCP and CLI
+# Octocode Tools & Interfaces
 
-Load this when a task needs Octocode setup, transport choice, authentication, or command examples.
+Load this when a task needs Octocode setup, transport choice, tool selection, authentication, or CLI command syntax. For the routing/evidence rules that govern *how* to use these tools, see `references/algorithm.md` — this file only covers *which* tool and *which* interface.
 
-## Choose Transport
+## Interfaces
 
-Use Octocode MCP tools directly when the host exposes them, such as `localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `npmSearch`, `lspGetSemantics`, or `localBinaryInspect`. Read the tool description and input schema before calling.
+The same 13 tools are reachable through two interfaces:
 
-When MCP tools are not exposed, prefer the CLI with `npx octocode`. Read live help before relying on flags, and read `npx octocode tools <name> --scheme` before raw tool calls.
+| Interface | Use when | Notes |
+|---|---|---|
+| **MCP tools** | the host exposes them directly (`localSearchCode`, `ghSearchCode`, `lspGetSemantics`, `npmSearch`, `localBinaryInspect`, ...) | preferred — no shell hop, typed params. Read the tool's input schema before calling. |
+| **CLI** (`npx octocode`) | MCP tools are not exposed, or you need `--scheme`/`--explain`/`--dry-run` introspection | read `npx octocode tools <name> --scheme` before raw calls; read `npx octocode search --scheme --compact` before hand-writing OQL JSON |
 
-If neither MCP nor CLI is available, continue only with clearly degraded confidence or ask the user to install/authenticate Octocode. For GitHub/private data, ask for `npx octocode auth login` only when that access is required.
+If neither interface is available: continue only with clearly degraded confidence, or ask the user to install/authenticate. Ask for `npx octocode auth login` only when the task actually requires GitHub/private data.
 
-## Search First Rules
+Materialize or run locally for predicates remote providers cannot prove exactly: AST, PCRE2-only regex, negative file queries, file metadata, LSP semantics, binary/archive inspection, and many-file repeated reads.
 
-- Prefer `npx octocode search` for read-only workflows: local files, GitHub, npm packages, LSP semantics, artifacts, PRs, commits, diffs, research packets, graph proof, and materialization.
-- Read `npx octocode search --scheme --compact` before OQL JSON; read full `--scheme` only when the compact guide lacks a needed field. Use `--explain --dry-run --json` when routing or completeness is uncertain.
-- Read `npx octocode tools <name> --scheme` before raw tools. Raw fields differ from CLI flags.
-- Use `--json` for automation and `--compact` for low-token exploration.
-- Follow returned `next.*`, pagination, char offsets, match/file/comment/commit pages, refs, and `localPath` values exactly.
-- Empty results are not absence until spelling, branch/ref, path, language, filters, provider limitations, pagination, auth, and rate limits are checked.
-- Materialize or run locally for predicates remote providers cannot prove exactly: AST, PCRE2-only regex, negative file queries, file metadata, LSP semantics, binary/archive inspection, and many-file repeated reads.
-- Batch independent raw-tool queries up to the active schema limit; serialize dependent steps that need returned anchors.
+## Tool Matrix
+
+| Tool (MCP) | CLI form | Surface | Role |
+|---|---|---|---|
+| `localSearchCode` | `search <term> <path> --view discovery` | local | text/regex/AST search, count modes, ranked — the workhorse |
+| `localGetFileContent` | `search <file> --content-view exact\|symbols --match-string <s>` | local | read file / matchString slices / line ranges |
+| `localViewStructure` | `search <path> --tree --depth N` | local | directory tree — orientation |
+| `localFindFiles` | `search <query> <path> --search path --name <glob> --ext <list>` | local | find by name/size/time/permissions — the constraint is *about* the file |
+| `localBinaryInspect` | `search <file> --target artifacts --inspect\|--list\|--strings\|--extract\|--decompress` | local | archives, compressed streams, native binaries |
+| `lspGetSemantics` | `search <file> --op documentSymbols\|references\|definition\|callers\|callees\|hover --symbol S --line N` | local | definitions, references, callers/callees, hover, symbols, types — proving identity/impact |
+| `ghSearchCode` | `search <term> <owner/repo> --view discovery` | external | GitHub code/path search |
+| `ghGetFileContent` | `search <owner/repo/path> --content-view exact\|symbols` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree |
+| `ghViewRepoStructure` | `search <owner/repo> --tree` | external | GitHub tree browse; `resolvedBranch` in the result governs every follow-up |
+| `ghSearchRepos` | `search <keywords> --target repositories --lang <lang> --stars ">N"` | external | repo discovery |
+| `ghHistoryResearch` | `search <owner/repo[#N]> --target pullRequests\|commits` | external | PR search + deep-read, commit history — archaeology |
+| `npmSearch` | `search <package> --target packages` | external | package → source repo (+ `repositoryDirectory`) |
+| `oqlSearch` | `search --query '<json>'` | both | typed federated query — multi-predicate, remote+local in one plan |
+| `ghCloneRepo` | `clone <owner/repo[/path][@ref]>` | bridge | full/sparse clone (**gated: `ENABLE_CLONE=true`**) |
+
+Bulk: every tool takes up to 5 parallel queries per call with a per-query `id` — batch independent probes into ONE call, it is the cheapest parallelism available.
+
+Other flows composed from the tools above, not 1:1 with a single tool:
+
+| Need | CLI | Notes |
+|---|---|---|
+| Diff/patch | `search <left> <right> --target diff` or PR patch flags | OQL diff / `ghHistoryResearch` patches |
+| Dead-code/reachability/drift | `search --query '{"target":"research",...}'` → `target:"graph"` with `proof:"lsp"` | `oqlSearch`; candidates until upgraded — see `references/code-research.md` |
 
 ## MCP Install
 
@@ -39,9 +61,7 @@ Restart the host/editor after changing MCP configuration.
 
 ## CLI Usage
 
-Run commands as `npx octocode <command>`.
-
-Useful probes:
+Run commands as `npx octocode <command>`. Useful probes:
 
 ```bash
 npx octocode --help
@@ -52,35 +72,9 @@ npx octocode tools <name> --scheme
 npx octocode lsp-server status <file>
 ```
 
-The current CLI surface is:
+Current CLI surface: research/materialization (`search`, `unzip`, `clone`, `cache fetch`), raw tools/context (`tools`, `context`), management (`skill`, `install`, `auth`, `status`, `lsp-server`).
 
-- Research/materialization: `search`, `unzip`, `clone`, `cache fetch`.
-- Raw tools/context: `tools`, `context`.
-- Management: `skill`, `install`, `auth`, `status`, `lsp-server`.
-
-Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `binary`, and `diff` should be expressed as `search` lanes.
-
-## Command Map
-
-| Need | Current CLI | Raw/MCP tool |
-|------|-------------|--------------|
-| Unified read-only research | `npx octocode search ...` | `oqlSearch` |
-| Local/GitHub text or regex search | `npx octocode search <term> <path\|owner/repo> --view discovery` | `localSearchCode` / `ghSearchCode` |
-| AST structural search | `npx octocode search <path> --pattern '<ast>' --lang <lang>` or `--rule '<yaml>'` | `localSearchCode(mode:"structural")` |
-| Exact content read | `npx octocode search <file\|owner/repo/path> --content-view exact --match-string <s>` | `localGetFileContent` / `ghGetFileContent` |
-| Tree/structure | `npx octocode search <path\|owner/repo> --tree --depth N` | `localViewStructure` / `ghViewRepoStructure` |
-| File/path metadata search | `npx octocode search <query> <path> --search path --name <glob> --ext <list>` | `localFindFiles` or OQL `target:"files"` |
-| LSP semantics | `npx octocode search <file> --op documentSymbols|references|definition|callers|callees|hover --symbol S --line N` (run `documentSymbols` first to get the line anchor) | `lspGetSemantics` |
-| Package lookup | `npx octocode search <package> --target packages` | `npmSearch` |
-| Repository discovery | `npx octocode search <keywords> --target repositories` | `ghSearchRepos` |
-| PR list/deep-read | `npx octocode search owner/repo[#N] --target pullRequests --comments --patches --file <path>` | `ghHistoryResearch(type:"prs")` |
-| Commit history | `npx octocode search owner/repo[/path] --target commits --since <iso>` | `ghHistoryResearch(type:"commits")` |
-| Clone/materialize repo | `npx octocode clone owner/repo[/path][@ref]` or `npx octocode cache fetch owner/repo [path] --depth file|tree|clone` | `ghCloneRepo` / directory fetch |
-| Artifacts/binaries | `npx octocode search <file> --target artifacts --inspect|--list|--strings|--extract|--decompress`; `npx octocode unzip <archive>` | `localBinaryInspect` |
-| Diff/patch | `npx octocode search <left> <right> --target diff` or PR patch flags | OQL diff / `ghHistoryResearch` patches |
-| Dead-code/reachability | `npx octocode search --query '{"target":"research",...}'` then `target:"graph"` with `proof:"lsp"` | `oqlSearch` |
-
-Use raw tools when `search` cannot express a needed field, selector, or pagination lane. Use local shell for repo maintenance around Octocode itself and for git diff/status/log during local reviews.
+Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `binary`, and `diff` should be expressed as `search` lanes. Use `--json` for automation, `--compact` for low-token exploration. Follow returned `next.*`, pagination, char offsets, match/file/comment/commit pages, refs, and `localPath` values exactly.
 
 ## Diagnostics
 

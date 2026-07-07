@@ -1,5 +1,8 @@
 Mode: Map
 
+## TL;DR
+Reflection/self-harness patterns for AI agents already have prior art (Reflexion, Self-Refine), but a compact receipt/eval loop is the narrower, less-crowded wedge. Research limits: none.
+
 ## Surface Plan
 Local skipped: external prior-art map. Web/top resources active first. GitHub/packages/code active after resource leads.
 

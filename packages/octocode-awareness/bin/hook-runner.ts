@@ -29,7 +29,7 @@ function parsePayload(raw: string): Record<string, unknown> {
     const parsed = JSON.parse(raw || '{}');
     return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
   } catch {
-    return {};
+    return raw.trim() ? { input: raw } : {};
   }
 }
 
@@ -37,8 +37,8 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
-function payloadInput(payload: Record<string, unknown>): Record<string, unknown> {
-  return objectOrEmpty(payload.tool_input ?? payload.input ?? payload.args ?? payload);
+function payloadInput(payload: Record<string, unknown>): unknown {
+  return payload.tool_input ?? payload.input ?? payload.args ?? payload;
 }
 
 function agentId(payload: Record<string, unknown>): string {
@@ -48,6 +48,21 @@ function agentId(payload: Record<string, unknown>): string {
 
 function workspace(payload: Record<string, unknown>): string | null {
   const value = payload.cwd ?? payload.workspace ?? payload.workspacePath;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function artifact(payload: Record<string, unknown>): string | null {
+  const input = objectOrEmpty(payloadInput(payload));
+  const value =
+    process.env.OCTOCODE_ARTIFACT
+    ?? process.env.OCTOCODE_PACKAGE
+    ?? process.env.OCTOCODE_SERVICE
+    ?? payload.artifact
+    ?? payload.package
+    ?? payload.service
+    ?? input.artifact
+    ?? input.package
+    ?? input.service;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
@@ -61,7 +76,8 @@ function isStopHookActive(payload: Record<string, unknown>): boolean {
 
 function extractFiles(payload: Record<string, unknown>): string[] {
   const input = payloadInput(payload);
-  const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? input.tool_name ?? input.toolName ?? '';
+  const inputObj = objectOrEmpty(input);
+  const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? inputObj.tool_name ?? inputObj.toolName ?? '';
   return extractPiWriteTargetPaths(toolName, input);
 }
 
@@ -78,9 +94,13 @@ function db() {
   return connectDb(resolveDbPath(null));
 }
 
-function workspaceArgs(payload: Record<string, unknown>): { workspacePath?: string } {
+function scopeArgs(payload: Record<string, unknown>): { workspacePath?: string; artifact?: string } {
   const ws = workspace(payload);
-  return ws ? { workspacePath: ws } : {};
+  const art = artifact(payload);
+  return {
+    ...(ws ? { workspacePath: ws } : {}),
+    ...(art ? { artifact: art } : {}),
+  };
 }
 
 async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
@@ -90,6 +110,7 @@ async function runPreEdit(payload: Record<string, unknown>): Promise<number> {
     const result = preFlightIntent(db(), {
       agentId: agentId(payload),
       workspacePath: workspace(payload) ?? process.cwd(),
+      artifact: artifact(payload),
       rationale: 'auto: file edit via lifecycle hook',
       testPlan: 'post-edit verification',
       targetFiles: files,
@@ -114,6 +135,7 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
     releaseFileLock(db(), {
       agentId: agentId(payload),
       workspacePath: workspace(payload) ?? undefined,
+      artifact: artifact(payload),
       targetFiles: files,
       status: 'PENDING',
     });
@@ -168,14 +190,14 @@ function gitBranchOf(dir: string): string | null {
 async function runStopVerify(payload: Record<string, unknown>): Promise<number> {
   if (process.env.OCTOCODE_NO_VERIFY_GATE === '1' || isStopHookActive(payload)) return 0;
   try {
-    const report = auditUnverified(db(), { agentId: agentId(payload), ...workspaceArgs(payload) });
+    const report = auditUnverified(db(), { agentId: agentId(payload), ...scopeArgs(payload) });
     if (report.count > 0) {
       const parts: string[] = [];
       if (report.unverified.length > 0) {
-        parts.push(report.unverified.map((u) => `${u.status}:${u.intent_id}: ${u.test_plan}`).join('; '));
+        parts.push(report.unverified.map((u) => `${u.status}:${u.task_id}: ${u.test_plan}`).join('; '));
       }
       if (report.stale_active.length > 0) {
-        parts.push('Stale active (lock expired): ' + report.stale_active.map((s) => `${s.intent_id}: ${s.rationale}`).join('; '));
+        parts.push('Stale active (lock expired): ' + report.stale_active.map((s) => `${s.task_id}: ${s.rationale}`).join('; '));
       }
       console.error(`octocode-awareness: concluding with unverified work. ${parts.join(' | ')}`);
       return 2;
@@ -211,10 +233,11 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
   if (process.env.OCTOCODE_NO_NOTIFY === '1') return 0;
   maybeRunDigest(payload);
   try {
-    const result = notifyGet(db(), {
-      agent_id: agentId(payload),
-      workspace: workspace(payload) ?? undefined,
-      format: 'hook',
+      const result = notifyGet(db(), {
+        agent_id: agentId(payload),
+        workspace: workspace(payload) ?? undefined,
+        artifact: artifact(payload) ?? undefined,
+        format: 'hook',
     }) as { additionalContext?: string };
     if (result.additionalContext) {
       process.stdout.write(JSON.stringify({ additionalContext: result.additionalContext }) + '\n');
@@ -231,6 +254,7 @@ async function runSessionEnd(payload: Record<string, unknown>): Promise<number> 
     sessionCapture(db(), {
       agent_id: agentId(payload),
       workspace: workspace(payload) ?? undefined,
+      artifact: artifact(payload) ?? undefined,
       reason: hookReason(payload) || undefined,
     });
   } catch {

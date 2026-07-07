@@ -1,14 +1,14 @@
 /**
- * intents.ts — File-lock intent operations.
+ * intents.ts — edit task + file-lock operations.
  */
 
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { utcNow } from './helpers.js';
+import { normalizeArtifact, utcNow } from './helpers.js';
 import { evictExpiredLocks } from './db.js';
 import type {
-  PreFlightIntentParams, PreFlightIntentResult,
+  PreFlightTaskParams, PreFlightTaskResult,
   ReleaseFileLockParams, ReleaseFileLockResult,
   FileLockRow,
   FileLockParams,
@@ -37,7 +37,7 @@ function resolveTargetFiles(targetFiles: string[] = [], workspacePath?: string |
 
 function activeLockRows(
   db: DatabaseSync,
-  params: { workspacePath?: string | null; agentId?: string | null; sessionId?: string | null; intentId?: string | null } = {},
+  params: { workspacePath?: string | null; artifact?: string | null; agentId?: string | null; sessionId?: string | null; taskId?: string | null } = {},
 ): FileLockStatusEntry[] {
   // ARCH-3: Delegate eviction to the shared evictExpiredLocks instead of
   // duplicating the DELETE. Note: eviction here is intentional — stale locks
@@ -51,6 +51,11 @@ function activeLockRows(
     clauses.push('ai.workspace_path = ?');
     binds.push(workspaceRoot(params.workspacePath));
   }
+  const artifact = normalizeArtifact(params.artifact);
+  if (artifact) {
+    clauses.push('(ai.artifact = ? OR ai.artifact IS NULL)');
+    binds.push(artifact);
+  }
   if (params.agentId) {
     clauses.push('ai.agent_id = ?');
     binds.push(params.agentId);
@@ -59,16 +64,16 @@ function activeLockRows(
     clauses.push('ai.session_id = ?');
     binds.push(params.sessionId);
   }
-  if (params.intentId) {
-    clauses.push('fl.intent_id = ?');
-    binds.push(params.intentId);
+  if (params.taskId) {
+    clauses.push('fl.task_id = ?');
+    binds.push(params.taskId);
   }
 
   return db.prepare(
-    `SELECT fl.lock_id, fl.intent_id, fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path,
+    `SELECT fl.lock_id, fl.task_id, fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact,
             ai.rationale AS reasoning, fl.lock_type, fl.acquired_at, fl.expires_at
-       FROM file_locks fl
-       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+       FROM locks fl
+       JOIN tasks ai ON ai.task_id = fl.task_id
       WHERE ${clauses.join(' AND ')}
       ORDER BY fl.acquired_at DESC`
   ).all(...binds) as unknown as FileLockStatusEntry[];
@@ -76,27 +81,27 @@ function activeLockRows(
 
 /**
  * Claim file locks for an agent write operation.
- * Returns { ok: true, intent } on success or { ok: false, conflict, conflicts } on conflict.
+ * Returns { ok: true, task } on success or { ok: false, conflict, conflicts } on conflict.
  */
 export function preFlightIntent(
   db: DatabaseSync,
-  params: PreFlightIntentParams,
-): PreFlightIntentResult {
+  params: PreFlightTaskParams,
+): PreFlightTaskResult {
   const {
     agentId = 'agent',
     sessionId = null,
     workspacePath,
+    artifact,
     rationale = 'agent write operation',
     testPlan = 'post-edit verification',
-    planDocRef = null,
     targetFiles = [],
     lockType = 'EXCLUSIVE',
     ttlMs = MAX_LOCK_TTL_MS,
   } = params;
-
-  const intentId = 'intent_' + randomUUID().replace(/-/g, '');
+  const taskId = 'task_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
   const wsPath = workspaceRoot(workspacePath);
+  const artifactScope = normalizeArtifact(artifact);
   const absFiles = resolveTargetFiles(targetFiles, wsPath);
 
   // ARCH-3: Drop expired locks before checking conflicts so dangling locks never block new work.
@@ -112,8 +117,8 @@ export function preFlightIntent(
     for (const absPath of absFiles) {
       const conflictMode = lockType === 'SHARED' ? "fl.lock_type = 'EXCLUSIVE'" : '1 = 1';
       const existing = db.prepare(`
-        SELECT fl.*, ai.agent_id AS intent_agent_id FROM file_locks fl
-        JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+        SELECT fl.*, ai.agent_id AS task_agent_id FROM locks fl
+        JOIN tasks ai ON ai.task_id = fl.task_id
         WHERE fl.file_path = ?
           AND ai.agent_id <> ?
           AND ai.status = 'ACTIVE'
@@ -131,19 +136,27 @@ export function preFlightIntent(
         conflicts: conflicts.map(c => ({
           file_path: c.file_path,
           lock_type: c.lock_type as 'EXCLUSIVE' | 'SHARED',
-          agent_id: c.intent_agent_id ?? c.agent_id,
+          agent_id: c.task_agent_id ?? c.agent_id,
           acquired_at: c.acquired_at,
           expires_at: c.expires_at,
         })),
       };
     }
 
-    // Insert intent + all file locks atomically within the same transaction.
+    // Auto-register session when provided so the FK on tasks.session_id is satisfied.
+    if (sessionId) {
+      db.prepare(
+        `INSERT OR IGNORE INTO sessions (session_id, agent_id, workspace_path, artifact, started_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(sessionId, agentId, wsPath, artifactScope, now);
+    }
+
+    // Insert task + all file locks atomically within the same transaction.
     db.prepare(`
-      INSERT INTO agent_intents
-        (intent_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, files_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
-    `).run(intentId, agentId, sessionId, rationale, testPlan, planDocRef, wsPath, JSON.stringify(absFiles), now, now);
+      INSERT INTO tasks
+        (task_id, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, files_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+    `).run(taskId, agentId, sessionId, rationale, testPlan, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
 
     const expiresAt = expiresAtFromNow(ttlMs);
 
@@ -151,10 +164,10 @@ export function preFlightIntent(
     for (const absPath of absFiles) {
       const lockId = 'lock_' + randomUUID().replace(/-/g, '');
       db.prepare(`
-        INSERT OR REPLACE INTO file_locks
-          (lock_id, file_path, intent_id, agent_id, session_id, lock_type, acquired_at, expires_at)
+        INSERT OR REPLACE INTO locks
+          (lock_id, file_path, task_id, agent_id, session_id, lock_type, acquired_at, expires_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(lockId, absPath, intentId, agentId, sessionId, lockType, now, expiresAt);
+      `).run(lockId, absPath, taskId, agentId, sessionId, lockType, now, expiresAt);
       acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
     }
 
@@ -162,12 +175,13 @@ export function preFlightIntent(
 
     return {
       ok: true,
-      intent: {
-        intent_id: intentId,
+      task: {
+        task_id: taskId,
         agent_id: agentId,
         session_id: sessionId,
         lock_type: lockType,
         workspace_path: wsPath,
+        artifact: artifactScope,
         target_files: absFiles,
         locks: acquiredLocks.map(l => ({
           lock_id: l.lock_id,
@@ -189,7 +203,7 @@ export function preFlightIntent(
 }
 
 /**
- * Release file locks for an intent or specific files.
+ * Release file locks for a task or specific files.
  */
 export function releaseFileLock(
   db: DatabaseSync,
@@ -199,7 +213,8 @@ export function releaseFileLock(
     agentId = 'agent',
     sessionId = null,
     workspacePath = null,
-    intentId = null,
+    artifact = null,
+    taskId = null,
     targetFiles = [],
     status: statusArg = 'SUCCESS',
     verified = false,
@@ -221,10 +236,22 @@ export function releaseFileLock(
     whereClauses.push('fl.session_id = ?');
     whereParams.push(sessionId);
   }
+  const artifactScope = normalizeArtifact(artifact);
+  if (workspacePath || artifactScope) {
+    whereClauses.push('ai.task_id = fl.task_id');
+  }
+  if (workspacePath) {
+    whereClauses.push('ai.workspace_path = ?');
+    whereParams.push(workspaceRoot(workspacePath));
+  }
+  if (artifactScope) {
+    whereClauses.push('(ai.artifact = ? OR ai.artifact IS NULL)');
+    whereParams.push(artifactScope);
+  }
 
-  if (intentId) {
-    whereClauses.push('fl.intent_id = ?');
-    whereParams.push(intentId);
+  if (taskId) {
+    whereClauses.push('fl.task_id = ?');
+    whereParams.push(taskId);
   }
 
   const absFiles = resolveTargetFiles(targetFiles, workspacePath);
@@ -236,8 +263,10 @@ export function releaseFileLock(
 
   const where = whereClauses.join(' AND ');
   const locks = db.prepare(
-    `SELECT fl.lock_id, fl.intent_id, fl.file_path FROM file_locks fl WHERE ${where}`
-  ).all(...whereParams) as unknown as Array<{ lock_id: string; intent_id: string; file_path: string }>;
+    `SELECT fl.lock_id, fl.task_id, fl.file_path
+       FROM locks fl${workspacePath || artifactScope ? ', tasks ai' : ''}
+      WHERE ${where}`
+  ).all(...whereParams) as unknown as Array<{ lock_id: string; task_id: string; file_path: string }>;
 
   // INT-2: Build the DELETE WHERE clause independently instead of string-replacing
   // the SELECT WHERE clause to strip the 'fl.' table alias. String-replace is
@@ -245,42 +274,57 @@ export function releaseFileLock(
   const deleteClauses: string[] = ['agent_id = ?'];
   const deleteParams: (string | number)[] = [agentId];
   if (sessionId) { deleteClauses.push('session_id = ?'); deleteParams.push(sessionId); }
-  if (intentId) { deleteClauses.push('intent_id = ?'); deleteParams.push(intentId); }
+  if (taskId) { deleteClauses.push('task_id = ?'); deleteParams.push(taskId); }
   if (absFiles.length > 0) {
     const ph = absFiles.map(() => '?').join(',');
     deleteClauses.push(`file_path IN (${ph})`);
     deleteParams.push(...absFiles);
   }
-  db.prepare(`DELETE FROM file_locks WHERE ${deleteClauses.join(' AND ')}`).run(...deleteParams);
-
-  const intentIds = [...new Set([
-    ...(intentId ? [intentId] : []),
-    ...locks.map(l => l.intent_id),
+  const taskIds = [...new Set([
+    ...(taskId ? [taskId] : []),
+    ...locks.map(l => l.task_id),
   ])];
 
-  for (const iid of intentIds) {
-    const remaining = db.prepare('SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1').get(iid);
-    if (!remaining) {
-      db.prepare(
-        'UPDATE agent_intents SET status = ?, updated_at = ? WHERE intent_id = ? AND agent_id = ?'
-      ).run(effectiveStatus, now, iid, agentId);
-      if (verified && verifiedNote) {
-        try {
-          db.prepare(
-            `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
-             VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
-          ).run('evt_' + randomUUID().replace(/-/g, ''), iid, agentId, verifiedNote, now);
-        } catch { /* intent_events may not exist on older DBs */ }
+  // FIX #3 (P0): Wrap DELETE from locks AND UPDATE tasks status in a single atomic transaction
+  // so a crash between the two statements never leaves orphaned lock rows with no task update.
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const lockIds = locks.map((lock) => lock.lock_id);
+    if (lockIds.length > 0) {
+      db.prepare(`DELETE FROM locks WHERE lock_id IN (${lockIds.map(() => '?').join(',')})`).run(...lockIds);
+    } else if (taskId && !workspacePath && !artifactScope) {
+      db.prepare(`DELETE FROM locks WHERE ${deleteClauses.join(' AND ')}`).run(...deleteParams);
+    }
+
+    for (const tid of taskIds) {
+      const remaining = db.prepare('SELECT 1 FROM locks WHERE task_id = ? LIMIT 1').get(tid);
+      if (!remaining) {
+        db.prepare(
+          'UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ? AND agent_id = ?'
+        ).run(effectiveStatus, now, tid, agentId);
+        if (verified && verifiedNote) {
+          try {
+            db.prepare(
+              `INSERT INTO task_log(event_id, task_id, agent_id, event_type, message, created_at)
+               VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
+            ).run('evt_' + randomUUID().replace(/-/g, ''), tid, agentId, verifiedNote, now);
+          } catch { /* task_log may not exist on older DBs */ }
+        }
       }
     }
+
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* not in transaction */ }
+    throw e;
   }
 
   return {
     agent_id: agentId,
     status: effectiveStatus as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
-    released: locks.length > 0 || Boolean(intentId),
+    released: locks.length > 0 || Boolean(taskId),
     locks_released: locks.length,
-    intent_ids: intentIds,
+    task_ids: taskIds,
     updated_at: now,
     ...(requestedSuccessWithoutVerification
       ? { unverifiedConclusion: 'SUCCESS requested without --verified; stored as PENDING until verify records the test result.' }
@@ -295,34 +339,36 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
         agentId: params.agentId,
         sessionId: params.sessionId,
         workspacePath: params.workspacePath,
+        artifact: params.artifact,
         targetFiles: params.targetFiles ?? [],
         lockType: params.lockType,
         ttlMs: params.ttlMs,
         rationale: params.reasoning?.trim() || 'manual: fileLock lock',
-        testPlan: 'release or verify fileLock intent',
+        testPlan: 'release or verify fileLock task',
       });
       if (!result.ok) return { ok: false, type: 'lock', conflict: true, conflicts: result.conflicts };
-      const locks = activeLockRows(db, { intentId: result.intent.intent_id });
+      const locks = activeLockRows(db, { taskId: result.task.task_id });
       return {
         ok: true,
         type: 'lock',
-        intentId: result.intent.intent_id,
-        files: result.intent.target_files,
+        taskId: result.task.task_id,
+        files: result.task.target_files,
         reasoning: params.reasoning?.trim() || 'manual: fileLock lock',
-        acquiredAt: result.intent.locks[0]?.acquired_at ?? null,
-        expiresAt: result.intent.locks[0]?.expires_at ?? null,
+        acquiredAt: result.task.locks[0]?.acquired_at ?? null,
+        expiresAt: result.task.locks[0]?.expires_at ?? null,
         locks,
       };
     }
     case 'release': {
-      if (!params.intentId && (!params.targetFiles || params.targetFiles.length === 0)) {
-        throw new Error('fileLock release requires intentId or targetFiles');
+      if (!params.taskId && (!params.targetFiles || params.targetFiles.length === 0)) {
+        throw new Error('fileLock release requires taskId or targetFiles');
       }
       const rel = releaseFileLock(db, {
         agentId: params.agentId,
         sessionId: params.sessionId,
         workspacePath: params.workspacePath,
-        intentId: params.intentId,
+        artifact: params.artifact,
+        taskId: params.taskId,
         targetFiles: params.targetFiles,
         status: params.status,
         verified: params.verified,
@@ -340,24 +386,25 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
         type: 'status',
         locks: activeLockRows(db, {
           workspacePath: params.workspacePath,
+          artifact: params.artifact,
           agentId: params.agentId,
           sessionId: params.sessionId,
-          intentId: params.intentId,
+          taskId: params.taskId,
         }),
       };
     case 'renew': {
-      if (!params.intentId) throw new Error('fileLock renew requires intentId');
+      if (!params.taskId) throw new Error('fileLock renew requires taskId');
       const agentId = params.agentId ?? 'agent';
       const expiresAt = expiresAtFromNow(params.ttlMs);
       const res = db.prepare(
-        `UPDATE file_locks SET expires_at = ? WHERE intent_id = ? AND agent_id = ?`
-      ).run(expiresAt, params.intentId, agentId) as { changes: number };
-      db.prepare('UPDATE agent_intents SET updated_at = ? WHERE intent_id = ? AND agent_id = ?')
-        .run(utcNow(), params.intentId, agentId);
+        `UPDATE locks SET expires_at = ? WHERE task_id = ? AND agent_id = ?`
+      ).run(expiresAt, params.taskId, agentId) as { changes: number };
+      db.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ? AND agent_id = ?')
+        .run(utcNow(), params.taskId, agentId);
       return {
         ok: true,
         type: 'renew',
-        intentId: params.intentId,
+        taskId: params.taskId,
         renewed: res.changes > 0,
         locks_renewed: res.changes,
         expiresAt: res.changes > 0 ? expiresAt : null,

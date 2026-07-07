@@ -1,6 +1,6 @@
 # Awareness Data Viewer
 
-**Invoke when the user asks to see, browse, view, or audit awareness data** — memories, locks, intents, refinements. Never dump raw rows into chat; run the commands below and summarise.
+**Invoke when the user asks to see, browse, view, or audit awareness data** — memories, locks, tasks, refinements, and signals. Never dump raw rows into chat; run the commands below and summarise.
 
 ## Status snapshot
 
@@ -50,7 +50,9 @@ node <skill_root>/scripts/awareness.mjs forget --tag obsolete --dry-run
 node <skill_root>/scripts/awareness.mjs forget --memory-id mem_abc123
 ```
 
-## Notifications (agent-to-agent messages)
+Use `forget` for wrong, stale, duplicate, or obsolete current memories. Use `digest --dry-run` for expired/superseded retention cleanup. Do not use either command for legacy tables; legacy import/removal has its own script.
+
+## Signals (agent-to-agent messages)
 
 ```bash
 # Send a message
@@ -91,6 +93,16 @@ node <skill_root>/scripts/awareness.mjs status | jq '.open_refinements'
 | Completed (`done`) repo-fix refinements | 30 days | `refinement_done_retention_days` |
 
 All use `updated_at` for the age calculation. Run with `--dry-run` first to preview what would be pruned.
+
+## Legacy data
+
+Current runtime commands read current tables only. If `status` shows few or zero current memories but the DB still contains old tables such as `agent_memories`, load `references/legacy-migration.md` and use:
+
+```bash
+node <skill_root>/scripts/legacy-migrate.mjs --db /abs/path/awareness.sqlite3
+```
+
+Preview first, then `--write`, verify recall, and only then `--write --drop-legacy`.
 
 ## One shared store
 

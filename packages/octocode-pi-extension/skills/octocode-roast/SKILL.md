@@ -31,7 +31,7 @@ If there are 20+ issues, triage the top 10 by impact and confidence.
 
 ## Reference Map
 
-- `references/octocode.md` — when choosing transport, auth, install, or CLI/MCP fallback behavior.
+- `references/octocode.md` — when choosing transport, auth, install, or CLI/MCP fallback behavior, and before inspecting any codebase: its Research Algorithm section (route by what you hold, matchString-first reads, evidence grades, empty≠absence) governs how sins are found and proven.
 - `references/roast-playbook.md` — when running the full inspection, autopsy, output template, and verification checklist.
 - `references/sin-catalog.md` — when ranking generic sin tiers and common critique lines.
 - `references/language-sins.md` — when using language-specific smells, AST patterns, or detection queries.

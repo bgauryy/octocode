@@ -269,12 +269,7 @@ export function registerChromeDebugTool(
         });
       } catch (err) {
         setStatus(ctx, undefined);
-        const msg = (err as Error).message ?? String(err);
-        return {
-          content: [{ type: 'text', text: `[CHROME_DEBUG_ERROR] ${msg}` }],
-          isError: true,
-          details: { error: msg },
-        };
+        throw new Error(`[CHROME_DEBUG_ERROR] ${(err as Error).message ?? String(err)}`);
       }
 
       const { session, version, metadata, screenshotDir } = connection;
@@ -321,14 +316,7 @@ export function registerChromeDebugTool(
           session.close();
         }
 
-        return {
-          content: [
-            { type: 'text', text: `[CHROME_DEBUG_ERROR] ${e.message}` },
-            { type: 'text', text: `[SESSION] ${JSON.stringify(metadata.activeTarget)}` },
-          ],
-          isError: true,
-          details: { error: e.message, metadata },
-        };
+        throw new Error(`[CHROME_DEBUG_ERROR] ${e.message} | target: ${JSON.stringify(metadata.activeTarget)}`);
       }
 
       // Cleanup

@@ -1,7 +1,7 @@
 /**
  * maintenance.ts — Background maintenance, smart briefing, and session lifecycle operations.
  *
- * pruneStale:          deletes expired file locks, sets affected intents to PENDING.
+ * pruneStale:          deletes expired file locks, sets affected tasks to PENDING.
  * notifyGet:           returns a smart workspace briefing (top memories + weakness + refinements).
  * digest:              archives expired memories, prunes stale rows/locks, rebuilds FTS.
  * getWorkspaceStatus:  returns active locks, agents, and memory store stats.
@@ -13,15 +13,16 @@
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { hasFts, rebuildFts, evictExpiredLocks } from './db.js';
 import { fillScope } from './git.js';
-import { parseJsonList, utcNow } from './helpers.js';
+import { normalizeArtifact, parseJsonList, utcNow } from './helpers.js';
 import { getNotifications } from './notifications.js';
 
 export interface PruneStaleResult {
   pruned_locks: number;
-  updated_intents: number;
+  updated_tasks: number;
   dry_run?: true;
   would_prune?: number;
 }
@@ -37,8 +38,8 @@ export interface SessionCaptureResult {
   ok: true;
   captured: boolean;
   refinement_id: string | null;
-  pending_intents: number;
-  active_intents: number;
+  pending_tasks: number;
+  active_tasks: number;
   files: string[];
   dirty_files: string[];
   reason: string | null;
@@ -52,7 +53,7 @@ export interface WaitForLockResult {
   conflicts?: Array<{ file_path: string; agent_id: string; expires_at: string | null }>;
 }
 
-/** REAL: Delete expired file locks and set parent intents to PENDING. */
+/** REAL: Delete expired file locks and set parent tasks to PENDING. */
 export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {}): PruneStaleResult {
   const dryRun = Boolean(params.dry_run ?? params.dryRun);
   const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
@@ -60,6 +61,10 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const agentId = typeof params.agent_id === 'string' ? params.agent_id :
     typeof params.agentId === 'string' ? params.agentId : null;
+  const workspacePath = typeof params.workspace === 'string' ? params.workspace :
+    typeof params.workspace_path === 'string' ? params.workspace_path :
+      typeof params.workspacePath === 'string' ? params.workspacePath : null;
+  const artifact = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : [])
     .map(String).filter(Boolean);
@@ -72,57 +77,65 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
   // Selection must be identical for dry-run and real prune, so previews are honest.
   const conditions: string[] = [];
   const binds: string[] = [];
-  const staleClauses = ['(expires_at IS NOT NULL AND expires_at < ?)'];
+  const staleClauses = ['(l.expires_at IS NOT NULL AND l.expires_at < ?)'];
   binds.push(now);
   if (ageCutoff) {
-    staleClauses.push('(acquired_at < ?)');
+    staleClauses.push('(l.acquired_at < ?)');
     binds.push(ageCutoff);
   }
   conditions.push(`(${staleClauses.join(' OR ')})`);
-  if (agentId) { conditions.push('agent_id = ?'); binds.push(agentId); }
+  if (agentId) { conditions.push('l.agent_id = ?'); binds.push(agentId); }
   if (targetFiles.length > 0) {
-    conditions.push(`file_path IN (${targetFiles.map(() => '?').join(',')})`);
+    conditions.push(`l.file_path IN (${targetFiles.map(() => '?').join(',')})`);
     binds.push(...targetFiles);
   }
+  const scopedByTask = Boolean(workspacePath || artifact);
+  if (workspacePath) { conditions.push('t.workspace_path = ?'); binds.push(resolve(workspacePath)); }
+  if (artifact) { conditions.push('(t.artifact = ? OR t.artifact IS NULL)'); binds.push(artifact); }
   const where = conditions.join(' AND ');
 
-  let staleLocks: Array<{ lock_id: string; intent_id: string }> = [];
+  let staleLocks: Array<{ lock_id: string; task_id: string }> = [];
   try {
+    const from = scopedByTask ? 'locks l JOIN tasks t ON t.task_id = l.task_id' : 'locks l';
     staleLocks = db.prepare(
-      `SELECT lock_id, intent_id FROM file_locks WHERE ${where}`
-    ).all(...binds) as Array<{ lock_id: string; intent_id: string }>;
+      `SELECT l.lock_id, l.task_id FROM ${from} WHERE ${where}`
+    ).all(...binds) as Array<{ lock_id: string; task_id: string }>;
   } catch { /* ignore — table may be mid-migration */ }
 
   if (dryRun) {
-    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: staleLocks.length };
+    return { pruned_locks: 0, updated_tasks: 0, dry_run: true, would_prune: staleLocks.length };
   }
   if (staleLocks.length === 0) {
-    return { pruned_locks: 0, updated_intents: 0 };
+    return { pruned_locks: 0, updated_tasks: 0 };
   }
 
-  db.exec('BEGIN');
+  const affectedTaskIds = [...new Set(staleLocks.map(l => l.task_id))];
+  let updatedTasks = 0;
+
+  // FIX #2 (P0): lock DELETE and task status UPDATE combined in one atomic transaction.
+  // Previously the UPDATE loop ran outside the BEGIN/COMMIT block, creating a window
+  // where locks were deleted but tasks were not yet reset to PENDING.
+  db.exec('BEGIN IMMEDIATE');
   try {
     const ph = staleLocks.map(() => '?').join(',');
-    db.prepare(`DELETE FROM file_locks WHERE lock_id IN (${ph})`).run(...staleLocks.map(l => l.lock_id));
+    db.prepare(`DELETE FROM locks WHERE lock_id IN (${ph})`).run(...staleLocks.map(l => l.lock_id));
+
+    for (const tid of affectedTaskIds) {
+      const remaining = db.prepare('SELECT 1 FROM locks WHERE task_id = ? LIMIT 1').get(tid);
+      if (!remaining) {
+        const r = db.prepare(
+          "UPDATE tasks SET status = 'PENDING', updated_at = ? WHERE task_id = ? AND status = 'ACTIVE'"
+        ).run(now, tid) as { changes: number };
+        if (r.changes) updatedTasks++;
+      }
+    }
     db.exec('COMMIT');
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
     throw e;
   }
 
-  const affectedIntentIds = [...new Set(staleLocks.map(l => l.intent_id))];
-  let updatedIntents = 0;
-  for (const iid of affectedIntentIds) {
-    const remaining = db.prepare('SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1').get(iid);
-    if (!remaining) {
-      const r = db.prepare(
-        "UPDATE agent_intents SET status = 'PENDING', updated_at = ? WHERE intent_id = ? AND status = 'ACTIVE'"
-      ).run(now, iid) as { changes: number };
-      if (r.changes) updatedIntents++;
-    }
-  }
-
-  return { pruned_locks: staleLocks.length, updated_intents: updatedIntents };
+  return { pruned_locks: staleLocks.length, updated_tasks: updatedTasks };
 }
 
 // ─── Smart briefing ─────────────────────────────────────────────────────────
@@ -143,30 +156,39 @@ export interface NotifyGetBriefResult {
 
 function openRefinementCount(
   db: DatabaseSync,
-  params: { workspacePath?: string | null; repo?: string | null; cwd?: string; includeHandoffs?: boolean } = {},
+  params: { workspacePath?: string | null; artifact?: string | null; repo?: string | null; ref?: string | null; cwd?: string; includeHandoffs?: boolean } = {},
 ): number {
   const scope = fillScope(
-    { workspace_path: params.workspacePath ?? null, repo: params.repo ?? null },
+    { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
     params.cwd ?? process.cwd(),
   );
   const queryParams: (string | number)[] = [];
   let sql = "SELECT COUNT(*) AS c FROM refinements WHERE state IN ('open','ongoing')";
   if (!params.includeHandoffs) sql += " AND quality <> 'handoff'";
+  if (scope.workspace_path) {
+    sql += ' AND (workspace_path = ? OR workspace_path IS NULL)';
+    queryParams.push(scope.workspace_path);
+  }
+  if (scope.artifact) {
+    sql += ' AND (artifact = ? OR artifact IS NULL)';
+    queryParams.push(scope.artifact);
+  }
   if (scope.repo) {
     sql += ' AND (repo = ? OR repo IS NULL)';
     queryParams.push(scope.repo);
-  } else if (scope.workspace_path) {
-    sql += ' AND (workspace_path = ? OR workspace_path IS NULL)';
-    queryParams.push(scope.workspace_path);
+  }
+  if (scope.ref) {
+    sql += ' AND (ref = ? OR ref IS NULL)';
+    queryParams.push(scope.ref);
   }
   return (db.prepare(sql).get(...queryParams) as { c: number }).c;
 }
 
 /**
  * Returns a smart workspace briefing instead of an empty inbox.
- * — Unread agent notifications addressed to this agent (or broadcasts)
- * — Top memories (GOTCHA/BUG/DECISION, importance ≥6, scoped to workspace)
- * — Top mine-weakness cluster (failure_signature with count ≥2)
+ * — Unread agent signals addressed to this agent (or broadcasts)
+ * — Top memories (GOTCHA/BUG/DECISION, importance >=6, scoped to workspace)
+ * — Top mine-weakness cluster (failure_signature with count >=2)
  * — Count of open refinements
  * Designed to be called by notify-deliver.sh before every user prompt.
  */
@@ -179,6 +201,7 @@ export function notifyGet(
   params: Record<string, unknown> = {},
 ): NotifyGetResult | NotifyGetBriefResult {
   const wsPath = (params.workspace as string | undefined) ?? null;
+  const artifact = normalizeArtifact(params.artifact);
   const format  = (params.format as string | undefined) ?? 'json';
   const agentId = String(params.agent_id ?? params.agentId ?? 'agent');
   // MAINT-2: Use the cwd from params (workspace path) not process.cwd() which
@@ -189,17 +212,18 @@ export function notifyGet(
 
   // Each query is isolated — one failure does not wipe the others.
 
-  // 0. Unread notifications for this agent. Hook fetch does not ack; agents call agent_signal action:'ack' after acting.
+  // 0. Unread signals for this agent (signals table). Hook fetch does not ack; agents call agent_signal action:'ack' after acting.
   try {
     const inbox = getNotifications(db, {
       agentId,
       workspacePath: wsPath,
+      artifact,
       unreadOnly: true,
       markRead: false,
       limit: 5,
       cwd: notifyCwd,
     });
-    for (const n of inbox.notifications) {
+    for (const n of inbox.signals) {
       const target = n.to_agent ? `to ${n.to_agent}` : 'broadcast';
       const fileSuffix = n.files.length > 0 ? ` files=${n.files.join(', ')}` : '';
       const bodySuffix = n.body ? ` — ${n.body.slice(0, 120)}` : '';
@@ -209,50 +233,52 @@ export function notifyGet(
         importance: n.importance,
       });
     }
-  } catch { /* skip notifications on error */ }
+  } catch { /* skip signals on error */ }
 
   // 1a. OVERRIDE memories — always surfaced regardless of importance (they contradict model defaults)
   try {
-    type MemRow = { memory_id: string; observation: string; importance_score: number };
+    type MemRow = { memory_id: string; observation: string; importance: number };
     const overrideConds: string[] = ["state = 'ACTIVE'", "label = 'OVERRIDE'"];
     const overrideBinds: (string | number)[] = [];
     if (wsPath) { overrideConds.push('(workspace_path = ? OR workspace_path IS NULL)'); overrideBinds.push(wsPath); }
+    if (artifact) { overrideConds.push('(artifact = ? OR artifact IS NULL)'); overrideBinds.push(artifact); }
     const overrideRows = db.prepare(
-      `SELECT memory_id, observation, importance_score
-       FROM agent_memories
+      `SELECT memory_id, observation, importance
+       FROM memories
        WHERE ${overrideConds.join(' AND ')}
-       ORDER BY importance_score DESC, last_accessed_at DESC
+       ORDER BY importance DESC, last_accessed_at DESC
        LIMIT 2`
     ).all(...overrideBinds) as unknown as MemRow[];
     for (const m of overrideRows) {
       items.push({
         kind: 'memory',
-        text: `OVERRIDE(${m.importance_score}): ${m.observation.slice(0, 120)}`,
-        importance: m.importance_score,
+        text: `OVERRIDE(${m.importance}): ${m.observation.slice(0, 120)}`,
+        importance: m.importance,
       });
     }
   } catch { /* skip this section on error */ }
 
   // 1b. Top actionable memories for this workspace (EXPERIENCE/reflections excluded)
   try {
-    type MemRow = { memory_id: string; observation: string; label: string; importance_score: number };
-    const conditions: string[] = ["state = 'ACTIVE'", "importance_score >= 6",
+    type MemRow = { memory_id: string; observation: string; label: string; importance: number };
+    const conditions: string[] = ["state = 'ACTIVE'", "importance >= 6",
       `label IN (${BRIEFING_LABELS.map(() => '?').join(',')})`];
     // BRIEFING_LABELS binds must be pushed before wsPath so they match the IN(?) order in WHERE
     const bindParams: (string | number)[] = [...BRIEFING_LABELS];
     if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+    if (artifact) { conditions.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
     const memRows = db.prepare(
-      `SELECT memory_id, observation, label, importance_score
-       FROM agent_memories
+      `SELECT memory_id, observation, label, importance
+       FROM memories
        WHERE ${conditions.join(' AND ')}
-       ORDER BY importance_score DESC, last_accessed_at DESC
+       ORDER BY importance DESC, last_accessed_at DESC
        LIMIT 3`
     ).all(...bindParams) as unknown as MemRow[];
     for (const m of memRows) {
       items.push({
         kind: 'memory',
-        text: `${m.label}(${m.importance_score}): ${m.observation.slice(0, 120)}`,
-        importance: m.importance_score,
+        text: `${m.label}(${m.importance}): ${m.observation.slice(0, 120)}`,
+        importance: m.importance,
       });
     }
   } catch { /* skip this section on error */ }
@@ -263,9 +289,10 @@ export function notifyGet(
     const wkConditions = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
     const wkParams: (string | number)[] = [];
     if (wsPath) { wkConditions.push('(workspace_path = ? OR workspace_path IS NULL)'); wkParams.push(wsPath); }
+    if (artifact) { wkConditions.push('(artifact = ? OR artifact IS NULL)'); wkParams.push(artifact); }
     const topWk = db.prepare(
-      `SELECT failure_signature, count(*) AS freq, avg(importance_score) AS avg_imp
-       FROM agent_memories
+      `SELECT failure_signature, count(*) AS freq, avg(importance) AS avg_imp
+       FROM memories
        WHERE ${wkConditions.join(' AND ')}
        GROUP BY failure_signature HAVING freq >= 2
        ORDER BY freq * avg_imp DESC LIMIT 1`
@@ -280,7 +307,7 @@ export function notifyGet(
 
   // 3. Open repo-fix refinements count (session handoffs are excluded by default)
   try {
-    const refCount = openRefinementCount(db, { workspacePath: wsPath, cwd: notifyCwd });
+    const refCount = openRefinementCount(db, { workspacePath: wsPath, artifact, cwd: notifyCwd });
     if (refCount > 0) {
       items.push({ kind: 'refinement', text: `📋 ${refCount} open refinement(s) pending` });
     }
@@ -335,26 +362,35 @@ export function sessionCapture(
 ): SessionCaptureResult {
   const agentId = String(params.agent_id ?? params.agentId ?? 'agent');
   const reason = params.reason ? String(params.reason) : null;
+  const workspaceInput = (params.workspace ?? params.workspace_path ?? params.workspacePath) as string | null | undefined;
+  const rawWorkspacePath = typeof workspaceInput === 'string' && workspaceInput.trim()
+    ? resolve(workspaceInput.trim())
+    : null;
   const scope = fillScope(
     {
-      workspace_path: (params.workspace ?? params.workspace_path ?? params.workspacePath) as string | null | undefined,
+      workspace_path: rawWorkspacePath,
+      artifact: normalizeArtifact(params.artifact),
       repo: (params.repo as string | null | undefined) ?? null,
       ref: (params.ref as string | null | undefined) ?? null,
     },
     (params.cwd as string | undefined) ?? process.cwd(),
   );
-  const workspacePath = scope.workspace_path ?? process.cwd();
+  const workspacePath = scope.workspace_path ?? rawWorkspacePath ?? process.cwd();
+  const taskWorkspaceCandidates = [...new Set([workspacePath, rawWorkspacePath].filter((value): value is string => Boolean(value)))];
+  const artifact = scope.artifact;
+  const workspacePlaceholders = taskWorkspaceCandidates.map(() => '?').join(',');
 
-  const intentRows = db.prepare(
-    `SELECT intent_id, rationale, test_plan, status, files_json, created_at, updated_at
-     FROM agent_intents
+  const taskRows = db.prepare(
+    `SELECT task_id, rationale, test_plan, status, files_json, created_at, updated_at
+     FROM tasks
      WHERE agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
-       AND (workspace_path = ? OR workspace_path IS NULL)
+       AND (workspace_path IN (${workspacePlaceholders}) OR workspace_path IS NULL)
+       AND (? IS NULL OR artifact = ? OR artifact IS NULL)
      ORDER BY updated_at DESC, created_at DESC
      LIMIT 20`
-  ).all(agentId, workspacePath) as Array<{
-    intent_id: string;
+  ).all(agentId, ...taskWorkspaceCandidates, artifact, artifact) as Array<{
+    task_id: string;
     rationale: string;
     test_plan: string;
     status: string;
@@ -363,10 +399,10 @@ export function sessionCapture(
     updated_at: string;
   }>;
 
-  const files = [...new Set(intentRows.flatMap(row => parseJsonList(row.files_json)))];
+  const files = [...new Set(taskRows.flatMap(row => parseJsonList(row.files_json)))];
   const dirtyFiles = gitDirtyFiles(workspacePath);
-  const activeIntents = intentRows.filter(row => row.status === 'ACTIVE').length;
-  const pendingIntents = intentRows.filter(row => row.status === 'PENDING').length;
+  const activeTasks = taskRows.filter(row => row.status === 'ACTIVE').length;
+  const pendingTasks = taskRows.filter(row => row.status === 'PENDING').length;
 
   // Count memories with low novelty (< 0.2) that are candidates for supersede/consolidation.
   // This is a hint to the agent that memory_digest or manual supersede may be overdue.
@@ -375,18 +411,19 @@ export function sessionCapture(
     const cConds: string[] = ["novelty_score IS NOT NULL", "novelty_score < 0.2", "state = 'ACTIVE'"];
     const cBinds: (string | number)[] = [];
     if (workspacePath) { cConds.push('(workspace_path = ? OR workspace_path IS NULL)'); cBinds.push(workspacePath); }
+    if (artifact) { cConds.push('(artifact = ? OR artifact IS NULL)'); cBinds.push(artifact); }
     consolidationOpportunities = (db.prepare(
-      `SELECT COUNT(*) AS c FROM agent_memories WHERE ${cConds.join(' AND ')}`
+      `SELECT COUNT(*) AS c FROM memories WHERE ${cConds.join(' AND ')}`
     ).get(...cBinds) as { c: number }).c;
   } catch { /* non-fatal */ }
 
-  if (intentRows.length === 0 && dirtyFiles.length === 0) {
+  if (taskRows.length === 0 && dirtyFiles.length === 0) {
     return {
       ok: true,
       captured: false,
       refinement_id: null,
-      pending_intents: 0,
-      active_intents: 0,
+      pending_tasks: 0,
+      active_tasks: 0,
       files: [],
       dirty_files: [],
       reason,
@@ -397,35 +434,36 @@ export function sessionCapture(
   const now = utcNow();
   const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
   const capturedFiles = [...new Set([...files, ...dirtyFiles])];
-  const statusSummary = intentRows.map(row => {
+  const statusSummary = taskRows.map(row => {
     const rowFiles = parseJsonList(row.files_json);
     const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(', ')}` : '';
-    return `${row.status} ${row.intent_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
   });
   const reasoning = [
     `Session capture for ${agentId}${reason ? ` (${reason})` : ''}.`,
-    `Unresolved intents: ${intentRows.length} (${activeIntents} active, ${pendingIntents} pending).`,
+    `Unresolved tasks: ${taskRows.length} (${activeTasks} active, ${pendingTasks} pending).`,
     dirtyFiles.length > 0 ? `Dirty files: ${dirtyFiles.join(', ')}.` : null,
-    statusSummary.length > 0 ? `Intent details: ${statusSummary.join(' | ')}` : null,
+    statusSummary.length > 0 ? `Task details: ${statusSummary.join(' | ')}` : null,
   ].filter(Boolean).join(' ');
   const remember = [
-    `Review session handoff for ${agentId}: ${activeIntents} active and ${pendingIntents} pending intents remain.`,
+    `Review session handoff for ${agentId}: ${activeTasks} active and ${pendingTasks} pending tasks remain.`,
     capturedFiles.length > 0 ? `Touched files: ${capturedFiles.join(', ')}.` : null,
     dirtyFiles.length > 0 ? 'Check dirty git state before continuing.' : null,
-    pendingIntents > 0 ? 'Run the recorded verification before claiming completion.' : null,
+    pendingTasks > 0 ? 'Run the recorded verification before claiming completion.' : null,
   ].filter(Boolean).join(' ');
 
   db.prepare(
     `INSERT INTO refinements (
        refinement_id, agent_id, workspace_path, repo, ref,
-       files_json, reasoning, remember, quality, state, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'handoff', 'open', ?, ?)`
+       artifact, files_json, reasoning, remember, quality, state, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'handoff', 'open', ?, ?)`
   ).run(
     refinementId,
     agentId,
     workspacePath,
     scope.repo,
     scope.ref,
+    artifact,
     JSON.stringify(capturedFiles),
     reasoning,
     remember,
@@ -437,8 +475,8 @@ export function sessionCapture(
     ok: true,
     captured: true,
     refinement_id: refinementId,
-    pending_intents: pendingIntents,
-    active_intents: activeIntents,
+    pending_tasks: pendingTasks,
+    active_tasks: activeTasks,
     files: capturedFiles,
     dirty_files: dirtyFiles,
     reason,
@@ -448,7 +486,7 @@ export function sessionCapture(
 
 /**
  * Poll until target file locks clear, bounded by waitMs.
- * Retries every retryIntervalMs using a spin-sleep (MAINT-1: no SharedArrayBuffer dependency).
+ * Retries every retryIntervalMs using Atomics.wait (no busy-spin, no CPU waste).
  */
 export function waitForLock(
   db: DatabaseSync,
@@ -457,6 +495,10 @@ export function waitForLock(
   const targetFiles = Array.isArray(params.target_files) ? params.target_files as string[] :
     Array.isArray(params.targetFiles) ? params.targetFiles as string[] : [];
   const agentId = (params.agent_id ?? params.agentId) as string | undefined ?? 'agent';
+  const workspacePath = typeof params.workspace === 'string' ? params.workspace :
+    typeof params.workspace_path === 'string' ? params.workspace_path :
+      typeof params.workspacePath === 'string' ? params.workspacePath : null;
+  const artifact = normalizeArtifact(params.artifact);
   const waitMs = Number(params.wait_ms ?? params.waitMs ?? 60000);
   const retryMs = Number(params.retry_interval_ms ?? params.retryIntervalMs ?? 5000);
   // requestedLockType: EXCLUSIVE is blocked by any existing lock; SHARED is only blocked by EXCLUSIVE.
@@ -468,36 +510,50 @@ export function waitForLock(
   if (targetFiles.length === 0) {
     return { ok: true, waited_ms: 0, lock_free: true };
   }
+  const root = workspacePath ? resolve(workspacePath) : process.cwd();
+  const absTargetFiles = targetFiles.map((file) => isAbsolute(file) ? resolve(file) : resolve(root, file));
 
-  const checkLocks = () => {
+  // FIX #11 (P2): Hoist db.prepare() outside the closure so the statement is compiled
+  // once and reused on each poll iteration instead of being re-compiled every loop tick.
+  // Also hoist the SharedArrayBuffer/Int32Array allocation before the loop so the same
+  // buffer is reused across all Atomics.wait calls.
+  const ph = absTargetFiles.map(() => '?').join(',');
+  const lockTypeFilter = requestedLockType === 'EXCLUSIVE' ? '' : "AND fl.lock_type = 'EXCLUSIVE'";
+  const scopeClauses: string[] = [];
+  const scopeBinds: string[] = [];
+  if (workspacePath) { scopeClauses.push('AND ai.workspace_path = ?'); scopeBinds.push(root); }
+  if (artifact) { scopeClauses.push('AND (ai.artifact = ? OR ai.artifact IS NULL)'); scopeBinds.push(artifact); }
+  const lockStmt = db.prepare(
+    `SELECT fl.file_path, ai.agent_id, fl.expires_at
+     FROM locks fl
+     JOIN tasks ai ON ai.task_id = fl.task_id
+     WHERE fl.file_path IN (${ph})
+       AND ai.agent_id <> ?
+       AND ai.status = 'ACTIVE'
+       ${lockTypeFilter}
+       ${scopeClauses.join('\n       ')}
+       AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
+  );
+  // Single Int32Array reused across all Atomics.wait calls — avoids repeated allocation.
+  const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
+
+  type LockRow = { file_path: string; agent_id: string; expires_at: string | null };
+
+  const checkLocks = (): LockRow[] => {
     const now = new Date().toISOString();
-    const ph = targetFiles.map(() => '?').join(',');
-    type LockRow = { file_path: string; agent_id: string; expires_at: string | null };
-    // EXCLUSIVE requests conflict with any lock type; SHARED requests only conflict with EXCLUSIVE locks.
-    const lockTypeFilter = requestedLockType === 'EXCLUSIVE' ? '' : "AND fl.lock_type = 'EXCLUSIVE'";
-    const locks = db.prepare(
-      `SELECT fl.file_path, ai.agent_id, fl.expires_at
-       FROM file_locks fl
-       JOIN agent_intents ai ON ai.intent_id = fl.intent_id
-       WHERE fl.file_path IN (${ph})
-         AND ai.agent_id <> ?
-         AND ai.status = 'ACTIVE'
-         ${lockTypeFilter}
-         AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
-    ).all(...targetFiles, agentId, now) as unknown as LockRow[];
-    return locks;
+    return lockStmt.all(...absTargetFiles, agentId, ...scopeBinds, now) as unknown as LockRow[];
   };
 
-  let conflicts = checkLocks();
-  const waited = () => Date.now() - start;
-
-  // Synchronous sleep via Atomics.wait on a fresh SharedArrayBuffer.
-  // This yields the thread to the OS for the full duration instead of busy-spinning,
+  // Synchronous sleep via Atomics.wait on the pre-allocated buffer.
+  // Yields the thread to the OS for the full duration instead of busy-spinning,
   // eliminating the 100% CPU usage the previous spin loop caused during lock waits.
   // SharedArrayBuffer is unconditionally available in Node.js (no COOP/COEP headers needed).
   function sleepMs(ms: number): void {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    Atomics.wait(sleepBuf, 0, 0, ms);
   }
+
+  let conflicts = checkLocks();
+  const waited = () => Date.now() - start;
 
   while (conflicts.length > 0 && waited() < waitMs) {
     sleepMs(Math.min(retryMs, waitMs - waited()));
@@ -564,13 +620,13 @@ export function digest(
   // dry_run: count what would change without mutating anything
   if (params.dry_run) {
     const wouldArchive = (db.prepare(
-      `SELECT COUNT(*) AS c FROM agent_memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
+      `SELECT COUNT(*) AS c FROM memories WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
     ).get(now) as { c: number }).c;
     const wouldPruneOld = (db.prepare(
-      `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
+      `SELECT COUNT(*) AS c FROM memories WHERE state = 'SUPERSEDED' AND updated_at < ?`
     ).get(cutoff) as { c: number }).c;
     const wouldPruneLocks = (db.prepare(
-      `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
+      `SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at < ?`
     ).get(now) as { c: number }).c;
     const wouldPruneRefinements = (db.prepare(refinementRetentionSql)
       .get(handoffCutoff, doneCutoff) as { c: number }).c;
@@ -592,14 +648,14 @@ export function digest(
 
   // 1. Archive expired memories (valid_to < now)
   const archiveRes = db.prepare(
-    `UPDATE agent_memories
+    `UPDATE memories
      SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
      WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
   ).run(now, now, now) as { changes: number };
 
   // 2. Hard-delete old SUPERSEDED entries to keep the DB lean
   const deleteRes = db.prepare(
-    `DELETE FROM agent_memories
+    `DELETE FROM memories
      WHERE state = 'SUPERSEDED' AND updated_at < ?`
   ).run(cutoff) as { changes: number };
 
@@ -614,7 +670,7 @@ export function digest(
         OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?)`
   ).run(handoffCutoff, doneCutoff) as { changes: number };
 
-  // 5. Rebuild FTS5 index from the agent_memories source of truth.
+  // 5. Rebuild FTS5 index from the memories source of truth.
   let ftsRebuilt = false;
   try {
     if (hasFts(db)) {
@@ -643,7 +699,8 @@ export interface WorkspaceLockEntry {
   agent_id: string;
   session_id: string | null;
   workspace_path: string | null;
-  intent_id: string;
+  artifact: string | null;
+  task_id: string;
   lock_type: string;
   acquired_at: string;
   expires_at: string | null;
@@ -652,15 +709,15 @@ export interface WorkspaceLockEntry {
 export interface WorkspaceStatusResult {
   ok: true;
   active_memories: number;
-  pending_intents: number;
-  active_intents: number;
+  pending_tasks: number;
+  active_tasks: number;
   open_refinements: number;
   locks: WorkspaceLockEntry[];
   schema_version: 1;
 }
 
 /**
- * Returns a snapshot of active file locks, agent intents, and memory store stats.
+ * Returns a snapshot of active file locks, agent tasks, and memory store stats.
  * Prunes expired locks first so stale entries don't pollute the view.
  */
 export function getWorkspaceStatus(
@@ -668,40 +725,52 @@ export function getWorkspaceStatus(
   params: Record<string, unknown> = {},
 ): WorkspaceStatusResult {
   const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const artifact = normalizeArtifact(params.artifact);
 
   // ARCH-3: Delegate lock eviction to the shared evictExpiredLocks function
   // instead of duplicating the DELETE statement.
   evictExpiredLocks(db);
 
+  const memoryScope: string[] = ["state = 'ACTIVE'"];
+  const memoryScopeParams: (string | number)[] = [];
+  if (wsPath) { memoryScope.push('(workspace_path = ? OR workspace_path IS NULL)'); memoryScopeParams.push(wsPath); }
+  if (artifact) { memoryScope.push('(artifact = ? OR artifact IS NULL)'); memoryScopeParams.push(artifact); }
   const activeMemories = (db.prepare(
-    `SELECT COUNT(*) AS c FROM agent_memories WHERE state = 'ACTIVE'`
-  ).get() as { c: number }).c;
+    `SELECT COUNT(*) AS c FROM memories WHERE ${memoryScope.join(' AND ')}`
+  ).get(...memoryScopeParams) as { c: number }).c;
 
-  const intentScope = wsPath ? ' AND workspace_path = ?' : '';
-  const intentScopeParams = wsPath ? [wsPath] : [];
+  const taskScopeParts: string[] = [];
+  const taskScopeParams: (string | number)[] = [];
+  if (wsPath) { taskScopeParts.push('workspace_path = ?'); taskScopeParams.push(wsPath); }
+  if (artifact) { taskScopeParts.push('(artifact = ? OR artifact IS NULL)'); taskScopeParams.push(artifact); }
+  const taskScope = taskScopeParts.length > 0 ? ` AND ${taskScopeParts.join(' AND ')}` : '';
 
-  const pendingIntents = (db.prepare(
-    `SELECT COUNT(*) AS c FROM agent_intents WHERE status = 'PENDING'${intentScope}`
-  ).get(...intentScopeParams) as { c: number }).c;
+  const pendingTasks = (db.prepare(
+    `SELECT COUNT(*) AS c FROM tasks WHERE status = 'PENDING'${taskScope}`
+  ).get(...taskScopeParams) as { c: number }).c;
 
-  const activeIntents = (db.prepare(
-    `SELECT COUNT(*) AS c FROM agent_intents WHERE status = 'ACTIVE'${intentScope}`
-  ).get(...intentScopeParams) as { c: number }).c;
+  const activeTasks = (db.prepare(
+    `SELECT COUNT(*) AS c FROM tasks WHERE status = 'ACTIVE'${taskScope}`
+  ).get(...taskScopeParams) as { c: number }).c;
 
   const openRefinements = openRefinementCount(db, {
     workspacePath: wsPath,
+    artifact,
     repo: params.repo as string | undefined,
     cwd: params.cwd as string | undefined,
   });
 
-  type LockRow = { file_path: string; agent_id: string; session_id: string | null; workspace_path: string | null; intent_id: string; lock_type: string; acquired_at: string; expires_at: string | null };
-  const lockWhere = wsPath ? 'WHERE ai.workspace_path = ?' : '';
-  const lockParams = wsPath ? [wsPath] : [];
+  type LockRow = { file_path: string; agent_id: string; session_id: string | null; workspace_path: string | null; artifact: string | null; task_id: string; lock_type: string; acquired_at: string; expires_at: string | null };
+  const lockWhereParts: string[] = [];
+  const lockParams: (string | number)[] = [];
+  if (wsPath) { lockWhereParts.push('ai.workspace_path = ?'); lockParams.push(wsPath); }
+  if (artifact) { lockWhereParts.push('(ai.artifact = ? OR ai.artifact IS NULL)'); lockParams.push(artifact); }
+  const lockWhere = lockWhereParts.length > 0 ? `WHERE ${lockWhereParts.join(' AND ')}` : '';
   const locks = db.prepare(
-    `SELECT fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, fl.intent_id,
+    `SELECT fl.file_path, ai.agent_id, ai.session_id, ai.workspace_path, ai.artifact, fl.task_id,
             fl.lock_type, fl.acquired_at, fl.expires_at
-     FROM file_locks fl
-     JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+     FROM locks fl
+     JOIN tasks ai ON ai.task_id = fl.task_id
      ${lockWhere}
      ORDER BY fl.acquired_at DESC
      LIMIT 50`
@@ -710,8 +779,8 @@ export function getWorkspaceStatus(
   return {
     ok: true,
     active_memories: activeMemories,
-    pending_intents: pendingIntents,
-    active_intents: activeIntents,
+    pending_tasks: pendingTasks,
+    active_tasks: activeTasks,
     open_refinements: openRefinements,
     locks,
     schema_version: 1,
@@ -729,26 +798,28 @@ export function exportMemoryDoc(
   params: Record<string, unknown> = {},
 ): string {
   const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const artifact = normalizeArtifact(params.artifact);
   const now = new Date().toISOString().slice(0, 10);
 
   const conds: string[] = ["state = 'ACTIVE'"];
   const bindParams: (string | number)[] = [];
   if (wsPath) { conds.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
+  if (artifact) { conds.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
 
   type MemRow = {
-    memory_id: string; label: string; importance_score: number;
+    memory_id: string; label: string; importance: number;
     task_context: string; observation: string;
-    tags_json: string; references_json: string;
-    file: string | null; repo: string | null; ref: string | null;
+    tags_json: string;
+    repo: string | null; ref: string | null;
     failure_signature: string | null; created_at: string;
   };
 
   const rows = db.prepare(
-    `SELECT memory_id, label, importance_score, task_context, observation,
-            tags_json, references_json, file, repo, ref, failure_signature, created_at
-     FROM agent_memories
+    `SELECT memory_id, label, importance, task_context, observation,
+            tags_json, repo, ref, failure_signature, created_at
+     FROM memories
      WHERE ${conds.join(' AND ')}
-     ORDER BY importance_score DESC, created_at DESC`
+     ORDER BY importance DESC, created_at DESC`
   ).all(...bindParams) as unknown as MemRow[];
 
   const byLabel: Record<string, MemRow[]> = {};
@@ -768,19 +839,15 @@ export function exportMemoryDoc(
   for (const [label, mems] of Object.entries(byLabel)) {
     lines.push(`## ${label}`, '');
     for (const m of mems) {
-      // MAINT-5 / ARCH-7: Use parseJsonList instead of duplicated inline IIFEs
       const tags = parseJsonList(m.tags_json);
-      const refs = parseJsonList(m.references_json);
       lines.push(
-        `### \`${m.memory_id}\` — importance ${m.importance_score}`,
+        `### \`${m.memory_id}\` — importance ${m.importance}`,
         `**Context:** ${m.task_context}`,
         `**Observation:** ${m.observation}`,
       );
       if (tags.length) lines.push(`**Tags:** ${tags.join(', ')}`);
       if (m.failure_signature) lines.push(`**Failure signature:** ${m.failure_signature}`);
-      if (m.file) lines.push(`**File:** ${m.file}`);
       if (m.repo) lines.push(`**Repo:** ${m.repo}${m.ref ? ` @ ${m.ref}` : ''}`);
-      if (refs.length) lines.push(`**References:** ${refs.join(', ')}`);
       lines.push(`**Created:** ${m.created_at.slice(0, 10)}`, '');
     }
   }
@@ -797,7 +864,7 @@ export function exportMemoryDoc(
  * R-3: Two tiers, in priority order:
  *   1. Harness memories — `harness`-tagged via `reflect fix_harness:` (any importance).
  *      These are explicit agent-proposed skill improvements. Always included first.
- *   2. High-importance general lessons — importance ≥ minImportance, label ≠ EXPERIENCE.
+ *   2. High-importance general lessons — importance >= minImportance, label != EXPERIENCE.
  *      Raw reflections (EXPERIENCE) are excluded: they are inputs to the harness loop,
  *      not standing guidance.
  * `harness_only:true` returns tier 1 only (proposed improvements, no general wisdom).
@@ -809,28 +876,32 @@ export function exportHarness(
   const limit = Number(params.limit ?? 10);
   const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
   const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const artifact = normalizeArtifact(params.artifact);
   const harnessOnly = Boolean(params.harness_only ?? params.harnessOnly ?? false);
 
-  const scopeCond = wsPath ? '(workspace_path = ? OR workspace_path IS NULL)' : null;
-  const scopeParams: (string | number)[] = wsPath ? [wsPath] : [];
+  const scopeConds: string[] = [];
+  const scopeParams: (string | number)[] = [];
+  if (wsPath) { scopeConds.push('(workspace_path = ? OR workspace_path IS NULL)'); scopeParams.push(wsPath); }
+  if (artifact) { scopeConds.push('(artifact = ? OR artifact IS NULL)'); scopeParams.push(artifact); }
+  const scopeSql = scopeConds.length > 0 ? `AND ${scopeConds.join(' AND ')}` : '';
 
-  type MemRow = { memory_id: string; label: string; importance_score: number; observation: string; tags_text: string };
+  type MemRow = { memory_id: string; label: string; importance: number; observation: string };
 
   // Tier 1: harness-tagged memories (explicit skill improvement proposals)
   const harnessRows = db.prepare(
-    `SELECT memory_id, label, importance_score, observation, tags_text
-     FROM agent_memories
+    `SELECT memory_id, label, importance, observation
+     FROM memories
      WHERE state = 'ACTIVE'
-       AND tags_text LIKE '%,harness,%'
-       ${ scopeCond ? `AND ${scopeCond}` : ''}
-     ORDER BY importance_score DESC, access_count DESC
+       AND tags_json LIKE '%"harness"%'
+       ${scopeSql}
+     ORDER BY importance DESC, access_count DESC
      LIMIT ?`
   ).all(...scopeParams, limit) as unknown as MemRow[];
 
   const memories: Array<{ memory_id: string; label: string; importance: number; observation: string; tier: 'harness' | 'general' }> = [];
 
   for (const r of harnessRows) {
-    memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance_score, observation: r.observation, tier: 'harness' });
+    memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance, observation: r.observation, tier: 'harness' });
   }
 
   // Tier 2: high-importance general lessons (not EXPERIENCE, not already in tier 1)
@@ -838,20 +909,20 @@ export function exportHarness(
     const harnessIds = new Set(memories.map(m => m.memory_id));
     const remaining = limit - memories.length;
     const generalRows = db.prepare(
-      `SELECT memory_id, label, importance_score, observation, tags_text
-       FROM agent_memories
+      `SELECT memory_id, label, importance, observation
+       FROM memories
        WHERE state = 'ACTIVE'
-         AND importance_score >= ?
+         AND importance >= ?
          AND label <> 'EXPERIENCE'
-         AND tags_text NOT LIKE '%,harness,%'
-         ${ scopeCond ? `AND ${scopeCond}` : ''}
-       ORDER BY importance_score DESC, access_count DESC, last_accessed_at DESC
+         AND tags_json NOT LIKE '%"harness"%'
+         ${scopeSql}
+       ORDER BY importance DESC, access_count DESC, last_accessed_at DESC
        LIMIT ?`
     ).all(minImportance, ...scopeParams, remaining * 2) as unknown as MemRow[];
 
     for (const r of generalRows) {
       if (!harnessIds.has(r.memory_id) && memories.length < limit) {
-        memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance_score, observation: r.observation, tier: 'general' });
+        memories.push({ memory_id: r.memory_id, label: r.label, importance: r.importance, observation: r.observation, tier: 'general' });
       }
     }
   }

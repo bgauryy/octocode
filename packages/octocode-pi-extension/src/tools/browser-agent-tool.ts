@@ -371,7 +371,13 @@ export function registerBrowserAgentTool(
       ),
     }),
 
-    execute: async (rawParams: unknown) => {
+    execute: async (
+      _toolCallId: string,
+      rawParams: Record<string, unknown>,
+      _signal?: AbortSignal,
+      _onUpdate?: unknown,
+      _ctx?: PiContext,
+    ): Promise<ToolCallResult> => {
       const params = rawParams as {
         task: string;
         url?: string;

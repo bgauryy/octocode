@@ -11,7 +11,7 @@ For a change that needs **thinking before coding** — or to **improve an existi
 UNDERSTAND → RESEARCH (octocode) → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS (octocode) → DERIVE KPIs → VALIDATE → DELIVER
 ```
 
-For trivial one-file edits with no design choice, skip RFC mode and route to `octocode-research` Change mode. Read `references/octocode.md` when choosing Octocode MCP vs CLI.
+For trivial one-file edits with no design choice, skip RFC mode and route to `octocode-research` Change mode. Read `references/octocode.md` when choosing Octocode MCP vs CLI — and before evidence gathering: its Research Algorithm section (route by what you hold, matchString-first, node_modules-first, evidence grades) governs how current-state and prior-art claims are searched and proven.
 
 ## Output: a folder, not a file
 
