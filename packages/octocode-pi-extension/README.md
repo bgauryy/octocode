@@ -4,7 +4,7 @@
 <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
 </div>
 
-> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 9 bundled skills (plus a browser subagent skill), and a full operating-model system prompt. One package install.
+> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 10 bundled skills (plus a browser subagent skill), and a full operating-model system prompt. One package install.
 
 ```bash
 pi install npm:@octocodeai/pi-extension
@@ -31,7 +31,7 @@ bash: node $OCTOCODE_CLI context               # show agent protocol
 | Support tools (web, chromeDebug, memory, agent) | 20 |
 | Custom edit tool | 1 |
 | Slash commands | 6 |
-| Bundled skills | 7 (+1 browser subagent skill) |
+| Bundled skills | 10 (+1 browser subagent skill) |
 
 ---
 
@@ -417,9 +417,11 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 
 ---
 
-## Bundled skills (7)
+## Bundled skills (10)
 
-The 7 skills below ship in `dist/skills/` and load via Pi resource discovery. A separate **browser subagent skill** (below) ships under `subagents/browser-agent/skills/` and is loaded only into the spawned browser subagent, not the main session.
+The 10 skills below ship in `dist/skills/` and load via Pi resource discovery. A separate **browser subagent skill** (below) ships under `subagents/browser-agent/skills/` and is loaded only into the spawned browser subagent, not the main session.
+
+Three of the ten — `octocode-awareness`, `octocode-reflection`, `octocode-agent-communication` — are copied at build time from [`@octocodeai/octocode-awareness`](../octocode-awareness) (the same package this extension imports for its memory tools and edit-safety hooks). See [Development notes](#development-notes) for the source-of-truth rule.
 
 ### `browser-agent` (subagent skill)
 
@@ -514,6 +516,40 @@ Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and 
 **When to use:** Delegation decisions, writing self-contained worker prompts, coordinating parallel agents with `spawnAgent`/`AgentMessage`, synthesizing multi-agent results, and understanding worker limitations.
 
 **Covers:** `spawnAgent` parameters (task, context, model, thinking, tools, resourceMode), worker prompt templates, `AgentMessage` actions (list, status, wait, send, steer, followUp, kill, abort), result synthesis rules, tool allowlists, and automatic cleanup on `session_shutdown`.
+
+---
+
+### `octocode-awareness`
+
+> Live workspace coordination: recall, file locks, verification gates, and lifecycle hooks.
+
+**Load it when:** starting or planning work, claiming files before an edit, checking for other agents' locks, or finishing a task.
+
+**Default loop:** Think/Plan (recall memory) → Before edits (claim files with `pre_flight_intent` / `file_lock`) → After edits (`memory_audit_unverified` → `memory_verify`) → Finish (hand off to `octocode-reflection`). Routes to `octocode-agent-communication` whenever a signal or unread message appears.
+
+Backed by the `wirePiAwarenessHooks` bridge described in [Awareness bridge — edit safety](#awareness-bridge--edit-safety) and the `memory_*` / `file_lock` / `agent_signal` tools in [Support tools](#support-tools-20).
+
+---
+
+### `octocode-reflection`
+
+> Post-task learning: durable lessons, stale-memory cleanup, staged harness/skill improvement.
+
+**Load it when:** work just finished and produced a reusable lesson, or a memory/signal/refinement/pending task looks stale.
+
+**Loop:** Select → Record (`memory_record`) → Reflect (`memory_reflect`) → Stage → Clean → Maintain. Shares the same SQLite store as `octocode-awareness` — awareness handles *live* coordination, reflection handles *outcomes*.
+
+`memory_export_harness` previews agent-improvement proposals as markdown; it never writes files — review and paste into `AGENTS.md`/`CLAUDE.md` after human approval.
+
+---
+
+### `octocode-agent-communication`
+
+> Agent-to-agent messaging: publish, list, reply, acknowledge, and resolve signals; A2A-style mapping onto local Awareness signals.
+
+**Load it when:** a message, handoff, blocker, or question shows up in `workspace_status`/`memory_workspace_status`, or an agent needs to reach another agent directly.
+
+**Flow:** REGISTER (`agent_registry`) → RESOLVE (`agent_signal`: publish/list/reply/ack/resolve). `to_agent = null` is a broadcast; `thread_id` groups a conversation or handoff. Delivery is local-first — the SQLite DB is the broker, hooks and the Pi bridge are delivery surfaces, not a transport.
 
 ---
 
@@ -663,13 +699,24 @@ OCTOCODE_NO_VERIFY_GATE=1 pi ...
 
 ---
 
+## Further reading
+
+| Doc | Covers |
+|---|---|
+| [`docs/TOOLS.md`](docs/TOOLS.md) | Full tool inventory (every family, including `bash`/`edit`/`write`) and a task→tool routing guide |
+| [`docs/MEMORY_AGENT_FLOW.md`](docs/MEMORY_AGENT_FLOW.md) | Live Awareness flow with worked examples |
+| [`docs/REFLECT.md`](docs/REFLECT.md) | Post-task learning, memory hygiene, skill/harness improvement proposals |
+| [`@octocodeai/octocode-awareness` README](../octocode-awareness/README.md) | The shared runtime: CLI, library API, hooks, and data model behind the memory tools |
+
+---
+
 ## Development notes
 
 Canonical sources (do **not** edit generated copies — build overwrites them):
 
 - **System prompt:** `packages/octocode-pi-extension/src/SYSTEM_PROMPT.md` (built to `dist/system/SYSTEM_PROMPT.md`)
-- **Awareness/Reflection source of truth:** `packages/octocode-awareness` owns the DB schema, task/signal API, hooks bridge, and the `octocode-awareness` / `octocode-reflection` skill files. Pi imports `@octocodeai/octocode-awareness` directly for runtime behavior and copies those two skill folders from `packages/octocode-awareness/skills/`.
-- **Skills source:** repo-root `skills/` plus `packages/octocode-awareness/skills/{octocode-awareness,octocode-reflection}` for the awareness/reflection skill copies.
+- **Awareness/Reflection/Communication source of truth:** [`packages/octocode-awareness`](../octocode-awareness) owns the DB schema, task/signal API, hooks bridge, and the `octocode-awareness` / `octocode-reflection` / `octocode-agent-communication` skill files. Pi imports `@octocodeai/octocode-awareness` directly for runtime behavior and copies those three skill folders from `packages/octocode-awareness/skills/`.
+- **Skills source:** repo-root `skills/` plus `packages/octocode-awareness/skills/{octocode-awareness,octocode-reflection,octocode-agent-communication}` for the awareness/reflection/communication skill copies.
 - **Generated skill copies:** `packages/octocode-pi-extension/skills/` is gitignored and regenerated by `yarn workspace @octocodeai/pi-extension build:skills`.
 - **Build script:** `packages/octocode-pi-extension/scripts/build.mjs` (syncs generated package skills, copies them to `dist/skills/`, injects `octocode-config.mjs` into each skill's `scripts/` dir)
 

@@ -181,9 +181,9 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(fs.existsSync(path.join(distDir, 'bin', 'octocode.js')), false, 'legacy dist/bin CLI path should not be used');
   assert.equal(fs.existsSync(path.join(distDir, 'awareness')), false, 'awareness runtime assets are not copied as a separate dist/awareness directory');
 
-  const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-reflection', 'octocode-stats'];
+  const SKIPPED = ['octocode', 'octocode-agent-communication', 'octocode-awareness', 'octocode-reflection', 'octocode-stats'];
   // Skills whose canonical source lives in @octocodeai/octocode-awareness.
-  const AWARENESS_OWNED = ['octocode-awareness', 'octocode-reflection'];
+  const AWARENESS_OWNED = ['octocode-agent-communication', 'octocode-awareness', 'octocode-reflection'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
@@ -196,6 +196,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.deepEqual(
     skills,
     [
+      'octocode-agent-communication',
       'octocode-awareness',
       'octocode-brainstorming',
       'octocode-prompt-optimizer',
@@ -214,6 +215,10 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(
     fs.readFileSync(path.join(distDir, 'skills', 'octocode-reflection', 'SKILL.md'), 'utf8'),
     fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-reflection/SKILL.md'), 'utf8'),
+  );
+  assert.equal(
+    fs.readFileSync(path.join(distDir, 'skills', 'octocode-agent-communication', 'SKILL.md'), 'utf8'),
+    fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-agent-communication/SKILL.md'), 'utf8'),
   );
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {

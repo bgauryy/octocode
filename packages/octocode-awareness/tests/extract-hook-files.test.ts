@@ -35,6 +35,10 @@ describe('extract-hook-files', () => {
     expect(extract({ toolName: 'write', input: { path: 'src/pi.ts' } })).toEqual(['src/pi.ts']);
   });
 
+  it('supports Cursor flat file payloads', () => {
+    expect(extract({ event_name: 'afterFileEdit', file_path: 'src/cursor.ts' })).toEqual(['src/cursor.ts']);
+  });
+
   it('supports Pi args payloads and apply_patch paths', () => {
     expect(extract({ args: { command: '*** Begin Patch\n*** Add File: src/new.ts\n*** Move to: src/moved.ts\n*** End Patch' } })).toEqual([
       'src/new.ts',

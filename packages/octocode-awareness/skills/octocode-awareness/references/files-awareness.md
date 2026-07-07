@@ -78,6 +78,6 @@ Orient in a new session by combining the shared store with plain git:
 
 ## Automatic session capture (`session-capture` hook)
 
-The capture hook calls `session-capture`. Claude-style hook hosts use `SessionEnd`; Codex has no current `SessionEnd` event, so the installer uses `PreCompact` for best-effort capture before context changes.
+The capture hook calls `session-capture`. Claude-style hook hosts use `SessionEnd`; Codex has no current `SessionEnd` event, so the installer uses `PreCompact` for best-effort capture before context changes. Cursor uses native `sessionEnd` locally plus `preCompact` for the cloud-supported compaction checkpoint.
 `session-capture` writes a work-handoff refinement from this session's locks plus the dirty git tree.
 `session-capture` no-ops on a clean tree with no session locks, skips on `clear`, is fail-open, and opts out via `OCTOCODE_NO_SESSION_CAPTURE=1`.

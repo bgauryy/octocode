@@ -4,7 +4,7 @@
 var USAGE = `usage: extract-hook-files < hook-payload.json
 
 Reads a hook JSON payload from stdin and prints one deduplicated file path per line.
-Supports Claude tool_input, Pi input/args, and Codex apply_patch command payloads.
+Supports Claude tool_input, Cursor file_path, Pi input/args, and Codex apply_patch command payloads.
 `;
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   process.stdout.write(USAGE);

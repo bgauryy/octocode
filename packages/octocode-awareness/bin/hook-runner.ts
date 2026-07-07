@@ -291,7 +291,10 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
       format: 'hook',
     }) as { additionalContext?: string };
     if (result.additionalContext) {
-      process.stdout.write(JSON.stringify({ additionalContext: result.additionalContext }) + '\n');
+      process.stdout.write(JSON.stringify({
+        additionalContext: result.additionalContext,
+        additional_context: result.additionalContext,
+      }) + '\n');
     }
   } catch {
     // fail-open

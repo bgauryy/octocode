@@ -6,8 +6,8 @@
 // ALWAYS run only after the user has approved it.
 //
 // Usage:
-//   node scripts/install-hooks.mjs [--host claude|codex] [--project-dir <path>]   install/merge
-//   node scripts/install-hooks.mjs [--host claude|codex] --global                 install user-scope hooks
+//   node scripts/install-hooks.mjs [--host claude|codex|cursor] [--project-dir <path>]   install/merge
+//   node scripts/install-hooks.mjs [--host claude|codex|cursor] --global                 install user-scope hooks
 //   node scripts/install-hooks.mjs --check                  report status only
 //   node scripts/install-hooks.mjs --dry-run                show result, don't write
 //   node scripts/install-hooks.mjs --remove                 remove our hooks
@@ -31,8 +31,10 @@ Install, check, dry-run, or remove octocode-awareness lifecycle hooks.
 Targets:
   --host claude         Write Claude Code hooks to .claude/settings.json (default).
   --host codex         Write Codex hooks to .codex/hooks.json.
+  --host cursor        Write Cursor hooks to .cursor/hooks.json.
   --claude             Alias for --host claude.
   --codex              Alias for --host codex.
+  --cursor             Alias for --host cursor.
 
 Options:
   --project-dir <path>  Target a project hook file under <path> (default: cwd).
@@ -59,19 +61,26 @@ if (flag("--global") && args.includes("--project-dir")) {
 
 const requestedHost = flag("--codex")
   ? "codex"
-  : flag("--claude")
-    ? "claude"
-    : opt("--host", "claude");
+  : flag("--cursor")
+    ? "cursor"
+    : flag("--claude")
+      ? "claude"
+      : opt("--host", "claude");
 const host = String(requestedHost).toLowerCase();
-if (host !== "claude" && host !== "codex") {
-  fail("invalid --host; expected claude or codex", { host: requestedHost });
+if (!["claude", "codex", "cursor"].includes(host)) {
+  fail("invalid --host; expected claude, codex, or cursor", { host: requestedHost });
 }
 
 const globalMode = flag("--global");
 const projectDir = resolve(opt("--project-dir", process.cwd()));
+const targetConfig = {
+  claude: { dir: ".claude", file: "settings.json" },
+  codex: { dir: ".codex", file: "hooks.json" },
+  cursor: { dir: ".cursor", file: "hooks.json" },
+}[host];
 const settingsPath = globalMode
-  ? join(homedir(), host === "codex" ? ".codex" : ".claude", host === "codex" ? "hooks.json" : "settings.json")
-  : join(projectDir, host === "codex" ? ".codex" : ".claude", host === "codex" ? "hooks.json" : "settings.json");
+  ? join(homedir(), targetConfig.dir, targetConfig.file)
+  : join(projectDir, targetConfig.dir, targetConfig.file);
 // Resolve hook scripts from THIS installer's location so the command works
 // wherever the skill lives, not just a hardcoded repo path.
 const hookDirAbs = join(dirname(fileURLToPath(import.meta.url)), "hooks");
@@ -79,10 +88,10 @@ const WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch"
 
 function hookCommand(name) {
   const abs = join(hookDirAbs, name);
-  // Codex config files do not provide Claude's project/skill placeholders.
-  // Absolute commands work from user and project hook scopes, even when Codex
-  // starts in a subdirectory.
-  if (host === "codex") return abs;
+  // Codex and Cursor config files do not provide Claude's project/skill
+  // placeholders. Absolute commands work from user and project hook scopes,
+  // even when the host starts in a subdirectory.
+  if (host === "codex" || host === "cursor") return abs;
   if (globalMode) return abs;
   const rel = relative(projectDir, abs);
   // Inside the project → portable, shareable ${CLAUDE_PROJECT_DIR}-relative path.
@@ -115,7 +124,24 @@ const CODEX_HOOKS = [
   { event: "UserPromptSubmit", command: hookCommand("notify-deliver.sh") },
 ];
 
-const HOOKS = host === "codex" ? CODEX_HOOKS : CLAUDE_HOOKS;
+const CURSOR_HOOKS = [
+  { event: "preToolUse", matcher: WRITE_MATCHER, command: hookCommand("pre-edit.sh") },
+  { event: "preToolUse", matcher: WRITE_MATCHER, command: hookCommand("harness-guard.sh") },
+  { event: "postToolUse", matcher: WRITE_MATCHER, command: hookCommand("post-edit.sh") },
+  { event: "stop", command: hookCommand("stop-verify.sh") },
+  { event: "subagentStop", command: hookCommand("stop-verify.sh") },
+  // Cursor local agents expose sessionEnd; cloud agents do not, but do support
+  // preCompact. Wire both checkpoints so local sessions and cloud compactions
+  // can capture best-effort handoffs.
+  { event: "sessionEnd", command: hookCommand("session-end.sh") },
+  { event: "preCompact", command: hookCommand("session-end.sh") },
+  // Cursor's beforeSubmitPrompt cannot inject context; sessionStart supports
+  // additional_context, which notify-deliver emits alongside Codex's
+  // additionalContext shape.
+  { event: "sessionStart", command: hookCommand("notify-deliver.sh") },
+];
+
+const HOOKS = host === "codex" ? CODEX_HOOKS : host === "cursor" ? CURSOR_HOOKS : CLAUDE_HOOKS;
 
 function load() {
   if (!existsSync(settingsPath)) return {};
@@ -127,6 +153,13 @@ function load() {
 }
 
 function entry(spec) {
+  if (host === "cursor") {
+    return {
+      command: spec.command,
+      timeout: 20,
+      ...(spec.matcher ? { matcher: spec.matcher } : {}),
+    };
+  }
   return {
     ...(spec.matcher ? { matcher: spec.matcher } : {}),
     hooks: [{ type: "command", command: spec.command, timeout: 20 }],
@@ -134,13 +167,17 @@ function entry(spec) {
 }
 
 function hasCommand(groups, command) {
-  return (groups || []).some((g) => (g.hooks || []).some((h) => h.command === command));
+  return (groups || []).some((g) => g.command === command || (g.hooks || []).some((h) => h.command === command));
 }
 
 function removeCommand(groups, command) {
   let removed = false;
   const out = [];
   for (const group of groups || []) {
+    if (group.command === command) {
+      removed = true;
+      continue;
+    }
     const hooks = (group.hooks || []).filter((h) => {
       if (h.command === command) {
         removed = true;
@@ -173,6 +210,10 @@ if (check) {
 
 let changed = false;
 settings.hooks ||= {};
+if (host === "cursor" && !remove && settings.version == null) {
+  settings.version = 1;
+  changed = true;
+}
 
 if (remove) {
   for (const spec of HOOKS) {

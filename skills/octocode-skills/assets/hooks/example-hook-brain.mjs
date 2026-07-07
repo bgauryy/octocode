@@ -33,11 +33,12 @@ function readPayload() {
   }
 }
 
-// Claude, Codex, and Pi shape the payload differently — read whichever field
-// is present instead of assuming one host.
+// Claude, Cursor, Codex, and Pi shape payloads differently — read whichever
+// field is present instead of assuming one host.
 function filePath(payload) {
   return (
     payload?.tool_input?.file_path ??
+    payload?.file_path ??
     payload?.input?.path ??
     payload?.args?.path ??
     null

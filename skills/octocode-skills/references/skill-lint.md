@@ -116,6 +116,8 @@ Hooks are behavior, not metadata.
 
 When copying, installing, or auditing third-party skills, inspect hooks before writing them into a user/project scope. Report what they run, whether they touch files, and whether they are optional, required, or unsafe.
 
+The lint's `hooks-*` checks cover Claude-style `hooks:` frontmatter in `SKILL.md`. Cursor and Codex native hook configs (`.cursor/hooks.json`, `.codex/hooks.json`, and plugin `hooks/hooks.json`) are valid hook surfaces too, but they must be reviewed directly because they are outside `SKILL.md` frontmatter.
+
 ## Fixing a failing skill
 
 1. Run the lint; fix ERRORs first — each message names the exact gap (missing file, bad frontmatter, escaped link, missing scheme script).

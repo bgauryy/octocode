@@ -1652,7 +1652,10 @@ async function runNotifyDeliver(payload) {
       format: "hook"
     });
     if (result.additionalContext) {
-      process.stdout.write(JSON.stringify({ additionalContext: result.additionalContext }) + "\n");
+      process.stdout.write(JSON.stringify({
+        additionalContext: result.additionalContext,
+        additional_context: result.additionalContext
+      }) + "\n");
     }
   } catch {
   }

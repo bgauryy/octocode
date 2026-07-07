@@ -357,7 +357,7 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 > [Agent Skills](https://agentskills.io/what-are-skills) are a lightweight, open format for extending AI agent capabilities.
 > Browse and install on [**skills.sh/bgauryy/octocode-mcp**](https://www.skills.sh/bgauryy/octocode-mcp)
 
-These are the skills the Octocode team itself uses to build Octocode. **9 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table below is the full index. ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
+These are the skills the Octocode team itself uses to build Octocode. **10 skills** live under [`skills/`](https://github.com/bgauryy/octocode/tree/main/skills); the table below is the full index. ⭐ **[Research](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research)** is the recommended starting skill for technical research, code work, reviews, refactors, and repeated evidence loops.
 
 Each skill folder includes a human README with purpose, features, workflow, developer notes, and `npx octocode skill` installation. `SKILL.md` stays the compact agent-facing router.
 
@@ -378,15 +378,18 @@ Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`)
 
 | Skill | Directory | Install with `npx octocode` | Use it when |
 |-------|-----------|-----------------------------|-------------|
-| [**Octocode**](https://www.skills.sh/bgauryy/octocode-mcp/octocode) | `octocode/` | `npx octocode skill --name octocode` | You want a quick code-research answer through MCP or the `npx octocode` CLI. |
 | [**Brainstorming**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-brainstorming) | `octocode-brainstorming/` | `npx octocode skill --name octocode-brainstorming` | The idea is fuzzy and needs prior-art or opportunity validation. |
 | ⭐ [**Research**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) | `octocode-research/` | `npx octocode skill --name octocode-research` | You need evidence-first technical research, code work, review, refactor, architecture analysis, or repeated proof loops. |
 | [**RFC Generator**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-rfc-generator) | `octocode-rfc-generator/` | `npx octocode skill --name octocode-rfc-generator` | You need a design doc, RFC, architecture proposal, migration plan, or rollout plan before coding. |
 | [**Roast**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-roast) | `octocode-roast/` | `npx octocode skill --name octocode-roast` | You want blunt but actionable code critique. |
 | [**Skills**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-skills) | `octocode-skills/` | `npx octocode skill --name octocode-skills` | You are working on Agent Skills themselves. |
-| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared agent memory (salience-ranked recall with confidence flags), file locks, notifications, handoffs, or verify-before-conclude in a shared repo. |
-| [**Stats**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-stats) | `octocode-stats/` | `npx octocode skill --name octocode-stats` | You want to visualize Octocode usage, savings, cache hits, errors, or rate limits. |
 | [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
+| [**Subagents**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-subagents) | `octocode-subagents/` | `npx octocode skill --name octocode-subagents` | You need to decide when to spawn background Pi worker agents, write self-contained worker prompts, or synthesize their output. |
+| [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared agent memory (salience-ranked recall with confidence flags), file locks, notifications, handoffs, or verify-before-conclude in a shared repo. |
+| [**Reflection**](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness/skills/octocode-reflection) | `octocode-reflection/` | `npx octocode skill --name octocode-reflection` | Work just finished and produced a reusable lesson, or memory/signals/refinements need cleanup. Pairs with Awareness. |
+| [**Agent Communication**](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness/skills/octocode-agent-communication) | `octocode-agent-communication/` | `npx octocode skill --name octocode-agent-communication` | Multiple agents share a workspace and need to message, hand off, ask, or resolve — instead of colliding. Pairs with Awareness. |
+
+Awareness, Reflection, and Agent Communication share one local SQLite store and one runtime, [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) — see that package's README for the CLI, library API, and full data model.
 
 ---
 
@@ -431,6 +434,11 @@ client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize 
 | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) | `@octocodeai/octocode-engine` | Rust/napi native engine: security scanning, minification, signatures, structural AST, ripgrep/diff/YAML, LSP. |
 | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader: `getOctocodeHome`, `.env` parsing, `.octocoderc` reading. Single source used by every package and skill. |
 | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth + multi-editor MCP install. |
+| [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) | `@octocodeai/octocode-awareness` | Shared workspace coordination: file locks, durable memory, agent-to-agent signals, and verification gates over one local SQLite store. Runtime behind the Awareness, Reflection, and Agent Communication skills. |
+| [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) | `@octocodeai/pi-extension` | Official [Pi](https://github.com/earendil-works/pi) harness: operating-model system prompt, 13 native research tools registered in-process, memory tools, edit-safety hooks, and 10 bundled skills. |
+| [`packages/octocode-agent`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agent) | `octocode-agent` | Self-working coding agent CLI: launches Pi with `@octocodeai/pi-extension` as its harness under one branded command. |
+
+`packages/octocode-benchmark` (private, not published) holds benchmark methodology, evals, and run artifacts — see [Documentation](#documentation).
 
 ---
 
@@ -443,7 +451,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/b
 | MCP server | [Octocode MCP Server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
 | Tools and workflows | [Octocode Tools Reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Octocode Research Skill](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) · [Search Guide](https://github.com/bgauryy/octocode/blob/main/docs/context/SEARCH_GUIDE.md) |
 | CLI and query language | [Octocode CLI Guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) · [Octocode Query Language](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_QUERY_LANGUAGE.md) · [OQL Research Graph Flow](https://github.com/bgauryy/octocode/blob/main/docs/context/OQL_RESEARCH_GRAPH_FLOW.md) |
-| Agent harness and skills | [Octocode Pi package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/README.md) · [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
+| Agent harness and skills | [Octocode Pi package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/README.md) · [Octocode Awareness package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-awareness/README.md) · [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
 | Pi | [Pi package README](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/README.md) · [Pi APPEND_SYSTEM starter](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md) |
 | Development and security | [Security Model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP Server Lifecycle](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md) |
 | Benchmarks and evals | [Benchmark Summary](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/BENCHMARK.md) · [Unified CLI/Tool/OQL Eval](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/benchmark/octocode/README.md) · [Benchmark Runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/recipes/agent-benchmark-runbook.md) · [Support Matrix](https://github.com/bgauryy/octocode/blob/main/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |

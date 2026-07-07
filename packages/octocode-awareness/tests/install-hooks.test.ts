@@ -22,7 +22,7 @@ function runInstallHooks(args: string[]) {
   return JSON.parse(result.stdout) as {
     host: string;
     settingsPath: string;
-    resultingSettings: { hooks?: Record<string, unknown> };
+    resultingSettings: { version?: number; hooks?: Record<string, Array<Record<string, unknown>>> };
   };
 }
 
@@ -58,6 +58,35 @@ describe('install-hooks', () => {
       expect(result.settingsPath).toBe(resolve(projectDir, '.claude/settings.json'));
       expect(result.resultingSettings.hooks).toHaveProperty('SessionEnd');
       expect(result.resultingSettings.hooks).not.toHaveProperty('PreCompact');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('previews Cursor hooks in native .cursor/hooks.json shape', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-cursor-hooks-'));
+    try {
+      const result = runInstallHooks(['--host', 'cursor', '--project-dir', projectDir, '--dry-run']);
+
+      expect(result.host).toBe('cursor');
+      expect(result.settingsPath).toBe(resolve(projectDir, '.cursor/hooks.json'));
+      expect(result.resultingSettings).toMatchObject({ version: 1 });
+      expect(Object.keys(result.resultingSettings.hooks ?? {})).toEqual([
+        'preToolUse',
+        'postToolUse',
+        'stop',
+        'subagentStop',
+        'sessionEnd',
+        'preCompact',
+        'sessionStart',
+      ]);
+      expect(result.resultingSettings.hooks?.preToolUse?.[0]).toMatchObject({
+        command: expect.stringContaining('pre-edit.sh'),
+        timeout: 20,
+        matcher: expect.stringContaining('Write'),
+      });
+      expect(result.resultingSettings.hooks?.preToolUse?.[0]).not.toHaveProperty('hooks');
+      expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

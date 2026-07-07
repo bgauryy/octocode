@@ -32,7 +32,7 @@ User/CLI maintenance uses `memory_digest` and `memory_forget`. Scripts call `scr
 - When checking the shared SQLite schema, read `octocode-awareness`'s data-model reference; this skill does not duplicate it.
 
 ## Scripts
-- `scripts/awareness.mjs` — tell-memory (the CLI name for record), reflect, digest, forget, audit cleanup, export-harness, mine-weakness, and data-view commands.
+- `scripts/awareness.mjs` — tell-memory (the CLI name for record), reflect, digest, forget, audit cleanup, export-harness, and mine-weakness commands.
 - `scripts/schema.mjs` — inspect JSON payload contracts before building wrappers or Pi adapters.
 
 ## Boundary

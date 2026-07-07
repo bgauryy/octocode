@@ -25,9 +25,14 @@ Hooks should not:
 
 Awareness hooks may surface inbox context before this skill is loaded. When `octocode-awareness` says messages are available, load this skill before acting so replies, acknowledgements, resolution, and A2A mapping stay consistent.
 
-Codex does not execute standalone `SKILL.md` hook frontmatter. Codex hook wiring must come from project `.codex` config, user config, or plugin hook config. Use `octocode-awareness` hook installation guidance before changing hook config.
+Codex and Cursor do not execute standalone `SKILL.md` hook frontmatter as native skill metadata.
+Codex hook wiring must come from project `.codex` config, user config, or plugin hook config.
+Cursor hook wiring must come from project/user `.cursor/hooks.json`, Cursor plugin hooks, or Claude Code config compatibility when third-party configs are enabled.
+Use `octocode-awareness` hook installation guidance before changing hook config.
 
 Claude-style hosts may read hook frontmatter, but communication should still go through `scripts/awareness.mjs agent-signal`.
+
+Cursor native `sessionStart` can inject a best-effort unread-message briefing. Cursor native `beforeSubmitPrompt` cannot inject context, so do not rely on it for per-prompt inbox delivery.
 
 Pi hosts can register the current agent identity during startup and surface signals through the awareness bridge.
 

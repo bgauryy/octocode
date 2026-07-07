@@ -1,8 +1,9 @@
 /**
  * extract-hook-files.ts — Extract file paths from a hook JSON payload (stdin).
  *
- * Handles Claude-style tool_input payloads, Pi tool events (`input`/`args`),
- * and Codex apply_patch command strings. Prints one path per line, deduplicated.
+ * Handles Claude-style tool_input payloads, Cursor flat file_path payloads,
+ * Pi tool events (`input`/`args`), and Codex apply_patch command strings.
+ * Prints one path per line, deduplicated.
  * Exits 0 on any error (fail-open).
  *
  * Compiled to dist/bin/extract-hook-files.js.
@@ -11,7 +12,7 @@
 const USAGE = `usage: extract-hook-files < hook-payload.json
 
 Reads a hook JSON payload from stdin and prints one deduplicated file path per line.
-Supports Claude tool_input, Pi input/args, and Codex apply_patch command payloads.
+Supports Claude tool_input, Cursor file_path, Pi input/args, and Codex apply_patch command payloads.
 `;
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
