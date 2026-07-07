@@ -26,6 +26,27 @@ import type {
 const DECAY_WEIGHTS = { importance: 0.25, recency: 0.30, access: 0.15, lexical: 0.30 };
 const DEFAULT_HALF_LIFE_DAYS = 30.0;
 const ACCESS_SATURATION = 50.0;
+// Weak-pool guard for lexical normalization: lexical = bm25 / (poolMax + K).
+// Pure pool-max normalization gave the best hit of an all-weak pool relevance 1.0;
+// K deflates weak pools while preserving within-pool ranking ratios. Calibrated
+// against our column weights (10/7/2): good matches land at bm25 ≈ 1–3.
+const BM25_SQUASH_K = 1.0;
+// Below this pool max, bm25 is degenerate (IDF collapse — e.g. a near-empty store
+// or a term present in every row) and cannot discriminate; treat as neutral.
+const BM25_DEGENERATE_MAX = 0.01;
+// Recall below this top-relevance is flagged judgment_required (engram BM25Floor pattern).
+const JUDGMENT_RELEVANCE_FLOOR = 0.35;
+// Broad forget selectors (no explicit ids) never delete memories above this
+// importance unless --max-importance explicitly raises the ceiling.
+const SALIENCE_FLOOR = 8;
+// Per-label decay half-life defaults (days). Durable knowledge decays slowly;
+// post-task reflections (EXPERIENCE) decay fast; everything else uses the
+// read-time DEFAULT_HALF_LIFE_DAYS.
+const LABEL_HALF_LIFE_DAYS: Record<string, number> = {
+  DECISION: 90, ARCHITECTURE: 90, SECURITY: 90, GOTCHA: 90,
+  OVERRIDE: 90, // permanent corrections to model defaults — decay as slowly as DECISION
+  EXPERIENCE: 14,
+};
 const SCORING_PREFETCH_FACTOR = 3;
 const SIMILARITY_THRESHOLD = 0.45;
 const SIMILARITY_PREFETCH = 12;
@@ -89,11 +110,11 @@ export function findSimilarMemories(
     .slice(0, limit);
 }
 
-export function decayScore(
+export function decayComponents(
   memory: MemoryRecord,
   lexical: number,
   weights = DECAY_WEIGHTS,
-): number {
+): NonNullable<MemoryRecord['score_components']> {
   const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
   const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
   let recency = 0;
@@ -102,14 +123,24 @@ export function decayScore(
     recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
   }
   const importance = (memory.importance_score ?? 0) / 10;
-  const access = Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION);
-  const lexNorm = Math.max(0, Math.min(1, lexical));
-  return (
+  const access = Math.min(
+    Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION), 1
+  );
+  const relevance = Math.max(0, Math.min(1, lexical));
+  const final =
     weights.importance * importance +
     weights.recency * recency +
-    weights.access * Math.min(access, 1) +
-    weights.lexical * lexNorm
-  );
+    weights.access * access +
+    weights.lexical * relevance;
+  return { importance, recency, access, relevance, weights, final };
+}
+
+export function decayScore(
+  memory: MemoryRecord,
+  lexical: number,
+  weights = DECAY_WEIGHTS,
+): number {
+  return decayComponents(memory, lexical, weights).final;
 }
 
 // ─── FTS helpers ──────────────────────────────────────────────────────────────
@@ -127,9 +158,9 @@ function buildFtsQuery(query: string): string | null {
     ),
   ].slice(0, 16);
   if (tokens.length === 0) return null;
-  // Short queries use AND (precise) — FTS5 returns only memories containing all tokens.
-  // Longer queries use OR (broad recall) — BM25 + decay scoring handles ranking.
-  return tokens.length <= 2 ? tokens.join(' ') : tokens.join(' OR ');
+  // Always OR: BM25 + decay scoring handles ranking; AND for short queries silently
+  // dropped 2-token matches where only one term appears in a relevant memory.
+  return tokens.join(' OR ');
 }
 
 function fallbackSearch(
@@ -200,8 +231,11 @@ export function lexicalSearch(
 
   const maxBm25 = rows.reduce((m, r) => Math.max(m, r._bm25 ?? 0), 0);
   return rows.map(row => {
-    const lexical = maxBm25 > 0 ? (row._bm25 ?? 0) / maxBm25 : 0.5;
+    const lexical = maxBm25 >= BM25_DEGENERATE_MAX
+      ? (row._bm25 ?? 0) / (maxBm25 + BM25_SQUASH_K)
+      : 0.5;
     const mem = rowToMemory(row);
+    mem.lexical = lexical;
     mem.score = decayScore(mem, lexical);
     return mem;
   });
@@ -259,7 +293,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   const normalizedLabel = normalizeLabel(Array.isArray(label) ? label[0] : label);
   const createdAt = utcNow();
   const validFromVal = vf ?? createdAt;
-  const memFile = normalizeFilePath(fileArg);
+  const memFile = normalizeFilePath(fileArg, cwd);
 
   const scope = fillScope(
     { workspace_path: workspacePath ?? null, repo: repoArg ?? null, ref: refArg ?? null },
@@ -272,42 +306,55 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
   const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
   const similarMemoryIds = similar.map(m => m.memory_id);
 
-  db.prepare(`
-    INSERT INTO agent_memories (
-      memory_id, agent_id, task_context, observation, importance_score,
-      label, tags_json, tags_text, references_json, workspace_path, repo, ref,
-      file_tree_fingerprint, file, novelty_score, similar_memory_ids_json, created_at, updated_at,
-      last_accessed_at, access_count, failure_signature, valid_from, valid_to
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-  `).run(
-    memoryId, agentId, taskContext, observation, imp,
-    normalizedLabel, JSON.stringify(tagList), tagsText(tagList), JSON.stringify(refList),
-    scope.workspace_path, scope.repo, scope.ref,
-    fileTreeFingerprint, memFile, noveltyScore, JSON.stringify(similarMemoryIds), createdAt, createdAt,
-    createdAt, failureSignature ?? null, validFromVal, vt ?? null
-  );
+  const halfLifeDefault = LABEL_HALF_LIFE_DAYS[normalizedLabel] ?? null;
 
-  // Populate structured reference index (Python-compatible memory_references table)
-  if (refList.length > 0) {
-    try { replaceMemoryReferences(db, memoryId, refList); } catch { /* ignore if table missing */ }
-  }
-
-  if (hasFts(db)) {
-    db.prepare(
-      'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
-    ).run(
-      memoryId, taskContext, observation,
-      ftsTermsForRow({
-        tags_json: JSON.stringify(tagList),
-        references_json: JSON.stringify(refList),
-        label: normalizedLabel,
-        file: memFile,
-        failure_signature: failureSignature ?? null,
-        workspace_path: scope.workspace_path,
-        repo: scope.repo,
-        ref: scope.ref,
-      })
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare(`
+      INSERT INTO agent_memories (
+        memory_id, agent_id, task_context, observation, importance_score,
+        label, tags_json, tags_text, references_json, workspace_path, repo, ref,
+        file_tree_fingerprint, file, novelty_score, similar_memory_ids_json, created_at, updated_at,
+        last_accessed_at, access_count, failure_signature, valid_from, valid_to, decay_half_life_days
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+    `).run(
+      memoryId, agentId, taskContext, observation, imp,
+      normalizedLabel, JSON.stringify(tagList), tagsText(tagList), JSON.stringify(refList),
+      scope.workspace_path, scope.repo, scope.ref,
+      fileTreeFingerprint, memFile, noveltyScore, JSON.stringify(similarMemoryIds), createdAt, createdAt,
+      createdAt, failureSignature ?? null, validFromVal, vt ?? null, halfLifeDefault
     );
+
+    // Populate structured reference index (Python-compatible memory_references table)
+    if (refList.length > 0) {
+      try {
+        replaceMemoryReferences(db, memoryId, refList);
+      } catch (e) {
+        if (!(e instanceof Error && e.message.includes('no such table'))) throw e;
+      }
+    }
+
+    if (hasFts(db)) {
+      db.prepare(
+        'INSERT INTO memory_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
+      ).run(
+        memoryId, taskContext, observation,
+        ftsTermsForRow({
+          tags_json: JSON.stringify(tagList),
+          references_json: JSON.stringify(refList),
+          label: normalizedLabel,
+          file: memFile,
+          failure_signature: failureSignature ?? null,
+          workspace_path: scope.workspace_path,
+          repo: scope.repo,
+          ref: scope.ref,
+        })
+      );
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    throw e;
   }
 
   // Supersede old memories
@@ -372,6 +419,8 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     regex = [],
     fileRegex = [],
     files = [],
+    explain = false,
+    cwd: cwdParam,
   } = params;
 
   const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
@@ -403,7 +452,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
 
   // Exact file filter
   if (files.length > 0) {
-    const normFiles = new Set(files.map(f => normalizeFilePath(f) ?? f));
+    const normFiles = new Set(files.map(f => normalizeFilePath(f, cwdParam) ?? f));
     memories = memories.filter(m => m.file != null && normFiles.has(m.file));
   }
 
@@ -411,6 +460,10 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   // MEM-1: A zero result from the table means "no matches", not "table unavailable".
   // The JSON scan fallback only fires when the table itself throws (e.g. very old DB without
   // the table), not when it returns 0 rows.
+  // MEM-2: Apply the reference filter BEFORE the FTS prefetch cap matters: fetch all reference-
+  // matched memory_ids from the table first, then load any that were outside the FTS prefetch
+  // window directly (bypassing the cap). Without this, a low-BM25 memory that matches the
+  // reference but isn't in the top limit×3 FTS rows is silently dropped.
   if (references.length > 0) {
     const refSet = new Set(references);
     try {
@@ -420,6 +473,27 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
           'SELECT memory_id FROM memory_references WHERE reference = ?'
         ).all(ref) as unknown as Array<{ memory_id: string }>;
         rows.forEach(r => fromTable.add(r.memory_id));
+      }
+      if (fromTable.size > 0) {
+        // Load any reference-matched memories that didn't make it through the FTS prefetch cap.
+        const existingIds = new Set(memories.map(m => m.memory_id));
+        const missingIds = [...fromTable].filter(id => !existingIds.has(id));
+        if (missingIds.length > 0) {
+          const ph = missingIds.map(() => '?').join(',');
+          type MRow = MemoryRow & { _bm25?: number };
+          const extra = db.prepare(
+            `SELECT m.*, 0 AS _bm25 FROM agent_memories m
+             WHERE m.memory_id IN (${ph})
+               AND m.importance_score >= ?
+               AND m.state IN (${states.map(() => '?').join(',')})`
+          ).all(...missingIds, minImportance, ...states) as unknown as MRow[];
+          for (const row of extra) {
+            const mem = rowToMemory(row);
+            mem.lexical = 0;
+            mem.score = decayScore(mem, 0);
+            memories.push(mem);
+          }
+        }
       }
       // Authoritative result: fromTable may be empty if no memory matches these refs.
       memories = memories.filter(m => fromTable.has(m.memory_id));
@@ -460,6 +534,9 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
 
   if (asOf) {
     const asOfDate = new Date(asOf);
+    if (isNaN(asOfDate.getTime())) {
+      throw new Error(`invalid --as-of value "${asOf}" — expected ISO 8601 date string (e.g. 2024-06-01T00:00:00Z)`);
+    }
     memories = memories.filter(m => {
       const vf = m.valid_from ? new Date(m.valid_from) : null;
       const vt = m.valid_to ? new Date(m.valid_to) : null;
@@ -481,17 +558,41 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
   }
 
   memories = memories.slice(0, limit);
+  if (explain) {
+    for (const m of memories) {
+      m.score_components = decayComponents(m, m.lexical ?? 0);
+    }
+  }
   bumpAccess(db, memories.map(m => m.memory_id));
 
-  return {
+  const mode = hasFts(db) ? 'lexical' as const : 'fallback' as const;
+  const result: GetMemoryResult = {
     count: memories.length,
     memories,
-    mode: hasFts(db) ? 'lexical' : 'fallback',
+    mode,
     sort,
     as_of: asOf ?? null,
     global_only: Boolean(globalOnly),
     states,
   };
+
+  // Low-confidence recall flag (engram BM25Floor pattern): tell the agent when
+  // results are weak matches so it verifies before relying on them.
+  if (query.trim()) {
+    const topRelevance = memories[0]?.lexical ?? 0;
+    if (memories.length === 0) {
+      result.judgment_required = true;
+      result.judgment_reason = 'no results — absence of recall is not proof of absence; retry with --smart or broader terms';
+    } else if (mode === 'fallback') {
+      result.judgment_required = true;
+      result.judgment_reason = 'FTS unavailable — results are unranked substring matches; verify relevance before relying on them';
+    } else if (topRelevance < JUDGMENT_RELEVANCE_FLOOR) {
+      result.judgment_required = true;
+      result.judgment_reason = `weak lexical match (top relevance ${topRelevance.toFixed(2)} < ${JUDGMENT_RELEVANCE_FLOOR}) — treat results as leads, not answers`;
+    }
+  }
+
+  return result;
 }
 
 // ─── forgetMemory ─────────────────────────────────────────────────────────────────
@@ -501,40 +602,63 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
  * dryRun=true returns the count without deleting anything.
  */
 export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): ForgetMemoryResult {
-  const { memoryIds = [], tags = [], before, maxImportance, dryRun = false } = params;
+  const { memoryIds = [], tags = [], before, dryRun = false } = params;
+  let { maxImportance } = params;
 
-  const conditions: string[] = [];
+  // Two independent OR-combined selector groups so filters don't cross-contaminate:
+  //   Group 1 — explicit IDs: always deleted, no importance or tag filter applied.
+  //             (combining id + maxImportance as AND silently deleted nothing when the
+  //             target memory had higher importance than the ceiling — docstring says OR.)
+  //   Group 2 — attribute-based: tags/age/importance with salience-floor guard.
+  const selectorGroups: string[] = [];
   const bindParams: (string | number)[] = [];
+  let salienceFloorApplied = false;
 
+  // Group 1: direct by id (unconditional)
   if (memoryIds.length > 0) {
-    conditions.push(`memory_id IN (${memoryIds.map(() => '?').join(',')})`);
+    selectorGroups.push(`memory_id IN (${memoryIds.map(() => '?').join(',')})`);
     bindParams.push(...memoryIds);
   }
+
+  // Group 2: attribute-based (tags + age + importance ceiling)
+  const attrConds: string[] = [];
+  const attrBinds: (string | number)[] = [];
   if (tags.length > 0) {
-    conditions.push(`(${tags.map(() => 'tags_text LIKE ?').join(' OR ')})`);
-    bindParams.push(...tags.map(t => `%,${t},%`));
+    attrConds.push(`(${tags.map(() => 'tags_text LIKE ?').join(' OR ')})`);
+    attrBinds.push(...tags.map(t => `%,${t},%`));
   }
   if (before) {
-    conditions.push('created_at < ?');
-    bindParams.push(before);
+    attrConds.push('created_at < ?');
+    attrBinds.push(before);
   }
-  if (maxImportance != null) {
-    conditions.push('importance_score <= ?');
-    bindParams.push(maxImportance);
+  if (attrConds.length > 0 || maxImportance != null) {
+    // Salience floor: broad attribute selectors never sweep high-importance memories
+    // unless --max-importance explicitly raises the ceiling.
+    if (maxImportance == null) {
+      maxImportance = SALIENCE_FLOOR - 1;
+      salienceFloorApplied = true;
+    }
+    attrConds.push('importance_score <= ?');
+    attrBinds.push(maxImportance);
+    selectorGroups.push(`(${attrConds.join(' AND ')})`);
+    bindParams.push(...attrBinds);
   }
 
-  if (conditions.length === 0) {
+  if (selectorGroups.length === 0) {
     throw new Error('forgetMemory requires at least one filter: memoryIds, tags, before, or maxImportance');
   }
 
-  const where = conditions.join(' AND ');
+  const where = selectorGroups.join(' OR ');
   const rows = db.prepare(
     `SELECT memory_id FROM agent_memories WHERE ${where}`
   ).all(...bindParams) as unknown as Array<{ memory_id: string }>;
   const ids = rows.map(r => r.memory_id);
 
   if (dryRun) {
-    return { deleted: 0, dry_run: true, would_delete: ids.length, memory_ids: ids };
+    return {
+      deleted: 0, dry_run: true, would_delete: ids.length, memory_ids: ids,
+      ...(salienceFloorApplied ? { salience_floor: SALIENCE_FLOOR } : {}),
+    };
   }
 
   if (ids.length > 0) {
@@ -548,13 +672,18 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
     } catch { /* ignore if table missing */ }
   }
 
-  return { deleted: ids.length, memory_ids: ids };
+  return {
+    deleted: ids.length, memory_ids: ids,
+    ...(salienceFloorApplied ? { salience_floor: SALIENCE_FLOOR } : {}),
+  };
 }
 
 // ─── mineWeakness ─────────────────────────────────────────────────────────────
 
 export interface WeaknessCluster {
-  failure_signature: string;
+  failure_signature: string;  // raw (may include |surface:Z suffix)
+  base_signature: string;     // without |surface:Z — use this for display/grouping
+  surfaces: string[];         // extracted surface values across all merged signatures
   count: number;
   avg_importance: number;
   score: number;
@@ -578,9 +707,43 @@ export interface MineWeaknessParams {
   cwd?: string;
 }
 
+/** Strip optional |surface:Z suffix from a failure_signature for cluster merging. */
+function stripSurface(sig: string): string {
+  const idx = sig.indexOf('|surface:');
+  return idx >= 0 ? sig.slice(0, idx) : sig;
+}
+
+/** Extract the |surface:Z value if present. */
+function extractSurface(sig: string): string | null {
+  const idx = sig.indexOf('|surface:');
+  return idx >= 0 ? sig.slice(idx + 9) : null;
+}
+
+/** Tokenize a failure_signature for Jaccard similarity (splits on |:). */
+function sigTokens(sig: string): Set<string> {
+  return new Set(
+    sig.split(/[|:]+/)
+      .map(s => s.trim().toLowerCase())
+      .filter(s => s.length > 2 && s !== 'mechanism' && s !== 'cause' && s !== 'surface'),
+  );
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  const intersection = [...a].filter(t => b.has(t)).length;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
 /**
  * Cluster memories by failure_signature to surface recurring failure patterns.
  * Sorted by count × avg_importance so the most impactful patterns appear first.
+ *
+ * Improvements vs naive GROUP BY:
+ * 1. Signatures differing only in |surface:Z suffix are merged into one cluster
+ *    (base_signature is the cluster key; surfaces[] collects all variants).
+ * 2. Diversity filter: a cluster is suppressed if Jaccard similarity ≥ 0.5 vs
+ *    any already-selected cluster, so the output covers distinct failure mechanisms
+ *    rather than N variants of the same one.
  */
 export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}): MineWeaknessResult {
   const { minCount = 2, limit = 20, cwd } = params;
@@ -592,6 +755,8 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   if (wsPath) { conditions.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
   if (params.agentId) { conditions.push('agent_id = ?'); bindParams.push(params.agentId); }
 
+  // Fetch extra rows so merging surface variants doesn't leave the final list short.
+  const fetchLimit = limit * 3;
   type ClusterRow = { failure_signature: string; freq: number; avg_imp: number; score: number; ids: string; labels: string };
   const rows = db.prepare(`
     SELECT failure_signature,
@@ -606,37 +771,87 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
     HAVING freq >= ?
     ORDER BY score DESC
     LIMIT ?
-  `).all(...bindParams, minCount, limit) as unknown as ClusterRow[];
+  `).all(...bindParams, minCount, fetchLimit) as unknown as ClusterRow[];
 
-  // Fix N+1: one query per cluster → one batch query for all representatives.
-  // SQLite's 'bare column with max()' picks the value from the row with the highest
-  // importance_score within each group (documented SQLite aggregate behavior).
-  const allSigs = rows.map(r => r.failure_signature);
+  // Phase 1: merge rows that share the same base_signature (differ only in |surface:Z).
+  // Key = stripped signature; value = merged cluster accumulators.
+  interface Merged {
+    base_sig: string;
+    raw_sig: string;    // highest-score raw signature (for rep lookup)
+    total_freq: number;
+    total_score: number;
+    importance_sum: number;
+    ids: string[];
+    labels: Set<string>;
+    surfaces: Set<string>;
+  }
+  const mergedMap = new Map<string, Merged>();
+  for (const row of rows) {
+    const base = stripSurface(row.failure_signature);
+    const surface = extractSurface(row.failure_signature);
+    const existing = mergedMap.get(base);
+    if (existing) {
+      existing.total_freq += row.freq;
+      existing.total_score += row.score;
+      existing.importance_sum += row.avg_imp * row.freq;
+      existing.ids.push(...row.ids.split(','));
+      for (const l of row.labels.split(',').filter(Boolean)) existing.labels.add(l);
+      if (surface) existing.surfaces.add(surface);
+      // Keep the raw signature with the highest original score for rep lookup
+      if (row.score > existing.total_score - row.score) existing.raw_sig = row.failure_signature;
+    } else {
+      mergedMap.set(base, {
+        base_sig: base,
+        raw_sig: row.failure_signature,
+        total_freq: row.freq,
+        total_score: row.score,
+        importance_sum: row.avg_imp * row.freq,
+        ids: row.ids.split(','),
+        labels: new Set(row.labels.split(',').filter(Boolean)),
+        surfaces: new Set(surface ? [surface] : []),
+      });
+    }
+  }
+
+  // Re-sort merged clusters by total_score DESC.
+  const merged = [...mergedMap.values()].sort((a, b) => b.total_score - a.total_score);
+
+  // Phase 2: batch-fetch representatives for all distinct base signatures.
   type RepRow = { failure_signature: string; observation: string };
   const repMap = new Map<string, string>();
-  if (allSigs.length > 0) {
-    const ph = allSigs.map(() => '?').join(',');
+  const allRawSigs = merged.map(m => m.raw_sig);
+  if (allRawSigs.length > 0) {
+    const ph = allRawSigs.map(() => '?').join(',');
     const repRows = db.prepare(
       `SELECT failure_signature, observation, max(importance_score)
        FROM agent_memories
        WHERE failure_signature IN (${ph}) AND state = 'ACTIVE'
        GROUP BY failure_signature`
-    ).all(...allSigs) as unknown as RepRow[];
-    for (const r of repRows) repMap.set(r.failure_signature, r.observation);
+    ).all(...allRawSigs) as unknown as RepRow[];
+    for (const r of repRows) repMap.set(stripSurface(r.failure_signature), r.observation);
   }
 
-  const clusters: WeaknessCluster[] = rows.map(row => {
-    const ids = row.ids.split(',');
-    return {
-      failure_signature: row.failure_signature,
-      count: row.freq,
-      avg_importance: Math.round(row.avg_imp * 10) / 10,
-      score: Math.round(row.score * 10) / 10,
-      memory_ids: ids,
-      representative: (repMap.get(row.failure_signature) ?? '').slice(0, 200),
-      labels: row.labels.split(',').filter(Boolean),
-    };
-  });
+  // Phase 3: Jaccard diversity filter — skip cluster if ≥ 0.5 overlap with any already-selected.
+  const selected: WeaknessCluster[] = [];
+  for (const m of merged) {
+    if (selected.length >= limit) break;
+    const toks = sigTokens(m.base_sig);
+    const tooSimilar = selected.some(
+      sel => jaccardSimilarity(sigTokens(sel.base_signature), toks) >= 0.5,
+    );
+    if (tooSimilar) continue;
+    selected.push({
+      failure_signature: m.raw_sig,
+      base_signature: m.base_sig,
+      surfaces: [...m.surfaces].sort(),
+      count: m.total_freq,
+      avg_importance: Math.round((m.importance_sum / m.total_freq) * 10) / 10,
+      score: Math.round(m.total_score * 10) / 10,
+      memory_ids: [...new Set(m.ids)],
+      representative: (repMap.get(m.base_sig) ?? '').slice(0, 200),
+      labels: [...m.labels].sort(),
+    });
+  }
 
   type TotalRow = { sigs: number; mems: number };
   const totals = db.prepare(
@@ -644,7 +859,7 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
      FROM agent_memories WHERE failure_signature IS NOT NULL AND state = 'ACTIVE'`
   ).get() as unknown as TotalRow;
 
-  return { ok: true, clusters, total_signatures: totals.sigs, total_memories: totals.mems };
+  return { ok: true, clusters: selected, total_signatures: totals.sigs, total_memories: totals.mems };
 }
 
 // ─── Embedding storage + cosine search (ARCH-6) ─────────────────────────────
@@ -714,9 +929,12 @@ export function searchByEmbedding(
   if (model) { conditions.push('embedding_model = ?'); binds.push(model); }
 
   type EmbRow = { memory_id: string; embedding: Buffer; embedding_model: string };
+  // Limit to avoid loading unbounded embedding blobs into JS heap; cosine-rank within the cap.
   const rows = db.prepare(
     `SELECT memory_id, embedding, embedding_model FROM agent_memories
-     WHERE ${conditions.join(' AND ')}`
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY COALESCE(last_accessed_at, created_at) DESC
+     LIMIT 2000`
   ).all(...binds) as unknown as EmbRow[];
 
   const results: Array<{ memory_id: string; similarity: number }> = [];

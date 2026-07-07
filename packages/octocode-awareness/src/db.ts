@@ -207,12 +207,6 @@ export function initDb(db: DatabaseSync): void {
 
     CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
-    -- DB-1: workspace_path and tags_text used in nearly every scope filter — previously unindexed
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_tags_text ON agent_memories(tags_text);
     CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
@@ -232,18 +226,11 @@ export function initDb(db: DatabaseSync): void {
     -- agent_intents: status-only scan is a full table scan with 1679 rows in prod
     CREATE INDEX IF NOT EXISTS idx_agent_intents_status ON agent_intents(status);
     CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
-    -- agent_memories: composite scope index covers (workspace_path, repo, ref) at once
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
-    -- file_locks: session-based release queries
-    CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id);
+    -- Indexes on migration-added columns (workspace_path, scope, valid_*,
+    -- embedding_model, session_id) are created AFTER ensure*Columns() below —
+    -- creating them here breaks connect on any store that predates the column.
     -- notifications: thread and to_agent inbox
     CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
-    -- Deduplicate idx_notifications_to_agent; keep the shorter alias too
-    CREATE INDEX IF NOT EXISTS idx_notifications_to ON notifications(to_agent);
     -- memory_references: cover both column name spellings from different migration versions
     CREATE INDEX IF NOT EXISTS idx_memory_references_reference ON memory_references(reference);
   `);
@@ -252,6 +239,22 @@ export function initDb(db: DatabaseSync): void {
   ensureIntentColumns(db);
   ensureRefinementQualitySchema(db);
   ensureMemoryReferencesVersion(db);
+
+  // Indexes on migration-added columns — must run after ensure*Columns() so
+  // stores created by older builds migrate cleanly instead of failing connect.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    -- DB-1: workspace_path and tags_text used in nearly every scope filter — previously unindexed
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
+  `);
 
   try {
     db.exec(`
@@ -336,8 +339,12 @@ export function ensureRefinementQualitySchema(db: DatabaseSync): void {
   if (!row?.sql) return;
 
   if (!row.sql.includes("'handoff'")) {
-    db.exec('ALTER TABLE refinements RENAME TO refinements_old_quality_migration');
+    // Wrap the entire rename→recreate→copy→drop sequence in a single transaction.
+    // Without this, a crash between ALTER TABLE and DROP TABLE leaves the DB with
+    // refinements_old_quality_migration but no refinements table — permanently broken.
     db.exec(`
+      BEGIN;
+      ALTER TABLE refinements RENAME TO refinements_old_quality_migration;
       CREATE TABLE refinements (
         refinement_id TEXT PRIMARY KEY,
         agent_id TEXT NOT NULL,
@@ -363,6 +370,7 @@ export function ensureRefinementQualitySchema(db: DatabaseSync): void {
         state, created_at, updated_at
       FROM refinements_old_quality_migration;
       DROP TABLE refinements_old_quality_migration;
+      COMMIT;
     `);
   }
 
@@ -425,14 +433,21 @@ function backfillMemoryReferences(db: DatabaseSync): void {
 }
 
 export function ensureMemoryReferencesVersion(db: DatabaseSync): void {
+  // Split into two try blocks: the version check may throw "no such table" on very old DBs
+  // (legitimate — skip). The backfill itself must NOT be swallowed: a silently-failed backfill
+  // leaves memory_references empty, causing reference-filtered memory_get to return 0 results
+  // with ok:true even when matches exist.
+  let needsBackfill: boolean;
   try {
     const row = db.prepare("SELECT value FROM awareness_meta WHERE key='memory_references_version'").get() as MetaRow | undefined;
-    if (row?.value === REFERENCES_INDEX_VERSION) return;
-    backfillMemoryReferences(db);
-    db.prepare("INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_references_version', ?)").run(REFERENCES_INDEX_VERSION);
+    needsBackfill = row?.value !== REFERENCES_INDEX_VERSION;
   } catch {
-    // awareness_meta may not exist yet on very old DBs; skip silently
+    // awareness_meta does not exist on very old DBs — skip backfill entirely
+    return;
   }
+  if (!needsBackfill) return;
+  backfillMemoryReferences(db);
+  db.prepare("INSERT OR REPLACE INTO awareness_meta(key, value) VALUES ('memory_references_version', ?)").run(REFERENCES_INDEX_VERSION);
 }
 
 // ─── FTS ───────────────────────────────────────────────────────────────────

@@ -61,7 +61,9 @@ pub fn search(
         .ok_or_else(|| format!("structural search does not support .{ext} files"))?;
     let lang = AgLanguage::new(ext, entry);
     let run = compile_matcher(&lang, query)?;
-    Ok(run(content))
+    // The non-detailed API returns bare StructuralMatch; node_kind is only
+    // surfaced by the detailed shape.
+    Ok(run(content).into_iter().map(|m| m.matched).collect())
 }
 
 pub fn search_detailed(
@@ -174,7 +176,14 @@ pub fn search_detailed(
 
     let matches = run(content)
         .into_iter()
-        .map(|matched| StructuralDetailedMatch::from_match(file_path, &query_fingerprint, matched))
+        .map(|m| {
+            StructuralDetailedMatch::from_match(
+                file_path,
+                &query_fingerprint,
+                m.matched,
+                m.node_kind,
+            )
+        })
         .collect();
 
     StructuralSearchDetailedResult {
@@ -447,6 +456,12 @@ mod tests {
         assert_eq!(first.matches.len(), 1);
         assert_eq!(first.matches[0].id, second.matches[0].id);
         assert_eq!(first.matches[0].confidence, "exact-ast");
+        // node_kind is populated from the matched tree-sitter node (a
+        // `target(value)` call), not left None.
+        assert_eq!(
+            first.matches[0].node_kind.as_deref(),
+            Some("call_expression")
+        );
     }
 
     #[test]

@@ -54,9 +54,15 @@ const SKIPPED_DIRECTORIES = new Set([
 // Skills excluded from root/skills/ → packages/octocode-pi-extension/skills/ sync:
 //   octocode-awareness — owned by @octocodeai/octocode-awareness; consumed by direct import, not skill copy.
 //   octocode / octocode-stats — architecture docs and utilities, not user-facing skills.
-//   browser-agent — canonical source lives in packages/octocode-pi-extension/skills/browser-agent/;
-//                   it is NOT sourced from root/skills/ so refreshPackageSkills must not overwrite it.
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness', 'octocode-stats', 'browser-agent']);
+//   browser-agent — canonical source lives in packages/octocode-pi-extension/subagents/browser-agent/skills/;
+//                   it is NOT sourced from root/skills/.
+//   octocode-subagents — Pi-only skill; canonical source lives directly in
+//                        packages/octocode-pi-extension/skills/octocode-subagents/ (see PI_NATIVE_SKILLS).
+const SKIPPED_SKILLS = new Set(['octocode', 'octocode-awareness', 'octocode-stats', 'browser-agent', 'octocode-subagents']);
+
+// Skills whose canonical source lives directly in packages/octocode-pi-extension/skills/ —
+// refreshPackageSkills must never delete these when clearing the synced copies.
+const PI_NATIVE_SKILLS = new Set(['octocode-subagents']);
 
 function isSecretEnvFile(name) {
   return name === '.env' || (name.startsWith('.env.') && name !== '.env.example');
@@ -168,7 +174,12 @@ function clean() {
 }
 
 function refreshPackageSkills() {
-  fs.rmSync(SOURCE_PATHS.skills, { recursive: true, force: true });
+  if (fs.existsSync(SOURCE_PATHS.skills)) {
+    for (const entry of fs.readdirSync(SOURCE_PATHS.skills, { withFileTypes: true })) {
+      if (PI_NATIVE_SKILLS.has(entry.name)) continue;
+      fs.rmSync(path.join(SOURCE_PATHS.skills, entry.name), { recursive: true, force: true });
+    }
+  }
   fs.mkdirSync(SOURCE_PATHS.skills, { recursive: true });
   for (const entry of fs.readdirSync(SOURCE_PATHS.rootSkills, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;

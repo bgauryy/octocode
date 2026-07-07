@@ -731,19 +731,35 @@ export function mapRepoStructureProviderResult(
         const allowedFiles = new Set(filteredStructure[dirPath]!.files);
         for (const [fileName, size] of Object.entries(dirFiles)) {
           if (allowedFiles.has(fileName)) {
-            fileSizes[fileName] = size;
+            // Key by full relative path so identically named files in
+            // different directories don't collide onto one bare-name entry.
+            const relativePath =
+              dirPath === '.' ? fileName : `${dirPath}/${fileName}`;
+            fileSizes[relativePath] = size;
           }
         }
       }
     }
   }
 
+  // Filtering happens after provider pagination, so the provider's summary
+  // counts ignored files/folders that were stripped. Recompute from the
+  // filtered structure so the summary describes what is actually emitted.
+  const filteredSummary = Object.values(filteredStructure).reduce(
+    (totals, entry) => {
+      totals.totalFiles += entry.files.length;
+      totals.totalFolders += entry.folders.length;
+      return totals;
+    },
+    { totalFiles: 0, totalFolders: 0 }
+  );
+
   const resultData: Record<string, unknown> = {
     structure: structureArray,
     ...(Object.keys(fileSizes).length > 0 && { fileSizes }),
     summary: {
-      totalFiles: data.summary.totalFiles,
-      totalFolders: data.summary.totalFolders,
+      totalFiles: filteredSummary.totalFiles,
+      totalFolders: filteredSummary.totalFolders,
     },
   };
 

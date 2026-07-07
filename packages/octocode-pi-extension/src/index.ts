@@ -491,7 +491,7 @@ async function wireOctocodePiExtension(
       }
 
       const prompt = readTextIfExists(getAssetPaths().systemPrompt);
-      if (promptMode !== 'replace' && !shouldAppendSystemPrompt(event.systemPrompt, prompt)) {
+      if (!shouldAppendSystemPrompt(event.systemPrompt, prompt)) {
         return;
       }
       if (prompt.trim().length === 0) return;
@@ -603,7 +603,8 @@ async function wireOctocodePiExtension(
 /**
  * Factory: returns the `(pi) => {...}` wiring function Pi invokes as `default(pi)`.
  * `export default createOctocodePiExtension()` preserves the historical single-arg
- * default-export contract exactly; the octocode-agent launcher opts into replace mode.
+ * default-export contract exactly; the octocode-agent launcher opts into octocode-first
+ * mode (the 'replace' option value is accepted as a back-compat alias for it).
  */
 export function createOctocodePiExtension(
   options: OctocodePiExtensionOptions = {},

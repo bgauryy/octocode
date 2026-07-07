@@ -270,7 +270,6 @@ export async function searchPackages(
         const apiResult = await searchPackage({
           name: query.packageName,
           page: (query as { page?: number }).page,
-          itemsPerPage: (query as { itemsPerPage?: number }).itemsPerPage,
           mainResearchGoal: (query as { mainResearchGoal?: string })
             .mainResearchGoal,
           researchGoal: (query as { researchGoal?: string }).researchGoal,

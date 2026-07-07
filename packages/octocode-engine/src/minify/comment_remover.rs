@@ -272,6 +272,11 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
     let mut pos = 0usize;
     let mut qstate = QuoteState::Outside;
 
+    // String-start delimiters sorted longest-first (so `"""` wins over `"`).
+    // This is loop-invariant, so build it once rather than per Outside-state char.
+    let mut sorted_delims: Vec<&'static str> = effective_delimiters(rules).to_vec();
+    sorted_delims.sort_by_key(|d| std::cmp::Reverse(d.len()));
+
     while pos < len {
         match &mut qstate {
             // ── inside multi-char string ──────────────────────────────────
@@ -337,9 +342,10 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                 }
 
                 // 5. String-start delimiter (longest match first)
-                let mut delims: Vec<&'static str> = effective_delimiters(rules).to_vec();
-                delims.sort_by_key(|d| std::cmp::Reverse(d.len()));
-                if let Some(&delim) = delims.iter().find(|&&d| content[pos..].starts_with(d)) {
+                if let Some(&delim) = sorted_delims
+                    .iter()
+                    .find(|&&d| content[pos..].starts_with(d))
+                {
                     result.push_str(delim);
                     pos += delim.len();
                     if delim.len() == 1 {

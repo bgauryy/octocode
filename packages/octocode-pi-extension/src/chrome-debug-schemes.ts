@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import type { CdpSession } from './chrome-debug.js';
 import { redactEvidence, captureScreenshot, buildRetryMarker, isCdpError } from './chrome-debug.js';
+import { assertPathAllowed } from './tools/path-guard.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -946,6 +947,10 @@ const rawRecipe: Recipe = async ({ session, params }) => {
   if (params.scriptFile || params.scriptSource) {
     let src = params.scriptSource ?? '';
     if (!src && params.scriptFile) {
+      // Bound the read to allowed roots — scriptFile content is injected into a
+      // (possibly remote) page, so an unbounded read is a local-file exfil vector.
+      // A blocked path throws visibly (not swallowed) so the caller learns why.
+      assertPathAllowed(params.scriptFile, process.cwd(), 'scriptFile read');
       try {
         const txt = fs.readFileSync(params.scriptFile, 'utf8');
         const m = txt.match(/export const \w*SCRIPT\w*\s*=\s*`([\s\S]*?)`;/);
@@ -1118,7 +1123,7 @@ const supplyChainRecipe: Recipe = async ({ session, params, signal }) => {
 
   // Check for HTTP script loads
   for (const s of domExternal) {
-    if (s.src.startsWith('http:')) lines.push(`[FINDING] INSECURE_SCRIPT_LOAD: ${s.src.slice(0,100)}`);
+    if (s.src.startsWith('http:')) emit(lines, '[FINDING]', `INSECURE_SCRIPT_LOAD: ${s.src.slice(0,100)}`);
   }
 
   const totalScripts = scriptData?.length ?? 0;
@@ -1168,7 +1173,7 @@ const scrapeRecipe: Recipe = async ({ session, params }) => {
 
   // CSS selector extraction
   const items = await evalJson<Array<Record<string,string>>>(session,
-    `JSON.stringify([...document.querySelectorAll(${JSON.stringify(selector)})].slice(0,${params.depth ?? 50}).map(el=>{const t=el.tagName.toLowerCase();const r={tag:t};if(el.textContent)r.text=el.textContent.trim().slice(0,200);if(el.href)r.href=el.href;if(el.src)r.src=el.src;if(el.alt)r.alt=el.alt;if(el.value)r.value=el.value;if(el.name)r.name=el.name;if(el.id)r.id=el.id;if(el.className)r.class=typeof el.className==='string'?el.className.trim().slice(0,60):'';return r}))`);
+    `JSON.stringify([...document.querySelectorAll(${JSON.stringify(selector)})].slice(0,${params.depth ?? 50}).map(el=>{const t=el.tagName.toLowerCase();const r={tag:t};if(el.textContent)r.text=el.textContent.trim().slice(0,200);if(el.href)r.href=el.href;if(el.src)r.src=el.src;if(el.alt)r.alt=el.alt;if(el.value&&el.type!=='password'&&el.type!=='hidden')r.value=el.value;if(el.name)r.name=el.name;if(el.id)r.id=el.id;if(el.className)r.class=typeof el.className==='string'?el.className.trim().slice(0,60):'';return r}))`);
 
   emit(lines, '[SCRAPE]', `selector "${selector}": ${items?.length ?? 0} results`);
   for (const item of items ?? []) {
@@ -1343,7 +1348,7 @@ const monitorRecipe: Recipe = async ({ session, params, signal }) => {
       'JSON.stringify({url:location.href,title:document.title,errorEls:document.querySelectorAll(".error,[aria-invalid=\"true\"],[data-error]").length})');
     if (snapshot) {
       emit(lines, '[MONITOR]', `t=${iteration*intervalMs/1000}s url=${snapshot.url.slice(0,60)} title="${snapshot.title.slice(0,40)}" errorEls=${snapshot.errorEls}`);
-      if (prevUrl && prevUrl !== snapshot.url) lines.push(`[FINDING] MONITOR_REDIRECT: URL changed to ${snapshot.url}`);
+      if (prevUrl && prevUrl !== snapshot.url) emit(lines, '[FINDING]', `MONITOR_REDIRECT: URL changed to ${snapshot.url}`);
       if (snapshot.errorEls > 0) lines.push(`[FINDING] MONITOR_DOM_ERROR: ${snapshot.errorEls} error elements at t=${iteration*intervalMs/1000}s`);
       prevUrl = snapshot.url;
     }
@@ -1385,7 +1390,7 @@ const workersRecipe: Recipe = async ({ session, params, signal }) => {
     const e = ev as { versions?: Array<{ scriptURL?: string; status?: string; runningStatus?: string }> };
     for (const v of e.versions ?? []) {
       emit(lines, '[SW]', `version: status=${v.status} running=${v.runningStatus} script=${v.scriptURL}`);
-      if (v.status === 'activated') lines.push(`[FINDING] SW_ACTIVATED: ${v.scriptURL}`);
+      if (v.status === 'activated') emit(lines, '[FINDING]', `SW_ACTIVATED: ${v.scriptURL}`);
     }
   });
 
@@ -1442,10 +1447,10 @@ const serviceWorkerRecipe: Recipe = async ({ session, params, signal }) => {
     const e = ev as { versions?: Array<{ scriptURL?: string; status?: string; runningStatus?: string }> };
     for (const v of e.versions ?? []) {
       emit(lines, '[SW]', `version: ${v.status}/${v.runningStatus} script=${v.scriptURL}`);
-      if (v.status === 'activated') lines.push(`[FINDING] SW_ACTIVATED: ${v.scriptURL}`);
+      if (v.status === 'activated') emit(lines, '[FINDING]', `SW_ACTIVATED: ${v.scriptURL}`);
       const host = (() => { try { return new URL(v.scriptURL ?? '').hostname; } catch { return ''; } })();
       const pageHost = (() => { try { return new URL(params.url ?? 'about:blank').hostname; } catch { return ''; } })();
-      if (host && pageHost && host !== pageHost) lines.push(`[FINDING] SW_THIRD_PARTY_SCRIPT: ${v.scriptURL}`);
+      if (host && pageHost && host !== pageHost) emit(lines, '[FINDING]', `SW_THIRD_PARTY_SCRIPT: ${v.scriptURL}`);
     }
   });
 

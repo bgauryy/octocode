@@ -17,17 +17,18 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
-  connectDb, initDb, hasFts, resolveDbPath,
+  connectDb, initDb, hasFts, resolveDbPath, evictExpiredLocks,
 } from '../src/db.js';
 import { insertMemory, getMemory, mineWeakness, forgetMemory } from '../src/memory.js';
-import { insertRefinement, getRefinements, deleteRefinement } from '../src/refinements.js';
+import { insertRefinement, getRefinements, updateRefinement, deleteRefinement } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { reflect } from '../src/reflect.js';
+import type { EvalFailure } from '../src/types.js';
 import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from '../src/maintenance.js';
 import { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from '../src/notifications.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
 import {
-  utcNow, normalizeLabel,
+  normalizeLabel,
 } from '../src/helpers.js';
 
 // ─── Arg parser ───────────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ type ArgValue = string | boolean | string[];
 type ParsedArgs = Record<string, ArgValue> & { _: string[] };
 
 const ARRAY_FLAGS = new Set([
-  'tag', 'reference', 'file', 'target_file', 'supersedes', 'label', 'state',
+  'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state',
   'memory_id', 'refinement_id', 'notification_id', 'ref_id', 'regex', 'file_regex',
   'to_agent', 'kind',
 ]);
@@ -68,6 +69,46 @@ function parseArgs(argv: string[]): ParsedArgs {
     result._.push(arg); i++;
   }
   return result;
+}
+
+// Per-command flag allowlist. Documented flags that the runtime silently
+// ignored were the #1 source of doc drift — unknown flags are now hard errors.
+const GLOBAL_FLAGS = ['db', 'compact', 'help'];
+const KNOWN_FLAGS: Record<string, string[]> = {
+  'tell-memory': ['agent_id', 'task_context', 'observation', 'importance_score', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'repo', 'ref', 'file', 'file_tree_fingerprint'],
+  'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic'],
+  'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'dry_run'],
+  'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'repo', 'ref'],
+  'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'repo', 'ref', 'file', 'refinement_id'],
+  'refine-get': ['workspace', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
+  'refine-delete': ['refinement_id', 'workspace', 'dry_run'],
+  'pre-flight-intent': ['agent_id', 'workspace', 'rationale', 'test_plan', 'plan_doc_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds'],
+  'release-file-lock': ['agent_id', 'intent_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace'],
+  'status': ['workspace', 'limit'],
+  'workspace-status': ['workspace'],
+  'init': [],
+  'self-test': [],
+  'prune-stale-locks': ['older_than_minutes', 'expired_only', 'agent_id', 'target_file', 'dry_run'],
+  'audit-unverified': ['agent_id', 'workspace', 'abandon'],
+  'verify': ['intent_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace'],
+  'mine-weakness': ['agent_id', 'workspace', 'min_count', 'limit', 'cwd'],
+  'export-harness': ['limit', 'min_importance', 'workspace'],
+  'memory-index': ['limit', 'min_importance', 'out', 'stdout', 'workspace'],
+  'notify': ['agent_id', 'to', 'kind', 'subject', 'body', 'file', 'ref_id', 'in_reply_to', 'importance', 'workspace', 'repo', 'ref'],
+  'agent-signal': ['action', 'agent_id', 'workspace', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'notification_id', 'all', 'mark_read', 'limit'],
+  'notify-get': ['agent_id', 'workspace', 'repo', 'all', 'mark_read', 'kind', 'thread_id', 'limit', 'format'],
+  'notify-resolve': ['notification_id', 'thread_id', 'workspace'],
+  'notify-prune': ['notification_id', 'resolved', 'older_than_days', 'dry_run', 'workspace'],
+  'session-capture': ['agent_id', 'workspace', 'repo', 'ref', 'reason', 'cwd'],
+  'wait-for-lock': ['agent_id', 'target_file', 'file', 'wait_seconds', 'retry_interval'],
+  'digest': ['retention_days', 'dry_run', 'export_doc', 'workspace'],
+};
+
+function validateFlags(command: string, args: ParsedArgs): string[] {
+  const known = KNOWN_FLAGS[command];
+  if (!known) return [];
+  const allowed = new Set([...known, ...GLOBAL_FLAGS]);
+  return Object.keys(args).filter((k) => k !== '_' && !allowed.has(k));
 }
 
 function extractGlobalDb(argv: string[]): { dbPath: string | null; filtered: string[] } {
@@ -123,7 +164,7 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const rawLabel = args['label'];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? '');
 
-  const { memory, superseded } = insertMemory(db, {
+  const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db, {
     agentId, taskContext, observation, importanceScore: imp,
     label: normalizeLabel(label),
     tags, references, supersedes,
@@ -134,9 +175,21 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     file: args['file'] ? String(args['file']) : null,
+    fileTreeFingerprint: args['file_tree_fingerprint'] ? String(args['file_tree_fingerprint']) : null,
   });
 
-  return emit({ db_path: dbPath, memory, superseded }, 0, opts);
+  // Consolidation surface (mem0 ADD/UPDATE/NOOP contract, LLM-free): when the
+  // new memory overlaps existing ones, hand the calling agent the candidates
+  // and let IT decide to supersede or forget — the store never guesses.
+  const payload: Record<string, unknown> = { db_path: dbPath, memory, superseded };
+  if (supersedes.length === 0 && noveltyScore < 0.5 && similarMemoryIds.length > 0) {
+    payload['consolidation'] = {
+      novelty_score: noveltyScore,
+      similar_memory_ids: similarMemoryIds,
+      hint: 'low novelty — review the similar memories; re-record with --supersedes <id> to replace one, or forget this one if redundant',
+    };
+  }
+  return emit(payload, 0, opts);
 }
 
 function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
@@ -173,21 +226,47 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
     regex,
     fileRegex,
     files: getFiles,
+    explain: Boolean(args['explain']),
   });
 
-  return emit({ db_path: dbPath, ...result }, 0, opts);
+  // The CLI has no embedding source; semantic ranking needs embeddings stored
+  // via the library API (storeEmbedding/semanticSearch). Be honest about it.
+  const payload: Record<string, unknown> = { db_path: dbPath, ...result };
+  if (args['semantic']) {
+    payload['warnings'] = [
+      'semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/semanticSearch() API for semantic recall.',
+    ];
+  }
+  return emit(payload, 0, opts);
 }
 
 function cmdRefineSet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const reasoning = String(args['reasoning'] ?? '');
-  const remember = String(args['remember'] ?? '');
-  if (!reasoning) die('--reasoning is required');
-  if (!remember) die('--remember is required');
-
   const rawState = args['state'];
   const stateVal = Array.isArray(rawState) ? rawState[0] : String(rawState ?? 'open');
   const rawFile = args['file'];
   const files = Array.isArray(rawFile) ? rawFile : rawFile ? [String(rawFile)] : [];
+
+  // Update path: --refinement-id changes only the passed fields
+  // (open → ongoing → done lifecycle).
+  const rawRefId = args['refinement_id'];
+  const refinementId = Array.isArray(rawRefId) ? rawRefId[0] : rawRefId ? String(rawRefId) : null;
+  if (refinementId && refinementId !== 'true') {
+    const update = updateRefinement(db, {
+      refinementId,
+      ...(args['state'] !== undefined ? { state: stateVal as 'open' | 'ongoing' | 'done' } : {}),
+      ...(args['quality'] !== undefined ? { quality: String(args['quality']) as 'good' | 'bad' | 'handoff' } : {}),
+      ...(args['reasoning'] !== undefined ? { reasoning: String(args['reasoning']) } : {}),
+      ...(args['remember'] !== undefined ? { remember: String(args['remember']) } : {}),
+      ...(rawFile !== undefined ? { files } : {}),
+    });
+    if (!update.updated) die(`refinement not found: ${refinementId}`);
+    return emit({ db_path: dbPath, updated: true, refinement: update.refinement }, 0, opts);
+  }
+
+  const reasoning = String(args['reasoning'] ?? '');
+  const remember = String(args['remember'] ?? '');
+  if (!reasoning) die('--reasoning is required');
+  if (!remember) die('--remember is required');
 
   const { refinement } = insertRefinement(db, {
     agentId: String(args['agent_id'] ?? 'agent'),
@@ -222,6 +301,17 @@ function cmdRefineGet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
 function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   if (!args['task']) die('--task is required');
 
+  let evalFailures: EvalFailure[] = [];
+  if (args['eval_failure_json']) {
+    try {
+      const parsed: unknown = JSON.parse(String(args['eval_failure_json']));
+      if (!Array.isArray(parsed)) throw new Error('expected a JSON array');
+      evalFailures = parsed as EvalFailure[];
+    } catch (err) {
+      die(`--eval-failure-json must be a JSON array of {id, dimension?, failure_signature?, suggested_lesson?}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const result = reflect(db, {
     agentId: String(args['agent_id'] ?? 'agent'),
     task: String(args['task']),
@@ -233,6 +323,10 @@ function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Em
     fixHarness: args['fix_harness'] ? String(args['fix_harness']) : null,
     failureSignature: args['failure_signature'] ? String(args['failure_signature']) : null,
     importance: args['importance'] ? parseInt(String(args['importance']), 10) : null,
+    judgmentNote: args['judgment_note'] ? String(args['judgment_note']) : null,
+    duo: Boolean(args['duo']),
+    evalFailures,
+    files: Array.isArray(args['fix_file']) ? (args['fix_file'] as string[]) : [],
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
@@ -250,15 +344,30 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)) die('--ttl-seconds must be >= 1');
   const ttlMs = ttlMinutes != null ? ttlMinutes * 60000 : ttlSeconds != null ? ttlSeconds * 1000 : null;
 
-  const result = preFlightIntent(db, {
+  const claimParams = {
     agentId: String(args['agent_id'] ?? 'agent'),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     rationale: String(args['rationale'] ?? 'agent write operation'),
     testPlan: String(args['test_plan'] ?? 'post-edit verification'),
+    planDocRef: args['plan_doc_ref'] ? String(args['plan_doc_ref']) : null,
     targetFiles,
     lockType: (String(args['lock_type'] ?? 'EXCLUSIVE')) as 'EXCLUSIVE' | 'SHARED',
     ttlMs,
-  });
+  };
+  let result = preFlightIntent(db, claimParams);
+
+  // --wait-seconds: bounded wait for the current holder, then claim.
+  // waitForLock sleeps outside SQLite transactions; a small window between
+  // "clear" and the claim is inherent — the re-claim below closes it or conflicts again.
+  const waitSeconds = args['wait_seconds'] ? parseInt(String(args['wait_seconds']), 10) : null;
+  if (!result.ok && waitSeconds != null && waitSeconds > 0) {
+    const wait = waitForLock(db, {
+      agent_id: claimParams.agentId,
+      target_files: targetFiles,
+      wait_ms: waitSeconds * 1000,
+    });
+    if (wait.lock_free) result = preFlightIntent(db, claimParams);
+  }
 
   if (!result.ok) return emit({ db_path: dbPath, ...result }, 2, opts);
   return emit({ db_path: dbPath, ...result }, 0, opts);
@@ -312,6 +421,12 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     verifiedNote: args['verified_note'] ? String(args['verified_note']) : undefined,
   });
 
+  // When release succeeded but verification is still pending, signal this clearly:
+  // ok:false + exit 2 so agents don't interpret the release as fully complete and
+  // then get unexpectedly blocked by stop-verify at session end.
+  if ('unverifiedConclusion' in result) {
+    return emit({ db_path: dbPath, ...result, ok: false }, 2, opts);
+  }
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 
@@ -373,8 +488,9 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
 function cmdForget(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const rawIds = args['memory_id'];
   const memoryIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
-  const rawTags = args['tag'];
-  const tags = Array.isArray(rawTags) ? rawTags : rawTags ? [String(rawTags)] : [];
+  const rawTags = [args['tag'], args['tags']].flatMap((v) =>
+    Array.isArray(v) ? v : v && v !== true ? [String(v)] : []);
+  const tags = rawTags;
   const result = forgetMemory(db, {
     memoryIds,
     tags,
@@ -512,8 +628,8 @@ function cmdNotifyPrune(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
 }
 
 function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: EmitOptions): number {
-  const now = utcNow();
-  db.prepare("DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?").run(now);
+  // Use the canonical evictExpiredLocks (<=) instead of duplicating the DELETE with < (off by one).
+  evictExpiredLocks(db);
 
   const memCount = (db.prepare('SELECT COUNT(*) AS count FROM agent_memories').get() as { count: number }).count;
   const memStates = Object.fromEntries(
@@ -617,7 +733,8 @@ get-memory:
   --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
   [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
   [--sort smart|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
-  [--strict-scope]  [--global-only]  [--as-of <ISO>]
+  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--explain]
+  --explain: attach per-result score_components (importance/recency/access/relevance)
 
 forget:
   [--memory-id <id>]...  [--tag <t>]...  [--before <ISO>]  [--max-importance <n>]  [--dry-run]
@@ -643,11 +760,25 @@ notify-prune:
 reflect:
   --agent-id <id>  --task <text>  --outcome worked|partial|failed
   [--lesson <text>]  [--worked <text>]  [--didnt-work <text>]
-  [--fix-repo <text>]  [--fix-harness <text>]
+  [--fix-repo <text>]  [--fix-file <path>]...  [--fix-harness <text>]
+  [--failure-signature <sig>]  [--importance <1-10>]  [--judgment-note <text>]
+  [--duo]  [--eval-failure-json '<[{id,dimension?,failure_signature?,suggested_lesson?}]>']
+  --duo emits an advisory reflection_duo packet (not stored); eval failures
+  become eval-tagged memories clustered by failure_signature
+
+refine-set:
+  new:    --agent-id <id> --reasoning <text> --remember <text>
+          [--quality good|bad|handoff]  [--state open|ongoing|done]  [--file <path>]...
+  update: --refinement-id <id> plus only the flags to change (e.g. --state done)
 
 refine-get:
   [--state open|ongoing|done]...  [--quality good|bad|handoff]  [--include-handoffs]
   session handoffs are hidden unless --include-handoffs or --quality handoff is passed
+
+prune-stale-locks:
+  [--older-than-minutes <n>]  [--expired-only]  [--agent-id <id>]
+  [--target-file <path>]...  [--dry-run]
+  expired locks always qualify; --older-than-minutes also catches old live locks
 
 workspace-status:
   [--workspace <path>]   show active locks, agent intents, and memory counts
@@ -690,9 +821,25 @@ if (rawArgv.length === 0 || rawArgv.includes('--help') || rawArgv.includes('-h')
 }
 
 const { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
-const [command, ...rest] = filteredArgv;
+const [rawCommand, ...rest] = filteredArgv;
+// Accept protocol-style underscore aliases (tell_memory → tell-memory).
+const command = rawCommand?.replace(/_/g, '-');
 const args = parseArgs(rest ?? []);
 if (globalDb) args['db'] = globalDb;
+
+// Unknown flags are hard errors — a silently ignored flag reads as "it worked".
+if (command && KNOWN_FLAGS[command]) {
+  const unknown = validateFlags(command, args);
+  if (unknown.length > 0) {
+    process.stdout.write(JSON.stringify({
+      ok: false,
+      error: `unknown flag(s) for ${command}: ${unknown.map((f) => `--${f.replace(/_/g, '-')}`).join(', ')}`,
+      known_flags: KNOWN_FLAGS[command].map((f) => `--${f.replace(/_/g, '-')}`),
+      schema_version: 1,
+    }, null, 2) + '\n');
+    process.exit(1);
+  }
+}
 
 const dbPath = resolveDbPath(globalDb ?? null);
 const compact = args['compact'] === true || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';

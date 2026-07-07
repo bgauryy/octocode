@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+process.removeAllListeners('warning');
+process.on('warning', (w) => {
+  if (w?.name === 'ExperimentalWarning' && String(w?.message).includes('SQLite')) return;
+  console.error(w?.stack ?? String(w));
+});
+
+// bin/hook-runner.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
 
 // src/db.ts
 import { DatabaseSync } from "node:sqlite";
@@ -199,12 +207,6 @@ function initDb(db2) {
 
     CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
-    -- DB-1: workspace_path and tags_text used in nearly every scope filter \u2014 previously unindexed
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_tags_text ON agent_memories(tags_text);
     CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
@@ -224,14 +226,9 @@ function initDb(db2) {
     -- agent_intents: status-only scan is a full table scan with 1679 rows in prod
     CREATE INDEX IF NOT EXISTS idx_agent_intents_status ON agent_intents(status);
     CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
-    -- agent_memories: composite scope index covers (workspace_path, repo, ref) at once
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
-    -- file_locks: session-based release queries
-    CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id);
+    -- Indexes on migration-added columns (workspace_path, scope, valid_*,
+    -- embedding_model, session_id) are created AFTER ensure*Columns() below \u2014
+    -- creating them here breaks connect on any store that predates the column.
     -- notifications: thread and to_agent inbox
     CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
     -- Deduplicate idx_notifications_to_agent; keep the shorter alias too
@@ -243,6 +240,19 @@ function initDb(db2) {
   ensureIntentColumns(db2);
   ensureRefinementQualitySchema(db2);
   ensureMemoryReferencesVersion(db2);
+  db2.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    -- DB-1: workspace_path and tags_text used in nearly every scope filter \u2014 previously unindexed
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
+  `);
   try {
     db2.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
@@ -440,6 +450,7 @@ function preFlightIntent(db2, params) {
     workspacePath,
     rationale = "agent write operation",
     testPlan = "post-edit verification",
+    planDocRef = null,
     targetFiles = [],
     lockType = "EXCLUSIVE",
     ttlMs = MAX_LOCK_TTL_MS
@@ -478,9 +489,9 @@ function preFlightIntent(db2, params) {
   }
   db2.prepare(`
     INSERT INTO agent_intents
-      (intent_id, agent_id, session_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
-  `).run(intentId, agentId2, sessionId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
+      (intent_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, files_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+  `).run(intentId, agentId2, sessionId, rationale, testPlan, planDocRef, wsPath, JSON.stringify(absFiles), now, now);
   const expiresAt = expiresAtFromNow(ttlMs);
   const acquiredLocks = [];
   for (const absPath of absFiles) {
@@ -717,7 +728,7 @@ function fillScope(partial, cwd) {
     ref: partial.ref ?? null
   };
   if (scope.workspace_path && scope.repo) return scope;
-  const git = detectGit(cwd ?? process.cwd());
+  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
   if (!git.is_repo) return scope;
   if (!scope.workspace_path && git.root) scope.workspace_path = git.root;
   if (!scope.repo && git.repo) scope.repo = git.repo;
@@ -810,38 +821,47 @@ function getNotifications(db2, params) {
 // src/maintenance.ts
 function pruneStale(db2, params = {}) {
   const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
   const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
+  const agentId2 = typeof params.agent_id === "string" ? params.agent_id : typeof params.agentId === "string" ? params.agentId : null;
+  const rawTarget = params.target_file ?? params.targetFile;
+  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean);
   const now = utcNow();
-  const ageCutoff = olderThanMinutes != null ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
-  if (dryRun) {
-    let count = 0;
-    try {
-      const row = db2.prepare(
-        `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
-      ).get(now);
-      count += row.c;
-      if (ageCutoff) {
-        const row2 = db2.prepare(
-          `SELECT COUNT(*) AS c FROM file_locks WHERE acquired_at < ? AND (expires_at IS NULL OR expires_at >= ?)`
-        ).get(ageCutoff, now);
-        count += row2.c;
-      }
-    } catch {
-    }
-    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: count };
+  const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
+  const conditions = [];
+  const binds = [];
+  const staleClauses = ["(expires_at IS NOT NULL AND expires_at < ?)"];
+  binds.push(now);
+  if (ageCutoff) {
+    staleClauses.push("(acquired_at < ?)");
+    binds.push(ageCutoff);
   }
-  const expiredLocks = db2.prepare(`
-    SELECT fl.lock_id, fl.intent_id
-    FROM file_locks fl
-    WHERE fl.expires_at IS NOT NULL AND fl.expires_at < ?
-  `).all(now);
-  if (expiredLocks.length === 0) {
+  conditions.push(`(${staleClauses.join(" OR ")})`);
+  if (agentId2) {
+    conditions.push("agent_id = ?");
+    binds.push(agentId2);
+  }
+  if (targetFiles.length > 0) {
+    conditions.push(`file_path IN (${targetFiles.map(() => "?").join(",")})`);
+    binds.push(...targetFiles);
+  }
+  const where = conditions.join(" AND ");
+  let staleLocks = [];
+  try {
+    staleLocks = db2.prepare(
+      `SELECT lock_id, intent_id FROM file_locks WHERE ${where}`
+    ).all(...binds);
+  } catch {
+  }
+  if (dryRun) {
+    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: staleLocks.length };
+  }
+  if (staleLocks.length === 0) {
     return { pruned_locks: 0, updated_intents: 0 };
   }
-  db2.prepare(
-    "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?"
-  ).run(now);
-  const affectedIntentIds = [...new Set(expiredLocks.map((l) => l.intent_id))];
+  const deleteStmt = db2.prepare("DELETE FROM file_locks WHERE lock_id = ?");
+  for (const lock of staleLocks) deleteStmt.run(lock.lock_id);
+  const affectedIntentIds = [...new Set(staleLocks.map((l) => l.intent_id))];
   let updatedIntents = 0;
   for (const iid of affectedIntentIds) {
     const remaining = db2.prepare("SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1").get(iid);
@@ -852,7 +872,7 @@ function pruneStale(db2, params = {}) {
       if (r.changes) updatedIntents++;
     }
   }
-  return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
+  return { pruned_locks: staleLocks.length, updated_intents: updatedIntents };
 }
 function openRefinementCount(db2, params = {}) {
   const scope = fillScope(
@@ -1304,11 +1324,29 @@ async function runHarnessGuard(payload) {
     console.error("octocode-awareness: editing the skill itself is gated. A human must set OCTOCODE_ALLOW_HARNESS_APPLY=1. Edit blocked.");
     return 2;
   }
-  if (process.env.OCTOCODE_HARNESS_BRANCH_OK !== "1") {
-    console.error("octocode-awareness: harness self-fix is branch-only. Create a dedicated branch first, or set OCTOCODE_HARNESS_BRANCH_OK=1. Edit blocked.");
+  const branch = gitBranchOf(skillRoot);
+  if (branch === "main" || branch === "master") {
+    console.error(`octocode-awareness: harness self-fix is never allowed on ${branch}. Create a dedicated branch first. Edit blocked.`);
     return 2;
   }
+  if (!branch || branch === "HEAD") {
+    if (process.env.OCTOCODE_HARNESS_BRANCH_OK !== "1") {
+      console.error("octocode-awareness: cannot confirm a dedicated git branch for the skill. Create one, or set OCTOCODE_HARNESS_BRANCH_OK=1 to acknowledge. Edit blocked.");
+      return 2;
+    }
+  }
   return 0;
+}
+function gitBranchOf(dir) {
+  try {
+    const r = spawnSync3("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
+      encoding: "utf8",
+      timeout: 5e3
+    });
+    return r.status === 0 ? String(r.stdout).trim() : null;
+  } catch {
+    return null;
+  }
 }
 async function runStopVerify(payload) {
   if (process.env.OCTOCODE_NO_VERIFY_GATE === "1" || isStopHookActive(payload)) return 0;

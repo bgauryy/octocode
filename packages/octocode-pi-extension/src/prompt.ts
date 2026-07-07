@@ -61,6 +61,9 @@ export function composeSystemPrompt(opts: {
   promptMode: PromptMode;
 }): string {
   const addendum = renderSystemPromptAddendum(opts.octocodePrompt);
+  // 'replace' is a public-API compat alias for 'octocode-first' (harness leads). The
+  // extension's own wiring normalizes it via resolvePromptMode, but composeSystemPrompt
+  // is exported and callers may still pass 'replace' directly.
   if (opts.promptMode === 'octocode-first' || opts.promptMode === 'replace') {
     return `${addendum}\n\n${opts.piSystemPrompt}`;
   }

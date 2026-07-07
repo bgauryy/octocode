@@ -209,11 +209,19 @@ impl NativeLspClient {
         Ok(())
     }
 
+    /// Wait for the server to finish any post-`initialized` indexing, returning
+    /// a readiness descriptor so JS can tell a confirmed-idle server apart from
+    /// one that never reported progress or is still busy. The returned string
+    /// is one of `"progressIdle"`, `"settledFallback"`, or `"timeout"`.
     #[napi]
-    pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<()> {
+    pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-        self.progress.wait_until_idle(timeout_ms).await;
-        Ok(())
+        Ok(self
+            .progress
+            .wait_until_idle(timeout_ms)
+            .await
+            .as_str()
+            .to_owned())
     }
 
     #[napi]

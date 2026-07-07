@@ -49,6 +49,24 @@ export interface AdapterResult extends MappedResult {
   provenance: OqlProvenance[];
 }
 
+// Type the compiled tool queries against each runner's real input contract
+// instead of `Record<string, unknown>`, so field construction is checked.
+// findFiles/viewStructure read `page`/`itemsPerPage` at runtime (see their
+// executors) but omit them from their declared input types — name them here
+// rather than hiding the gap behind a cast. Builders type as `Partial<…>`
+// because schema defaults (mode/sort/matchContentLength/contextLines/minify)
+// are filled by the tool's own validation, not by the adapter.
+type LocalSearchToolQuery = Parameters<typeof searchContentRipgrep>[0];
+type LocalFindToolQuery = Parameters<typeof findFiles>[0] & {
+  page?: number;
+  itemsPerPage?: number;
+};
+type LocalStructureToolQuery = Parameters<typeof viewStructure>[0] & {
+  page?: number;
+  itemsPerPage?: number;
+};
+type LocalFetchToolQuery = Parameters<typeof fetchContent>[0];
+
 const LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT = LOCAL_MAX_LIMIT;
 
 type FileRowMap = Map<string, OqlFileResultRow>;
@@ -60,14 +78,26 @@ function localRoot(query: OqlQuery): string {
   throw new Error('localExecute requires a local or materialized source.');
 }
 
-function scopeToCommon(scope: QueryScope | undefined): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+function scopeToCommon(
+  scope: QueryScope | undefined
+): Partial<LocalSearchToolQuery> {
+  const out: Partial<LocalSearchToolQuery> = {};
   if (scope?.include) out.include = scope.include;
   if (scope?.exclude) out.exclude = scope.exclude;
   if (scope?.excludeDir) out.excludeDir = scope.excludeDir;
   if (scope?.hidden !== undefined) out.hidden = scope.hidden;
   if (scope?.noIgnore !== undefined) out.noIgnore = scope.noIgnore;
   return out;
+}
+
+// Signals that a literal (fixedString) search value was probably meant as a
+// regex: alternation, groups, character classes, anchors, quantifiers, or a
+// backslash class escape. Lone `.` is excluded — it is far too common in real
+// literal searches (paths, method calls) to treat as a regex intent.
+const REGEX_METACHAR_RE = /[|()[\]{}^$*+?]|\\[bBdDwWsS]/;
+
+function looksLikeRegex(value: string): boolean {
+  return REGEX_METACHAR_RE.test(value);
 }
 
 function mergeStringArrays(left: unknown, right: readonly string[]): string[] {
@@ -78,7 +108,7 @@ function mergeStringArrays(left: unknown, right: readonly string[]): string[] {
 }
 
 function applyLocalSearchLanguage(
-  toolQuery: Record<string, unknown>,
+  toolQuery: Partial<LocalSearchToolQuery>,
   scope: QueryScope | undefined,
   explicitLangType: string | undefined
 ): void {
@@ -114,7 +144,7 @@ function findFilesNeedsScopePostFilter(scope: QueryScope | undefined): boolean {
 }
 
 function applyFindFilesScope(
-  toolQuery: Record<string, unknown>,
+  toolQuery: Partial<LocalFindToolQuery>,
   scope: QueryScope | undefined
 ): void {
   if (scope?.excludeDir) toolQuery.excludeDir = scope.excludeDir;
@@ -142,7 +172,7 @@ function applyFindFilesScope(
 }
 
 function applyFindFilesPagination(
-  toolQuery: Record<string, unknown>,
+  toolQuery: Partial<LocalFindToolQuery>,
   query: OqlQuery
 ): void {
   if (findFilesNeedsScopePostFilter(query.scope)) {
@@ -154,7 +184,9 @@ function applyFindFilesPagination(
   if (query.page) toolQuery.page = query.page;
 }
 
-function applyUnpagedFindFilesWindow(toolQuery: Record<string, unknown>): void {
+function applyUnpagedFindFilesWindow(
+  toolQuery: Partial<LocalFindToolQuery>
+): void {
   toolQuery.limit = LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT;
   toolQuery.itemsPerPage = LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT;
 }
@@ -259,7 +291,7 @@ async function executeCode(
   }
 
   const m = compiled.match!;
-  const toolQuery: Record<string, unknown> = {
+  const toolQuery: Partial<LocalSearchToolQuery> = {
     path: searchPath,
     ...scopeToCommon(query.scope),
     ...(query.view === 'discovery' ? { filesOnly: true } : {}),
@@ -273,7 +305,7 @@ async function executeCode(
   if (m.mode === 'structural') {
     toolQuery.mode = 'structural';
     if (m.pattern !== undefined) toolQuery.pattern = m.pattern;
-    if (m.rule !== undefined) toolQuery.rule = m.rule;
+    if (typeof m.rule === 'string') toolQuery.rule = m.rule;
   } else {
     toolQuery.keywords = m.keywords;
     if (m.fixedString) toolQuery.fixedString = true;
@@ -286,7 +318,7 @@ async function executeCode(
     if (compiled.negate) toolQuery.invertMatch = true;
   }
 
-  const result = await searchContentRipgrep(toolQuery as never);
+  const result = await searchContentRipgrep(toolQuery as LocalSearchToolQuery);
   const mapped = mapCodeResult(result, source);
   const diagnostics = resultDiagnostics(result, 'localSearchCode');
 
@@ -341,6 +373,35 @@ async function executeCode(
           repair: {
             message:
               'To find a named symbol, prefer a rule over a pattern: where = { kind:"structural", lang, rule:{ kind:"<node e.g. function_declaration>", has:{ pattern:"<name>" } } }. Or complete the pattern (e.g. add a return type `: $R`).',
+          },
+        }
+      )
+    );
+  }
+
+  // Literal-search false-absence guard: a `text` predicate is searched as a
+  // fixed string, so regex metacharacters in the value match literally. A
+  // 0-result literal search whose value looks like a regex (e.g. "a|b",
+  // "\bfoo\b") is the classic false-absence trap — nudge toward a regex
+  // predicate rather than letting the caller conclude the term is absent.
+  if (
+    m.mode !== 'structural' &&
+    m.fixedString === true &&
+    mapped.results.length === 0 &&
+    m.keywords !== undefined &&
+    looksLikeRegex(m.keywords)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        'zeroMatches',
+        `Literal search for "${m.keywords}" matched 0 — a text predicate searches for a FIXED string, so the regex metacharacters in it were matched literally (not as a pattern). This may be a false "not found".`,
+        {
+          backend: 'localSearchCode',
+          severity: 'info',
+          blocksAnswer: false,
+          repair: {
+            message:
+              'If you meant a pattern, use a regex predicate (where = { kind:"regex", value:"<pattern>" }) so metacharacters like | ( ) [ ] ^ $ * + ? \\b are interpreted.',
           },
         }
       )
@@ -415,7 +476,7 @@ async function executeFiles(
     return { ...codeResult, results: files };
   }
 
-  const toolQuery: Record<string, unknown> = {
+  const toolQuery: Partial<LocalFindToolQuery> = {
     path: searchPath,
     details: true,
     showFileLastModified: true,
@@ -428,7 +489,7 @@ async function executeFiles(
   if (where) {
     applyFieldPredicate(where, toolQuery, fieldDiags);
   }
-  const result = await findFiles(toolQuery as never);
+  const result = await findFiles(toolQuery as LocalFindToolQuery);
   const scopedResult = filterFindFilesResultByScope(result, query, searchPath);
   const mapped = mapFilesResult(scopedResult, source);
   return {
@@ -445,7 +506,7 @@ async function executeFiles(
 // controls.search.sort values are code-search sorts with no files-lane
 // equivalent and are left to the default ordering.
 function applyFindFilesSort(
-  toolQuery: Record<string, unknown>,
+  toolQuery: Partial<LocalFindToolQuery>,
   query: OqlQuery
 ): void {
   const sort = query.controls?.search?.sort;
@@ -577,7 +638,11 @@ async function executeFilesWithoutMatch(
   where: Predicate & { kind: 'not'; predicate: Predicate }
 ): Promise<AdapterResult> {
   const result = await searchContentRipgrep(
-    withoutMatchToolQuery(query, searchPath, where.predicate) as never
+    withoutMatchToolQuery(
+      query,
+      searchPath,
+      where.predicate
+    ) as LocalSearchToolQuery
   );
   const diagnostics = resultDiagnostics(result, 'localSearchCode');
   const files = (result.files ?? []).map(r => ({
@@ -600,7 +665,11 @@ async function executeCodeFilesWithoutMatch(
   where: Predicate & { kind: 'not'; predicate: Predicate }
 ): Promise<AdapterResult> {
   const result = await searchContentRipgrep(
-    withoutMatchToolQuery(query, searchPath, where.predicate) as never
+    withoutMatchToolQuery(
+      query,
+      searchPath,
+      where.predicate
+    ) as LocalSearchToolQuery
   );
   const mapped = mapCodeResult(result, source);
   return {
@@ -614,10 +683,10 @@ function withoutMatchToolQuery(
   query: OqlQuery,
   searchPath: string,
   leaf: Predicate
-): Record<string, unknown> {
+): Partial<LocalSearchToolQuery> {
   const compiled = compileWhere(leaf);
   const m = compiled.match!;
-  const toolQuery: Record<string, unknown> = {
+  const toolQuery: Partial<LocalSearchToolQuery> = {
     path: searchPath,
     filesWithoutMatch: true,
     ...scopeToCommon(query.scope),
@@ -691,7 +760,7 @@ async function universeFileRows(
   searchPath: string,
   prov: OqlProvenance[]
 ): Promise<FileRowMap> {
-  const toolQuery: Record<string, unknown> = {
+  const toolQuery: Partial<LocalFindToolQuery> = {
     path: searchPath,
     entryType: 'f',
   };
@@ -700,7 +769,7 @@ async function universeFileRows(
     applyUnpagedFindFilesWindow(toolQuery);
     toolQuery.page = 1;
   }
-  const result = await findFiles(toolQuery as never);
+  const result = await findFiles(toolQuery as LocalFindToolQuery);
   const scopedResult = filterFindFilesResultByScope(result, query, searchPath);
   prov.push({ backend: 'localFindFiles', source: query.from });
   // content-predicate negation applies to files, not directory entries
@@ -748,14 +817,14 @@ async function leafFileRows(
   diags: OqlDiagnostic[]
 ): Promise<FileRowMap> {
   if (leaf.kind === 'field') {
-    const tq: Record<string, unknown> = { path: searchPath, details: true };
+    const tq: Partial<LocalFindToolQuery> = { path: searchPath, details: true };
     applyFindFilesScope(tq, query.scope);
     applyFieldPredicate(leaf, tq, diags);
     if (findFilesNeedsScopePostFilter(query.scope)) {
       applyUnpagedFindFilesWindow(tq);
       tq.page = 1;
     }
-    const r = await findFiles(tq as never);
+    const r = await findFiles(tq as LocalFindToolQuery);
     const scopedResult = filterFindFilesResultByScope(r, query, searchPath);
     prov.push({ backend: 'localFindFiles', source: query.from });
     return rowsByPath(
@@ -773,7 +842,7 @@ async function leafFileRows(
     return new Map();
   }
   const m = compiled.match!;
-  const tq: Record<string, unknown> = {
+  const tq: Partial<LocalSearchToolQuery> = {
     path: searchPath,
     filesOnly: true,
     maxFiles: LOCAL_SCOPE_FILTER_CANDIDATE_LIMIT,
@@ -783,7 +852,7 @@ async function leafFileRows(
   if (m.mode === 'structural') {
     tq.mode = 'structural';
     if (m.pattern !== undefined) tq.pattern = m.pattern;
-    if (m.rule !== undefined) tq.rule = m.rule;
+    if (typeof m.rule === 'string') tq.rule = m.rule;
   } else {
     tq.keywords = m.keywords;
     if (m.fixedString) tq.fixedString = true;
@@ -792,7 +861,7 @@ async function leafFileRows(
     if (m.caseInsensitive) tq.caseInsensitive = true;
     if (m.wholeWord) tq.wholeWord = true;
   }
-  const r = await searchContentRipgrep(tq as never);
+  const r = await searchContentRipgrep(tq as LocalSearchToolQuery);
   prov.push({ backend: 'localSearchCode', source: query.from });
   return rowsByPath(
     (r.files ?? []).map(file => ({
@@ -953,7 +1022,7 @@ async function leafCodeRows(
     return [];
   }
   const m = compiled.match!;
-  const tq: Record<string, unknown> = {
+  const tq: Partial<LocalSearchToolQuery> = {
     path: searchPath,
     ...scopeToCommon(query.scope),
   };
@@ -961,7 +1030,7 @@ async function leafCodeRows(
   if (m.mode === 'structural') {
     tq.mode = 'structural';
     if (m.pattern !== undefined) tq.pattern = m.pattern;
-    if (m.rule !== undefined) tq.rule = m.rule;
+    if (typeof m.rule === 'string') tq.rule = m.rule;
   } else {
     tq.keywords = m.keywords;
     if (m.fixedString) tq.fixedString = true;
@@ -972,7 +1041,7 @@ async function leafCodeRows(
     if (m.multiline) tq.multiline = true;
     if (m.multilineDotall) tq.multilineDotall = true;
   }
-  const r = await searchContentRipgrep(tq as never);
+  const r = await searchContentRipgrep(tq as LocalSearchToolQuery);
   prov.push({ backend: 'localSearchCode', source });
   return mapCodeResult(r, source)
     .results as import('../types.js').OqlCodeResultRow[];
@@ -983,7 +1052,7 @@ async function executeStructure(
   source: QuerySource,
   searchPath: string
 ): Promise<AdapterResult> {
-  const toolQuery: Record<string, unknown> = {
+  const toolQuery: Partial<LocalStructureToolQuery> = {
     path: searchPath,
     // details:true makes the tool emit per-entry rows (with depth/size) rather
     // than grouped files/folders lists, which map cleanly to tree rows.
@@ -1009,7 +1078,7 @@ async function executeStructure(
     ...(query.itemsPerPage ? { itemsPerPage: query.itemsPerPage } : {}),
     ...(query.page ? { page: query.page } : {}),
   };
-  const result = await viewStructure(toolQuery as never);
+  const result = await viewStructure(toolQuery as LocalStructureToolQuery);
   const mapped = mapStructureResult(result, source);
   return {
     ...mapped,
@@ -1031,7 +1100,7 @@ async function executeContent(
         ? 'symbols'
         : 'standard';
   const range = normalizeContentRange(c?.range);
-  const toolQuery: Record<string, unknown> = {
+  const toolQuery: Partial<LocalFetchToolQuery> = {
     path: searchPath,
     minify,
     ...range,
@@ -1048,7 +1117,7 @@ async function executeContent(
     ...(c?.charLength !== undefined ? { charLength: c.charLength } : {}),
     ...(c?.fullContent ? { fullContent: true } : {}),
   };
-  const result = await fetchContent(toolQuery as never);
+  const result = await fetchContent(toolQuery as LocalFetchToolQuery);
   const requestedView =
     c?.contentView === 'exact'
       ? 'exact'
@@ -1195,7 +1264,7 @@ function isContentPredicate(p: Predicate): boolean {
 
 function applyFieldPredicate(
   where: Predicate,
-  toolQuery: Record<string, unknown>,
+  toolQuery: Partial<LocalFindToolQuery>,
   diags: OqlDiagnostic[]
 ): void {
   const negate = where.kind === 'not';
@@ -1298,8 +1367,8 @@ function unsupportedField(f: FieldPredicate): OqlDiagnostic {
   );
 }
 
-function searchControls(query: OqlQuery): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+function searchControls(query: OqlQuery): Partial<LocalSearchToolQuery> {
+  const out: Partial<LocalSearchToolQuery> = {};
   const s = query.controls?.search;
   if (s) {
     if (s.onlyMatching) out.onlyMatching = true;
@@ -1315,9 +1384,16 @@ function searchControls(query: OqlQuery): Record<string, unknown> {
     if (s.maxMatchesPerFile !== undefined)
       out.maxMatchesPerFile = s.maxMatchesPerFile;
     if (s.matchPage !== undefined) out.matchPage = s.matchPage;
-    if (s.sort) out.sort = s.sort;
+    // 'size'/'name' are files-lane (localFindFiles sortBy) sorts with no
+    // localSearchCode equivalent — applyFindFilesSort handles them and
+    // sortApplicabilityDiagnostics warns; only forward code-lane sorts here.
+    if (s.sort && s.sort !== 'size' && s.sort !== 'name') out.sort = s.sort;
     if (s.sortReverse) out.sortReverse = true;
-    if (s.rankingProfile) out.rankingProfile = s.rankingProfile;
+    // rankingProfile is a loose string in OQL controls; the localSearchCode
+    // schema validates it against its language-profile enum at runtime.
+    if (s.rankingProfile)
+      out.rankingProfile =
+        s.rankingProfile as LocalSearchToolQuery['rankingProfile'];
     if (s.debugRanking) out.debugRanking = true;
   }
   // budget.maxFiles is the search --max-files file cap; apply it even when

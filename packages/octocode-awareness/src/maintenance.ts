@@ -42,6 +42,7 @@ export interface SessionCaptureResult {
   files: string[];
   dirty_files: string[];
   reason: string | null;
+  consolidation_opportunities: number; // memories with novelty_score < 0.2 (candidates for supersede)
 }
 
 export interface WaitForLockResult {
@@ -54,46 +55,62 @@ export interface WaitForLockResult {
 /** REAL: Delete expired file locks and set parent intents to PENDING. */
 export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {}): PruneStaleResult {
   const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
   const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) :
     params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
+  const agentId = typeof params.agent_id === 'string' ? params.agent_id :
+    typeof params.agentId === 'string' ? params.agentId : null;
+  const rawTarget = params.target_file ?? params.targetFile;
+  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : [])
+    .map(String).filter(Boolean);
   const now = utcNow();
-  // Age cutoff: locks older than N minutes are considered stale even if no expires_at
-  const ageCutoff = olderThanMinutes != null
+  // Age cutoff: locks older than N minutes are considered stale even if not expired.
+  const ageCutoff = olderThanMinutes != null && !expiredOnly
     ? new Date(Date.now() - olderThanMinutes * 60000).toISOString()
     : null;
 
-  if (dryRun) {
-    let count = 0;
-    try {
-      const row = db.prepare(
-        `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
-      ).get(now) as { c: number };
-      count += row.c;
-      if (ageCutoff) {
-        const row2 = db.prepare(
-          `SELECT COUNT(*) AS c FROM file_locks WHERE acquired_at < ? AND (expires_at IS NULL OR expires_at >= ?)`
-        ).get(ageCutoff, now) as { c: number };
-        count += row2.c;
-      }
-    } catch { /* ignore */ }
-    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: count };
+  // Selection must be identical for dry-run and real prune, so previews are honest.
+  const conditions: string[] = [];
+  const binds: string[] = [];
+  const staleClauses = ['(expires_at IS NOT NULL AND expires_at < ?)'];
+  binds.push(now);
+  if (ageCutoff) {
+    staleClauses.push('(acquired_at < ?)');
+    binds.push(ageCutoff);
   }
+  conditions.push(`(${staleClauses.join(' OR ')})`);
+  if (agentId) { conditions.push('agent_id = ?'); binds.push(agentId); }
+  if (targetFiles.length > 0) {
+    conditions.push(`file_path IN (${targetFiles.map(() => '?').join(',')})`);
+    binds.push(...targetFiles);
+  }
+  const where = conditions.join(' AND ');
 
-  const expiredLocks = db.prepare(`
-    SELECT fl.lock_id, fl.intent_id
-    FROM file_locks fl
-    WHERE fl.expires_at IS NOT NULL AND fl.expires_at < ?
-  `).all(now) as Array<{ lock_id: string; intent_id: string }>;
+  let staleLocks: Array<{ lock_id: string; intent_id: string }> = [];
+  try {
+    staleLocks = db.prepare(
+      `SELECT lock_id, intent_id FROM file_locks WHERE ${where}`
+    ).all(...binds) as Array<{ lock_id: string; intent_id: string }>;
+  } catch { /* ignore — table may be mid-migration */ }
 
-  if (expiredLocks.length === 0) {
+  if (dryRun) {
+    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: staleLocks.length };
+  }
+  if (staleLocks.length === 0) {
     return { pruned_locks: 0, updated_intents: 0 };
   }
 
-  db.prepare(
-    'DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?'
-  ).run(now);
+  db.exec('BEGIN');
+  try {
+    const ph = staleLocks.map(() => '?').join(',');
+    db.prepare(`DELETE FROM file_locks WHERE lock_id IN (${ph})`).run(...staleLocks.map(l => l.lock_id));
+    db.exec('COMMIT');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+    throw e;
+  }
 
-  const affectedIntentIds = [...new Set(expiredLocks.map(l => l.intent_id))];
+  const affectedIntentIds = [...new Set(staleLocks.map(l => l.intent_id))];
   let updatedIntents = 0;
   for (const iid of affectedIntentIds) {
     const remaining = db.prepare('SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1').get(iid);
@@ -105,7 +122,7 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     }
   }
 
-  return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
+  return { pruned_locks: staleLocks.length, updated_intents: updatedIntents };
 }
 
 // ─── Smart briefing ─────────────────────────────────────────────────────────
@@ -194,7 +211,29 @@ export function notifyGet(
     }
   } catch { /* skip notifications on error */ }
 
-  // 1. Top actionable memories for this workspace (EXPERIENCE/reflections excluded)
+  // 1a. OVERRIDE memories — always surfaced regardless of importance (they contradict model defaults)
+  try {
+    type MemRow = { memory_id: string; observation: string; importance_score: number };
+    const overrideConds: string[] = ["state = 'ACTIVE'", "label = 'OVERRIDE'"];
+    const overrideBinds: (string | number)[] = [];
+    if (wsPath) { overrideConds.push('(workspace_path = ? OR workspace_path IS NULL)'); overrideBinds.push(wsPath); }
+    const overrideRows = db.prepare(
+      `SELECT memory_id, observation, importance_score
+       FROM agent_memories
+       WHERE ${overrideConds.join(' AND ')}
+       ORDER BY importance_score DESC, last_accessed_at DESC
+       LIMIT 2`
+    ).all(...overrideBinds) as unknown as MemRow[];
+    for (const m of overrideRows) {
+      items.push({
+        kind: 'memory',
+        text: `OVERRIDE(${m.importance_score}): ${m.observation.slice(0, 120)}`,
+        importance: m.importance_score,
+      });
+    }
+  } catch { /* skip this section on error */ }
+
+  // 1b. Top actionable memories for this workspace (EXPERIENCE/reflections excluded)
   try {
     type MemRow = { memory_id: string; observation: string; label: string; importance_score: number };
     const conditions: string[] = ["state = 'ACTIVE'", "importance_score >= 6",
@@ -241,7 +280,7 @@ export function notifyGet(
 
   // 3. Open repo-fix refinements count (session handoffs are excluded by default)
   try {
-    const refCount = openRefinementCount(db, { workspacePath: wsPath, cwd: process.cwd() });
+    const refCount = openRefinementCount(db, { workspacePath: wsPath, cwd: notifyCwd });
     if (refCount > 0) {
       items.push({ kind: 'refinement', text: `📋 ${refCount} open refinement(s) pending` });
     }
@@ -329,6 +368,18 @@ export function sessionCapture(
   const activeIntents = intentRows.filter(row => row.status === 'ACTIVE').length;
   const pendingIntents = intentRows.filter(row => row.status === 'PENDING').length;
 
+  // Count memories with low novelty (< 0.2) that are candidates for supersede/consolidation.
+  // This is a hint to the agent that memory_digest or manual supersede may be overdue.
+  let consolidationOpportunities = 0;
+  try {
+    const cConds: string[] = ["novelty_score IS NOT NULL", "novelty_score < 0.2", "state = 'ACTIVE'"];
+    const cBinds: (string | number)[] = [];
+    if (workspacePath) { cConds.push('(workspace_path = ? OR workspace_path IS NULL)'); cBinds.push(workspacePath); }
+    consolidationOpportunities = (db.prepare(
+      `SELECT COUNT(*) AS c FROM agent_memories WHERE ${cConds.join(' AND ')}`
+    ).get(...cBinds) as { c: number }).c;
+  } catch { /* non-fatal */ }
+
   if (intentRows.length === 0 && dirtyFiles.length === 0) {
     return {
       ok: true,
@@ -339,6 +390,7 @@ export function sessionCapture(
       files: [],
       dirty_files: [],
       reason,
+      consolidation_opportunities: consolidationOpportunities,
     };
   }
 
@@ -390,6 +442,7 @@ export function sessionCapture(
     files: capturedFiles,
     dirty_files: dirtyFiles,
     reason,
+    consolidation_opportunities: consolidationOpportunities,
   };
 }
 
@@ -406,6 +459,10 @@ export function waitForLock(
   const agentId = (params.agent_id ?? params.agentId) as string | undefined ?? 'agent';
   const waitMs = Number(params.wait_ms ?? params.waitMs ?? 60000);
   const retryMs = Number(params.retry_interval_ms ?? params.retryIntervalMs ?? 5000);
+  // requestedLockType: EXCLUSIVE is blocked by any existing lock; SHARED is only blocked by EXCLUSIVE.
+  const requestedLockType = String(
+    params.requestedLockType ?? params.requested_lock_type ?? params.lockType ?? params.lock_type ?? 'EXCLUSIVE'
+  ).toUpperCase();
   const start = Date.now();
 
   if (targetFiles.length === 0) {
@@ -416,6 +473,8 @@ export function waitForLock(
     const now = new Date().toISOString();
     const ph = targetFiles.map(() => '?').join(',');
     type LockRow = { file_path: string; agent_id: string; expires_at: string | null };
+    // EXCLUSIVE requests conflict with any lock type; SHARED requests only conflict with EXCLUSIVE locks.
+    const lockTypeFilter = requestedLockType === 'EXCLUSIVE' ? '' : "AND fl.lock_type = 'EXCLUSIVE'";
     const locks = db.prepare(
       `SELECT fl.file_path, ai.agent_id, fl.expires_at
        FROM file_locks fl
@@ -423,7 +482,7 @@ export function waitForLock(
        WHERE fl.file_path IN (${ph})
          AND ai.agent_id <> ?
          AND ai.status = 'ACTIVE'
-         AND fl.lock_type = 'EXCLUSIVE'
+         ${lockTypeFilter}
          AND (fl.expires_at IS NULL OR fl.expires_at > ?)`
     ).all(...targetFiles, agentId, now) as unknown as LockRow[];
     return locks;
@@ -432,14 +491,12 @@ export function waitForLock(
   let conflicts = checkLocks();
   const waited = () => Date.now() - start;
 
-  // MAINT-1: Replace SharedArrayBuffer + Atomics.wait with synchronous sleep via
-  // a busy-wait on a Date.now() loop. SharedArrayBuffer requires crossOriginIsolated
-  // headers or --experimental-shared-memory and throws ReferenceError in restricted
-  // environments. The workaround is a simple spin-sleep; for long waits the retry
-  // interval is bounded by min(retryMs, remaining) so we don't overshoot.
+  // Synchronous sleep via Atomics.wait on a fresh SharedArrayBuffer.
+  // This yields the thread to the OS for the full duration instead of busy-spinning,
+  // eliminating the 100% CPU usage the previous spin loop caused during lock waits.
+  // SharedArrayBuffer is unconditionally available in Node.js (no COOP/COEP headers needed).
   function sleepMs(ms: number): void {
-    const until = Date.now() + ms;
-    while (Date.now() < until) { /* spin */ }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
   }
 
   while (conflicts.length > 0 && waited() < waitMs) {
@@ -536,9 +593,9 @@ export function digest(
   // 1. Archive expired memories (valid_to < now)
   const archiveRes = db.prepare(
     `UPDATE agent_memories
-     SET state = 'SUPERSEDED', expired_at = ?
+     SET state = 'SUPERSEDED', expired_at = ?, updated_at = ?
      WHERE valid_to IS NOT NULL AND valid_to < ? AND state = 'ACTIVE'`
-  ).run(now, now) as { changes: number };
+  ).run(now, now, now) as { changes: number };
 
   // 2. Hard-delete old SUPERSEDED entries to keep the DB lean
   const deleteRes = db.prepare(

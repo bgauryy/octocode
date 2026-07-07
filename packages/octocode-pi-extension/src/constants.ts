@@ -42,4 +42,5 @@ export const OCTOCODE_SUPPORT_TOOL_NAMES = [
   'memory_refine_get',
   'memory_audit_unverified',
   'memory_verify',
+  'memory_export_harness',
 ] as const;

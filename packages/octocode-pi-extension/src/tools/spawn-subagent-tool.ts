@@ -21,6 +21,7 @@ import type { registerUniqueTool } from './octocode-tools.js';
 import { makeRenderer, truncateToWidth } from './render-helpers.js';
 import {
   spawnRpcAgent,
+  isSubagentProcess,
   type SpawnAgentParams,
 } from './agent-tools.js';
 import {
@@ -79,9 +80,14 @@ function buildTaskWithContext(params: SpawnSubagentParams): string {
 function buildAgentName(params: SpawnSubagentParams): string {
   if (params.name) return params.name;
   const config = SUBAGENT_REGISTRY[params.agent];
-  const slug = params.url
-    ? new URL(params.url).hostname.replace(/^www\./, '')
-    : 'session';
+  let slug = 'session';
+  if (params.url) {
+    try {
+      slug = new URL(params.url).hostname.replace(/^www\./, '');
+    } catch {
+      slug = 'session';
+    }
+  }
   return `${config.label} · ${slug}`;
 }
 
@@ -94,6 +100,8 @@ export function registerSpawnSubagentTool(
   registerFn: RegisterFn,
   _notify?: (ctx: PiContext | undefined, message: string, level?: string) => void,
 ): void {
+  // Workers cannot spawn workers — never register this tool inside a spawned worker process.
+  if (isSubagentProcess()) return;
   registerFn(pi, registeredToolNames, {
     name: 'spawnSubagent',
     label: 'Spawn Subagent',

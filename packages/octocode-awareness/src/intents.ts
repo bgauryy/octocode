@@ -88,6 +88,7 @@ export function preFlightIntent(
     workspacePath,
     rationale = 'agent write operation',
     testPlan = 'post-edit verification',
+    planDocRef = null,
     targetFiles = [],
     lockType = 'EXCLUSIVE',
     ttlMs = MAX_LOCK_TTL_MS,
@@ -101,77 +102,90 @@ export function preFlightIntent(
   // ARCH-3: Drop expired locks before checking conflicts so dangling locks never block new work.
   evictExpiredLocks(db);
 
-  // Check for conflicts. Shared locks can coexist with shared locks; any exclusive edge conflicts.
-  const conflicts: FileLockRow[] = [];
-  for (const absPath of absFiles) {
-    const conflictMode = lockType === 'SHARED' ? "fl.lock_type = 'EXCLUSIVE'" : '1 = 1';
-    const existing = db.prepare(`
-      SELECT fl.*, ai.agent_id AS intent_agent_id FROM file_locks fl
-      JOIN agent_intents ai ON ai.intent_id = fl.intent_id
-      WHERE fl.file_path = ?
-        AND ai.agent_id <> ?
-        AND ai.status = 'ACTIVE'
-        AND ${conflictMode}
-        AND (fl.expires_at IS NULL OR fl.expires_at > ?)
-    `).all(absPath, agentId, now) as unknown as FileLockRow[];
-    conflicts.push(...existing);
-  }
+  // BEGIN IMMEDIATE acquires a write lock upfront, serializing the check-then-insert sequence
+  // and eliminating the TOCTOU race where two agents both pass the conflict check before either
+  // inserts, then both hold EXCLUSIVE locks on the same file.
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // Check for conflicts with OTHER agents.
+    const conflicts: FileLockRow[] = [];
+    for (const absPath of absFiles) {
+      const conflictMode = lockType === 'SHARED' ? "fl.lock_type = 'EXCLUSIVE'" : '1 = 1';
+      const existing = db.prepare(`
+        SELECT fl.*, ai.agent_id AS intent_agent_id FROM file_locks fl
+        JOIN agent_intents ai ON ai.intent_id = fl.intent_id
+        WHERE fl.file_path = ?
+          AND ai.agent_id <> ?
+          AND ai.status = 'ACTIVE'
+          AND ${conflictMode}
+          AND (fl.expires_at IS NULL OR fl.expires_at > ?)
+      `).all(absPath, agentId, now) as unknown as FileLockRow[];
+      conflicts.push(...existing);
+    }
 
-  if (conflicts.length > 0) {
-    return {
-      ok: false,
-      conflict: true,
-      conflicts: conflicts.map(c => ({
-        file_path: c.file_path,
-        lock_type: c.lock_type as 'EXCLUSIVE' | 'SHARED',
-        agent_id: c.intent_agent_id ?? c.agent_id,
-        acquired_at: c.acquired_at,
-        expires_at: c.expires_at,
-      })),
-    };
-  }
+    if (conflicts.length > 0) {
+      db.exec('ROLLBACK');
+      return {
+        ok: false,
+        conflict: true,
+        conflicts: conflicts.map(c => ({
+          file_path: c.file_path,
+          lock_type: c.lock_type as 'EXCLUSIVE' | 'SHARED',
+          agent_id: c.intent_agent_id ?? c.agent_id,
+          acquired_at: c.acquired_at,
+          expires_at: c.expires_at,
+        })),
+      };
+    }
 
-  db.prepare(`
-    INSERT INTO agent_intents
-      (intent_id, agent_id, session_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
-  `).run(intentId, agentId, sessionId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
-
-  const expiresAt = expiresAtFromNow(ttlMs);
-
-  const acquiredLocks: Array<{ lock_id: string; file_path: string; lock_type: 'EXCLUSIVE' | 'SHARED'; expires_at: string | null }> = [];
-  for (const absPath of absFiles) {
-    const lockId = 'lock_' + randomUUID().replace(/-/g, '');
+    // Insert intent + all file locks atomically within the same transaction.
     db.prepare(`
-      INSERT OR REPLACE INTO file_locks
-        (lock_id, file_path, intent_id, agent_id, session_id, lock_type, acquired_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(lockId, absPath, intentId, agentId, sessionId, lockType, now, expiresAt);
-    acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
-  }
+      INSERT INTO agent_intents
+        (intent_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, files_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+    `).run(intentId, agentId, sessionId, rationale, testPlan, planDocRef, wsPath, JSON.stringify(absFiles), now, now);
 
-  return {
-    ok: true,
-    intent: {
-      intent_id: intentId,
-      agent_id: agentId,
-      session_id: sessionId,
-      lock_type: lockType,
-      workspace_path: wsPath,
-      target_files: absFiles,
-      locks: acquiredLocks.map(l => ({
-        lock_id: l.lock_id,
-        file_path: l.file_path,
-        lock_type: l.lock_type,
+    const expiresAt = expiresAtFromNow(ttlMs);
+
+    const acquiredLocks: Array<{ lock_id: string; file_path: string; lock_type: 'EXCLUSIVE' | 'SHARED'; expires_at: string | null }> = [];
+    for (const absPath of absFiles) {
+      const lockId = 'lock_' + randomUUID().replace(/-/g, '');
+      db.prepare(`
+        INSERT OR REPLACE INTO file_locks
+          (lock_id, file_path, intent_id, agent_id, session_id, lock_type, acquired_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(lockId, absPath, intentId, agentId, sessionId, lockType, now, expiresAt);
+      acquiredLocks.push({ lock_id: lockId, file_path: absPath, lock_type: lockType, expires_at: expiresAt });
+    }
+
+    db.exec('COMMIT');
+
+    return {
+      ok: true,
+      intent: {
+        intent_id: intentId,
         agent_id: agentId,
         session_id: sessionId,
-        acquired_at: now,
-        expires_at: l.expires_at,
-      })),
-      status: 'ACTIVE',
-      created_at: now,
-    },
-  };
+        lock_type: lockType,
+        workspace_path: wsPath,
+        target_files: absFiles,
+        locks: acquiredLocks.map(l => ({
+          lock_id: l.lock_id,
+          file_path: l.file_path,
+          lock_type: l.lock_type,
+          agent_id: agentId,
+          session_id: sessionId,
+          acquired_at: now,
+          expires_at: l.expires_at,
+        })),
+        status: 'ACTIVE',
+        created_at: now,
+      },
+    };
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* not in transaction */ }
+    throw e;
+  }
 }
 
 /**
@@ -304,19 +318,20 @@ export function fileLock(db: DatabaseSync, params: FileLockParams): FileLockResu
       if (!params.intentId && (!params.targetFiles || params.targetFiles.length === 0)) {
         throw new Error('fileLock release requires intentId or targetFiles');
       }
+      const rel = releaseFileLock(db, {
+        agentId: params.agentId,
+        sessionId: params.sessionId,
+        workspacePath: params.workspacePath,
+        intentId: params.intentId,
+        targetFiles: params.targetFiles,
+        status: params.status,
+        verified: params.verified,
+        verifiedNote: params.verifiedNote,
+      });
       return {
-        ok: true,
+        ok: !('unverifiedConclusion' in rel),
         type: 'release',
-        ...releaseFileLock(db, {
-          agentId: params.agentId,
-          sessionId: params.sessionId,
-          workspacePath: params.workspacePath,
-          intentId: params.intentId,
-          targetFiles: params.targetFiles,
-          status: params.status,
-          verified: params.verified,
-          verifiedNote: params.verifiedNote,
-        }),
+        ...rel,
       };
     }
     case 'status':

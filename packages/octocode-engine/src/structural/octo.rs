@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use regex::Regex;
@@ -8,7 +9,41 @@ use super::language::AgLanguage;
 use super::query::StructuralQuery;
 use super::types::{MetavarRange, StructuralMatch};
 
-pub(super) type OctoCompiledMatcher = Box<dyn Fn(&str) -> Vec<StructuralMatch> + Send + Sync>;
+pub(super) type OctoCompiledMatcher = Box<dyn Fn(&str) -> Vec<MatchWithKind> + Send + Sync>;
+
+/// A match paired with the tree-sitter `kind` of the node it matched. The
+/// non-detailed API discards `node_kind`; the detailed API surfaces it as
+/// `StructuralDetailedMatch.node_kind` so callers can see what shape was hit
+/// without re-parsing.
+pub(super) struct MatchWithKind {
+    pub(super) matched: StructuralMatch,
+    pub(super) node_kind: String,
+}
+
+impl MatchWithKind {
+    fn new(node: Node<'_>, matched: StructuralMatch) -> Self {
+        Self {
+            node_kind: node.kind().to_owned(),
+            matched,
+        }
+    }
+}
+
+/// Max nesting the recursive tree walkers and pattern matcher descend before
+/// giving up. Named AST nodes almost never nest anywhere near this in real
+/// source; the cap exists only so a pathological input (e.g. a ~1 MB string of
+/// `[[[[…`) can't overflow the native stack. `structuralSearch` is a *sync*
+/// napi call, and a stack overflow raises SIGSEGV which `catch_unwind` cannot
+/// catch — it aborts the whole Node process. Anything nested deeper than this
+/// is simply not visited / not matched (a bounded, graceful loss of recall).
+const MAX_STRUCTURAL_DEPTH: usize = 500;
+
+/// Budget on `$$$` multi-metavar split attempts within a single top-level
+/// child-list match. Each `$$$` tries every split point (`for take in
+/// 0..=max_take`) and several `$$$` against a wide node are combinatorial; this
+/// caps the total work so a crafted pattern + wide input can't stall for
+/// seconds. When the budget is exhausted the match bails to no-match.
+const MAX_MULTI_CAPTURE_ATTEMPTS: usize = 10_000;
 
 pub(super) fn compile_matcher(
     lang: &AgLanguage,
@@ -19,11 +54,10 @@ pub(super) fn compile_matcher(
         (Some(pattern), None) if is_document_probe(pattern) => Ok(Box::new(move |content| {
             parse_tree(&language, content)
                 .map(|tree| {
-                    vec![to_structural_match(
-                        tree.root_node(),
-                        content,
-                        HashMap::new(),
-                        HashMap::new(),
+                    let root = tree.root_node();
+                    vec![MatchWithKind::new(
+                        root,
+                        to_structural_match(root, content, HashMap::new(), HashMap::new()),
                     )]
                 })
                 .unwrap_or_default()
@@ -40,19 +74,22 @@ pub(super) fn compile_matcher(
                 };
                 let line_index = LineIndex::new(content);
                 let mut matches = Vec::new();
-                visit_named(tree.root_node(), &mut |candidate| {
+                visit_named(tree.root_node(), 0, &mut |candidate| {
                     if !compiled.matches_candidate(candidate) {
                         return;
                     }
                     let mut captures = CaptureEnv::default();
                     if compiled.matches(candidate, content, &mut captures) {
                         let (values, ranges) = captures.into_maps();
-                        matches.push(to_structural_match_with_index(
+                        matches.push(MatchWithKind::new(
                             candidate,
-                            content,
-                            &line_index,
-                            values,
-                            ranges,
+                            to_structural_match_with_index(
+                                candidate,
+                                content,
+                                &line_index,
+                                values,
+                                ranges,
+                            ),
                         ));
                     }
                 });
@@ -77,19 +114,22 @@ pub(super) fn compile_matcher(
                 let document = Document { content };
                 let line_index = LineIndex::new(content);
                 let mut matches = Vec::new();
-                visit_named(tree.root_node(), &mut |candidate| {
+                visit_named(tree.root_node(), 0, &mut |candidate| {
                     if !compiled.matches_candidate(candidate) {
                         return;
                     }
                     let mut captures = CaptureEnv::default();
                     if compiled.matches(candidate, &document, &mut captures) {
                         let (values, ranges) = captures.into_maps();
-                        matches.push(to_structural_match_with_index(
+                        matches.push(MatchWithKind::new(
                             candidate,
-                            content,
-                            &line_index,
-                            values,
-                            ranges,
+                            to_structural_match_with_index(
+                                candidate,
+                                content,
+                                &line_index,
+                                values,
+                                ranges,
+                            ),
                         ));
                     }
                 });
@@ -104,34 +144,53 @@ fn is_document_probe(pattern: &str) -> bool {
     pattern.trim() == "$$$"
 }
 
-fn parse_tree(language: &Language, content: &str) -> Option<Tree> {
-    let mut parser = Parser::new();
-    parser.set_language(language).ok()?;
-    parser.parse(content.as_bytes(), None)
+thread_local! {
+    /// Reused across files on each worker thread so the structural walk doesn't
+    /// allocate a fresh `Parser` (and its internal scratch buffers) per file —
+    /// `search_files` parses one file per candidate, often thousands, in a
+    /// `rayon` pool. Each rayon worker gets its own instance (`Parser` is not
+    /// `Sync`), and `set_language` is re-applied per parse: a single-extension
+    /// group already shares one grammar, so the call is cheap relative to
+    /// constructing a parser from scratch.
+    static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
 }
 
-fn visit_named<'tree>(node: Node<'tree>, f: &mut impl FnMut(Node<'tree>)) {
+fn parse_tree(language: &Language, content: &str) -> Option<Tree> {
+    PARSER.with(|parser| {
+        let mut parser = parser.borrow_mut();
+        parser.set_language(language).ok()?;
+        parser.parse(content.as_bytes(), None)
+    })
+}
+
+fn visit_named<'tree>(node: Node<'tree>, depth: usize, f: &mut impl FnMut(Node<'tree>)) {
     if node.is_named() {
         f(node);
     }
+    if depth >= MAX_STRUCTURAL_DEPTH {
+        return;
+    }
     for index in 0..node.named_child_count() {
         if let Some(child) = node.named_child(index as u32) {
-            visit_named(child, f);
+            visit_named(child, depth + 1, f);
         }
     }
 }
 
-fn collect_kind_matches(root: Node<'_>, kind: &str, content: &str) -> Vec<StructuralMatch> {
+fn collect_kind_matches(root: Node<'_>, kind: &str, content: &str) -> Vec<MatchWithKind> {
     let line_index = LineIndex::new(content);
     let mut matches = Vec::new();
-    visit_named(root, &mut |candidate| {
+    visit_named(root, 0, &mut |candidate| {
         if candidate.kind() == kind {
-            matches.push(to_structural_match_with_index(
+            matches.push(MatchWithKind::new(
                 candidate,
-                content,
-                &line_index,
-                HashMap::new(),
-                HashMap::new(),
+                to_structural_match_with_index(
+                    candidate,
+                    content,
+                    &line_index,
+                    HashMap::new(),
+                    HashMap::new(),
+                ),
             ));
         }
     });
@@ -211,6 +270,12 @@ fn raw_range(node: Node<'_>) -> RawRange {
     )
 }
 
+/// Internal capture name for relational bookkeeping (`has`/`inside`). Lowercase
+/// is unreachable by user metavars — `pre_process_pattern` only treats `A-Z`/`_`
+/// after `$` as a metavar — so stripping this key from output can never drop a
+/// user capture.
+const SECONDARY_CAPTURE: &str = "secondary";
+
 #[derive(Default, Clone)]
 struct CaptureEnv {
     values: HashMap<String, Vec<String>>,
@@ -250,7 +315,9 @@ impl CaptureEnv {
         }
     }
 
-    fn into_maps(self) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<RawRange>>) {
+    fn into_maps(mut self) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<RawRange>>) {
+        self.values.remove(SECONDARY_CAPTURE);
+        self.ranges.remove(SECONDARY_CAPTURE);
         (self.values, self.ranges)
     }
 }
@@ -348,7 +415,7 @@ impl CompiledPattern {
         self.candidate_plan.matches(candidate)
     }
 
-    fn find_special_matches(&self, content: &str) -> Vec<StructuralMatch> {
+    fn find_special_matches(&self, content: &str) -> Vec<MatchWithKind> {
         let Some(special) = &self.special else {
             return Vec::new();
         };
@@ -359,7 +426,7 @@ impl CompiledPattern {
         let mut seen = HashSet::new();
         let mut matches = Vec::new();
         let line_index = LineIndex::new(content);
-        visit_named(tree.root_node(), &mut |candidate| {
+        visit_named(tree.root_node(), 0, &mut |candidate| {
             if !self.matches_candidate(candidate) {
                 return;
             }
@@ -373,7 +440,7 @@ impl CompiledPattern {
                     matched.end_col,
                 );
                 if seen.insert(key) {
-                    matches.push(matched);
+                    matches.push(MatchWithKind::new(candidate, matched));
                 }
             }
         });
@@ -389,7 +456,16 @@ impl CompiledPattern {
             return false;
         };
         let root = effective_pattern_root(tree.root_node());
-        self.match_node(root, &self.source, candidate, content, captures)
+        let mut attempts = MAX_MULTI_CAPTURE_ATTEMPTS;
+        self.match_node(
+            root,
+            &self.source,
+            candidate,
+            content,
+            captures,
+            0,
+            &mut attempts,
+        )
     }
 
     fn special_structural_match(
@@ -488,6 +564,11 @@ impl CompiledPattern {
         }
     }
 
+    // `depth` guards native-stack growth against pathologically nested patterns
+    // (see `MAX_STRUCTURAL_DEPTH`); `attempts` is the shared `$$$` split budget
+    // (see `MAX_MULTI_CAPTURE_ATTEMPTS`). Threading both explicitly keeps the
+    // matcher a plain set of methods rather than a stateful struct.
+    #[allow(clippy::too_many_arguments)]
     fn match_node(
         &self,
         pattern: Node<'_>,
@@ -495,7 +576,12 @@ impl CompiledPattern {
         candidate: Node<'_>,
         candidate_source: &str,
         captures: &mut CaptureEnv,
+        depth: usize,
+        attempts: &mut usize,
     ) -> bool {
+        if depth >= MAX_STRUCTURAL_DEPTH {
+            return false;
+        }
         if let Some(meta) = meta_from_node(pattern, pattern_source, self.expando) {
             return match meta {
                 MetaVar::Single(name) => captures.capture_one(
@@ -524,9 +610,12 @@ impl CompiledPattern {
             &candidate_children,
             candidate_source,
             captures,
+            depth,
+            attempts,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn match_child_list(
         &self,
         pattern_children: &[Node<'_>],
@@ -534,6 +623,8 @@ impl CompiledPattern {
         candidate_children: &[Node<'_>],
         candidate_source: &str,
         captures: &mut CaptureEnv,
+        depth: usize,
+        attempts: &mut usize,
     ) -> bool {
         if pattern_children.is_empty() {
             return candidate_children.is_empty();
@@ -550,6 +641,8 @@ impl CompiledPattern {
                         candidate_children,
                         candidate_source,
                         captures,
+                        depth,
+                        attempts,
                     );
                 }
                 MetaVar::IgnoredMulti => {
@@ -560,6 +653,8 @@ impl CompiledPattern {
                         candidate_children,
                         candidate_source,
                         captures,
+                        depth,
+                        attempts,
                     );
                 }
                 MetaVar::Single(_) | MetaVar::IgnoredSingle => {}
@@ -570,12 +665,16 @@ impl CompiledPattern {
             return false;
         };
         let mut branch = captures.clone();
+        // Descending into a child is one level deeper; sibling recursion below
+        // stays at the same depth.
         if !self.match_node(
             first,
             pattern_source,
             candidate_first,
             candidate_source,
             &mut branch,
+            depth + 1,
+            attempts,
         ) {
             return false;
         }
@@ -585,6 +684,8 @@ impl CompiledPattern {
             &candidate_children[1..],
             candidate_source,
             &mut branch,
+            depth,
+            attempts,
         ) {
             *captures = branch;
             return true;
@@ -592,6 +693,7 @@ impl CompiledPattern {
         false
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn match_multi_capture(
         &self,
         name: Option<&str>,
@@ -600,6 +702,8 @@ impl CompiledPattern {
         candidate_children: &[Node<'_>],
         candidate_source: &str,
         captures: &mut CaptureEnv,
+        depth: usize,
+        attempts: &mut usize,
     ) -> bool {
         let min_remaining =
             minimum_candidate_nodes(remaining_pattern, pattern_source, self.expando);
@@ -608,6 +712,13 @@ impl CompiledPattern {
         }
         let max_take = candidate_children.len() - min_remaining;
         for take in 0..=max_take {
+            // Each split point is one unit of the shared backtracking budget;
+            // exhausting it bails the whole match rather than continuing to
+            // explore a combinatorial split space.
+            if *attempts == 0 {
+                return false;
+            }
+            *attempts -= 1;
             let mut branch = captures.clone();
             if let Some(name) = name {
                 let texts = candidate_children[..take]
@@ -628,6 +739,8 @@ impl CompiledPattern {
                 &candidate_children[take..],
                 candidate_source,
                 &mut branch,
+                depth,
+                attempts,
             ) {
                 *captures = branch;
                 return true;
@@ -641,7 +754,7 @@ fn html_tag_name_node(candidate: Node<'_>) -> Option<Node<'_>> {
     if !matches!(candidate.kind(), "element" | "self_closing_tag") {
         return None;
     }
-    first_named_descendant_kind(candidate, "tag_name")
+    first_named_descendant_kind(candidate, "tag_name", 0)
 }
 
 fn key_value_nodes(candidate: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
@@ -765,10 +878,24 @@ struct CompiledRule {
 }
 
 impl CompiledRule {
+    /// Accepts both the wrapped document form (`rule:\n  kind: ...`) and a bare
+    /// rule (`kind: ...`). A top-level `rule` key is unambiguous: `RawRule` has
+    /// no such field, so a bare rule can never contain one.
     fn new(lang: &AgLanguage, rule: &str) -> Result<Self, String> {
-        let raw: RawRuleDocument =
+        let value: serde_yaml_ng::Value =
             serde_yaml_ng::from_str(rule).map_err(|err| format!("invalid rule YAML: {err}"))?;
-        Self::compile(lang, raw.rule)
+        let wrapped = value
+            .as_mapping()
+            .is_some_and(|mapping| mapping.contains_key("rule"));
+        let raw: RawRule = if wrapped {
+            serde_yaml_ng::from_value::<RawRuleDocument>(value)
+                .map_err(|err| format!("invalid rule YAML: {err}"))?
+                .rule
+        } else {
+            serde_yaml_ng::from_value(value)
+                .map_err(|err| format!("invalid rule YAML: {err}"))?
+        };
+        Self::compile(lang, raw)
     }
 
     fn compile(lang: &AgLanguage, raw: RawRule) -> Result<Self, String> {
@@ -899,7 +1026,7 @@ impl CompiledRule {
         }
         if let Some(rule) = &self.has {
             let mut branch = captures.clone();
-            if !matches_descendant(rule, candidate, document, &mut branch) {
+            if !matches_descendant(rule, candidate, document, &mut branch, 0) {
                 return false;
             }
             *captures = branch;
@@ -951,12 +1078,15 @@ fn matches_descendant(
     candidate: Node<'_>,
     document: &Document<'_>,
     captures: &mut CaptureEnv,
+    depth: usize,
 ) -> bool {
+    if depth >= MAX_STRUCTURAL_DEPTH {
+        return false;
+    }
     for index in 0..candidate.named_child_count() {
-        if candidate
-            .named_child(index as u32)
-            .is_some_and(|child| matches_descendant_candidate(rule, child, document, captures))
-        {
+        if candidate.named_child(index as u32).is_some_and(|child| {
+            matches_descendant_candidate(rule, child, document, captures, depth)
+        }) {
             return true;
         }
     }
@@ -968,12 +1098,13 @@ fn matches_descendant_candidate(
     child: Node<'_>,
     document: &Document<'_>,
     captures: &mut CaptureEnv,
+    depth: usize,
 ) -> bool {
     if rule.matches_candidate(child) {
         let mut branch = captures.clone();
         if rule.matches(child, document, &mut branch) {
             branch.capture_replace(
-                "secondary",
+                SECONDARY_CAPTURE,
                 node_text(child, document.content).to_owned(),
                 raw_range(child),
             );
@@ -984,7 +1115,7 @@ fn matches_descendant_candidate(
     if !rule.stop_by_end {
         return false;
     }
-    matches_descendant(rule, child, document, captures)
+    matches_descendant(rule, child, document, captures, depth + 1)
 }
 
 fn matches_ancestor(
@@ -999,7 +1130,7 @@ fn matches_ancestor(
             let mut branch = captures.clone();
             if rule.matches(node, document, &mut branch) {
                 branch.capture_replace(
-                    "secondary",
+                    SECONDARY_CAPTURE,
                     node_text(node, document.content).to_owned(),
                     raw_range(node),
                 );
@@ -1015,13 +1146,20 @@ fn matches_ancestor(
     false
 }
 
-fn first_named_descendant_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
+fn first_named_descendant_kind<'tree>(
+    node: Node<'tree>,
+    kind: &str,
+    depth: usize,
+) -> Option<Node<'tree>> {
+    if depth >= MAX_STRUCTURAL_DEPTH {
+        return None;
+    }
     for index in 0..node.named_child_count() {
         let child = node.named_child(index as u32)?;
         if child.kind() == kind {
             return Some(child);
         }
-        if let Some(found) = first_named_descendant_kind(child, kind) {
+        if let Some(found) = first_named_descendant_kind(child, kind, depth + 1) {
             return Some(found);
         }
     }
@@ -1255,7 +1393,7 @@ mod tests {
             StructuralQuery::new(Some(pattern), None).expect("query"),
         )
         .expect("compile pattern");
-        matcher(src)
+        matcher(src).into_iter().map(|m| m.matched).collect()
     }
 
     fn run_rule(src: &str, ext: &str, rule: &str) -> Vec<StructuralMatch> {
@@ -1264,7 +1402,7 @@ mod tests {
             StructuralQuery::new(None, Some(rule)).expect("query"),
         )
         .expect("compile rule");
-        matcher(src)
+        matcher(src).into_iter().map(|m| m.matched).collect()
     }
 
     #[test]
@@ -1413,6 +1551,74 @@ mod tests {
         let matches = run_rule(src, "rs", rule);
 
         assert_eq!(matches.len(), 1, "only the unwrap inside `mod tests`");
-        assert_eq!(matches[0].metavars.get("X").map(Vec::as_slice), Some(&["w".to_string()][..]));
+        assert_eq!(
+            matches[0].metavars.get("X").map(Vec::as_slice),
+            Some(&["w".to_string()][..])
+        );
+        assert!(
+            !matches[0].metavars.contains_key(SECONDARY_CAPTURE),
+            "internal bookkeeping capture must not leak into output metavars"
+        );
+        assert!(
+            !matches[0].metavar_ranges.contains_key(SECONDARY_CAPTURE),
+            "internal bookkeeping capture must not leak into output metavar ranges"
+        );
+    }
+
+    #[test]
+    fn bare_rule_without_document_wrapper_is_accepted() {
+        // Agents (and OQL's object form) write the rule body directly; the
+        // engine must accept it without a top-level `rule:` key.
+        let src = "mod tests { fn t() { let v = w.unwrap(); } }\n";
+        let bare = "pattern: $X.unwrap()\ninside:\n  kind: mod_item\n  stopBy: end\n";
+        let wrapped = "rule:\n  pattern: $X.unwrap()\n  inside:\n    kind: mod_item\n    stopBy: end\n";
+
+        let bare_matches = run_rule(src, "rs", bare);
+        let wrapped_matches = run_rule(src, "rs", wrapped);
+
+        assert_eq!(bare_matches.len(), 1, "bare rule form must match");
+        assert_eq!(
+            bare_matches.len(),
+            wrapped_matches.len(),
+            "bare and wrapped forms must behave identically"
+        );
+        assert_eq!(
+            bare_matches[0].metavars.get("X").map(Vec::as_slice),
+            Some(&["w".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn deeply_nested_input_does_not_stack_overflow() {
+        // A ~200 KB run of nested `[` produces a tree far deeper than a test
+        // thread's 2 MB stack can survive with a naive recursive walker. The
+        // depth guard must let the (unmatched) search return without crashing.
+        let depth = 100_000;
+        let src = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        let matches = run_pattern(&src, "js", "foo($X)");
+        assert!(
+            matches.is_empty(),
+            "no call expression exists in a nested-array blob"
+        );
+    }
+
+    #[test]
+    fn multiple_multi_captures_terminate_within_attempt_budget() {
+        // Three `$$$` around literal separators against a wide argument list is a
+        // combinatorial split space. None of the args are the literal `x`/`y`
+        // the pattern demands, so it can never match — the point is that the
+        // attempts budget makes it bail quickly instead of exploring every split.
+        let args: Vec<String> = (0..40).map(|i| i.to_string()).collect();
+        let src = format!("f({});\n", args.join(", "));
+        let start = std::time::Instant::now();
+        let matches = run_pattern(&src, "js", "f($$$A, x, $$$B, y, $$$C)");
+        assert!(
+            start.elapsed().as_secs() < 5,
+            "bounded backtracking must terminate promptly"
+        );
+        assert!(
+            matches.is_empty(),
+            "no `x`/`y` separators exist in the args"
+        );
     }
 }

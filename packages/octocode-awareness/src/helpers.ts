@@ -13,6 +13,7 @@ export const MEMORY_LABELS = new Set([
   'ARCHITECTURE', 'SECURITY', 'PERFORMANCE', 'TEST', 'BUILD', 'DOCS',
   'CONFIG', 'WORKFLOW', 'REFACTOR', 'API', 'RELEASE', 'INCIDENT',
   'EXPERIENCE', // post-task reflections (worked/partial/failed outcomes)
+  'OVERRIDE',   // contradicts model training defaults (e.g. "this repo uses Bun, not npm")
   'OTHER',
 ]);
 
@@ -87,9 +88,10 @@ export function normalizeLabel(value: unknown): string {
 }
 
 /** Resolve and normalize a file path to absolute. Returns null for falsy input. */
-export function normalizeFilePath(filePath: unknown): string | null {
+export function normalizeFilePath(filePath: unknown, cwd?: string): string | null {
   if (!filePath) return null;
-  return resolve(String(filePath));
+  const p = String(filePath);
+  return cwd ? resolve(cwd, p) : resolve(p);
 }
 
 // ─── Row-to-shape serializer ──────────────────────────────────────────────────

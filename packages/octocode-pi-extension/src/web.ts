@@ -66,6 +66,51 @@ function inV4(ip: string, base: string, maskBits: number): boolean {
   return (i & mask) === (b & mask);
 }
 
+/** Expand an IPv6 literal to its 8 16-bit groups, or null if unparseable. */
+function expandIpv6(ip: string): number[] | null {
+  let s = ip;
+  // Fold a trailing dotted-quad (e.g. ::ffff:1.2.3.4) into two hextets.
+  const dotted = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const v4 = ipv4ToInt(dotted[2]!);
+    if (v4 === null) return null;
+    s = `${dotted[1]}${((v4 >>> 16) & 0xffff).toString(16)}:${(v4 & 0xffff).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  let groups: string[];
+  if (halves.length === 1) {
+    groups = head;
+  } else {
+    const missing = 8 - head.length - tail.length;
+    if (missing < 0) return null;
+    groups = [...head, ...Array(missing).fill('0'), ...tail];
+  }
+  if (groups.length !== 8) return null;
+  const nums = groups.map((h) => parseInt(h || '0', 16));
+  return nums.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff) ? null : nums;
+}
+
+/**
+ * Extract the embedded IPv4 (dotted) from an IPv6 that carries one — IPv4-mapped
+ * (::ffff:0:0/96), IPv4-compatible (::/96, deprecated), NAT64 (64:ff9b::/96), and
+ * 6to4 (2002::/16). Returns null when the address carries no embedded IPv4.
+ * These forms otherwise reach the loopback/metadata ranges past the SSRF guard.
+ */
+function embeddedIpv4(g: number[]): string | null {
+  const asV4 = (a: number, b: number): string =>
+    `${(a >>> 8) & 0xff}.${a & 0xff}.${(b >>> 8) & 0xff}.${b & 0xff}`;
+  const zeroPrefix = g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0;
+  if (zeroPrefix && (g[5] === 0xffff || g[5] === 0)) return asV4(g[6]!, g[7]!); // mapped / compatible
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    return asV4(g[6]!, g[7]!); // NAT64
+  }
+  if (g[0] === 0x2002) return asV4(g[1]!, g[2]!); // 6to4
+  return null;
+}
+
 /** True if an IP literal is in a non-public range (or is not a valid IP → fail closed). */
 export function isBlockedIp(ip: string): boolean {
   if (typeof ip !== 'string') return true;
@@ -74,11 +119,13 @@ export function isBlockedIp(ip: string): boolean {
   if (version === 6) {
     const lo = ip.toLowerCase();
     if (lo === '::1' || lo === '::') return true;
-    const mapped = lo.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped?.[1]) return isBlockedIp(mapped[1]);
+    const groups = expandIpv6(lo);
+    if (groups) {
+      const embedded = embeddedIpv4(groups);
+      if (embedded) return isBlockedIp(embedded); // recurse into V4 ranges for any embedded form
+    }
     if (/^fe[89ab]/.test(lo)) return true; // fe80::/10 link-local
-    const firstStr = lo.split(':')[0] ?? '0';
-    const first = parseInt(firstStr, 16);
+    const first = groups ? groups[0]! : parseInt(lo.split(':')[0] ?? '0', 16);
     if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 ULA
     return false;
   }
@@ -122,7 +169,8 @@ export async function assertPublicUrl(
 
 // ─── Fetch with redirect validation ──────────────────────────────────────────
 
-type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
+// `dispatcher` is a Node/undici fetch extension not present in the DOM RequestInit type.
+type FetchImpl = (input: string, init?: RequestInit & { dispatcher?: unknown }) => Promise<Response>;
 
 interface SafeFetchOptions {
   fetchImpl?: FetchImpl;
@@ -139,6 +187,57 @@ export interface SafeFetchResult {
   finalUrl: string;
 }
 
+/**
+ * Lazily build an undici dispatcher whose connect-time DNS lookup validates every
+ * resolved IP and pins the socket to a validated address. This closes the
+ * DNS-rebinding TOCTOU: assertPublicUrl validates at check time, and the SAME
+ * validation now runs at connect time on the exact IP the socket uses — so a host
+ * that answers public-on-check / private-on-connect is rejected during connect.
+ *
+ * undici ships inside Node but is imported dynamically (no hard dependency): if it
+ * is unavailable, we return null and fall back to per-hop re-validation only.
+ */
+let pinnedDispatcherPromise: Promise<unknown | null> | undefined;
+function getPinnedDispatcher(): Promise<unknown | null> {
+  if (!pinnedDispatcherPromise) {
+    pinnedDispatcherPromise = (async () => {
+      try {
+        const undici = (await import('undici')) as {
+          Agent: new (opts: unknown) => unknown;
+        };
+        return new undici.Agent({
+          connect: {
+            // net-style lookup: undici passes this straight to the socket connect.
+            lookup: (
+              hostname: string,
+              _options: unknown,
+              cb: (err: Error | null, address: string, family: number) => void,
+            ): void => {
+              // node:dns/promises API — resolve, validate every IP, pin to the first.
+              dns.lookup(hostname, { all: true })
+                .then((addresses) => {
+                  const list = Array.isArray(addresses) ? addresses : [addresses];
+                  if (list.length === 0) return cb(new Error(`Could not resolve host: ${hostname}`), '', 0);
+                  for (const rec of list) {
+                    if (isBlockedIp(rec.address)) {
+                      return cb(new Error(`Blocked private/loopback address: ${rec.address}`), '', 0);
+                    }
+                  }
+                  const chosen = list[0]!;
+                  cb(null, chosen.address, chosen.family);
+                })
+                .catch((err: Error) => cb(err, '', 0));
+            },
+          },
+        });
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return pinnedDispatcherPromise;
+}
+
 /** Fetch with manual redirect following, re-validating every hop against the SSRF guard. */
 export async function safeFetch(
   startUrl: string,
@@ -153,10 +252,16 @@ export async function safeFetch(
     signal: externalSignal,
   } = opts;
 
+  // Pin connections to validated IPs to close the DNS-rebinding TOCTOU — only on
+  // the default global-fetch path (a custom fetchImpl, e.g. in tests, is untouched).
+  const usingGlobalFetch = fetchImpl === (globalThis.fetch as FetchImpl);
+  const dispatcher = usingGlobalFetch ? await getPinnedDispatcher() : null;
+
   let current = startUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {
     await assertPublicUrl(current, { lookup });
     const ac = new AbortController();
+    if (externalSignal?.aborted) ac.abort(); // honor an already-aborted external signal
     const timer = setTimeout(() => ac.abort(), timeoutMs);
     const onAbort = (): void => ac.abort();
     if (externalSignal) externalSignal.addEventListener('abort', onAbort, { once: true });
@@ -165,6 +270,7 @@ export async function safeFetch(
       res = await fetchImpl(current, {
         redirect: 'manual',
         signal: ac.signal,
+        ...(dispatcher ? { dispatcher } : {}),
         headers: {
           'user-agent': resolveUserAgent(opts.env),
           ...(opts.env?.OCTOCODE_WEB_USER_AGENT
@@ -277,12 +383,17 @@ const ENTITIES: Record<string, string> = {
   '#x27': "'",
 };
 
+/** Valid Unicode code point range; String.fromCodePoint throws (RangeError) outside it. */
+function codePointOrEntity(cp: number, original: string): string {
+  return Number.isInteger(cp) && cp >= 0 && cp <= 0x10ffff
+    ? String.fromCodePoint(cp)
+    : original; // out-of-range (e.g. &#999999999999;) → leave the raw entity, never throw
+}
+
 export function decodeEntities(str: string): string {
   return str
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) =>
-      String.fromCodePoint(parseInt(h, 16)),
-    )
+    .replace(/&#(\d+);/g, (m, d: string) => codePointOrEntity(Number(d), m))
+    .replace(/&#x([0-9a-f]+);/gi, (m, h: string) => codePointOrEntity(parseInt(h, 16), m))
     .replace(
       /&([a-z]+|#x?\w+);/gi,
       (m, name: string) => ENTITIES[name] ?? ENTITIES[name.toLowerCase()] ?? m,
@@ -543,11 +654,15 @@ export async function postJson(
   },
 ): Promise<unknown> {
   const { headers = {}, body, fetchImpl = globalThis.fetch as FetchImpl, signal, timeoutMs = 30000 } = opts;
+  // Always enforce a timeout. When a caller signal is also present, race the two
+  // so a passed signal never disables the deadline (a stalled provider would hang).
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   const res = await fetchImpl(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
-    signal: signal ?? AbortSignal.timeout(timeoutMs),
+    signal: combinedSignal,
   });
   if (!res.ok) {
     const err: Error & { status?: number } = new Error(`HTTP ${res.status}`);

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+process.removeAllListeners('warning');
+process.on('warning', (w) => {
+  if (w?.name === 'ExperimentalWarning' && String(w?.message).includes('SQLite')) return;
+  console.error(w?.stack ?? String(w));
+});
 
 // bin/awareness.ts
 import { writeFileSync, mkdirSync as mkdirSync2 } from "node:fs";
@@ -292,12 +297,6 @@ function initDb(db2) {
 
     CREATE INDEX IF NOT EXISTS idx_agent_memories_importance ON agent_memories(importance_score);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_created_at ON agent_memories(created_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
-    -- DB-1: workspace_path and tags_text used in nearly every scope filter \u2014 previously unindexed
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
     CREATE INDEX IF NOT EXISTS idx_agent_memories_tags_text ON agent_memories(tags_text);
     CREATE INDEX IF NOT EXISTS idx_file_locks_file_path ON file_locks(file_path);
     CREATE INDEX IF NOT EXISTS idx_file_locks_agent_id ON file_locks(agent_id);
@@ -317,14 +316,9 @@ function initDb(db2) {
     -- agent_intents: status-only scan is a full table scan with 1679 rows in prod
     CREATE INDEX IF NOT EXISTS idx_agent_intents_status ON agent_intents(status);
     CREATE INDEX IF NOT EXISTS idx_agent_intents_agent_status ON agent_intents(agent_id, status);
-    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
-    -- agent_memories: composite scope index covers (workspace_path, repo, ref) at once
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
-    -- file_locks: session-based release queries
-    CREATE INDEX IF NOT EXISTS idx_file_locks_session_id ON file_locks(session_id);
+    -- Indexes on migration-added columns (workspace_path, scope, valid_*,
+    -- embedding_model, session_id) are created AFTER ensure*Columns() below \u2014
+    -- creating them here breaks connect on any store that predates the column.
     -- notifications: thread and to_agent inbox
     CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
     -- Deduplicate idx_notifications_to_agent; keep the shorter alias too
@@ -336,6 +330,19 @@ function initDb(db2) {
   ensureIntentColumns(db2);
   ensureRefinementQualitySchema(db2);
   ensureMemoryReferencesVersion(db2);
+  db2.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_intents_workspace ON agent_intents(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_state ON agent_memories(state);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_label ON agent_memories(label);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_file ON agent_memories(file);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_failure_sig ON agent_memories(failure_signature);
+    -- DB-1: workspace_path and tags_text used in nearly every scope filter \u2014 previously unindexed
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_workspace_path ON agent_memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_scope ON agent_memories(workspace_path, repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_repo_ref ON agent_memories(repo, ref);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_valid ON agent_memories(valid_from, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_embedding_model ON agent_memories(embedding_model);
+  `);
   try {
     db2.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
@@ -538,7 +545,7 @@ function fillScope(partial, cwd) {
     ref: partial.ref ?? null
   };
   if (scope.workspace_path && scope.repo) return scope;
-  const git = detectGit(cwd ?? process.cwd());
+  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
   if (!git.is_repo) return scope;
   if (!scope.workspace_path && git.root) scope.workspace_path = git.root;
   if (!scope.repo && git.repo) scope.repo = git.repo;
@@ -550,6 +557,17 @@ function fillScope(partial, cwd) {
 var DECAY_WEIGHTS = { importance: 0.25, recency: 0.3, access: 0.15, lexical: 0.3 };
 var DEFAULT_HALF_LIFE_DAYS = 30;
 var ACCESS_SATURATION = 50;
+var BM25_SQUASH_K = 1;
+var BM25_DEGENERATE_MAX = 0.01;
+var JUDGMENT_RELEVANCE_FLOOR = 0.35;
+var SALIENCE_FLOOR = 8;
+var LABEL_HALF_LIFE_DAYS = {
+  DECISION: 90,
+  ARCHITECTURE: 90,
+  SECURITY: 90,
+  GOTCHA: 90,
+  EXPERIENCE: 14
+};
 var SCORING_PREFETCH_FACTOR = 3;
 var SIMILARITY_THRESHOLD = 0.45;
 var SIMILARITY_PREFETCH = 12;
@@ -612,7 +630,7 @@ function findSimilarMemories(db2, text, limit = 3, excludeMemoryId = null) {
     similarity: jaccard(queryTokens, textTokens(`${m.task_context} ${m.observation}`))
   })).filter((m) => m.similarity >= SIMILARITY_THRESHOLD).sort((a, b) => b.similarity - a.similarity).slice(0, limit);
 }
-function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
+function decayComponents(memory, lexical, weights = DECAY_WEIGHTS) {
   const halfLife = memory.decay_half_life_days ?? DEFAULT_HALF_LIFE_DAYS;
   const lastUsedStr = memory.last_accessed_at ?? memory.created_at;
   let recency = 0;
@@ -621,9 +639,16 @@ function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
     recency = Math.exp(-Math.LN2 * ageDays / Math.max(halfLife, 0.01));
   }
   const importance = (memory.importance_score ?? 0) / 10;
-  const access = Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION);
-  const lexNorm = Math.max(0, Math.min(1, lexical));
-  return weights.importance * importance + weights.recency * recency + weights.access * Math.min(access, 1) + weights.lexical * lexNorm;
+  const access = Math.min(
+    Math.log1p(memory.access_count ?? 0) / Math.log1p(ACCESS_SATURATION),
+    1
+  );
+  const relevance = Math.max(0, Math.min(1, lexical));
+  const final = weights.importance * importance + weights.recency * recency + weights.access * access + weights.lexical * relevance;
+  return { importance, recency, access, relevance, weights, final };
+}
+function decayScore(memory, lexical, weights = DECAY_WEIGHTS) {
+  return decayComponents(memory, lexical, weights).final;
 }
 function buildFtsQuery(query) {
   const normalized = query.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2").replace(/[:_-]/g, " ").toLowerCase();
@@ -682,8 +707,9 @@ function lexicalSearch(db2, query, limit, minImportance, tags, labels, states) {
   }
   const maxBm25 = rows.reduce((m, r) => Math.max(m, r._bm25 ?? 0), 0);
   return rows.map((row) => {
-    const lexical = maxBm25 > 0 ? (row._bm25 ?? 0) / maxBm25 : 0.5;
+    const lexical = maxBm25 >= BM25_DEGENERATE_MAX ? (row._bm25 ?? 0) / (maxBm25 + BM25_SQUASH_K) : 0.5;
     const mem = rowToMemory(row);
+    mem.lexical = lexical;
     mem.score = decayScore(mem, lexical);
     return mem;
   });
@@ -737,13 +763,14 @@ function insertMemory(db2, params) {
   const similar = params.preComputedSimilar ?? findSimilarMemories(db2, `${taskContext} ${observation}`);
   const noveltyScore = Math.max(0, Math.min(1, 1 - (similar[0]?.similarity ?? 0)));
   const similarMemoryIds = similar.map((m) => m.memory_id);
+  const halfLifeDefault = LABEL_HALF_LIFE_DAYS[normalizedLabel] ?? null;
   db2.prepare(`
     INSERT INTO agent_memories (
       memory_id, agent_id, task_context, observation, importance_score,
       label, tags_json, tags_text, references_json, workspace_path, repo, ref,
       file_tree_fingerprint, file, novelty_score, similar_memory_ids_json, created_at, updated_at,
-      last_accessed_at, access_count, failure_signature, valid_from, valid_to
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+      last_accessed_at, access_count, failure_signature, valid_from, valid_to, decay_half_life_days
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
   `).run(
     memoryId,
     agentId,
@@ -766,7 +793,8 @@ function insertMemory(db2, params) {
     createdAt,
     failureSignature ?? null,
     validFromVal,
-    vt ?? null
+    vt ?? null,
+    halfLifeDefault
   );
   if (refList.length > 0) {
     try {
@@ -846,7 +874,8 @@ function getMemory(db2, params = {}) {
     references = [],
     regex = [],
     fileRegex = [],
-    files = []
+    files = [],
+    explain = false
   } = params;
   const limit = Math.min(20, Math.max(1, Number(limitRaw) || 3));
   let minImportance = Math.max(1, Number(minImpRaw) || 1);
@@ -945,19 +974,45 @@ function getMemory(db2, params = {}) {
     memories.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
   memories = memories.slice(0, limit);
+  if (explain) {
+    for (const m of memories) {
+      m.score_components = decayComponents(m, m.lexical ?? 0);
+    }
+  }
   bumpAccess(db2, memories.map((m) => m.memory_id));
-  return {
+  const mode = hasFts(db2) ? "lexical" : "fallback";
+  const result = {
     count: memories.length,
     memories,
-    mode: hasFts(db2) ? "lexical" : "fallback",
+    mode,
     sort,
     as_of: asOf ?? null,
     global_only: Boolean(globalOnly),
     states
   };
+  if (query.trim()) {
+    const topRelevance = memories[0]?.lexical ?? 0;
+    if (memories.length === 0) {
+      result.judgment_required = true;
+      result.judgment_reason = "no results \u2014 absence of recall is not proof of absence; retry with --smart or broader terms";
+    } else if (mode === "fallback") {
+      result.judgment_required = true;
+      result.judgment_reason = "FTS unavailable \u2014 results are unranked substring matches; verify relevance before relying on them";
+    } else if (topRelevance < JUDGMENT_RELEVANCE_FLOOR) {
+      result.judgment_required = true;
+      result.judgment_reason = `weak lexical match (top relevance ${topRelevance.toFixed(2)} < ${JUDGMENT_RELEVANCE_FLOOR}) \u2014 treat results as leads, not answers`;
+    }
+  }
+  return result;
 }
 function forgetMemory(db2, params) {
-  const { memoryIds = [], tags = [], before, maxImportance, dryRun = false } = params;
+  const { memoryIds = [], tags = [], before, dryRun = false } = params;
+  let { maxImportance } = params;
+  let salienceFloorApplied = false;
+  if (memoryIds.length === 0 && maxImportance == null) {
+    maxImportance = SALIENCE_FLOOR - 1;
+    salienceFloorApplied = true;
+  }
   const conditions = [];
   const bindParams = [];
   if (memoryIds.length > 0) {
@@ -972,7 +1027,10 @@ function forgetMemory(db2, params) {
     conditions.push("created_at < ?");
     bindParams.push(before);
   }
-  if (maxImportance != null) {
+  if (maxImportance != null && !salienceFloorApplied) {
+    conditions.push("importance_score <= ?");
+    bindParams.push(maxImportance);
+  } else if (salienceFloorApplied && (tags.length > 0 || before)) {
     conditions.push("importance_score <= ?");
     bindParams.push(maxImportance);
   }
@@ -985,7 +1043,13 @@ function forgetMemory(db2, params) {
   ).all(...bindParams);
   const ids = rows.map((r) => r.memory_id);
   if (dryRun) {
-    return { deleted: 0, dry_run: true, would_delete: ids.length, memory_ids: ids };
+    return {
+      deleted: 0,
+      dry_run: true,
+      would_delete: ids.length,
+      memory_ids: ids,
+      ...salienceFloorApplied ? { salience_floor: SALIENCE_FLOOR } : {}
+    };
   }
   if (ids.length > 0) {
     const ph = ids.map(() => "?").join(",");
@@ -998,7 +1062,11 @@ function forgetMemory(db2, params) {
     } catch {
     }
   }
-  return { deleted: ids.length, memory_ids: ids };
+  return {
+    deleted: ids.length,
+    memory_ids: ids,
+    ...salienceFloorApplied ? { salience_floor: SALIENCE_FLOOR } : {}
+  };
 }
 function mineWeakness(db2, params = {}) {
   const { minCount = 2, limit = 20, cwd } = params;
@@ -1167,6 +1235,56 @@ function getRefinements(db2, params = {}) {
   }));
   return { count: refinements.length, refinements };
 }
+function updateRefinement(db2, params) {
+  const { refinementId, state, quality, reasoning, remember, files } = params;
+  const sets = [];
+  const binds = [];
+  if (state !== void 0) {
+    sets.push("state = ?");
+    binds.push(state);
+  }
+  if (quality !== void 0) {
+    sets.push("quality = ?");
+    binds.push(quality);
+  }
+  if (reasoning !== void 0) {
+    sets.push("reasoning = ?");
+    binds.push(reasoning);
+  }
+  if (remember !== void 0) {
+    sets.push("remember = ?");
+    binds.push(remember);
+  }
+  if (files !== void 0) {
+    sets.push("files_json = ?");
+    binds.push(JSON.stringify(files));
+  }
+  if (sets.length === 0) throw new Error("updateRefinement: no fields to update");
+  sets.push("updated_at = ?");
+  binds.push(utcNow());
+  const r = db2.prepare(
+    `UPDATE refinements SET ${sets.join(", ")} WHERE refinement_id = ?`
+  ).run(...binds, refinementId);
+  if (r.changes === 0) return { updated: false, refinement: null };
+  const row = db2.prepare("SELECT * FROM refinements WHERE refinement_id = ?").get(refinementId);
+  return {
+    updated: true,
+    refinement: {
+      refinement_id: row.refinement_id,
+      agent_id: row.agent_id,
+      workspace_path: row.workspace_path,
+      repo: row.repo,
+      ref: row.ref,
+      files: parseJsonList(row.files_json),
+      reasoning: row.reasoning,
+      remember: row.remember,
+      quality: row.quality,
+      state: row.state,
+      created_at: row.created_at,
+      updated_at: row.updated_at
+    }
+  };
+}
 function deleteRefinement(db2, params) {
   const { refinementIds, workspacePath, dryRun = false } = params;
   if (refinementIds.length === 0) {
@@ -1217,6 +1335,7 @@ function preFlightIntent(db2, params) {
     workspacePath,
     rationale = "agent write operation",
     testPlan = "post-edit verification",
+    planDocRef = null,
     targetFiles = [],
     lockType = "EXCLUSIVE",
     ttlMs = MAX_LOCK_TTL_MS
@@ -1255,9 +1374,9 @@ function preFlightIntent(db2, params) {
   }
   db2.prepare(`
     INSERT INTO agent_intents
-      (intent_id, agent_id, session_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
-  `).run(intentId, agentId, sessionId, rationale, testPlan, wsPath, JSON.stringify(absFiles), now, now);
+      (intent_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, files_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+  `).run(intentId, agentId, sessionId, rationale, testPlan, planDocRef, wsPath, JSON.stringify(absFiles), now, now);
   const expiresAt = expiresAtFromNow(ttlMs);
   const acquiredLocks = [];
   for (const absPath of absFiles) {
@@ -1395,8 +1514,11 @@ function reflect(db2, params) {
     didntWork,
     fixRepo,
     fixHarness,
-    failureSignature: failSig,
+    failureSignature: failSigArg,
     importance: impArg,
+    judgmentNote,
+    duo = false,
+    evalFailures = [],
     references = [],
     file,
     files = [],
@@ -1412,11 +1534,19 @@ function reflect(db2, params) {
   const bits = [`[reflection:${resolvedOutcome}] ${task}`];
   if (worked) bits.push(`worked: ${worked}`);
   if (didntWork) bits.push(`didn't work: ${didntWork}`);
+  if (judgmentNote) bits.push(`judgment: ${judgmentNote}`);
   if (fixHarness) bits.push(`harness fix: ${fixHarness}`);
   const narrative = bits.join(" | ");
   const observation = lesson ? bits.length > 1 ? `${lesson}  (${narrative})` : lesson : narrative;
   const importance = impArg != null ? Number(impArg) : REFLECTION_IMPORTANCE[resolvedOutcome] ?? 5;
-  const tags = ["reflection", resolvedOutcome, ...fixHarness ? ["harness"] : []];
+  const hasEvalFailures = evalFailures.length > 0;
+  const tags = [
+    "reflection",
+    resolvedOutcome,
+    ...fixHarness ? ["harness"] : [],
+    ...hasEvalFailures ? ["eval"] : []
+  ];
+  const failSig = failSigArg ?? evalFailures.find((f) => f.failure_signature)?.failure_signature ?? null;
   const sig = failSig ?? (resolvedOutcome === "failed" && fixHarness ? "harness:reflection|outcome:failed" : null);
   const scopeReferences = [
     ...references,
@@ -1442,6 +1572,25 @@ function reflect(db2, params) {
     file: file ?? files[0] ?? folders[0] ?? null,
     cwd
   });
+  const evalFailureIds = [];
+  for (const failure of evalFailures) {
+    if (!failure || typeof failure.id !== "string" || !failure.id.trim()) continue;
+    const lessonText = failure.suggested_lesson?.trim() || `Eval question ${failure.id} failed${failure.dimension ? ` on ${failure.dimension}` : ""}.`;
+    const { memoryId: evalMemId } = insertMemory(db2, {
+      agentId,
+      taskContext: `[eval:${failure.id}]${failure.dimension ? ` ${failure.dimension} \u2014` : ""} ${task}`,
+      observation: lessonText,
+      importanceScore: importance,
+      label: "EXPERIENCE",
+      tags: ["reflection", "eval", resolvedOutcome],
+      failureSignature: failure.failure_signature ?? sig,
+      workspacePath,
+      repo: repoArg,
+      ref: refArg,
+      cwd
+    });
+    evalFailureIds.push(evalMemId);
+  }
   let refinementId = null;
   if (fixRepo) {
     const refinementQuality = resolvedOutcome === "worked" ? "good" : "bad";
@@ -1459,17 +1608,33 @@ function reflect(db2, params) {
     });
     refinementId = rid;
   }
-  return {
+  const result = {
     outcome: resolvedOutcome,
     learning_memory_id: memoryId,
     repo_fix_refinement_id: refinementId,
     harness_fix: Boolean(fixHarness),
-    eval_failure_count: 0,
-    eval_failure_ids: [],
+    eval_failure_count: evalFailureIds.length,
+    eval_failure_ids: evalFailureIds,
     next: NEXT_MSG,
     novelty_score: noveltyScore,
     similar_memory_ids: similarMemoryIds
   };
+  if (duo) {
+    result.reflection_duo = {
+      advisory: true,
+      roles: [
+        {
+          role: "supporter",
+          prompt: `Reviewing "${task}" (outcome: ${resolvedOutcome}): what in this approach worked and should be reinforced or generalized? Name the strongest evidence for keeping it.`
+        },
+        {
+          role: "skeptic",
+          prompt: `Reviewing "${task}" (outcome: ${resolvedOutcome}): what evidence is missing or unverified? What alternative explanation or failure mode does this reflection overlook?`
+        }
+      ]
+    };
+  }
+  return result;
 }
 
 // src/maintenance.ts
@@ -1772,38 +1937,47 @@ function pruneNotifications(db2, params) {
 // src/maintenance.ts
 function pruneStale(db2, params = {}) {
   const dryRun = Boolean(params.dry_run ?? params.dryRun);
+  const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
   const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
+  const agentId = typeof params.agent_id === "string" ? params.agent_id : typeof params.agentId === "string" ? params.agentId : null;
+  const rawTarget = params.target_file ?? params.targetFile;
+  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean);
   const now = utcNow();
-  const ageCutoff = olderThanMinutes != null ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
-  if (dryRun) {
-    let count = 0;
-    try {
-      const row = db2.prepare(
-        `SELECT COUNT(*) AS c FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?`
-      ).get(now);
-      count += row.c;
-      if (ageCutoff) {
-        const row2 = db2.prepare(
-          `SELECT COUNT(*) AS c FROM file_locks WHERE acquired_at < ? AND (expires_at IS NULL OR expires_at >= ?)`
-        ).get(ageCutoff, now);
-        count += row2.c;
-      }
-    } catch {
-    }
-    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: count };
+  const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
+  const conditions = [];
+  const binds = [];
+  const staleClauses = ["(expires_at IS NOT NULL AND expires_at < ?)"];
+  binds.push(now);
+  if (ageCutoff) {
+    staleClauses.push("(acquired_at < ?)");
+    binds.push(ageCutoff);
   }
-  const expiredLocks = db2.prepare(`
-    SELECT fl.lock_id, fl.intent_id
-    FROM file_locks fl
-    WHERE fl.expires_at IS NOT NULL AND fl.expires_at < ?
-  `).all(now);
-  if (expiredLocks.length === 0) {
+  conditions.push(`(${staleClauses.join(" OR ")})`);
+  if (agentId) {
+    conditions.push("agent_id = ?");
+    binds.push(agentId);
+  }
+  if (targetFiles.length > 0) {
+    conditions.push(`file_path IN (${targetFiles.map(() => "?").join(",")})`);
+    binds.push(...targetFiles);
+  }
+  const where = conditions.join(" AND ");
+  let staleLocks = [];
+  try {
+    staleLocks = db2.prepare(
+      `SELECT lock_id, intent_id FROM file_locks WHERE ${where}`
+    ).all(...binds);
+  } catch {
+  }
+  if (dryRun) {
+    return { pruned_locks: 0, updated_intents: 0, dry_run: true, would_prune: staleLocks.length };
+  }
+  if (staleLocks.length === 0) {
     return { pruned_locks: 0, updated_intents: 0 };
   }
-  db2.prepare(
-    "DELETE FROM file_locks WHERE expires_at IS NOT NULL AND expires_at < ?"
-  ).run(now);
-  const affectedIntentIds = [...new Set(expiredLocks.map((l) => l.intent_id))];
+  const deleteStmt = db2.prepare("DELETE FROM file_locks WHERE lock_id = ?");
+  for (const lock of staleLocks) deleteStmt.run(lock.lock_id);
+  const affectedIntentIds = [...new Set(staleLocks.map((l) => l.intent_id))];
   let updatedIntents = 0;
   for (const iid of affectedIntentIds) {
     const remaining = db2.prepare("SELECT 1 FROM file_locks WHERE intent_id = ? LIMIT 1").get(iid);
@@ -1814,7 +1988,7 @@ function pruneStale(db2, params = {}) {
       if (r.changes) updatedIntents++;
     }
   }
-  return { pruned_locks: expiredLocks.length, updated_intents: updatedIntents };
+  return { pruned_locks: staleLocks.length, updated_intents: updatedIntents };
 }
 function openRefinementCount(db2, params = {}) {
   const scope = fillScope(
@@ -2479,8 +2653,10 @@ if (parseInt(process.version.slice(1), 10) < 22) {
 }
 var ARRAY_FLAGS = /* @__PURE__ */ new Set([
   "tag",
+  "tags",
   "reference",
   "file",
+  "fix_file",
   "target_file",
   "supersedes",
   "label",
@@ -2530,6 +2706,42 @@ function parseArgs(argv) {
   }
   return result;
 }
+var GLOBAL_FLAGS = ["db", "compact", "help"];
+var KNOWN_FLAGS = {
+  "tell-memory": ["agent_id", "task_context", "observation", "importance_score", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "repo", "ref", "file", "file_tree_fingerprint"],
+  "get-memory": ["query", "limit", "min_importance", "label", "tag", "smart", "workspace", "repo", "ref", "state", "sort", "global_only", "strict_scope", "as_of", "reference", "regex", "file_regex", "file", "explain", "semantic"],
+  "forget": ["memory_id", "tag", "tags", "before", "max_importance", "dry_run"],
+  "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "repo", "ref"],
+  "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "repo", "ref", "file", "refinement_id"],
+  "refine-get": ["workspace", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
+  "refine-delete": ["refinement_id", "workspace", "dry_run"],
+  "pre-flight-intent": ["agent_id", "workspace", "rationale", "test_plan", "plan_doc_ref", "target_file", "file", "lock_type", "ttl_minutes", "ttl_seconds", "wait_seconds"],
+  "release-file-lock": ["agent_id", "intent_id", "target_file", "file", "status", "verified", "verified_note", "workspace"],
+  "status": ["workspace", "limit"],
+  "workspace-status": ["workspace"],
+  "init": [],
+  "self-test": [],
+  "prune-stale-locks": ["older_than_minutes", "expired_only", "agent_id", "target_file", "dry_run"],
+  "audit-unverified": ["agent_id", "workspace", "abandon"],
+  "verify": ["intent_id", "all_pending", "agent_id", "status", "message", "workspace"],
+  "mine-weakness": ["agent_id", "workspace", "min_count", "limit", "cwd"],
+  "export-harness": ["limit", "min_importance", "workspace"],
+  "memory-index": ["limit", "min_importance", "out", "stdout", "workspace"],
+  "notify": ["agent_id", "to", "kind", "subject", "body", "file", "ref_id", "in_reply_to", "importance", "workspace", "repo", "ref"],
+  "agent-signal": ["action", "agent_id", "workspace", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "notification_id", "all", "mark_read", "limit"],
+  "notify-get": ["agent_id", "workspace", "repo", "all", "mark_read", "kind", "thread_id", "limit", "format"],
+  "notify-resolve": ["notification_id", "thread_id", "workspace"],
+  "notify-prune": ["notification_id", "resolved", "older_than_days", "dry_run", "workspace"],
+  "session-capture": ["agent_id", "workspace", "repo", "ref", "reason", "cwd"],
+  "wait-for-lock": ["agent_id", "target_file", "file", "wait_seconds", "retry_interval"],
+  "digest": ["retention_days", "dry_run", "export_doc", "workspace"]
+};
+function validateFlags(command2, args2) {
+  const known = KNOWN_FLAGS[command2];
+  if (!known) return [];
+  const allowed = /* @__PURE__ */ new Set([...known, ...GLOBAL_FLAGS]);
+  return Object.keys(args2).filter((k) => k !== "_" && !allowed.has(k));
+}
 function extractGlobalDb(argv) {
   let dbPath2 = null;
   const filtered = [];
@@ -2573,7 +2785,7 @@ function cmdTellMemory(db2, args2, dbPath2, opts2) {
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args2["label"];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? "");
-  const { memory, superseded } = insertMemory(db2, {
+  const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db2, {
     agentId,
     taskContext,
     observation,
@@ -2588,9 +2800,18 @@ function cmdTellMemory(db2, args2, dbPath2, opts2) {
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null,
-    file: args2["file"] ? String(args2["file"]) : null
+    file: args2["file"] ? String(args2["file"]) : null,
+    fileTreeFingerprint: args2["file_tree_fingerprint"] ? String(args2["file_tree_fingerprint"]) : null
   });
-  return emit({ db_path: dbPath2, memory, superseded }, 0, opts2);
+  const payload = { db_path: dbPath2, memory, superseded };
+  if (supersedes.length === 0 && noveltyScore < 0.5 && similarMemoryIds.length > 0) {
+    payload["consolidation"] = {
+      novelty_score: noveltyScore,
+      similar_memory_ids: similarMemoryIds,
+      hint: "low novelty \u2014 review the similar memories; re-record with --supersedes <id> to replace one, or forget this one if redundant"
+    };
+  }
+  return emit(payload, 0, opts2);
 }
 function cmdGetMemory(db2, args2, dbPath2, opts2) {
   const rawLabel = args2["label"];
@@ -2623,19 +2844,40 @@ function cmdGetMemory(db2, args2, dbPath2, opts2) {
     references,
     regex,
     fileRegex,
-    files: getFiles
+    files: getFiles,
+    explain: Boolean(args2["explain"])
   });
-  return emit({ db_path: dbPath2, ...result }, 0, opts2);
+  const payload = { db_path: dbPath2, ...result };
+  if (args2["semantic"]) {
+    payload["warnings"] = [
+      "semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/semanticSearch() API for semantic recall."
+    ];
+  }
+  return emit(payload, 0, opts2);
 }
 function cmdRefineSet(db2, args2, dbPath2, opts2) {
-  const reasoning = String(args2["reasoning"] ?? "");
-  const remember = String(args2["remember"] ?? "");
-  if (!reasoning) die("--reasoning is required");
-  if (!remember) die("--remember is required");
   const rawState = args2["state"];
   const stateVal = Array.isArray(rawState) ? rawState[0] : String(rawState ?? "open");
   const rawFile = args2["file"];
   const files = Array.isArray(rawFile) ? rawFile : rawFile ? [String(rawFile)] : [];
+  const rawRefId = args2["refinement_id"];
+  const refinementId = Array.isArray(rawRefId) ? rawRefId[0] : rawRefId ? String(rawRefId) : null;
+  if (refinementId && refinementId !== "true") {
+    const update = updateRefinement(db2, {
+      refinementId,
+      ...args2["state"] !== void 0 ? { state: stateVal } : {},
+      ...args2["quality"] !== void 0 ? { quality: String(args2["quality"]) } : {},
+      ...args2["reasoning"] !== void 0 ? { reasoning: String(args2["reasoning"]) } : {},
+      ...args2["remember"] !== void 0 ? { remember: String(args2["remember"]) } : {},
+      ...rawFile !== void 0 ? { files } : {}
+    });
+    if (!update.updated) die(`refinement not found: ${refinementId}`);
+    return emit({ db_path: dbPath2, updated: true, refinement: update.refinement }, 0, opts2);
+  }
+  const reasoning = String(args2["reasoning"] ?? "");
+  const remember = String(args2["remember"] ?? "");
+  if (!reasoning) die("--reasoning is required");
+  if (!remember) die("--remember is required");
   const { refinement } = insertRefinement(db2, {
     agentId: String(args2["agent_id"] ?? "agent"),
     reasoning,
@@ -2664,6 +2906,16 @@ function cmdRefineGet(db2, args2, dbPath2, opts2) {
 }
 function cmdReflect(db2, args2, dbPath2, opts2) {
   if (!args2["task"]) die("--task is required");
+  let evalFailures = [];
+  if (args2["eval_failure_json"]) {
+    try {
+      const parsed = JSON.parse(String(args2["eval_failure_json"]));
+      if (!Array.isArray(parsed)) throw new Error("expected a JSON array");
+      evalFailures = parsed;
+    } catch (err) {
+      die(`--eval-failure-json must be a JSON array of {id, dimension?, failure_signature?, suggested_lesson?}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   const result = reflect(db2, {
     agentId: String(args2["agent_id"] ?? "agent"),
     task: String(args2["task"]),
@@ -2675,6 +2927,10 @@ function cmdReflect(db2, args2, dbPath2, opts2) {
     fixHarness: args2["fix_harness"] ? String(args2["fix_harness"]) : null,
     failureSignature: args2["failure_signature"] ? String(args2["failure_signature"]) : null,
     importance: args2["importance"] ? parseInt(String(args2["importance"]), 10) : null,
+    judgmentNote: args2["judgment_note"] ? String(args2["judgment_note"]) : null,
+    duo: Boolean(args2["duo"]),
+    evalFailures,
+    files: Array.isArray(args2["fix_file"]) ? args2["fix_file"] : [],
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null
@@ -2689,15 +2945,26 @@ function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
   if (ttlMinutes != null && (!Number.isInteger(ttlMinutes) || ttlMinutes < 1)) die("--ttl-minutes must be >= 1");
   if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)) die("--ttl-seconds must be >= 1");
   const ttlMs = ttlMinutes != null ? ttlMinutes * 6e4 : ttlSeconds != null ? ttlSeconds * 1e3 : null;
-  const result = preFlightIntent(db2, {
+  const claimParams = {
     agentId: String(args2["agent_id"] ?? "agent"),
     workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
     rationale: String(args2["rationale"] ?? "agent write operation"),
     testPlan: String(args2["test_plan"] ?? "post-edit verification"),
+    planDocRef: args2["plan_doc_ref"] ? String(args2["plan_doc_ref"]) : null,
     targetFiles,
     lockType: String(args2["lock_type"] ?? "EXCLUSIVE"),
     ttlMs
-  });
+  };
+  let result = preFlightIntent(db2, claimParams);
+  const waitSeconds = args2["wait_seconds"] ? parseInt(String(args2["wait_seconds"]), 10) : null;
+  if (!result.ok && waitSeconds != null && waitSeconds > 0) {
+    const wait = waitForLock(db2, {
+      agent_id: claimParams.agentId,
+      target_files: targetFiles,
+      wait_ms: waitSeconds * 1e3
+    });
+    if (wait.lock_free) result = preFlightIntent(db2, claimParams);
+  }
   if (!result.ok) return emit({ db_path: dbPath2, ...result }, 2, opts2);
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
 }
@@ -2801,8 +3068,8 @@ function cmdMemoryIndex(db2, args2, dbPath2, opts2) {
 function cmdForget(db2, args2, dbPath2, opts2) {
   const rawIds = args2["memory_id"];
   const memoryIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
-  const rawTags = args2["tag"];
-  const tags = Array.isArray(rawTags) ? rawTags : rawTags ? [String(rawTags)] : [];
+  const rawTags = [args2["tag"], args2["tags"]].flatMap((v) => Array.isArray(v) ? v : v && v !== true ? [String(v)] : []);
+  const tags = rawTags;
   const result = forgetMemory(db2, {
     memoryIds,
     tags,
@@ -3023,7 +3290,8 @@ get-memory:
   --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
   [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
   [--sort smart|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
-  [--strict-scope]  [--global-only]  [--as-of <ISO>]
+  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--explain]
+  --explain: attach per-result score_components (importance/recency/access/relevance)
 
 forget:
   [--memory-id <id>]...  [--tag <t>]...  [--before <ISO>]  [--max-importance <n>]  [--dry-run]
@@ -3049,11 +3317,25 @@ notify-prune:
 reflect:
   --agent-id <id>  --task <text>  --outcome worked|partial|failed
   [--lesson <text>]  [--worked <text>]  [--didnt-work <text>]
-  [--fix-repo <text>]  [--fix-harness <text>]
+  [--fix-repo <text>]  [--fix-file <path>]...  [--fix-harness <text>]
+  [--failure-signature <sig>]  [--importance <1-10>]  [--judgment-note <text>]
+  [--duo]  [--eval-failure-json '<[{id,dimension?,failure_signature?,suggested_lesson?}]>']
+  --duo emits an advisory reflection_duo packet (not stored); eval failures
+  become eval-tagged memories clustered by failure_signature
+
+refine-set:
+  new:    --agent-id <id> --reasoning <text> --remember <text>
+          [--quality good|bad|handoff]  [--state open|ongoing|done]  [--file <path>]...
+  update: --refinement-id <id> plus only the flags to change (e.g. --state done)
 
 refine-get:
   [--state open|ongoing|done]...  [--quality good|bad|handoff]  [--include-handoffs]
   session handoffs are hidden unless --include-handoffs or --quality handoff is passed
+
+prune-stale-locks:
+  [--older-than-minutes <n>]  [--expired-only]  [--agent-id <id>]
+  [--target-file <path>]...  [--dry-run]
+  expired locks always qualify; --older-than-minutes also catches old live locks
 
 workspace-status:
   [--workspace <path>]   show active locks, agent intents, and memory counts
@@ -3091,9 +3373,22 @@ if (rawArgv.length === 0 || rawArgv.includes("--help") || rawArgv.includes("-h")
   process.exit(0);
 }
 var { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
-var [command, ...rest] = filteredArgv;
+var [rawCommand, ...rest] = filteredArgv;
+var command = rawCommand?.replace(/_/g, "-");
 var args = parseArgs(rest ?? []);
 if (globalDb) args["db"] = globalDb;
+if (command && KNOWN_FLAGS[command]) {
+  const unknown = validateFlags(command, args);
+  if (unknown.length > 0) {
+    process.stdout.write(JSON.stringify({
+      ok: false,
+      error: `unknown flag(s) for ${command}: ${unknown.map((f) => `--${f.replace(/_/g, "-")}`).join(", ")}`,
+      known_flags: KNOWN_FLAGS[command].map((f) => `--${f.replace(/_/g, "-")}`),
+      schema_version: 1
+    }, null, 2) + "\n");
+    process.exit(1);
+  }
+}
 var dbPath = resolveDbPath(globalDb ?? null);
 var compact = args["compact"] === true || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
 var opts = { compact };

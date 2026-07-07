@@ -1,6 +1,18 @@
 export type InitializationOptions = Record<string, unknown>;
 
 /**
+ * Outcome of `waitForReady` — a readiness signal that lets a zero-results
+ * semantic query be interpreted honestly:
+ *   - `progressIdle`   — a `$/progress` indexing cycle was seen and drained to
+ *     idle; an empty answer reflects the fully-indexed project.
+ *   - `settledFallback`— no `$/progress` was ever seen, only the fixed settle
+ *     window elapsed; indexing completion is unconfirmed.
+ *   - `timeout`        — `$/progress` was still active when the deadline hit;
+ *     the server is (as far as we know) still indexing.
+ */
+export type LspReadiness = 'progressIdle' | 'settledFallback' | 'timeout';
+
+/**
  * Where a language-server executable was resolved from, for honest status
  * reporting. Ordered by the resolution ladder (see docs/context/LSP_GUIDE.md):
  * explicit override / PATH → bundled JS dep → project-local → ecosystem dir →

@@ -68,11 +68,9 @@ Apply changes only after human approval on a dedicated branch.
 
 ### Sleep cleanup
 
-Sleep runs at end-of-work, session end, subagent handoff, or explicit cleanup.
-Sleep is not triggered by quiet time alone.
-Audit first with `workspace_status`, `memory_audit_unverified`, `agent_signal action:list`, `memory_refine_get`, `memory_forget dry_run:true`, and `memory_digest dry_run:true`.
-Then record verification, reflect, and mark true handoffs done.
-Supersede stale memories, prune resolved messages, update stable corpus docs, and release locks.
+Sleep runs at end-of-work, session end, subagent handoff, or explicit cleanup — never from quiet time alone.
+Follow the "Sleep checklist" in `brain-model.md` (audit → verify → reflect → supersede/prune with dry-run → release).
+Composition rule this file adds: run sleep once per parent agent, after subagent receipts are integrated — not per subagent.
 
 ## Hook leverage
 

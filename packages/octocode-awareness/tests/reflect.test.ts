@@ -172,6 +172,10 @@ describe('reflect', () => {
 
     const ref = db.prepare('SELECT files_json FROM refinements WHERE refinement_id = ?')
       .get(result.repo_fix_refinement_id!) as { files_json: string };
-    expect(JSON.parse(ref.files_json)).toEqual(['src/tools/memory.ts', 'docs']);
+    const refinementFiles: string[] = JSON.parse(ref.files_json);
+    // Paths are normalized with file:/dir: prefixes + absolute resolution (same as scopeReferences)
+    expect(refinementFiles).toHaveLength(2);
+    expect(refinementFiles[0]).toMatch(/^file:.*src\/tools\/memory\.ts$/);
+    expect(refinementFiles[1]).toMatch(/^dir:.*docs$/);
   });
 });

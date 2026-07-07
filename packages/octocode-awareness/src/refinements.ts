@@ -139,6 +139,69 @@ export function getRefinements(
   return { count: refinements.length, refinements };
 }
 
+// ─── updateRefinement ─────────────────────────────────────────────────────────
+
+export interface UpdateRefinementResult {
+  updated: boolean;
+  refinement: InsertRefinementResult['refinement'] | null;
+}
+
+/**
+ * Partial update of an existing refinement — only changes passed fields.
+ * This is how the open → ongoing → done lifecycle advances.
+ */
+export function updateRefinement(
+  db: DatabaseSync,
+  params: {
+    refinementId: string;
+    state?: 'open' | 'ongoing' | 'done';
+    quality?: 'good' | 'bad' | 'handoff';
+    reasoning?: string;
+    remember?: string;
+    files?: string[];
+  },
+): UpdateRefinementResult {
+  const { refinementId, state, quality, reasoning, remember, files } = params;
+
+  const sets: string[] = [];
+  const binds: string[] = [];
+  if (state !== undefined) { sets.push('state = ?'); binds.push(state); }
+  if (quality !== undefined) { sets.push('quality = ?'); binds.push(quality); }
+  if (reasoning !== undefined) { sets.push('reasoning = ?'); binds.push(reasoning); }
+  if (remember !== undefined) { sets.push('remember = ?'); binds.push(remember); }
+  if (files !== undefined) { sets.push('files_json = ?'); binds.push(JSON.stringify(files)); }
+  if (sets.length === 0) throw new Error('updateRefinement: no fields to update');
+
+  sets.push('updated_at = ?');
+  binds.push(utcNow());
+
+  const r = db.prepare(
+    `UPDATE refinements SET ${sets.join(', ')} WHERE refinement_id = ?`
+  ).run(...binds, refinementId) as { changes: number };
+
+  if (r.changes === 0) return { updated: false, refinement: null };
+
+  const row = db.prepare('SELECT * FROM refinements WHERE refinement_id = ?')
+    .get(refinementId) as unknown as RefinementRow;
+  return {
+    updated: true,
+    refinement: {
+      refinement_id: row.refinement_id,
+      agent_id: row.agent_id,
+      workspace_path: row.workspace_path,
+      repo: row.repo,
+      ref: row.ref,
+      files: parseJsonList(row.files_json),
+      reasoning: row.reasoning,
+      remember: row.remember,
+      quality: row.quality as 'good' | 'bad' | 'handoff',
+      state: row.state as 'open' | 'ongoing' | 'done',
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    },
+  };
+}
+
 // ─── deleteRefinement ───────────────────────────────────────────────────────────────
 
 export interface DeleteRefinementResult {

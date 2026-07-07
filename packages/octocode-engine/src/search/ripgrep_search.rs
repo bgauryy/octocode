@@ -42,6 +42,15 @@ const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
 /// submatch count is still reported in stats.
 const MAX_ONLY_MATCHING_PER_LINE: u32 = 1000;
 
+/// Cap on PCRE2's JIT stack (1 MiB). A user `-P` pattern with catastrophic
+/// backtracking (`(a+)+$`-class) exhausts this cap and fails fast per file
+/// instead of spinning against the JIT's default 32 KB stack growth. Residual
+/// risk: `grep-pcre2` 0.1 exposes no `match_limit`/`depth_limit` knob, so a
+/// backtracking blowup that stays within the JIT stack is still only bounded by
+/// PCRE2's internal default match limit (not the wall clock). Applied to every
+/// PCRE2 matcher we build (search + pattern validation).
+pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
+
 fn to_napi_err<E: std::fmt::Display>(e: E) -> Error {
     Error::new(Status::GenericFailure, e.to_string())
 }
@@ -625,7 +634,8 @@ pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
             .crlf(true)
             .utf(true)
             .ucp(true)
-            .jit_if_available(true);
+            .jit_if_available(true)
+            .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
         let matcher = b.build(&opts.pattern).map_err(to_napi_err)?;
         let collected = collect(&opts, &matcher, mode)?;
         Ok(build_result(&opts, mode, collected))
@@ -761,6 +771,35 @@ mod tests {
         let r = search(o).expect("ok");
         assert_eq!(r.files[0].match_count, 1);
         assert_eq!(r.files[0].matches[0].line, 1);
+    }
+
+    #[test]
+    fn perl_regex_catastrophic_backtracking_terminates() {
+        // `(a+)+$` against a long line of 'a' followed by a non-matching char is
+        // the classic exponential-backtracking blowup. The JIT-stack cap makes
+        // PCRE2 fail fast (or complete) rather than spinning; either way the call
+        // must return. Run on a worker thread so a regression surfaces as a
+        // timeout instead of hanging the whole suite.
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let t = TmpDir::new();
+        t.write("a.txt", &format!("{}!\n", "a".repeat(5_000)));
+        let path = t.path();
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let mut o = opts(path, "(a+)+$");
+            o.perl_regex = Some(true);
+            // Result intentionally ignored: PCRE2 may return Ok (no match) or an
+            // Err (JIT stack / match limit hit) — the assertion is termination.
+            let _ = search(o);
+            let _ = tx.send(());
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_secs(30)).is_ok(),
+            "catastrophic PCRE2 pattern must terminate, not hang"
+        );
+        handle.join().expect("worker thread panicked");
     }
 
     #[test]

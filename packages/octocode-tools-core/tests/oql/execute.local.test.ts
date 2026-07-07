@@ -84,6 +84,42 @@ describe('OQL local execution (target:"code")', () => {
     expect(env.diagnostics.some(d => d.code === 'zeroMatches')).toBe(true);
   });
 
+  it('flags a zero-match literal search whose value contains regex metachars', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        // literal (text) search: "|" is matched literally, so this is absent —
+        // the classic false-absence trap for someone who meant alternation.
+        where: { kind: 'text', value: 'zzz_absent_left|zzz_absent_right' },
+      })
+    );
+    expect(env.results.length).toBe(0);
+    const hint = env.diagnostics.find(
+      d => d.code === 'zeroMatches' && /FIXED string/.test(d.message)
+    );
+    expect(hint).toBeDefined();
+    expect(hint?.severity).toBe('info');
+    expect(hint?.blocksAnswer).toBe(false);
+    expect(hint?.repair?.message).toMatch(/regex predicate/);
+  });
+
+  it('does not add the metachar hint for a plain (metachar-free) absent term', async () => {
+    const env = single(
+      await runOqlSearch({
+        target: 'code',
+        from: { kind: 'local', path: OQL_SRC },
+        where: { kind: 'text', value: 'zzz_plainly_absent_token_zzz' },
+      })
+    );
+    expect(env.results.length).toBe(0);
+    expect(
+      env.diagnostics.some(
+        d => d.code === 'zeroMatches' && /FIXED string/.test(d.message)
+      )
+    ).toBe(false);
+  });
+
   it('maps extension selector tsx to an include glob, not langType', async () => {
     await withFixture(
       {

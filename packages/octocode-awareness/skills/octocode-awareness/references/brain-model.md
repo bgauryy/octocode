@@ -6,7 +6,7 @@ Use this reference when improving awareness behavior around memory layers, clean
 
 | Brain-ish role | Awareness surface | Agent behavior |
 |----------------|-------------------|----------------|
-| Attention | `workspace_status`, unread `agent_signal action:list`, active locks | Notice what is live right now before acting. |
+| Attention | `workspace_status`, unread `agent_signal action:list`, active locks | Notice what is live right now before acting. Smart briefing (UserPromptSubmit hook) pre-surfaces: (1) **all `OVERRIDE` memories** (no importance floor — they contradict model defaults), (2) top memories from `GOTCHA`, `BUG`, `DECISION`, `IMPROVEMENT`, `ARCHITECTURE`, `SECURITY` with importance ≥ 6, (3) top recurring failure cluster, (4) open refinement count. Other labels (`PERFORMANCE`, `INCIDENT`, etc.) require explicit `memory_recall`. |
 | Working memory | Current prompt, local reads, claimed files | Keep only task-relevant context in focus. |
 | Episodic memory | `memory_refine_get` / `memory_reflect fix_repo` | Preserve what happened in this repo/branch for the next run. |
 | Semantic memory | `memory_record` / `memory_recall` | Store reusable lessons that transfer across tasks. |
@@ -42,7 +42,7 @@ Cleanup should be preview-first:
 - `memory_digest dry_run:true` (for locks/notifications): preview message cleanup; prune resolved or old threads only when safe.
 - `memory_forget dry_run:true`: preview stale or superseded memories before deletion; prefer `memory_record supersedes:`  for better replacements.
 - `memory_refine_get`: find open/ongoing handoffs; mark `done` only when the current state was verified.
-- `memory_mine_weakness`: cluster memories by `failure_signature` to surface recurring patterns before turning them into harness proposals.
+- `mine-weakness` (CLI): cluster memories by `failure_signature` to surface recurring patterns before turning them into harness proposals.
 
 Audit records should preserve evidence, decisions, and judgment notes. Do not store raw private reasoning or secrets.
 

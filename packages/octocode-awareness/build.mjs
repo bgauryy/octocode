@@ -45,12 +45,28 @@ await esbuild.build({
   outfile: 'dist/index.js',
 });
 
+// Bin banner: shebang + silence the node:sqlite ExperimentalWarning. The
+// warning pollutes stderr on every CLI/hook call (hooks surface stderr to the
+// agent). Only bin entries get this — dist/index.js is a library and must not
+// patch process globals.
+// The node:sqlite ExperimentalWarning is emitted during (hoisted) module import,
+// before any banner statement runs — but warnings dispatch on the next tick, so
+// swapping the 'warning' listener here still intercepts it.
+const BIN_BANNER = [
+  '#!/usr/bin/env node',
+  "process.removeAllListeners('warning');",
+  "process.on('warning', (w) => {",
+  "  if (w?.name === 'ExperimentalWarning' && String(w?.message).includes('SQLite')) return;",
+  '  console.error(w?.stack ?? String(w));',
+  '});',
+].join('\n');
+
 // CLI entry: called by hook scripts as `node dist/bin/awareness.js <command>`.
 await esbuild.build({
   ...shared,
   entryPoints: ['bin/awareness.ts'],
   outfile: 'dist/bin/awareness.js',
-  banner: { js: '#!/usr/bin/env node' },
+  banner: { js: BIN_BANNER },
 });
 
 // Hook helper: `node dist/bin/extract-hook-files.js` reads JSON from stdin.
@@ -66,7 +82,7 @@ await esbuild.build({
   ...shared,
   entryPoints: ['bin/hook-runner.ts'],
   outfile: 'dist/bin/hook-runner.js',
-  banner: { js: '#!/usr/bin/env node' },
+  banner: { js: BIN_BANNER },
 });
 
 // Generate TypeScript declarations.
@@ -101,10 +117,13 @@ mkdirSync(scriptDest, { recursive: true });
 mkdirSync(packageScriptDest, { recursive: true });
 
 // 2. Compiled CLI — the ONLY awareness binary all platforms share.
+// schema.mjs is hand-maintained at packages/octocode-awareness/scripts/ and
+// synced here too — the two copies drifted when this was manual.
 for (const dest of [scriptDest, packageScriptDest]) {
   copyFileSync(join(distBin, 'awareness.js'),          join(dest, 'awareness.mjs'));
   copyFileSync(join(distBin, 'extract-hook-files.js'), join(dest, 'extract-hook-files.mjs'));
   copyFileSync(join(distBin, 'hook-runner.js'),        join(dest, 'hook-runner.mjs'));
+  copyFileSync(join(__dirname, 'scripts', 'schema.mjs'), join(dest, 'schema.mjs'));
 }
 
 console.log('✓ skills/octocode-awareness/ synced from packages/octocode-awareness/skills/ + dist/bin/');

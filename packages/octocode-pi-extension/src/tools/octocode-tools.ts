@@ -199,7 +199,16 @@ export async function registerOctocodeTools(
   registeredToolNames: Set<string>,
 ): Promise<void> {
   for (const toolName of OCTOCODE_DIRECT_TOOL_NAMES) {
-    const schema = await getOctocodeToolSchema(toolName);
+    let schema: OctocodeToolSchema;
+    try {
+      schema = await getOctocodeToolSchema(toolName);
+    } catch (error) {
+      // A malformed schema for ONE tool (e.g. bad JSON from core) must not take
+      // down registration of the other 12. Skip it and continue.
+      // eslint-disable-next-line no-console
+      console.error(`Octocode: skipping tool "${toolName}" — schema load failed: ${(error as Error)?.message ?? error}`);
+      continue;
+    }
     const description = schema.fullDescription || schema.description || `${toolName} Octocode tool`;
     const fieldPreview = getToolFieldPreview(schema);
     const promptSnippet = fieldPreview

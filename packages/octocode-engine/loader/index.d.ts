@@ -4,7 +4,8 @@ export declare class NativeLspClient {
   constructor(config: JsLanguageServerConfig)
   start(): Promise<void>
   stop(): Promise<void>
-  waitForReady(timeoutMs?: number | undefined | null): Promise<void>
+  /** Readiness after post-`initialized` indexing: `progressIdle` = a `$/progress` cycle drained to idle; `settledFallback` = no progress seen, only the settle window elapsed; `timeout` = progress still active at the deadline. */
+  waitForReady(timeoutMs?: number | undefined | null): Promise<'progressIdle' | 'settledFallback' | 'timeout'>
   hasCapability(capability: string): boolean
   /** Server-selected LSP `positionEncoding` (utf-16 unless the server is non-conformant); null if omitted/not started. */
   positionEncoding(): string | null
@@ -943,8 +944,13 @@ export interface StructuralQueryExplanation {
 
 export interface StructuralDetailedMatch extends StructuralMatch {
   id: string
+  /** tree-sitter `kind` of the matched node (e.g. `call_expression`). */
   nodeKind?: string
-  confidence: 'exact-ast' | 'partial-ast' | 'fallback-text' | string
+  /**
+   * The octo matcher is a precise AST matcher, so every match is an exact
+   * tree-sitter node match — there is no partial/fallback tier.
+   */
+  confidence: 'exact-ast'
 }
 
 export interface StructuralSearchDetailedResult {

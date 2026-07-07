@@ -27,6 +27,10 @@ Improve instructional prompts, docs, and agent instructions with prompt-engineer
 
 Mode: use **Full Path** (every gate separate) for multi-section, ambiguous, or high-risk prompts; **Fast Path** (READ+UNDERSTAND and RATE+FIX may combine) for short, low-risk ones. When unsure, use Full Path. VALIDATE and intent-preservation are never skipped.
 
+## Tooling
+
+When the prompt cites verifiable facts (commands, flags, file paths, tool names, schemas), verify them with Octocode before rewriting: use Octocode MCP tools when the host exposes them, otherwise `npx octocode` (read `--help`/schemas first). If neither is available, verify with the host's own tools and flag unverified claims instead of guessing.
+
 ## Non-negotiables
 - Preserve working logic and intent — never alter what the prompt does without user approval.
 - Follow the gates in order; never skip a gate, checkbox, or VALIDATE.

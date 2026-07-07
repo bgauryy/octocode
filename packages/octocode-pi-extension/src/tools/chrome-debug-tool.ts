@@ -316,7 +316,7 @@ export function registerChromeDebugTool(
         setStatus(ctx, undefined);
 
         if (!keepTab || params.cleanup) {
-          await cleanupConnection(session, keepTab).catch(() => undefined);
+          await cleanupConnection(session, keepTab, params.cleanup === true).catch(() => undefined);
         } else {
           session.close();
         }
@@ -333,7 +333,8 @@ export function registerChromeDebugTool(
 
       // Cleanup
       if (params.cleanup) {
-        await cleanupConnection(session, false).catch(() => undefined);
+        // Full cleanup: close tab/WS AND terminate a Chrome this tool launched.
+        await cleanupConnection(session, false, true).catch(() => undefined);
       } else if (!keepTab) {
         await cleanupConnection(session, false).catch(() => undefined);
       } else {

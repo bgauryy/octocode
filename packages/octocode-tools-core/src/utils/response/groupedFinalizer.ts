@@ -1,4 +1,5 @@
 import {
+  cleanJsonObject,
   createResponseFormat,
   sanitizeStructuredContent,
 } from '../../responses.js';
@@ -95,7 +96,11 @@ export function formatFinalizedResponse<T extends Record<string, unknown>>(
   );
 
   return {
-    structuredContent: sanitizeStructuredContent(responseData) as T,
+    // Clean before sanitizing so structuredContent matches the text channel
+    // (createResponseFormat above already runs cleanJsonObject → sanitize).
+    structuredContent: sanitizeStructuredContent(
+      cleanJsonObject(responseData) ?? {}
+    ) as T,
     text,
     isError,
   };

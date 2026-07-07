@@ -12,6 +12,7 @@ import {
   formatFinalizedResponse,
   type QueryWithPagination,
 } from '../../utils/response/groupedFinalizer.js';
+import { resolveQueryId } from '../../utils/response/bulk.js';
 import type { GitHubFetchContentOutputLocal } from './scheme.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
@@ -340,13 +341,13 @@ function readDirectoryEntry(
 
 function buildGroups(
   results: readonly FlatQueryResult[],
-  queries: readonly PartialFileContentQuery[]
+  queryById: ReadonlyMap<string, PartialFileContentQuery>
 ): Array<{ id: string; data: RepoGroupData }> {
   const groups = new Map<string, RepoGroup>();
 
-  results.forEach((result, index) => {
+  results.forEach(result => {
     if (result.status === 'error') return;
-    const query = queries[index];
+    const query = queryById.get(result.id);
     if (!query) return;
     const owner = String(query.owner ?? '');
     const repo = String(query.repo ?? '');
@@ -383,12 +384,11 @@ function buildGroups(
 
 function collectFileErrors(
   results: readonly FlatQueryResult[],
-  queries: readonly PartialFileContentQuery[]
+  queryById: ReadonlyMap<string, PartialFileContentQuery>
 ): FileContentResponse['errors'] {
   const base = collectFlatErrors(results);
   return base.map(error => {
-    const index = results.findIndex(result => result.id === error.id);
-    const query = index >= 0 ? queries[index] : undefined;
+    const query = queryById.get(error.id);
     return {
       id: error.id,
       owner: query?.owner,
@@ -403,9 +403,17 @@ export function buildGithubFetchContentFinalizer<
   TQuery extends PartialFileContentQuery,
 >(): BulkFinalizer<TQuery, GitHubFetchContentOutputLocal> {
   return ({ queries, results }) => {
-    const groups = buildGroups(results, queries);
+    // Align each flat result row to its originating query by id (the same id
+    // bulk.ts derived via resolveQueryId), not by array position — a dropped or
+    // reordered query would otherwise attach the wrong owner/repo/path.
+    const queryById = new Map<string, PartialFileContentQuery>();
+    queries.forEach((query, index) => {
+      queryById.set(resolveQueryId(query, index), query);
+    });
 
-    const errors = collectFileErrors(results, queries);
+    const groups = buildGroups(results, queryById);
+
+    const errors = collectFileErrors(results, queryById);
     const responseData: FileContentResponse = { results: groups };
 
     if (errors && errors.length > 0) responseData.errors = errors;

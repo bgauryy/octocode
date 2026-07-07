@@ -33,6 +33,7 @@ export function registerContextTools(
     pi.on('turn_end', (_event, ctx) => {
       const usage = ctx.getContextUsage?.();
       if (!usage) return;
+      if (!(usage.contextWindow > 0)) return; // guard divide-by-zero → NaN spurious compaction
       const fill = usage.tokens / usage.contextWindow;
       const prevFill = lastAutoCompactTokens !== null
         ? lastAutoCompactTokens / usage.contextWindow

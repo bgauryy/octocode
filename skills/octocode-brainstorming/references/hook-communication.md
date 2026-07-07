@@ -30,8 +30,9 @@ node skills/octocode-brainstorming/scripts/brainstorm-run.mjs finish \
 ```
 
 At finish, produce one awareness capture packet from the final surviving verdict, or record a
-`doNotCaptureReason` when nothing durable survived. Use the awareness learning-capture reference
-for the packet fields and reference grammar; do not write one memory per checkpoint.
+`doNotCaptureReason` when nothing durable survived. For packet fields and reference grammar, use the
+`octocode-awareness` skill's capture documentation when that skill is installed; otherwise keep the
+packet fields self-describing in the run file. Do not write one memory per checkpoint.
 
 Run files live in `.octocode/brainstorming/runs/` by default, so start a ledger only when local writes are acceptable. Override with `OCTOCODE_BRAINSTORM_RUN_DIR` for tests.
 

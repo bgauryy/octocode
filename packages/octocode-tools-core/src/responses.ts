@@ -4,10 +4,6 @@ import { getConfigSync } from '@octocodeai/config';
 import { contextUtils, type JsonInput } from './utils/contextUtils.js';
 import type { BulkToolResponse } from './types/bulk.js';
 import type { StructuredToolResponse } from './types/toolResults.js';
-import type {
-  RoleContentBlock,
-  RoleBasedResultOptions,
-} from './types/responseTypes.js';
 
 function getOutputFormat(): 'yaml' | 'json' {
   try {
@@ -16,13 +12,6 @@ function getOutputFormat(): 'yaml' | 'json' {
     return 'yaml';
   }
 }
-export { StatusEmojis } from './types/responseTypes.js';
-export type {
-  ContentRole,
-  RoleContentBlock,
-  RoleBasedResultOptions,
-  RoleAnnotations,
-} from './types/responseTypes.js';
 
 export type CallToolResultOutputMode = 'text' | 'json';
 
@@ -47,223 +36,6 @@ export function createResult(options: {
     content: [{ type: 'text', text: createResponseFormat(response) }],
     isError: Boolean(isError),
   };
-}
-
-export const ContentBuilder = {
-  system(text: string, priority = 1.0): RoleContentBlock {
-    return {
-      type: 'text',
-      text,
-      annotations: {
-        audience: ['assistant'],
-        priority,
-        role: 'system',
-      },
-    };
-  },
-
-  assistant(text: string, priority = 0.8): RoleContentBlock {
-    return {
-      type: 'text',
-      text,
-      annotations: {
-        audience: ['assistant', 'user'],
-        priority,
-        role: 'assistant',
-      },
-    };
-  },
-
-  user(text: string, priority = 0.6): RoleContentBlock {
-    return {
-      type: 'text',
-      text,
-      annotations: {
-        audience: ['user'],
-        priority,
-        role: 'user',
-      },
-    };
-  },
-
-  data(data: unknown, format?: 'yaml' | 'json'): RoleContentBlock {
-    const resolvedFormat = format ?? getOutputFormat();
-    let text: string;
-    try {
-      text =
-        resolvedFormat === 'yaml'
-          ? contextUtils.jsonToYamlString(cleanJsonObject(data) as JsonInput)
-          : JSON.stringify(cleanJsonObject(data), null, 2);
-    } catch {
-      text = 'error: "Data serialization failed"\n';
-    }
-    return {
-      type: 'text',
-      text: sanitizeText(text),
-      annotations: {
-        audience: ['assistant'],
-        priority: 0.3,
-        role: 'assistant',
-      },
-    };
-  },
-};
-
-export const StatusEmoji = {
-  success: '✅',
-  empty: '📭',
-  error: '❌',
-  partial: '⚠️',
-  searching: '🔍',
-  loading: '⏳',
-  info: 'ℹ️',
-  file: '📄',
-  folder: '📁',
-  page: '📃',
-  definition: '🎯',
-  reference: '🔗',
-  call: '📞',
-} as const;
-
-export function createRoleBasedResult(
-  options: RoleBasedResultOptions
-): CallToolResult {
-  const content: RoleContentBlock[] = [];
-  const { system, assistant, user, data, isError } = options;
-
-  if (system) {
-    const systemParts: string[] = [];
-
-    if (system.instructions) {
-      systemParts.push(system.instructions);
-    }
-
-    if (system.pagination) {
-      const { currentPage, totalPages, hasMore } = system.pagination;
-      systemParts.push(
-        `Page ${currentPage}/${totalPages}${hasMore ? ' (more available)' : ''}`
-      );
-    }
-
-    if (system.warnings?.length) {
-      systemParts.push(
-        `⚠️ Warnings:\n${system.warnings.map(w => `- ${w}`).join('\n')}`
-      );
-    }
-
-    if (system.hints?.length) {
-      systemParts.push(`Hints:\n${system.hints.map(h => `- ${h}`).join('\n')}`);
-    }
-
-    if (systemParts.length > 0) {
-      content.push(ContentBuilder.system(systemParts.join('\n\n')));
-    }
-  }
-
-  content.push(ContentBuilder.assistant(assistant.summary));
-
-  if (assistant.details) {
-    const dataFormat =
-      assistant.format === 'json' || assistant.format === 'yaml'
-        ? assistant.format
-        : undefined;
-    content.push(ContentBuilder.data(assistant.details, dataFormat));
-  }
-
-  if (user) {
-    const userMessage = user.emoji
-      ? `${user.emoji} ${user.message}`
-      : user.message;
-    content.push(ContentBuilder.user(userMessage));
-  }
-
-  return {
-    content,
-    structuredContent: cleanAndStructure(data),
-    isError: Boolean(isError),
-  };
-}
-
-export const QuickResult = {
-  success(summary: string, data: unknown, hints?: string[]): CallToolResult {
-    return createRoleBasedResult({
-      system: hints ? { hints } : undefined,
-      assistant: { summary },
-      user: { message: 'Operation completed', emoji: StatusEmoji.success },
-      data,
-    });
-  },
-
-  empty(message: string, hints?: string[]): CallToolResult {
-    return createRoleBasedResult({
-      system: {
-        hints: hints || ['Try broader search terms', 'Check spelling'],
-      },
-      assistant: { summary: message },
-      user: { message: 'No results found', emoji: StatusEmoji.empty },
-      data: { status: 'empty', results: [] },
-    });
-  },
-
-  error(error: string, details?: unknown): CallToolResult {
-    return createRoleBasedResult({
-      system: {
-        instructions:
-          'Tool execution failed. Error details provided for self-correction.',
-      },
-      assistant: { summary: `Error: ${error}` },
-      user: { message: 'An error occurred', emoji: StatusEmoji.error },
-      data: { status: 'error', error, details },
-      isError: true,
-    });
-  },
-
-  paginated(
-    summary: string,
-    data: unknown,
-    pagination: { page: number; total: number; hasMore: boolean },
-    hints?: string[]
-  ): CallToolResult {
-    return createRoleBasedResult({
-      system: {
-        pagination: {
-          currentPage: pagination.page,
-          totalPages: pagination.total,
-          hasMore: pagination.hasMore,
-        },
-        hints,
-      },
-      assistant: { summary },
-      user: {
-        message: `Page ${pagination.page} of ${pagination.total}`,
-        emoji: pagination.hasMore ? '📄' : StatusEmoji.success,
-      },
-      data,
-    });
-  },
-};
-
-function cleanAndStructure(data: unknown): Record<string, unknown> | undefined {
-  if (data === null || data === undefined) {
-    return undefined;
-  }
-  const cleaned = cleanJsonObject(data);
-  if (
-    typeof cleaned === 'object' &&
-    cleaned !== null &&
-    !Array.isArray(cleaned)
-  ) {
-    return sanitizeStructuredContent(
-      cleaned as Record<string, unknown>
-    ) as Record<string, unknown>;
-  }
-  const wrapped = { data: cleaned };
-  return sanitizeStructuredContent(wrapped) as Record<string, unknown>;
-}
-
-function sanitizeText(text: string): string {
-  if (text == null || typeof text !== 'string') return '';
-  return ContentSanitizer.sanitizeContent(text).content;
 }
 
 export function sanitizeStructuredContent(obj: unknown): unknown {
@@ -394,6 +166,20 @@ const PAGINATION_KEYS = new Set([
   'nextCharOffset',
 ]);
 
+// Total-count fields: when any is present and positive, the pagination object
+// carries "all N matches/items" information that the text channel would lose if
+// stripped — so such pagination is NOT trivial even with hasMore=false.
+const TOTAL_COUNT_KEYS = [
+  'totalMatches',
+  'totalItems',
+  'totalFiles',
+  'totalEntries',
+  'totalResults',
+  'totalReferences',
+  'reportedTotalMatches',
+  'reachableTotalMatches',
+] as const;
+
 function isTrivialPagination(value: unknown): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
@@ -401,6 +187,11 @@ function isTrivialPagination(value: unknown): boolean {
   const p = value as Record<string, unknown>;
   const keys = Object.keys(p);
   if (keys.length === 0 || !keys.every(k => PAGINATION_KEYS.has(k))) {
+    return false;
+  }
+  if (
+    TOTAL_COUNT_KEYS.some(k => typeof p[k] === 'number' && (p[k] as number) > 0)
+  ) {
     return false;
   }
   if (p.hasMore !== false) return false;
@@ -411,7 +202,7 @@ function isTrivialPagination(value: unknown): boolean {
   return true;
 }
 
-function cleanJsonObject(
+export function cleanJsonObject(
   obj: unknown,
   context: { inFilesObject?: boolean; depth?: number } = {}
 ): unknown {

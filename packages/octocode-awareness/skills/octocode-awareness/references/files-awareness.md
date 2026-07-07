@@ -60,20 +60,21 @@ Stale cleanup releases files while preserving the intent as `PENDING`; it is cle
 
 ## Per-repo/project + running-env context
 
-- **`env`** — first orient command in a new session.
-  Reports runtime, cwd, git state, changed files, open handoffs, and unverified intents.
-- `env.git.changed_files` is the exact dirty-file count.
-  `env.git.changes[]` is a bounded changed-file list.
-  `github_url` is `null` when origin, branch, or path cannot map to GitHub.
-- Refinements **capture the running env at write time** and auto-fill `repo`/`ref` from git when omitted.
-  The next agent can compare environments before trusting a handoff.
-  Use `refine-get --include-env` only for full file-change detail.
+Orient in a new session by combining the shared store with plain git:
+
+- `status` / `workspace-status` — memory counts, active/pending intents, live locks.
+- `refine-get` — open/ongoing handoffs for this repo/ref.
+- `git status --porcelain` and `git rev-parse --abbrev-ref HEAD` — dirty files and branch; the store never mirrors the working tree.
+- Refinements auto-fill `repo`/`ref` from the **workspace's** git when omitted; a workspace that is not a git repo stays unscoped rather than inheriting the caller's cwd repo.
   Pass absolute paths or run from repo root.
 
 ## Observability
 
-- **`stats`** — harness-health ledger: memories by state/importance, supersede churn, stale-ACTIVE count, top recurring weaknesses, and refinements by state×quality. Read it to decide what to prune or fix.
-- **`memory-graph [--format mermaid|dot]`** — serializes the `superseded_by` lineage to stdout (paste into mermaid.live or `dot`); no server.
+- **`status`** — memory counts by state and label, active intent count, open refinements, live locks.
+- **`mine-weakness`** — top recurring failure clusters by `failure_signature` (support × avg-importance).
+- **`digest --dry-run`** — preview archive/prune counts before any cleanup mutates.
+- **`memory-index`** — regenerate the browsable `MEMORY.md` index for the store.
+- Supersede lineage lives in `superseded_by` on each memory; recall SUPERSEDED rows with `get-memory --state SUPERSEDED` to trace it.
 
 ## Automatic session capture (`session-capture` / SessionEnd hook)
 

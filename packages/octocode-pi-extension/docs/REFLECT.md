@@ -8,7 +8,7 @@ Three Pi tools form the complete loop:
 | Tool | Stage | What it produces |
 |------|-------|-----------------|
 | `memory_reflect` | After every non-trivial task | Learning memory + optional refinement + optional harness proposal |
-| `memory_mine_weakness` | After several tagged failures | Ranked failure-signature clusters |
+| weakness clustering | Automatic — surfaced in the session-start briefing (not an agent-callable tool) | Ranked failure-signature clusters |
 | `memory_export_harness` | Before proposing AGENTS.md changes | Two-tier markdown block for human review |
 
 ---
@@ -24,7 +24,7 @@ flowchart TD
   C -- fix_harness --> F[Harness memory\nlabel:EXPERIENCE, tags:harness+reflection]
   C -- failure_signature --> G[EXPERIENCE memory\nindexed under signature]
   D & E & F & G --> H[Accumulate over sessions]
-  H --> I[memory_mine_weakness]
+  H --> I[weakness clustering\nauto — shown in session briefing]
   I --> J{Clusters found?}
   J -- yes --> K[Route via memory_reflect\nfix_repo or fix_harness]
   J -- no --> L[Record more failures\nwith failure_signature:]
@@ -56,6 +56,9 @@ At least one of `lesson`, `didnt_work`, `fix_repo`, `fix_harness`, or `failure_s
 | `fix_harness` | string | — | Skill/AGENTS.md improvement. Creates a **harness-tagged memory** for `memory_export_harness`. |
 | `failure_signature` | string | — | Cluster key, e.g. `mechanism:retry-loop\|cause:test-timeout`. Enables `memory_mine_weakness`. |
 | `importance` | 1–10 | — | Overrides the outcome-based default (see table below). |
+| `judgment_note` | string | — | Evidence checked + remaining uncertainty; folded into the reflection narrative as `judgment: …`. |
+| `duo` | boolean | — | Emit an advisory `reflection_duo` packet (supporter + skeptic review prompts). Never stored, scored, or enforced. |
+| `eval_failures` | `{id, dimension?, failure_signature?, suggested_lesson?}[]` | — | Structured failed eval checks; each becomes an `eval`-tagged memory, and the first signature drives weakness clustering when `failure_signature` is omitted. |
 | `references` | string[] | — | Provenance: `file:/abs/path:line`, `pr:owner/repo#N`, URL, `npm:pkg@v`. |
 | `file` / `files` | string / string[] | — | Files this reflection is scoped to. Paths resolved against `cwd`. |
 | `folders` | string[] | — | Folders scoped to this reflection. |
@@ -80,8 +83,9 @@ Override with explicit `importance:` when the lesson is unusually critical (9–
 | `failure_signature` | Same memory row | `EXPERIENCE` | + `failure_signature` indexed |
 | `fix_repo` | `refinements` row | — | `quality:good` if worked, `quality:bad` if partial/failed |
 | `fix_harness` | `agent_memories` row | `EXPERIENCE` | `harness`, `reflection`, `outcome` |
+| `eval_failures[]` | One `agent_memories` row each | `EXPERIENCE` | `reflection`, `eval`, `outcome`; own `failure_signature` |
 
-A single `memory_reflect` call can produce **all three simultaneously**.
+A single `memory_reflect` call can produce **all of these simultaneously**.
 
 ### Return shape
 
@@ -93,6 +97,12 @@ A single `memory_reflect` call can produce **all three simultaneously**.
   harness_fix: boolean,               // true when fix_harness provided
   novelty_score: number,              // 0–1; low = similar memory already exists
   similar_memory_ids: string[],       // memories close to this one (Jaccard)
+  eval_failure_count: number,         // eval-tagged memories created from eval_failures[]
+  eval_failure_ids: string[],
+  reflection_duo?: {                  // present only with duo:true — advisory, never stored
+    advisory: true,
+    roles: [{ role: 'supporter', prompt: string }, { role: 'skeptic', prompt: string }],
+  },
   next: string,                       // routing hints to next loop steps
 }
 ```
@@ -160,19 +170,21 @@ memory_reflect({
 
 ---
 
-## `memory_mine_weakness` — Pi tool
+## Weakness clustering — automatic (not an agent-callable tool)
 
-**When:** After accumulating 3+ failures with `failure_signature` set.
-Clusters memories by signature and ranks by **count × avg_importance**.
+**Note:** weakness clustering is **not** exposed as an agent tool. It runs internally and
+recurring failure-signature clusters are surfaced in the session-start briefing; use
+`workspace_status` to see current coordination/failure state. Route the surfaced
+`failure_signature` values into `memory_reflect` (`fix_repo` / `fix_harness`).
 
-### Parameters
+Internally it clusters memories by `failure_signature` (accumulated once 3+ failures carry
+one) and ranks by **count × avg_importance** with these bounds:
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `min_count` | integer ≥ 2 | 2 | Minimum memories per cluster. Raise to 3–4 to reduce noise. |
-| `limit` | integer | 10 | Max clusters returned. |
-| `agent_id` | string | — | Filter to a specific agent's memories only. |
-| `workspace_path` / `repo` / `ref` | string | cwd | Applicability scope. |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| min_count | 2 | Minimum memories per cluster (raise to 3–4 to reduce noise). |
+| limit | 10 | Max clusters surfaced. |
+| scope | cwd | `workspace_path` / `repo` / `ref` applicability scope. |
 
 ### Return shape
 

@@ -146,7 +146,8 @@ pub fn search_files(
                 } else {
                     SearchOutcome::Matched(StructuralSearchFileResult {
                         path: file_path.to_string_lossy().to_string(),
-                        matches,
+                        // The non-detailed shape carries no node_kind; drop it.
+                        matches: matches.into_iter().map(|m| m.matched).collect(),
                     })
                 }
             })
@@ -469,8 +470,13 @@ pub fn search_files_detailed(
 
         let matches: Vec<StructuralDetailedMatch> = run(&content)
             .into_iter()
-            .map(|matched| {
-                StructuralDetailedMatch::from_match(&path_string, &query_fingerprint, matched)
+            .map(|m| {
+                StructuralDetailedMatch::from_match(
+                    &path_string,
+                    &query_fingerprint,
+                    m.matched,
+                    m.node_kind,
+                )
             })
             .collect();
         parsed_files += 1;

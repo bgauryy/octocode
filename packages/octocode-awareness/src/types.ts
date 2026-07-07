@@ -73,6 +73,17 @@ export interface MemoryRecord {
   similar_memory_ids: string[];
   /** Decay + salience score — present after lexicalSearch */
   score?: number;
+  /** Normalized lexical relevance (0..1) — present after lexicalSearch */
+  lexical?: number;
+  /** Per-component score breakdown — present when getMemory({ explain: true }) */
+  score_components?: {
+    importance: number;
+    recency: number;
+    access: number;
+    relevance: number;
+    weights: { importance: number; recency: number; access: number; lexical: number };
+    final: number;
+  };
 }
 
 export interface FileLock {
@@ -183,6 +194,8 @@ export interface GetMemoryParams {
   regex?: string[];           // regex matched against all text fields
   fileRegex?: string[];       // regex matched against file path
   files?: string[];           // exact file path filter
+  explain?: boolean;          // attach score_components per result for tuning
+  cwd?: string;               // base directory for resolving relative file paths
 }
 
 export interface GetMemoryResult {
@@ -193,6 +206,9 @@ export interface GetMemoryResult {
   as_of: string | null;
   global_only: boolean;
   states: string[];
+  /** Set when recall confidence is low — verify results before relying on them. */
+  judgment_required?: boolean;
+  judgment_reason?: string;
 }
 
 export interface InsertRefinementParams {
@@ -234,6 +250,7 @@ export interface PreFlightIntentParams {
   workspacePath?: string | null;
   rationale?: string;
   testPlan?: string;
+  planDocRef?: string | null;
   targetFiles?: string[];
   lockType?: LockType;
   ttlMs?: number | null;
@@ -310,9 +327,26 @@ export interface FileLockStatusEntry {
 export type FileLockResult =
   | { ok: true; type: 'lock'; intentId: string; files: string[]; reasoning: string; acquiredAt: string | null; expiresAt: string | null; locks: FileLockStatusEntry[] }
   | { ok: false; type: 'lock'; conflict: true; conflicts: PreFlightIntentConflict['conflicts'] }
-  | ({ ok: true; type: 'release' } & ReleaseFileLockResult)
+  | ({ ok: boolean; type: 'release' } & ReleaseFileLockResult)
   | { ok: true; type: 'status'; locks: FileLockStatusEntry[] }
   | { ok: true; type: 'renew'; intentId: string; renewed: boolean; locks_renewed: number; expiresAt: string | null };
+
+/** One failed binary-eval question, treated as a diagnostic packet. */
+export interface EvalFailure {
+  id: string;
+  dimension?: string;
+  failure_signature?: string;
+  suggested_lesson?: string;
+}
+
+/** Advisory reviewer prompts emitted by reflect({ duo: true }). Never stored. */
+export interface ReflectionDuo {
+  advisory: true;
+  roles: [
+    { role: 'supporter'; prompt: string },
+    { role: 'skeptic'; prompt: string },
+  ];
+}
 
 export interface ReflectParams {
   agentId?: string;
@@ -325,6 +359,12 @@ export interface ReflectParams {
   fixHarness?: string | null;
   failureSignature?: string | null;
   importance?: number | null;
+  /** Judgment nuance: evidence checked, remaining uncertainty. Folded into the narrative. */
+  judgmentNote?: string | null;
+  /** Emit an advisory reflection_duo packet (two reviewer roles) in the result. Never stored. */
+  duo?: boolean;
+  /** Structured eval failures; each becomes an `eval`-tagged memory. */
+  evalFailures?: EvalFailure[];
   references?: string[];
   file?: string | null;
   files?: string[];
@@ -343,10 +383,11 @@ export interface ReflectResult {
   repo_fix_refinement_id: string | null;
   harness_fix: boolean;
   eval_failure_count: number;
-  eval_failure_ids: never[];
+  eval_failure_ids: string[];
   next: string;
   novelty_score?: number;
   similar_memory_ids?: string[];
+  reflection_duo?: ReflectionDuo;
 }
 
 export interface ScopePartial {
@@ -472,6 +513,8 @@ export interface ForgetMemoryResult {
   dry_run?: true;
   would_delete?: number;
   memory_ids: string[];
+  /** Present when a broad selector was capped at the default importance ceiling. */
+  salience_floor?: number;
 }
 
 // ─── Real wait-for-lock ───────────────────────────────────────────────────────

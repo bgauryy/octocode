@@ -95,7 +95,10 @@ export function insertNotification(
     const parent = db.prepare(
       'SELECT thread_id FROM notifications WHERE notification_id = ?'
     ).get(inReplyTo) as { thread_id: string } | undefined;
-    threadId = parent?.thread_id ?? notificationId;
+    if (!parent) {
+      throw new Error(`insertNotification: parent notification ${inReplyTo} not found (deleted?). Omit inReplyTo to start a new thread.`);
+    }
+    threadId = parent.thread_id;
   } else {
     threadId = notificationId;
   }
@@ -147,6 +150,13 @@ export function getNotifications(
   if (threadId) {
     where.push('n.thread_id = ?');
     binds.push(threadId);
+    // NOTIF-2: Apply unreadOnly filter for thread fetches too. Previously the threadId
+    // branch skipped the LEFT JOIN and status/read checks entirely, returning all messages
+    // including already-read ones while still reporting unread_only:true.
+    if (unreadOnly) {
+      where.push("n.status = 'open'");
+      where.push('nr.notification_id IS NULL');
+    }
   } else {
     // inbox: addressed to me OR broadcasts (to_agent IS NULL)
     where.push('(n.to_agent IS NULL OR n.to_agent = ?)');
@@ -168,14 +178,13 @@ export function getNotifications(
   }
 
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-  // NOTIF-1: LEFT JOIN notification_reads to support unreadOnly IS NULL check
-  // without a correlated subquery. The join is conditional: only the unreadOnly
-  // branch pushes agentId to binds for the ON clause.
-  const joinClause = unreadOnly && !threadId
+  // NOTIF-1/NOTIF-2: LEFT JOIN notification_reads whenever unreadOnly is true,
+  // regardless of whether threadId is set. The join is needed for the IS NULL check.
+  const joinClause = unreadOnly
     ? `LEFT JOIN notification_reads nr ON nr.notification_id = n.notification_id AND nr.agent_id = ?`
     : '';
   // Move the agentId bind for the LEFT JOIN to the right position (before WHERE binds)
-  const allBinds = unreadOnly && !threadId
+  const allBinds = unreadOnly
     ? [agentId, ...binds]
     : binds;
   const sql = `

@@ -44,3 +44,34 @@ describe('findFiles sorting', () => {
     expect(result.pagination.totalFilesFound).toBe(3);
   });
 });
+
+describe('findFiles malformed time filters', () => {
+  it('strips an invalid time filter so it matches the "skipped" warning', async () => {
+    const dir = await createTempDir();
+    await writeFile(join(dir, 'a.ts'), 'x');
+    await writeFile(join(dir, 'b.ts'), 'y');
+
+    const baseline = await findFiles({
+      path: dir,
+      entryType: 'f',
+      names: ['*.ts'],
+      details: true,
+    });
+    const withBadFilter = await findFiles({
+      path: dir,
+      entryType: 'f',
+      names: ['*.ts'],
+      details: true,
+      // Not a relative duration ("7d"/"2h"/…): the filter must be dropped, not
+      // forwarded to the native walk where it could silently suppress results.
+      modifiedWithin: 'banana',
+    } as Parameters<typeof findFiles>[0]);
+
+    expect(withBadFilter.warnings?.some(w => w.includes('modifiedWithin'))).toBe(
+      true
+    );
+    expect(withBadFilter.files.map(f => basename(f.path)).sort()).toEqual(
+      baseline.files.map(f => basename(f.path)).sort()
+    );
+  });
+});

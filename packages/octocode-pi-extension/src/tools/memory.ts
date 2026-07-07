@@ -184,6 +184,13 @@ function runMemoryOperation(
         states: request['state'] ? [String(request['state'])] : undefined,
         references: recallRefs.length > 0 ? recallRefs : undefined,
         regex: recallRegex.length > 0 ? recallRegex : undefined,
+        // File-scope filter (getMemory supports `files`). The schema advertises
+        // file/files; forward them (folder-scope isn't supported upstream).
+        files: (() => {
+          const merged = [...stringArray(request['files'])];
+          if (typeof request['file'] === 'string' && request['file']) merged.push(request['file']);
+          return merged.length > 0 ? merged : undefined;
+        })(),
         asOf: request['as_of'] as string | undefined ?? null,
       });
       type MemRecord = {
@@ -217,8 +224,15 @@ function runMemoryOperation(
         if (m.file) lean['file'] = m.file;
         return lean;
       });
+      const recallPayload: Record<string, unknown> = { count: result.count, memories };
+      // Low-confidence recall flag from getMemory — the agent should verify
+      // weak matches against current files instead of trusting them.
+      if (result.judgment_required) {
+        recallPayload['judgment_required'] = true;
+        recallPayload['judgment_reason'] = result.judgment_reason;
+      }
       return {
-        content: [{ type: 'text', text: JSON.stringify({ count: result.count, memories }) }],
+        content: [{ type: 'text', text: JSON.stringify(recallPayload) }],
         details: { exit: 0 },
       };
     }
@@ -323,6 +337,11 @@ function runMemoryOperation(
         fixHarness: request['fix_harness'] as string | undefined,
         failureSignature: request['failure_signature'] as string | undefined,
         importance: request['importance'] as number | undefined,
+        judgmentNote: request['judgment_note'] as string | undefined,
+        duo: Boolean(request['duo']),
+        evalFailures: Array.isArray(request['eval_failures'])
+          ? request['eval_failures'] as Array<{ id: string; dimension?: string; failure_signature?: string; suggested_lesson?: string }>
+          : undefined,
         references: request['references'] as string[] | undefined,
         file: request['file'] as string | undefined,
         files: request['files'] as string[] | undefined,
@@ -340,6 +359,9 @@ function runMemoryOperation(
         similar_memory_ids?: string[];
         repo_fix_refinement_id?: string;
         harness_fix?: boolean;
+        eval_failure_count?: number;
+        eval_failure_ids?: string[];
+        reflection_duo?: unknown;
       };
       const payload: Record<string, unknown> = {
         outcome: result.outcome,
@@ -349,6 +371,11 @@ function runMemoryOperation(
         payload['novelty'] = Math.round(result.novelty_score * 100) / 100;
       }
       if (result.similar_memory_ids?.length) payload['similar'] = result.similar_memory_ids;
+      if (result.eval_failure_count) {
+        payload['eval_failure_count'] = result.eval_failure_count;
+        payload['eval_failure_ids'] = result.eval_failure_ids;
+      }
+      if (result.reflection_duo) payload['reflection_duo'] = result.reflection_duo;
       const actions: string[] = [];
       if (result.repo_fix_refinement_id) {
         payload['refinement_id'] = result.repo_fix_refinement_id;
@@ -860,11 +887,21 @@ export function buildMemoryToolDefinition(
     files: optionalStringArray(Type, 'Related file paths.'),
     folders: optionalStringArray(Type, 'Related folder paths.'),
   };
-  const repoScopeProps = {
+  // Recall only supports file-scope on the read side (getMemory accepts `files`,
+  // not folders) — advertise only what actually filters.
+  const recallFileScopeProps = {
+    file: optionalNonEmptyString(Type, 'Related file path to scope recall to.'),
+    files: optionalStringArray(Type, 'Related file paths to scope recall to.'),
+  };
+  const workspaceScopeProp = {
     workspace_path: optionalNonEmptyString(Type, 'Workspace/repo root scope; defaults to cwd.'),
+  };
+  const repoRefProps = {
     repo: optionalNonEmptyString(Type, 'Repository scope, e.g. owner/repo.'),
     ref: optionalNonEmptyString(Type, 'Git ref/branch scope.'),
   };
+  // Full write-side scope (workspace + repo + ref) for tools that persist scope.
+  const repoScopeProps = { ...workspaceScopeProp, ...repoRefProps };
   const validityProps = {
     valid_from: optionalNonEmptyString(Type, 'Memory valid-from timestamp/ISO date.'),
     valid_to: optionalNonEmptyString(Type, 'Memory expiry timestamp/ISO date; digest marks expired memories stale.'),
@@ -885,7 +922,8 @@ export function buildMemoryToolDefinition(
     verified: Type.Optional(Type.Boolean({ description: 'For release: mark SUCCESS only if verification actually ran.' })),
     verified_note: optionalNonEmptyString(Type, 'Verification note stored with verified releases.'),
     signal_on_conflict: Type.Optional(Type.Boolean({ description: 'Publish a blocker signal on lock conflict; default true.' })),
-    ...repoScopeProps,
+    // fileLock scopes by workspace only — repo/ref are not honored upstream.
+    ...workspaceScopeProp,
   });
 
   const workspaceStatusParams = Type.Object({ ...repoScopeProps });
@@ -913,8 +951,9 @@ export function buildMemoryToolDefinition(
         references: optionalStringArray(Type, 'Filter by exact provenance reference; e.g. npm:pkg, pr:owner/repo#N.'),
         regex: optionalStringArray(Type, 'Regex patterns matched against all text fields.'),
         as_of: optionalNonEmptyString(Type, 'ISO date for bi-temporal point-in-time recall.'),
-        ...fileScopeProps,
-        ...repoScopeProps,
+        // Recall filters by file-scope + workspace only (getMemory ignores repo/ref/folders).
+        ...recallFileScopeProps,
+        ...workspaceScopeProp,
       }),
     },
     {
@@ -965,6 +1004,14 @@ export function buildMemoryToolDefinition(
         fix_harness: optionalNonEmptyString(Type, 'Harness/skill improvement; creates a harness-tagged memory.'),
         failure_signature: optionalNonEmptyString(Type, 'Cluster key, e.g. mechanism:X|cause:Y.'),
         importance: importanceSchema,
+        judgment_note: optionalNonEmptyString(Type, 'Evidence checked + remaining uncertainty; folded into the reflection narrative.'),
+        duo: Type.Optional(Type.Boolean({ description: 'Emit an advisory reflection_duo packet (supporter + skeptic prompts). Never stored.' })),
+        eval_failures: Type.Optional(Type.Array(Type.Object({
+          id: nonEmptyString(Type, 'Eval question/check id.'),
+          dimension: optionalNonEmptyString(Type, 'Eval dimension, e.g. correctness.'),
+          failure_signature: optionalNonEmptyString(Type, 'Cluster key for mine-weakness.'),
+          suggested_lesson: optionalNonEmptyString(Type, 'Distilled lesson from the failed check.'),
+        }), { description: 'Structured failed eval checks; each becomes an eval-tagged memory.' })),
         references: optionalStringArray(Type, 'Provenance such as file:/abs/path:line, pr:owner/repo#N, URL, npm:pkg@v.'),
         ...fileScopeProps,
         ...repoScopeProps,
@@ -1059,7 +1106,9 @@ export function buildMemoryToolDefinition(
         state: Type.Optional(refinementStateSchema),
         include_handoffs: Type.Optional(Type.Boolean({ description: 'Include session handoff rows; default false so repo-fix refinements stay visible.' })),
         limit: optionalLimit(Type, 'Max refinements; default 5.'),
-          ...repoScopeProps,
+        // getRefinements scopes by workspace + repo (no ref).
+        ...workspaceScopeProp,
+        repo: repoRefProps.repo,
       }),
     },
     {
@@ -1098,13 +1147,14 @@ export function buildMemoryToolDefinition(
       promptGuidelines: [
         'Never paste output into AGENTS.md without human review and explicit approval.',
         'Use harness_only:true to see only explicit fix_harness proposals, not general lessons.',
-        'Call memory_mine_weakness first to ensure recurring failures have been routed via memory_reflect.',
+        'Route recurring failures through memory_reflect (fix_harness) first so this export has proposals to surface.',
       ],
       parameters: Type.Object({
         harness_only: Type.Optional(Type.Boolean({ description: 'Return only harness-tagged proposals (tier 1). Omit general lessons.' })),
         limit: optionalLimit(Type, 'Max memories; default 10.'),
         min_importance: Type.Optional(Type.Integer({ minimum: 1, maximum: 10, description: 'Minimum importance for tier 2 general lessons; default 7.' })),
-        ...repoScopeProps,
+        // exportHarness scopes by workspace only (no repo/ref upstream).
+        ...workspaceScopeProp,
       }),
     },
     {

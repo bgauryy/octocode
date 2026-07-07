@@ -59,7 +59,9 @@ export function fillScope(partial: ScopePartial, cwd?: string): Scope {
 
   if (scope.workspace_path && scope.repo) return scope;
 
-  const git = detectGit(cwd ?? process.cwd());
+  // Detect from the explicit workspace when given — falling back to cwd here
+  // used to tag a non-git workspace with whatever repo the process ran from.
+  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
   if (!git.is_repo) return scope;
 
   if (!scope.workspace_path && git.root) scope.workspace_path = git.root;

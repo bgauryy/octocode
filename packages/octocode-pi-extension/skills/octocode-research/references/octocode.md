@@ -13,7 +13,7 @@ If neither MCP nor CLI is available, continue only with clearly degraded confide
 ## Search First Rules
 
 - Prefer `npx octocode search` for read-only workflows: local files, GitHub, npm packages, LSP semantics, artifacts, PRs, commits, diffs, research packets, graph proof, and materialization.
-- Read `npx octocode search --scheme` before OQL JSON. Use `--explain --dry-run --json` when routing or completeness is uncertain.
+- Read `npx octocode search --scheme --compact` before OQL JSON; read full `--scheme` only when the compact guide lacks a needed field. Use `--explain --dry-run --json` when routing or completeness is uncertain.
 - Read `npx octocode tools <name> --scheme` before raw tools. Raw fields differ from CLI flags.
 - Use `--json` for automation and `--compact` for low-token exploration.
 - Follow returned `next.*`, pagination, char offsets, match/file/comment/commit pages, refs, and `localPath` values exactly.
@@ -70,7 +70,7 @@ Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, 
 | Exact content read | `npx octocode search <file\|owner/repo/path> --content-view exact --match-string <s>` | `localGetFileContent` / `ghGetFileContent` |
 | Tree/structure | `npx octocode search <path\|owner/repo> --tree --depth N` | `localViewStructure` / `ghViewRepoStructure` |
 | File/path metadata search | `npx octocode search <query> <path> --search path --name <glob> --ext <list>` | `localFindFiles` or OQL `target:"files"` |
-| LSP semantics | `npx octocode search <file> --op references|definition|callers|callees|hover --symbol S --line N` | `lspGetSemantics` |
+| LSP semantics | `npx octocode search <file> --op documentSymbols|references|definition|callers|callees|hover --symbol S --line N` (run `documentSymbols` first to get the line anchor) | `lspGetSemantics` |
 | Package lookup | `npx octocode search <package> --target packages` | `npmSearch` |
 | Repository discovery | `npx octocode search <keywords> --target repositories` | `ghSearchRepos` |
 | PR list/deep-read | `npx octocode search owner/repo[#N] --target pullRequests --comments --patches --file <path>` | `ghHistoryResearch(type:"prs")` |

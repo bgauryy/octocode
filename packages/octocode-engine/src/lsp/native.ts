@@ -1,11 +1,16 @@
 import { createRequire } from 'node:module';
 
+import type { LspReadiness } from './types.js';
+
 const require = createRequire(import.meta.url);
 
 export type NativeLspClientBinding = {
   start(): Promise<void>;
   stop(): Promise<void>;
-  waitForReady(timeoutMs?: number): Promise<void>;
+  // The native addon resolves to an `LspReadiness` string once rebuilt; an
+  // older addon (pre-readiness) resolves to `undefined`, which the LSPClient
+  // wrapper coerces to the conservative `settledFallback`.
+  waitForReady(timeoutMs?: number): Promise<LspReadiness | undefined>;
   hasCapability?(capability: string): boolean;
   getRecentStderr?(): string[];
   openDocument(filePath: string, content: string): Promise<void>;

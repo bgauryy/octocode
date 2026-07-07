@@ -10,6 +10,37 @@ use tokio::time::{timeout, Duration, Instant};
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
 const MAX_JSON_RPC_CONTENT_LENGTH: usize = 64 * 1024 * 1024;
 
+/// How `wait_until_idle` concluded — a readiness signal the JS layer uses to
+/// tell "server confirmed indexing is done" apart from "server never told us,
+/// we only waited a fixed window" apart from "server is still busy".
+///
+/// This distinction is what lets a *zero-results* semantic query be reported
+/// honestly: only `ProgressIdle` means the empty answer reflects the indexed
+/// project; the other two mean the emptiness might just be "not indexed yet".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Readiness {
+    /// Saw at least one `$/progress` cycle and drained it to idle — the server
+    /// announced indexing and we waited for it to finish.
+    ProgressIdle,
+    /// Never saw any `$/progress`; only the settle window elapsed. The server
+    /// does not report indexing, so we cannot confirm it has finished.
+    SettledFallback,
+    /// `$/progress` was still active when `timeout_ms` expired — the server is
+    /// (as far as we know) still indexing.
+    Timeout,
+}
+
+impl Readiness {
+    /// Stable string form crossing the napi boundary into JS.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Readiness::ProgressIdle => "progressIdle",
+            Readiness::SettledFallback => "settledFallback",
+            Readiness::Timeout => "timeout",
+        }
+    }
+}
+
 /// Tracks in-flight `$/progress` tokens emitted by a language server.
 ///
 /// After `initialized` is sent, servers like `rust-analyzer` begin asynchronous
@@ -59,7 +90,7 @@ impl ProgressTracker {
     /// (e.g. crate loading -> workspace analysis -> cache priming).  Without
     /// the quiescence window we would return after the *first* wave, before the
     /// server is fully ready to answer queries.
-    pub async fn wait_until_idle(&self, timeout_ms: u64) {
+    pub async fn wait_until_idle(&self, timeout_ms: u64) -> Readiness {
         /// Wait this long for the very first `$/progress begin` after
         /// `initialized` is sent.
         ///
@@ -85,7 +116,7 @@ impl ProgressTracker {
 
         // Fast path: all progress already completed before we were called.
         if self.ever_active.load(Ordering::Acquire) && *self.count_rx.borrow() == 0 {
-            return;
+            return Readiness::ProgressIdle;
         }
 
         let mut rx = self.count_rx.clone();
@@ -97,7 +128,9 @@ impl ProgressTracker {
                 .await
                 .is_ok();
             if !became_active {
-                return; // Server does not use progress -- consider it ready.
+                // Server does not use progress -- we only waited the settle
+                // window, so we cannot confirm indexing actually finished.
+                return Readiness::SettledFallback;
             }
         }
 
@@ -110,7 +143,7 @@ impl ProgressTracker {
                 .await
                 .is_err()
             {
-                return; // Deadline expired while tokens were still active.
+                return Readiness::Timeout; // Deadline expired while tokens active.
             }
 
             // 2b. Quiesce: wait briefly to see if a new wave starts.
@@ -125,7 +158,7 @@ impl ProgressTracker {
                 .await
                 .is_ok();
             if !new_wave {
-                return; // Quiescence passed -- server is idle.
+                return Readiness::ProgressIdle; // Quiescence passed -- server is idle.
             }
             // A new wave started; loop back and drain it too.
         }
@@ -703,7 +736,7 @@ mod tests {
         runtime.block_on(async {
             let tracker = ProgressTracker::new();
             let start = Instant::now();
-            tracker.wait_until_idle(150).await;
+            let readiness = tracker.wait_until_idle(150).await;
             let elapsed = start.elapsed().as_millis();
             // Should wait ~the timeout (settle is capped at timeout_ms=150),
             // and must not run away to the full multi-second settle window.
@@ -711,6 +744,8 @@ mod tests {
                 elapsed < 1_000,
                 "must not exceed caller timeout, got {elapsed} ms"
             );
+            // Never saw progress -> only the settle window elapsed.
+            assert_eq!(readiness, Readiness::SettledFallback);
         });
     }
 
@@ -723,13 +758,15 @@ mod tests {
         runtime.block_on(async {
             let tracker = ProgressTracker::new();
             let start = Instant::now();
-            tracker.wait_until_idle(10_000).await;
+            let readiness = tracker.wait_until_idle(10_000).await;
             let elapsed = start.elapsed().as_millis();
             assert!(
                 elapsed >= 1_500,
                 "must not return after the old aggressive 100 ms window, got {elapsed} ms"
             );
             assert!(elapsed < 5_000, "must stay bounded, got {elapsed} ms");
+            // No progress events ever arrived -> settledFallback, not progressIdle.
+            assert_eq!(readiness, Readiness::SettledFallback);
         });
     }
 
@@ -744,8 +781,10 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 t.on_end("indexing").await;
             });
-            tracker.wait_until_idle(5_000).await;
+            let readiness = tracker.wait_until_idle(5_000).await;
             assert_eq!(*tracker.count_rx.borrow(), 0);
+            // Saw a full progress cycle and drained it -> progressIdle.
+            assert_eq!(readiness, Readiness::ProgressIdle);
         });
     }
 
@@ -756,13 +795,29 @@ mod tests {
             let tracker = ProgressTracker::new();
             tracker.on_begin("stuck".to_owned()).await;
             let start = Instant::now();
-            tracker.wait_until_idle(300).await;
+            let readiness = tracker.wait_until_idle(300).await;
             let elapsed = start.elapsed().as_millis();
             assert!(
                 elapsed >= 200,
                 "must wait at least ~timeout ms, got {elapsed} ms"
             );
             assert!(elapsed < 3_000, "must not hang, got {elapsed} ms");
+            // Token never ended before the deadline -> timeout.
+            assert_eq!(readiness, Readiness::Timeout);
+        });
+    }
+
+    #[test]
+    fn progress_tracker_fast_path_reports_idle_when_cycle_completed_before_call() {
+        // A full begin/end cycle happens before wait_until_idle is called; the
+        // fast path must report progressIdle (not settledFallback).
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            tracker.on_begin("indexing".to_owned()).await;
+            tracker.on_end("indexing").await;
+            let readiness = tracker.wait_until_idle(5_000).await;
+            assert_eq!(readiness, Readiness::ProgressIdle);
         });
     }
 }

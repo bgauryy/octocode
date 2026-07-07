@@ -69,8 +69,11 @@ function formatOqlResult(result: OqlRunResult): CallToolResult {
   return {
     content: [
       {
+        // Emit the same compacted payload as structuredContent — serializing
+        // the raw run result here duplicated the uncompacted envelope and wasted
+        // tokens versus every other tool. Sanitization still happens at egress.
         type: 'text',
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(structuredContent, null, 2),
       },
     ],
     ...(hasError ? { isError: true } : {}),

@@ -41,7 +41,7 @@ flowchart TD
 
 | Tool | Use when | Key inputs | Output shape / caveat |
 |---|---|---|---|
-| `memory_recall` | Before risky, unfamiliar, long, or related work. | `query`; optional `limit`, `min_importance`, `smart`, `label`, `references`, `regex`, scope. | Lean `{count, memories}`; raw observations appear because recall needs them. |
+| `memory_recall` | Before risky, unfamiliar, long, or related work. | `query`; optional `limit`, `min_importance`, `smart`, `label`, `references`, `regex`, scope. | Lean `{count, memories}`; raw observations appear because recall needs them. Carries `judgment_required` + `judgment_reason` when confidence is low (zero results or a weak top match) — treat those results as leads and verify before relying on them. |
 | `memory_record` | Store a verified durable root cause, decision, workaround, or gotcha. | `task_context`, `observation`; optional `label`, `importance`, `tags`, `references`, scope, `supersedes`, `allow_similar`, `failure_signature`. | Returns id/label/importance/novelty; duplicate skip avoids echoing long prose. |
 | `memory_reflect` | After non-trivial work with a reusable lesson, repo fix, harness fix, or failure signature. | `task`; at least one lesson/failure/fix/signature field. | Returns lean learning id; includes next-action hints only when action exists. |
 | `memory_workspace_status` | Before long edits or when checking locks/pending work. | Optional workspace/repo scope. | Returns counts and optional locks. |
@@ -49,17 +49,16 @@ flowchart TD
 | `memory_audit_unverified` | Mid-turn when unsure; final audit also runs automatically. | No params. | Returns pending intents with test plans; non-zero exit when pending. |
 | `memory_verify` | Only after running the stated verification. | One of `intent_id`, `intent_ids[]`, or `allPending:true`; optional `status`. | Single result or batch result; exit fails on per-id errors. |
 | `memory_notify` | Real multi-agent coordination: blocker, handoff, question, decision, or fyi. | `kind`, `subject`; optional `body`, `to_agent`, `files`, `importance`, scope. | Returns notification/thread/workspace identifiers. |
-| `memory_digest` | Background consolidation after long sessions. | `dry_run`, `retention_days`, `export_doc`. | Prune/archive counts; `doc_path` when export_doc used. |
-| `memory_forget` | Delete stale, wrong, or superseded memories. Always `dry_run:true` first. | `memory_ids`, `tags`, `before`, `max_importance`, `dry_run`. | `deleted` count and matched `memory_ids`. |
-| `memory_mine_weakness` | After several tagged failures — surface recurring patterns. | `min_count`, `limit`, `agent_id`, scope. | Ranked failure-signature clusters with representative observations. |
 | `memory_export_harness` | Before proposing AGENTS.md changes — human review required. | `harness_only`, `limit`, `min_importance`, scope. | Two-tier markdown block; never writes files. |
+
+> Consolidation/deletion (`memory_digest`, `memory_forget`) are **user commands**, not agent tools — see "User maintenance commands" below. Weakness clustering is **not** an agent tool; recurring failure-signature clusters are surfaced automatically in the session-start briefing.
 
 ## User maintenance commands
 
 | Command | Default | Mutation |
 |---|---|---|
 | `/octocode-memory-digest` | Dry-run preview of archive/prune work. | `--apply` mutates after UI confirmation; non-UI requires `--apply --yes`. |
-| `/octocode-memory-forget` | Dry-run preview by `--id`, `--tag`, `--before`, or `--max-importance`. | `--apply` deletes after UI confirmation; non-UI requires `--apply --yes`. |
+| `/octocode-memory-forget` | Dry-run preview by `--id`, `--tag`, `--before`, or `--max-importance`. | `--apply` deletes after UI confirmation; non-UI requires `--apply --yes`. Broad selectors (tag/age without ids) never sweep importance ≥ 8 unless `--max-importance` explicitly raises the ceiling (`salience_floor` reported). |
 
 ## Schema and output quality checks
 

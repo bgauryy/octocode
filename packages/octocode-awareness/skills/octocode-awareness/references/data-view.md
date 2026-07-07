@@ -80,6 +80,18 @@ node <skill_root>/scripts/awareness.mjs workspace-status | jq '.locks'
 node <skill_root>/scripts/awareness.mjs status | jq '.open_refinements'
 ```
 
+## Digest retention defaults
+
+`memory_digest` (CLI: `awareness.mjs digest`) prunes data older than these defaults; override with explicit flags:
+
+| What | Default | Flag |
+|------|---------|------|
+| SUPERSEDED memories | 90 days | `retention_days` |
+| Session handoff refinements | 7 days | `refinement_handoff_retention_days` |
+| Completed (`done`) repo-fix refinements | 30 days | `refinement_done_retention_days` |
+
+All use `updated_at` for the age calculation. Run with `--dry-run` first to preview what would be pruned.
+
 ## One shared store
 
 Everything lives in `~/.octocode/memory/awareness.sqlite3` (relocate with `OCTOCODE_MEMORY_HOME`). The `status` and `workspace-status` commands auto-prune expired file locks on each call.

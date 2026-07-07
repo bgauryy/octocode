@@ -14,8 +14,6 @@ const ResponsePaginationSchema = z
   .optional();
 
 export const responseEnvelopeFields = {
-  hints: z.array(z.string()).optional(),
-
   base: z.string().optional(),
 
   shared: z

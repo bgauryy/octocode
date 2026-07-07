@@ -401,29 +401,37 @@ type EffectivePagination = {
   totalMatchesCapped?: boolean;
 };
 
-function buildMergedPagination(
-  variants: SuccessfulRepoSearchVariant[]
+export function buildPartialFailureWarnings(
+  failedVariants: readonly { label: RepoSearchVariantLabel }[]
+): string[] | undefined {
+  if (failedVariants.length === 0) return undefined;
+  const labels = failedVariants.map(variant => `'${variant.label}'`).join(', ');
+  return [
+    `Repository search partially failed: the ${labels} query variant(s) returned an error. Results may be incomplete — retry or narrow the query.`,
+  ];
+}
+
+export function buildMergedPagination(
+  variants: SuccessfulRepoSearchVariant[],
+  dedupedCount: number
 ): EffectivePagination | undefined {
   const pages = variants
     .map(variant => variant.response.data.pagination)
     .filter((p): p is NonNullable<typeof p> => Boolean(p));
   if (pages.length === 0) return undefined;
 
+  // The variants are deduplicated before this point, so summing per-variant
+  // totals overcounts every repository that appeared in more than one variant.
+  // The count of distinct repositories we actually merged is a firm lower
+  // bound on the true number of matches; report it as such.
   return {
     currentPage: pages[0]!.currentPage,
     totalPages: Math.max(...pages.map(p => p.totalPages)),
     hasMore: pages.some(p => p.hasMore),
     entriesPerPage: pages[0]!.entriesPerPage,
-    totalMatches: pages.reduce((sum, p) => sum + (p.totalMatches ?? 0), 0),
-    reachableTotalMatches: pages.reduce(
-      (sum, p) => sum + (p.reachableTotalMatches ?? p.totalMatches ?? 0),
-      0
-    ),
-    totalMatchesKind: pages.some(p => p.totalMatchesKind === 'lowerBound')
-      ? 'lowerBound'
-      : pages.some(p => p.totalMatchesKind === 'reported')
-        ? 'reported'
-        : 'exact',
+    totalMatches: dedupedCount,
+    reachableTotalMatches: dedupedCount,
+    totalMatchesKind: 'lowerBound',
     totalMatchesCapped: pages.some(p => p.totalMatchesCapped === true),
   };
 }
@@ -518,7 +526,10 @@ export async function searchMultipleGitHubRepos(
         const isMergedResult = successfulVariants.length > 1;
         const effectivePagination: EffectivePagination | undefined =
           isMergedResult
-            ? buildMergedPagination(successfulVariants)
+            ? buildMergedPagination(
+                successfulVariants,
+                rankedRepositories.length
+              )
             : onlySuccessfulVariant?.response.data.pagination;
         const resultPagination = effectivePagination
           ? buildResultPagination(effectivePagination)
@@ -531,9 +542,18 @@ export async function searchMultipleGitHubRepos(
           query
         );
 
+        // Some query variants (e.g. the topics or keywords lane of a split
+        // search) failed while others succeeded. Surface it so an empty or
+        // thin result set isn't read as a confident, complete answer.
+        const warnings = buildPartialFailureWarnings(failedVariants);
+
+        const resultData = warnings
+          ? { ...shape.data, warnings }
+          : shape.data;
+
         return createSuccessResult(
           query,
-          shape.data,
+          resultData,
           hasContent,
           TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
           {

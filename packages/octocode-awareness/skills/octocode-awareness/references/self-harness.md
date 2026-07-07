@@ -23,9 +23,9 @@ reflect --agent-id <a> --task "<what I did>" --outcome worked|partial|failed \
 
 The `reflect` command records nothing new of its own — it **routes** the reflection into the existing surfaces so the right reader acts on each piece:
 
-- **Learning** (`lesson:`) → a general memory (§3 recall, §2 `memory_mine_weakness` when given `failure_signature:`).
+- **Learning** (`lesson:`) → a general memory (§3 recall, §2 `mine-weakness` when given `failure_signature:`).
 - **Repo/code fix** (`fix_repo:`) → a refinement (`quality:good` if outcome=worked, `quality:bad` if partial/failed) visible via `memory_refine_get` — the durable *"fix this here"* queue.
-- **Harness improvement** (`fix_harness:`) → a `harness`-tagged memory that §4 `memory_export_harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
+- **Harness improvement** (`fix_harness:`) → a `harness`-tagged memory that §4 `export-harness` surfaces for `AGENTS.md`/`CLAUDE.md`.
 
 Use `--judgment-note` when the conclusion needs nuance: name checked evidence, remaining uncertainty, and why any eval/checklist prompt mattered.
 Use `--duo` when the outcome is substantial, ambiguous, or likely to teach the harness.
@@ -58,6 +58,10 @@ The flagship failure class is declaring success without checking the artifact.
   unblocked while verification remains auditable.
 - The **Stop/SubagentStop hook** runs `memory_audit_unverified` and blocks conclusion once if any intent has no `VERIFIED` event. Loop-guarded; opt-out via `OCTOCODE_NO_VERIFY_GATE=1`.
 
+`audit-unverified` returns two intent categories — both count toward the gate:
+- **`unverified`** — `PENDING` intents: file lock released, but no verify call recorded. Normal post-edit state; run the declared test plan and call `memory_verify`.
+- **`stale_active`** — `ACTIVE` intents whose file locks have all expired without an explicit release (orphaned by a crash or unexpected exit). Clear with `audit-unverified --abandon` (marks FAILED, records ABANDONED event) if the work was abandoned, or verify explicitly if the work was actually completed. Do not confuse stale-active with PENDING: PENDING means "released but unverified"; stale-active means "lock TTL expired before any release."
+
 `memory_audit_unverified` (Pi) / `audit-unverified --agent-id <a>` (CLI) lists unverified intents; exits `1` when any exist.
 
 ## 2. Mine recurring failures
@@ -69,9 +73,23 @@ memory_record({ ..., failure_signature: "mechanism:retry-loop|cause:test-timeout
 # CLI: awareness.mjs tell-memory ... --failure-signature "mechanism:retry-loop|cause:test-timeout"
 ```
 
-`memory_mine_weakness` (Pi) / `mine-weakness [--limit N]` (CLI) clusters memories by `failure_signature` and ranks each
-cluster by **support × avg-importance**, with up to three example observations. This
-turns N anecdotal "failed again" rows into one ranked recurring-mechanism record.
+**Optional `|surface:Z` suffix** — names the harness surface where the failure originates:
+
+```
+mechanism:unverified-conclusion|cause:missing-verify|surface:verify-gate
+mechanism:fts-miss|cause:empty-store|surface:briefing-miss
+mechanism:lock-conflict|cause:ttl-expired|surface:lock-conflict
+```
+
+Valid surfaces: `verify-gate`, `lock-conflict`, `fts-miss`, `briefing-miss`, `doc-drift`. Including the surface helps Stage 2 (`export-harness`) target the right file when generating a harness proposal. It does NOT change clustering: `mine-weakness` merges signatures that share the same `mechanism:X|cause:Y` base (stripping `|surface:Z`) into one cluster and reports the distinct surfaces found. A cluster with `surfaces: ["verify-gate"]` means every failure in it hit the verify gate — strong signal for which harness surface to fix.
+
+`mine-weakness [--min-count N] [--limit N]` (CLI only — deliberately not a Pi tool)
+clusters memories by `failure_signature` (base only, surface stripped) and ranks each
+cluster by **support × avg-importance**, with up to three example observations. Clusters need
+`--min-count` occurrences (default 2) — one-off failures stay out of the view. A Jaccard diversity
+filter (threshold 0.5) prevents the output from showing N variants of the same mechanism; each
+returned cluster covers a distinct failure pattern. This turns N anecdotal "failed again" rows
+into one ranked recurring-mechanism record.
 Exact-signature grouping is brittle on free text, so signatures power *this view only*
 — general recall still uses FTS5 + decay (below).
 
@@ -87,30 +105,37 @@ relevance  = query match, normalized to 0..1    # the "lexical" weight slot
 final = 0.25*importance + 0.30*recency + 0.15*access + 0.30*relevance
 ```
 
-The `relevance` term (the `lexical` weight) is filled differently per mode, but is
-always normalized to `0..1` so the weights mean what they say:
-- **lexical** (default): FTS5 `bm25` squashed monotonically via `rel/(1+rel)` (or term-hit
-  ratio on the no-FTS fallback). *Earlier builds mis-normalized this to a constant `1.0`,
-  which silently removed lexical relevance from ranking — fixed; verify with `--explain`.*
-- **semantic** (`--semantic`, needs `embed-index`): cosine similarity over stored vectors,
-  **min-max normalized across the candidate pool** so the most-similar memory scores `1.0`
-  and the least `0.0`. `--explain` shows both raw `semantic` (cosine) and `semantic_norm`.
-  Static-embedding cosines bunch in a narrow band, so the normalization is what makes
-  similarity actually reorder results; decay then re-ranks within.
+The `relevance` term (the `lexical` weight) is normalized to `0..1` so the weights
+mean what they say:
+- **lexical** (the CLI's only mode): FTS5 `bm25` normalized as `bm25 / (poolMax + 1)` —
+  a weak-pool guard, so the best hit of an all-weak pool no longer inflates to `1.0`
+  (strong matches land ~0.6–0.9). When the pool's bm25 is degenerate (near-empty store
+  or a term present in every row, IDF collapse) relevance is neutral `0.5`; same for
+  the no-FTS fallback. Inspect with `--explain`.
+- **`judgment_required`**: zero results, FTS-fallback mode, or a top relevance below
+  `0.35` sets `judgment_required: true` + `judgment_reason` on the response — recall
+  is a lead, not an answer; verify before relying on it.
+- **semantic** exists only at the library level: `storeEmbedding()` persists vectors
+  (the embedding source — API or local model — is the caller's responsibility) and
+  `semanticSearch()` ranks by cosine similarity. The CLI has no embedding source, so
+  `get-memory --semantic` returns lexical results plus an explicit warning — it never
+  pretends to be semantic.
 
 Every recall bumps `access_count` + `last_accessed_at` for the rows it returns, so
-frequently-useful lessons stay near the top. Flags: `--no-decay` (importance+relevance
-only), `--half-life <days>` (default 30), `--sort` (`smart`/`score`/`recent`/…),
-`--explain` (emit `score_components` per result — use it to tune). Older databases
-migrate automatically.
+frequently-useful lessons stay near the top. Half-life is per-memory
+(`decay_half_life_days`), defaulted by label at write time: durable labels
+(`DECISION`/`ARCHITECTURE`/`SECURITY`/`GOTCHA`) 90d, `EXPERIENCE` reflections 14d,
+everything else 30d. Flags: `--sort` (`smart`/`score`, `importance`, `recent`,
+`accessed`), `--explain` (emit `score_components` per result — use it to tune).
+Older databases migrate automatically.
 
 ## 4. Refine the harness — the loop's last step
 
 A recurring lesson should stop being "might recall" and become standing guidance.
-`memory_export_harness` (Pi) / `export-harness` (CLI) previews lessons for `AGENTS.md` / `CLAUDE.md` in two tiers:
+`export-harness` (CLI) previews lessons for `AGENTS.md` / `CLAUDE.md` in two tiers:
 - **Tier 1** (always first): `harness`-tagged memories from `memory_reflect fix_harness:`.
 - **Tier 2**: high-importance general memories (importance ≥ 7, label ≠ EXPERIENCE).
-`memory_export_harness` is preview-only and never writes files.
+`export-harness` is preview-only and never writes files.
 
 ### Harness improvement gate
 
@@ -137,7 +162,7 @@ the scoped change being discussed; never treat it as blanket permission.
   explicit human approval for the scoped change — never silently, never on `main`,
   never auto-merged.
 - No automatic prompt rewrite from failed binary questions or advisory `agenticEval`
-  prompts. They are evidence for `memory_reflect`, `memory_mine_weakness`, and human-reviewed
+  prompts. They are evidence for `memory_reflect`, `mine-weakness` (CLI), and human-reviewed
   harness proposals.
 - No numeric regression-gate infrastructure (held-in/held-out splits + verifier
   services) — out of scope for a service-free local skill. Flag regressions in notes instead.

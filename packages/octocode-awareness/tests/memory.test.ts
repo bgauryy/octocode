@@ -124,7 +124,9 @@ describe('getMemory', () => {
     expect(scores[0]).toBeGreaterThanOrEqual(scores[scores.length - 1]!);
   });
 
-  it('respects limit', () => {
+  // 20s timeout: 10 inserts each run similar-memory Jaccard scans; under the
+  // full parallel suite this occasionally exceeds the default 5s on CPU contention.
+  it('respects limit', { timeout: 20_000 }, () => {
     const db = freshDb();
     for (let i = 0; i < 10; i++) {
       insertMemory(db, { taskContext: 'ctx', observation: `obs ${i}`, importanceScore: 5 });

@@ -59,8 +59,7 @@ export const unzipCommand: CLICommand = {
 
       if (!jsonOutput) {
         const sc = result.structuredContent as
-          | { results?: Array<{ data?: { localPath?: string } }> }
-          | undefined;
+          { results?: Array<{ data?: { localPath?: string } }> } | undefined;
         const localPath = sc?.results?.[0]?.data?.localPath;
         if (localPath) {
           console.log(

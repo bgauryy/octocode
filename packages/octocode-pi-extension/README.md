@@ -4,7 +4,7 @@
 <img src="https://github.com/bgauryy/octocode-mcp/raw/main/packages/octocode-pi-extension/assets/logo.png" width="640px" alt="Octocode + Pi">
 </div>
 
-> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 8 bundled skills, and a full operating-model system prompt. One package install.
+> **Octocode for [Pi](https://github.com/earendil-works/pi)** — native code-research tools, live web search, persistent memory, edit-safety hooks, 7 bundled skills (plus a browser subagent skill), and a full operating-model system prompt. One package install.
 
 ```bash
 pi install npm:@octocodeai/pi-extension
@@ -28,10 +28,10 @@ bash: node $OCTOCODE_CLI context               # show agent protocol
 |---|---|
 | System prompt (operating model) | 1 block |
 | Native Octocode tools | 13 |
-| Support tools (web, chromeDebug, memory, agent) | 19 |
+| Support tools (web, chromeDebug, memory, agent) | 20 |
 | Custom edit tool | 1 |
 | Slash commands | 6 |
-| Bundled skills | 8 |
+| Bundled skills | 7 (+1 browser subagent skill) |
 
 ---
 
@@ -43,9 +43,9 @@ When Pi loads the extension, four things happen automatically:
 
 2. **Native tools registered.** 13 Octocode tools (GitHub/local/LSP/npm/binary) execute directly through `@octocodeai/octocode-tools-core`. No MCP server is spawned for these calls.
 
-3. **Support tools registered.** Web search, context management, agent spawning, and 14 typed memory/coordination tools are registered as Pi tools.
+3. **Support tools registered.** Web search, context management, agent spawning, and 13 typed memory/coordination tools are registered as Pi tools.
 
-4. **Slash commands registered.** Four harness commands: `/octocode-status`, `/octocode-harness`, `/octocode-setup`, `/octocode-skills-update`.
+4. **Slash commands registered.** Six harness commands: `/octocode-status`, `/octocode-harness`, `/octocode-setup`, `/octocode-skills-update`, `/octocode-memory-digest`, `/octocode-memory-forget`.
 
 **What does NOT happen automatically:**
 - No repo is cloned without explicit agent/user invocation.
@@ -74,7 +74,7 @@ Pin the operating model to a project or globally:
 
 ## System prompt — operating model
 
-**Source:** `packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md`
+**Source:** `packages/octocode-pi-extension/src/SYSTEM_PROMPT.md` (built to `dist/system/SYSTEM_PROMPT.md`)
 
 The injected system prompt defines eight protocol blocks that govern agent behavior for every session:
 
@@ -131,7 +131,7 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 
 ---
 
-## Support tools (16)
+## Support tools (20)
 
 ### Web search (1)
 
@@ -160,11 +160,11 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 | `spawnAgent` | Start a background Pi worker process over RPC. Returns `agentId`. Workers cannot spawn workers. Registry/output previews are process-local. |
 | `AgentMessage` | List, status, send, steer, followUp, wait, abort, or kill spawned workers in the current Pi process. |
 
-### Memory + coordination tools (12 agent tools + 2 user commands)
+### Memory + coordination tools (13 agent tools + 2 user commands)
 
 All memory is stored in a local SQLite DB under Octocode memory home (`~/.octocode/memory/` by default).
 
-Detailed code-validated agent flow and examples: [`docs/PI/MEMORY_AGENT_FLOW.md`](docs/PI/MEMORY_AGENT_FLOW.md).
+Detailed code-validated agent flow and examples: [`docs/MEMORY_AGENT_FLOW.md`](docs/MEMORY_AGENT_FLOW.md).
 
 | Tool | Purpose |
 |---|---|
@@ -179,6 +179,7 @@ Detailed code-validated agent flow and examples: [`docs/PI/MEMORY_AGENT_FLOW.md`
 | `memory_refine_get` | List open repo-fix refinements. Use after reflections may have left actionable fixes. |
 | `memory_audit_unverified` | List pending edit intents that still need verification. Use after every edit batch. |
 | `memory_verify` | Mark a pending edit intent as verified or failed. Three call forms: `{intent_id}` (single), `{intent_ids:[...]}` (batch array), `{allPending:true}` (clear all pending for this agent in one call). |
+| `memory_export_harness` | Export agent improvement proposals (fix_harness reflections + high-importance lessons) as markdown for AGENTS.md/CLAUDE.md. Never writes files — review and paste after human approval. |
 | `memory_notify` | Compatibility alias for `agent_signal({action:"publish"})`; prefer `agent_signal` for list/reply/resolve. |
 
 User-owned maintenance commands:
@@ -416,9 +417,11 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 
 ---
 
-## Bundled skills (8)
+## Bundled skills (7)
 
-### `browser-agent`
+The 7 skills below ship in `dist/skills/` and load via Pi resource discovery. A separate **browser subagent skill** (below) ships under `subagents/browser-agent/skills/` and is loaded only into the spawned browser subagent, not the main session.
+
+### `browser-agent` (subagent skill)
 
 Chrome DevTools Protocol specialist subagent. Load to understand when/how to spawn a browser debugging subagent via `spawnSubagent({agent:"browser-agent"})`. Covers: multi-turn CDP session management, `[FINDING]/[ACTION]/[DONE]` output protocol, all 57 CDP domains, `chromeDebug` scheme guide, and AgentMessage coordination patterns.
 
@@ -664,8 +667,8 @@ OCTOCODE_NO_VERIFY_GATE=1 pi ...
 
 Canonical sources (do **not** edit generated copies — build overwrites them):
 
-- **System prompt:** `packages/octocode-pi-extension/docs/PI/APPEND_SYSTEM.md`
-- **Skills source:** `packages/octocode-pi-extension/skills/`
+- **System prompt:** `packages/octocode-pi-extension/src/SYSTEM_PROMPT.md` (built to `dist/system/SYSTEM_PROMPT.md`)
+- **Skills source:** repo-root `skills/` (synced into `packages/octocode-pi-extension/skills/` by the build; iterate standalone with `node skills/scripts/sync.mjs`)
 - **Build script:** `packages/octocode-pi-extension/scripts/build.mjs` (copies skills to `dist/skills/`, injects `octocode-config.mjs` into each skill's `scripts/` dir)
 
 ```bash

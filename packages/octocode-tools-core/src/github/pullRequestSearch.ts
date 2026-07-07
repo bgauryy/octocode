@@ -99,12 +99,15 @@ async function resolveCanonicalSearchRepo(
   }
 }
 
-export async function searchGitHubPullRequestsAPI(
+// Every field here must cover every param that affects the built search
+// query (see PullRequestQueryBuilder in queryBuilders.ts) plus the pagination
+// knobs — omitting a query-affecting field lets two different searches collide
+// on one cache entry and serve stale results.
+export function buildPullRequestSearchCacheKey(
   params: GitHubPullRequestsSearchParams,
-  authInfo?: AuthInfo,
   sessionId?: string
-): Promise<GitHubPullRequestSearchApiResult> {
-  const cacheKey = generateCacheKey(
+): string {
+  return generateCacheKey(
     'gh-api-prs',
     {
       query: params.query,
@@ -131,6 +134,15 @@ export async function searchGitHubPullRequestsAPI(
       reactions: params.reactions,
       interactions: params.interactions,
       label: params.label,
+      milestone: params.milestone,
+      language: params.language,
+      checks: params.checks,
+      review: params.review,
+      locked: params.locked,
+      visibility: params.visibility,
+      'team-mentions': params['team-mentions'],
+      project: params.project,
+      archived: params.archived,
       'no-assignee': params['no-assignee'],
       'no-label': params['no-label'],
       'no-milestone': params['no-milestone'],
@@ -149,6 +161,14 @@ export async function searchGitHubPullRequestsAPI(
     },
     sessionId
   );
+}
+
+export async function searchGitHubPullRequestsAPI(
+  params: GitHubPullRequestsSearchParams,
+  authInfo?: AuthInfo,
+  sessionId?: string
+): Promise<GitHubPullRequestSearchApiResult> {
+  const cacheKey = buildPullRequestSearchCacheKey(params, sessionId);
 
   const result = await withDataCache<GitHubPullRequestSearchApiResult>(
     cacheKey,

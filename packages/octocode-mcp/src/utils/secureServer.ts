@@ -116,6 +116,8 @@ export function withOutputSanitization(server: McpServer): McpServer {
           cb: (...args: unknown[]) => unknown
         ) => {
           const wrappedCb = wrapToolCallback(name, cb);
+          // `as never`: Proxy.get() cannot resolve the SDK's generic registerTool overloads;
+          // runtime types are correct — the Proxy intercepts all string props uniformly.
           return target.registerTool(name, config as never, wrappedCb as never);
         };
       }

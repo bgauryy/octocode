@@ -63,31 +63,34 @@ export async function findFiles(
       ),
     };
 
-    const timeFormatWarnings = validateTimeFilterFormats(queryWithDefaults);
+    // Malformed relative-duration filters are stripped (not just warned about)
+    // so the native walk never applies a filter the caller was told was skipped.
+    const { warnings: timeFormatWarnings, query: nativeQuery } =
+      validateTimeFilterFormats(queryWithDefaults);
 
     const requestedLimit = query.limit ?? LOCAL_MAX_LIMIT;
     const nativeResult = contextUtils.queryFileSystem({
-      path: queryWithDefaults.path,
+      path: nativeQuery.path,
       recursive: true,
       includeRoot: true,
       showHidden: true,
-      maxDepth: queryWithDefaults.maxDepth,
-      minDepth: queryWithDefaults.minDepth,
-      names: queryWithDefaults.names,
-      pathPattern: queryWithDefaults.pathPattern,
-      regex: queryWithDefaults.regex,
-      entryType: queryWithDefaults.entryType,
-      empty: queryWithDefaults.empty,
-      modifiedWithin: queryWithDefaults.modifiedWithin,
-      modifiedBefore: queryWithDefaults.modifiedBefore,
-      accessedWithin: queryWithDefaults.accessedWithin,
-      sizeGreater: queryWithDefaults.sizeGreater,
-      sizeLess: queryWithDefaults.sizeLess,
-      permissions: queryWithDefaults.permissions,
-      executable: queryWithDefaults.executable,
-      readable: queryWithDefaults.readable,
-      writable: queryWithDefaults.writable,
-      excludeDir: queryWithDefaults.excludeDir,
+      maxDepth: nativeQuery.maxDepth,
+      minDepth: nativeQuery.minDepth,
+      names: nativeQuery.names,
+      pathPattern: nativeQuery.pathPattern,
+      regex: nativeQuery.regex,
+      entryType: nativeQuery.entryType,
+      empty: nativeQuery.empty,
+      modifiedWithin: nativeQuery.modifiedWithin,
+      modifiedBefore: nativeQuery.modifiedBefore,
+      accessedWithin: nativeQuery.accessedWithin,
+      sizeGreater: nativeQuery.sizeGreater,
+      sizeLess: nativeQuery.sizeLess,
+      permissions: nativeQuery.permissions,
+      executable: nativeQuery.executable,
+      readable: nativeQuery.readable,
+      writable: nativeQuery.writable,
+      excludeDir: nativeQuery.excludeDir,
       limit: LOCAL_MAX_LIMIT,
     });
 
@@ -234,24 +237,31 @@ function formatForOutput(
 
 const VALID_TIME_STRING_RE = /^\d+[hdwm]$/;
 
-function validateTimeFilterFormats(query: FindFilesQuery): string[] {
+type TimeFilterKey = 'modifiedBefore' | 'modifiedWithin' | 'accessedWithin';
+
+// Validate the relative-duration time filters and strip any that are malformed,
+// so the returned query only carries filters the native walk will actually
+// honour. Callers surface `warnings` and pass `query` to queryFileSystem.
+function validateTimeFilterFormats<T extends FindFilesQuery>(
+  query: T
+): {
+  warnings: string[];
+  query: T;
+} {
   const warnings: string[] = [];
-  const fields: Array<{ key: string; value: string | undefined }> = [
+  const sanitized = { ...query } as T;
+  const fields: Array<{ key: TimeFilterKey; value: string | undefined }> = [
     { key: 'modifiedBefore', value: query.modifiedBefore },
     { key: 'modifiedWithin', value: query.modifiedWithin },
-    {
-      key: 'accessedWithin',
-      value: (query as Record<string, unknown>).accessedWithin as
-        | string
-        | undefined,
-    },
+    { key: 'accessedWithin', value: query.accessedWithin },
   ];
   for (const { key, value } of fields) {
     if (value && !VALID_TIME_STRING_RE.test(value)) {
       warnings.push(
         `${key}="${value}" has an unsupported format — filter was skipped. Use a relative duration like "7d", "2h", "1w", or "3m".`
       );
+      delete sanitized[key];
     }
   }
-  return warnings;
+  return { warnings, query: sanitized };
 }

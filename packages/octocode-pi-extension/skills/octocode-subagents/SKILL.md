@@ -1,6 +1,6 @@
 ---
 name: octocode-subagents
-description: Use when deciding whether to spawn background workers, writing worker prompts, coordinating parallel agents with AgentMessage, or synthesizing multi-agent results. Covers spawnAgent/AgentMessage parameters, status lifecycle, communication patterns, and worker limitations.
+description: Use when deciding whether to spawn background workers, writing worker prompts, coordinating parallel agents, or synthesizing multi-agent results in a Pi host. Requires the Pi spawnAgent/AgentMessage tools — skip on hosts without them. Covers spawnAgent/AgentMessage parameters, status lifecycle, communication patterns, and worker limitations.
 ---
 
 # Octocode Subagents

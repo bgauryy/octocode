@@ -13,7 +13,7 @@ node <skill_root>/scripts/schema.mjs example tell_memory
 node <skill_root>/scripts/schema.mjs validate tell_memory payload.json
 ```
 
-The Python CLI also accepts underscore aliases for these protocol-style names: `tell_memory`, `get_memory`, `pre_flight_intent`, `wait_for_lock`, `prune_stale_locks`, `release_file_lock`, and `notify_get`.
+The CLI accepts protocol-style underscore aliases for every command (`tell_memory` → `tell-memory`, `pre_flight_intent` → `pre-flight-intent`, `notify_get` → `notify-get`, …). Unknown flags are hard errors — the CLI never silently ignores a flag, so a typo or an unsupported option fails loudly with the known-flag list.
 
 For token-efficient agent reads, pass `--compact` after the command or set `OCTOCODE_AWARENESS_COMPACT=1`; it minifies JSON without changing fields.
 
@@ -27,7 +27,7 @@ Important flags:
 - `--query`: natural-language recall query.
 - `--limit`: maximum memories, default `3`.
 - `--min-importance`: filter low-value memories, default `1`.
-- `--label`: repeatable category filter (`BUG`, `FEATURE`, `SUGGESTION`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `ARCHITECTURE`, `SECURITY`, `PERFORMANCE`, `TEST`, `BUILD`, `DOCS`, `CONFIG`, `WORKFLOW`, `REFACTOR`, `API`, `RELEASE`, `INCIDENT`, `OTHER`).
+- `--label`: repeatable category filter (`BUG`, `FEATURE`, `SUGGESTION`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `ARCHITECTURE`, `SECURITY`, `PERFORMANCE`, `TEST`, `BUILD`, `DOCS`, `CONFIG`, `WORKFLOW`, `REFACTOR`, `API`, `RELEASE`, `INCIDENT`, `OVERRIDE`, `OTHER`). `OVERRIDE` memories contradict model training defaults (e.g. "this repo uses Bun, not npm") and are always surfaced in the smart briefing regardless of importance.
 - `--tag`: optional repeated tag filter.
 - `--state`: repeatable lifecycle filter; default `ACTIVE` only. Pass `--state SUPERSEDED` to inspect memories replaced via `--supersedes`.
 - `--file`: repeatable exact stored file-path filter (normalized to an absolute path).
@@ -35,13 +35,16 @@ Important flags:
 - `--reference`: repeatable exact provenance filter, matched against structured `references[]`; use this for "everything learned from source X".
 - `--workspace` / `--repo` / `--ref`: optional applicability filters. Default scoped recall includes broader global/applicable memories (`NULL OR exact`) so repo work still sees global developer gotchas. Add `--strict-scope` for exact matches only, or `--global-only` to inspect unscoped lessons.
 - `--regex`: repeatable regex matched against task, observation, tags, references, label, workspace/repo/ref, file, and failure signature.
-- `--sort`: `smart`/`score` (default salience), `importance`, `recent`, `updated`, `accessed`, `access`, `label`, or `file`.
+- `--sort`: `smart`/`score` (default salience blend), `importance`, `recent`, or `accessed`.
+- `--explain`: attach `score_components` (importance/recency/access/relevance + weights) to each result — use it to understand or tune ranking.
 - `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters. Use this for "fetch smart memories" moments before deciding the store has no relevant context.
 
 Recall modes (default ranking blends importance + recency-of-use + access + lexical):
 - `--as-of <ISO>`: **bi-temporal** point-in-time recall — only memories whose valid window (`valid_from`/`valid_to`) contains that instant.
 
 **A zero-result recall is not proof of absence.** Retry with `--smart` or drop label/tag filters before concluding no match.
+
+**`judgment_required` flag:** when recall confidence is low — zero results, FTS unavailable, or a weak top match — the response carries `judgment_required: true` plus a `judgment_reason`. Treat those results as leads: verify against current files or broaden the query before relying on them.
 
 **Validate code memories against current files** before relying on them; supersede or `memory_forget` obsolete results.
 
@@ -61,7 +64,7 @@ Important flags:
 - `--task-context`: concise description of the task that produced the lesson.
 - `--observation`: the exact lesson learned.
 - `--importance-score`: `1-10` criticality rating.
-- `--label`: memory category. Empty or omitted becomes `OTHER`. Prefer specific labels: `BUG`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `SECURITY`, etc.
+- `--label`: memory category. Empty or omitted becomes `OTHER`. Prefer specific labels: `BUG`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `SECURITY`, `OVERRIDE` (contradicts a model default — always surfaced in briefing), etc.
 - `--tag`: optional repeated keyword tag.
 - `--reference`: repeated provenance string. Examples: URL, PR, repo, npm package, doc, or local file. Use references for research findings so recall surfaces the conclusion and sources. References are indexed and folded into FTS/docs/viewer/import-export.
 - `--workspace` / `--repo` / `--ref`: optional applicability scope. Use for repo-specific lessons. Omit for global gotchas and cross-repo learning. `--repo`/`--ref` auto-fill from `--workspace` git when omitted.
@@ -74,6 +77,12 @@ Importance scale:
 - `4-6`: useful pattern or recurring gotcha.
 - `7-8`: important project behavior future agents should know.
 - `9-10`: critical architecture rule, data-loss risk, security issue, or repeated failure mode.
+
+**Consolidation surface:** when a new memory overlaps existing ones (low novelty) and no `--supersedes` was given, the response carries a `consolidation` block — `novelty_score`, `similar_memory_ids`, and a hint. Review the candidates and either re-record with `--supersedes <id>` (replace the older version) or `forget` the redundant one. The store surfaces candidates; the calling agent decides.
+
+Novelty is measured by Jaccard similarity (`SIMILARITY_THRESHOLD = 0.45`) over tokenized text (camelCase split, lowercased, stop-words removed) against the `SIMILARITY_PREFETCH = 12` most-similar existing memories. A score below 0.45 means the memory is very similar to an existing one and a consolidation advisory fires. `session-capture` also reports a `consolidation_opportunities` count of memories with novelty < 0.2 so you know when the store needs a digest pass.
+
+**Decay defaults by label:** durable labels (`DECISION`, `ARCHITECTURE`, `SECURITY`, `GOTCHA`, `OVERRIDE`) get a 90-day recall half-life; `EXPERIENCE` reflections decay fast (14 days); everything else uses the standard 30 days. Stored per row in `decay_half_life_days`, so individual memories can be tuned later.
 
 Good observations are specific:
 
@@ -95,6 +104,8 @@ Important flags (at least one selector is required; all provided filters combine
 - `--before`: delete memories created before this ISO timestamp (e.g. `2026-01-01T00:00:00Z`).
 - `--max-importance`: safety ceiling — only delete memories at or below this importance, so high-value memories are not swept up by a broad filter.
 - `--dry-run`: report `would_delete` and the matched memories without deleting. Preview first for any broad filter.
+
+**Salience floor:** broad selectors (`--tag`/`--before` without explicit `--memory-id`) never delete memories with importance ≥ 8 unless `--max-importance` explicitly raises the ceiling; the response reports `salience_floor: 8` when the cap applied. Explicit `--memory-id` deletes always bypass the floor.
 
 Deletes remove rows from `agent_memories` and `memory_fts`.
 With no selector the command refuses instead of guessing.

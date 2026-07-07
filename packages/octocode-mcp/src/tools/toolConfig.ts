@@ -74,45 +74,25 @@ export const ALL_TOOLS: McpToolConfig[] = CORE_ALL_TOOLS.map(tool => {
   return { ...tool, fn };
 });
 
-export const GITHUB_SEARCH_CODE = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE
-)!;
-export const GITHUB_FETCH_CONTENT = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT
-)!;
-export const GITHUB_VIEW_REPO_STRUCTURE = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
-)!;
-export const GITHUB_SEARCH_REPOSITORIES = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-)!;
-export const GITHUB_SEARCH_PULL_REQUESTS = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS
-)!;
-export const PACKAGE_SEARCH = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.PACKAGE_SEARCH
-)!;
-export const GITHUB_CLONE_REPO = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO
-)!;
-export const LOCAL_RIPGREP = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.LOCAL_RIPGREP
-)!;
-export const LOCAL_VIEW_STRUCTURE = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE
-)!;
-export const LOCAL_FIND_FILES = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.LOCAL_FIND_FILES
-)!;
-export const LOCAL_FETCH_CONTENT = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT
-)!;
-export const LSP_GET_SEMANTIC_CONTENT = ALL_TOOLS.find(
-  t => t.name === LSP_GET_SEMANTICS_TOOL_NAME
-)!;
-export const LOCAL_BINARY_INSPECT = ALL_TOOLS.find(
-  t => t.name === STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT
-)!;
+function requireTool(name: string): McpToolConfig {
+  const tool = ALL_TOOLS.find(t => t.name === name);
+  if (!tool) throw new Error(`Tool not found in MCP registry: "${name}"`);
+  return tool;
+}
+
+export const GITHUB_SEARCH_CODE = requireTool(STATIC_TOOL_NAMES.GITHUB_SEARCH_CODE);
+export const GITHUB_FETCH_CONTENT = requireTool(STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT);
+export const GITHUB_VIEW_REPO_STRUCTURE = requireTool(STATIC_TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE);
+export const GITHUB_SEARCH_REPOSITORIES = requireTool(STATIC_TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES);
+export const GITHUB_SEARCH_PULL_REQUESTS = requireTool(STATIC_TOOL_NAMES.GITHUB_SEARCH_PULL_REQUESTS);
+export const PACKAGE_SEARCH = requireTool(STATIC_TOOL_NAMES.PACKAGE_SEARCH);
+export const GITHUB_CLONE_REPO = requireTool(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO);
+export const LOCAL_RIPGREP = requireTool(STATIC_TOOL_NAMES.LOCAL_RIPGREP);
+export const LOCAL_VIEW_STRUCTURE = requireTool(STATIC_TOOL_NAMES.LOCAL_VIEW_STRUCTURE);
+export const LOCAL_FIND_FILES = requireTool(STATIC_TOOL_NAMES.LOCAL_FIND_FILES);
+export const LOCAL_FETCH_CONTENT = requireTool(STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT);
+export const LSP_GET_SEMANTIC_CONTENT = requireTool(LSP_GET_SEMANTICS_TOOL_NAME);
+export const LOCAL_BINARY_INSPECT = requireTool(STATIC_TOOL_NAMES.LOCAL_BINARY_INSPECT);
 export const OQL_SEARCH: McpToolConfig = {
   ...CORE_OQL_SEARCH,
   fn: registerOqlSearchTool,

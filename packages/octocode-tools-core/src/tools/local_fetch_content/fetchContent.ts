@@ -65,6 +65,17 @@ function validateExtractionOptions(
   const hasLineRange =
     query.startLine !== undefined || query.endLine !== undefined;
 
+  // minify:"symbols" returns a whole-file signature skeleton, so it cannot honour
+  // a line/match sub-selection. Reject the combination instead of silently
+  // ignoring the constraint (the skeleton path returns before extraction runs).
+  if (query.minify === 'symbols' && (hasMatchString || hasLineRange)) {
+    return {
+      status: 'error',
+      error:
+        'minify:"symbols" returns a whole-file signature skeleton and cannot be combined with matchString/startLine/endLine — remove the line/match constraints, or use minify:"standard" (or "none") to extract a specific range.',
+    };
+  }
+
   if (hasFullContent && hasMatchString) {
     const result: LocalGetFileContentToolResult = {
       status: 'error',
@@ -418,6 +429,135 @@ function buildExtractionState(
   };
 }
 
+interface ContentWindow {
+  /** The windowed (paginated) slice of the input content. */
+  windowedContent: string;
+  pagination: ReturnType<typeof applyPagination>;
+  /** Requested/auto page size (undefined when no windowing applies). */
+  effectiveCharLength: number | undefined;
+  /** Explicit charOffset requested by the caller (0 when absent). */
+  explicitCharOffset: number;
+  autoPaginated: boolean;
+  /** Warning emitted when the content was auto-paginated (else undefined). */
+  autoPaginateWarning?: string;
+  chunkMode: 'semantic' | 'char-limit';
+  nextBlockChar?: number;
+  /** Ready continuation query for the next char page (undefined when !hasMore). */
+  next?: {
+    continueChars: {
+      tool: 'localGetFileContent';
+      query: {
+        path: string;
+        charOffset: number;
+        charLength: number;
+        minify: FetchContentQuery['minify'];
+      };
+    };
+  };
+  /** Whether pagination fields should be emitted on the result. */
+  showPagination: boolean;
+}
+
+// Pure char-window pagination shared by the normal content path and the
+// minify:"symbols" skeleton path. Slices `content` by charOffset/charLength,
+// snaps to a semantic boundary, and builds the pagination metadata plus the
+// ready `next.continueChars` continuation query. Keeping this in one place lets
+// the symbols skeleton window and round-trip exactly like normal content.
+function paginateContentWindow(
+  content: string,
+  query: FetchContentQuery,
+  defaultOutputCharLength: number
+): ContentWindow {
+  const queryPath = String(query.path);
+  const explicitCharLength = query.charLength;
+  const explicitCharOffset = query.charOffset ?? 0;
+  let effectiveCharLength: number | undefined = explicitCharLength;
+  let autoPaginated = false;
+  let autoPaginateWarning: string | undefined;
+  const charOffset = explicitCharOffset;
+
+  if (
+    effectiveCharLength === undefined &&
+    !query.fullContent &&
+    content.length > defaultOutputCharLength
+  ) {
+    // fullContent:true is an explicit "give me the WHOLE file in one shot"
+    // request — it opts out of the default char-window auto-pagination (the
+    // documented contract). Without this guard fullContent was a no-op on files
+    // larger than the limit (capped identically to a normal read).
+    effectiveCharLength = defaultOutputCharLength;
+    autoPaginated = true;
+    autoPaginateWarning = `Auto-paginated: Content (${content.length} chars) exceeds ${defaultOutputCharLength} char limit`;
+  }
+
+  let chunkMode: 'semantic' | 'char-limit' = 'char-limit';
+  let resolvedCharLength = effectiveCharLength;
+  if (effectiveCharLength !== undefined) {
+    const snap = snapToSemanticBoundary(
+      content,
+      charOffset,
+      effectiveCharLength,
+      queryPath
+    );
+    chunkMode = snap.chunkMode;
+    resolvedCharLength = snap.length;
+  }
+
+  const pagination = applyPagination(
+    content,
+    charOffset,
+    resolvedCharLength,
+    // resolvedCharLength is snapped to a semantic boundary and varies per page;
+    // use the stable requested page size for an absolute page counter.
+    effectiveCharLength !== undefined
+      ? { pageSize: effectiveCharLength }
+      : undefined
+  );
+
+  let nextBlockChar: number | undefined;
+  if (
+    pagination.hasMore &&
+    chunkMode === 'char-limit' &&
+    isMidBlockCut(pagination.paginatedContent)
+  ) {
+    const cutPos = pagination.charOffset + pagination.charLength;
+    nextBlockChar = findNextBlockBoundary(content, cutPos, queryPath);
+  }
+
+  // Ready continuation query for the next char page. Same shape convention as
+  // localSearchCode's `next` map (see ripgrepResultBuilder buildSearchNextMap).
+  const next =
+    pagination.hasMore && pagination.nextCharOffset !== undefined
+      ? {
+          continueChars: {
+            tool: 'localGetFileContent' as const,
+            query: {
+              path: queryPath,
+              charOffset: pagination.nextCharOffset,
+              charLength: effectiveCharLength ?? pagination.charLength,
+              minify: query.minify,
+            },
+          },
+        }
+      : undefined;
+
+  return {
+    windowedContent: pagination.paginatedContent,
+    pagination,
+    effectiveCharLength,
+    explicitCharOffset,
+    autoPaginated,
+    autoPaginateWarning,
+    chunkMode,
+    nextBlockChar,
+    next,
+    showPagination:
+      effectiveCharLength !== undefined ||
+      explicitCharOffset > 0 ||
+      autoPaginated,
+  };
+}
+
 function buildSuccessResult(
   query: FetchContentQuery,
   extraction: ExtractionState,
@@ -445,84 +585,21 @@ function buildSuccessResult(
         queryPath
       )
     : extraction.resultContent;
-  const explicitCharLength = query.charLength;
-  const explicitCharOffset = query.charOffset ?? 0;
-  let effectiveCharLength: number | undefined = explicitCharLength;
-  let autoPaginated = false;
-  const charOffset = explicitCharOffset;
 
-  if (
-    effectiveCharLength === undefined &&
-    !query.fullContent &&
-    outputContent.length > defaultOutputCharLength
-  ) {
-    // fullContent:true is an explicit "give me the WHOLE file in one shot"
-    // request — it opts out of the default char-window auto-pagination (the
-    // documented contract). Without this guard fullContent was a no-op on files
-    // larger than the limit (capped identically to a normal read).
-    effectiveCharLength = defaultOutputCharLength;
-    autoPaginated = true;
-    warnings.push(
-      `Auto-paginated: Content (${outputContent.length} chars) exceeds ${defaultOutputCharLength} char limit`
-    );
-  }
-
-  let chunkMode: 'semantic' | 'char-limit' = 'char-limit';
-  let resolvedCharLength = effectiveCharLength;
-  if (effectiveCharLength !== undefined) {
-    const snap = snapToSemanticBoundary(
-      outputContent,
-      charOffset,
-      effectiveCharLength,
-      queryPath
-    );
-    chunkMode = snap.chunkMode;
-    resolvedCharLength = snap.length;
-  }
-
-  const pagination = applyPagination(
+  const window = paginateContentWindow(
     outputContent,
-    charOffset,
-    resolvedCharLength,
-    // resolvedCharLength is snapped to a semantic boundary and varies per page;
-    // use the stable requested page size for an absolute page counter.
-    effectiveCharLength !== undefined
-      ? { pageSize: effectiveCharLength }
-      : undefined
+    query,
+    defaultOutputCharLength
   );
-
-  const isPartial = extraction.isPartial || pagination.hasMore;
-
-  let nextBlockChar: number | undefined;
-  if (
-    pagination.hasMore &&
-    chunkMode === 'char-limit' &&
-    isMidBlockCut(pagination.paginatedContent)
-  ) {
-    const cutPos = pagination.charOffset + pagination.charLength;
-    nextBlockChar = findNextBlockBoundary(outputContent, cutPos, queryPath);
+  if (window.autoPaginateWarning) {
+    warnings.push(window.autoPaginateWarning);
   }
 
-  // Ready continuation query for the next char page. Same shape convention as
-  // localSearchCode's `next` map (see ripgrepResultBuilder buildSearchNextMap).
-  const next =
-    pagination.hasMore && pagination.nextCharOffset !== undefined
-      ? {
-          continueChars: {
-            tool: 'localGetFileContent' as const,
-            query: {
-              path: queryPath,
-              charOffset: pagination.nextCharOffset,
-              charLength: effectiveCharLength ?? pagination.charLength,
-              minify: query.minify,
-            },
-          },
-        }
-      : undefined;
+  const isPartial = extraction.isPartial || window.pagination.hasMore;
 
   return {
     path: queryPath,
-    content: pagination.paginatedContent,
+    content: window.windowedContent,
     ...(contentView !== 'standard' && { contentView }),
     ...(isPartial && { isPartial }),
     totalLines,
@@ -535,16 +612,58 @@ function buildSuccessResult(
         }),
       }),
     ...(fileStats.mtime && { modified: fileStats.mtime.toISOString() }),
-    ...((effectiveCharLength !== undefined ||
-      explicitCharOffset > 0 ||
-      autoPaginated) && {
+    ...(window.showPagination && {
       pagination: {
-        ...createPaginationInfo(pagination),
-        chunkMode,
-        ...(nextBlockChar !== undefined && { nextBlockChar }),
+        ...createPaginationInfo(window.pagination),
+        chunkMode: window.chunkMode,
+        ...(window.nextBlockChar !== undefined && {
+          nextBlockChar: window.nextBlockChar,
+        }),
       },
     }),
-    ...(next ? { next } : {}),
+    ...(window.next ? { next: window.next } : {}),
+    ...(warnings.length > 0 && { warnings }),
+  };
+}
+
+// Build a minify:"symbols" skeleton result, routing the skeleton text through
+// the SAME char-window pagination the normal content path uses. charOffset/
+// charLength windows the skeleton, pagination reflects the skeleton's own
+// totalChars, and next.continueChars round-trips (query carries minify:"symbols"
+// + nextCharOffset). Small skeletons return whole with no pagination/next.
+function buildSymbolsSkeletonResult(
+  query: FetchContentQuery,
+  skeleton: string,
+  totalLines: number,
+  sourceChars: number,
+  sourceBytes: number,
+  secretWarning: string | undefined,
+  defaultOutputCharLength: number
+): LocalGetFileContentToolResult {
+  const window = paginateContentWindow(skeleton, query, defaultOutputCharLength);
+  const warnings = [
+    ...(window.autoPaginateWarning ? [window.autoPaginateWarning] : []),
+    ...(secretWarning ? [secretWarning] : []),
+  ];
+
+  return {
+    path: query.path,
+    content: window.windowedContent,
+    contentView: 'symbols',
+    isSkeleton: true,
+    ...(window.pagination.hasMore && { isPartial: true }),
+    totalLines,
+    ...sourceSizeFields(sourceChars, sourceBytes),
+    ...(window.showPagination && {
+      pagination: {
+        ...createPaginationInfo(window.pagination),
+        chunkMode: window.chunkMode,
+        ...(window.nextBlockChar !== undefined && {
+          nextBlockChar: window.nextBlockChar,
+        }),
+      },
+    }),
+    ...(window.next ? { next: window.next } : {}),
     ...(warnings.length > 0 && { warnings }),
   };
 }
@@ -637,15 +756,15 @@ export async function fetchContent(
         );
         if (markdownOutline !== null) {
           return attachRawResponseChars(
-            {
-              path: query.path,
-              content: markdownOutline,
-              contentView: 'symbols',
-              isSkeleton: true,
-              totalLines: countLines(content),
-              ...sourceSizeFields(sourceChars, sourceBytes),
-              ...(secretWarning ? { warnings: [secretWarning] } : {}),
-            },
+            buildSymbolsSkeletonResult(
+              query,
+              markdownOutline,
+              countLines(content),
+              sourceChars,
+              sourceBytes,
+              secretWarning,
+              defaultOutputCharLength
+            ),
             sourceChars
           );
         }
@@ -659,15 +778,15 @@ export async function fetchContent(
         );
 
         return attachRawResponseChars(
-          {
-            path: query.path,
-            content: sigsProcessed,
-            contentView: 'symbols',
-            isSkeleton: true,
-            totalLines: totalLinesOrig,
-            ...sourceSizeFields(sourceChars, sourceBytes),
-            ...(secretWarning ? { warnings: [secretWarning] } : {}),
-          },
+          buildSymbolsSkeletonResult(
+            query,
+            sigsProcessed,
+            totalLinesOrig,
+            sourceChars,
+            sourceBytes,
+            secretWarning,
+            defaultOutputCharLength
+          ),
           sourceChars
         );
       }

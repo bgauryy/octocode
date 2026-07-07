@@ -594,8 +594,11 @@ export function redactObject(obj: unknown): unknown {
   if (obj !== null && typeof obj === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      // Redact values of sensitive keys entirely
-      if (/token|auth|jwt|secret|password|apikey|api_key|credential|sessionid|sid|cookie_value/i.test(k)) {
+      // Redact values of sensitive keys entirely. Includes value-carrying keys
+      // returned by raw CDP calls (Network.getCookies → cookieValue, getResponseBody
+      // → body) so short/plain secrets that pattern-based string redaction misses
+      // don't leak into details.
+      if (/token|auth|jwt|secret|password|apikey|api_key|credential|sessionid|sid|cookie_value|cookievalue|responsebody|response_body|\bbody\b/i.test(k)) {
         out[k] = '<redacted>';
       } else {
         out[k] = redactObject(v);
@@ -743,9 +746,10 @@ export async function connectToChrome(opts: ChromeDebugConnectOptions): Promise<
   }
 
   // ── Step 2: If not running and launch requested, start Chrome ─────────────
+  let launchedPid: number | undefined;
   if (!version && launch) {
     // Chrome 136+ requires non-default user-data-dir — we always supply one
-    await launchChrome({ port, userDataDir, headless, url: newTab });
+    ({ pid: launchedPid } = await launchChrome({ port, userDataDir, headless, url: newTab }));
     mode = 'launched';
 
     // Wait up to 20s for Chrome to start
@@ -840,6 +844,11 @@ export async function connectToChrome(opts: ChromeDebugConnectOptions): Promise<
     sessionMeta['_openedTabId'] = openedTabId;
   }
   sessionMeta['_port'] = port;
+  // Record the pid of a Chrome we launched so cleanup can terminate it (else it
+  // orphans, since Chrome is spawned detached+unref). Attach-mode leaves this unset.
+  if (launchedPid !== undefined) {
+    sessionMeta['_launchedPid'] = launchedPid;
+  }
 
   return { session, version, metadata, screenshotDir, sessionFile };
 }
@@ -849,14 +858,27 @@ export async function connectToChrome(opts: ChromeDebugConnectOptions): Promise<
 export async function cleanupConnection(
   session: CdpSession,
   keepTab: boolean,
+  killLaunched = false,
 ): Promise<void> {
   const s = session as unknown as Record<string, unknown>;
   const openedTabId = s['_openedTabId'] as string | undefined;
   const port = s['_port'] as number | undefined;
+  const launchedPid = s['_launchedPid'] as number | undefined;
 
   if (!keepTab && openedTabId && port) {
     await closeTab(port, openedTabId).catch(() => undefined);
   }
 
   session.close();
+
+  // Only terminate Chrome when this connection launched it AND the caller asked
+  // for full cleanup — attach-mode connections must never kill the user's browser.
+  if (killLaunched && launchedPid !== undefined) {
+    try {
+      process.kill(launchedPid, 'SIGTERM');
+    } catch {
+      // Already gone or not killable — nothing to do.
+    }
+    s['_launchedPid'] = undefined;
+  }
 }

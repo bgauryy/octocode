@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  createResponseFormat,
-  createRoleBasedResult,
-} from '../../../octocode-tools-core/src/responses.js';
+import { createResponseFormat } from '../../../octocode-tools-core/src/responses.js';
 import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
 import { ContentSanitizer } from 'octocode-security/contentSanitizer';
 import { maskSensitiveData } from 'octocode-security/mask';
@@ -106,41 +103,6 @@ describe('GAP-01: structuredContent sanitization in bulk responses', () => {
 
     const result = await executeBulkOperation(queries, processor, {
       toolName: 'testTool',
-    });
-
-    if (result.structuredContent) {
-      assertNoSecrets(result.structuredContent, 'structuredContent');
-    }
-  });
-});
-
-describe('GAP-01b: structuredContent sanitization in role-based responses', () => {
-  it('should sanitize secrets in structuredContent from createRoleBasedResult', () => {
-    const result = createRoleBasedResult({
-      assistant: { summary: 'Found file' },
-      data: {
-        content: `export const key = "${SECRETS.STRIPE_KEY}";`,
-        apiKey: SECRETS.OPENAI_KEY,
-        nested: {
-          token: SECRETS.GITHUB_TOKEN,
-        },
-      },
-    });
-
-    if (result.structuredContent) {
-      assertNoSecrets(result.structuredContent, 'structuredContent');
-    }
-  });
-
-  it('should sanitize secrets in structuredContent arrays', () => {
-    const result = createRoleBasedResult({
-      assistant: { summary: 'Search results' },
-      data: {
-        matches: [
-          { file: 'a.ts', content: `key=${SECRETS.AWS_KEY}` },
-          { file: 'b.ts', content: `token=${SECRETS.SLACK_TOKEN}` },
-        ],
-      },
     });
 
     if (result.structuredContent) {

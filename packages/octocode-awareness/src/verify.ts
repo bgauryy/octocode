@@ -203,6 +203,21 @@ export function auditUnverified(
     }
   } catch { /* file_locks table may not exist on very old schemas */ }
 
+  if (params.abandon && staleActive.length > 0) {
+    const now = utcNow();
+    for (const intent of staleActive) {
+      db.prepare(
+        "UPDATE agent_intents SET status = 'FAILED', updated_at = ? WHERE intent_id = ? AND status = 'ACTIVE'"
+      ).run(now, intent.intent_id);
+      try {
+        db.prepare(
+          `INSERT INTO intent_events(event_id, intent_id, agent_id, event_type, message, created_at)
+           VALUES (?, ?, ?, 'ABANDONED', 'stale active (no live locks) abandoned by audit-unverified --abandon', ?)`
+        ).run('evt_' + randomUUID().replace(/-/g, ''), intent.intent_id, intent.agent_id, now);
+      } catch { /* intent_events may not exist */ }
+    }
+  }
+
   const total = unverified.length + staleActive.length;
   return { ok: true, unverified, stale_active: staleActive, count: total };
 }

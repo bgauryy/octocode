@@ -11,13 +11,12 @@
  * This tool bootstraps that subagent with the right context.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { connectToChrome, cleanupConnection } from '../chrome-debug.js';
 import { SCHEME_REGISTRY } from '../chrome-debug-schemes.js';
 import type { ChromeDebugParams } from '../chrome-debug-schemes.js';
 import type { ToolDefinition, ToolCallResult, PiContext } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
+import { isSubagentProcess } from './agent-tools.js';
 import { makeRenderer, truncateToWidth } from './render-helpers.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
@@ -221,73 +220,6 @@ function routeTask(task: string): { schemes: string[]; cdpDomains: string[]; con
   return { schemes, cdpDomains, contextKeys };
 }
 
-// ─── Skill context builder ─────────────────────────────────────────────────────
-
-function findSkillDir(): string | null {
-  // Walk up from cwd to find the skill
-  const candidates = [
-    join(process.cwd(), '_skills', 'octocode-chrome-devtools'),
-    join(process.cwd(), '..', '..', '_skills', 'octocode-chrome-devtools'),
-    join(process.cwd(), '..', '..', '..', '_skills', 'octocode-chrome-devtools'),
-  ];
-  return candidates.find(existsSync) ?? null;
-}
-
-function buildSkillContext(contextKeys: string[], skillDir: string | null): string {
-  if (!skillDir) return '';
-
-  const sections: string[] = [];
-
-  // Always include the domain enable map (section 0 of CDP_AGENT_REFERENCE)
-  const refPath = join(skillDir, 'references', 'CDP_AGENT_REFERENCE.md');
-  if (existsSync(refPath)) {
-    const content = readFileSync(refPath, 'utf8');
-    // Extract section 0 (domain enable map) — up to first ## 1.
-    const sec0 = content.split(/^## 1\./m)[0];
-    if (sec0) sections.push(`### CDP Enable Map\n${sec0.slice(0, 3000)}`);
-  }
-
-  // Load matching INTENTS_*.md sections
-  const intentFileMap: Record<string, string> = {
-    security: 'INTENTS_INSPECT.md',
-    cookies: 'INTENTS_STORAGE_CONSENT.md',
-    storage: 'INTENTS_STORAGE_CONSENT.md',
-    consent: 'INTENTS_STORAGE_CONSENT.md',
-    performance: 'INTENTS_DEBUG.md',
-    network: 'INTENTS_DEBUG.md',
-    console: 'INTENTS_DEBUG.md',
-    dom: 'INTENTS_AUTOMATION.md',
-    scrape: 'INTENTS_AUTOMATION.md',
-    websocket: 'INTENTS_INSPECT.md',
-    workers: 'INTENTS_INSPECT.md',
-    'service-worker': 'INTENTS_INSPECT.md',
-    accessibility: 'INTENTS_INSPECT.md',
-    'supply-chain': 'INTENTS_INSPECT.md',
-    coverage: 'INTENTS_DEBUG.md',
-    emulate: 'INTENTS_ENVIRONMENT.md',
-    inject: 'INTENTS_ENVIRONMENT.md',
-    memory: 'INTENTS_DEBUG.md',
-  };
-
-  const loadedFiles = new Set<string>();
-  for (const key of contextKeys) {
-    const file = intentFileMap[key];
-    if (!file || loadedFiles.has(file)) continue;
-    const path = join(skillDir, 'references', file);
-    if (!existsSync(path)) continue;
-    const content = readFileSync(path, 'utf8');
-    // Find relevant section by key
-    const sectionMatch = new RegExp(`^## ${key}[\\s\\S]*?(?=^## |$)`, 'mi');
-    const match = content.match(sectionMatch);
-    if (match) {
-      sections.push(match[0].slice(0, 2000));
-      loadedFiles.add(file);
-    }
-  }
-
-  return sections.join('\n\n---\n\n');
-}
-
 // ─── Spawn config builder ──────────────────────────────────────────────────────
 
 function buildSpawnConfig(params: {
@@ -368,6 +300,8 @@ export function registerBrowserAgentTool(
   registerFn: RegisterFn,
   notify?: (ctx: PiContext | undefined, message: string, level?: string) => void,
 ): void {
+  // Workers cannot spawn workers — never register this tool inside a spawned worker process.
+  if (isSubagentProcess()) return;
   const setStatus = (msg: string) => {
     notify?.(undefined, msg, 'status');
   };
@@ -454,11 +388,8 @@ export function registerBrowserAgentTool(
       setStatus(`browserAgent: routing task "${params.task.slice(0, 50)}"`);
 
       // Route task → schemes + domains
-      const { schemes, cdpDomains, contextKeys } = routeTask(params.task);
-
-      // Load skill context
-      const skillDir = findSkillDir();
-      const skillContext = buildSkillContext(contextKeys, skillDir);
+      const { schemes, cdpDomains } = routeTask(params.task);
+      const skillContext = '';
 
       const allLines: string[] = [];
       const schemesRun: string[] = [];
@@ -525,7 +456,9 @@ export function registerBrowserAgentTool(
           allLines.push(`[AGENT] connect error: ${(err as Error).message}`);
         } finally {
           if (conn) {
-            await cleanupConnection(conn.session, params.launch !== true).catch(() => {});
+            // browserAgent is one-shot: if it launched Chrome, terminate it so the
+            // (headless) instance doesn't orphan. keepTab mirrors the launch flag.
+            await cleanupConnection(conn.session, params.launch !== true, params.launch === true).catch(() => {});
           }
         }
       }
@@ -561,8 +494,7 @@ export function registerBrowserAgentTool(
 
       return {
         content: [{ type: 'text', text: output }],
-        _spawnConfig: spawnConfig,
-      } as unknown as ToolCallResult;
+      } as ToolCallResult;
     },
 
     renderCall(rawParams: unknown) {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { TSchema, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
 import { makeRenderer, truncateToWidth, wrapText } from './render-helpers.js';
+import { assertPathAllowed } from './path-guard.js';
 
 // ─── TypeBox (dynamic import — Pi runtime dep) ────────────────────────────────
 
@@ -528,6 +529,15 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
 
 interface DiffOp { type: 'same' | 'add' | 'remove'; line: string }
 
+// LCS diff is O(oldLines × newLines) in time AND memory. Above this many lines
+// the DP matrix (and the two full-file diff/patch passes per edit) becomes a real
+// memory/CPU hazard inside execute — skip the diff and let callers fall back.
+const MAX_DIFF_LINES = 6000;
+
+function diffTooLarge(oldContent: string, newContent: string): boolean {
+  return oldContent.split('\n').length + newContent.split('\n').length > MAX_DIFF_LINES;
+}
+
 function diffOps(oldContent: string, newContent: string): DiffOp[] {
   const oldLines = oldContent.split('\n');
   const newLines = newContent.split('\n');
@@ -558,6 +568,9 @@ function diffOps(oldContent: string, newContent: string): DiffOp[] {
 }
 
 function generateDiffString(oldContent: string, newContent: string): string {
+  if (diffTooLarge(oldContent, newContent)) {
+    return '(diff omitted: file too large — see the per-edit changes in details)';
+  }
   return diffOps(oldContent, newContent)
     .filter((op) => op.type !== 'same')
     .map((op) => `${op.type === 'add' ? '+' : '-'} ${op.line}`)
@@ -578,6 +591,9 @@ function generateUnifiedPatch(filePath: string, oldContent: string, newContent: 
   // Compute a single hunk covering the changed region (old/new prelude of equal lines
   // plus the +/- diff body). Emit a valid unified-diff hunk header
   // `@@ -<oldStart>,<oldCount> +<newStart>,<newCount> @@` per the format spec.
+  if (diffTooLarge(oldContent, newContent)) {
+    return `--- ${filePath}\n+++ ${filePath}\n@@ patch omitted: file too large @@\n`;
+  }
   const ops = diffOps(oldContent, newContent);
   // Trim leading/trailing 'same' lines to bound the hunk to actual changes.
   let start = 0;
@@ -591,7 +607,10 @@ function generateUnifiedPatch(filePath: string, oldContent: string, newContent: 
   const oldStart = start + 1;
   const newStart = start + 1;
   const lines = [`--- ${filePath}`, `+++ ${filePath}`, `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`];
-  for (const op of ops) {
+  // Body must iterate the trimmed hunk (hunkOps), not the full ops — the header
+  // line-counts and start offsets are computed from hunkOps, so emitting the
+  // leading/trailing 'same' context lines from ops would desync header and body.
+  for (const op of hunkOps) {
     if (op.type === 'same') lines.push(` ${op.line}`);
     else lines.push(`${op.type === 'add' ? '+' : '-'}${op.line}`);
   }
@@ -661,6 +680,8 @@ function changesSuffix(prepared: PreparedEdit[]): string {
 
 async function prepareEdit(query: EditQuery, cwd: string, inheritedRequireRecentRead: boolean): Promise<PreparedEdit> {
   const absolutePath = resolveEditPath(query.path, cwd);
+  // Bound writes to home + ALLOWED_PATHS + cwd/tmp (same model as the native tools).
+  assertPathAllowed(absolutePath, cwd, 'edit');
   await access(absolutePath, constants.R_OK | constants.W_OK);
   const readState = await checkReadState(absolutePath, inheritedRequireRecentRead || query.requireRecentRead === true);
   const rawContent = await readFile(absolutePath, 'utf8');
@@ -731,6 +752,17 @@ export function registerEditTool(
         prepared.map((item) =>
           withFileMutationQueue(item.absolutePath, async () => {
             if (signal?.aborted) throw new Error('Operation aborted');
+            // Lost-update guard: prepareEdit computed finalContent from item.rawContent
+            // OUTSIDE this mutex. If a concurrent edit call (or external writer) changed
+            // the file since then, writing finalContent would silently clobber it. Re-read
+            // under the lock and fail loudly instead of losing the intervening change.
+            const currentRaw = await readFile(item.absolutePath, 'utf8');
+            if (currentRaw !== item.rawContent) {
+              throw new Error(
+                `${item.requestPath} changed on disk after it was read for editing ` +
+                  `(concurrent edit or external write). Re-read the file and retry.`,
+              );
+            }
             await writeFile(item.absolutePath, item.finalContent, 'utf8');
             await recordFileReadState(item.absolutePath);
           }),

@@ -191,6 +191,7 @@ impl StructuralDetailedMatch {
         path: &str,
         query_fingerprint: &str,
         matched: StructuralMatch,
+        node_kind: String,
     ) -> Self {
         let id = stable_match_id(path, query_fingerprint, &matched);
         Self {
@@ -202,7 +203,11 @@ impl StructuralDetailedMatch {
             text: matched.text,
             metavars: matched.metavars,
             metavar_ranges: matched.metavar_ranges,
-            node_kind: None,
+            node_kind: Some(node_kind),
+            // The octo matcher is a precise AST matcher: every match is an exact
+            // tree-sitter node match, so there is no partial/fallback tier to
+            // report. Keep this in sync with the narrowed `confidence` union in
+            // loader/index.d.ts.
             confidence: "exact-ast".to_owned(),
         }
     }

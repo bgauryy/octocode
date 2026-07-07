@@ -260,6 +260,13 @@ Stars and downloads are tiebreakers, not proof.
 Integration blueprint: reuse parser-facing ideas, avoid unverified service dependencies, proof still needed is a local prototype against our TypeScript files.
 Confidence: likely
 Next: run one prototype command before adopting.`,
+    'change-mode': `Mode: Change
+Scope: replace moment.js with Intl.DateTimeFormat inside the formatDate utility only.
+Blast radius: LSP references and callers of formatDate show 3 consumers; exact read at src/utils/date.ts:14 and src/components/Header.tsx:27.
+Patch: smallest scoped change — only the formatDate function body; the exported signature is unchanged.
+Verification: yarn test src/utils/date.test.ts ran and passed; typecheck passed with exit 0.
+Confidence: confirmed
+Next: drop the moment dependency in a follow-up once no other imports remain.`,
   };
   return base[caseId] || '';
 }

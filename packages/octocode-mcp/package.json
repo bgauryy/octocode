@@ -48,8 +48,7 @@
     }
   },
   "bin": {
-    "octocode-mcp": "dist/index.js",
-    "octocode-mcp-beta": "dist/index.js"
+    "octocode-mcp": "dist/index.js"
   },
   "files": [
     "dist/*.js",

@@ -2,6 +2,7 @@ import { CallToolResult } from '@modelcontextprotocol/sdk/types';
 import { incrementToolCharSavings } from '../../shared/index.js';
 import { executeWithErrorIsolation } from '../core/promise.js';
 import {
+  cleanJsonObject,
   createResponseFormat,
   sanitizeStructuredContent,
 } from '../../responses.js';
@@ -166,8 +167,15 @@ function createBulkResponse<
 
   const formattedText = createResponseFormat(responseData, fullKeysPriority);
   const paginated = paginateBulkText(formattedText, pagination);
+  // Clean before sanitizing so structuredContent matches the text channel:
+  // compactMcpTextContent points MCP agents at structuredContent, so it must
+  // carry the same trimmed payload the text channel already produces via
+  // createResponseFormat (cleanJsonObject → sanitize).
   const structuredContent = appendResponsePagination(
-    sanitizeStructuredContent(responseData) as Record<string, unknown>,
+    sanitizeStructuredContent(cleanJsonObject(responseData) ?? {}) as Record<
+      string,
+      unknown
+    >,
     paginated.pagination
   );
   recordBulkCharSavings(
@@ -398,6 +406,14 @@ async function processBulkQueries<TQuery extends object>(
           queryIndex: result.data.queryIndex,
           originalQuery: result.data.originalQuery,
         });
+      } else if (result.success) {
+        // Fulfilled but with no data — record a typed error keyed by the query
+        // index so this query still yields a row instead of vanishing. A silent
+        // drop leaves a hole that misaligns downstream positional grouping.
+        errors.push({
+          queryIndex: result.index,
+          error: 'Query produced no result',
+        });
       }
     }
   );
@@ -429,7 +445,7 @@ function extractToolData(result: ProcessedBulkResult): Record<string, unknown> {
   return toolData;
 }
 
-function resolveQueryId<TQuery extends object>(
+export function resolveQueryId<TQuery extends object>(
   originalQuery: TQuery,
   queryIndex: number
 ): string {

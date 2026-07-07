@@ -19,6 +19,7 @@ import {
   type QueryScope,
   type QuerySource,
   type QueryView,
+  type StructuralRuleInput,
 } from './types.js';
 
 /** Corpus already classified by the caller (local path vs GitHub ref). */
@@ -498,7 +499,10 @@ function predicateFromSearchTerm(
       where: {
         kind: 'structural',
         lang: structuralLang,
-        rule: parts.rule as never,
+        // parts.rule is JSON-parsed upstream (SearchShorthand.rule: unknown);
+        // it is the pre-parsed rule object/string the structural predicate
+        // accepts. Downstream compile validates it before use.
+        rule: parts.rule as StructuralRuleInput,
       },
     };
   }

@@ -27,6 +27,10 @@ interface AgentProcess {
   on: ProcessHandler;
   kill(signal?: NodeJS.Signals): boolean;
   killed?: boolean;
+  /** null while running; a number once the process exited normally. */
+  exitCode?: number | null;
+  /** null while running; the signal name if the process was killed by a signal. */
+  signalCode?: NodeJS.Signals | null;
 }
 
 interface SpawnOptions {
@@ -93,6 +97,7 @@ interface AgentDetails {
 }
 
 const MAX_STORED_EVENTS = 200;
+const MAX_STDERR_CHARS = 64_000;
 const MAX_VISIBLE_OUTPUT = 12000;
 const MAX_AGENT_RECORDS = 50;
 const SUBAGENT_ENV_VAR = 'OCTOCODE_PI_SUBAGENT';
@@ -102,31 +107,62 @@ const EXIT_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP'];
 let processFactory: AgentProcessFactory = (command, args, options) => spawn(command, args, options) as unknown as AgentProcess;
 let processCleanupHandlersInstalled = false;
 
+/**
+ * True when running inside a spawned worker process (marked via SUBAGENT_ENV_VAR).
+ * Workers must not register any agent-spawning tool — recursive spawning is forbidden.
+ */
+export function isSubagentProcess(): boolean {
+  return process.env[SUBAGENT_ENV_VAR] === '1';
+}
+
 export function setAgentProcessFactoryForTests(factory: AgentProcessFactory | null): void {
   processFactory = factory ?? ((command, args, options) => spawn(command, args, options) as unknown as AgentProcess);
   agents.clear();
 }
 
+/** wait() resolves at end-of-turn: idle counts as "done for now", plus true terminals. */
 function isTerminal(record: AgentRecord): boolean {
   return ['idle', 'exited', 'failed', 'killed'].includes(record.status);
 }
 
+/**
+ * Safe to drop from the registry WITHOUT killing: the child process is gone.
+ * `idle` is NOT droppable — an idle worker's process is still alive to accept
+ * send/steer/followUp, so evicting or shutdown-skipping it would orphan the child.
+ */
+function isDroppable(record: AgentRecord): boolean {
+  return ['exited', 'failed', 'killed'].includes(record.status);
+}
+
+/**
+ * Whether the underlying OS process is still running (authoritative, sync).
+ * A real ChildProcess reports null for both while running; test mocks may leave
+ * them undefined — treat null/undefined (== null) as "still running".
+ */
+function isProcessAlive(record: AgentRecord): boolean {
+  return record.process.exitCode == null && record.process.signalCode == null;
+}
+
 function evictStaleAgents(): void {
   if (agents.size <= MAX_AGENT_RECORDS) return;
-  const terminal = [...agents.entries()]
-    .filter(([, r]) => isTerminal(r))
+  // Only evict records whose process is truly gone — never silently drop an
+  // alive (running/idle/starting) worker, which would orphan the child process.
+  const droppable = [...agents.entries()]
+    .filter(([, r]) => isDroppable(r))
     .sort(([, a], [, b]) => a.updatedAt - b.updatedAt || a.startedAt - b.startedAt);
-  while (agents.size > MAX_AGENT_RECORDS && terminal.length > 0) {
-    const [id, record] = terminal.shift()!;
+  while (agents.size > MAX_AGENT_RECORDS && droppable.length > 0) {
+    const [id, record] = droppable.shift()!;
     removePromptFiles(record);
     agents.delete(id);
   }
 }
 
 export function cleanupSpawnedAgentsForShutdown(): number {
-  const running = [...agents.values()].filter((record) => !isTerminal(record));
-  for (const record of running) killAgent(record, { forceKillDelayMs: 0 });
-  return running.length;
+  // Kill every worker whose process is still alive — including idle ones, whose
+  // process stays up between turns and would otherwise survive as an orphan.
+  const alive = [...agents.values()].filter((record) => !isDroppable(record));
+  for (const record of alive) killAgent(record, { forceKillDelayMs: 0 });
+  return alive.length;
 }
 
 function installProcessCleanupHandlers(): void {
@@ -372,7 +408,15 @@ function processRpcLine(record: AgentRecord, line: string): void {
 
 function sendRpc(record: AgentRecord, payload: Record<string, unknown>): void {
   const id = `${record.id}-${record.nextRequestId++}`;
-  record.process.stdin.write(`${JSON.stringify({ id, ...payload })}\n`);
+  try {
+    record.process.stdin.write(`${JSON.stringify({ id, ...payload })}\n`);
+  } catch (error) {
+    // Writing to a destroyed/closed stdin (child already exited) throws EPIPE /
+    // ERR_STREAM_WRITE_AFTER_END. Surface it as the record error instead of
+    // letting an unhandled stream error crash the host process.
+    record.error = error instanceof Error ? error.message : String(error);
+    touch(record);
+  }
 }
 
 export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentRecord {
@@ -424,6 +468,10 @@ export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentR
   });
   proc.stderr.on('data', (chunk) => {
     record.stderr += chunk.toString();
+    // Cap to the tail so a chatty worker can't grow this string unbounded.
+    if (record.stderr.length > MAX_STDERR_CHARS) {
+      record.stderr = record.stderr.slice(-MAX_STDERR_CHARS);
+    }
     touch(record);
   });
   proc.on('error', (error) => {
@@ -555,12 +603,15 @@ function killAgent(record: AgentRecord, opts: { forceKillDelayMs?: number } = {}
     // ignore stdin close errors
   }
   record.process.kill('SIGTERM');
+  // NOTE: ChildProcess.killed only means "a signal was delivered", not "process
+  // exited" — it is true immediately after SIGTERM above, so it cannot gate the
+  // SIGKILL escalation. Gate on actual liveness (exitCode/signalCode still null).
   const forceKillDelayMs = opts.forceKillDelayMs ?? 5000;
   if (forceKillDelayMs <= 0) {
-    if (!record.process.killed) record.process.kill('SIGKILL');
+    if (isProcessAlive(record)) record.process.kill('SIGKILL');
   } else {
     setTimeout(() => {
-      if (!record.process.killed) record.process.kill('SIGKILL');
+      if (isProcessAlive(record)) record.process.kill('SIGKILL');
     }, forceKillDelayMs).unref?.();
   }
   removePromptFiles(record);
@@ -719,6 +770,13 @@ export function registerAgentTools(
 
       const message = String(params['message'] ?? '').trim();
       if (!message) throw new Error(`AgentMessage action:${action} requires message.`);
+      // A dead worker's stdin is destroyed — writing to it throws EPIPE and would
+      // wrongly flip the record back to 'running'. Reject with a clear error instead.
+      if (!isProcessAlive(record)) {
+        throw new Error(
+          `AgentMessage action:${action} cannot reach agent "${record.name}" — it has ${record.status} (process exited). Spawn a fresh worker.`,
+        );
+      }
       const wasRunning = record.status === 'running';
       touch(record, 'running');
       if (action === 'steer') {

@@ -17,7 +17,7 @@ Complete reference for every tool registered by `@octocodeai/pi-extension`. The 
 | **Agents** | `spawnAgent` · `AgentMessage` |
 | **Web** | `web` |
 | **Context** | `manage_context` |
-| **Memory** | `memory_recall` · `memory_record` · `memory_reflect` · `workspace_status` · `agent_signal` · `file_lock` · `memory_refine_get` · `memory_audit_unverified` · `memory_verify` |
+| **Memory** | `memory_recall` · `memory_record` · `memory_reflect` · `workspace_status` · `agent_signal` · `file_lock` · `memory_refine_get` · `memory_audit_unverified` · `memory_verify` · `memory_export_harness` |
 | **Aliases** | `memory_workspace_status` · `memory_file_lock` · `memory_notify` |
 
 Source of truth for names: `OCTOCODE_DIRECT_TOOL_NAMES` + `OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts`.
@@ -142,7 +142,7 @@ Resolve npm package names → GitHub repo. Exact package name returns rich singl
 
 ## Browser Tools
 
-See [`BROWSER_AGENT.md`](./BROWSER_AGENT.md) for the full 28-scheme reference, stealth mode, multi-turn protocol, and CDP event log.
+See [`BROWSER_AGENT.md`](../subagents/browser-agent/BROWSER_AGENT.md) for the full 28-scheme reference, stealth mode, multi-turn protocol, and CDP event log.
 
 ### `chromeDebug`
 Direct Chrome DevTools Protocol calls. One scheme per call. Use for single-shot tasks.
@@ -249,9 +249,9 @@ See [`MEMORY_AGENT_FLOW.md`](./MEMORY_AGENT_FLOW.md) and [`REFLECT.md`](./REFLEC
 
 | Tool | Purpose |
 |------|---------|
-| `memory_recall` | Retrieve durable lessons before risky/unfamiliar work |
-| `memory_record` | Store verified root cause, decision, workaround, gotcha |
-| `memory_reflect` | Capture post-task lesson; creates repo-fix refinements and clusters failure patterns |
+| `memory_recall` | Retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
+| `memory_record` | Store verified root cause, decision, workaround, gotcha; reports novelty + similar-memory candidates for supersede decisions |
+| `memory_reflect` | Capture post-task lesson; creates repo-fix refinements, clusters failure patterns; supports `judgment_note`, `duo`, `eval_failures` |
 | `workspace_status` | Show active locks, working agents, open signals/refinements, store stats |
 | `agent_signal` | Coordination inbox — actions: `publish` · `list` · `reply` · `resolve` · `ack` |
 | `file_lock` | Explicit file locks for parallel agents — types: `lock` · `release` · `status` · `renew` |

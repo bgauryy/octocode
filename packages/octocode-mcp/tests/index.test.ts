@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { allowExpectedStderrWarning } from './warningPolicy.js';
 import {
   McpServer,
   RegisteredTool,
@@ -325,6 +326,7 @@ describe('Index Module', () => {
         }
       );
 
+      allowExpectedStderrWarning('Server initialization failed:');
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
@@ -354,6 +356,7 @@ describe('Index Module', () => {
         };
       });
 
+      allowExpectedStderrWarning(/Warning: \d+ tool/);
       await import('../src/index.js');
       await waitForAsyncOperations();
 
@@ -380,6 +383,8 @@ describe('Index Module', () => {
         }
       );
 
+      allowExpectedStderrWarning(/Warning: \d+ tool/);
+      allowExpectedStderrWarning('Server initialization failed:');
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
@@ -400,6 +405,7 @@ describe('Index Module', () => {
         };
       });
 
+      allowExpectedStderrWarning(/Warning: \d+ tool/);
       await import('../src/index.js');
       await waitForAsyncOperations();
 
@@ -411,6 +417,7 @@ describe('Index Module', () => {
         return { successCount: 1, failedTools: ['tool1', 'tool2'] };
       });
 
+      allowExpectedStderrWarning(/Warning: \d+ tool/);
       await import('../src/index.js');
       await waitForAsyncOperations();
 
@@ -437,6 +444,8 @@ describe('Index Module', () => {
         }
       );
 
+      allowExpectedStderrWarning(/Warning: \d+ tool/);
+      allowExpectedStderrWarning('Server initialization failed:');
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
@@ -470,6 +479,7 @@ describe('Index Module', () => {
         }
       );
 
+      allowExpectedStderrWarning('Server initialization failed:');
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
@@ -491,6 +501,7 @@ describe('Index Module', () => {
         return undefined as never;
       });
 
+      allowExpectedStderrWarning('Server initialization failed:');
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();
@@ -672,6 +683,7 @@ describe('Index Module', () => {
         }
       );
 
+      allowExpectedStderrWarning('Server initialization failed:');
       try {
         await import('../src/index.js');
         await waitForAsyncOperations();

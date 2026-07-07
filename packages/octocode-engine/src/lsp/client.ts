@@ -8,6 +8,7 @@ import type {
   ExactPosition,
   IncomingCall,
   LanguageServerConfig,
+  LspReadiness,
   OutgoingCall,
 } from './types.js';
 
@@ -15,6 +16,7 @@ export class LSPClient {
   private readonly nativeClient: NativeLspClientBinding;
   private readonly command: string;
   private initialized = false;
+  private lastReadiness: LspReadiness | undefined;
 
   constructor(config: LanguageServerConfig) {
     this.command = config.command;
@@ -47,8 +49,26 @@ export class LSPClient {
     this.initialized = false;
   }
 
-  async waitForReady(timeoutMs = 45_000): Promise<void> {
-    await this.nativeClient.waitForReady(timeoutMs);
+  /**
+   * Wait for the server to finish post-`initialized` indexing and record the
+   * readiness signal. Runtime tolerance: until the native addon is rebuilt with
+   * the readiness return, the old binding resolves to `undefined` — treat that
+   * as the conservative `settledFallback` (we cannot confirm indexing finished).
+   */
+  async waitForReady(timeoutMs = 45_000): Promise<LspReadiness> {
+    const readiness = await this.nativeClient.waitForReady(timeoutMs);
+    this.lastReadiness = readiness ?? 'settledFallback';
+    return this.lastReadiness;
+  }
+
+  /**
+   * The readiness recorded by the most recent `waitForReady`, or `undefined`
+   * if it was never called (e.g. servers that answer immediately and skip the
+   * readiness wait). A zero-results semantic query on a client whose readiness
+   * is not `progressIdle` may be "not indexed yet" rather than a true absence.
+   */
+  getReadiness(): LspReadiness | undefined {
+    return this.lastReadiness;
   }
 
   async gotoDefinition(

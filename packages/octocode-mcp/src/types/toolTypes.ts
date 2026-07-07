@@ -13,6 +13,9 @@ import type { AnySchema } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 export function toMCPSchema<T extends object>(schema: T): AnySchema {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let s: any = schema;
+  // Zod v4 uses `_zod.def`; v3 uses `_def`. Walking these private fields unwraps pipe/effects
+  // wrappers that cause exponential type inference in the SDK's Zod compat layer.
+  // If this breaks after a Zod upgrade, check the research doc linked in the file header.
   while (s?._zod?.def?.type === 'pipe') {
     s = s._zod.def.out;
   }

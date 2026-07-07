@@ -3,7 +3,7 @@ Read this when executing an Octocode research workflow: the front door picks the
 Start each workflow with a **surface plan** (local, GitHub, packages, PR/history, artifacts, web, plus skipped surfaces with reasons); update it when cross-pollination changes the route.
 For long, contested, or public-facing decision briefs, read `references/long-research.md` before deep work. For repo ecosystem comparisons or "which implementation should we reuse?" questions, read `references/github-landscape.md`.
 
-> **Transport priority:** In Pi (MCP native), use `localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `lspGetSemantics`, etc. directly. In degraded environments, fall back to `npx octocode`. The command-chain recipes below show CLI syntax; map each to the equivalent MCP tool when available.
+> **Transport priority:** When the host exposes Octocode MCP tools, use `localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `lspGetSemantics`, etc. directly. Otherwise fall back to `npx octocode`. The command-chain recipes below show CLI syntax; map each to the equivalent MCP tool when available.
 
 ## Mode Flows
 ### Map: landscape / prior art
@@ -140,7 +140,7 @@ search <file> --content-view exact
 Confirm:
 1. The corpus is explicit: local path, package, owner/repo, branch/ref, PR number, artifact path, or materialized `localPath`.
 2. The surface is justified: MCP, `search`, OQL, raw tool, local shell, web, or skipped surface with reason.
-3. Tool calls used the correct schema: read the MCP tool description (Pi) or `npx octocode tools <name> --scheme` (CLI) before calling; OQL JSON was built after `search --scheme`.
+3. Tool calls used the correct schema: read the MCP tool description or `npx octocode tools <name> --scheme` (CLI) before calling; OQL JSON was built after `search --scheme`.
 4. Candidate results were converted into exact evidence when the claim depends on them.
 5. Pagination and continuations were followed or declared unnecessary.
 6. Diagnostics and provider limitations were handled.

@@ -37,13 +37,11 @@ const SERVER_CONFIG: Implementation = {
 const SHUTDOWN_TIMEOUT_MS = 5000;
 
 function createShutdownHandler(server: McpServer, state: ShutdownState) {
-  return async (signal?: string) => {
+  return async (_signal?: string) => {
     if (state.inProgress) return;
     state.inProgress = true;
 
     try {
-      void signal;
-
       if (state.timeout) {
         clearTimeout(state.timeout);
         state.timeout = null;
@@ -60,7 +58,7 @@ function createShutdownHandler(server: McpServer, state: ShutdownState) {
       try {
         await server.close();
       } catch {
-        void 0;
+        // server.close() failure is non-fatal during shutdown
       }
 
       if (state.timeout) {
@@ -69,11 +67,13 @@ function createShutdownHandler(server: McpServer, state: ShutdownState) {
       }
 
       process.exit(0);
-    } catch {
+    } catch (error) {
       if (state.timeout) {
         clearTimeout(state.timeout);
         state.timeout = null;
       }
+      const message = error instanceof Error ? error.message : String(error ?? 'unknown');
+      process.stderr.write(`Shutdown error: ${message}\n`);
       process.exit(1);
     }
   };
@@ -100,16 +100,22 @@ export async function registerAllTools(server: McpServer) {
   const activeProvider = getActiveProvider();
 
   if (activeProvider === 'github') {
-    const token = await getGitHubToken();
-    void token;
+    // Pre-flight: validate a GitHub token is resolvable at startup rather than failing on first tool call.
+    await getGitHubToken();
   }
 
   const { registerTools } = await import('./tools/toolsManager.js');
   const { successCount, failedTools, failedToolErrors } =
     await registerTools(server);
 
-  void failedTools;
-  void failedToolErrors;
+  if (failedTools.length > 0) {
+    const details = Object.entries(failedToolErrors ?? {})
+      .map(([n, err]) => `  - ${n}: ${err}`)
+      .join('\n');
+    process.stderr.write(
+      `Warning: ${failedTools.length} tool(s) failed to register:\n${details}\n`
+    );
+  }
 
   if (successCount === 0) {
     throw new Error(STARTUP_ERRORS.NO_TOOLS_REGISTERED.message);
@@ -151,7 +157,9 @@ async function startServer() {
     if (isCloneEnabled()) {
       startCacheGC(getOctocodeDir());
     }
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? 'unknown');
+    process.stderr.write(`Server initialization failed: ${message}\n`);
     process.exit(1);
   }
 }

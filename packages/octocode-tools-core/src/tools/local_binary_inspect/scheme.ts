@@ -200,7 +200,10 @@ export const LocalBinaryInspectOutputSchema = z
     results: z.array(
       z.object({
         id: z.string(),
-        status: z.enum(['empty', 'error']).optional(),
+        // binaryInspector emits a 'success' status on completed inspections (in
+        // addition to the empty/error the bulk layer sets), so the row status
+        // enum must accept it.
+        status: z.enum(['empty', 'error', 'success']).optional(),
         data: LocalBinaryInspectDataSchema,
       })
     ),

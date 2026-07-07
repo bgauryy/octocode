@@ -5,6 +5,7 @@
  * verification, briefing, and session-capture logic lives here so Claude/Codex
  * skill hooks and Pi native adapters share the same package-owned behavior.
  */
+import { spawnSync } from 'node:child_process';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
@@ -112,6 +113,7 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
   try {
     releaseFileLock(db(), {
       agentId: agentId(payload),
+      workspacePath: workspace(payload) ?? undefined,
       targetFiles: files,
       status: 'PENDING',
     });
@@ -134,12 +136,33 @@ async function runHarnessGuard(payload: Record<string, unknown>): Promise<number
     return 2;
   }
 
-  if (process.env.OCTOCODE_HARNESS_BRANCH_OK !== '1') {
-    console.error('octocode-awareness: harness self-fix is branch-only. Create a dedicated branch first, or set OCTOCODE_HARNESS_BRANCH_OK=1. Edit blocked.');
+  // "Dedicated branch" is checked against the skill root's actual git branch.
+  // main/master is never allowed (self-harness.md Hard NO); a detached HEAD or
+  // non-repo needs the explicit OCTOCODE_HARNESS_BRANCH_OK=1 acknowledgement.
+  const branch = gitBranchOf(skillRoot);
+  if (branch === 'main' || branch === 'master') {
+    console.error(`octocode-awareness: harness self-fix is never allowed on ${branch}. Create a dedicated branch first. Edit blocked.`);
     return 2;
+  }
+  if (!branch || branch === 'HEAD') {
+    if (process.env.OCTOCODE_HARNESS_BRANCH_OK !== '1') {
+      console.error('octocode-awareness: cannot confirm a dedicated git branch for the skill. Create one, or set OCTOCODE_HARNESS_BRANCH_OK=1 to acknowledge. Edit blocked.');
+      return 2;
+    }
   }
 
   return 0;
+}
+
+function gitBranchOf(dir: string): string | null {
+  try {
+    const r = spawnSync('git', ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8', timeout: 5000,
+    });
+    return r.status === 0 ? String(r.stdout).trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function runStopVerify(payload: Record<string, unknown>): Promise<number> {
@@ -147,8 +170,14 @@ async function runStopVerify(payload: Record<string, unknown>): Promise<number> 
   try {
     const report = auditUnverified(db(), { agentId: agentId(payload), ...workspaceArgs(payload) });
     if (report.count > 0) {
-      const plans = report.unverified.map((u) => `${u.status}:${u.intent_id}: ${u.test_plan}`).join('; ');
-      console.error(`octocode-awareness: concluding with unverified work. Pending: ${plans}`);
+      const parts: string[] = [];
+      if (report.unverified.length > 0) {
+        parts.push(report.unverified.map((u) => `${u.status}:${u.intent_id}: ${u.test_plan}`).join('; '));
+      }
+      if (report.stale_active.length > 0) {
+        parts.push('Stale active (lock expired): ' + report.stale_active.map((s) => `${s.intent_id}: ${s.rationale}`).join('; '));
+      }
+      console.error(`octocode-awareness: concluding with unverified work. ${parts.join(' | ')}`);
       return 2;
     }
   } catch {

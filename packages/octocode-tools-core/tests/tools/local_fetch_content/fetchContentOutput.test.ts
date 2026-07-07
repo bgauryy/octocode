@@ -56,4 +56,29 @@ describe('localGetFileContent direct text output', () => {
     expect(text).not.toContain('\n        const nested = 1;');
     expect(text).not.toContain('\n          return nested;');
   });
+
+  it('rejects minify:"symbols" combined with a line range instead of silently ignoring it', async () => {
+    const file = join(dir, 'symbols-range.ts');
+    await writeFile(file, 'export const a = 1;\nexport const b = 2;\n', 'utf8');
+
+    const result = await executeDirectTool('localGetFileContent', {
+      queries: [{ path: file, minify: 'symbols', startLine: 1, endLine: 1 }],
+    });
+
+    const data = firstData<{ error?: string }>(result);
+    expect(data?.error ?? firstText(result)).toContain('symbols');
+    expect(data?.error ?? firstText(result)).toMatch(/startLine|matchString/);
+  });
+
+  it('rejects minify:"symbols" combined with matchString', async () => {
+    const file = join(dir, 'symbols-match.ts');
+    await writeFile(file, 'export const a = 1;\nexport const b = 2;\n', 'utf8');
+
+    const result = await executeDirectTool('localGetFileContent', {
+      queries: [{ path: file, minify: 'symbols', matchString: 'a' }],
+    });
+
+    const data = firstData<{ error?: string }>(result);
+    expect(data?.error ?? firstText(result)).toContain('symbols');
+  });
 });

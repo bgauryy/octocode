@@ -255,7 +255,9 @@ const SemanticDataSchema = z.object({
   uri: z.string(),
   format: z.enum(['structured', 'compact']).optional(),
   resolvedSymbol: ResolvedSymbolSchema.optional(),
-  lsp: LspSchema,
+  // Omitted on early-return paths (e.g. symbolNotFound) where the LSP server is
+  // never engaged; present on any path that reached a provider.
+  lsp: LspSchema.optional(),
   payload: PayloadSchema,
   pagination: PaginationSchema.optional(),
   summary: z.record(z.string(), z.unknown()).optional(),

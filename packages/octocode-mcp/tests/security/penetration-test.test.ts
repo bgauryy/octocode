@@ -15,7 +15,6 @@ import {
 import {
   createResponseFormat,
   sanitizeStructuredContent,
-  createRoleBasedResult,
 } from '../../../octocode-tools-core/src/responses.js';
 import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
 import { sanitizeCallToolResult } from '@octocodeai/octocode-tools-core';
@@ -567,19 +566,6 @@ describe('ATTACK-07: Output Channel Bypass', () => {
     }
   });
 
-  it('should sanitize secrets in structuredContent via createRoleBasedResult', () => {
-    const result = createRoleBasedResult({
-      assistant: { summary: 'Found results' },
-      data: {
-        content: SECRETS.AWS_KEY,
-        nested: { token: SECRETS.GITHUB_TOKEN },
-        array: [SECRETS.STRIPE_KEY],
-      },
-    });
-
-    assertObjectSecretsAbsent(result.structuredContent);
-  });
-
   it('should sanitize secrets in bulk tool structuredContent', async () => {
     const result = await executeBulkOperation(
       [{ id: 'q1', query: 'test' }],
@@ -594,32 +580,6 @@ describe('ATTACK-07: Output Channel Bypass', () => {
     assertAllSecretsAbsent(text);
 
     assertObjectSecretsAbsent(result.structuredContent);
-  });
-
-  it('DESIGN-NOTE: createRoleBasedResult text blocks are NOT sanitized (wrapper catches them)', () => {
-    const result = createRoleBasedResult({
-      assistant: {
-        summary: `Error: Failed to connect with token ${SECRETS.GITHUB_TOKEN}`,
-      },
-      data: { error: `Auth failed: ${SECRETS.AWS_KEY}` },
-      isError: true,
-    });
-
-    const text = result.content
-      .map(c => (c as { text?: string }).text)
-      .join(' ');
-    expect(text).toContain(SECRETS.GITHUB_TOKEN);
-
-    assertObjectSecretsAbsent(result.structuredContent);
-
-    const dataBlock = result.content.find(
-      c =>
-        (c as { annotations?: { priority?: number } }).annotations?.priority ===
-        0.3
-    );
-    if (dataBlock && 'text' in dataBlock) {
-      assertSecretAbsent(dataBlock.text as string, 'AWS_KEY', SECRETS.AWS_KEY);
-    }
   });
 
   it('should sanitize the sanitizeStructuredContent function directly', () => {

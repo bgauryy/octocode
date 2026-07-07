@@ -47,6 +47,7 @@ import {
   type WorkspaceSymbolSemanticQuery,
   type DiagnosticSemanticQuery,
 } from '../shared/semanticTypes.js';
+import { attachReadinessWarning } from '../shared/readiness.js';
 import {
   resolveFileAnchor,
   resolveSymbolAnchor,
@@ -580,28 +581,41 @@ async function getSemanticContent(
     await warmLikelyConsumers(client, anchor.value, workspaceRoot);
   }
 
+  // Readiness recorded when the pooled client warmed. `undefined` = the wait
+  // was skipped for a server that answers immediately (no indexing caveat).
+  const readiness = client.getReadiness?.();
+
+  const envelope = await dispatchAnchoredSemantic(query, anchor.value, client);
+  return attachReadinessWarning(envelope, readiness);
+}
+
+async function dispatchAnchoredSemantic(
+  query: SymbolAnchoredSemanticQuery,
+  anchor: SymbolAnchor,
+  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>
+): Promise<LspSemanticEnvelope> {
   switch (query.type) {
     case 'definition':
       if (!client.hasCapability('definitionProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'definitionProvider unsupported',
           true
         );
       }
       return locationsEnvelope(
         query,
-        anchor.value,
+        anchor,
         'definition',
         'definitionProvider',
         await resolveImportAliasDefinitions({
-          anchorUri: anchor.value.uri,
-          symbolName: anchor.value.resolvedSymbol.name,
+          anchorUri: anchor.uri,
+          symbolName: anchor.resolvedSymbol.name,
           locations: await client.gotoDefinition(
-            anchor.value.uri,
-            anchor.value.resolvedSymbol.position,
-            anchor.value.content
+            anchor.uri,
+            anchor.resolvedSymbol.position,
+            anchor.content
           ),
         })
       );
@@ -609,77 +623,77 @@ async function getSemanticContent(
       if (!client.hasCapability('typeDefinitionProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'typeDefinitionProvider unsupported',
           true
         );
       }
       return locationsEnvelope(
         query,
-        anchor.value,
+        anchor,
         'typeDefinition',
         'typeDefinitionProvider',
         await client.typeDefinition(
-          anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.uri,
+          anchor.resolvedSymbol.position,
+          anchor.content
         )
       );
     case 'implementation':
       if (!client.hasCapability('implementationProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'implementationProvider unsupported',
           true
         );
       }
       return locationsEnvelope(
         query,
-        anchor.value,
+        anchor,
         'implementation',
         'implementationProvider',
         await client.implementation(
-          anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.uri,
+          anchor.resolvedSymbol.position,
+          anchor.content
         )
       );
     case 'references':
       if (!client.hasCapability('referencesProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'referencesProvider unsupported',
           true
         );
       }
       return referencesEnvelope(
         query,
-        anchor.value,
+        anchor,
         await client.findReferences(
-          anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
+          anchor.uri,
+          anchor.resolvedSymbol.position,
           query.includeDeclaration ?? true,
-          anchor.value.content
+          anchor.content
         )
       );
     case 'hover':
       if (!client.hasCapability('hoverProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'hoverProvider unsupported',
           true
         );
       }
       return hoverEnvelope(
         query,
-        anchor.value,
+        anchor,
         await client.hover(
-          anchor.value.uri,
-          anchor.value.resolvedSymbol.position,
-          anchor.value.content
+          anchor.uri,
+          anchor.resolvedSymbol.position,
+          anchor.content
         )
       );
     case 'callers':
@@ -688,23 +702,23 @@ async function getSemanticContent(
       if (!client.hasCapability('callHierarchyProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'callHierarchyProvider unsupported',
           true
         );
       }
-      return callsEnvelope(query, anchor.value, client);
+      return callsEnvelope(query, anchor, client);
     case 'supertypes':
     case 'subtypes':
       if (!client.hasCapability('typeHierarchyProvider')) {
         return emptyEnvelope(
           query.type,
-          anchor.value,
+          anchor,
           'typeHierarchyProvider unsupported',
           true
         );
       }
-      return typeHierarchyEnvelope(query, anchor.value, client);
+      return typeHierarchyEnvelope(query, anchor, client);
   }
 }
 

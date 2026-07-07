@@ -24,7 +24,6 @@ export {
 } from '@octocodeai/octocode-core/schemas';
 
 export {
-  createRoleBasedResult,
   executeCloneRepo,
   executeFetchContent,
   executeFindFiles,
@@ -37,10 +36,8 @@ export {
   initializeProviders,
   loadToolContent,
   LspGetSemanticsQuerySchema,
-  QuickResult,
   searchMultipleGitHubCode,
   searchMultipleGitHubPullRequests,
   searchMultipleGitHubRepos,
   searchPackages,
-  StatusEmoji,
 } from '@octocodeai/octocode-tools-core';

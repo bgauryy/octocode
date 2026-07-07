@@ -287,3 +287,39 @@ describe('inapplicable controls.search.sort warns instead of silently dropping',
     });
   }
 });
+
+describe('controls.search.sort on non-search targets warns (no silent drop)', () => {
+  const CASES: Array<{
+    target: string;
+    params: Record<string, unknown>;
+    passthroughHint: boolean;
+  }> = [
+    { target: 'repositories', params: { keywords: ['oql'] }, passthroughHint: true },
+    { target: 'packages', params: { packageName: 'react' }, passthroughHint: true },
+    { target: 'pullRequests', params: { state: 'merged' }, passthroughHint: false },
+  ];
+  for (const c of CASES) {
+    it(`${c.target} + sort -> warning${c.passthroughHint ? ' with params.sort hint' : ''}`, () => {
+      const { plan: p } = plan({
+        target: c.target,
+        from: { kind: 'github', repo: 'facebook/react' },
+        params: c.params,
+        controls: { search: { sort: 'relevance' } },
+      });
+      const warn = p.diagnostics.find(
+        d =>
+          d.code === 'lossyTransform' && d.queryPath === 'controls.search.sort'
+      );
+      expect(warn).toBeDefined();
+      expect(warn?.severity).toBe('warning');
+      expect(warn?.blocksAnswer).toBe(false);
+      expect(warn?.message).toContain(`"relevance"`);
+      expect(warn?.message).toContain(c.target);
+      if (c.passthroughHint) {
+        expect(warn?.message).toContain('params.sort');
+      } else {
+        expect(warn?.message).not.toContain('params.sort');
+      }
+    });
+  }
+});

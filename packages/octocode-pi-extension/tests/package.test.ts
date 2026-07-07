@@ -176,11 +176,18 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.equal(fs.existsSync(path.join(distDir, 'awareness')), false, 'awareness assets are owned by @octocodeai/octocode-awareness, not copied into pi-extension');
 
   const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-stats'];
+  // Skills whose canonical source lives in the package (not repo-root skills/), so
+  // they legitimately appear in the package but not in root — mirror build.mjs PI_NATIVE_SKILLS.
+  const PI_NATIVE = ['octocode-subagents'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
   assert.deepEqual(skills, sourceSkills, 'dist matches package skills');
-  assert.deepEqual(rootSkills.filter((s) => !SKIPPED.includes(s)), sourceSkills);
+  assert.deepEqual(
+    rootSkills.filter((s) => !SKIPPED.includes(s)),
+    sourceSkills.filter((s) => !PI_NATIVE.includes(s)),
+    'package skills = synced root skills + pi-native skills',
+  );
   assert.deepEqual(
     skills,
     [

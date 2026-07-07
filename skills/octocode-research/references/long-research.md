@@ -95,7 +95,7 @@ Drop claims that are only plausible but unsupported. Keep contradicted claims wh
 5. Update claims after each decisive observation.
 6. Run Advocate vs Critic over claims, not raw notes.
 7. Produce the brief from supported and partial claims only.
-8. On a durable finding, store one distilled lesson: `memory_record({task_context, observation, references:[<evidence locators>]})` or `memory_reflect({task, outcome, lesson, fix_repo})` in Pi; `tell-memory --observation ... --reference ...` via `learning-capture.md` in standalone. If no reusable lesson survived rebuttal, skip memory capture entirely.
+8. On a durable finding, store one distilled lesson with whatever memory tooling the host exposes: `memory_record({task_context, observation, references:[<evidence locators>]})` or `memory_reflect({task, outcome, lesson, fix_repo})` when those tools are available (e.g. Pi), or the `octocode-awareness` skill's capture flow when that skill is installed. If no memory tooling is available, keep the lesson in the report. If no reusable lesson survived rebuttal, skip memory capture entirely.
 
 ## Vendor Adapters
 

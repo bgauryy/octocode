@@ -570,11 +570,32 @@ function sortApplicabilityDiagnostics(query: OqlQuery): OqlDiagnostic[] {
     query.target === 'code' || query.target === 'files'
       ? SEARCH_SORTS_BY_TARGET[query.target]
       : undefined;
-  if (!lane || (lane as readonly string[]).includes(sort)) return [];
+  if (lane) {
+    if ((lane as readonly string[]).includes(sort)) return [];
+    return [
+      diagnostic(
+        'lossyTransform',
+        `controls.search.sort:"${sort}" has no ${query.target}-lane equivalent and is ignored (default ordering applies). Sorts for target:"${query.target}": ${lane.join('|')}.`,
+        {
+          queryPath: 'controls.search.sort',
+          severity: 'warning',
+          blocksAnswer: false,
+        }
+      ),
+    ];
+  }
+  // Non-search targets (repositories/packages/pullRequests/commits/research/
+  // graph) have no controls.search.sort lane at all — the value is silently
+  // dropped because only the code/files backends read it. Warn, and for the
+  // targets that DO have their own ordering, point at the params passthrough.
+  const passthroughHint =
+    query.target === 'repositories' || query.target === 'packages'
+      ? ` Pass the sort through params.sort instead (validated by the target:"${query.target}" params).`
+      : '';
   return [
     diagnostic(
       'lossyTransform',
-      `controls.search.sort:"${sort}" has no ${query.target}-lane equivalent and is ignored (default ordering applies). Sorts for target:"${query.target}": ${lane.join('|')}.`,
+      `controls.search.sort:"${sort}" is not applied for target:"${query.target}" — only target:"code" and target:"files" support controls.search.sort.${passthroughHint}`,
       {
         queryPath: 'controls.search.sort',
         severity: 'warning',

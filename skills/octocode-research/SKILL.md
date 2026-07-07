@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when technical or code work needs evidence-first research: investigate, implement, review, refactor, map prior art, run Act→Observe→Learn loops, validate findings, inspect artifacts, or plan with citations before acting."
+description: "Use when technical or code work needs evidence-first research: investigate, implement, review, refactor, map prior art, run iterative research loops (Act→Observe→Learn), validate findings, inspect artifacts, or plan with citations before acting."
 ---
 
 # Octocode Research
