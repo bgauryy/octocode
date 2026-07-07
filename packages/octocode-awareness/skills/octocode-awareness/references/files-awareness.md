@@ -76,8 +76,8 @@ Orient in a new session by combining the shared store with plain git:
 - **`memory-index`** — regenerate the browsable `MEMORY.md` index for the store.
 - Supersede lineage lives in `superseded_by` on each memory; recall SUPERSEDED rows with `get-memory --state SUPERSEDED` to trace it.
 
-## Automatic session capture (`session-capture` / SessionEnd hook)
+## Automatic session capture (`session-capture` hook)
 
-The `SessionEnd` hook calls `session-capture`.
+The capture hook calls `session-capture`. Claude-style hook hosts use `SessionEnd`; Codex has no current `SessionEnd` event, so the installer uses `PreCompact` for best-effort capture before context changes.
 `session-capture` writes a work-handoff refinement from this session's locks plus the dirty git tree.
 `session-capture` no-ops on a clean tree with no session locks, skips on `clear`, is fail-open, and opts out via `OCTOCODE_NO_SESSION_CAPTURE=1`.

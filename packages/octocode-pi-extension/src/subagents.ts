@@ -57,11 +57,15 @@ export type SubagentName = 'browser-agent';
 
 // ─── Runtime path resolution ──────────────────────────────────────────────────
 
-/** dist/subagents/ directory — subagent SYSTEM_PROMPT.md files live here. */
-const SUBAGENTS_DIR = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'subagents',
-);
+function resolveSubagentsDir(): string {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const distDir = path.join(moduleDir, 'subagents');
+  if (fs.existsSync(distDir)) return distDir;
+  return path.resolve(moduleDir, '..', 'subagents');
+}
+
+/** dist/subagents/ in published builds; packageRoot/subagents/ in source tests. */
+const SUBAGENTS_DIR = resolveSubagentsDir();
 
 function subagentSkillPath(name: SubagentName, skillName: string): string {
   return path.join(SUBAGENTS_DIR, name, 'skills', skillName);

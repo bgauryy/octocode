@@ -21,14 +21,21 @@ Use `memory_record` for durable reusable facts:
 memory_record({
   task_context: "why a future agent needs this",
   observation: "decision-changing lesson with evidence and verification",
-  label: "DECISION", // BUG, GOTCHA, IMPROVEMENT, SECURITY, OVERRIDE, OTHER
+  label: "DECISION", // pick the closest specific label — never default to OTHER
   importance: 7,
   references: ["file:/abs/path.ts:42", "test:yarn workspace pkg test"],
   supersedes: ["mem_old_id"], // when replacing stale knowledge
 })
 ```
 
-Labels guide salience. Use `OVERRIDE` only for critical invariants that contradict normal model defaults.
+Labels drive retention and filtering.
+`DECISION`, `ARCHITECTURE`, `SECURITY`, `GOTCHA`, and `OVERRIDE` decay with a 90-day half-life.
+`EXPERIENCE` decays with a 14-day half-life, and everything else decays with a 30-day half-life.
+
+A store full of `OTHER` defeats per-label decay and recall filtering.
+Choose from `BUG`, `FEATURE`, `SUGGESTION`, `GOTCHA`, `IMPROVEMENT`, `DECISION`, `ARCHITECTURE`, `SECURITY`, `PERFORMANCE`, `TEST`, `BUILD`, `DOCS`, `CONFIG`, `WORKFLOW`, `REFACTOR`, `API`, `RELEASE`, or `INCIDENT`.
+Reserve `OTHER` for lessons that truly fit nothing.
+Use `OVERRIDE` only for critical invariants that contradict normal model defaults.
 
 ## Reflect
 

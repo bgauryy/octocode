@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Merge the octocode-awareness lifecycle hooks into a project's .claude/settings.json
-// so awareness is session-wide (active even when the skill is not loaded).
+// Merge the octocode-awareness lifecycle hooks into a host's project/user
+// hook config so awareness is session-wide (active even when the skill is not
+// loaded).
 // Idempotent and non-destructive: it never touches hooks other than its own.
 // ALWAYS run only after the user has approved it.
 //
 // Usage:
-//   node scripts/install-hooks.mjs [--project-dir <path>]   install/merge
-//   node scripts/install-hooks.mjs --global                 install user-scope hooks
+//   node scripts/install-hooks.mjs [--host claude|codex] [--project-dir <path>]   install/merge
+//   node scripts/install-hooks.mjs [--host claude|codex] --global                 install user-scope hooks
 //   node scripts/install-hooks.mjs --check                  report status only
 //   node scripts/install-hooks.mjs --dry-run                show result, don't write
 //   node scripts/install-hooks.mjs --remove                 remove our hooks
@@ -25,12 +26,17 @@ const opt = (name, def) => {
 function printHelp() {
   console.log(`Usage: node scripts/install-hooks.mjs [options]
 
-Install, check, dry-run, or remove octocode-awareness lifecycle hooks in Claude
-settings: edit locks, harness guard, verify gate, signals, and session capture.
+Install, check, dry-run, or remove octocode-awareness lifecycle hooks.
+
+Targets:
+  --host claude         Write Claude Code hooks to .claude/settings.json (default).
+  --host codex         Write Codex hooks to .codex/hooks.json.
+  --claude             Alias for --host claude.
+  --codex              Alias for --host codex.
 
 Options:
-  --project-dir <path>  Target <path>/.claude/settings.json (default: cwd).
-  --global              Target ~/.claude/settings.json with absolute hook paths.
+  --project-dir <path>  Target a project hook file under <path> (default: cwd).
+  --global              Target the user hook file with absolute hook paths.
   --check               Report whether the hooks are installed.
   --dry-run             Print the resulting settings without writing.
   --remove              Remove only octocode-awareness hooks.
@@ -51,11 +57,21 @@ if (flag("--global") && args.includes("--project-dir")) {
   fail("use either --global or --project-dir, not both");
 }
 
+const requestedHost = flag("--codex")
+  ? "codex"
+  : flag("--claude")
+    ? "claude"
+    : opt("--host", "claude");
+const host = String(requestedHost).toLowerCase();
+if (host !== "claude" && host !== "codex") {
+  fail("invalid --host; expected claude or codex", { host: requestedHost });
+}
+
 const globalMode = flag("--global");
 const projectDir = resolve(opt("--project-dir", process.cwd()));
 const settingsPath = globalMode
-  ? join(homedir(), ".claude", "settings.json")
-  : join(projectDir, ".claude", "settings.json");
+  ? join(homedir(), host === "codex" ? ".codex" : ".claude", host === "codex" ? "hooks.json" : "settings.json")
+  : join(projectDir, host === "codex" ? ".codex" : ".claude", host === "codex" ? "hooks.json" : "settings.json");
 // Resolve hook scripts from THIS installer's location so the command works
 // wherever the skill lives, not just a hardcoded repo path.
 const hookDirAbs = join(dirname(fileURLToPath(import.meta.url)), "hooks");
@@ -63,6 +79,10 @@ const WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch"
 
 function hookCommand(name) {
   const abs = join(hookDirAbs, name);
+  // Codex config files do not provide Claude's project/skill placeholders.
+  // Absolute commands work from user and project hook scopes, even when Codex
+  // starts in a subdirectory.
+  if (host === "codex") return abs;
   if (globalMode) return abs;
   const rel = relative(projectDir, abs);
   // Inside the project → portable, shareable ${CLAUDE_PROJECT_DIR}-relative path.
@@ -73,7 +93,7 @@ function hookCommand(name) {
   return abs;
 }
 
-const HOOKS = [
+const CLAUDE_HOOKS = [
   { event: "PreToolUse", matcher: WRITE_MATCHER, command: hookCommand("pre-edit.sh") },
   { event: "PreToolUse", matcher: WRITE_MATCHER, command: hookCommand("harness-guard.sh") },
   { event: "PostToolUse", matcher: WRITE_MATCHER, command: hookCommand("post-edit.sh") },
@@ -82,6 +102,20 @@ const HOOKS = [
   { event: "SessionEnd", command: hookCommand("session-end.sh") },
   { event: "UserPromptSubmit", command: hookCommand("notify-deliver.sh") },
 ];
+
+const CODEX_HOOKS = [
+  { event: "PreToolUse", matcher: WRITE_MATCHER, command: hookCommand("pre-edit.sh") },
+  { event: "PreToolUse", matcher: WRITE_MATCHER, command: hookCommand("harness-guard.sh") },
+  { event: "PostToolUse", matcher: WRITE_MATCHER, command: hookCommand("post-edit.sh") },
+  { event: "Stop", command: hookCommand("stop-verify.sh") },
+  { event: "SubagentStop", command: hookCommand("stop-verify.sh") },
+  // Codex does not currently expose SessionEnd. PreCompact gives the closest
+  // durable handoff checkpoint before context is rewritten.
+  { event: "PreCompact", command: hookCommand("session-end.sh") },
+  { event: "UserPromptSubmit", command: hookCommand("notify-deliver.sh") },
+];
+
+const HOOKS = host === "codex" ? CODEX_HOOKS : CLAUDE_HOOKS;
 
 function load() {
   if (!existsSync(settingsPath)) return {};
@@ -125,6 +159,7 @@ const dryRun = flag("--dry-run");
 const remove = flag("--remove");
 
 const status = {
+  host,
   settingsPath,
   hooks: Object.fromEntries(
     HOOKS.map((spec) => [`${spec.event}:${spec.command.split(/[\\/]/).pop()}`, hasCommand(settings.hooks?.[spec.event], spec.command)]),
@@ -161,7 +196,7 @@ if (remove) {
 if (dryRun) {
   console.log(
     JSON.stringify(
-      { ok: true, action: "dry-run", changed, settingsPath, resultingSettings: settings },
+      { ok: true, action: "dry-run", host, changed, settingsPath, resultingSettings: settings },
       null,
       2,
     ),
@@ -179,9 +214,10 @@ console.log(
     {
       ok: true,
       action: remove ? "remove" : "install",
+      host,
       changed,
       settingsPath,
-      note: changed ? "settings.json updated" : "already up to date — no change",
+      note: changed ? `${settingsPath.split(/[\\/]/).pop()} updated` : "already up to date — no change",
     },
     null,
     2,

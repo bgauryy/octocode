@@ -12,10 +12,12 @@ Support is not universal. Confirm the target host actually executes skill-frontm
 
 ```yaml
 hooks:
-  <EventName>: [{ matcher: "ToolA|ToolB", hooks: [{ type: command, command: "$SKILL_DIR/scripts/hooks/<name>.sh", timeout: 20 }] }]
+  <EventName>: [{ matcher: "ToolA|ToolB", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/<name>.sh", timeout: 20 }] }]
 ```
 
-- `$SKILL_DIR` resolves to the installed skill folder at runtime and is valid only inside `SKILL.md` frontmatter. A separate installer that writes project/user `.claude/settings.json` has no skill context and must use a project-relative or absolute path instead.
+- `${CLAUDE_SKILL_DIR}` is Claude Code's real substitution for the skill's own directory (requires Claude Code v2.1.196+), valid only inside `SKILL.md`/agent frontmatter.
+- There is no bare `$SKILL_DIR` or `${SKILL_DIR}` variable. Claude Code does not recognize either, so a command using them silently resolves to a nonexistent path.
+- A separate installer that writes project/user `.claude/settings.json` has no skill context and must use a project-relative or absolute path instead.
 - Omit `matcher` for events with no tool target (`Stop`, `SessionEnd`, `UserPromptSubmit`, `SessionStart`, `PreCompact`).
 - Multiple independent hook entries can share one event.
 
@@ -44,7 +46,7 @@ hooks:
 1. Pick the event and matcher from the table above.
 2. Copy `assets/hooks/example-hook.sh` into the target skill's `scripts/hooks/`, rename it — it already self-locates and forwards to a companion brain script.
 3. Copy `assets/hooks/example-hook-brain.mjs` next to the skill's other scripts (or point the wrapper at an existing one), then replace the `TODO` with the real check; keep `--help` and explicit stdin/argv parsing.
-4. Add the `hooks:` block to the skill's `SKILL.md` frontmatter, pointing at `$SKILL_DIR/scripts/hooks/<name>.sh` with a `timeout`.
+4. Add the `hooks:` block to the skill's `SKILL.md` frontmatter, pointing at `${CLAUDE_SKILL_DIR}/scripts/hooks/<name>.sh` with a `timeout`.
 5. Document the hook in `SKILL.md`'s body: which event, what it does, how to inspect or verify it — the lint's `hooks-handling` rule requires this.
 6. If the skill should also act when it is not the active skill, add a small installer script that merges the same command into `.claude/settings.json`; gate every write behind `--dry-run` first and explicit user approval.
 7. Run `scripts/skill-lint.mjs`; it enforces `hook-script-routing` (frontmatter commands route to `scripts/`/`hooks/`, not inline shell) and `hook-timeout` (every hook command has a nearby `timeout`).

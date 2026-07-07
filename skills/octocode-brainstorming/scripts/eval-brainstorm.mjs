@@ -324,6 +324,23 @@ function runSelfTest(cases) {
   if (!conflictBad.failedBinaryQuestions.some(question => question.id === 'concedes-unsupported-side')) {
     throw new Error('conflict failing fixture should mark the missing concession');
   }
+  const trendMomentum = cases.find(testCase => testCase.id === 'trend-momentum-check');
+  if (!trendMomentum) throw new Error('missing trend-momentum-check case');
+  const trendMomentumGood = evaluateCase(trendMomentum, readFixture(trendMomentum.fixtures.passing), { agentic: true });
+  const trendMomentumBad = evaluateCase(trendMomentum, readFixture(trendMomentum.fixtures.failing), { agentic: true });
+  if (!trendMomentumGood.passed) {
+    throw new Error(`trend-momentum fixture should pass: ${trendMomentumGood.failedChecks.join(', ')}`);
+  }
+  if (trendMomentumGood.failedBinaryQuestions.length) {
+    throw new Error(`trend-momentum fixture has failed binary questions: ${trendMomentumGood.failedBinaryQuestions.map(q => q.id).join(', ')}`);
+  }
+  if (trendMomentumBad.passed) {
+    throw new Error('trend-momentum fixture without a real signal should fail');
+  }
+  if (!trendMomentumBad.failedBinaryQuestions.some(question => question.id === 'dispatches-trend-source-scout')) {
+    throw new Error('trend-momentum failing fixture should mark the missing Trend & Source Scout dispatch');
+  }
+
   const resourceFirst = cases.find(testCase => testCase.id === 'resource-first-research');
   if (!resourceFirst) throw new Error('missing resource-first-research case');
   const resourceFirstGood = evaluateCase(resourceFirst, readFixture(resourceFirst.fixtures.passing), { agentic: true });
@@ -348,6 +365,10 @@ function runSelfTest(cases) {
     resourceFirst: {
       passingFixture: resourceFirstGood,
       failingFixture: resourceFirstBad,
+    },
+    trendMomentum: {
+      passingFixture: trendMomentumGood,
+      failingFixture: trendMomentumBad,
     },
     conflictingEvidence: {
       passingFixture: conflictGood,

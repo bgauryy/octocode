@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import octocodeDefault, {
+  createAwarenessHooksAddon,
   createOctocodePiExtension,
   resolvePromptMode,
   composeSystemPrompt,
@@ -15,6 +16,32 @@ test('createOctocodePiExtension returns a single-arg wiring function', () => {
   const wiring = createOctocodePiExtension({ promptMode: 'octocode-first' });
   assert.equal(typeof wiring, 'function');
   assert.equal(wiring.length, 1);
+});
+
+test('createAwarenessHooksAddon returns a standalone Pi hooks addon', () => {
+  const events: string[] = [];
+  const addon = createAwarenessHooksAddon();
+
+  assert.equal(typeof addon, 'function');
+  assert.equal(addon.length, 1);
+
+  const bridge = addon({
+    on: (eventName: string) => {
+      events.push(eventName);
+    },
+  } as unknown as Parameters<typeof addon>[0]);
+
+  assert.ok(bridge);
+  assert.deepEqual(events, [
+    'tool_call',
+    'tool_result',
+    'tool_execution_start',
+    'tool_execution_end',
+    'before_agent_start',
+    'agent_end',
+    'session_before_compact',
+    'session_shutdown',
+  ]);
 });
 
 test('resolvePromptMode: explicit option wins, then env, then append default', () => {

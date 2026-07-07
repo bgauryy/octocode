@@ -195,6 +195,54 @@
       }
     },
     {
+      "id": "trend-momentum-check",
+      "mode": "Validate",
+      "prompt": "brainstorm: is there real momentum behind AI-generated changelog tools, or is this just hype?",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
+        { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
+        { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "trend scout used", "pattern": "\\bTrend & Source Scout\\b|\\btrend-sources\\.md\\b" },
+        { "name": "momentum signal not presence", "pattern": "\\b(star|velocity|recency|citation|ranking)\\b[^\\n]{0,40}\\bsignal\\b|\\bsignal\\b[^\\n]{0,40}\\b(star|velocity|recency|citation|ranking)\\b" },
+        { "name": "decision label", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "dispatches-trend-source-scout",
+          "dimension": "research-setup",
+          "question": "Does the answer use the Trend & Source Scout or trend-sources.md to check momentum before judging crowdedness?",
+          "passPattern": "\\bTrend & Source Scout\\b|\\btrend-sources\\.md\\b",
+          "failureSignature": "mechanism:brainstorm-trend|cause:trend-scout-skipped",
+          "suggestedLesson": "For momentum/crowdedness questions, dispatch the Trend & Source Scout or check trend-sources.md before judging hype vs. real signal."
+        },
+        {
+          "id": "reports-signal-not-presence",
+          "dimension": "evidence",
+          "question": "Does the answer report a velocity/recency/citation/ranking signal instead of treating a source's mere existence as proof?",
+          "passPattern": "\\b(star|velocity|recency|citation|ranking)\\b[^\\n]{0,40}\\bsignal\\b|\\bsignal\\b[^\\n]{0,40}\\b(star|velocity|recency|citation|ranking)\\b",
+          "failureSignature": "mechanism:brainstorm-trend|cause:presence-as-momentum-proof",
+          "suggestedLesson": "Report the star/velocity/recency/citation/ranking signal itself, not just that a trend source mentions the idea."
+        },
+        {
+          "id": "decision-follows-momentum-evidence",
+          "dimension": "decision",
+          "question": "Does the decision cite the momentum evidence rather than asserting hype without a source?",
+          "passPattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b[\\s\\S]*\\b(Trend & Source Scout|trend-sources\\.md|velocity|recency|signal)\\b",
+          "failureSignature": "mechanism:brainstorm-trend|cause:decision-without-momentum-evidence",
+          "suggestedLesson": "Tie the decision label back to the momentum evidence gathered, not to the fact that a trend source merely exists."
+        }
+      ],
+      "forbidden": [
+        { "name": "presence as proof", "pattern": "\\b(obviously|clearly)\\b[^\\n]{0,40}\\b(hyped|proven|proof)\\b" }
+      ],
+      "fixtures": {
+        "passing": "evals/fixtures/trend-momentum-good.md",
+        "failing": "evals/fixtures/trend-momentum-bad.md"
+      }
+    },
+    {
       "id": "conflicting-evidence",
       "mode": "Validate",
       "prompt": "brainstorm: should we add persistent team memory to an agent skill when evidence conflicts on SQLite versus vector stores?",

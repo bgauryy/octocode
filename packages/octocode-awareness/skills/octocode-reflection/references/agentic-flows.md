@@ -7,7 +7,7 @@ Use this when combining Awareness' manual loop, lifecycle hooks, subagent handof
 | Layer | Handles | Use it for | Avoid using it for |
 |-------|---------|------------|--------------------|
 | Skill loop | `memory_recall`, `memory_refine_get`, `workspace_status`, `file_lock type:lock`, `memory_verify`, `memory_reflect fix_repo:`, `memory_reflect` | Intentional work: attend, focus, claim, verify, encode, sleep | Automatic enforcement by itself |
-| Hooks | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `SessionEnd` | Lifecycle guardrails: deliver messages, claim files, keep verification visible, capture handoffs | Deciding that the artifact is correct |
+| Hooks | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `SessionEnd`/`PreCompact` by host | Lifecycle guardrails: deliver messages, claim files, keep verification visible, capture handoffs | Deciding that the artifact is correct |
 | Agentic loop | `agent_signal action:publish`, `reflect --duo`, `--eval-failure-json`, `mine_weakness` (via CLI), `export_harness` (via CLI) | Peer coordination, critique, recurring failure mining, harness improvements | Storing raw private reasoning or unattended self-modification |
 
 Hooks should make the right behavior harder to forget. They do not replace the agent's judgment, test plan, or explicit verification.
@@ -80,9 +80,9 @@ Use hooks for checkpoints that line up with the host lifecycle:
 - `PreToolUse`: claim files before writes and block real collisions.
 - `PostToolUse`: release the live lock while preserving a pending verification obligation.
 - `Stop` / `SubagentStop`: block one unverified conclusion and force the agent to verify or hand off.
-- `SessionEnd`: capture a best-effort refinement from dirty state and active work.
+- `SessionEnd` or `PreCompact`: capture a best-effort refinement from dirty state and active work. Codex currently uses `PreCompact`; Claude-style hosts may use `SessionEnd`.
 
-The installer (`scripts/install-hooks.mjs`) manages the Claude lifecycle hook set for session-wide enforcement: prompt delivery, pre-edit lock/guard, post-edit release, stop/subagent verification, and session capture.
+The installer (`scripts/install-hooks.mjs`) manages Claude or Codex lifecycle hook config for session-wide enforcement: prompt delivery, pre-edit lock/guard, post-edit release, stop/subagent verification, and best-effort capture.
 
 ## Agentic guardrails
 

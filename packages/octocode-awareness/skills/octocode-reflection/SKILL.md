@@ -12,8 +12,8 @@ User/CLI maintenance uses `memory_digest` and `memory_forget`. Scripts call `scr
 
 ## Default Loop
 1. **Select** — keep only outcomes that change a future decision: root causes, corrections, decisions, repeated failures, durable workflows, or stale-memory cleanup.
-2. **Record** — use `memory_record` for verified reusable facts; use `supersedes` when replacing old knowledge.
-3. **Reflect** — use `memory_reflect` after non-trivial work to route `lesson`, `fix_repo`, `fix_harness`, `failure_signature`, `judgment_note`, or eval evidence.
+2. **Record** — use `memory_record` for verified reusable facts; use `supersedes` when replacing old knowledge. Pick a specific label because labels drive retention and recall filtering. Use `OTHER` only as a last resort.
+3. **Reflect** — use `memory_reflect` after non-trivial work to route `lesson`, `fix_repo`, `fix_harness`, `failure_signature`, `judgment_note`, or eval evidence. Reflections land as `EXPERIENCE`, excluded from briefings. A lesson that must persist also needs its own durable `memory_record`.
 4. **Stage** — propose skill, harness, AGENTS.md, or repo-instruction changes with evidence and rollback; keep standing guidance unchanged until human approval.
 5. **Clean** — after work, use `references/memory-hygiene.md` to clear stale memories and historical pending tasks; preview or scope before mutating.
 6. **Maintain** — preview `memory_digest`/`memory_forget` before pruning expired, stale, duplicate, wrong, or superseded memories.
@@ -29,9 +29,10 @@ User/CLI maintenance uses `memory_digest` and `memory_forget`. Scripts call `scr
 - `references/corpus.md` — when curating `~/.octocode/awareness/corpus/` notes from repeated lessons.
 - `references/data-view.md` — when showing/exporting/pruning awareness data on request.
 - `references/references.md` — source audit for this split.
+- When checking the shared SQLite schema, read `octocode-awareness`'s data-model reference; this skill does not duplicate it.
 
 ## Scripts
-- `scripts/awareness.mjs` — record, reflect, digest, forget, audit cleanup, export-harness, mine-weakness, and data-view commands.
+- `scripts/awareness.mjs` — tell-memory (the CLI name for record), reflect, digest, forget, audit cleanup, export-harness, mine-weakness, and data-view commands.
 - `scripts/schema.mjs` — inspect JSON payload contracts before building wrappers or Pi adapters.
 
 ## Boundary

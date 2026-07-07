@@ -77,9 +77,14 @@ export function getDb(): DatabaseSync {
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-export function initDb(db: DatabaseSync): void {
-  // ── 1. All regular tables in a single exec block ───────────────────────────
-  db.exec(`
+/**
+ * Canonical table DDL. This block is the single source of truth for the
+ * schema: fresh stores are created from it directly, and pre-existing stores
+ * are migrated against it column-by-column (see migrateExistingTables), so a
+ * column added here is automatically backfilled everywhere — never add
+ * hand-written ensureColumn calls for new columns.
+ */
+const SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
       session_id     TEXT PRIMARY KEY,
       agent_id       TEXT NOT NULL,
@@ -253,18 +258,16 @@ export function initDb(db: DatabaseSync): void {
       task_id      TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
       created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
-  `);
+`;
 
-  // Keep current schema columns present when a local dev database is reused.
-  ensureColumn(db, 'sessions', 'artifact', 'TEXT');
-  ensureColumn(db, 'memories', 'artifact', 'TEXT');
-  ensureColumn(db, 'tasks', 'artifact', 'TEXT');
-  ensureColumn(db, 'refinements', 'artifact', 'TEXT');
-  ensureColumn(db, 'signals', 'artifact', 'TEXT');
-  ensureColumn(db, 'agents', 'artifact', 'TEXT');
-  ensureColumn(db, 'edit_log', 'artifact', 'TEXT');
-  ensureColumn(db, 'harness_log', 'workspace_path', 'TEXT');
-  ensureColumn(db, 'harness_log', 'artifact', 'TEXT');
+export function initDb(db: DatabaseSync): void {
+  // ── 1. All regular tables in a single exec block ───────────────────────────
+  db.exec(SCHEMA_DDL);
+
+  // Bring pre-existing stores up to the canonical schema BEFORE any index is
+  // created — indexes below reference columns (failure_signature, valid_from,
+  // embedding_model, …) that old stores may lack.
+  migrateExistingTables(db);
 
   // ── 2. All indexes in a single exec block ──────────────────────────────────
   db.exec(`
@@ -353,9 +356,63 @@ export function tableColumns(db: DatabaseSync, tableName: string): Set<string> {
   return new Set(rows.map(r => r.name));
 }
 
-function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, columnType: string): void {
-  if (tableColumns(db, tableName).has(columnName)) return;
-  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+interface ColumnInfo {
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+}
+
+let _canonicalColumns: Map<string, ColumnInfo[]> | undefined;
+
+/**
+ * Desired columns per table, derived by instantiating SCHEMA_DDL in a
+ * throwaway in-memory database and introspecting it. Computed once per
+ * process.
+ */
+function canonicalColumns(): Map<string, ColumnInfo[]> {
+  if (_canonicalColumns) return _canonicalColumns;
+  const tmp = new DatabaseSync(':memory:');
+  try {
+    tmp.exec(SCHEMA_DDL);
+    const tables = tmp.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).all() as unknown as Array<{ name: string }>;
+    const map = new Map<string, ColumnInfo[]>();
+    for (const { name } of tables) {
+      map.set(name, tmp.prepare(`PRAGMA table_info(${name})`).all() as unknown as ColumnInfo[]);
+    }
+    _canonicalColumns = map;
+    return map;
+  } finally {
+    tmp.close();
+  }
+}
+
+/** A DEFAULT is only usable in ALTER TABLE ADD COLUMN if it is a constant. */
+function isConstantDefault(dflt: string | null): dflt is string {
+  return dflt !== null && !dflt.includes('(');
+}
+
+/**
+ * Add every canonical column missing from a pre-existing store. Constant
+ * defaults (and their NOT NULL) are preserved so old rows behave like fresh
+ * ones; non-constant defaults (strftime) are added as plain nullable columns
+ * since SQLite forbids them in ADD COLUMN.
+ */
+function migrateExistingTables(db: DatabaseSync): void {
+  for (const [table, columns] of canonicalColumns()) {
+    const existing = tableColumns(db, table);
+    for (const col of columns) {
+      if (existing.has(col.name)) continue;
+      let clause = `${col.name} ${col.type}`;
+      if (isConstantDefault(col.dflt_value)) {
+        if (col.notnull) clause += ' NOT NULL';
+        clause += ` DEFAULT ${col.dflt_value}`;
+      }
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${clause}`);
+    }
+  }
 }
 
 // ─── FTS helpers ──────────────────────────────────────────────────────────────

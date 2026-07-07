@@ -90,6 +90,14 @@ export function createAwarenessBridge(
   return createPiAwarenessBridge(options);
 }
 
+export function createAwarenessHooksAddon(
+  options: Parameters<typeof wirePiAwarenessHooks>[1] = {},
+): (pi: PiInstance) => ReturnType<typeof wirePiAwarenessHooks> {
+  return function octocodeAwarenessHooksAddon(pi: PiInstance): ReturnType<typeof wirePiAwarenessHooks> {
+    return wirePiAwarenessHooks(pi as unknown as Parameters<typeof wirePiAwarenessHooks>[0], options);
+  };
+}
+
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
 export function getThinkingStatus(ctx: PiContext | undefined, level?: string): string {
@@ -400,7 +408,7 @@ async function wireOctocodePiExtension(
   disableBuiltinReadTool(pi);
 
   if (pi.on) {
-    wirePiAwarenessHooks(pi as unknown as Parameters<typeof wirePiAwarenessHooks>[0]);
+    createAwarenessHooksAddon()(pi);
 
     pi.on('resources_discover', async () => {
       const paths = getAssetPaths();

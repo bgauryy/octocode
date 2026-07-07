@@ -68,8 +68,7 @@ function connectDb(dbPath) {
   _db = db2;
   return db2;
 }
-function initDb(db2) {
-  db2.exec(`
+var SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS sessions (
       session_id     TEXT PRIMARY KEY,
       agent_id       TEXT NOT NULL,
@@ -243,16 +242,10 @@ function initDb(db2) {
       task_id      TEXT REFERENCES tasks(task_id) ON DELETE SET NULL,
       created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
-  `);
-  ensureColumn(db2, "sessions", "artifact", "TEXT");
-  ensureColumn(db2, "memories", "artifact", "TEXT");
-  ensureColumn(db2, "tasks", "artifact", "TEXT");
-  ensureColumn(db2, "refinements", "artifact", "TEXT");
-  ensureColumn(db2, "signals", "artifact", "TEXT");
-  ensureColumn(db2, "agents", "artifact", "TEXT");
-  ensureColumn(db2, "edit_log", "artifact", "TEXT");
-  ensureColumn(db2, "harness_log", "workspace_path", "TEXT");
-  ensureColumn(db2, "harness_log", "artifact", "TEXT");
+`;
+function initDb(db2) {
+  db2.exec(SCHEMA_DDL);
+  migrateExistingTables(db2);
   db2.exec(`
     CREATE INDEX IF NOT EXISTS idx_sessions_agent     ON sessions(agent_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_path);
@@ -330,9 +323,41 @@ function tableColumns(db2, tableName) {
   const rows = db2.prepare(`PRAGMA table_info(${tableName})`).all();
   return new Set(rows.map((r) => r.name));
 }
-function ensureColumn(db2, tableName, columnName, columnType) {
-  if (tableColumns(db2, tableName).has(columnName)) return;
-  db2.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+var _canonicalColumns;
+function canonicalColumns() {
+  if (_canonicalColumns) return _canonicalColumns;
+  const tmp = new DatabaseSync(":memory:");
+  try {
+    tmp.exec(SCHEMA_DDL);
+    const tables = tmp.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).all();
+    const map = /* @__PURE__ */ new Map();
+    for (const { name } of tables) {
+      map.set(name, tmp.prepare(`PRAGMA table_info(${name})`).all());
+    }
+    _canonicalColumns = map;
+    return map;
+  } finally {
+    tmp.close();
+  }
+}
+function isConstantDefault(dflt) {
+  return dflt !== null && !dflt.includes("(");
+}
+function migrateExistingTables(db2) {
+  for (const [table, columns] of canonicalColumns()) {
+    const existing = tableColumns(db2, table);
+    for (const col of columns) {
+      if (existing.has(col.name)) continue;
+      let clause = `${col.name} ${col.type}`;
+      if (isConstantDefault(col.dflt_value)) {
+        if (col.notnull) clause += " NOT NULL";
+        clause += ` DEFAULT ${col.dflt_value}`;
+      }
+      db2.exec(`ALTER TABLE ${table} ADD COLUMN ${clause}`);
+    }
+  }
 }
 function hasFts(db2) {
   const row = db2.prepare(

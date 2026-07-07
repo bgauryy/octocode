@@ -490,15 +490,22 @@ function lintSkill(skillDir) {
   }
 
   if (/^\s*hooks\s*:/m.test(fmText)) {
-    const fmLines = fmText.split('\n');
-    fmLines.forEach((ln, i) => {
-      if (!/^\s*command\s*:/.test(ln)) return;
-      const block = fmLines.slice(i, i + 8).join('\n');
-      if (!/\b(scripts\/|hooks\/)/.test(ln))
-        add('WARN', 'hook-script-routing', `frontmatter hook command near line ${i + 1} should route to a bundled scripts/ or hooks/ helper instead of inline logic`);
-      if (!/^\s*timeout\s*:/m.test(block))
-        add('WARN', 'hook-timeout', `frontmatter hook command near line ${i + 1} has no nearby timeout; hooks should be bounded`);
-    });
+    // Matches both block-style (`command:` on its own line) and this repo's
+    // compact flow-style (`{ type: command, command: "...", timeout: 20 }`
+    // all on one line) — a line-anchored regex misses the latter entirely.
+    const commandRe = /\bcommand\s*:\s*(?:"([^"]*)"|'([^']*)'|([^,}\s][^,}]*))/g;
+    let m;
+    while ((m = commandRe.exec(fmText))) {
+      const value = (m[1] ?? m[2] ?? m[3] ?? '').trim();
+      const lineNo = fmText.slice(0, m.index).split('\n').length;
+      const window = fmText.slice(m.index, Math.min(fmText.length, m.index + 200));
+      if (!/\b(scripts\/|hooks\/)/.test(value))
+        add('WARN', 'hook-script-routing', `frontmatter hook command near line ${lineNo} should route to a bundled scripts/ or hooks/ helper instead of inline logic`);
+      if (!/\btimeout\s*:/.test(window))
+        add('WARN', 'hook-timeout', `frontmatter hook command near line ${lineNo} has no nearby timeout; hooks should be bounded`);
+      if (/\$SKILL_DIR\b|\$\{SKILL_DIR\}/.test(value))
+        add('ERROR', 'hook-invalid-skill-dir-var', `frontmatter hook command near line ${lineNo} references $SKILL_DIR / \${SKILL_DIR}, which Claude Code does not substitute — use \${CLAUDE_SKILL_DIR} instead (requires Claude Code v2.1.196+)`);
+    }
   }
 
   for (const { name: f, label, content: rc } of refContents) {

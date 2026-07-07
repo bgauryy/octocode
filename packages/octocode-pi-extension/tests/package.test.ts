@@ -13,23 +13,29 @@ import {
   OCTOCODE_DIRECT_TOOL_NAMES,
   OCTOCODE_SUPPORT_TOOL_NAMES,
   createAwarenessBridge,
+  disableBuiltinReadTool,
   extractWriteTargetPaths,
   formatStatus,
   applyOctocodeUi,
   getThinkingStatus,
   getAssetPaths,
+  getAppendSystemTarget,
   getInstallSource,
   getOctocodeMemoryHome,
   listBundledSkills,
   listExtensionHarness,
   mergeManagedAppendSystem,
   parseSetupScope,
+  readTextIfExists,
   shouldAppendSystemPrompt,
   splitArgs,
+  truncateUserVisibleToolOutput,
   cleanupSpawnedAgentsForShutdown,
   setAgentProcessFactoryForTests,
 } from '../src/index.js';
 import { applyCustomEditsToContent, clearEditReadStateForTests, recordFileReadState } from '../src/tools/edit-tool.js';
+import { executeMemoryOperation } from '../src/tools/memory.js';
+import { assertPathAllowed } from '../src/tools/path-guard.js';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(packageRoot, 'dist');
@@ -38,19 +44,10 @@ let distAssetsReady = false;
 
 function ensureDistAssetsForUnitTests(): void {
   if (distAssetsReady) return;
-  const paths = getAssetPaths(distDir);
-  const sourceSkills = listBundledSkills(packageRoot);
-  const distSkills = listBundledSkills(distDir);
-  if (
-    !fs.existsSync(paths.systemPrompt) ||
-    sourceSkills.length === 0 ||
-    distSkills.join('\0') !== sourceSkills.join('\0')
-  ) {
-    execFileSync(process.execPath, [path.join(packageRoot, 'scripts', 'build.mjs')], {
-      cwd: packageRoot,
-      stdio: 'pipe',
-    });
-  }
+  execFileSync(process.execPath, [path.join(packageRoot, 'scripts', 'build.mjs')], {
+    cwd: packageRoot,
+    stdio: 'pipe',
+  });
   distAssetsReady = true;
 }
 
@@ -118,6 +115,8 @@ interface ToolDef {
 interface CaptureResult {
   tools: Map<string, ToolDef>;
   commands: Map<string, { description: string; handler: (args: string, ctx: unknown) => Promise<void> }>;
+  flags: Map<string, { description: string; type: string; default?: unknown }>;
+  flagValues: Map<string, unknown>;
   sentUserMessages: Array<{ msg: string; opts?: Record<string, unknown> }>;
   handlers: Map<string, Array<(event: unknown, ctx: unknown) => void | Promise<void>>>;
   pi: {
@@ -129,12 +128,19 @@ interface CaptureResult {
 async function captureExtensions(): Promise<CaptureResult> {
   const tools = new Map<string, ToolDef>();
   const commands = new Map<string, { description: string; handler: (args: string, ctx: unknown) => Promise<void> }>();
+  const flags = new Map<string, { description: string; type: string; default?: unknown }>();
+  const flagValues = new Map<string, unknown>();
   const sentUserMessages: Array<{ msg: string; opts?: Record<string, unknown> }> = [];
   const activeTools = ['read', 'bash', 'edit', 'write'];
   const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => void | Promise<void>>>();
   const pi = {
     registerTool: (def: ToolDef) => { tools.set(def.name, def); },
     registerCommand: (name: string, cmd: { description: string; handler: (args: string, ctx: unknown) => Promise<void> }) => { commands.set(name, cmd); },
+    registerFlag: (name: string, def: { description: string; type: string; default?: unknown }) => {
+      flags.set(name, def);
+      flagValues.set(name, def.default);
+    },
+    getFlag: (name: string) => flagValues.get(name),
     sendUserMessage: (msg: string, opts?: Record<string, unknown>) => { sentUserMessages.push({ msg, opts }); },
     getActiveTools: () => [...activeTools],
     setActiveTools: (names: string[]) => { activeTools.splice(0, activeTools.length, ...names); },
@@ -146,7 +152,7 @@ async function captureExtensions(): Promise<CaptureResult> {
   };
   const extension = ((await import('../src/index.js')) as { default: (pi: unknown) => Promise<void> }).default;
   await extension(pi);
-  return { tools, commands, sentUserMessages, handlers, pi, activeTools };
+  return { tools, commands, flags, flagValues, sentUserMessages, handlers, pi, activeTools };
 }
 
 async function captureMemoryTools(): Promise<Map<string, ToolDef>> {
@@ -171,7 +177,8 @@ test('build copies the canonical system prompt', () => {
 });
 
 test('build copies bundled Octocode skills without secret env files', () => {
-  assert.equal(fs.existsSync(path.join(distDir, 'bin', 'octocode.js')), false, 'Octocode CLI is NOT bundled — install separately via npm/npx');
+  assert.equal(fs.existsSync(path.join(distDir, 'cli', 'octocode.js')), true, 'Octocode CLI is bundled at dist/cli/octocode.js');
+  assert.equal(fs.existsSync(path.join(distDir, 'bin', 'octocode.js')), false, 'legacy dist/bin CLI path should not be used');
   assert.equal(fs.existsSync(path.join(distDir, 'awareness')), false, 'awareness runtime assets are not copied as a separate dist/awareness directory');
 
   const SKIPPED = ['octocode', 'octocode-awareness', 'octocode-reflection', 'octocode-stats'];
@@ -236,6 +243,34 @@ test('argument parsing supports setup scopes and quoted installer args', () => {
   assert.equal(parseSetupScope('global'), 'global');
   assert.equal(parseSetupScope(''), 'project');
   assert.deepEqual(splitArgs('--ide "VS Code" --scope user'), ['--ide', 'VS Code', '--scope', 'user']);
+});
+
+test('path, asset, and output helpers cover edge cases', () => {
+  assert.equal(
+    getAppendSystemTarget('global', '/repo', '/home/tester'),
+    path.join('/home/tester', '.pi', 'agent', 'APPEND_SYSTEM.md'),
+  );
+  assert.deepEqual(truncateUserVisibleToolOutput('abcdef', 3), {
+    text: 'abc…',
+    truncated: true,
+    omittedChars: 3,
+  });
+  assert.equal(readTextIfExists(path.join(os.tmpdir(), 'octocode-missing-file')), '');
+  assert.throws(() => readTextIfExists(os.tmpdir()));
+
+  const previousAllowed = process.env['ALLOWED_PATHS'];
+  const allowedViaHome = path.join(os.homedir(), 'octocode-pi-allowed-does-not-exist', 'new.txt');
+  try {
+    process.env['ALLOWED_PATHS'] = `~:${path.join('~', 'octocode-pi-allowed-does-not-exist')}`;
+    assert.doesNotThrow(() => assertPathAllowed(allowedViaHome, packageRoot, 'test write'));
+    assert.throws(
+      () => assertPathAllowed(path.join(path.parse(packageRoot).root, 'octocode-pi-blocked-outside-root', 'x.txt'), packageRoot, 'test write'),
+      /outside the allowed roots/,
+    );
+  } finally {
+    if (previousAllowed === undefined) delete process.env['ALLOWED_PATHS'];
+    else process.env['ALLOWED_PATHS'] = previousAllowed;
+  }
 });
 
 test('system prompt append guard detects existing prompt', () => {
@@ -443,7 +478,7 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
     const lockedResult = await tool.execute('lock-1', {
       type: 'lock',
       target_files: ['src/tool-lock.js'],
-      ttl_ms: 1000,
+      ttl_ms: 60000,
       reasoning: 'coordinate test edit',
     }, undefined, undefined, ctx);
     const locked = JSON.parse(lockedResult.content[0]!.text) as { taskId: string; files: string[]; reasoning: string; acquiredAt: string; expiresAt: string; locks: Array<{ task_id: string; file_path: string; reasoning: string; acquired_at: string; expires_at: string }> };
@@ -471,7 +506,7 @@ test('file_lock tool locks, reports, releases, and signals conflicts', withIsola
       type: 'lock',
       agent_id: 'other-agent',
       target_files: ['src/tool-lock.js'],
-      ttl_ms: 1000,
+      ttl_ms: 60000,
     }, undefined, undefined, ctx);
     const conflict = JSON.parse(conflictResult.content[0]!.text) as { ok: boolean; conflict: boolean };
     assert.equal(conflict.ok, false);
@@ -1124,6 +1159,31 @@ test('registers all Octocode direct tools as native Pi tools', async () => {
   assert.ok(singleLineLong[1]!.includes('\u2026'), 'long single line is ellipsis-truncated at render width');
 });
 
+test('browserAgent can build a typed browser subagent config without launching Chrome', async () => {
+  const { tools } = await captureExtensions();
+  const browserTool = tools.get('browserAgent')!;
+  assert.ok(browserTool, 'browserAgent registered');
+
+  const result = await invokeExecute(browserTool, {
+    task: 'audit security cookies and auth storage',
+    url: 'https://example.com/account',
+    port: 19333,
+    runNow: false,
+  });
+
+  const text = result.content[0]!.text;
+  assert.match(text, /schemes run: \(none\)/);
+  assert.match(text, /cdp domains: Network, Runtime, DOM, DOMDebugger/);
+  assert.match(text, /tools: chromeDebug/);
+  assert.match(text, /Your ONLY browser tool is `chromeDebug`/);
+  assert.match(text, /=== SYSTEM PROMPT \(pass to spawnAgent\) ===/);
+  assert.match(text, /## Target URL\nhttps:\/\/example\.com\/account/);
+
+  const collapsed = browserTool.renderResult!(result, { expanded: false }).render(120)[0]!;
+  assert.match(collapsed, /browserAgent/);
+  assert.match(collapsed, /schemes run/);
+});
+
 test('applies Octocode Pi UI status and hidden thinking label', () => {
   const calls: Array<[string, ...string[]]> = [];
   // hasUI:true is required: applyOctocodeUi guards setStatus/setHiddenThinkingLabel
@@ -1169,6 +1229,185 @@ test('CLI slash commands removed — extension commands are lean', async () => {
   assert.equal(commands.has('octocode-search'), false, 'CLI search slash command removed');
   assert.equal(commands.has('octocode-auth'), false, 'CLI auth slash command removed');
 });
+
+test('disableBuiltinReadTool is defensive and only removes disabled built-ins', () => {
+  type DisablePi = Parameters<typeof disableBuiltinReadTool>[0];
+  assert.equal(disableBuiltinReadTool({} as DisablePi), false);
+  assert.equal(disableBuiltinReadTool({
+    getActiveTools: () => ['bash', 'edit'],
+    setActiveTools: () => { throw new Error('should not be called'); },
+  } as unknown as DisablePi), false);
+
+  const active = ['read', 'bash', 'edit'];
+  assert.equal(disableBuiltinReadTool({
+    getActiveTools: () => [...active],
+    setActiveTools: (names: string[]) => { active.splice(0, active.length, ...names); },
+  } as DisablePi), true);
+  assert.deepEqual(active, ['bash', 'edit']);
+
+  assert.equal(disableBuiltinReadTool({
+    getActiveTools: () => { throw new Error('Extension runtime not initialized'); },
+    setActiveTools: () => undefined,
+  } as unknown as DisablePi), false);
+  assert.throws(
+    () => disableBuiltinReadTool({
+      getActiveTools: () => { throw new Error('unexpected runtime failure'); },
+      setActiveTools: () => undefined,
+    } as unknown as DisablePi),
+    /unexpected runtime failure/,
+  );
+});
+
+test('extension commands and lifecycle handlers execute user-visible wiring paths', async () => {
+  const { commands, flags, flagValues, handlers, sentUserMessages } = await captureExtensions();
+  const notifications: Array<{ message: string; level?: string }> = [];
+  const statuses: Array<[string, string]> = [];
+  let reloads = 0;
+  let confirmAnswer = false;
+  const ctx = {
+    cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-extension-wiring-')),
+    hasUI: true,
+    model: { id: 'gpt-test', reasoning: true },
+    isProjectTrusted: async () => false,
+    reload: async () => { reloads += 1; },
+    ui: {
+      theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+      notify: (message: string, level?: string) => notifications.push({ message, level }),
+      confirm: async () => confirmAnswer,
+      setStatus: (key: string, value: string) => statuses.push([key, value]),
+      setHiddenThinkingLabel: (label: string) => statuses.push(['hidden-thinking', label]),
+    },
+  };
+
+  try {
+    assert.equal(flags.get('no-context')?.default, false);
+
+    await commands.get('octocode-status')!.handler('', ctx);
+    assert.match(notifications.at(-1)!.message, /Octocode Pi extension/);
+
+    await commands.get('octocode-harness')!.handler('', ctx);
+    assert.match(notifications.at(-1)!.message, /native tools/);
+
+    await commands.get('octocode-memory-forget')!.handler('', ctx);
+    assert.match(notifications.at(-1)!.message, /requires --id, --tag, --before, or --max-importance/);
+
+    await commands.get('octocode-memory-digest')!.handler('--apply', { ...ctx, hasUI: false });
+    assert.match(notifications.at(-1)!.message, /Pass --yes with --apply/);
+
+    await commands.get('octocode-setup')!.handler('', { ...ctx, hasUI: false });
+    assert.match(notifications.at(-1)!.message, /Missing Octocode system prompt/);
+
+    await commands.get('octocode-skills-update')!.handler('', ctx);
+    assert.equal(sentUserMessages.length, 0, 'cancelled update does not queue follow-up');
+    assert.equal(notifications.at(-1)!.message, 'Command cancelled.');
+
+    confirmAnswer = true;
+    await commands.get('octocode-skills-update')!.handler('', ctx);
+    assert.equal(sentUserMessages.at(-1)!.opts?.['deliverAs'], 'followUp');
+    assert.match(sentUserMessages.at(-1)!.msg, /^pi update /);
+    assert.equal(reloads, 1);
+
+    const resourcesResult = await handlers.get('resources_discover')![0]!(undefined, ctx);
+    assert.deepEqual(resourcesResult, {}, 'source-mode tests have no src/skills directory');
+
+    flagValues.set('no-context', true);
+    const beforeStartEvent = {
+      systemPrompt: 'already-running',
+      systemPromptOptions: { contextFiles: ['AGENTS.md'] },
+    };
+    const beforeStartResult = await handlers.get('before_agent_start')!.at(-1)!(beforeStartEvent, ctx);
+    assert.deepEqual(beforeStartEvent.systemPromptOptions.contextFiles, []);
+    assert.equal(beforeStartResult, undefined, 'source-mode missing generated prompt skips prompt injection');
+
+    await handlers.get('session_start')![0]!(undefined, ctx);
+    await handlers.get('model_select')![0]!(undefined, ctx);
+    await handlers.get('thinking_level_select')![0]!({ level: 'low' }, ctx);
+    assert.ok(statuses.some(([key]) => key === 'octocode'));
+    assert.ok(statuses.some(([key, value]) => key === 'octocode-thinking' && value.includes('thinking: low')));
+  } finally {
+    fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  }
+});
+
+test('memory commands and direct operations cover digest, forget, harness export, weakness mining, and errors', withIsolatedDb(async (dbCtx) => {
+  const { commands } = await captureExtensions();
+  const notifications: Array<{ message: string; level?: string }> = [];
+  let confirmAnswer = false;
+  const ctx = {
+    cwd: dbCtx.cwd,
+    dbPath: dbCtx.dbPath,
+    hasUI: true,
+    ui: {
+      notify: (message: string, level?: string) => notifications.push({ message, level }),
+      confirm: async () => confirmAnswer,
+    },
+  };
+  const getAgentId = () => 'memory-coverage-agent';
+
+  await commands.get('octocode-memory-digest')!.handler(
+    `--retention-days 1 --workspace "${dbCtx.cwd}" --export-doc`,
+    ctx,
+  );
+  assert.match(notifications.at(-1)!.message, /memory_digest preview/);
+  assert.match(notifications.at(-1)!.message, /would_archive/);
+  assert.equal(fs.existsSync(path.join(dbCtx.cwd, '.octocode', 'memory-reports')), true);
+
+  await commands.get('octocode-memory-digest')!.handler('--apply', ctx);
+  assert.equal(notifications.at(-1)!.message, 'Memory digest cancelled.');
+
+  confirmAnswer = true;
+  await commands.get('octocode-memory-digest')!.handler('--apply --retention-days 1', ctx);
+  assert.match(notifications.at(-1)!.message, /memory_digest applied/);
+
+  await commands.get('octocode-memory-forget')!.handler('--tag TEST --before 2099-01-01 --max-importance 9 --id mem_missing', ctx);
+  assert.match(notifications.at(-1)!.message, /memory_forget preview/);
+
+  confirmAnswer = false;
+  await commands.get('octocode-memory-forget')!.handler('--apply --tag TEST', ctx);
+  assert.equal(notifications.at(-1)!.message, 'Memory forget cancelled.');
+
+  await commands.get('octocode-memory-forget')!.handler('--apply --tag TEST', { ...ctx, hasUI: false });
+  assert.match(notifications.at(-1)!.message, /Pass --yes with --apply/);
+
+  const reflectError = executeMemoryOperation('reflect', {
+    task: 'routine status only',
+  }, getAgentId, dbCtx);
+  assert.match(reflectError.content[0]!.text, /memory reflect needs/);
+  assert.equal((reflectError.details as { exit: number }).exit, 1);
+
+  const verifyError = executeMemoryOperation('verify', {}, getAgentId, dbCtx);
+  assert.match(verifyError.content[0]!.text, /memory_verify requires/);
+
+  const weakness = executeMemoryOperation('mine_weakness', {
+    workspace_path: dbCtx.cwd,
+    min_count: 1,
+    limit: 5,
+  }, getAgentId, dbCtx);
+  assert.match(weakness.content[0]!.text, /No recurring failure patterns found/);
+
+  const harness = executeMemoryOperation('export_harness', {
+    workspace_path: dbCtx.cwd,
+    harness_only: true,
+    limit: 5,
+  }, getAgentId, dbCtx);
+  assert.match(harness.content[0]!.text, /No harness proposals yet/);
+
+  const dryDigest = executeMemoryOperation('digest', {
+    dry_run: true,
+    export_doc: true,
+    workspace_path: dbCtx.cwd,
+  }, getAgentId, dbCtx);
+  const dryPayload = JSON.parse(dryDigest.content[0]!.text) as { dry_run?: boolean; doc_path?: string };
+  assert.equal(dryPayload.dry_run, true);
+  assert.ok(dryPayload.doc_path?.endsWith('.md'));
+
+  const forget = executeMemoryOperation('forget', {
+    tags: ['TEST'],
+    memory_ids: ['mem_missing'],
+    dry_run: true,
+  }, getAgentId, dbCtx);
+  assert.match(forget.content[0]!.text, /dry_run|preview|deleted|previewed/);
+}));
 
 test('registers split typed memory support tools with strict schemas', async () => {
   const { tools } = await captureExtensions();
@@ -1271,6 +1510,56 @@ test('manage_context type:compact reports compaction errors without queueing con
   assert.deepEqual(notifications[0], {
     message: 'Compaction failed: Nothing to compact',
     level: 'error',
+  });
+});
+
+test('manage_context type:new, missing compact support, and render states are explicit', async () => {
+  const { tools, sentUserMessages } = await captureExtensions();
+  const compactTool = tools.get('manage_context')!;
+
+  const newResult = await invokeExecute(compactTool, { type: 'new' });
+  assert.match(newResult.content[0]!.text, /New session queued/);
+  assert.deepEqual(sentUserMessages.at(-1), {
+    msg: '/_octocode-clear-context-impl',
+    opts: { deliverAs: 'followUp' },
+  });
+
+  await assert.rejects(
+    () => invokeExecute(compactTool, { type: 'compact' }, {}),
+    /ctx\.compact is not available/,
+  );
+
+  assert.match(
+    compactTool.renderCall!({ type: 'new' }, {
+      bold: (text: string) => `<b>${text}</b>`,
+      fg: (_color: string, text: string) => text,
+    }).render(120)[0]!,
+    /manage_context<\/b> \(new\)/,
+  );
+  assert.equal(
+    compactTool.renderResult!({ isError: false, content: [{ type: 'text', text: 'ok' }] }, { isPartial: true }).render(120)[0],
+    'Processing…',
+  );
+  assert.equal(
+    compactTool.renderResult!({ isError: true, content: [{ type: 'text', text: 'bad' }] }, { expanded: false }).render(120)[0],
+    '✗ manage_context',
+  );
+
+  const { commands } = await captureExtensions();
+  const notifications: Array<{ message: string; level?: string }> = [];
+  await commands.get('_octocode-clear-context-impl')!.handler('', {
+    ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
+  });
+  assert.match(notifications.at(-1)!.message, /ctx\.newSession not available/);
+
+  const cancelled: Array<{ message: string; level?: string }> = [];
+  await commands.get('_octocode-clear-context-impl')!.handler('', {
+    newSession: async () => ({ cancelled: true }),
+    ui: { notify: (message: string, level?: string) => cancelled.push({ message, level }) },
+  });
+  assert.deepEqual(cancelled.at(-1), {
+    message: 'clear_context: session switch was cancelled.',
+    level: 'warning',
   });
 });
 
@@ -1749,6 +2038,8 @@ interface MockAgentProcess {
   on(event: string, cb: (...args: unknown[]) => void): void;
   kill(signal?: NodeJS.Signals): boolean;
   killed?: boolean;
+  exitCode?: number | null;
+  signalCode?: NodeJS.Signals | null;
   emitStdout(line: unknown): void;
   emitStderr(text: string): void;
   close(code?: number, signal?: string): void;
@@ -1774,7 +2065,11 @@ function createMockAgentProcess(): MockAgentProcess {
     kill() { proc.killed = true; return true; },
     emitStdout(line: unknown) { stdoutHandlers.forEach((cb) => cb(`${JSON.stringify(line)}\n`)); },
     emitStderr(text: string) { stderrHandlers.forEach((cb) => cb(text)); },
-    close(code = 0, signal?: string) { closeHandlers.forEach((cb) => cb(code, signal)); },
+    close(code = 0, signal?: string) {
+      proc.exitCode = code;
+      proc.signalCode = signal as NodeJS.Signals | undefined ?? null;
+      closeHandlers.forEach((cb) => cb(code, signal));
+    },
   };
   void errorHandlers;
   return proc;
@@ -1844,6 +2139,182 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     await invokeExecute(messageTool, { action: 'send', agentId, message: 'queue after current turn' });
     const runningSend = JSON.parse(spawned[0]!.proc.stdinWrites.at(-1)!);
     assert.equal(runningSend.streamingBehavior, 'followUp', 'running send defaults to followUp');
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('spawnAgent covers octocode resource options, prompt file cleanup, list renderers, and dead-worker messaging', async () => {
+  const spawned: Array<{ command: string; args: string[]; options: { cwd?: string }; proc: MockAgentProcess }> = [];
+  setAgentProcessFactoryForTests((command, args, options) => {
+    const proc = createMockAgentProcess();
+    spawned.push({ command, args, options, proc });
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnTool = tools.get('spawnAgent')!;
+    const messageTool = tools.get('AgentMessage')!;
+    const theme = {
+      bold: (text: string) => `<b>${text}</b>`,
+      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+    };
+
+    const result = await invokeExecute(
+      spawnTool,
+      {
+        prompt: 'run with every option',
+        name: 'strange worker name!*',
+        provider: 'openai',
+        model: 'gpt-test',
+        thinking: 'low',
+        tools: ['spawnAgent', 'AgentMessage', 'web'],
+        systemPrompt: 'extra worker rules',
+        resourceMode: 'octocode',
+        noSession: false,
+        skills: ['/repo/.agents/skills/octocode-research'],
+      },
+      { cwd: '/repo' },
+    );
+
+    const args = spawned[0]!.args;
+    assert.ok(args.includes('-e'), 'octocode resource mode loads this extension explicitly');
+    assert.ok(args.includes('--provider'));
+    assert.ok(args.includes('openai'));
+    assert.ok(args.includes('--model'));
+    assert.ok(args.includes('gpt-test'));
+    assert.ok(args.includes('--thinking'));
+    assert.ok(args.includes('low'));
+    assert.ok(args.includes('--skill'));
+    assert.ok(args.includes('/repo/.agents/skills/octocode-research'));
+    assert.ok(args.includes('--tools'));
+    assert.ok(args.includes('web'), 'forbidden recursive tools are filtered from worker --tools');
+    assert.equal(args.includes('--no-session'), false, 'noSession:false omits --no-session');
+
+    const promptPath = args[args.indexOf('--append-system-prompt') + 1]!;
+    assert.equal(fs.existsSync(promptPath), true, 'system prompt file is created for worker');
+    assert.match(path.basename(promptPath), /^strange_worker_name/);
+
+    const spawnExpanded = spawnTool.renderResult!(result, { expanded: true }, theme).render(160);
+    assert.ok(spawnExpanded.some((line) => line.includes('<toolTitle>spawnAgent</toolTitle>')));
+
+    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+    const list = await invokeExecute(messageTool, { action: 'list' });
+    assert.match(messageTool.renderCall!({ action: 'list' }, theme).render(120)[0]!, /<accent>list<\/accent>.*all/);
+    assert.match(messageTool.renderCall!({ action: 'steer', agentId, message: 'x'.repeat(80) }, theme).render(120)[0]!, /strange worker name/);
+    assert.match(messageTool.renderResult!(list, { expanded: false }, theme).render(120)[0]!, /1 agents/);
+    assert.ok(messageTool.renderResult!(list, { expanded: true }, theme).render(160).length > 1);
+    assert.equal(
+      messageTool.renderResult!(list, { isPartial: true }, theme).render(120)[0],
+      '<warning>⧗ Agent working…</warning>',
+    );
+
+    spawned[0]!.proc.close(0);
+    assert.equal(fs.existsSync(path.dirname(promptPath)), false, 'prompt temp directory is removed after process close');
+    await assert.rejects(
+      () => invokeExecute(messageTool, { action: 'followUp', agentId, message: 'too late' }),
+      /cannot reach agent/,
+    );
+
+    const failedRendered = messageTool.renderResult!(
+      { isError: true, content: [{ type: 'text', text: 'bad' }], details: { agent: { name: 'failed-one', status: 'failed' } } },
+      { expanded: true },
+      theme,
+    ).render(120);
+    assert.match(failedRendered[0]!, /failed-one/);
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('spawnSubagent starts the browser-agent with the typed prompt, tools, skills, and octocode resource mode', async () => {
+  const spawned: Array<{ command: string; args: string[]; options: { cwd?: string }; proc: MockAgentProcess }> = [];
+  setAgentProcessFactoryForTests((command, args, options) => {
+    const proc = createMockAgentProcess();
+    spawned.push({ command, args, options, proc });
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnSubagent = tools.get('spawnSubagent')!;
+    assert.ok(spawnSubagent, 'spawnSubagent registered');
+
+    const result = await invokeExecute(
+      spawnSubagent,
+      {
+        agent: 'browser-agent',
+        task: 'audit cookie flags and service workers',
+        url: 'https://example.com/app',
+        port: 19333,
+        launch: true,
+        headless: false,
+        cwd: '/repo',
+      },
+      { cwd: '/fallback' },
+    );
+
+    assert.equal(spawned.length, 1);
+    const args = spawned[0]!.args;
+    assert.equal(spawned[0]!.options.cwd, '/repo');
+    assert.ok(args.includes('--no-extensions'));
+    assert.ok(args.includes('-e'), 'browser subagent should load this extension explicitly');
+    assert.ok(args.includes('--skill'), 'browser subagent should load its browser-agent skill');
+    assert.ok(args.includes('--tools'));
+    assert.ok(args.includes('chromeDebug,web,localGetFileContent,localSearchCode,localViewStructure'));
+    assert.ok(args.includes('--thinking'));
+    assert.ok(args.includes('low'));
+    assert.ok(args.includes('--append-system-prompt'), 'typed subagent loads its SYSTEM_PROMPT.md');
+
+    const initialPrompt = spawned[0]!.proc.stdinWrites[0]!;
+    assert.match(initialPrompt, /Browser Session/);
+    assert.match(initialPrompt, /Target URL: https:\/\/example\.com\/app/);
+    assert.match(initialPrompt, /Chrome port: 19333/);
+    assert.match(initialPrompt, /Launch Chrome: true/);
+    assert.match(initialPrompt, /Headless: false/);
+    assert.match(initialPrompt, /audit cookie flags and service workers/);
+
+    assert.match(result.content[0]!.text, /\[SPAWNED\] Browser Agent/);
+    assert.match(result.content[0]!.text, /resourceMode: octocode/);
+    const collapsed = spawnSubagent.renderResult!(result, { expanded: false }).render(120)[0]!;
+    assert.match(collapsed, /Browser Agent/);
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('spawnSubagent covers context injection, invalid URL name fallback, unknown agent, and render fallback', async () => {
+  const spawned: Array<{ args: string[]; proc: MockAgentProcess }> = [];
+  setAgentProcessFactoryForTests((_command, args, _options) => {
+    const proc = createMockAgentProcess();
+    spawned.push({ args, proc });
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnSubagent = tools.get('spawnSubagent')!;
+
+    const result = await invokeExecute(
+      spawnSubagent,
+      {
+        agent: 'browser-agent',
+        task: 'inspect current page',
+        context: 'Prior finding: auth cookie missing Secure',
+        url: 'not a valid url',
+      },
+      { cwd: '/repo' },
+    );
+    const initialPrompt = JSON.parse(spawned[0]!.proc.stdinWrites[0]!) as { message: string };
+    assert.match(initialPrompt.message, /## Context\nPrior finding/);
+    assert.match(result.content[0]!.text, /\[SPAWNED\] name: Browser Agent · session/);
+
+    await assert.rejects(
+      () => invokeExecute(spawnSubagent, { agent: 'missing-agent', task: 'nope' }),
+      /Unknown subagent/,
+    );
+    assert.match(
+      spawnSubagent.renderCall!({ agent: 'missing-agent', task: 'x'.repeat(80) }).render(120)[0]!,
+      /spawnSubagent\(missing-agent\).*…/,
+    );
   } finally {
     setAgentProcessFactoryForTests(null);
   }

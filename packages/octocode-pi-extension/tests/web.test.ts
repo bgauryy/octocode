@@ -389,6 +389,24 @@ test('webSearch: dispatches to the provider chosen by env, end to end', async ()
   assert.equal(ddg.engine, 'duckduckgo');
 });
 
+test('webSearch returns provider errors and renderWebResult handles empty result sets', async () => {
+  const failed = await webSearch('q', {
+    env: {},
+    lookup: publicLookup,
+    fetchImpl: async () => { throw new Error('network down'); },
+  });
+  assert.match(failed.error ?? '', /web search \(duckduckgo\) failed: network down/);
+
+  const rendered = renderWebResult({
+    query: 'nothing',
+    engine: 'duckduckgo',
+    answer: 'Nope',
+    results: [],
+  });
+  assert.match(rendered, /Answer: Nope/);
+  assert.match(rendered, /No results for "nothing"/);
+});
+
 test('resolveUserAgent: browser-like default, env override honored', () => {
   assert.match(resolveUserAgent({}), /Mozilla\/5\.0.*Chrome/);
   assert.equal(resolveUserAgent({}), DEFAULT_USER_AGENT);
@@ -506,6 +524,26 @@ test('runWebTool requires url or query; renderWebResult formats both modes', asy
   assert.equal(renderWebResult({ error: 'boom' }), 'boom');
   assert.ok(renderWebResult({ query: 'q', results: [{ title: 'T', url: 'u', snippet: 's' }] }).includes('1. T'));
   assert.ok(renderWebResult({ url: 'https://x', title: 'Ti', text: 'body' }).includes('# Ti'));
+});
+
+test('runWebTool dispatches query options through webSearch', async () => {
+  const html = '<a class="result__a" href="https://docs.example.com/a">Docs</a><a class="result__snippet">Snippet</a>';
+  const out = await runWebTool(
+    {
+      query: 'octocode docs',
+      maxResults: 1,
+      engine: 'duckduckgo',
+      timeRange: 'week',
+      includeDomains: ['docs.example.com'],
+      excludeDomains: ['noise.example.com'],
+    },
+    {
+      lookup: publicLookup,
+      fetchImpl: async () => textRes(html) as unknown as Response,
+    },
+  );
+  assert.equal((out as { engine?: string }).engine, 'duckduckgo');
+  assert.equal((out as { results?: Array<{ title: string }> }).results?.[0]?.title, 'Docs');
 });
 
 test('runWebTool: page param dispatched to webFetch and reflected in result', async () => {
