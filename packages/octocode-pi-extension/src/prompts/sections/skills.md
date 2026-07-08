@@ -13,5 +13,5 @@ Load proactively — before or during work when context matches. Always read `SK
 
 `octocode-reflection` and `octocode-agent-communication` may appear in older prompts; load `octocode-awareness` for those workflows because no separate skill bundles are shipped for the old names.
 
-**To install a skill** — `bash: node $OCTOCODE_CLI skill --name <skill-name> [--platform pi]`
+**To install bundled/local skills** — `bash: node $OCTOCODE_CLI skill --add --path {{path_to_skills_location}} [--platform pi]`
 </skills>

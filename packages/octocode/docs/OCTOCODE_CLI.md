@@ -143,6 +143,7 @@ offline, always the correct version for this release.
 
 ```bash
 npx octocode skill --name octocode-research
+npx octocode skill --name octocode-awareness
 npx octocode skill --name octocode-research --platform cursor
 npx octocode skill --name octocode-research --platform claude
 npx octocode skill --name octocode-research --platform all --dry-run
@@ -151,6 +152,18 @@ npx octocode skill --name octocode-research --platform all --dry-run
 `--name` checks the bundled skills first. If the skill is in the bundle it is
 installed directly from there. If it is not in the bundle (e.g. a newer skill
 published after this CLI release), the CLI falls back to fetching from GitHub.
+
+### Install from an agent-known local skill path
+
+```bash
+npx octocode skill --add --path /absolute/path/to/skills --platform common
+npx octocode skill --add --path /absolute/path/to/skills/octocode-awareness --platform codex --dry-run
+npx octocode skill --add --path /absolute/path/to/skills/octocode-awareness/SKILL.md --platform pi
+```
+
+Use `--add --path` when the agent already knows the bundled skill location. The
+path may point at a skill folder, its `SKILL.md`, or a local skills library
+folder; a library path installs every direct child skill folder.
 
 ### Install all bundled Octocode skills
 
@@ -167,8 +180,8 @@ npx octocode skill --add owner/repo/skills/code-review --platform cursor,codex
 npx octocode skill --add https://github.com/owner/repo/tree/main/skills/review --platform common
 ```
 
-`--add` always fetches from GitHub (never the bundle) — use it for third-party
-or community skills.
+`--add <github-path>` fetches from GitHub. Use `--add --path <local-path>` for a
+local bundled or agent-known skill folder.
 
 ### List available skills
 
@@ -211,6 +224,7 @@ shows all available named Octocode skills with descriptions.
 | `--verbose` | Show source URL and cache path. |
 | `--json` | Structured JSON output. |
 | `--branch <ref>` | Branch, tag, or SHA when fetching from GitHub. |
+| `--path <path>` | Local skill folder, `SKILL.md`, or local skills library path; use with `--add`. |
 
 ---
 
@@ -452,9 +466,9 @@ The code boundary is intentionally thin:
 
 ## Further Reading
 
-- [Octocode Query Language](./OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, common recipes, agent rules
-- [OQL Language Reference](./OQL_LANGUAGE_REFERENCE.md) — full language spec: anatomy, targets, predicates, params, controls
-- [OQL Results and Evidence](./OQL_RESULTS_AND_EVIDENCE.md) — result envelope, evidence tiers, diagnostics, continuations, safe deletion
+- [Octocode Query Language](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, common recipes, agent rules
+- [OQL Language Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) — full language spec: anatomy, targets, predicates, params, controls
+- [OQL Results and Evidence](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) — result envelope, evidence tiers, diagnostics, continuations, safe deletion
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 - [MCP Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 - [All 13 Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md)

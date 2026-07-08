@@ -7,7 +7,7 @@ process.on('warning', (w) => {
 
 // bin/awareness.ts
 import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync5, existsSync as existsSync2 } from "node:fs";
-import { spawnSync as spawnSync5 } from "node:child_process";
+import { spawnSync as spawnSync6 } from "node:child_process";
 import { dirname as dirname4, join as join5 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
@@ -1477,6 +1477,14 @@ import { randomUUID as randomUUID2 } from "node:crypto";
 import { createHash } from "node:crypto";
 
 // src/sql/audit.ts
+var EDIT_LOG_INSERT = `
+  INSERT INTO edit_log (
+    edit_id, session_id, task_id, agent_id,
+    file_path, operation, old_file_path,
+    lines_added, lines_removed, content_hash,
+    workspace_path, artifact, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
 var HARNESS_LOG_INSERT = `
   INSERT INTO harness_log (
     harness_id, session_id, agent_id, workspace_path, artifact, event_type,
@@ -1485,6 +1493,26 @@ var HARNESS_LOG_INSERT = `
 `;
 
 // src/audit.ts
+function insertEditLog(db3, params) {
+  const editId = "edit_" + randomUUID2();
+  const now = utcNow();
+  db3.prepare(EDIT_LOG_INSERT).run(
+    editId,
+    params.sessionId ?? null,
+    params.taskId ?? null,
+    params.agentId,
+    params.filePath,
+    params.operation,
+    params.oldFilePath ?? null,
+    params.linesAdded ?? null,
+    params.linesRemoved ?? null,
+    params.contentHash ?? null,
+    params.workspacePath ?? null,
+    normalizeArtifact(params.artifact),
+    now
+  );
+  return { editId };
+}
 function insertHarnessLog(db3, params) {
   const harnessId = "harness_" + randomUUID2();
   const now = utcNow();
@@ -3595,7 +3623,7 @@ function hooksInstallUsage() {
 Install, check, dry-run, or remove octocode-awareness lifecycle hooks.
 
 Targets:
-  --host claude         Write Claude Code hooks to .claude/settings.json (default).
+  --host claude         Write Claude Code hooks to .claude/settings.json (install default).
   --host codex         Write Codex hooks to .codex/hooks.json.
   --host cursor        Write Cursor hooks to .cursor/hooks.json.
 
@@ -3603,6 +3631,7 @@ Options:
   --project-dir <path>  Target a project hook file under <path> (default: cwd).
   --global              Target the user hook file with absolute hook paths.
   --check               Report whether the hooks are installed.
+  --strict              With --check, exit 2 if hooks are missing or drifted.
   --dry-run             Print the resulting settings without writing.
   --compact             Minify JSON output when supported.
   --remove              Remove only octocode-awareness hooks.`;
@@ -3709,6 +3738,45 @@ function sameAwarenessCommand(actual, expected) {
 function hasCommand(groups, command2) {
   return (groups ?? []).some((group) => sameAwarenessCommand(group.command, command2) || (group.hooks ?? []).some((hook) => sameAwarenessCommand(hook.command, command2)));
 }
+function matcherMatches(actual, expected) {
+  return expected ? actual === expected : actual == null;
+}
+function isExactHookEntry(host, group, spec) {
+  if (host === "cursor") {
+    return sameAwarenessCommand(group.command, spec.command) && group.timeout === 20 && matcherMatches(group.matcher, spec.matcher) && !Array.isArray(group.hooks);
+  }
+  return matcherMatches(group.matcher, spec.matcher) && (group.hooks ?? []).some((hook) => hook.type === "command" && sameAwarenessCommand(hook.command, spec.command) && hook.timeout === 20);
+}
+function hasExactCommand(groups, host, spec) {
+  return (groups ?? []).some((group) => isExactHookEntry(host, group, spec));
+}
+function matchingCommandCount(groups, command2) {
+  let count = 0;
+  for (const group of groups ?? []) {
+    if (sameAwarenessCommand(group.command, command2)) count += 1;
+    count += (group.hooks ?? []).filter((hook) => sameAwarenessCommand(hook.command, command2)).length;
+  }
+  return count;
+}
+function hasDriftedCommand(groups, host, spec) {
+  for (const group of groups ?? []) {
+    if (host === "cursor") {
+      if (sameAwarenessCommand(group.command, spec.command) && !isExactHookEntry(host, group, spec)) {
+        return true;
+      }
+      continue;
+    }
+    for (const hook of group.hooks ?? []) {
+      if (!sameAwarenessCommand(hook.command, spec.command)) continue;
+      const exact = matcherMatches(group.matcher, spec.matcher) && hook.type === "command" && hook.timeout === 20;
+      if (!exact) return true;
+    }
+  }
+  return false;
+}
+function hookStatusKey(spec) {
+  return `${spec.event}:${spec.command.split(/[\\/]/).pop()}`;
+}
 function removeCommand(groups, command2) {
   let removed = false;
   const out = [];
@@ -3739,6 +3807,9 @@ function runHooksInstall(argv, options) {
   if (flag(argv, "--global") && argv.includes("--project-dir")) {
     return fail("use either --global or --project-dir, not both");
   }
+  if (flag(argv, "--check") && !argv.includes("--host")) {
+    return fail("hooks check requires --host claude, --host codex, or --host cursor");
+  }
   const hostValue = requestedHost(argv);
   if (!HOSTS.has(hostValue)) {
     return fail("invalid --host; expected claude, codex, or cursor", { host: hostValue });
@@ -3761,18 +3832,44 @@ function runHooksInstall(argv, options) {
     projectDir,
     hookDir: options.hookDir
   });
+  const checks = specs.map((spec) => {
+    const groups = settings.hooks?.[spec.event];
+    const present = hasCommand(groups, spec.command);
+    const exact = hasExactCommand(groups, host, spec);
+    const matchingCount = matchingCommandCount(groups, spec.command);
+    const drifted = present && (!exact || hasDriftedCommand(groups, host, spec) || matchingCount > 1);
+    return {
+      key: hookStatusKey(spec),
+      event: spec.event,
+      hook: spec.command.split(/[\\/]/).pop(),
+      installed: exact,
+      present,
+      matching_count: matchingCount,
+      drifted,
+      expected: {
+        matcher: spec.matcher ?? null,
+        command: spec.command,
+        timeout: 20,
+        shape: host === "cursor" ? "flat" : "nested"
+      }
+    };
+  });
+  const hooks = Object.fromEntries(checks.map((check) => [check.key, check.installed]));
   const status = {
     host,
     settingsPath,
-    hooks: Object.fromEntries(
-      specs.map((spec) => [
-        `${spec.event}:${spec.command.split(/[\\/]/).pop()}`,
-        hasCommand(settings.hooks?.[spec.event], spec.command)
-      ])
-    )
+    hooks,
+    installed_all: checks.every((check) => check.installed),
+    missing: checks.filter((check) => !check.present).map((check) => check.key),
+    drifted: checks.filter((check) => check.drifted).map((check) => check.key),
+    details: Object.fromEntries(checks.map((check) => [check.key, check]))
   };
   if (flag(argv, "--check")) {
-    return { exitCode: 0, payload: { ok: true, action: "check", installed: status } };
+    const strict = flag(argv, "--strict");
+    return {
+      exitCode: strict && (!status.installed_all || status.drifted.length > 0) ? 2 : 0,
+      payload: { ok: status.installed_all && status.drifted.length === 0, action: "check", strict, installed: status }
+    };
   }
   let changed = false;
   settings.hooks ??= {};
@@ -3791,11 +3888,15 @@ function runHooksInstall(argv, options) {
     }
     if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   } else {
+    const checksByKey = new Map(checks.map((check) => [check.key, check]));
     for (const spec of specs) {
       const groups = settings.hooks[spec.event] ?? [];
       settings.hooks[spec.event] = groups;
-      if (!hasCommand(groups, spec.command)) {
-        groups.push(entry(host, spec));
+      const check = checksByKey.get(hookStatusKey(spec));
+      if (!check?.installed || check.drifted) {
+        const pruned = removeCommand(groups, spec.command);
+        settings.hooks[spec.event] = pruned.groups;
+        settings.hooks[spec.event].push(entry(host, spec));
         changed = true;
       }
     }
@@ -4799,14 +4900,17 @@ function gitCheckIgnored(cwd, path2) {
 }
 
 // bin/hook-runner.ts
-import { spawnSync as spawnSync4 } from "node:child_process";
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync2, realpathSync as realpathSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { spawnSync as spawnSync5 } from "node:child_process";
+import { createHash as createHash2 } from "node:crypto";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync2, realpathSync as realpathSync3, writeFileSync as writeFileSync3 } from "node:fs";
 import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute5, join as join4, relative as relative3, resolve as resolve8 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/pi-hooks.ts
 import path from "node:path";
+import { spawnSync as spawnSync4 } from "node:child_process";
 import { randomUUID as randomUUID8 } from "node:crypto";
+import { realpathSync as realpathSync2 } from "node:fs";
 var _sessionStartupToken = randomUUID8().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
@@ -4912,8 +5016,42 @@ function payloadForFileExtraction(payload) {
   if (Object.keys(inputObj).length === 0) return input;
   return { ...payload, ...inputObj };
 }
+var warnedFallbackAgentId = false;
+function firstString2(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
 function agentId(payload) {
-  return process.env.OCTOCODE_AGENT_ID || String(payload.session_id ?? payload.sessionId ?? payload.agent_id ?? payload.agentId ?? "claude-agent");
+  const input = objectOrEmpty2(payloadInput(payload));
+  const explicit = firstString2(
+    process.env.OCTOCODE_AGENT_ID,
+    payload.session_id,
+    payload.sessionId,
+    payload.agent_id,
+    payload.agentId,
+    input.session_id,
+    input.sessionId,
+    input.agent_id,
+    input.agentId
+  );
+  if (explicit) return explicit;
+  const host = firstString2(
+    process.env.OCTOCODE_AGENT_HOST,
+    payload.host,
+    payload.client,
+    payload.source,
+    payload.context
+  ) ?? "shell";
+  const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
+  const suffix = createHash2("sha1").update(scope).digest("hex").slice(0, 12);
+  const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, "_")}:${suffix}`;
+  if (!warnedFallbackAgentId) {
+    warnedFallbackAgentId = true;
+    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent lock isolation.`);
+  }
+  return fallback;
 }
 function agentName(payload) {
   const value = process.env.OCTOCODE_AGENT_NAME ?? payload.agent_name ?? payload.agentName ?? payload.agent_display_name ?? payload.agentDisplayName;
@@ -4948,7 +5086,7 @@ function canonicalize(input) {
   const tail = [];
   for (let guard = 0; guard < 4096; guard += 1) {
     try {
-      return tail.length ? join4(realpathSync2(dir), ...tail) : realpathSync2(dir);
+      return tail.length ? join4(realpathSync3(dir), ...tail) : realpathSync3(dir);
     } catch {
       const parent = dirname3(dir);
       if (parent === dir) return resolve8(input);
@@ -5024,14 +5162,29 @@ async function runPostEdit(payload) {
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:post-edit");
-    releaseFileLock(database, {
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? void 0,
-      artifact: artifact(payload),
+    const hookAgentId = agentId(payload);
+    const hookWorkspace = workspace(payload) ?? process.cwd();
+    const hookArtifact = artifact(payload);
+    const release = releaseFileLock(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
       targetFiles: files,
       status: "PENDING"
     });
-  } catch {
+    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : null;
+    for (const file of files) {
+      insertEditLog(database, {
+        agentId: hookAgentId,
+        taskId,
+        filePath: resolveHookPath(file, hookWorkspace),
+        operation: "update",
+        workspacePath: hookWorkspace,
+        artifact: hookArtifact
+      });
+    }
+  } catch (error) {
+    console.error(`octocode-awareness post-edit warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -5061,7 +5214,7 @@ async function runHarnessGuard(payload) {
 }
 function gitBranchOf(dir) {
   try {
-    const r = spawnSync4("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
+    const r = spawnSync5("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf8",
       timeout: 5e3
     });
@@ -5087,12 +5240,14 @@ async function runStopVerify(payload) {
       console.error(`octocode-awareness: concluding with unverified work. ${parts.join(" | ")}`);
       return 2;
     }
-  } catch {
+  } catch (error) {
+    console.error(`octocode-awareness verify warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
 function maybeRunDigest(payload) {
   if (process.env.OCTOCODE_NO_DIGEST === "1") return;
+  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
@@ -5111,7 +5266,8 @@ function maybeRunDigest(payload) {
       writeFileSync3(markerPath, String(now), "utf8");
       digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
     }
-  } catch {
+  } catch (error) {
+    console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 async function runNotifyDeliver(payload) {
@@ -5132,7 +5288,8 @@ async function runNotifyDeliver(payload) {
         additional_context: result.additionalContext
       }) + "\n");
     }
-  } catch {
+  } catch (error) {
+    console.error(`octocode-awareness session-capture warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -5266,13 +5423,13 @@ var KNOWN_FLAGS = {
   "query": ["view", "query", "limit", "format", "out", "workspace", "artifact", "repo", "ref", "agent_id", "state", "label", "file", "since", "include_bodies"],
   "repo-inject": ["query", "limit", "out", "out_dir", "workspace", "artifact", "repo", "ref", "mode", "check", "include_view", "include_bodies"],
   "agent-registry": ["action", "agent_id", "agent_name", "workspace", "artifact", "context", "limit"],
-  "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "mark_read", "limit", "format"],
+  "agent-signal": ["action", "agent_id", "workspace", "artifact", "repo", "ref", "kind", "subject", "body", "to_agent", "file", "ref_id", "importance", "in_reply_to", "thread_id", "signal_id", "all", "unread_only", "mark_read", "limit", "format"],
   "notify-prune": ["signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
   "session-capture": ["agent_id", "workspace", "artifact", "repo", "ref", "reason", "cwd"],
   "wait-for-lock": ["agent_id", "target_file", "file", "workspace", "artifact", "lock_type", "wait_seconds", "retry_interval"],
   "digest": ["retention_days", "refinement_handoff_retention_days", "refinement_done_retention_days", "dry_run", "export_doc", "workspace", "artifact"],
   "hook-run": [],
-  "hooks-install": ["host", "project_dir", "global", "check", "dry_run", "remove"],
+  "hooks-install": ["host", "project_dir", "global", "check", "strict", "dry_run", "remove"],
   "schema": []
 };
 function validateFlags(command2, args2) {
@@ -5337,6 +5494,9 @@ function selectCommand(argv) {
   const [firstRaw, secondRaw, thirdRaw, ...tail] = argv;
   const first = normalizeToken(firstRaw);
   if (!first) return { command: void 0, rest: [] };
+  if (first.startsWith("-")) {
+    return argv.every((arg) => arg === "--compact") ? { command: void 0, rest: argv } : { command: UNKNOWN_COMMAND, rest: argv };
+  }
   const second = normalizeToken(secondRaw);
   if (first === "hook" && second === "run") {
     return { command: "hook-run", rest: thirdRaw ? [thirdRaw, ...tail] : tail };
@@ -5397,7 +5557,8 @@ function emit(payload, exitCode2 = 0, opts2 = {}) {
   return exitCode2;
 }
 function die(message, extras = {}) {
-  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, 2) + "\n");
+  const compact2 = process.argv.includes("--compact") || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
+  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact2 ? 0 : 2) + "\n");
   process.exit(1);
 }
 function cmdTellMemory(db3, args2, dbPath2, opts2) {
@@ -5499,7 +5660,7 @@ function cmdGetMemory(db3, args2, dbPath2, opts2) {
   const payload = { db_path: dbPath2, ...result };
   if (args2["semantic"]) {
     payload["warnings"] = [
-      "semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/semanticSearch() API for semantic recall."
+      "semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/searchByEmbedding() API for semantic recall."
     ];
   }
   return emit(payload, 0, opts2);
@@ -6177,6 +6338,16 @@ npx: npx @octocodeai/octocode-awareness <command>
 agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
+easy install:
+  Tell your agent to run: npx @octocodeai/octocode-awareness
+  Then install the bundled Agent Skill:
+    npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common
+  Registry fallback:
+    npx octocode skill --name octocode-awareness
+
+supported agents: Codex, Claude Code, Cursor, Pi, and custom library/CLI hosts
+surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = lifecycle automation
+
 start: workspace status, memory recall, refinement get, signal list, query <view>
 edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
@@ -6196,7 +6367,7 @@ examples:
 
 Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
-npx: npx @octocodeai/octocode-awareness <command>
+npx: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
 start: workspace status; memory recall; refinement get; signal list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
@@ -6300,7 +6471,7 @@ var ROUTE_EXAMPLE = {
   "agent register": 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
   "agent list": 'octocode-awareness agent list --workspace "$PWD" --compact',
   "hooks install": "octocode-awareness hooks install --host codex --dry-run --compact",
-  "hooks check": "octocode-awareness hooks check --host codex --compact",
+  "hooks check": "octocode-awareness hooks check --host codex --strict --compact",
   "hooks remove": "octocode-awareness hooks remove --host codex --dry-run --compact",
   "schema commands": "octocode-awareness schema commands --compact",
   "schema list": "octocode-awareness schema list --compact",
@@ -6393,19 +6564,23 @@ function helpFor(command2, options = {}) {
   const normalized = command2.replace(/_/g, "-");
   const flags = KNOWN_FLAGS[normalized];
   if (!flags) return HELP;
-  const schema = COMMAND_TO_SCHEMA[normalized] ?? normalized.replace(/-/g, "_");
+  const schema = COMMAND_TO_SCHEMA[normalized] ?? null;
   const display = options.routeKey ?? COMMAND_DISPLAY[normalized] ?? normalized;
   const example = (options.routeKey ? ROUTE_EXAMPLE[options.routeKey] : void 0) ?? COMMAND_EXAMPLE[normalized];
   if (options.compact) {
-    return `usage: octocode-awareness ${display} [options]
-schema: ${schema}
-example: ${example ?? `octocode-awareness ${display}`}`.trimEnd();
+    return [
+      `usage: octocode-awareness ${display} [options]`,
+      schema ? `schema: ${schema}` : "schema: none",
+      `example: ${example ?? `octocode-awareness ${display}`}`
+    ].join("\n").trimEnd();
   }
   if (COMMAND_HELP[normalized]) return COMMAND_HELP[normalized];
-  return `usage: octocode-awareness ${display} [options]
-flags: ${flags.map(hyphenFlag).join(" ")}
-schema: octocode-awareness schema json-schema ${schema} --compact
-${example ? `example: ${example}` : ""}`.trimEnd();
+  return [
+    `usage: octocode-awareness ${display} [options]`,
+    `flags: ${flags.map(hyphenFlag).join(" ")}`,
+    schema ? `schema: octocode-awareness schema json-schema ${schema} --compact` : "schema: none",
+    example ? `example: ${example}` : ""
+  ].join("\n").trimEnd();
 }
 function commandFromHelpArgv(argv) {
   const withoutHelp = argv.filter((arg) => arg !== "--help" && arg !== "-h" && arg !== "--compact");
@@ -6439,7 +6614,7 @@ if (command && KNOWN_FLAGS[command]) {
     const payload = {
       ok: false,
       command: COMMAND_DISPLAY[command] ?? command,
-      schema: COMMAND_TO_SCHEMA[command] ?? command.replace(/-/g, "_"),
+      schema: COMMAND_TO_SCHEMA[command] ?? null,
       error: `unknown flag(s): ${unknown.map((f) => `--${f.replace(/_/g, "-")}`).join(", ")}`,
       known_flags: KNOWN_FLAGS[command].map((f) => `--${f.replace(/_/g, "-")}`),
       hint: `Run "octocode-awareness ${COMMAND_DISPLAY[command] ?? command} --help" for this command.`,
@@ -6453,8 +6628,8 @@ var dbPath = resolveDbPath(globalDb ?? null);
 var compact = args["compact"] === true || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1";
 var opts = { compact };
 if (!command) {
-  process.stdout.write("No command given. Run --help for usage.\n");
-  process.exit(1);
+  process.stdout.write((compact ? HELP_COMPACT : HELP) + "\n");
+  process.exit(0);
 }
 if (command === UNKNOWN_COMMAND) {
   const requested = filteredArgv.slice(0, 2).join(" ") || filteredArgv[0] || "";
@@ -6480,7 +6655,7 @@ if (command === "self-test") {
 }
 if (command === "schema") {
   const script = packageSkillScriptPath("schema.mjs");
-  const result = spawnSync5(process.execPath, [script, ...rest], { stdio: "inherit" });
+  const result = spawnSync6(process.execPath, [script, ...rest], { stdio: "inherit" });
   process.exit(result.status ?? 1);
 }
 if (command === "hook-run") {

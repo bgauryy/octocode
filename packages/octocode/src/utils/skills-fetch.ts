@@ -9,14 +9,21 @@ import {
   readFileContent,
   fileExists,
 } from './fs.js';
-import { join, isAbsolute } from 'node:path';
-import { mkdirSync, statSync, readdirSync, unlinkSync, rmSync } from 'node:fs';
+import { join, isAbsolute, resolve } from 'node:path';
+import {
+  copyFileSync,
+  mkdirSync,
+  statSync,
+  readdirSync,
+  unlinkSync,
+  rmSync,
+} from 'node:fs';
 import os from 'node:os';
 import { trySafe } from './try-safe.js';
 import {
   getSkillsSourcePath,
   getAvailableSkills,
-  installSkillToDestination,
+  isSafeSkillName,
   isPathInside,
   resolveSkillDestination,
 } from './skills.js';
@@ -156,8 +163,10 @@ function formatSkillName(name: string): string {
 
 function fetchLocalSkills(source: MarketplaceSource): MarketplaceSkill[] {
   try {
-    const skillsSourcePath = getSkillsSourcePath();
-    const availableSkills = getAvailableSkills();
+    const skillsSourcePath = getLocalSkillsSourcePath(source);
+    const availableSkills = isAbsolute(source.skillsPath)
+      ? listLocalSkillFolders(skillsSourcePath)
+      : getAvailableSkills();
     const skills: MarketplaceSkill[] = [];
 
     for (const skillFolder of availableSkills) {
@@ -194,8 +203,11 @@ function installLocalSkill(
   destDir: string
 ): { success: boolean; error?: string } {
   try {
-    const skillsSourcePath = getSkillsSourcePath();
-    const sourcePath = resolveSkillDestination(skillsSourcePath, skill.name);
+    const skillsSourcePath = getLocalSkillsSourcePath(skill.source);
+    const sourcePath = resolveSkillDestination(
+      skillsSourcePath,
+      skill.path || skill.name
+    );
     const destPath = resolveSkillDestination(destDir, skill.name);
 
     if (!sourcePath || !destPath) {
@@ -203,19 +215,18 @@ function installLocalSkill(
     }
 
     if (!dirExists(sourcePath)) {
-      return { success: false, error: 'Skill not found in bundled source' };
+      return { success: false, error: 'Skill not found in local source' };
     }
 
-    const installResult = installSkillToDestination({
-      sourcePath,
-      destinationPath: destPath,
-      mode: 'copy',
-      force: true,
-    });
-
-    if (installResult !== 'installed') {
-      return { success: false, error: 'Failed to copy bundled skill' };
+    if (!fileExists(join(sourcePath, 'SKILL.md'))) {
+      return { success: false, error: 'Local skill is missing SKILL.md' };
     }
+
+    if (resolve(sourcePath) === resolve(destPath)) {
+      return { success: true };
+    }
+
+    copyLocalSkillDirectory(sourcePath, destPath);
 
     return { success: true };
   } catch (error) {
@@ -223,6 +234,127 @@ function installLocalSkill(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
+  }
+}
+
+function isIgnoredLocalSkillPath(relativePath: string): boolean {
+  const parts = relativePath.split(/[\\/]+/).filter(Boolean);
+  const name = parts.at(-1) ?? '';
+
+  return (
+    parts.some(part => part.startsWith('.')) ||
+    parts.some(part => LOCAL_SKILL_IGNORED_DIRS.has(part)) ||
+    LOCAL_SKILL_IGNORED_FILES.has(name)
+  );
+}
+
+function planLocalSkillFiles(
+  sourcePath: string,
+  destPath: string
+): { sourcePath: string; destPath: string; relativePath: string }[] {
+  const files: {
+    sourcePath: string;
+    destPath: string;
+    relativePath: string;
+  }[] = [];
+  const queue = [{ sourceDir: sourcePath, relativeDir: '' }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+
+    for (const entry of readdirSync(current.sourceDir, {
+      withFileTypes: true,
+    })) {
+      const relativePath = current.relativeDir
+        ? join(current.relativeDir, entry.name)
+        : entry.name;
+
+      if (entry.isSymbolicLink() || isIgnoredLocalSkillPath(relativePath)) {
+        continue;
+      }
+
+      const entrySourcePath = join(current.sourceDir, entry.name);
+
+      if (entry.isDirectory()) {
+        queue.push({ sourceDir: entrySourcePath, relativeDir: relativePath });
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const entryDestPath = join(destPath, relativePath);
+      if (!isPathInside(destPath, entryDestPath)) {
+        throw new Error('Invalid local skill file path traversal');
+      }
+
+      const sizeBytes = statSync(entrySourcePath).size;
+      if (sizeBytes > MAX_CONTENT_SIZE_BYTES) {
+        throw new Error(
+          `Local skill file too large: ${relativePath} exceeds ${MAX_CONTENT_SIZE_BYTES} byte limit`
+        );
+      }
+
+      files.push({
+        sourcePath: entrySourcePath,
+        destPath: entryDestPath,
+        relativePath,
+      });
+
+      if (files.length > MAX_SKILL_FILES) {
+        throw new Error(
+          `Local skill has too many files: ${files.length} exceeds ${MAX_SKILL_FILES}`
+        );
+      }
+    }
+  }
+
+  if (!files.some(file => file.relativePath === 'SKILL.md')) {
+    throw new Error('Local skill is missing SKILL.md');
+  }
+
+  return files;
+}
+
+function copyLocalSkillDirectory(sourcePath: string, destPath: string): void {
+  const plannedFiles = planLocalSkillFiles(sourcePath, destPath);
+  prepareSkillDestination(destPath);
+
+  for (const file of plannedFiles) {
+    const destSubDir = join(
+      destPath,
+      file.relativePath
+        .split(/[\\/]+/)
+        .slice(0, -1)
+        .join('/')
+    );
+    if (destSubDir !== destPath && !dirExists(destSubDir)) {
+      mkdirSync(destSubDir, { recursive: true, mode: 0o700 });
+    }
+    copyFileSync(file.sourcePath, file.destPath);
+  }
+}
+
+function getLocalSkillsSourcePath(source: MarketplaceSource): string {
+  return source.skillsPath && isAbsolute(source.skillsPath)
+    ? source.skillsPath
+    : getSkillsSourcePath();
+}
+
+function listLocalSkillFolders(skillsSourcePath: string): string[] {
+  try {
+    if (!dirExists(skillsSourcePath)) {
+      return [];
+    }
+    return readdirSync(skillsSourcePath, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
+      .map(entry => entry.name)
+      .filter(isSafeSkillName)
+      .filter(name => fileExists(join(skillsSourcePath, name, 'SKILL.md')));
+  } catch {
+    return [];
   }
 }
 
@@ -258,6 +390,24 @@ export async function fetchMarketplaceTree(
 
 const MAX_CONTENT_SIZE_BYTES = 1024 * 1024;
 const MAX_SKILL_FILES = 500;
+const LOCAL_SKILL_IGNORED_DIRS = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  'node_modules',
+  'dist',
+  'out',
+  'target',
+  'coverage',
+  '.next',
+  '.turbo',
+]);
+const LOCAL_SKILL_IGNORED_FILES = new Set([
+  '.DS_Store',
+  'Thumbs.db',
+  'npm-debug.log',
+  'yarn-error.log',
+]);
 
 export async function fetchRawContent(
   source: MarketplaceSource,

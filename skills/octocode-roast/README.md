@@ -12,8 +12,9 @@ This skill gives the agent a tone-controlled critique mode that stays useful, sa
 
 ## Capabilities
 
-- Evidence-backed findings with `file:line` citations.
-- Severity tiers for security, data loss, design damage, brittle async, type abuse, duplication, naming, and noise.
+- Explicit target precedence, so user-specified files are reviewed before staged or branch-wide changes.
+- Evidence-backed findings with `file:line` citations, impact, confidence, and repair paths.
+- Severity tiers that keep security, data loss, correctness, and production impact above style noise.
 - Tone calibration from gentle to savage based on the user's wording and the sensitivity of the code.
 - Secret-safe handling for credentials, security findings, and production-sensitive paths.
 - Language-specific smell patterns and code-search strategies.
@@ -28,7 +29,7 @@ The workflow is:
 TARGET -> INSPECT -> INVENTORY -> AUTOPSY -> CHECKPOINT -> REDEEM
 ```
 
-The agent scopes the target, inspects enough code to cite major issues, builds an issue inventory, ranks the most damaging patterns, and writes the roast after the evidence is in. The humor is seasoning, not the proof.
+The agent scopes the target, inspects enough code to cite major issues, builds an issue inventory, ranks the most damaging patterns, and writes the roast after the evidence is in. Pattern matches are leads until exact code evidence upgrades them. The humor is seasoning, not the proof.
 
 ## User Experience
 

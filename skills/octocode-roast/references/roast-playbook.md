@@ -15,15 +15,18 @@ TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM
 ## Phase 1: Acquire Target
 
 Auto-detect scope in order:
-1. Staged files: `git diff --cached --name-only`
-2. Branch diff: `git diff main...HEAD --name-only`
-3. Specified files/dirs
-4. Entire repo (nuclear option)
+1. User-specified files, directories, symbols, or line ranges.
+2. User-specified PR, branch, or diff scope.
+3. Staged files: `git diff --cached --name-only`.
+4. Branch diff: `git diff main...HEAD --name-only`.
+5. Entire repo only when the user asks for a repo-wide roast.
+
+If the user gave a target, do not silently widen scope. If the target resolves to no files, stop and ask for a corrected target.
 
 **Tactical Scan**:
 - Use `octocode-research` for local structure, search, semantic reachability, and blast-radius evidence.
-- If `octocode-research` is missing, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install with `npx octocode skill --name octocode-research`.
-- Return here with cited evidence, then write the roast inventory.
+- If `octocode-research` is missing, ask before installing it; otherwise use normal repo tools and mark reduced coverage.
+- Treat pattern matches as leads. Upgrade each cited finding with exact `file:line`, impact, confidence, and repair move before writing the roast.
 
 **Output**:
 ```
@@ -56,14 +59,14 @@ the name suggests — handles EVERYTHING. Validation, API calls,
 state management, probably your taxes. It's not a function,
 it's a lifestyle.
 
-You've got 12 `any` types. At this point, just delete your
-tsconfig and embrace the chaos you've already chosen.
+`src/api.ts:34` and friends have 12 `any` escapes. At this point
+the type system is doing community theater.
 
 There's a try/catch block wrapping 400 lines of code.
 The programming equivalent of "thoughts and prayers."
 
-Found a hardcoded password on line 47.
-Security researchers thank you for your service.
+`src/config.ts:47` contains a credential-shaped literal. Rotate if real,
+move it to secrets management, and do not claim compromise without evidence.
 
 Let's catalog the destruction...
 ```
@@ -83,7 +86,7 @@ Categorized, cited, brutal.
 ─────────────────────────────────
 
 Found 27 sins. Showing top 10 (sorted by severity).
-Run with `--full` to see all 27 disasters.
+Ask for the full inventory if you want all 27; this pass keeps the signal high.
 
 ## 💀 CAPITAL OFFENSES
 
@@ -91,7 +94,7 @@ Run with `--full` to see all 27 disasters.
    ```ts
    const API_KEY = "sk-live-****" // ⚠️ value redacted — never output secrets
    ```
-   Security incident waiting to happen. Actually, probably already happened.
+   Treat as a rotation and removal trigger. Incident claims require evidence.
 
 2. **N+1 Query Bonanza** — `src/api/users.ts:89`
    ```ts
@@ -99,7 +102,7 @@ Run with `--full` to see all 27 disasters.
      const orders = await db.query(`SELECT * FROM orders WHERE user_id = ${user.id}`);
    });
    ```
-   Your database is filing a restraining order.
+   This is user-visible latency wearing a fake moustache.
 
 ## ⚖️ FELONIES
 
@@ -131,12 +134,12 @@ Lines 81-200 Authentication → `authenticateUser()`; JWT parsing, OAuth, homema
 Lines 201-400 Business logic → 4-5 domain functions; 47 if statements, 12 else, a switch with 18 cases
 
 METRICS:
-| Metric | Count | Verdict |
-|--------|-------|---------|
-| If statements | 47 | Branching disaster |
-| Nested depth (max) | 7 | Pyramid scheme |
-| WHY comments | 0 | Mystery meat |
-| TODO comments | 4 | Unfulfilled promises |
+| Metric | Count | Impact | Confidence |
+|--------|-------|--------|------------|
+| If statements | 47 | Branching risk around request handling | High |
+| Nested depth (max) | 7 | Hard to test failure paths | High |
+| WHY comments | 0 | Domain assumptions are hidden | Medium |
+| TODO comments | 4 | Deferred behavior needs ownership | Medium |
 ```
 
 ---

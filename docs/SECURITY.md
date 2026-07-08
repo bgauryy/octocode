@@ -183,7 +183,7 @@ External commands run via `child_process.spawn()` with an argument array — **n
 | **On-disk storage** | AES-256-GCM encrypted under `OCTOCODE_HOME` |
 | **Output masking** | Tokens are subject to output masking — never echoed in results |
 
-See [Configuration](./CONFIGURATION.md) for token setup and credential architecture.
+See [Configuration](https://github.com/bgauryy/octocode-mcp/blob/main/docs/CONFIGURATION.md) for token setup and credential architecture.
 
 ---
 

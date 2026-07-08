@@ -23,7 +23,8 @@ bash: node $OCTOCODE_CLI cache clear --all                    # clear all cached
 bash: node $OCTOCODE_CLI skill --list                                      # discover available skills
 bash: node $OCTOCODE_CLI skill --name octocode-research                    # install a named skill
 bash: node $OCTOCODE_CLI skill --name octocode-research --platform pi      # pi-specific path
-bash: node $OCTOCODE_CLI skill --add {{GITHUB_PATH_TO_SKIL}} --platform pi # install from a GitHub path
+bash: node $OCTOCODE_CLI skill --add --path {{path_to_skills_location}} --platform pi # install from an agent-known bundled/local skills path
+bash: node $OCTOCODE_CLI skill --add {{GITHUB_PATH_TO_SKILL}} --platform pi # install from a GitHub path
 ```
 
 **Tool schema & direct runs** — read tool schemas before calling; run tools via CLI as a last resort.

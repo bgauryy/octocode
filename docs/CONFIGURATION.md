@@ -550,8 +550,8 @@ npx octocode status --json
 
 ## See Also
 
-- [Tools Reference](./OCTOCODE_TOOLS.md) — all tools and parameters
-- [MCP Server](./OCTOCODE_MCP.md) — startup lifecycle and client config
-- [CLI Guide](./OCTOCODE_CLI.md) — all CLI commands
-- [LSP Setup](./LSP_SERVER_LIFECYCLE.md) — custom language server config
-- [Security](./SECURITY.md) — secret redaction and path validation
+- [Tools Reference](https://github.com/bgauryy/octocode-mcp/blob/main/docs/OCTOCODE_TOOLS.md) — all tools and parameters
+- [MCP Server](https://github.com/bgauryy/octocode-mcp/blob/main/docs/OCTOCODE_MCP.md) — startup lifecycle and client config
+- [CLI Guide](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) — all CLI commands
+- [LSP Setup](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) — custom language server config
+- [Security](https://github.com/bgauryy/octocode-mcp/blob/main/docs/SECURITY.md) — secret redaction and path validation

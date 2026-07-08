@@ -6,8 +6,9 @@ process.on('warning', (w) => {
 });
 
 // bin/hook-runner.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { mkdirSync as mkdirSync2, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { spawnSync as spawnSync4 } from "node:child_process";
+import { createHash as createHash2 } from "node:crypto";
+import { mkdirSync as mkdirSync2, readFileSync, realpathSync as realpathSync2, writeFileSync } from "node:fs";
 import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve5 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -78,6 +79,42 @@ function registerAgent(db2, params) {
   const now = utcNow();
   db2.prepare(AGENTS_UPSERT).run(agentId2, agentName2, workspacePath, artifact2, context, now, now);
   return { agent_id: agentId2, agent_name: agentName2, workspace_path: workspacePath, artifact: artifact2, context, registered_at: now, last_seen_at: now };
+}
+
+// src/audit.ts
+import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+
+// src/sql/audit.ts
+var EDIT_LOG_INSERT = `
+  INSERT INTO edit_log (
+    edit_id, session_id, task_id, agent_id,
+    file_path, operation, old_file_path,
+    lines_added, lines_removed, content_hash,
+    workspace_path, artifact, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`;
+
+// src/audit.ts
+function insertEditLog(db2, params) {
+  const editId = "edit_" + randomUUID();
+  const now = utcNow();
+  db2.prepare(EDIT_LOG_INSERT).run(
+    editId,
+    params.sessionId ?? null,
+    params.taskId ?? null,
+    params.agentId,
+    params.filePath,
+    params.operation,
+    params.oldFilePath ?? null,
+    params.linesAdded ?? null,
+    params.linesRemoved ?? null,
+    params.contentHash ?? null,
+    params.workspacePath ?? null,
+    normalizeArtifact(params.artifact),
+    now
+  );
+  return { editId };
 }
 
 // src/db.ts
@@ -500,7 +537,7 @@ function evictExpiredLocks(db2) {
 }
 
 // src/intents.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 import { isAbsolute, resolve as resolve3 } from "node:path";
 var MAX_LOCK_TTL_MS = 10 * 6e4;
 function effectiveTtlMs(ttlMs) {
@@ -529,7 +566,7 @@ function preFlightIntent(db2, params) {
     lockType = "EXCLUSIVE",
     ttlMs = MAX_LOCK_TTL_MS
   } = params;
-  const taskId = "task_" + randomUUID().replace(/-/g, "");
+  const taskId = "task_" + randomUUID2().replace(/-/g, "");
   const now = utcNow();
   const wsPath = workspaceRoot(workspacePath);
   const artifactScope = normalizeArtifact(artifact2);
@@ -579,7 +616,7 @@ function preFlightIntent(db2, params) {
     const expiresAt = expiresAtFromNow(ttlMs);
     const acquiredLocks = [];
     for (const absPath of absFiles) {
-      const lockId = "lock_" + randomUUID().replace(/-/g, "");
+      const lockId = "lock_" + randomUUID2().replace(/-/g, "");
       db2.prepare(`
         INSERT OR REPLACE INTO locks
           (lock_id, file_path, task_id, agent_id, session_id, lock_type, acquired_at, expires_at)
@@ -707,7 +744,7 @@ function releaseFileLock(db2, params) {
             db2.prepare(
               `INSERT INTO task_log(event_id, task_id, agent_id, event_type, message, created_at)
                VALUES (?, ?, ?, 'VERIFIED', ?, ?)`
-            ).run("evt_" + randomUUID().replace(/-/g, ""), tid, agentId2, verifiedNote, now);
+            ).run("evt_" + randomUUID2().replace(/-/g, ""), tid, agentId2, verifiedNote, now);
           } catch {
           }
         }
@@ -733,7 +770,7 @@ function releaseFileLock(db2, params) {
 }
 
 // src/verify.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { randomUUID as randomUUID3 } from "node:crypto";
 
 // src/sql/tasks.ts
 var TASKS_UPDATE_PENDING_TO_FAILED = `UPDATE tasks SET status = 'FAILED', updated_at = ? WHERE task_id = ? AND status = 'PENDING'`;
@@ -784,7 +821,7 @@ function auditUnverified(db2, params = {}) {
       db2.prepare(TASKS_UPDATE_PENDING_TO_FAILED).run(now, intent.task_id);
       try {
         db2.prepare(TASK_LOG_INSERT_ABANDONED).run(
-          "evt_" + randomUUID2().replace(/-/g, ""),
+          "evt_" + randomUUID3().replace(/-/g, ""),
           intent.task_id,
           intent.agent_id,
           now
@@ -847,7 +884,7 @@ function auditUnverified(db2, params = {}) {
       db2.prepare(TASKS_UPDATE_ACTIVE_TO_FAILED).run(now, intent.task_id);
       try {
         db2.prepare(TASK_LOG_INSERT_STALE_ABANDONED).run(
-          "evt_" + randomUUID2().replace(/-/g, ""),
+          "evt_" + randomUUID3().replace(/-/g, ""),
           intent.task_id,
           intent.agent_id,
           now
@@ -862,7 +899,7 @@ function auditUnverified(db2, params = {}) {
 
 // src/maintenance.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import { randomUUID as randomUUID4 } from "node:crypto";
+import { randomUUID as randomUUID5 } from "node:crypto";
 import { isAbsolute as isAbsolute2, resolve as resolve4 } from "node:path";
 
 // src/git.ts
@@ -900,7 +937,7 @@ function fillScope(partial, cwd) {
 }
 
 // src/notifications.ts
-import { randomUUID as randomUUID3 } from "node:crypto";
+import { randomUUID as randomUUID4 } from "node:crypto";
 
 // src/sql/signals.ts
 var SIGNALS_SELECT_BASE = "SELECT n.* FROM signals n";
@@ -1354,7 +1391,7 @@ function sessionCapture(db2, params = {}) {
     };
   }
   const now = utcNow();
-  const refinementId = "ref_" + randomUUID4().replace(/-/g, "");
+  const refinementId = "ref_" + randomUUID5().replace(/-/g, "");
   const allCapturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
   const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
   const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
@@ -1484,8 +1521,10 @@ function digest(db2, params = {}) {
 
 // src/pi-hooks.ts
 import path from "node:path";
-import { randomUUID as randomUUID5 } from "node:crypto";
-var _sessionStartupToken = randomUUID5().slice(0, 8);
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { randomUUID as randomUUID6 } from "node:crypto";
+import { realpathSync } from "node:fs";
+var _sessionStartupToken = randomUUID6().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
     paths.push(value.trim());
@@ -1590,8 +1629,42 @@ function payloadForFileExtraction(payload) {
   if (Object.keys(inputObj).length === 0) return input;
   return { ...payload, ...inputObj };
 }
+var warnedFallbackAgentId = false;
+function firstString2(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
 function agentId(payload) {
-  return process.env.OCTOCODE_AGENT_ID || String(payload.session_id ?? payload.sessionId ?? payload.agent_id ?? payload.agentId ?? "claude-agent");
+  const input = objectOrEmpty2(payloadInput(payload));
+  const explicit = firstString2(
+    process.env.OCTOCODE_AGENT_ID,
+    payload.session_id,
+    payload.sessionId,
+    payload.agent_id,
+    payload.agentId,
+    input.session_id,
+    input.sessionId,
+    input.agent_id,
+    input.agentId
+  );
+  if (explicit) return explicit;
+  const host = firstString2(
+    process.env.OCTOCODE_AGENT_HOST,
+    payload.host,
+    payload.client,
+    payload.source,
+    payload.context
+  ) ?? "shell";
+  const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
+  const suffix = createHash2("sha1").update(scope).digest("hex").slice(0, 12);
+  const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, "_")}:${suffix}`;
+  if (!warnedFallbackAgentId) {
+    warnedFallbackAgentId = true;
+    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent lock isolation.`);
+  }
+  return fallback;
 }
 function agentName(payload) {
   const value = process.env.OCTOCODE_AGENT_NAME ?? payload.agent_name ?? payload.agentName ?? payload.agent_display_name ?? payload.agentDisplayName;
@@ -1626,7 +1699,7 @@ function canonicalize(input) {
   const tail = [];
   for (let guard = 0; guard < 4096; guard += 1) {
     try {
-      return tail.length ? join2(realpathSync(dir), ...tail) : realpathSync(dir);
+      return tail.length ? join2(realpathSync2(dir), ...tail) : realpathSync2(dir);
     } catch {
       const parent = dirname2(dir);
       if (parent === dir) return resolve5(input);
@@ -1702,14 +1775,29 @@ async function runPostEdit(payload) {
   try {
     const database = db();
     registerHookAgent(database, payload, "hook:post-edit");
-    releaseFileLock(database, {
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? void 0,
-      artifact: artifact(payload),
+    const hookAgentId = agentId(payload);
+    const hookWorkspace = workspace(payload) ?? process.cwd();
+    const hookArtifact = artifact(payload);
+    const release = releaseFileLock(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
       targetFiles: files,
       status: "PENDING"
     });
-  } catch {
+    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : null;
+    for (const file of files) {
+      insertEditLog(database, {
+        agentId: hookAgentId,
+        taskId,
+        filePath: resolveHookPath(file, hookWorkspace),
+        operation: "update",
+        workspacePath: hookWorkspace,
+        artifact: hookArtifact
+      });
+    }
+  } catch (error) {
+    console.error(`octocode-awareness post-edit warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -1739,7 +1827,7 @@ async function runHarnessGuard(payload) {
 }
 function gitBranchOf(dir) {
   try {
-    const r = spawnSync3("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
+    const r = spawnSync4("git", ["-C", dir, "rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf8",
       timeout: 5e3
     });
@@ -1765,12 +1853,14 @@ async function runStopVerify(payload) {
       console.error(`octocode-awareness: concluding with unverified work. ${parts.join(" | ")}`);
       return 2;
     }
-  } catch {
+  } catch (error) {
+    console.error(`octocode-awareness verify warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
 function maybeRunDigest(payload) {
   if (process.env.OCTOCODE_NO_DIGEST === "1") return;
+  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== "1") return;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
@@ -1789,7 +1879,8 @@ function maybeRunDigest(payload) {
       writeFileSync(markerPath, String(now), "utf8");
       digest(database, { workspace: workspace(payload), memoryHome: memoryHome2 });
     }
-  } catch {
+  } catch (error) {
+    console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 async function runNotifyDeliver(payload) {
@@ -1810,7 +1901,8 @@ async function runNotifyDeliver(payload) {
         additional_context: result.additionalContext
       }) + "\n");
     }
-  } catch {
+  } catch (error) {
+    console.error(`octocode-awareness session-capture warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }

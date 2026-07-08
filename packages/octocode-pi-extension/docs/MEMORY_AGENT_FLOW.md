@@ -2,7 +2,7 @@
 
 Guide to the Pi-extension live awareness flow, tool usage, schemas, and output quality.
 
-See also: [REFLECT.md](./REFLECT.md) — full documentation of the Awareness learning, memory hygiene, and harness improvement loop.
+See also: [REFLECT.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) — full documentation of the Awareness learning, memory hygiene, and harness improvement loop.
 
 ## Validated surfaces
 

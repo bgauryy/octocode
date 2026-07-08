@@ -27,6 +27,16 @@ Rules:
 - `skill-name` = final folder segment, unless the user overrides it.
 - If frontmatter `name` differs from folder name, surface the mismatch and ask.
 
+## Octocode CLI Shortcut
+
+After the user approves an install and Octocode CLI is available, prefer:
+
+```bash
+npx octocode skill --add --path <source-folder-or-skills-dir> --platform <platforms> [--mode copy|symlink|hybrid]
+```
+
+Use this when an agent already knows a local bundled skills path; the path may be one skill folder, `SKILL.md`, or a skills library root.
+
 ## Destinations: Provider Scopes
 
 Most agents load skills from at least two scopes: a user-level scope (applies everywhere) and a project-level scope (applies to one repo / workspace).

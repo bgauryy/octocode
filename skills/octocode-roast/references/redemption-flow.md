@@ -30,7 +30,7 @@ CHOOSE YOUR PATH:
 - `security` — Fix all security issues (RECOMMENDED FIRST)
 - `all` — Full redemption arc
 - `shame` — Just roast me more
-- `exit` — Leave in disgrace
+- `exit` — Stop after the review
 
 What'll it be?
 ```
@@ -61,7 +61,7 @@ BEFORE: A cautionary tale
 AFTER: Merely concerning
 
 Remaining sins: 6 CRIMES, 11 MISDEMEANORS
-(Run again to continue redemption arc)
+(Ask for another pass to continue the redemption arc)
 ```
 
 ---
@@ -73,6 +73,8 @@ Remaining sins: 6 CRIMES, 11 MISDEMEANORS
 - [ ] Security issues (CAPITAL) flagged prominently with action items
 - [ ] **Credential values are NEVER output** — report pattern + location, redact the value
 - [ ] Fixes are actionable
+- [ ] Important findings are separated from redundant or low-value findings
+- [ ] Confidence is stated when evidence is partial or inferred
 - [ ] User checkpoint before any code modifications
 - [ ] Severity matches request and context
 - [ ] Humor, if used, stays professionally safe

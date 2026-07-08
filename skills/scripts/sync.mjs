@@ -19,13 +19,19 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILLS_ROOT = path.resolve(__dirname, '..');
-const DEST = path.resolve(__dirname, '../../packages/octocode-pi-extension/skills');
+const DEST = path.resolve(
+  __dirname,
+  '../../packages/octocode-pi-extension/skills'
+);
 
 // Single source of truth for env/config loading — injected as octocode-config.mjs
 // into every skill's scripts/ dir so skills work standalone without npm.
 // Skill scripts import it via: import(new URL('./octocode-config.mjs', import.meta.url).href)
 // Uses the compiled dist output (TypeScript → esbuild → dist/index.js).
-const CONFIG_SRC = path.resolve(__dirname, '../../packages/octocode-config/dist/index.js');
+const CONFIG_SRC = path.resolve(
+  __dirname,
+  '../../packages/octocode-config/dist/index.js'
+);
 
 // Skills managed separately by the pi-extension — not synced here.
 //   octocode          — local-only meta-skill
@@ -33,17 +39,43 @@ const CONFIG_SRC = path.resolve(__dirname, '../../packages/octocode-config/dist/
 //   octocode-awareness — canonical source lives in packages/octocode-awareness/skills/.
 //   octocode-agent-communication / octocode-reflection — retired legacy awareness skill names;
 //                        skipped so stale root copies are never synced.
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-stats', 'octocode-awareness', 'octocode-agent-communication', 'octocode-reflection']);
+const SKIPPED_SKILLS = new Set([
+  'octocode',
+  'octocode-stats',
+  'octocode-awareness',
+  'octocode-agent-communication',
+  'octocode-reflection',
+]);
 
 // Directories that are never copied (build artefacts, VCS internals).
-const SKIPPED_DIRS = new Set(['.git', 'node_modules', 'dist', 'out', 'target', '__pycache__', 'coverage']);
+const SKIPPED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'out',
+  'target',
+  '__pycache__',
+  'coverage',
+]);
+const SKIPPED_FILES = new Set([
+  '.DS_Store',
+  'Thumbs.db',
+  'npm-debug.log',
+  'yarn-error.log',
+]);
 
-/**
- * Returns true for `.env` (the secret file) but NOT `.env.example`, `.env.test`, etc.
- * Gitignored local dev files — excluded from the sync so the destination stays clean.
- */
-function isSecretEnvFile(name) {
-  return name === '.env' || (name.startsWith('.env.') && name !== '.env.example');
+// Hidden local config is never synced; `.env.example` is documentation, not a secret.
+function isHiddenLocalOnlyEntry(name) {
+  return name.startsWith('.') && name !== '.env.example';
+}
+
+function shouldSkipEntry(entry) {
+  return (
+    entry.isSymbolicLink() ||
+    isHiddenLocalOnlyEntry(entry.name) ||
+    SKIPPED_FILES.has(entry.name) ||
+    (entry.isDirectory() && SKIPPED_DIRS.has(entry.name))
+  );
 }
 
 /** Belt-and-suspenders: assert nothing slipped through after the copy. */
@@ -52,7 +84,7 @@ function assertNoSecrets(dir) {
   function walk(cur) {
     for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
       const full = path.join(cur, entry.name);
-      if (entry.isFile() && isSecretEnvFile(entry.name)) {
+      if (isHiddenLocalOnlyEntry(entry.name)) {
         violations.push(path.relative(DEST, full));
       } else if (entry.isDirectory()) {
         walk(full);
@@ -61,7 +93,9 @@ function assertNoSecrets(dir) {
   }
   walk(dir);
   if (violations.length > 0) {
-    throw new Error(`Secret env file(s) found in destination — this is a bug:\n  ${violations.join('\n  ')}`);
+    throw new Error(
+      `Secret env file(s) found in destination — this is a bug:\n  ${violations.join('\n  ')}`
+    );
   }
 }
 
@@ -78,7 +112,7 @@ function injectConfig(skillEntries, targetRoot, dryRun) {
   if (!fs.existsSync(CONFIG_SRC)) {
     throw new Error(
       `Missing config source: ${CONFIG_SRC}\n` +
-      `Run: node packages/octocode-config/build.mjs`
+        `Run: node packages/octocode-config/build.mjs`
     );
   }
   let count = 0;
@@ -87,21 +121,26 @@ function injectConfig(skillEntries, targetRoot, dryRun) {
     if (!fs.existsSync(srcScripts)) continue;
     const destScripts = path.join(targetRoot, entry.name, 'scripts');
     if (!dryRun) {
-      if (!fs.existsSync(destScripts)) fs.mkdirSync(destScripts, { recursive: true });
-      fs.copyFileSync(CONFIG_SRC, path.join(destScripts, 'octocode-config.mjs'));
+      if (!fs.existsSync(destScripts))
+        fs.mkdirSync(destScripts, { recursive: true });
+      fs.copyFileSync(
+        CONFIG_SRC,
+        path.join(destScripts, 'octocode-config.mjs')
+      );
     }
     count++;
   }
   const configRel = path.relative(process.cwd(), CONFIG_SRC);
   const targetRel = path.relative(process.cwd(), targetRoot);
-  console.log(`${dryRun ? '[dry-run] would inject' : 'Injected'} octocode-config.mjs (from ${configRel}) into ${count} skill scripts/ dir(s) in ${targetRel}/`);
+  console.log(
+    `${dryRun ? '[dry-run] would inject' : 'Injected'} octocode-config.mjs (from ${configRel}) into ${count} skill scripts/ dir(s) in ${targetRel}/`
+  );
 }
 
 function copyDir(src, dst, dryRun) {
   if (!dryRun) fs.mkdirSync(dst, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    if (isSecretEnvFile(entry.name)) continue;         // skip .env (keep .env.example)
-    if (entry.isDirectory() && SKIPPED_DIRS.has(entry.name)) continue;
+    if (shouldSkipEntry(entry)) continue;
     const s = path.join(src, entry.name);
     const d = path.join(dst, entry.name);
     if (entry.isDirectory()) {
@@ -127,14 +166,18 @@ function clearDest(dryRun) {
 // ── clean ────────────────────────────────────────────────────────────────────
 if (clean) {
   clearDest(dryRun);
-  console.log(`${dryRun ? '[dry-run] would clean' : 'Cleaned'} ${path.relative(process.cwd(), DEST)}`);
+  console.log(
+    `${dryRun ? '[dry-run] would clean' : 'Cleaned'} ${path.relative(process.cwd(), DEST)}`
+  );
   process.exit(0);
 }
 
 // ── collect skills to sync ───────────────────────────────────────────────────
 const skills = fs
   .readdirSync(SKILLS_ROOT, { withFileTypes: true })
-  .filter(e => e.isDirectory() && !SKIPPED_SKILLS.has(e.name) && e.name !== 'scripts');
+  .filter(
+    e => e.isDirectory() && !SKIPPED_SKILLS.has(e.name) && e.name !== 'scripts'
+  );
 
 if (skills.length === 0) {
   console.error('No skills found in', SKILLS_ROOT);
@@ -146,9 +189,13 @@ if (!dryRun) {
   clearDest(false);
   fs.mkdirSync(DEST, { recursive: true });
   for (const skill of skills) {
-    copyDir(path.join(SKILLS_ROOT, skill.name), path.join(DEST, skill.name), false);
+    copyDir(
+      path.join(SKILLS_ROOT, skill.name),
+      path.join(DEST, skill.name),
+      false
+    );
   }
-  assertNoSecrets(DEST);   // safety net — throws only if skip logic has a bug
+  assertNoSecrets(DEST); // safety net — throws only if skip logic has a bug
 }
 
 // Inject octocode-config.mjs into BOTH locations:
@@ -163,4 +210,7 @@ const destRel = path.relative(process.cwd(), DEST);
 const label = dryRun ? '[dry-run] would sync' : 'Synced';
 console.log(`${label} ${skills.length} skill(s) → ${destRel}/`);
 for (const s of skills) console.log(`  ${s.name}`);
-if (dryRun) console.log('  (no files written; .env excluded, octocode-config.mjs injected into source + pi-extension skills)');
+if (dryRun)
+  console.log(
+    '  (no files written; .env excluded, octocode-config.mjs injected into source + pi-extension skills)'
+  );

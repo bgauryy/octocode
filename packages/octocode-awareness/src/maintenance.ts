@@ -215,7 +215,9 @@ function openRefinementCount(
  * — Top memories (GOTCHA/BUG/DECISION, importance >=6, scoped to workspace)
  * — Top mine-weakness cluster (failure_signature with count >=2)
  * — Count of open refinements
- * Designed to be called by notify-deliver.sh before every user prompt.
+ * Designed to be called by notify-deliver.sh before supported user prompts.
+ * Periodic digest cleanup is a separate opt-in path controlled by
+ * OCTOCODE_NOTIFY_RUN_DIGEST=1.
  */
 // MAINT-3: Briefing label allowlist as a named constant — previously buried inside
 // notifyGet making it invisible and hard to tune.

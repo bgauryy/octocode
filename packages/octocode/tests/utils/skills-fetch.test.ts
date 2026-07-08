@@ -15,6 +15,7 @@ vi.mock('../../src/utils/fs.js', () => ({
 }));
 
 vi.mock('node:fs', () => ({
+  copyFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   readdirSync: vi.fn(() => []),
   unlinkSync: vi.fn(),
@@ -39,7 +40,6 @@ import {
 } from '../../src/utils/skills-fetch.js';
 import {
   dirExists,
-  copyDirectory,
   writeFileContent,
   fileExists,
   readFileContent,
@@ -1478,6 +1478,27 @@ category: utilities
   });
 
   describe('installMarketplaceSkill (local source)', () => {
+    const fileEntry = (name: string) => ({
+      name,
+      isDirectory: () => false,
+      isFile: () => true,
+      isSymbolicLink: () => false,
+    });
+
+    const dirEntry = (name: string) => ({
+      name,
+      isDirectory: () => true,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+    });
+
+    const symlinkEntry = (name: string) => ({
+      name,
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    });
+
     it('should copy bundled skill when source type is local', async () => {
       vi.resetModules();
       vi.doMock('../../src/utils/skills.js', () => ({
@@ -1489,30 +1510,22 @@ category: utilities
             : join(destDir, skillName)
         ),
         isPathInside: vi.fn(() => true),
-        installSkillToDestination: vi.fn(
-          ({
-            sourcePath,
-            destinationPath,
-          }: {
-            sourcePath: string;
-            destinationPath: string;
-          }) => {
-            try {
-              return vi.mocked(copyDirectory)(sourcePath, destinationPath)
-                ? 'installed'
-                : 'failed';
-            } catch {
-              return 'failed';
-            }
-          }
-        ),
+        installSkillToDestination: vi.fn(),
       }));
 
       const fsUtils = await import('../../src/utils/fs.js');
       vi.mocked(fsUtils.dirExists).mockImplementation(
         (p: string) => p === '/bundled/skills/octocode-bundled'
       );
-      vi.mocked(fsUtils.copyDirectory).mockReturnValue(true);
+      vi.mocked(fsUtils.fileExists).mockImplementation(
+        (p: string) => p === '/bundled/skills/octocode-bundled/SKILL.md'
+      );
+      vi.mocked(nodeFs.readdirSync).mockImplementation((p: unknown) =>
+        String(p) === '/bundled/skills/octocode-bundled'
+          ? ([fileEntry('SKILL.md')] as never)
+          : ([] as never)
+      );
+      vi.mocked(nodeFs.statSync).mockReturnValue({ size: 12 } as never);
 
       const { installMarketplaceSkill } =
         await import('../../src/utils/skills-fetch.js');
@@ -1529,9 +1542,94 @@ category: utilities
       const result = await installMarketplaceSkill(localSkill, '/dest/skills');
 
       expect(result.success).toBe(true);
-      expect(fsUtils.copyDirectory).toHaveBeenCalledWith(
-        '/bundled/skills/octocode-bundled',
-        '/dest/skills/octocode-bundled'
+      expect(nodeFs.copyFileSync).toHaveBeenCalledWith(
+        '/bundled/skills/octocode-bundled/SKILL.md',
+        '/dest/skills/octocode-bundled/SKILL.md'
+      );
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should copy local skill files from the source skillsPath and skip unsafe local-only files', async () => {
+      vi.resetModules();
+      vi.doMock('../../src/utils/skills.js', () => ({
+        getSkillsSourcePath: vi.fn(() => '/bundled/skills'),
+        getAvailableSkills: vi.fn(() => []),
+        resolveSkillDestination: vi.fn((destDir: string, skillName: string) =>
+          skillName.includes('..') || skillName.includes('/')
+            ? null
+            : join(destDir, skillName)
+        ),
+        isPathInside: vi.fn(() => true),
+        installSkillToDestination: vi.fn(),
+      }));
+
+      const fsUtils = await import('../../src/utils/fs.js');
+      vi.mocked(fsUtils.dirExists).mockImplementation(
+        (p: string) => p === '/custom/skills/local-awareness'
+      );
+      vi.mocked(fsUtils.fileExists).mockImplementation(
+        (p: string) => p === '/custom/skills/local-awareness/SKILL.md'
+      );
+      vi.mocked(nodeFs.readdirSync).mockImplementation((p: unknown) =>
+        String(p) === '/custom/skills/local-awareness'
+          ? ([
+              fileEntry('SKILL.md'),
+              fileEntry('.env'),
+              fileEntry('.env.local'),
+              fileEntry('.npmrc'),
+              dirEntry('.aws'),
+              dirEntry('references'),
+              symlinkEntry('linked-secret'),
+              dirEntry('node_modules'),
+            ] as never)
+          : String(p) === '/custom/skills/local-awareness/references'
+            ? ([fileEntry('guide.md')] as never)
+            : ([] as never)
+      );
+      vi.mocked(nodeFs.statSync).mockReturnValue({ size: 12 } as never);
+
+      const { installMarketplaceSkill } =
+        await import('../../src/utils/skills-fetch.js');
+
+      const localSkill: MarketplaceSkill = {
+        name: 'local-awareness',
+        displayName: 'Local Awareness',
+        description: 'Local skill',
+        category: 'test',
+        path: 'local-awareness',
+        source: {
+          ...mockSource,
+          type: 'local',
+          skillsPath: '/custom/skills',
+        },
+      };
+
+      const result = await installMarketplaceSkill(localSkill, '/dest/skills');
+
+      expect(result.success).toBe(true);
+      expect(nodeFs.copyFileSync).toHaveBeenCalledWith(
+        '/custom/skills/local-awareness/SKILL.md',
+        '/dest/skills/local-awareness/SKILL.md'
+      );
+      expect(nodeFs.copyFileSync).toHaveBeenCalledWith(
+        '/custom/skills/local-awareness/references/guide.md',
+        '/dest/skills/local-awareness/references/guide.md'
+      );
+      expect(nodeFs.copyFileSync).not.toHaveBeenCalledWith(
+        '/custom/skills/local-awareness/.env',
+        expect.any(String)
+      );
+      expect(nodeFs.copyFileSync).not.toHaveBeenCalledWith(
+        '/custom/skills/local-awareness/.env.local',
+        expect.any(String)
+      );
+      expect(nodeFs.copyFileSync).not.toHaveBeenCalledWith(
+        '/custom/skills/local-awareness/.npmrc',
+        expect.any(String)
+      );
+      expect(nodeFs.copyFileSync).not.toHaveBeenCalledWith(
+        '/custom/skills/local-awareness/linked-secret',
+        expect.any(String)
       );
       expect(global.fetch).not.toHaveBeenCalled();
     });
@@ -1568,12 +1666,12 @@ category: utilities
       const result = await installMarketplaceSkill(localSkill, '/dest/skills');
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Skill not found in bundled source');
-      expect(fsUtils.copyDirectory).not.toHaveBeenCalled();
+      expect(result.error).toBe('Skill not found in local source');
+      expect(nodeFs.copyFileSync).not.toHaveBeenCalled();
       expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('should return shared installer error when bundled copy fails', async () => {
+    it('should reject oversized files from a local skill', async () => {
       vi.resetModules();
       vi.doMock('../../src/utils/skills.js', () => ({
         getSkillsSourcePath: vi.fn(() => '/bundled/skills'),
@@ -1584,30 +1682,25 @@ category: utilities
             : join(destDir, skillName)
         ),
         isPathInside: vi.fn(() => true),
-        installSkillToDestination: vi.fn(
-          ({
-            sourcePath,
-            destinationPath,
-          }: {
-            sourcePath: string;
-            destinationPath: string;
-          }) => {
-            try {
-              return vi.mocked(copyDirectory)(sourcePath, destinationPath)
-                ? 'installed'
-                : 'failed';
-            } catch {
-              return 'failed';
-            }
-          }
-        ),
+        installSkillToDestination: vi.fn(),
       }));
 
       const fsUtils = await import('../../src/utils/fs.js');
       vi.mocked(fsUtils.dirExists).mockReturnValue(true);
-      vi.mocked(fsUtils.copyDirectory).mockImplementation(() => {
-        throw new Error('copy failed');
-      });
+      vi.mocked(fsUtils.fileExists).mockImplementation(
+        (p: string) => p === '/bundled/skills/any-skill/SKILL.md'
+      );
+      vi.mocked(nodeFs.readdirSync).mockImplementation((p: unknown) =>
+        String(p) === '/bundled/skills/any-skill'
+          ? ([fileEntry('SKILL.md'), fileEntry('large.bin')] as never)
+          : ([] as never)
+      );
+      vi.mocked(nodeFs.statSync).mockImplementation(
+        (p: unknown) =>
+          ({
+            size: String(p).endsWith('large.bin') ? 1024 * 1024 + 1 : 12,
+          }) as never
+      );
 
       const { installMarketplaceSkill } =
         await import('../../src/utils/skills-fetch.js');
@@ -1624,7 +1717,8 @@ category: utilities
       const result = await installMarketplaceSkill(localSkill, '/dest/skills');
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Failed to copy bundled skill');
+      expect(result.error).toContain('Local skill file too large');
+      expect(nodeFs.copyFileSync).not.toHaveBeenCalled();
     });
   });
 });

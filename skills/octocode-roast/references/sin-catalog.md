@@ -6,37 +6,29 @@ Severity-tiered code sins with detection patterns and roast lines. For language-
 
 | Level | Icon | Meaning |
 |-------|------|---------|
-| CAPITAL OFFENSES | 💀 | Career-ending, fix NOW |
-| FELONIES | ⚖️ | Fix today |
-| CRIMES | 🚨 | Fix this week |
+| CAPITAL OFFENSES | 💀 | Security, data, or correctness risk; fix now |
+| FELONIES | ⚖️ | High-impact maintainability, performance, or safety risk |
+| CRIMES | 🚨 | Real defects or friction worth scheduling |
 | SLOP | 🤖 | AI hallucinations & filler |
 | MISDEMEANORS | 📝 | Judge silently |
 | PARKING TICKETS | 🅿️ | Mention if bored |
 
 ---
 
-## 💀 CAPITAL OFFENSES (Career-Ending)
+## 💀 CAPITAL OFFENSES (Fix Now)
 
 ### Security Sins
 
 | Sin | Pattern | Roast |
 |-----|---------|-------|
-| Hardcoded secrets | `password=`, `api_key=`, `secret=`, `token=` | "Congratulations, you've pre-authorized every script kiddie on Earth." |
+| Hardcoded secrets | `password=`, `api_key=`, `secret=`, `token=` with a real value | "Credential-shaped literal in code. Rotate if real, remove either way." |
 | `eval()` usage | `eval(`, `new Function(` | "Running `eval()`? Let me know when you start accepting TCP connections from strangers too." |
 | SQL injection | String concat in queries | "Bobby Tables sends his regards." |
 | XSS vectors | `innerHTML =`, `dangerouslySetInnerHTML` without sanitization | "XSS delivery mechanism deployed. Hackers can now run a casino in your DOM." |
-| No input validation | Direct user input to DB/shell/file | "You trust user input like I trust gas station sushi." |
+| No input validation | Direct user input to DB/shell/file without validation | "User input goes straight into the blast zone. Very generous threat model." |
 | Path traversal | User input in file paths without sanitization | "`../../../etc/passwd` has entered the chat." |
-| Insecure deserialization | `JSON.parse(userInput)`, `pickle.loads()` | "Deserializing untrusted data. Congratulations, you've built a remote code execution feature." |
+| Insecure deserialization | `pickle.loads()`, unsafe YAML/object loaders, untrusted serialized payloads | "Deserializing untrusted data. Congratulations, the parser is now part of your attack surface." |
 | Disabled security | `verify=False`, `rejectUnauthorized: false` | "SSL verification disabled. Man-in-the-middle attackers thank you for your hospitality." |
-
-### Architecture Sins
-
-| Sin | Pattern | Roast |
-|-----|---------|-------|
-| God function (200+ lines) | Manual count | "This function has more responsibilities than a startup CEO during a funding round." |
-| God class (1000+ lines) | Class line count | "This class does everything. It's not a class, it's a company." |
-| Circular dependencies | A imports B imports A | "Circular dependency detected. Your code is having an existential crisis." |
 
 ---
 
@@ -66,7 +58,10 @@ Severity-tiered code sins with detection patterns and roast lines. For language-
 | Sin | Pattern | Roast |
 |-----|---------|-------|
 | Callback hell (4+ levels) | Nested `.then(` or callbacks | "This indentation is legally classified as a geological formation." |
+| God function (200+ lines) | Manual count plus mixed responsibilities | "This function has more responsibilities than a startup CEO during a funding round." |
+| God class (1000+ lines) | Class line count plus mixed responsibilities | "This class does everything. It's not a class, it's a company." |
 | 500+ line files | Line count | "This file needs a table of contents and possibly a bibliography." |
+| Circular dependencies | A imports B imports A | "Circular dependency detected. Your code is having an existential crisis." |
 | Global state mutation | `window.`, mutable globals | "Globals everywhere. Bold choice for someone who clearly hates debugging." |
 | Tight coupling | Direct instantiation, no DI | "These classes are so tightly coupled they need couples therapy." |
 
@@ -101,7 +96,7 @@ Severity-tiered code sins with detection patterns and roast lines. For language-
 | `!important` spam | Multiple `!important` | "CSS so unhinged it's screaming at itself." |
 | z-index: 999999 | High z-index values | "z-index arms race. Next PR: z-index: Infinity." |
 | Prop drilling (5+ levels) | Props passed through many components | "Props passed down more generations than family trauma." |
-| useEffect abuse | Missing deps, infinite loops | "`useEffect` with an empty dependency array. React is suspicious." |
+| useEffect abuse | Missing deps, infinite loops, stale captured values | "`useEffect` is now a tiny state machine with no manual." |
 | No error boundaries | Missing React error boundaries | "No error boundaries. One bad render and the whole app goes white screen of death." |
 
 ### Testing Sins
@@ -118,8 +113,8 @@ Severity-tiered code sins with detection patterns and roast lines. For language-
 
 | Sin | Pattern | Roast |
 |-----|---------|-------|
-| AI Intro | "In today's digital landscape..." | "Did ChatGPT write this comment? Because it sounds like a LinkedIn influencer having a stroke." |
-| Forbidden Words | `delve`, `tapestry`, `robust` | "Using 'delve'? Confirmed AI slop. Be a human, write like one." |
+| AI Intro | "In today's digital landscape..." | "This prose walked out of a content mill and into your codebase." |
+| Formulaic filler | Stock phrases that obscure the actual behavior | "The comment has vibes, but the code needed facts." |
 | Verbosity | 10 lines to say `i++` | "This comment is longer than the function. Brevity is the soul of wit, and this is witless." |
 | Em-Dash Abuse | Multiple `—` in comments | "The em-dash abuse is real. We get it, you know grammar. Stop lecturing the compiler." |
 

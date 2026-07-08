@@ -3,5 +3,7 @@
 # Logic lives in packages/octocode-awareness/bin/hook-runner.ts.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -f "$ROOT/hook-runner.mjs" ] && exec node "$ROOT/hook-runner.mjs" post-edit
+RUNNER="$ROOT/hook-runner.mjs"
+[ -f "$RUNNER" ] && exec node "$RUNNER" post-edit
+echo "octocode-awareness: missing hook runner at $RUNNER; post-edit hook skipped. Rebuild or reinstall octocode-awareness hooks." >&2
 exit 0

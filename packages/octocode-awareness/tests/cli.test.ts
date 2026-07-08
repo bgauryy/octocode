@@ -755,9 +755,18 @@ describe('CLI', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('memory record');
     expect(r.stdout).toContain('npx @octocodeai/octocode-awareness <command>');
+    expect(r.stdout).toContain('npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common');
     expect(r.stdout).toContain('octocode-awareness schema commands --compact');
     expect(r.stdout).not.toContain('tell-memory');
     expect(r.stdout).not.toContain('get-memory');
+  });
+
+  it('no command prints the easy-install discovery guide', () => {
+    const r = spawnSync(NODE, [SCRIPT], { encoding: 'utf8', timeout: 5000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('easy install:');
+    expect(r.stdout).toContain('npx @octocodeai/octocode-awareness');
+    expect(r.stdout).toContain('npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common');
   });
 
   it('--help --compact returns a short agent guide', () => {
@@ -767,6 +776,20 @@ describe('CLI', () => {
     expect(r.stdout).toContain('npx @octocodeai/octocode-awareness <command>');
     expect(r.stdout).toContain('schema commands --compact');
     expect(r.stdout.split('\n').filter(Boolean).length).toBeLessThanOrEqual(8);
+  });
+
+  it('no command with --compact prints compact discovery instead of unknown-command JSON', () => {
+    const r = spawnSync(NODE, [SCRIPT, '--compact'], { encoding: 'utf8', timeout: 5000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('canonical noun/verb CLI');
+    expect(r.stdout).toContain('skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common');
+    expect(r.stdout).not.toContain('unknown command');
+  });
+
+  it('unknown flag-only invocation still exits nonzero', () => {
+    const r = spawnSync(NODE, [SCRIPT, '--bogus-flag', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain('unknown command');
   });
 
   it('unknown command exits 1 with JSON error', () => {

@@ -3,8 +3,8 @@
 How to read OQL results, interpret evidence, handle diagnostics, follow
 continuations, and safely answer research and dead-code questions.
 
-**Language reference:** [OQL_LANGUAGE_REFERENCE.md](./OQL_LANGUAGE_REFERENCE.md) — query anatomy, targets, predicates, params.
-**Quick reference:** [OCTOCODE_QUERY_LANGUAGE.md](./OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, recipes.
+**Language reference:** [OQL_LANGUAGE_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) — query anatomy, targets, predicates, params.
+**Quick reference:** [OCTOCODE_QUERY_LANGUAGE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, recipes.
 
 ---
 

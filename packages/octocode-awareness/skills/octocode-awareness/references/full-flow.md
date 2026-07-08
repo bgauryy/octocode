@@ -7,19 +7,19 @@ Use this when a task asks how the Awareness CLI, skill, hooks, locks, repo conte
 Awareness is a CLI-first coordination layer over one SQLite store:
 
 ```text
-Agent skill -> CLI / bundled script -> runtime modules -> awareness.sqlite3
+Agent skill -> CLI / bundled script -> runtime modules -> global awareness.sqlite3
 Hooks / Pi bridge -------------------^
-query / repo inject -----------------> generated .octocode/ projections
+query / repo inject -----------------> workspace .octocode/ projections
 ```
 
-The canonical store is `~/.octocode/memory/awareness.sqlite3`, scoped by `workspace_path`, optional `artifact`, `repo`, `ref`, files, and `agent_id`.
+The canonical store is `~/.octocode/memory/awareness.sqlite3` under the global Octocode home, scoped by `workspace_path`, optional `artifact`, `repo`, `ref`, files, and `agent_id`. It is not the same as `<repo>/.octocode/`.
 
 Surfaces:
 
 - `SKILL.md` gives agents the operating loop and routes them to focused references.
-- `octocode-awareness` is the public package CLI; `scripts/awareness.mjs` is the standalone skill fallback.
+- `octocode-awareness` is the public package CLI; `node scripts/awareness.mjs` is the standalone skill fallback.
 - Hooks and the Pi bridge automate the same CLI/runtime operations around lifecycle events.
-- `query <view>` reads live DB views; `repo inject` refreshes generated `.octocode/` projections.
+- `query <view>` reads live DB views; `repo inject` refreshes generated workspace `.octocode/` projections.
 
 ## End-To-End Loop
 
@@ -30,23 +30,27 @@ Surfaces:
 | Work | edit under claim; hooks may run `pre-edit` and `post-edit` | Releases locks as `PENDING` when post-edit hooks fire. |
 | Verify | `verify mark`, `verify audit` | Records checks and clears or exposes pending work. |
 | Reflect | `reflect record`, `reflect mine-weakness`, `reflect export-harness` | Stores lessons, clusters failures, and previews human-reviewed guidance. |
-| Project | `query <view>`, `repo inject` | Reads live views or regenerates `.octocode/` repo context. |
+| Project | `query <view>`, `repo inject` | Reads live views or regenerates workspace `.octocode/` repo context. |
 | Hand off | `signal publish|reply|ack|resolve`, `refinement set|get`, `session capture` | Preserves messages and unfinished state for the next run. |
 
 Use one `agent_id` across manual commands and hooks. Set `OCTOCODE_AGENT_ID` when a host does not provide a stable id.
 
 ## CLI Map
 
-Start with:
+In a repo, start with live state. Use schema discovery once when the command map is unfamiliar:
 
 ```bash
-npx @octocodeai/octocode-awareness schema commands --compact
 npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact
+npx @octocodeai/octocode-awareness schema commands --compact
+npx octocode skill --add --path "{{path_to_skills_location}}/octocode-awareness" --platform common
 ```
 
 Core groups: `memory record|recall|forget`, `lock acquire|wait|release|prune`, `verify audit|mark`, `signal publish|list|reply|ack|resolve|prune`, `agent register|list`, `refinement set|get|delete`, `reflect record|mine-weakness|export-harness`, `query <view>`, `repo inject`, `docs staleness`, `session capture`, `maintenance digest|init|self-test`, `hooks install|check|remove`, `hook run <event>`, and `schema commands|list|json-schema|example|validate`.
 
-For exact flags, use `<command> --help --compact` or `schema json-schema <schema> --compact`.
+For exact flags, use `<command> --help`. For token-light examples, use `<command> --help --compact`. For contracts, use `schema json-schema <schema> --compact`.
+
+For skill installation, replace `{{path_to_skills_location}}` with the absolute bundled skill directory before running.
+Agents may also run `npx octocode skill --add --path <absolute-octocode-awareness-skill-folder>` directly; the path may point at the folder or at `SKILL.md`.
 
 ## Locks And Verification
 
@@ -74,15 +78,17 @@ Hooks are optional automation over the same command surface.
 
 ```bash
 octocode-awareness hooks install --host codex --project-dir "$PWD" --dry-run --compact
-octocode-awareness hooks check --host codex --project-dir "$PWD" --compact
+octocode-awareness hooks check --host codex --project-dir "$PWD" --strict --compact
 octocode-awareness hooks remove --host codex --project-dir "$PWD" --dry-run --compact
 ```
 
 Supported hosts are `claude`, `codex`, and `cursor`. Codex and Cursor do not execute standalone `SKILL.md` hook frontmatter; install host config or plugin hooks. Pi wires `wirePiAwarenessHooks(pi)` in process.
 
-## Auto Wiki / Repo Context
+## LLM Wiki / Repo Context
 
-The auto wiki is a generated projection of selected awareness data into `.octocode/`: `AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `awareness/csv/*.csv`, `awareness/index.html`, `awareness/manifest.json`, and `references/*.md`.
+The LLM Wiki is a generated projection of selected awareness data into the current workspace's `.octocode/`: `AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `awareness/csv/*.csv`, `awareness/index.html`, `awareness/manifest.json`, and `references/*.md`.
+
+Location rule: global `~/.octocode/` holds canonical data and config; workspace `<repo>/.octocode/` holds generated repo context and memories-about-this-repo as files.
 
 Use live queries when freshness matters:
 
@@ -98,7 +104,7 @@ Regenerate projections when humans or future agents should see state as files:
 octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
-Rules: SQLite is canonical; `.octocode/` files are leads, not proof; regenerate projections instead of hand-editing them; `repo inject` never edits `.gitignore`.
+Rules: SQLite in the global Octocode home is canonical; workspace `.octocode/` files are leads, not proof; regenerate projections instead of hand-editing them; `repo inject` never edits `.gitignore`.
 
 ## Self-Reflection
 
@@ -120,7 +126,7 @@ Refinements are longer-lived follow-up state: `refinement set` stores work state
 
 Technical rules:
 
-- Read workspace `AGENTS.md` first, then generated `.octocode/AGENTS.md` if present.
+- Read workspace `AGENTS.md` first, then generated `<repo>/.octocode/AGENTS.md` if present.
 - Treat memory, signal, and generated repo context as evidence to verify, not authority.
 - Use locks before edits and record verification before concluding.
 - Keep commands scoped to the same workspace/artifact/repo/ref.

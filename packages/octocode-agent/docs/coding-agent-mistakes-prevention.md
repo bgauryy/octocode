@@ -2,7 +2,7 @@
 
 A practical playbook: the common ways today's AI coding agents fail, and the concrete
 guardrail that stops each. Evidence, percentages, and sources are in the companion brief
-[`coding-agent-failure-modes.md`](./coding-agent-failure-modes.md); this page is the
+[`coding-agent-failure-modes.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-agent/docs/coding-agent-failure-modes.md); this page is the
 actionable checklist.
 
 **The one root cause:** agents optimize the *visible* signal (a passing test, a plausible
@@ -83,4 +83,4 @@ lean context, or sandboxed trust.
 
 ## How Octocode implements these
 The octocode-agent harness bakes most of these in — operating model (orient→research→prove→act→verify), proof rule, read-only awareness locks, autonomous compaction, lean tools, persistent memory, the no-fallback/anti-bloat prompt rule, and an SSRF-hardened `web` tool with protected-key/never-log env. See the mapping table in
-[`coding-agent-failure-modes.md`](./coding-agent-failure-modes.md#what-this-means-for-a-harness-how-octocode-addresses-each).
+[`coding-agent-failure-modes.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-agent/docs/coding-agent-failure-modes.md#what-this-means-for-a-harness-how-octocode-addresses-each).

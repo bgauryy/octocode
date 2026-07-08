@@ -51,7 +51,7 @@ export function hooksInstallUsage(): string {
 Install, check, dry-run, or remove octocode-awareness lifecycle hooks.
 
 Targets:
-  --host claude         Write Claude Code hooks to .claude/settings.json (default).
+  --host claude         Write Claude Code hooks to .claude/settings.json (install default).
   --host codex         Write Codex hooks to .codex/hooks.json.
   --host cursor        Write Cursor hooks to .cursor/hooks.json.
 
@@ -59,6 +59,7 @@ Options:
   --project-dir <path>  Target a project hook file under <path> (default: cwd).
   --global              Target the user hook file with absolute hook paths.
   --check               Report whether the hooks are installed.
+  --strict              With --check, exit 2 if hooks are missing or drifted.
   --dry-run             Print the resulting settings without writing.
   --compact             Minify JSON output when supported.
   --remove              Remove only octocode-awareness hooks.`;
@@ -187,6 +188,63 @@ function hasCommand(groups: HookEntry[] | undefined, command: string): boolean {
   ));
 }
 
+function matcherMatches(actual: unknown, expected: string | undefined): boolean {
+  return expected ? actual === expected : actual == null;
+}
+
+function isExactHookEntry(host: HookHost, group: HookEntry, spec: HookSpec): boolean {
+  if (host === 'cursor') {
+    return sameAwarenessCommand(group.command, spec.command)
+      && group.timeout === 20
+      && matcherMatches(group.matcher, spec.matcher)
+      && !Array.isArray(group.hooks);
+  }
+
+  return matcherMatches(group.matcher, spec.matcher)
+    && (group.hooks ?? []).some((hook) => (
+      hook.type === 'command'
+      && sameAwarenessCommand(hook.command, spec.command)
+      && hook.timeout === 20
+    ));
+}
+
+function hasExactCommand(groups: HookEntry[] | undefined, host: HookHost, spec: HookSpec): boolean {
+  return (groups ?? []).some((group) => isExactHookEntry(host, group, spec));
+}
+
+function matchingCommandCount(groups: HookEntry[] | undefined, command: string): number {
+  let count = 0;
+  for (const group of groups ?? []) {
+    if (sameAwarenessCommand(group.command, command)) count += 1;
+    count += (group.hooks ?? []).filter((hook) => sameAwarenessCommand(hook.command, command)).length;
+  }
+  return count;
+}
+
+function hasDriftedCommand(groups: HookEntry[] | undefined, host: HookHost, spec: HookSpec): boolean {
+  for (const group of groups ?? []) {
+    if (host === 'cursor') {
+      if (sameAwarenessCommand(group.command, spec.command) && !isExactHookEntry(host, group, spec)) {
+        return true;
+      }
+      continue;
+    }
+
+    for (const hook of group.hooks ?? []) {
+      if (!sameAwarenessCommand(hook.command, spec.command)) continue;
+      const exact = matcherMatches(group.matcher, spec.matcher)
+        && hook.type === 'command'
+        && hook.timeout === 20;
+      if (!exact) return true;
+    }
+  }
+  return false;
+}
+
+function hookStatusKey(spec: HookSpec): string {
+  return `${spec.event}:${spec.command.split(/[\\/]/).pop()}`;
+}
+
 function removeCommand(groups: HookEntry[] | undefined, command: string): { groups: HookEntry[]; removed: boolean } {
   let removed = false;
   const out: HookEntry[] = [];
@@ -218,6 +276,9 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
   if (flag(argv, '--global') && argv.includes('--project-dir')) {
     return fail('use either --global or --project-dir, not both');
   }
+  if (flag(argv, '--check') && !argv.includes('--host')) {
+    return fail('hooks check requires --host claude, --host codex, or --host cursor');
+  }
 
   const hostValue = requestedHost(argv);
   if (!HOSTS.has(hostValue as HookHost)) {
@@ -247,19 +308,45 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
     hookDir: options.hookDir,
   });
 
+  const checks = specs.map((spec) => {
+    const groups = settings.hooks?.[spec.event];
+    const present = hasCommand(groups, spec.command);
+    const exact = hasExactCommand(groups, host, spec);
+    const matchingCount = matchingCommandCount(groups, spec.command);
+    const drifted = present && (!exact || hasDriftedCommand(groups, host, spec) || matchingCount > 1);
+    return {
+      key: hookStatusKey(spec),
+      event: spec.event,
+      hook: spec.command.split(/[\\/]/).pop(),
+      installed: exact,
+      present,
+      matching_count: matchingCount,
+      drifted,
+      expected: {
+        matcher: spec.matcher ?? null,
+        command: spec.command,
+        timeout: 20,
+        shape: host === 'cursor' ? 'flat' : 'nested',
+      },
+    };
+  });
+  const hooks = Object.fromEntries(checks.map((check) => [check.key, check.installed]));
   const status = {
     host,
     settingsPath,
-    hooks: Object.fromEntries(
-      specs.map((spec) => [
-        `${spec.event}:${spec.command.split(/[\\/]/).pop()}`,
-        hasCommand(settings.hooks?.[spec.event], spec.command),
-      ]),
-    ),
+    hooks,
+    installed_all: checks.every((check) => check.installed),
+    missing: checks.filter((check) => !check.present).map((check) => check.key),
+    drifted: checks.filter((check) => check.drifted).map((check) => check.key),
+    details: Object.fromEntries(checks.map((check) => [check.key, check])),
   };
 
   if (flag(argv, '--check')) {
-    return { exitCode: 0, payload: { ok: true, action: 'check', installed: status } };
+    const strict = flag(argv, '--strict');
+    return {
+      exitCode: strict && (!status.installed_all || status.drifted.length > 0) ? 2 : 0,
+      payload: { ok: status.installed_all && status.drifted.length === 0, action: 'check', strict, installed: status },
+    };
   }
 
   let changed = false;
@@ -280,11 +367,15 @@ export function runHooksInstall(argv: string[], options: HooksInstallOptions): H
     }
     if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   } else {
+    const checksByKey = new Map(checks.map((check) => [check.key, check]));
     for (const spec of specs) {
       const groups = settings.hooks[spec.event] ?? [];
       settings.hooks[spec.event] = groups;
-      if (!hasCommand(groups, spec.command)) {
-        groups.push(entry(host, spec));
+      const check = checksByKey.get(hookStatusKey(spec));
+      if (!check?.installed || check.drifted) {
+        const pruned = removeCommand(groups, spec.command);
+        settings.hooks[spec.event] = pruned.groups;
+        settings.hooks[spec.event]!.push(entry(host, spec));
         changed = true;
       }
     }

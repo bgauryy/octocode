@@ -5,7 +5,7 @@ Memory commands live in `memory-recall.md`; status and collisions live in `files
 
 > **Pi tool mapping** (agent turns): `signal publish|list|reply|ack|resolve` -> `agent_signal`; `lock acquire` -> `file_lock type:lock`; `lock release` -> `file_lock type:release`; `refinement get` -> `memory_refine_get`; `workspace status` -> `workspace_status`.
 > Pi `agent_signal` actions are `publish|list|reply|ack|resolve`; `file_lock` also supports `type:status` and `type:renew`.
-> CLI flag detail below applies to the public `octocode-awareness` bin and the bundled `scripts/awareness.mjs` fallback.
+> CLI flag detail below applies to the public `octocode-awareness` bin and the bundled `node scripts/awareness.mjs` fallback.
 
 ## Notifications
 
@@ -91,7 +91,7 @@ After hook-managed edits, use `verify mark --workspace <root> --all-pending`.
 ## `verify mark` / `verify audit`
 
 `verify audit` lists this agent's tasks still owing verification (`--agent-id`, `--workspace`, `--artifact` scope it).
-`verify mark --all-pending --message "<check>"` clears them after the declared test plan actually ran.
+`verify mark --agent-id <id> --workspace <root> --all-pending --message "<check>"` clears them after the declared test plan actually ran.
 `verify audit --abandon` bulk-dismisses every PENDING task as `FAILED` — a state-mutating escape hatch; use it only when abandoning the work, never as a shortcut past real verification.
 
 ## `refinement set` / `refinement get`

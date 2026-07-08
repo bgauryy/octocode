@@ -4,5 +4,7 @@
 # locates the built runner inside the distributed skill scripts directory.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-[ -f "$ROOT/hook-runner.mjs" ] && exec node "$ROOT/hook-runner.mjs" pre-edit
+RUNNER="$ROOT/hook-runner.mjs"
+[ -f "$RUNNER" ] && exec node "$RUNNER" pre-edit
+echo "octocode-awareness: missing hook runner at $RUNNER; pre-edit hook skipped. Rebuild or reinstall octocode-awareness hooks." >&2
 exit 0

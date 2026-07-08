@@ -53,7 +53,8 @@ export interface SubagentConfig {
 }
 
 /** Union of all registered subagent names (extend when adding new subagents). */
-export type SubagentName = 'browser-agent' | 'researcher' | 'planner' | 'architect';
+export type SubagentName =
+  'browser-agent' | 'researcher' | 'planner' | 'architect';
 
 // ─── Runtime path resolution ──────────────────────────────────────────────────
 
@@ -83,20 +84,21 @@ export const OCTOCODE_SKILL_NAMES = [
   'octocode-rfc-generator',
   'octocode-roast',
   'octocode-skills',
-  'octocode-subagents',
 ] as const;
 
 function subagentSkillPath(name: SubagentName, skillName: string): string {
   return path.join(SUBAGENTS_DIR, name, 'skills', skillName);
 }
 
-function bundledSkillPath(skillName: (typeof OCTOCODE_SKILL_NAMES)[number]): string {
+function bundledSkillPath(
+  skillName: (typeof OCTOCODE_SKILL_NAMES)[number]
+): string {
   return path.join(SKILLS_DIR, skillName);
 }
 
 function allOctocodeSkillPaths(...extraSkillPaths: string[]): string[] {
   return [
-    ...OCTOCODE_SKILL_NAMES.map((skillName) => bundledSkillPath(skillName)),
+    ...OCTOCODE_SKILL_NAMES.map(skillName => bundledSkillPath(skillName)),
     ...extraSkillPaths,
   ];
 }
@@ -110,7 +112,7 @@ export function loadSystemPrompt(config: SubagentConfig): string {
   if (!fs.existsSync(p)) {
     throw new Error(
       `subagent system prompt not found: ${p}\n` +
-      `Run: yarn workspace @octocodeai/pi-extension build`,
+        `Run: yarn workspace @octocodeai/pi-extension build`
     );
   }
   return fs.readFileSync(p, 'utf8');
@@ -127,16 +129,18 @@ export const SUBAGENT_REGISTRY = {
       'Use for multi-turn Chrome DevTools Protocol work: security audits, network analysis, ' +
       'DOM inspection, coverage, workers, service workers, emulation, and automation.',
     tools: [
-      'chromeDebug',         // CDP execution — primary tool
-      'web',                 // CDP docs + web research
+      'chromeDebug', // CDP execution — primary tool
+      'web', // CDP docs + web research
       'localGetFileContent', // read source files, screenshots
-      'localSearchCode',     // correlate browser errors to local source
-      'localViewStructure',  // navigate file trees
+      'localSearchCode', // correlate browser errors to local source
+      'localViewStructure', // navigate file trees
     ],
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'low',
     systemPromptPath: subagentPromptPath('browser-agent'),
-    skills: allOctocodeSkillPaths(subagentSkillPath('browser-agent', 'browser-agent')),
+    skills: allOctocodeSkillPaths(
+      subagentSkillPath('browser-agent', 'browser-agent')
+    ),
   },
   researcher: {
     name: 'researcher' as SubagentName,

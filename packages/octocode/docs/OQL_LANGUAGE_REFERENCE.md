@@ -4,8 +4,8 @@ Full language specification for the Octocode Query Language. The executable
 contract always wins: `npx octocode search --scheme`. If this doc and `--scheme`
 ever disagree, `--scheme` is correct — open an issue.
 
-**Quick reference:** [OCTOCODE_QUERY_LANGUAGE.md](./OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, common recipes, agent rules.
-**Results and evidence:** [OQL_RESULTS_AND_EVIDENCE.md](./OQL_RESULTS_AND_EVIDENCE.md) — envelopes, diagnostics, continuations, safe deletion.
+**Quick reference:** [OCTOCODE_QUERY_LANGUAGE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) — cheatsheet, decision tree, common recipes, agent rules.
+**Results and evidence:** [OQL_RESULTS_AND_EVIDENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) — envelopes, diagnostics, continuations, safe deletion.
 
 ---
 

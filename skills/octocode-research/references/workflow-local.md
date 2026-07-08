@@ -1,6 +1,7 @@
 # Workflow: Local Research
 
-Use when the running repo, local checkout, local artifact, or installed dependency is the truth. Read `algorithm.md` first for the router and evidence grades; read `octocode.md` for tool/CLI syntax.
+Use when the running repo, local checkout, local artifact, or installed dependency is source of truth.
+Read `algorithm.md` first; read `octocode.md` only when tool or CLI syntax is unclear.
 
 ```text
 localViewStructure / localFindFiles

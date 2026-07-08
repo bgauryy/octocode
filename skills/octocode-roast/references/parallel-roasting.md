@@ -14,15 +14,24 @@
 4. Merge findings, deduplicate, prioritize by severity
 5. **IF** the host cannot run true parallel work → **THEN** execute the same domains sequentially
 
+Each worker returns this compact contract:
+
+| Field | Requirement |
+|---|---|
+| Scope | Exact files/directories inspected |
+| Findings | `file:line`, evidence, impact, confidence, repair move |
+| Non-findings | High-risk patterns checked but not found |
+| Limits | Missing tools, unreadable paths, or reduced coverage |
+
 ## Smart Parallelization Tips
 - **Phase 1 (Acquire Target)**: Keep sequential — need unified scope
 - **Phase 2-3 (Obliterate + Inventory)**: Parallelize across domains
-  - Agent 1: Hunt CAPITAL OFFENSES (security sins, God functions)
-  - Agent 2: Hunt FELONIES (any abuse, N+1 queries, callback hell)
+  - Agent 1: Hunt CAPITAL OFFENSES (security, data loss, auth bypass)
+  - Agent 2: Hunt FELONIES (god functions, any abuse, N+1 queries)
   - Agent 3: Hunt CRIMES + SLOP (magic numbers, AI hallucinations)
 - **Phase 4-6 (Autopsy + Redemption)**: Keep sequential — needs unified prioritization
 - Use the host's task tracker to track sins found per agent
-- Each code-research worker should use `octocode-research` when installed; otherwise point it to https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install with `npx octocode skill --name octocode-research`.
+- Each code-research worker should use `octocode-research` when installed; otherwise report reduced coverage and let the coordinator ask the user before installation.
 
 ## Example
 - Goal: "Roast entire repo with 50+ files"

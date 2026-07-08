@@ -6,11 +6,13 @@
  * skill hooks and Pi native adapters share the same package-owned behavior.
  */
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { registerAgent } from '../src/agents.js';
+import { insertEditLog } from '../src/audit.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
@@ -52,9 +54,45 @@ function payloadForFileExtraction(payload: Record<string, unknown>): unknown {
   return { ...payload, ...inputObj };
 }
 
+let warnedFallbackAgentId = false;
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 function agentId(payload: Record<string, unknown>): string {
-  return process.env.OCTOCODE_AGENT_ID
-    || String(payload.session_id ?? payload.sessionId ?? payload.agent_id ?? payload.agentId ?? 'claude-agent');
+  const input = objectOrEmpty(payloadInput(payload));
+  const explicit = firstString(
+    process.env.OCTOCODE_AGENT_ID,
+    payload.session_id,
+    payload.sessionId,
+    payload.agent_id,
+    payload.agentId,
+    input.session_id,
+    input.sessionId,
+    input.agent_id,
+    input.agentId,
+  );
+  if (explicit) return explicit;
+
+  const host = firstString(
+    process.env.OCTOCODE_AGENT_HOST,
+    payload.host,
+    payload.client,
+    payload.source,
+    payload.context,
+  ) ?? 'shell';
+  const scope = `${host}\0${workspace(payload) ?? process.cwd()}`;
+  const suffix = createHash('sha1').update(scope).digest('hex').slice(0, 12);
+  const fallback = `hook:${host.replace(/[^a-zA-Z0-9_.:-]/g, '_')}:${suffix}`;
+  if (!warnedFallbackAgentId) {
+    warnedFallbackAgentId = true;
+    console.error(`octocode-awareness: OCTOCODE_AGENT_ID or host session id missing; using fallback agent id "${fallback}". Set OCTOCODE_AGENT_ID for reliable multi-agent lock isolation.`);
+  }
+  return fallback;
 }
 
 function agentName(payload: Record<string, unknown>): string {
@@ -214,15 +252,29 @@ async function runPostEdit(payload: Record<string, unknown>): Promise<number> {
   try {
     const database = db();
     registerHookAgent(database, payload, 'hook:post-edit');
-    releaseFileLock(database, {
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? undefined,
-      artifact: artifact(payload),
+    const hookAgentId = agentId(payload);
+    const hookWorkspace = workspace(payload) ?? process.cwd();
+    const hookArtifact = artifact(payload);
+    const release = releaseFileLock(database, {
+      agentId: hookAgentId,
+      workspacePath: hookWorkspace,
+      artifact: hookArtifact,
       targetFiles: files,
       status: 'PENDING',
     });
-  } catch {
-    // fail-open
+    const taskId = release.task_ids.length === 1 ? release.task_ids[0] : null;
+    for (const file of files) {
+      insertEditLog(database, {
+        agentId: hookAgentId,
+        taskId,
+        filePath: resolveHookPath(file, hookWorkspace),
+        operation: 'update',
+        workspacePath: hookWorkspace,
+        artifact: hookArtifact,
+      });
+    }
+  } catch (error) {
+    console.error(`octocode-awareness post-edit warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -286,14 +338,15 @@ async function runStopVerify(payload: Record<string, unknown>): Promise<number> 
       console.error(`octocode-awareness: concluding with unverified work. ${parts.join(' | ')}`);
       return 2;
     }
-  } catch {
-    // fail-open
+  } catch (error) {
+    console.error(`octocode-awareness verify warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
 
 function maybeRunDigest(payload: Record<string, unknown>): void {
   if (process.env.OCTOCODE_NO_DIGEST === '1') return;
+  if (process.env.OCTOCODE_NOTIFY_RUN_DIGEST !== '1') return;
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 3600_000 : 4 * 3600_000;
   const memoryHome = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ''}/.octocode/memory`;
@@ -312,8 +365,8 @@ function maybeRunDigest(payload: Record<string, unknown>): void {
       writeFileSync(markerPath, String(now), 'utf8');
       digest(database, { workspace: workspace(payload), memoryHome });
     }
-  } catch {
-    // fail-open
+  } catch (error) {
+    console.error(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -335,8 +388,8 @@ async function runNotifyDeliver(payload: Record<string, unknown>): Promise<numbe
         additional_context: result.additionalContext,
       }) + '\n');
     }
-  } catch {
-    // fail-open
+  } catch (error) {
+    console.error(`octocode-awareness session-capture warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }

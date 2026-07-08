@@ -101,13 +101,13 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
   'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view', 'include_bodies'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
-  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'mark_read', 'limit', 'format'],
+  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'format'],
   'notify-prune': ['signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
   'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'lock_type', 'wait_seconds', 'retry_interval'],
   'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
   'hook-run': [],
-  'hooks-install': ['host', 'project_dir', 'global', 'check', 'dry_run', 'remove'],
+  'hooks-install': ['host', 'project_dir', 'global', 'check', 'strict', 'dry_run', 'remove'],
   'schema': [],
 };
 
@@ -181,6 +181,11 @@ function selectCommand(argv: string[]): { command: string | undefined; rest: str
   const [firstRaw, secondRaw, thirdRaw, ...tail] = argv;
   const first = normalizeToken(firstRaw);
   if (!first) return { command: undefined, rest: [] };
+  if (first.startsWith('-')) {
+    return argv.every((arg) => arg === '--compact')
+      ? { command: undefined, rest: argv }
+      : { command: UNKNOWN_COMMAND, rest: argv };
+  }
 
   const second = normalizeToken(secondRaw);
   if (first === 'hook' && second === 'run') {
@@ -255,7 +260,8 @@ function emit(payload: Record<string, unknown>, exitCode = 0, opts: EmitOptions 
 }
 
 function die(message: string, extras: Record<string, unknown> = {}): never {
-  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, 2) + '\n');
+  const compact = process.argv.includes('--compact') || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
+  process.stdout.write(JSON.stringify({ ok: false, error: message, ...extras }, null, compact ? 0 : 2) + '\n');
   process.exit(1);
 }
 
@@ -366,11 +372,11 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
   });
 
   // The CLI has no embedding source; semantic ranking needs embeddings stored
-  // via the library API (storeEmbedding/semanticSearch). Be honest about it.
+  // via the library API (storeEmbedding/searchByEmbedding). Be honest about it.
   const payload: Record<string, unknown> = { db_path: dbPath, ...result };
   if (args['semantic']) {
     payload['warnings'] = [
-      'semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/semanticSearch() API for semantic recall.',
+      'semantic ranking is unavailable in the CLI (no embedding source); results use lexical FTS + decay. Use the library storeEmbedding()/searchByEmbedding() API for semantic recall.',
     ];
   }
   return emit(payload, 0, opts);
@@ -1107,6 +1113,16 @@ npx: npx @octocodeai/octocode-awareness <command>
 agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
+easy install:
+  Tell your agent to run: npx @octocodeai/octocode-awareness
+  Then install the bundled Agent Skill:
+    npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common
+  Registry fallback:
+    npx octocode skill --name octocode-awareness
+
+supported agents: Codex, Claude Code, Cursor, Pi, and custom library/CLI hosts
+surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = lifecycle automation
+
 start: workspace status, memory recall, refinement get, signal list, query <view>
 edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
@@ -1127,7 +1143,7 @@ examples:
 Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
-npx: npx @octocodeai/octocode-awareness <command>
+npx: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
 start: workspace status; memory recall; refinement get; signal list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
@@ -1235,7 +1251,7 @@ const ROUTE_EXAMPLE: Record<string, string> = {
   'agent register': 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
   'agent list': 'octocode-awareness agent list --workspace "$PWD" --compact',
   'hooks install': 'octocode-awareness hooks install --host codex --dry-run --compact',
-  'hooks check': 'octocode-awareness hooks check --host codex --compact',
+  'hooks check': 'octocode-awareness hooks check --host codex --strict --compact',
   'hooks remove': 'octocode-awareness hooks remove --host codex --dry-run --compact',
   'schema commands': 'octocode-awareness schema commands --compact',
   'schema list': 'octocode-awareness schema list --compact',
@@ -1332,19 +1348,23 @@ function helpFor(command: string | null, options: { compact?: boolean; routeKey?
   const normalized = command.replace(/_/g, '-');
   const flags = KNOWN_FLAGS[normalized];
   if (!flags) return HELP;
-  const schema = COMMAND_TO_SCHEMA[normalized] ?? normalized.replace(/-/g, '_');
+  const schema = COMMAND_TO_SCHEMA[normalized] ?? null;
   const display = options.routeKey ?? COMMAND_DISPLAY[normalized] ?? normalized;
   const example = (options.routeKey ? ROUTE_EXAMPLE[options.routeKey] : undefined) ?? COMMAND_EXAMPLE[normalized];
   if (options.compact) {
-    return `usage: octocode-awareness ${display} [options]
-schema: ${schema}
-example: ${example ?? `octocode-awareness ${display}`}`.trimEnd();
+    return [
+      `usage: octocode-awareness ${display} [options]`,
+      schema ? `schema: ${schema}` : 'schema: none',
+      `example: ${example ?? `octocode-awareness ${display}`}`,
+    ].join('\n').trimEnd();
   }
   if (COMMAND_HELP[normalized]) return COMMAND_HELP[normalized]!;
-  return `usage: octocode-awareness ${display} [options]
-flags: ${flags.map(hyphenFlag).join(' ')}
-schema: octocode-awareness schema json-schema ${schema} --compact
-${example ? `example: ${example}` : ''}`.trimEnd();
+  return [
+    `usage: octocode-awareness ${display} [options]`,
+    `flags: ${flags.map(hyphenFlag).join(' ')}`,
+    schema ? `schema: octocode-awareness schema json-schema ${schema} --compact` : 'schema: none',
+    example ? `example: ${example}` : '',
+  ].join('\n').trimEnd();
 }
 
 function commandFromHelpArgv(argv: string[]): { command: string | null; routeKey?: string } {
@@ -1386,7 +1406,7 @@ if (command && KNOWN_FLAGS[command]) {
     const payload = {
       ok: false,
       command: COMMAND_DISPLAY[command] ?? command,
-      schema: COMMAND_TO_SCHEMA[command] ?? command.replace(/-/g, '_'),
+      schema: COMMAND_TO_SCHEMA[command] ?? null,
       error: `unknown flag(s): ${unknown.map((f) => `--${f.replace(/_/g, '-')}`).join(', ')}`,
       known_flags: KNOWN_FLAGS[command].map((f) => `--${f.replace(/_/g, '-')}`),
       hint: `Run "octocode-awareness ${COMMAND_DISPLAY[command] ?? command} --help" for this command.`,
@@ -1402,8 +1422,8 @@ const compact = args['compact'] === true || process.env['OCTOCODE_AWARENESS_COMP
 const opts: EmitOptions = { compact };
 
 if (!command) {
-  process.stdout.write('No command given. Run --help for usage.\n');
-  process.exit(1);
+  process.stdout.write((compact ? HELP_COMPACT : HELP) + '\n');
+  process.exit(0);
 }
 
 if (command === UNKNOWN_COMMAND) {

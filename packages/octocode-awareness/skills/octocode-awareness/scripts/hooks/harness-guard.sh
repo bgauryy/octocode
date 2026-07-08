@@ -4,5 +4,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-[ -f "$ROOT/hook-runner.mjs" ] && OCTOCODE_SKILL_ROOT="$SKILL_ROOT" exec node "$ROOT/hook-runner.mjs" harness-guard
+RUNNER="$ROOT/hook-runner.mjs"
+[ -f "$RUNNER" ] && OCTOCODE_SKILL_ROOT="$SKILL_ROOT" exec node "$RUNNER" harness-guard
+echo "octocode-awareness: missing hook runner at $RUNNER; harness-guard hook skipped. Rebuild or reinstall octocode-awareness hooks." >&2
 exit 0

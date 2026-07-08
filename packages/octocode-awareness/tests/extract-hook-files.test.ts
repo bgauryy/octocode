@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -251,6 +251,25 @@ describe('hook wrapper scripts', () => {
     );
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('editing the skill itself is gated');
+  });
+
+  it('hook wrappers warn when hook-runner.mjs is missing', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'octocode-missing-runner-'));
+    const tempHooks = join(tempRoot, 'scripts', 'hooks');
+    mkdirSync(tempHooks, { recursive: true });
+    try {
+      cpSync(resolve(HOOKS_DIR, 'pre-edit.sh'), join(tempHooks, 'pre-edit.sh'));
+      const result = spawnSync(join(tempHooks, 'pre-edit.sh'), [], {
+        input: JSON.stringify({ file_path: 'src/missing-runner.ts' }),
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain('missing hook runner');
+      expect(result.stderr).toContain('pre-edit hook skipped');
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 

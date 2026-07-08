@@ -1,6 +1,8 @@
 # Workflow: Debug / Root Cause
 
-Use when the user asks why behavior changed, a test failed, an error appears, or a bug exists. Read `algorithm.md` first for the router and evidence grades; use `code-research.md` for the proof ladder on any code claim raised here.
+Use when behavior changed, a test failed, an error appears, or a bug exists.
+Read `algorithm.md` first for routing and evidence grades.
+Use `code-research.md` for the proof ladder on any code claim raised here.
 
 ```text
 capture reproduction when available: failing command, log, input, stack frame, endpoint, or changed behavior

@@ -1,6 +1,6 @@
 # Language-Specific Sins & Search Patterns
 
-Per-language sin tables plus copy-paste detection queries. Pair with the tiered catalog in sin-catalog.md.
+Per-language sin tables plus copy-paste detection queries. Pair with the tiered catalog in sin-catalog.md. These are leads; cite only after exact code evidence proves impact and confidence.
 
 ---
 
@@ -42,7 +42,7 @@ Per-language sin tables plus copy-paste detection queries. Pair with the tiered 
 
 ## Search Patterns
 
-Use these as pattern families for `octocode-research`; do not run or document Octocode research commands here.
+Use these as pattern families for `octocode-research`; do not run or document Octocode research commands here. Exclude docs, examples, fixtures, generated files, and tests before ranking unless the user asked to roast those surfaces.
 
 | Category | Patterns |
 |---|---|
@@ -52,4 +52,4 @@ Use these as pattern families for `octocode-research`; do not run or document Oc
 | Performance and data access | sync file I/O, `SELECT *`, async `forEach`, blocking calls in hot paths |
 | Quality, frontend, and residue | `TODO`, `FIXME`, `HACK`, `XXX`, disables, large `z-index`, `!important`, `console.log`, `debugger`, merge markers |
 
-Ask `octocode-research` to upgrade any match into exact evidence before the roast cites it.
+Ask `octocode-research` to upgrade any match into exact evidence before the roast cites it. If the evidence only proves style or taste, demote it to Slop or Misdemeanor.

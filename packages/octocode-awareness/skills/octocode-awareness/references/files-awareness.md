@@ -12,6 +12,8 @@ Each lock shows `agent_id`, `file_path`, `acquired_at`, and `expires_at` (ISO-86
 Flags: `--workspace` filters displayed locks/tasks under one workspace path; `--artifact` narrows to one package/service/artifact; `--limit` caps listed locks/pending tasks.
 Expired locks are cleaned on each call and their tasks become `PENDING`, so what you see is live without erasing verification debt.
 
+The status command reads the canonical global DB (`~/.octocode/memory/awareness.sqlite3` by default), filtered by `workspace_path`. It does not read generated `<repo>/.octocode/` files.
+
 `workspace status` does not show refinement bodies. For handoff detail, run `refinement get`.
 Refinements are keyed by `workspace_path`, optional `artifact`, and optional `repo`/`ref`; mismatched scope means `refinement get` can miss them.
 
@@ -69,7 +71,7 @@ Pass absolute paths or run from repo root.
 ## Observability
 
 - `workspace status` - memory counts by state and label, active task count, open refinements, live locks.
-- `query all --format html --out .octocode/awareness/index.html` - static browser view across memories, tasks, locks, agents, signals, files, activity, and repo profile.
+- `query all --format html --out .octocode/awareness/index.html` - workspace `.octocode/` static browser view across memories, tasks, locks, agents, signals, files, activity, and repo profile.
 - `reflect mine-weakness` - top recurring failure clusters by `failure_signature` (support x avg-importance).
 - `maintenance digest --dry-run` - preview archive/prune counts before any cleanup mutates.
 - `query memories --format markdown` - readable memory projection with labels, importance, context, observation, failure signature, and refs.

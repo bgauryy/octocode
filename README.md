@@ -366,8 +366,10 @@ Install them with the Octocode CLI through `npx octocode`; no global install is 
 ```bash
 npx octocode skill --list                                      # browse available Octocode skills
 npx octocode skill --name octocode-research                    # install to ~/.agents/skills (common)
+npx octocode skill --name octocode-awareness                   # install bundled Awareness by name
 npx octocode skill --name octocode-research --platform pi      # install for Pi
 npx octocode skill --name octocode-research --platform all --dry-run  # preview before installing everywhere
+npx octocode skill --add --path /path/to/skills/octocode-awareness  # install from an agent-known local skill path
 npx octocode skill --add owner/repo/skills/my-skill            # install any GitHub skill folder
 npx octocode skill --add owner/repo/skills                     # install every skill in a GitHub skills library
 npx octocode skill --install-all                               # install every official Octocode skill to ~/.agents/skills

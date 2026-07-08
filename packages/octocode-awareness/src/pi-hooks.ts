@@ -1,7 +1,10 @@
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { connectCachedDb, resolveDbPath } from './db.js';
+import { insertEditLog } from './audit.js';
 
 // HOOK-2: A one-time session startup token that survives process.pid reuse across
 // OS restarts. We combine the session file name (if available) with a UUID suffix
@@ -46,6 +49,7 @@ export interface PiAwarenessBridgeOptions {
   pendingToolTasks?: Map<string, string>;
   dbPath?: string | null;
   getDb?: (ctx?: PiLikeContext) => DatabaseSync;
+  skillRoot?: string | null;
 }
 
 function addPathValue(paths: string[], value: unknown): void {
@@ -178,10 +182,78 @@ function defaultGetDb(options: PiAwarenessBridgeOptions, ctx?: PiLikeContext): D
   return connectCachedDb(ctx?.dbPath ?? options.dbPath ?? resolveDbPath(null));
 }
 
+function canonicalPath(input: string): string {
+  const resolved = path.resolve(input);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    const missingParts: string[] = [];
+    let cursor = resolved;
+    while (true) {
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return resolved;
+      missingParts.unshift(path.basename(cursor));
+      cursor = parent;
+      try {
+        return path.join(realpathSync(cursor), ...missingParts);
+      } catch {
+        continue;
+      }
+    }
+  }
+}
+
+function resolvePiTargetPath(file: string, cwd: string): string {
+  return path.isAbsolute(file) ? file : path.resolve(cwd, file);
+}
+
+function isInsidePath(candidate: string, root: string): boolean {
+  const resolvedCandidate = canonicalPath(candidate);
+  const resolvedRoot = canonicalPath(root);
+  const rel = path.relative(resolvedRoot, resolvedCandidate);
+  return rel === '' || Boolean(rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function gitBranchOf(dir: string): string | null {
+  try {
+    const result = spawnSync('git', ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    return result.status === 0 ? String(result.stdout).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardPiHarnessEdit(targetFiles: string[], ctx: PiLikeContext | undefined, skillRoot: string | null | undefined): string | null {
+  if (!skillRoot) return null;
+  const cwd = ctx?.cwd ?? process.cwd();
+  const insideSkill = targetFiles.some((file) => isInsidePath(resolvePiTargetPath(file, cwd), skillRoot));
+  if (!insideSkill) return null;
+
+  if (process.env.OCTOCODE_ALLOW_HARNESS_APPLY !== '1') {
+    return 'Octocode awareness blocked this edit: editing the skill itself is gated. A human must set OCTOCODE_ALLOW_HARNESS_APPLY=1.';
+  }
+
+  const branch = gitBranchOf(skillRoot);
+  if (branch === 'main' || branch === 'master') {
+    return `Octocode awareness blocked this edit: harness self-fix is never allowed on ${branch}. Create a dedicated branch first.`;
+  }
+  if (!branch || branch === 'HEAD') {
+    if (process.env.OCTOCODE_HARNESS_BRANCH_OK !== '1') {
+      return 'Octocode awareness blocked this edit: cannot confirm a dedicated git branch for the skill. Create one, or set OCTOCODE_HARNESS_BRANCH_OK=1 to acknowledge.';
+    }
+  }
+
+  return null;
+}
+
 export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) {
   const pendingToolFiles = options.pendingToolFiles ?? new Map<string, string[]>();
   const pendingToolTasks = options.pendingToolTasks ?? new Map<string, string>();
   const getDb = options.getDb ?? ((ctx?: PiLikeContext) => defaultGetDb(options, ctx));
+  const skillRoot = options.skillRoot ?? process.env.OCTOCODE_SKILL_ROOT ?? null;
 
   return {
     pendingToolFiles,
@@ -191,6 +263,8 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
       if (event?.toolCallId && pendingToolTasks.has(event.toolCallId)) return undefined;
       const targetFiles = extractPiWriteTargetPaths(event?.toolName, event?.input);
       if (targetFiles.length === 0) return undefined;
+      const harnessBlockReason = guardPiHarnessEdit(targetFiles, ctx, skillRoot);
+      if (harnessBlockReason) return { block: true, reason: harnessBlockReason };
 
       const agentId = getPiAwarenessAgentId(ctx);
       try {
@@ -238,15 +312,30 @@ export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) 
       }
       try {
         const db = getDb(ctx);
+        const agentId = getPiAwarenessAgentId(ctx);
+        const sessionId = getPiAwarenessSessionId(ctx);
+        const workspacePath = ctx?.cwd ?? process.cwd();
+        const artifact = artifactFrom(ctx, event as Record<string, unknown>);
         releaseFileLock(db, {
-          agentId: getPiAwarenessAgentId(ctx),
-          sessionId: getPiAwarenessSessionId(ctx),
+          agentId,
+          sessionId,
           taskId,
           targetFiles: taskId ? [] : fallbackFiles,
-          workspacePath: ctx?.cwd ?? process.cwd(),
-          artifact: artifactFrom(ctx, event as Record<string, unknown>),
+          workspacePath,
+          artifact,
           status: 'PENDING',
         });
+        for (const file of fallbackFiles) {
+          insertEditLog(db, {
+            sessionId,
+            taskId,
+            agentId,
+            filePath: resolvePiTargetPath(file, workspacePath),
+            operation: 'update',
+            workspacePath,
+            artifact,
+          });
+        }
       } catch (error) {
         notify(ctx, `Octocode awareness warning; continuing: ${error instanceof Error ? error.message : String(error)}`, 'warning');
       }

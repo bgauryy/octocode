@@ -1,6 +1,9 @@
 # Workflows
 
-Index for picking the efficient Octocode route. Read `algorithm.md` first for the router and evidence grades; read `octocode.md` when transport or command syntax is unclear. Each workflow below lives in its own file — load only the one(s) the task needs.
+Index for picking the efficient Octocode route.
+Read `algorithm.md` first for routing and evidence grades.
+Read `octocode.md` when transport or command syntax is unclear.
+Each workflow below lives in its own file; load only what the task needs.
 
 ## Workflow Files
 

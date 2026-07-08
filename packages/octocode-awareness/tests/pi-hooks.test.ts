@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectDb } from '../src/db.js';
@@ -51,6 +51,7 @@ describe('createPiAwarenessBridge', () => {
       expect(bridge.pendingToolFiles.has('tool-1')).toBe(false);
       expect((db.prepare("SELECT COUNT(*) AS c FROM tasks WHERE status='PENDING'").get() as { c: number }).c).toBe(1);
       expect((db.prepare('SELECT COUNT(*) AS c FROM locks').get() as { c: number }).c).toBe(0);
+      expect((db.prepare('SELECT COUNT(*) AS c FROM edit_log').get() as { c: number }).c).toBe(1);
       db.close();
     } finally {
       tmp.cleanup();
@@ -101,6 +102,46 @@ describe('createPiAwarenessBridge', () => {
       expect(blocked).toMatchObject({ block: true });
       db.close();
     } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('guards Pi harness self-edits with the same approval env as shell hooks', async () => {
+    const tmp = tempDb();
+    const previousAllow = process.env.OCTOCODE_ALLOW_HARNESS_APPLY;
+    const previousBranchOk = process.env.OCTOCODE_HARNESS_BRANCH_OK;
+    try {
+      delete process.env.OCTOCODE_ALLOW_HARNESS_APPLY;
+      delete process.env.OCTOCODE_HARNESS_BRANCH_OK;
+      const skillRoot = join(tmp.dir, 'skills', 'octocode-awareness');
+      mkdirSync(skillRoot, { recursive: true });
+      const db = connectDb(tmp.dbPath);
+      const bridge = createPiAwarenessBridge({ getDb: () => db, skillRoot });
+      const ctx = { cwd: tmp.dir, sessionManager: { getSessionFile: () => join(tmp.dir, 'session.jsonl') } };
+
+      const blocked = await bridge.handleToolCall(
+        { toolName: 'write', toolCallId: 'guard-1', input: { path: join(skillRoot, 'SKILL.md') } },
+        ctx,
+      );
+      expect(blocked).toMatchObject({ block: true });
+      expect(blocked?.reason).toContain('editing the skill itself is gated');
+      expect((db.prepare('SELECT COUNT(*) AS c FROM tasks').get() as { c: number }).c).toBe(0);
+
+      process.env.OCTOCODE_ALLOW_HARNESS_APPLY = '1';
+      process.env.OCTOCODE_HARNESS_BRANCH_OK = '1';
+
+      const allowed = await bridge.handleToolCall(
+        { toolName: 'write', toolCallId: 'guard-2', input: { path: join(skillRoot, 'README.md') } },
+        ctx,
+      );
+      expect(allowed).toBeUndefined();
+      expect((db.prepare('SELECT COUNT(*) AS c FROM tasks').get() as { c: number }).c).toBe(1);
+      db.close();
+    } finally {
+      if (previousAllow === undefined) delete process.env.OCTOCODE_ALLOW_HARNESS_APPLY;
+      else process.env.OCTOCODE_ALLOW_HARNESS_APPLY = previousAllow;
+      if (previousBranchOk === undefined) delete process.env.OCTOCODE_HARNESS_BRANCH_OK;
+      else process.env.OCTOCODE_HARNESS_BRANCH_OK = previousBranchOk;
       tmp.cleanup();
     }
   });

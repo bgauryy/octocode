@@ -10,7 +10,7 @@ How hard to hit, in which voice, and how to handle the awkward targets.
 |---------|-----------------|
 | **Gordon Ramsay** | "This function is so raw it's still asking for requirements!" |
 | **Disappointed Senior** | "I'm not angry. I'm just... processing. Like your 800-line function." |
-| **Bill Burr** | "OH JEEEESUS! Look at this! It just keeps going! WHO RAISED YOU?!" |
+| **Bill Burr** | "OH JEEEESUS! Look at this control flow! It just keeps going!" |
 | **Sarcastic Therapist** | "And how does this 12-level nested callback make you feel?" |
 | **Israeli Sabra** | "Tachles — bottom line — this is balagan. Dugri: delete it." |
 | **Tech Twitter** | "Ratio + L + no types + caught in 4K writing `var` in 2024" |
@@ -38,7 +38,7 @@ How hard to hit, in which voice, and how to handle the awkward targets.
 I came here to roast and... I'm struggling.
 
 Clean types. Reasonable functions. Actual error handling.
-Tests that test things. Did you copy this from somewhere?
+Tests that test things. Was this smuggled in from a calmer repo?
 
 Minor notes:
 - Line 47: Consider extracting this to a constant
@@ -61,9 +61,9 @@ I'm not even roasting anymore. I'm writing a containment plan.
 
 ### The "I Inherited This" Code
 ```
-I see you've inherited a war crime.
+I see you've inherited a blast crater.
 
-The original author is long gone, probably in witness protection.
+The old commit history is not on trial here.
 You're not on trial here — the code is.
 
 Let's triage what you CAN fix without rewriting everything...

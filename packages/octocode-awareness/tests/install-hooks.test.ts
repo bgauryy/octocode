@@ -30,6 +30,13 @@ function runInstallHooks(args: string[], script = SCRIPT) {
   };
 }
 
+function runInstallHooksRaw(args: string[], script = SCRIPT) {
+  return spawnSync(NODE, [script, ...args], {
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+}
+
 describe('install-hooks', () => {
   it('rejects host shortcut aliases', () => {
     const result = spawnSync(NODE, [SCRIPT, 'hooks', 'install', '--codex', '--dry-run'], {
@@ -41,6 +48,13 @@ describe('install-hooks', () => {
     expect(parsed.error).toContain('unknown flag');
     expect(parsed.known_flags).toContain('--host');
     expect(parsed.known_flags).not.toContain('--codex');
+  });
+
+  it('requires --host for hooks check', () => {
+    const result = runInstallHooksRaw(['hooks', 'check', '--compact']);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { error?: string };
+    expect(parsed.error).toContain('hooks check requires --host');
   });
 
   it('generated skill CLI resolves hook paths from its own scripts directory', () => {
@@ -148,6 +162,95 @@ describe('install-hooks', () => {
       expect(result.resultingSettings.hooks?.preToolUse).toEqual([
         { command: unrelated, timeout: 20, matcher: 'Write' },
       ]);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('strict check reports drifted hooks and install repairs them', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-drift-'));
+    const preEdit = resolve(
+      REPO_ROOT,
+      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+    );
+    try {
+      mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
+      writeFileSync(
+        resolve(projectDir, '.codex/hooks.json'),
+        JSON.stringify({
+          hooks: {
+            PreToolUse: [
+              {
+                matcher: 'Write',
+                hooks: [{ type: 'command', command: preEdit, timeout: 5 }],
+              },
+            ],
+          },
+        }, null, 2),
+      );
+
+      const check = runInstallHooksRaw(['hooks', 'check', '--host', 'codex', '--project-dir', projectDir, '--strict', '--compact']);
+      expect(check.status).toBe(2);
+      const parsed = JSON.parse(check.stdout) as {
+        ok: boolean;
+        installed: { hooks: Record<string, boolean>; drifted: string[] };
+      };
+      expect(parsed.ok).toBe(false);
+      expect(parsed.installed.hooks['PreToolUse:pre-edit.sh']).toBe(false);
+      expect(parsed.installed.drifted).toContain('PreToolUse:pre-edit.sh');
+
+      const repaired = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
+      const preToolUse = repaired.resultingSettings.hooks?.PreToolUse ?? [];
+      const preEditEntries = preToolUse.filter((entry) => JSON.stringify(entry).includes('pre-edit.sh'));
+      expect(preEditEntries).toHaveLength(1);
+      expect(preEditEntries[0]).toMatchObject({
+        matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch',
+      });
+      expect(JSON.stringify(preEditEntries[0])).toContain('"timeout":20');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('strict check reports exact hooks with stale duplicate awareness entries', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-duplicate-drift-'));
+    const preEdit = resolve(
+      REPO_ROOT,
+      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+    );
+    try {
+      const exact = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
+      mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
+      const settings = exact.resultingSettings;
+      settings.hooks?.PreToolUse?.push({
+        matcher: 'Write',
+        hooks: [{ type: 'command', command: preEdit, timeout: 5 }],
+      });
+      writeFileSync(resolve(projectDir, '.codex/hooks.json'), JSON.stringify(settings, null, 2));
+
+      const check = runInstallHooksRaw(['hooks', 'check', '--host', 'codex', '--project-dir', projectDir, '--strict', '--compact']);
+      expect(check.status).toBe(2);
+      const parsed = JSON.parse(check.stdout) as {
+        ok: boolean;
+        installed: {
+          installed_all: boolean;
+          drifted: string[];
+          details: Record<string, { matching_count: number; drifted: boolean }>;
+        };
+      };
+      expect(parsed.ok).toBe(false);
+      expect(parsed.installed.installed_all).toBe(true);
+      expect(parsed.installed.drifted).toContain('PreToolUse:pre-edit.sh');
+      expect(parsed.installed.details['PreToolUse:pre-edit.sh']?.matching_count).toBe(2);
+
+      const repaired = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
+      const preToolUse = repaired.resultingSettings.hooks?.PreToolUse ?? [];
+      const preEditEntries = preToolUse.filter((entry) => JSON.stringify(entry).includes('pre-edit.sh'));
+      expect(preEditEntries).toHaveLength(1);
+      expect(preEditEntries[0]).toMatchObject({
+        matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch',
+      });
+      expect(JSON.stringify(preEditEntries[0])).toContain('"timeout":20');
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

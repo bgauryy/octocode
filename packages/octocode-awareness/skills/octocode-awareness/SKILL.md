@@ -1,6 +1,6 @@
 ---
 name: octocode-awareness
-description: "Use when starting, planning, editing, messaging, reflecting, finishing, or managing repo awareness in a shared workspace. Run the compact Awareness CLI for memory recall, file locks, signals, verification, hooks, repo context, and durable lessons."
+description: "Use when coordinating shared repo work. Run the compact Awareness CLI for workspace status, memory recall, file locks, signals, verification, hooks, repo context, durable lessons, and handoffs."
 hooks:
   PreToolUse: [{ matcher: "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/pre-edit.sh", timeout: 20 }, { type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/harness-guard.sh", timeout: 20 }] }]
   PostToolUse: [{ matcher: "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch", hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/post-edit.sh", timeout: 20 }] }]
@@ -10,10 +10,11 @@ hooks:
   UserPromptSubmit: [{ hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/notify-deliver.sh", timeout: 20 }] }]
 ---
 # Octocode Awareness
-Use this as the single operational awareness skill. It owns memory, file locks, verification, signals, reflection, hooks, and `.octocode/` repo context projections. Store: `~/.octocode/memory/awareness.sqlite3`, scoped by workspace, optional artifact/package/service, repo, and ref.
-
-First command: `npx @octocodeai/octocode-awareness schema commands --compact` (or `scripts/awareness.mjs ...` inside a standalone skill folder). Then use `<command> --help --compact` or `schema json-schema <name> --compact` for exact flags/contracts. Use only canonical noun/verb commands. Pi exposes equivalent methods.
-
+Use this as the single operational awareness skill. It owns memory, file locks, verification, signals, reflection, hooks, and workspace `.octocode/` repo context projections; it does not replace code search, tests, or project instructions.
+Canonical store: global `~/.octocode/memory/awareness.sqlite3`, scoped by workspace, artifact/package/service, repo, and ref.
+Do not confuse it with `<repo>/.octocode/`; `repo inject` generates that workspace projection.
+In-repo first command: `npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact`.
+Run `schema commands --compact` once for discovery; use `<command> --help` or `schema json-schema <name> --compact` for contracts. Pi exposes equivalent methods.
 ## CLI Workflow
 - Start: `workspace status`, `memory recall`, `refinement get`, `signal list`.
 - Edit/verify: `lock acquire|wait|release`, `verify audit|mark`.
@@ -27,7 +28,7 @@ First command: `npx @octocodeai/octocode-awareness schema commands --compact` (o
 4. **Messages** — handle relevant signals with publish/reply/ack/resolve; broadcast only when the recipient is unknown.
 5. **Finish / Learn** — keep pending work visible, send handoffs, record durable lessons, and use `octocode-skills` for repeated repo-skill improvements.
 
-If older prompts name `octocode-agent-communication` or `octocode-reflection`, load this skill for the actual workflow. Read `references/hooks.md` before installing hooks because Codex and Cursor require host config or plugin hooks, not `SKILL.md` frontmatter alone.
+If older prompts name `octocode-agent-communication` or `octocode-reflection`, load this skill for the actual workflow. Claude-style hosts may execute the frontmatter hooks; Codex, Cursor, and Pi require `references/hooks.md` host wiring.
 
 ## References
 - `references/full-flow.md` — when a task asks for the full CLI/skill/hooks/repo-context/self-reflection flow or technical onboarding.
@@ -35,13 +36,14 @@ If older prompts name `octocode-agent-communication` or `octocode-reflection`, l
 - `references/coordination-protocol.md` — before locking, waiting, releasing, signaling, or managing refinements.
 - `references/files-awareness.md` — before planning/editing in dirty or concurrently edited workspaces.
 - `references/hooks.md` — before installing, auditing, tuning, or removing hooks.
-- `references/repo-context-management.md` — before generating, refreshing, sharing, or relying on `.octocode/` repo context projections.
+- `references/repo-context-management.md` — before generating, refreshing, sharing, or relying on workspace `.octocode/` repo context projections.
 - `references/data-model.md` — when checking SQLite schema, memory rows, tasks, locks, or signals.
 - `references/octocode.md` — when code research is needed; delegates Octocode research rules to `octocode-research`.
 
 ## Installation
-- `npx @octocodeai/octocode-awareness` — public package CLI; run `schema commands --compact` for the agent map, `<command> --help --compact` for flags, `schema` for contracts, `hook run` for hook events, and `hooks install|check|remove` for Claude/Codex/Cursor hook config.
-- `scripts/awareness.mjs` — bundled standalone fallback with the same command surface.
-- `scripts/schema.mjs`, `scripts/install.mjs`, `scripts/smoke-multi-agent.mjs` — inspect payload contracts, check dependencies, and smoke-test locks/signals/verification.
+- `npx @octocodeai/octocode-awareness` — public package CLI; run `schema commands --compact` for the agent map, `<command> --help` for flags, `schema` for contracts, `hook run` for hook events, and `hooks install|check|remove` for Claude/Codex/Cursor hook config.
+- `npx octocode skill --add --path "{{path_to_skills_location}}/octocode-awareness" --platform common` — install this bundled skill from the agent-known local skill folder. Replace `{{path_to_skills_location}}` before running; if it already points at the `octocode-awareness` folder, pass it directly.
+- `node scripts/awareness.mjs` — bundled standalone fallback with the same command surface.
+- `node scripts/schema.mjs`, `node scripts/install.mjs --check-only`, `node scripts/smoke-multi-agent.mjs` — inspect payload contracts, safely check dependencies, and smoke-test locks/signals/verification. Running `install.mjs` without `--check-only` may install optional local script dependencies.
 - `scripts/install-hooks.mjs`, `scripts/hook-runner.mjs`, `scripts/extract-hook-files.mjs` — hook install wrapper, lifecycle dispatcher, and write-path extractor.
 Preview hook writes with `npx @octocodeai/octocode-awareness hooks install --host cursor --dry-run --project-dir <repo> --compact`, `--host codex`, or `--host claude`.

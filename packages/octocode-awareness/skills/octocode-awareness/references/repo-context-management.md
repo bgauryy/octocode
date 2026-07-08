@@ -1,10 +1,17 @@
 # Repo Context Management
 
-Use this when a task involves `.octocode/` generated repo context, repo-level AGENTS guidance, memory indexes, CSV exports, a human-readable awareness view, or the awareness "auto wiki" workflow.
+Use this when a task involves workspace `.octocode/` generated repo context, repo-level AGENTS guidance, memory indexes, CSV exports, a human-readable awareness view, or the awareness LLM Wiki workflow.
 
 ## Model
 
-The SQLite awareness DB is canonical. Files under `.octocode/` are generated projections for agents, scripts, and humans:
+The SQLite awareness DB in the global Octocode home is canonical. Files under the workspace `.octocode/` folder are generated projections for agents, scripts, and humans:
+
+- global home: `~/.octocode/` stores config and durable Awareness data such as `memory/awareness.sqlite3`.
+- workspace projection: `<repo>/.octocode/` stores generated repo context and memories-about-this-repo as Markdown, CSV, HTML, manifest, and references.
+
+`.octocode/MEMORY.md` is not where memories live. It is a generated readable index of selected `memories` rows from the global DB.
+
+Generated files include:
 
 - `.octocode/AGENTS.md` - concise generated repo context for agents.
 - `.octocode/MEMORY.md` - active memory index.
@@ -34,6 +41,8 @@ octocode-awareness query gotchas --workspace "$PWD" --format table
 octocode-awareness query files --workspace "$PWD" --format csv --out .octocode/awareness/csv/files.csv
 ```
 
+When run from the workspace root, `.octocode/...` output paths are relative to `<workspace>/.octocode/`.
+
 Write a human HTML view through the query command:
 
 ```bash
@@ -46,19 +55,21 @@ Regenerate repo projections:
 octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
+Here `--out .octocode` means `<workspace>/.octocode/` when the command runs from the repo root.
+
 ## Share Policy
 
 `repo inject` never edits `.gitignore`.
 
-- Use `--mode local` when `.octocode/` is personal or machine-local.
+- Use `--mode local` when the workspace `.octocode/` projection is personal or machine-local.
 - Use `--mode share` when the repo owner intentionally wants to commit the generated projections.
 - If `--mode share` is requested while `.octocode/` is ignored, the command reports a warning. The user decides whether to remove the ignore rule.
 
-In this monorepo, keep `.octocode/` ignored unless the user explicitly changes that policy.
+In this monorepo, keep workspace `.octocode/` ignored unless the user explicitly changes that policy.
 
 ## Operating Rules
 
-- Read workspace `AGENTS.md` first, then `.octocode/AGENTS.md` if it exists.
+- Read workspace `AGENTS.md` first, then `<repo>/.octocode/AGENTS.md` if it exists.
 - Treat generated memories as leads. Verify current files and command output before relying on them.
 - Record durable new facts with `memory record` or `reflect record`, then regenerate projections if the repo context should reflect them.
 - Prefer `query <view>` for agent automation and ad hoc exports; use `query all --format html --out ...` for humans; prefer `repo inject` only when the repo projection should be created or refreshed.

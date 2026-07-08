@@ -911,7 +911,7 @@ const commandIndex = [
   { command: "maintenance init", schema: null, use: "Initialize the awareness DB.", example: "octocode-awareness maintenance init --compact" },
   { command: "maintenance self-test", schema: null, use: "Run in-memory DB smoke checks.", example: "octocode-awareness maintenance self-test --compact" },
   { command: "hooks install", schema: null, use: "Install hook config after preview/approval.", example: "octocode-awareness hooks install --host codex --dry-run --compact" },
-  { command: "hooks check", schema: null, use: "Check installed hook config.", example: "octocode-awareness hooks check --host codex --compact" },
+  { command: "hooks check", schema: null, use: "Check installed hook config and detect drift.", example: "octocode-awareness hooks check --host codex --strict --compact" },
   { command: "hooks remove", schema: null, use: "Remove awareness-owned hook config.", example: "octocode-awareness hooks remove --host codex --dry-run --compact" },
   { command: "hook run", schema: null, use: "Internal hook dispatcher used by wrappers.", example: "octocode-awareness hook run pre-edit < hook-payload.json" },
   { command: "schema commands", schema: null, use: "Print this command-to-schema map.", example: "octocode-awareness schema commands --compact" },

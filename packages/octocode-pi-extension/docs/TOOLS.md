@@ -142,7 +142,7 @@ Resolve npm package names → GitHub repo. Exact package name returns rich singl
 
 ## Browser Tools
 
-See [`BROWSER_AGENT.md`](../subagents/browser-agent/BROWSER_AGENT.md) for the full 28-scheme reference, stealth mode, multi-turn protocol, and CDP event log.
+See [`BROWSER_AGENT.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/subagents/browser-agent/BROWSER_AGENT.md) for the full 28-scheme reference, stealth mode, multi-turn protocol, and CDP event log.
 
 ### `chromeDebug`
 Direct Chrome DevTools Protocol calls. One scheme per call. Use for single-shot tasks.
@@ -232,7 +232,7 @@ Param: `instructions` — focus hint for compaction summary (used with `compact`
 
 ## Memory / Awareness Tools
 
-See [`MEMORY_AGENT_FLOW.md`](./MEMORY_AGENT_FLOW.md) for live coordination and [`REFLECT.md`](./REFLECT.md) for the Awareness learning loop.
+See [`MEMORY_AGENT_FLOW.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/MEMORY_AGENT_FLOW.md) for live coordination and [`REFLECT.md`](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) for the Awareness learning loop.
 
 ### Lifecycle pattern
 

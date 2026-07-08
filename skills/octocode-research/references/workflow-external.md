@@ -1,6 +1,7 @@
 # Workflow: External Research
 
-Use when the corpus is a remote repo, PR, package, prior-art question, or an upstream dependency not present locally. Read `algorithm.md` first for the router and evidence grades; read `octocode.md` for tool/CLI syntax.
+Use when the corpus is a remote repo, PR, package, prior-art question, or upstream dependency.
+Read `algorithm.md` first; read `octocode.md` only when transport or CLI syntax is unclear.
 
 ```text
 npmSearch / ghSearchRepos for discovery

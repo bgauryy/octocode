@@ -6,7 +6,7 @@ You do NOT need any of this to use OQL. This document describes how OQL maps
 canonical intent onto provider/tool backends. Skip it unless you are implementing
 or debugging a transformer.
 
-**OQL user docs:** [OCTOCODE_QUERY_LANGUAGE.md](./OCTOCODE_QUERY_LANGUAGE.md) · [OQL_LANGUAGE_REFERENCE.md](./OQL_LANGUAGE_REFERENCE.md) · [OQL_RESULTS_AND_EVIDENCE.md](./OQL_RESULTS_AND_EVIDENCE.md)
+**OQL user docs:** [OCTOCODE_QUERY_LANGUAGE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md) · [OQL_LANGUAGE_REFERENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) · [OQL_RESULTS_AND_EVIDENCE.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md)
 
 ---
 

@@ -16,9 +16,9 @@ Each document is self-contained. Pick the depth you need:
 | I need to… | Read |
 |---|---|
 | Run a query right now | This file: [Cheatsheet](#cheatsheet) → [Decision Tree](#target-selection-decision-tree) → [Common Recipes](#common-recipes) |
-| Write queries confidently | This file + [OQL Language Reference](./OQL_LANGUAGE_REFERENCE.md) |
-| Interpret results and evidence | [OQL Results and Evidence](./OQL_RESULTS_AND_EVIDENCE.md) |
-| Implement or debug a backend transformer | [OQL Internals](./OQL_INTERNALS.md) (contributor-only) |
+| Write queries confidently | This file + [OQL Language Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) |
+| Interpret results and evidence | [OQL Results and Evidence](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) |
+| Implement or debug a backend transformer | [OQL Internals](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_INTERNALS.md) (contributor-only) |
 
 The live executable contract always wins over prose:
 
@@ -286,7 +286,7 @@ safe-deletion claims backed by LSP/file/package proof?
 
 ## Further Reading
 
-- [OQL Language Reference](./OQL_LANGUAGE_REFERENCE.md) — full spec: query anatomy, all targets, all predicate kinds, params by target, materialization, views/controls/defaults, batches, normalization/explain
-- [OQL Results and Evidence](./OQL_RESULTS_AND_EVIDENCE.md) — result envelope, evidence tiers, diagnostics table, continuations, research/graph flows, safe deletion rules
-- [OQL Internals](./OQL_INTERNALS.md) — transformer architecture, transformer contract, language selector logic, transformer inventory (contributor-only)
-- [CLI Reference](./OCTOCODE_CLI.md) — all commands, flags, and workflows
+- [OQL Language Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_LANGUAGE_REFERENCE.md) — full spec: query anatomy, all targets, all predicate kinds, params by target, materialization, views/controls/defaults, batches, normalization/explain
+- [OQL Results and Evidence](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_RESULTS_AND_EVIDENCE.md) — result envelope, evidence tiers, diagnostics table, continuations, research/graph flows, safe deletion rules
+- [OQL Internals](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OQL_INTERNALS.md) — transformer architecture, transformer contract, language selector logic, transformer inventory (contributor-only)
+- [CLI Reference](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) — all commands, flags, and workflows

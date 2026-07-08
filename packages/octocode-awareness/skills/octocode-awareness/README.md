@@ -17,26 +17,26 @@ Coding agents are usually stateless between runs. One agent may edit a file whil
 - File claims so agents can see overlapping edits before they collide.
 - Verification records that connect an edit task to the check that actually ran.
 - Agent-to-agent signals for blockers, questions, claims, replies, and handoffs.
-- Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
+- Session capture and refinements that preserve scope, decisions, and handoffs without storing raw chat logs.
 - Reflection records for durable lessons, failure signatures, cleanup decisions, and staged harness improvements.
 - A local view of active memories, locks, tasks, refinements, and signals.
-- Optional `.octocode/` repo context projections that act like a generated auto wiki over the awareness store.
+- Optional workspace `.octocode/` repo context projections that act like a generated LLM Wiki over the awareness store.
 
 ## Operating Model
 
-The skill uses a shared local SQLite store under the user's Octocode state directory. Workspace path is the primary scope key, with optional artifact/package/service, repo, branch/ref, file path, state, and agent id filters layered under it, so the same memory layer can support multiple projects without needing a separate database per repo.
+The skill uses a shared local SQLite store under the user's global Octocode home, normally `~/.octocode/memory/awareness.sqlite3`. Workspace path is the primary scope key, with optional artifact/package/service, repo, branch/ref, file path, state, and agent id filters layered under it, so the same memory layer can support multiple projects without needing a separate database per repo.
 
 The mental model is:
 
 ```text
-ATTEND -> FOCUS -> CLAIM -> WORK -> VERIFY -> COMMUNICATE -> LEARN -> SLEEP
+ATTEND -> CLAIM -> WORK -> VERIFY -> REFLECT -> PROJECT -> HAND OFF
 ```
 
-An agent attends to the current state, focuses the intended work, claims files when editing, does the work, records verification, handles signals or handoffs, and records durable lessons when the outcome is reusable.
+An agent attends to current state, claims files when editing, works under that claim, records verification, reflects durable lessons, refreshes repo context when useful, and leaves handoffs visible.
 
 Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
 
-The repo context model is similar to an LLM-facing wiki, but the SQLite store stays canonical. `query <view>` reads the live store; `repo inject` regenerates `.octocode/AGENTS.md`, memory/gotcha/learning docs, CSV exports, a compact HTML view, and generated references for humans and agents.
+The repo context model is similar to an LLM-facing wiki, but the SQLite store stays canonical. `query <view>` reads the live store; `repo inject` regenerates the workspace `<repo>/.octocode/` folder with `AGENTS.md`, memory/gotcha/learning docs, CSV exports, a compact HTML view, and generated references for humans and agents.
 
 ## How Users Use It
 
@@ -50,11 +50,11 @@ From there, the agent should make the awareness layer visible in plain language:
 - what verification is still owed,
 - what it saved for the next run.
 
-If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call `npx @octocodeai/octocode-awareness` or the bundled standalone scripts manually. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Start technical onboarding with `references/full-flow.md`. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
+If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call `npx @octocodeai/octocode-awareness` or `node scripts/awareness.mjs` manually from the bundled skill folder. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Start technical onboarding with `references/full-flow.md`. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
 
 ## Storage And Recall
 
-Awareness uses one local SQLite database under Octocode's state directory by default. It can also export important memories into a repo so a team can share them through normal code review. The bundled Node runtime uses SQLite FTS, scope filters, references, and smart lexical broadening. Older Python-only semantic indexing notes are reference material, not a feature of the shipped `awareness.mjs` runtime.
+Awareness uses one local SQLite database under the global Octocode home by default. It can also export repo-scoped memory projections into `<repo>/.octocode/` so a team can share them through normal code review. The bundled Node runtime uses SQLite FTS, scope filters, references, and smart lexical broadening. Older Python-only semantic indexing notes are reference material, not a feature of the shipped `awareness.mjs` runtime.
 
 ## User Experience
 
@@ -65,11 +65,13 @@ The skill also makes collaboration more honest. A conclusion can carry a recorde
 
 ## Installation
 
-Install the published skill with:
+Install the bundled skill with:
 
 ```bash
-npx octocode skill --name octocode-awareness
+npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common
 ```
+
+The path form is for agents that already know where bundled skills live. They provide that local folder path, and the Octocode CLI installs from it without the awareness package trying to infer host-specific skill locations. A registry fallback is `npx octocode skill --name octocode-awareness`.
 
 Optional hooks can make awareness more automatic. Users can start with manual coordination and add host-specific automation later.
 
