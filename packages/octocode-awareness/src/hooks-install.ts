@@ -46,7 +46,7 @@ const WRITE_MATCHER = 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch'
 const HOSTS = new Set<HookHost>(['claude', 'codex', 'cursor']);
 
 export function hooksInstallUsage(): string {
-  return `usage: awareness hooks install|check|remove [options]
+  return `usage: octocode-awareness hooks install|check|remove [options]
 
 Install, check, dry-run, or remove octocode-awareness lifecycle hooks.
 
@@ -54,15 +54,13 @@ Targets:
   --host claude         Write Claude Code hooks to .claude/settings.json (default).
   --host codex         Write Codex hooks to .codex/hooks.json.
   --host cursor        Write Cursor hooks to .cursor/hooks.json.
-  --claude             Alias for --host claude.
-  --codex              Alias for --host codex.
-  --cursor             Alias for --host cursor.
 
 Options:
   --project-dir <path>  Target a project hook file under <path> (default: cwd).
   --global              Target the user hook file with absolute hook paths.
   --check               Report whether the hooks are installed.
   --dry-run             Print the resulting settings without writing.
+  --compact             Minify JSON output when supported.
   --remove              Remove only octocode-awareness hooks.`;
 }
 
@@ -80,9 +78,6 @@ function fail(message: string, extra: Record<string, unknown> = {}): HooksInstal
 }
 
 function requestedHost(argv: string[]): string {
-  if (flag(argv, '--codex')) return 'codex';
-  if (flag(argv, '--cursor')) return 'cursor';
-  if (flag(argv, '--claude')) return 'claude';
   return opt(argv, '--host', 'claude').toLowerCase();
 }
 
@@ -170,10 +165,25 @@ function entry(host: HookHost, spec: HookSpec): HookEntry {
   };
 }
 
+function awarenessHookName(command: string | undefined): string | null {
+  const normalized = command?.replace(/\\/g, '/');
+  if (!normalized) return null;
+  const marker = '/octocode-awareness/scripts/hooks/';
+  const index = normalized.lastIndexOf(marker);
+  return index >= 0 ? normalized.slice(index + marker.length) : null;
+}
+
+function sameAwarenessCommand(actual: string | undefined, expected: string): boolean {
+  if (actual === expected) return true;
+  const actualHook = awarenessHookName(actual);
+  const expectedHook = awarenessHookName(expected);
+  return actualHook !== null && expectedHook !== null && actualHook === expectedHook;
+}
+
 function hasCommand(groups: HookEntry[] | undefined, command: string): boolean {
   return (groups ?? []).some((group) => (
-    group.command === command
-    || (group.hooks ?? []).some((hook) => hook.command === command)
+    sameAwarenessCommand(group.command, command)
+    || (group.hooks ?? []).some((hook) => sameAwarenessCommand(hook.command, command))
   ));
 }
 
@@ -181,7 +191,7 @@ function removeCommand(groups: HookEntry[] | undefined, command: string): { grou
   let removed = false;
   const out: HookEntry[] = [];
   for (const group of groups ?? []) {
-    if (group.command === command) {
+    if (sameAwarenessCommand(group.command, command)) {
       removed = true;
       continue;
     }
@@ -190,7 +200,7 @@ function removeCommand(groups: HookEntry[] | undefined, command: string): { grou
       continue;
     }
     const hooks = group.hooks.filter((hook) => {
-      if (hook.command === command) {
+      if (sameAwarenessCommand(hook.command, command)) {
         removed = true;
         return false;
       }

@@ -154,9 +154,9 @@ When a new agent installs the skill:
    ├── If schema fails and not --check-only: npm install (scripts/package.json)
    └── Smoke tests:
        ├── schema.mjs example tell_memory  → validate output
-       └── awareness.mjs self-test         → DB + basic ops
+      └── awareness.mjs maintenance self-test → DB + basic ops
 
-2. node scripts/awareness.mjs hooks install --host <claude|codex|cursor> [--project-dir <path>] [--global]
+2. octocode-awareness hooks install --host <claude|codex|cursor> [--project-dir <path>] [--global]
    ├── --dry-run   → show merged settings, don't write
    ├── hooks check  → report hook install status only
    ├── hooks remove → remove only our hooks
@@ -467,7 +467,7 @@ Detects drift between a doc (`ARCHITECTURE.md`, wiki page, generated index) and 
 Defaults: `minEditsSinceSync = 5`, `minLinesSinceSync = 50` — either threshold alone is enough to flag `stale: true`.
 
 ```sh
-awareness doc-staleness \
+octocode-awareness docs staleness \
   --targets-json '[{"docFile":"packages/foo/ARCHITECTURE.md","sourceDirs":["packages/foo/src"]}]' \
   [--workspace <path>] [--min-edits <n>] [--min-lines <n>] [--propose --agent-id <id>]
 ```

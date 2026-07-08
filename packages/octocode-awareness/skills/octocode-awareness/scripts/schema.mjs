@@ -84,7 +84,7 @@ const awarenessQueryView = z
   .default("all")
   .describe("Awareness read view.");
 const awarenessOutputFormat = z
-  .enum(["json", "table", "csv", "markdown"])
+  .enum(["json", "table", "csv", "markdown", "html"])
   .default("json")
   .describe("Output format.");
 const repoContextMode = z
@@ -242,38 +242,14 @@ export const schemas = {
     .strict()
     .describe("Recall memories."),
 
-  status: z
-    .object({
-      workspace_path: workspacePath.optional().describe("Workspace filter."),
-      artifact: artifactScope.optional(),
-      limit: z.number().int().min(1).max(200).default(20),
-    })
-    .strict()
-    .describe("Store status."),
-
   workspace_status: z
     .object({
       workspace: workspacePath.optional().describe("Workspace filter."),
       artifact: artifactScope.optional(),
+      limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
     .describe("Workspace status."),
-
-  memory_index: z
-    .object({
-      limit: z.number().int().min(1).max(500).default(30),
-      min_importance: importanceLevel.optional().describe("Minimum importance."),
-      workspace_path: workspacePath.optional().describe("Workspace filter."),
-      artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Repo filter."),
-      ref: refScope.optional().describe("Ref filter."),
-      strict_scope: z.boolean().default(false).describe("Exact scope."),
-      global_only: z.boolean().default(false).describe("Only unscoped rows."),
-      out: z.string().trim().min(1).max(1024).optional().describe("Output path."),
-      stdout: z.boolean().default(false).describe("Print only."),
-    })
-    .strict()
-    .describe("Write MEMORY.md index."),
 
   query: z
     .object({
@@ -295,26 +271,6 @@ export const schemas = {
     })
     .strict()
     .describe("Query awareness views for agents, scripts, and humans."),
-
-  view: z
-    .object({
-      view: awarenessQueryView,
-      query: z.string().trim().max(1000).default("").describe("Text filter."),
-      limit: z.number().int().min(1).max(500).default(50),
-      out: z.string().trim().min(1).max(1024).optional().describe("HTML output path."),
-      workspace_path: workspacePath.optional().describe("Workspace filter."),
-      artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Repo filter."),
-      ref: refScope.optional().describe("Ref filter."),
-      agent_id: agentId.optional().describe("Agent filter."),
-      state: z.array(z.string().trim().min(1).max(64)).max(20).default([]).describe("State/status filters."),
-      label: z.array(memoryLabel).max(32).default([]).describe("Memory label filters."),
-      file: z.string().trim().min(1).max(1024).optional().describe("File filter."),
-      since: z.string().trim().min(1).max(64).optional().describe("Created/updated since ISO."),
-      include_bodies: z.boolean().default(false).describe("Include full signal bodies."),
-    })
-    .strict()
-    .describe("Write a static HTML awareness view."),
 
   repo_inject: z
     .object({
@@ -589,41 +545,6 @@ export const schemas = {
     .strict()
     .describe("Delete refinements."),
 
-  notify: z
-    .object({
-      agent_id: agentId.describe("Sender."),
-      workspace_path: z
-        .string()
-        .trim()
-        .min(1)
-        .max(1024)
-        .optional()
-        .describe("Workspace channel."),
-      artifact: artifactScope.optional(),
-      repo: z.string().trim().min(1).max(256).optional().describe("Repo."),
-      ref: z.string().trim().min(1).max(256).optional().describe("Ref."),
-      to: agentId
-        .optional()
-        .describe("Recipient; omit to broadcast."),
-      kind: notificationKind.describe(
-        "Message kind.",
-      ),
-      subject: nonEmptyText("Subject.", 200),
-      body: nonEmptyText("Body.", 4000).optional(),
-      files: fileList,
-      refs: refIds,
-      in_reply_to: z
-        .string()
-        .trim()
-        .min(1)
-        .max(128)
-        .optional()
-        .describe("Reply target."),
-      importance: importanceLevel.default(5),
-    })
-    .strict()
-    .describe("Send signal."),
-
   agent_signal: z
     .object({
       action: z.enum(["publish", "list", "reply", "resolve", "ack"]).describe("Action."),
@@ -650,46 +571,7 @@ export const schemas = {
     .strict()
     .describe("Signal actions."),
 
-  notify_query: z
-    .object({
-      agent_id: agentId.describe("Reader."),
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
-      artifact: artifactScope.optional(),
-      repo: z.string().trim().min(1).max(256).optional(),
-      ref: z.string().trim().min(1).max(256).optional(),
-      unread_only: z
-        .boolean()
-        .default(true)
-        .describe("Unread only."),
-      kinds: z.array(notificationKind).max(8).default([]).describe("Kind filter."),
-      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread filter."),
-      mark_read: z
-        .boolean()
-        .default(false)
-        .describe("Mark read."),
-      limit: z.number().int().min(1).max(200).default(20),
-    })
-    .strict()
-    .describe("Read inbox."),
-
-  notify_resolve: z
-    .object({
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
-      artifact: artifactScope.optional(),
-      signal_id: z
-        .array(z.string().trim().min(1).max(128))
-        .max(200)
-        .default([])
-        .describe("Signal ids."),
-      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id."),
-    })
-    .strict()
-    .refine((d) => d.signal_id.length > 0 || d.thread_id !== undefined, {
-      message: "notify_resolve requires signal_id or thread_id.",
-    })
-    .describe("Resolve signals."),
-
-  notify_prune: z
+  signal_prune: z
     .object({
       workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
       artifact: artifactScope.optional(),
@@ -710,7 +592,7 @@ export const schemas = {
     })
     .strict()
     .refine((d) => d.signal_id.length > 0 || d.resolved || d.older_than_days !== undefined, {
-      message: "notify_prune requires a selector: signal_id, resolved, or older_than_days.",
+      message: "signal_prune requires a selector: signal_id, resolved, or older_than_days.",
     })
     .describe("Prune signals."),
 
@@ -799,22 +681,9 @@ export const examples = {
     sort: "smart",
     smart: true,
   },
-  status: {
-    workspace_path: "/repo",
-    artifact: "pkg",
-    limit: 20,
-  },
   workspace_status: {
     workspace: "/repo",
     artifact: "pkg",
-  },
-  memory_index: {
-    limit: 30,
-    min_importance: 4,
-    artifact: "pkg",
-    repo: "repo",
-    strict_scope: false,
-    stdout: false,
   },
   query: {
     view: "gotchas",
@@ -824,12 +693,6 @@ export const examples = {
     workspace_path: "/repo",
     artifact: "pkg",
     label: ["GOTCHA"],
-  },
-  view: {
-    view: "all",
-    limit: 50,
-    workspace_path: "/repo",
-    out: "/repo/.octocode/awareness/index.html",
   },
   repo_inject: {
     workspace_path: "/repo",
@@ -969,29 +832,7 @@ export const examples = {
     refs: ["task_123"],
     importance: 7,
   },
-  notify: {
-    agent_id: "agent",
-    artifact: "pkg",
-    repo: "repo",
-    ref: "main",
-    kind: "blocker",
-    subject: "blocked",
-    body: "body",
-    files: ["src/file.ts"],
-    refs: ["task_abc123"],
-    importance: 8,
-  },
-  notify_query: {
-    agent_id: "agent",
-    artifact: "pkg",
-    repo: "repo",
-    unread_only: true,
-    mark_read: true,
-  },
-  notify_resolve: {
-    thread_id: "ntf_966efa90808a48648dea6cb858e8e0c6",
-  },
-  notify_prune: {
+  signal_prune: {
     resolved: true,
     older_than_days: 7,
     dry_run: true,
@@ -1028,17 +869,65 @@ export const examples = {
 };
 
 const listableSchemas = [
-  "tell_memory", "get_memory", "status", "memory_index",
-  "query", "view", "repo_inject",
+  "tell_memory", "get_memory",
+  "query", "repo_inject",
   "workspace_status", "export_harness", "session_capture",
   "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify", "audit_unverified",
   "forget_memory", "refinement", "refine_query", "refine_delete",
-  "agent_registry", "agent_signal", "notify", "notify_query", "notify_resolve", "notify_prune",
+  "agent_registry", "agent_signal", "signal_prune",
   "mine_weakness", "doc_staleness", "digest", "reflect",
 ];
 
+const commandIndex = [
+  { command: "workspace status", schema: "workspace_status", use: "Check DB health, locks, pending verification, memory counts.", example: 'octocode-awareness workspace status --workspace "$PWD" --compact' },
+  { command: "memory recall", schema: "get_memory", use: "Recall repo lessons before planning or editing.", example: 'octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact' },
+  { command: "memory record", schema: "tell_memory", use: "Store durable lessons, decisions, gotchas, or observations.", example: 'octocode-awareness memory record --agent-id agent --task-context "task" --observation "lesson" --importance 7 --workspace "$PWD" --compact' },
+  { command: "memory forget", schema: "forget_memory", use: "Delete selected stale memories; dry-run first.", example: "octocode-awareness memory forget --memory-id mem_123 --dry-run --compact" },
+  { command: "refinement get", schema: "refine_query", use: "Read unfinished handoffs or follow-up work.", example: 'octocode-awareness refinement get --workspace "$PWD" --state open --compact' },
+  { command: "refinement set", schema: "refinement", use: "Save handoff/work state for the next agent.", example: 'octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact' },
+  { command: "refinement delete", schema: "refine_delete", use: "Delete stale refinement rows; dry-run first.", example: "octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact" },
+  { command: "lock acquire", schema: "pre_flight_intent", use: "Claim files before edits; exit 2 means conflict.", example: 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --test-plan "yarn test" --compact' },
+  { command: "lock wait", schema: "wait_for_lock", use: "Wait for existing file locks without claiming.", example: "octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact" },
+  { command: "lock release", schema: "release_file_lock", use: "Release file claims as SUCCESS, FAILED, or PENDING.", example: "octocode-awareness lock release --agent-id agent --task-id task_123 --status SUCCESS --verified --compact" },
+  { command: "lock prune", schema: "prune_stale_locks", use: "Clean expired/stale locks; never marks success.", example: 'octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact' },
+  { command: "verify audit", schema: "audit_unverified", use: "Find pending or stale work before finishing.", example: 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact' },
+  { command: "verify mark", schema: "verify", use: "Mark declared verification as run.", example: 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact' },
+  { command: "signal list", schema: "agent_signal", use: "Read inbox/messages; add --mark-read only after acting.", example: 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact' },
+  { command: "signal publish", schema: "agent_signal", use: "Send blocker/question/request/handoff/decision/fyi.", example: 'octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --workspace "$PWD" --compact' },
+  { command: "signal reply", schema: "agent_signal", use: "Reply in an existing signal thread.", example: "octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject \"Re: File locked\" --body \"done\" --compact" },
+  { command: "signal ack", schema: "agent_signal", use: "Mark specific signals read after handling.", example: "octocode-awareness signal ack --agent-id agent --signal-id ntf_123 --compact" },
+  { command: "signal resolve", schema: "agent_signal", use: "Close handled signals or threads.", example: "octocode-awareness signal resolve --agent-id agent --thread-id ntf_123 --compact" },
+  { command: "signal prune", schema: "signal_prune", use: "Delete resolved/old/selected signals; dry-run first.", example: 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact' },
+  { command: "agent register", schema: "agent_registry", use: "Register/touch an agent identity.", example: 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact' },
+  { command: "agent list", schema: "agent_registry", use: "List known agents in scope.", example: 'octocode-awareness agent list --workspace "$PWD" --compact' },
+  { command: "query", schema: "query", use: "Read DB views as json/table/csv/markdown/html.", example: 'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact' },
+  { command: "repo inject", schema: "repo_inject", use: "Generate .octocode repo context without editing .gitignore.", example: 'octocode-awareness repo inject --workspace "$PWD" --mode local --compact' },
+  { command: "session capture", schema: "session_capture", use: "Hook-driven handoff capture from locks + dirty git tree.", example: 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact' },
+  { command: "reflect record", schema: "reflect", use: "Record outcome and lessons after work.", example: 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "lesson" --compact' },
+  { command: "reflect mine-weakness", schema: "mine_weakness", use: "Find recurring failure clusters.", example: 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact' },
+  { command: "reflect export-harness", schema: "export_harness", use: "Preview harness guidance candidates from memories.", example: 'octocode-awareness reflect export-harness --workspace "$PWD" --compact' },
+  { command: "docs staleness", schema: "doc_staleness", use: "Find docs likely stale from edit activity.", example: 'octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact' },
+  { command: "maintenance digest", schema: "digest", use: "Preview or run memory/signal/refinement cleanup.", example: 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
+  { command: "maintenance init", schema: null, use: "Initialize the awareness DB.", example: "octocode-awareness maintenance init --compact" },
+  { command: "maintenance self-test", schema: null, use: "Run in-memory DB smoke checks.", example: "octocode-awareness maintenance self-test --compact" },
+  { command: "hooks install", schema: null, use: "Install hook config after preview/approval.", example: "octocode-awareness hooks install --host codex --dry-run --compact" },
+  { command: "hooks check", schema: null, use: "Check installed hook config.", example: "octocode-awareness hooks check --host codex --compact" },
+  { command: "hooks remove", schema: null, use: "Remove awareness-owned hook config.", example: "octocode-awareness hooks remove --host codex --dry-run --compact" },
+  { command: "hook run", schema: null, use: "Internal hook dispatcher used by wrappers.", example: "octocode-awareness hook run pre-edit < hook-payload.json" },
+  { command: "schema commands", schema: null, use: "Print this command-to-schema map.", example: "octocode-awareness schema commands --compact" },
+  { command: "schema list", schema: null, use: "Print schema names only.", example: "octocode-awareness schema list --compact" },
+  { command: "schema json-schema", schema: null, use: "Print one JSON schema.", example: "octocode-awareness schema json-schema get_memory --compact" },
+  { command: "schema example", schema: null, use: "Print example JSON for one schema.", example: "octocode-awareness schema example get_memory --compact" },
+  { command: "schema validate", schema: null, use: "Validate JSON payload against one schema.", example: "octocode-awareness schema validate get_memory payload.json --compact" },
+];
+
+function printJson(payload, compact = false) {
+  console.log(JSON.stringify(payload, null, compact ? 0 : 2));
+}
+
 function usage() {
   return `Usage:
+  node scripts/schema.mjs commands [--compact]
   node scripts/schema.mjs list
   node scripts/schema.mjs json-schema <schema-name>
   node scripts/schema.mjs example <schema-name>
@@ -1068,64 +957,87 @@ function formatZodError(error) {
   }));
 }
 
+function printJsonError(payload, code = 2, compact = false) {
+  console.log(JSON.stringify({ ok: false, ...payload }, null, compact ? 0 : 2));
+  return code;
+}
+
 async function main(argv) {
-  const [command, schemaName, file] = argv;
+  const compact = argv.includes("--compact") || process.env.OCTOCODE_AWARENESS_COMPACT === "1";
+  const filteredArgv = argv.filter((arg) => arg !== "--compact");
+  const [command, schemaName, file] = filteredArgv;
 
   if (!command || command === "--help" || command === "-h") {
     console.log(usage());
     return 0;
   }
 
-  if (command === "list") {
-    console.log(JSON.stringify(listableSchemas, null, 2));
+  if (command === "commands") {
+    printJson({ ok: true, hint: "Use `octocode-awareness <command> --help` for flags. Add --compact to JSON commands.", commands: commandIndex }, compact);
     return 0;
   }
 
-  const schema = schemas[schemaName];
+  if (command === "list") {
+    printJson(listableSchemas, compact);
+    return 0;
+  }
+
+  const schema = listableSchemas.includes(schemaName) ? schemas[schemaName] : undefined;
   if (!schema) {
-    console.error(`Unknown schema: ${schemaName || "<missing>"}`);
-    console.error(`Known schemas: ${Object.keys(schemas).join(", ")}`);
-    return 2;
+    return printJsonError({
+      error_code: "UNKNOWN_SCHEMA",
+      error: `Unknown schema: ${schemaName || "<missing>"}`,
+      hint: "Use one of the schemas returned by `schema list`.",
+      known_schemas: listableSchemas,
+    }, 2, compact);
   }
 
   if (command === "json-schema") {
-    console.log(JSON.stringify(toJsonSchema(schema), null, 2));
+    printJson(toJsonSchema(schema), compact);
     return 0;
   }
 
   if (command === "example") {
-    console.log(JSON.stringify(examples[schemaName], null, 2));
+    printJson(examples[schemaName], compact);
     return 0;
   }
 
   if (command === "validate") {
     if (!file) {
-      console.error("Missing <json-file|->.");
-      return 2;
+      return printJsonError({
+        error_code: "MISSING_INPUT",
+        error: "Missing <json-file|->.",
+        hint: "Use `schema validate <schema-name> <json-file|->`.",
+      }, 2, compact);
     }
     const raw = file === "-" ? await readStdin() : await readFile(file, "utf8");
-    const result = schema.safeParse(parseJson(raw));
-    if (!result.success) {
-      console.log(
-        JSON.stringify(
-          {
-            ok: false,
-            schema: schemaName,
-            issues: formatZodError(result.error),
-          },
-          null,
-          2,
-        ),
-      );
-      return 1;
+    let parsed;
+    try {
+      parsed = parseJson(raw);
+    } catch (error) {
+      return printJsonError({
+        error_code: "INVALID_JSON",
+        schema: schemaName,
+        error: error.message,
+        hint: "Pass valid JSON matching the selected schema.",
+      }, 2, compact);
     }
-    console.log(JSON.stringify({ ok: true, schema: schemaName, data: result.data }, null, 2));
+    const result = schema.safeParse(parsed);
+    if (!result.success) {
+      return printJsonError({
+        schema: schemaName,
+        issues: formatZodError(result.error),
+      }, 1, compact);
+    }
+    printJson({ ok: true, schema: schemaName, data: result.data }, compact);
     return 0;
   }
 
-  console.error(`Unknown command: ${command}`);
-  console.error(usage());
-  return 2;
+  return printJsonError({
+    error_code: "UNKNOWN_COMMAND",
+    error: `Unknown command: ${command}`,
+    hint: usage(),
+  }, 2, compact);
 }
 
 async function readStdin() {
@@ -1141,7 +1053,11 @@ main(process.argv.slice(2)).then(
     process.exitCode = code;
   },
   (error) => {
-    console.error(error.message);
+    console.log(JSON.stringify({
+      ok: false,
+      error_code: "SCHEMA_RUNTIME_ERROR",
+      error: error.message,
+    }, null, 2));
     process.exitCode = 1;
   },
 );

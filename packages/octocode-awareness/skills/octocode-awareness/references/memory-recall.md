@@ -4,19 +4,19 @@ Use this before planning, editing, or trusting a remembered fact. Recording, ref
 
 ## Canonical Payload Contract
 
-Use `scripts/schema.mjs` as the canonical JSON contract. CLI flags are not always field names: `--target-file` maps to `target_files`.
+Use `octocode-awareness schema ...` as the canonical JSON contract. CLI flags are not always field names: `--target-file` maps to `target_files`.
 
 ```bash
-node <skill_root>/scripts/schema.mjs list
-node <skill_root>/scripts/schema.mjs json-schema get_memory
-node <skill_root>/scripts/schema.mjs example get_memory
+octocode-awareness schema commands --compact
+octocode-awareness schema json-schema get_memory --compact
+octocode-awareness schema example get_memory --compact
 ```
 
-The CLI prefers noun/verb commands such as `memory recall`, `lock acquire`, and `signal list`. Legacy command names and underscore aliases (`get-memory`, `get_memory`, `pre-flight-intent`, `pre_flight_intent`, `notify-get`, `notify_get`) still work. Unknown flags are hard errors with the known-flag list.
+The CLI prefers noun/verb commands such as `memory recall`, `lock acquire`, and `signal list`. Use only canonical noun/verb CLI commands. Unknown flags are hard errors with the known-flag list.
 
 For token-efficient agent reads, pass `--compact` after the command or set `OCTOCODE_AWARENESS_COMPACT=1`; it minifies JSON without changing fields.
 
-## `memory recall` (`get-memory`)
+## `memory recall`
 
 Run before planning or editing when prior lessons may matter.
 

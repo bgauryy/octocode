@@ -30,10 +30,10 @@ const CONFIG_SRC = path.resolve(__dirname, '../../packages/octocode-config/dist/
 // Skills managed separately by the pi-extension — not synced here.
 //   octocode          — local-only meta-skill
 //   octocode-stats    — local-only dashboard skill
-//   octocode-awareness / octocode-reflection — canonical source lives in
-//                        packages/octocode-awareness/skills/ and is copied by
-//                        packages/octocode-pi-extension/scripts/build.mjs.
-const SKIPPED_SKILLS = new Set(['octocode', 'octocode-stats', 'octocode-awareness', 'octocode-reflection']);
+//   octocode-awareness — canonical source lives in packages/octocode-awareness/skills/.
+//   octocode-agent-communication / octocode-reflection — retired legacy awareness skill names;
+//                        skipped so stale root copies are never synced.
+const SKIPPED_SKILLS = new Set(['octocode', 'octocode-stats', 'octocode-awareness', 'octocode-agent-communication', 'octocode-reflection']);
 
 // Directories that are never copied (build artefacts, VCS internals).
 const SKIPPED_DIRS = new Set(['.git', 'node_modules', 'dist', 'out', 'target', '__pycache__', 'coverage']);

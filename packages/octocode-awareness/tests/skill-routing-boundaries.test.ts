@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -16,50 +16,26 @@ function description(markdown: string): string {
   return match?.[1] ?? '';
 }
 
-function referenceMarkdownFiles(skillName: string): string[] {
-  const dir = resolve(PACKAGE_ROOT, 'skills', skillName, 'references');
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((entry) => entry.endsWith('.md'));
-}
-
 describe('skill routing boundaries', () => {
   it('makes awareness the primary workflow skill', () => {
     const text = skill('octocode-awareness');
     const desc = description(text);
-    expect(desc).toContain('Recall memory');
-    expect(desc).toContain('claim locks');
-    expect(desc).toContain('handle signals');
-    expect(desc).toContain('record durable lessons');
-    expect(text).toContain('primary skill for awareness, communication, reflection, learning, and hook guidance');
+    expect(desc).toContain('Run the compact Awareness CLI');
+    expect(desc).toContain('memory recall');
+    expect(desc).toContain('file locks');
+    expect(desc).toContain('signals');
+    expect(desc).toContain('repo context');
+    expect(text).toContain('single operational awareness skill');
+    expect(text).toContain('schema commands --compact');
     expect(text).toContain('signal publish|list|reply|ack|resolve');
   });
 
-  it('keeps communication as a route-only compatibility stub', () => {
-    const text = skill('octocode-agent-communication');
-    const desc = description(text);
-    expect(desc).toContain('Compatibility alias');
-    expect(text).toContain('Load `octocode-awareness` for message work');
-    expect(text).toContain('Do not add operational script logic here');
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-agent-communication/scripts'))).toBe(false);
-  });
-
-  it('keeps reflection as a route-only compatibility stub', () => {
-    const text = skill('octocode-reflection');
-    const desc = description(text);
-    expect(desc).toContain('Compatibility alias');
-    expect(text).toContain('Load `octocode-awareness` for reflection');
-    expect(text).toContain('Do not add operational script logic here');
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-reflection/scripts'))).toBe(false);
+  it('does not ship retired routing stub directories', () => {
+    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-agent-communication'))).toBe(false);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-reflection'))).toBe(false);
   });
 
   it('keeps generated runtime scripts only in the primary skill', () => {
     expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-awareness/scripts/awareness.mjs'))).toBe(true);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-agent-communication/scripts/awareness.mjs'))).toBe(false);
-    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-reflection/scripts/awareness.mjs'))).toBe(false);
-  });
-
-  it('keeps compatibility stubs free of operational references', () => {
-    expect(referenceMarkdownFiles('octocode-agent-communication')).toEqual([]);
-    expect(referenceMarkdownFiles('octocode-reflection')).toEqual([]);
   });
 });

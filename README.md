@@ -386,10 +386,8 @@ Platforms: `common` (default, `~/.agents/skills`), `cursor` (`~/.cursor/skills`)
 | [**Prompt Optimizer**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-prompt-optimizer) | `octocode-prompt-optimizer/` | `npx octocode skill --name octocode-prompt-optimizer` | You want to optimize, strengthen, or shorten a prompt, `SKILL.md`, or `AGENTS.md`. |
 | [**Subagents**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-subagents) | `octocode-subagents/` | `npx octocode skill --name octocode-subagents` | You need to decide when to spawn background Pi worker agents, write self-contained worker prompts, or synthesize their output. |
 | [**Awareness**](https://www.skills.sh/bgauryy/octocode-mcp/octocode-awareness) | `octocode-awareness/` | `npx octocode skill --name octocode-awareness` | You need shared agent memory, file locks, notifications, handoffs, reflection, hooks, or verify-before-conclude in a shared repo. |
-| [**Reflection**](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness/skills/octocode-reflection) | `octocode-reflection/` | `npx octocode skill --name octocode-awareness` | Compatibility stub for older prompts that still name `octocode-reflection`; new work should load Awareness. |
-| [**Agent Communication**](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness/skills/octocode-agent-communication) | `octocode-agent-communication/` | `npx octocode skill --name octocode-awareness` | Compatibility stub for older prompts that still name `octocode-agent-communication`; new work should load Awareness. |
 
-Awareness is the primary skill for memory, locks, signals, reflection, schemas, and hooks. Reflection and Agent Communication are compatibility stubs that route old skill references back to the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
+Awareness is the primary skill for memory, locks, signals, reflection, schemas, and hooks. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load the same [`@octocodeai/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) runtime.
 
 ---
 

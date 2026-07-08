@@ -69,7 +69,7 @@ function assert(condition, message) {
 log("workspace", workspace);
 log("phase 1: agent-a claims and edits the temp file");
 const claimA = run("agent-a", [
-  "pre-flight-intent",
+  "lock", "acquire",
   "--agent-id", "agent-a",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -85,7 +85,7 @@ log("phase 2: agent-b collides on the live lock");
 const blockedB = run(
   "agent-b",
   [
-    "pre-flight-intent",
+    "lock", "acquire",
     "--agent-id", "agent-b",
     "--workspace", workspace,
     "--artifact", artifact,
@@ -99,19 +99,19 @@ assert(blockedB.conflicts?.length === 1, "agent-b should see one lock conflict")
 
 log("phase 3: pending verification is visible, then cleared");
 run("agent-a", [
-  "release-file-lock",
+  "lock", "release",
   "--agent-id", "agent-a",
   "--task-id", claimA.task.task_id,
   "--status", "PENDING",
 ]);
 const auditPending = run(
   "audit-pending",
-  ["audit-unverified", "--agent-id", "agent-a", "--workspace", workspace, "--artifact", artifact],
+  ["verify", "audit", "--agent-id", "agent-a", "--workspace", workspace, "--artifact", artifact],
   { expect: [1] },
 );
 assert(auditPending.count === 1, "agent-a should have one pending verification");
 const verifiedA = run("verify-agent-a", [
-  "verify",
+  "verify", "mark",
   "--agent-id", "agent-a",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -119,12 +119,12 @@ const verifiedA = run("verify-agent-a", [
   "--message", "smoke read the file after agent-a edit",
 ]);
 assert(verifiedA.count === 1, "verify --all-pending should clear one task");
-const auditClear = run("audit-clear", ["audit-unverified", "--agent-id", "agent-a", "--workspace", workspace, "--artifact", artifact]);
+const auditClear = run("audit-clear", ["verify", "audit", "--agent-id", "agent-a", "--workspace", workspace, "--artifact", artifact]);
 assert(auditClear.count === 0, "agent-a pending verification should be clear");
 
 log("phase 4: repo signals deliver once, resolve, and dry-run prune");
-const signal = run("notify", [
-  "notify",
+const signal = run("signal-publish", [
+  "signal", "publish",
   "--agent-id", "agent-a",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -135,9 +135,9 @@ const signal = run("notify", [
   "--ref-id", claimA.task.task_id,
   "--importance", "7",
 ]);
-assert(signal.signal_id, "notify should create a signal id");
-const inbox = run("notify-get", [
-  "notify-get",
+assert(signal.signal_id, "signal publish should create a signal id");
+const inbox = run("signal-list", [
+  "signal", "list",
   "--agent-id", "agent-b",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -145,27 +145,28 @@ const inbox = run("notify-get", [
 ]);
 assert(inbox.count === 1, "agent-b should receive one unread message");
 assert(inbox.signals?.[0]?.subject === "smoke: shared file was edited", "signal subject should round-trip");
-const inboxAgain = run("notify-get-again", ["notify-get", "--agent-id", "agent-b", "--workspace", workspace, "--artifact", artifact]);
+const inboxAgain = run("signal-list-again", ["signal", "list", "--agent-id", "agent-b", "--workspace", workspace, "--artifact", artifact]);
 assert(inboxAgain.count === 0, "mark-read should prevent duplicate delivery");
-const resolved = run("notify-resolve", [
-  "notify-resolve",
+const resolved = run("signal-resolve", [
+  "signal", "resolve",
+  "--agent-id", "agent-b",
   "--workspace", workspace,
   "--artifact", artifact,
   "--thread-id", signal.thread_id,
 ]);
-assert(resolved.resolved === 1, "notify-resolve should close the thread");
-const prunePreview = run("notify-prune-dry-run", [
-  "notify-prune",
+assert(resolved.resolved === 1, "signal resolve should close the thread");
+const prunePreview = run("signal-prune-dry-run", [
+  "signal", "prune",
   "--workspace", workspace,
   "--artifact", artifact,
   "--resolved",
   "--dry-run",
 ]);
-assert(prunePreview.would_delete >= 1, "notify-prune --dry-run should find the resolved message");
+assert(prunePreview.would_delete >= 1, "signal prune --dry-run should find the resolved message");
 
 log("phase 5: agent-b re-claims, edits, and releases with verification");
 const claimB = run("agent-b", [
-  "pre-flight-intent",
+  "lock", "acquire",
   "--agent-id", "agent-b",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -176,7 +177,7 @@ const claimB = run("agent-b", [
 assert(claimB.task?.task_id, "agent-b should now get a claim");
 await appendFile(target, "agent-b wrote after receiving release\n", "utf8");
 run("agent-b", [
-  "release-file-lock",
+  "lock", "release",
   "--agent-id", "agent-b",
   "--task-id", claimB.task.task_id,
   "--status", "SUCCESS",
@@ -186,7 +187,7 @@ run("agent-b", [
 
 log("phase 6: stale-lock janitor prunes an aged lock without claiming success");
 const stale = run("agent-stale", [
-  "pre-flight-intent",
+  "lock", "acquire",
   "--agent-id", "agent-stale",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -203,16 +204,16 @@ staleDb.prepare("UPDATE locks SET expires_at = ? WHERE task_id = ?").run(pastTim
 staleDb.close();
 console.log(`[age-stale-lock] set expires_at to ${pastTime}`);
 
-const pruned = run("janitor", ["prune-stale-locks", "--workspace", workspace, "--artifact", artifact]);
+const pruned = run("janitor", ["lock", "prune", "--workspace", workspace, "--artifact", artifact]);
 assert(pruned.pruned_locks >= 1, `janitor should prune expired lock, got: ${JSON.stringify(pruned)}`);
 const staleAudit = run(
   "audit-stale",
-  ["audit-unverified", "--agent-id", "agent-stale", "--workspace", workspace, "--artifact", artifact],
+  ["verify", "audit", "--agent-id", "agent-stale", "--workspace", workspace, "--artifact", artifact],
   { expect: [1] },
 );
 assert(staleAudit.count === 1, "stale-pruned work should remain pending, not successful");
 run("verify-stale", [
-  "verify",
+  "verify", "mark",
   "--agent-id", "agent-stale",
   "--workspace", workspace,
   "--artifact", artifact,
@@ -222,9 +223,9 @@ run("verify-stale", [
 ]);
 
 log("phase 7: final DB and file assertions");
-const status = run("status", ["status", "--workspace", workspace, "--artifact", artifact]);
+const status = run("status", ["workspace", "status", "--workspace", workspace, "--artifact", artifact]);
 assert(status.locks.length === 0, "final status should have no live locks");
-const finalAudit = run("audit-final", ["audit-unverified", "--workspace", workspace, "--artifact", artifact]);
+const finalAudit = run("audit-final", ["verify", "audit", "--workspace", workspace, "--artifact", artifact]);
 assert(finalAudit.count === 0, "final audit should have no pending verification");
 const finalText = await readFile(target, "utf8");
 assert(finalText.includes("agent-a wrote"), "final file missing agent-a edit");

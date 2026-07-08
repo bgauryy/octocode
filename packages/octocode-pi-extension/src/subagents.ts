@@ -76,11 +76,9 @@ function resolveSkillsDir(): string {
 const SKILLS_DIR = resolveSkillsDir();
 
 export const OCTOCODE_SKILL_NAMES = [
-  'octocode-agent-communication',
   'octocode-awareness',
   'octocode-brainstorming',
   'octocode-prompt-optimizer',
-  'octocode-reflection',
   'octocode-research',
   'octocode-rfc-generator',
   'octocode-roast',

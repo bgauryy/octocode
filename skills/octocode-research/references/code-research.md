@@ -3,7 +3,7 @@
 Read when `octocode-research` handles code investigation, implementation, review, refactor, architecture, dead-code, PR/local diff, binary/archive, or blast-radius work.
 Before presenting, dismissing, or acting on a finding, use this workflow and proof ladder.
 Evidence grades, the router, anti-patterns, and failure signals live in `references/algorithm.md`.
-For local/external/root-cause/PR-review routing, load `references/workflows.md` first, then return here for the proof ladder.
+For local/external/debug/change/PR-review routing, load `references/workflows.md` (index) or the matching `workflow-*.md` file first, then return here for the proof ladder.
 
 ## Route
 

@@ -5,6 +5,6 @@
     "zod": "^4.4.3"
   },
   "scripts": {
-    "check": "node schema.mjs list && node awareness.mjs self-test"
+    "check": "node schema.mjs list && node awareness.mjs maintenance self-test"
   }
 }

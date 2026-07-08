@@ -40,11 +40,9 @@ import { assertPathAllowed } from '../src/tools/path-guard.js';
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(packageRoot, 'dist');
 const EXPECTED_OCTOCODE_SKILLS = [
-  'octocode-agent-communication',
   'octocode-awareness',
   'octocode-brainstorming',
   'octocode-prompt-optimizer',
-  'octocode-reflection',
   'octocode-research',
   'octocode-rfc-generator',
   'octocode-roast',
@@ -215,7 +213,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
 
   const SKIPPED = ['octocode', 'octocode-agent-communication', 'octocode-awareness', 'octocode-reflection', 'octocode-stats'];
   // Skills whose canonical source lives in @octocodeai/octocode-awareness.
-  const AWARENESS_OWNED = ['octocode-agent-communication', 'octocode-awareness', 'octocode-reflection'];
+  const AWARENESS_OWNED = ['octocode-awareness'];
   const skills = listBundledSkills(distDir);
   const sourceSkills = listBundledSkills(packageRoot);
   const rootSkills = listBundledSkills(path.resolve(packageRoot, '../..'));
@@ -228,11 +226,9 @@ test('build copies bundled Octocode skills without secret env files', () => {
   assert.deepEqual(
     skills,
     [
-      'octocode-agent-communication',
       'octocode-awareness',
       'octocode-brainstorming',
       'octocode-prompt-optimizer',
-      'octocode-reflection',
       'octocode-research',
       'octocode-rfc-generator',
       'octocode-roast',
@@ -244,14 +240,8 @@ test('build copies bundled Octocode skills without secret env files', () => {
     fs.readFileSync(path.join(distDir, 'skills', 'octocode-awareness', 'SKILL.md'), 'utf8'),
     fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-awareness/SKILL.md'), 'utf8'),
   );
-  assert.equal(
-    fs.readFileSync(path.join(distDir, 'skills', 'octocode-reflection', 'SKILL.md'), 'utf8'),
-    fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-reflection/SKILL.md'), 'utf8'),
-  );
-  assert.equal(
-    fs.readFileSync(path.join(distDir, 'skills', 'octocode-agent-communication', 'SKILL.md'), 'utf8'),
-    fs.readFileSync(path.resolve(packageRoot, '../octocode-awareness/skills/octocode-agent-communication/SKILL.md'), 'utf8'),
-  );
+  assert.equal(fs.existsSync(path.join(distDir, 'skills', 'octocode-reflection')), false);
+  assert.equal(fs.existsSync(path.join(distDir, 'skills', 'octocode-agent-communication')), false);
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
     pi?: { skills?: string[] };

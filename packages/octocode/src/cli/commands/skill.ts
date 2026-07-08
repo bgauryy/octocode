@@ -308,6 +308,8 @@ function tryResolveBundledSkillRequest(
   skillName: string
 ): SkillInstallRequest | null {
   try {
+    if (!isSafeSkillName(skillName)) return null;
+
     const bundledSource = getBundledSkillsSource();
     if (!bundledSource) return null;
 
@@ -340,7 +342,9 @@ function resolveAllBundledSkillRequests(): SkillInstallRequest[] {
     if (!bundledSource) return [];
 
     return getAvailableSkills()
-      .filter(name => fileExists(path.join(bundledSource.skillsPath, name, 'SKILL.md')))
+      .filter(name =>
+        fileExists(path.join(bundledSource.skillsPath, name, 'SKILL.md'))
+      )
       .map(name => ({
         skill: {
           name,

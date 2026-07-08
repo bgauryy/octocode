@@ -1,20 +1,16 @@
-# Octocode Awareness Skills
+# Octocode Awareness Skill
 
-This package ships one primary Agent Skill plus two compatibility stubs that share one runtime and one SQLite store:
+This package ships one Agent Skill backed by one runtime and one SQLite store:
 
 - `octocode-awareness`: live workspace awareness, locks, recall, refinements, signals/messages, verification, reflection, learning, cleanup, and hooks.
-- `octocode-agent-communication`: transition stub for older installs; routes message work back to `octocode-awareness`.
-- `octocode-reflection`: transition stub for older installs; routes learning and cleanup work back to `octocode-awareness`.
 
-Together they form one operating model for agents in a shared workspace. Awareness keeps work safe while it is happening, moves live messages between agents, and decides what should persist after the work is done. The old skill names remain for one transition release so existing prompts and installs do not fail silently.
+Awareness keeps work safe while it is happening, moves live messages between agents, and decides what should persist after the work is done. Older prompt text may still name `octocode-agent-communication` or `octocode-reflection`; route those requests to `octocode-awareness`.
 
 ## Skill Map
 
 | Skill | Path | Primary job | Load it when |
 |---|---|---|---|
 | Awareness | `skills/octocode-awareness` | Attend, recall, claim files, signal agents, verify, reflect, clean, run hooks | Starting work, planning edits, checking locks, handling signals, learning from outcomes, or finishing work |
-| Communication stub | `skills/octocode-agent-communication` | Route old message-skill references to Awareness | An older prompt explicitly names this skill |
-| Reflection stub | `skills/octocode-reflection` | Route old reflection-skill references to Awareness | An older prompt explicitly names this skill |
 
 ```mermaid
 flowchart LR
@@ -23,12 +19,10 @@ flowchart LR
 
   subgraph Skills["Agent Skills"]
     Awareness["octocode-awareness<br/>live coordination"]
-    Communication["octocode-agent-communication<br/>compatibility stub"]
-    Reflection["octocode-reflection<br/>compatibility stub"]
   end
 
   subgraph Runtime["Package runtime"]
-    CLI["scripts/awareness.mjs<br/>CLI wrapper"]
+    CLI["octocode-awareness<br/>package CLI + skill script"]
     Hooks["lifecycle hooks<br/>pre/post/stop/briefing"]
     Pi["Pi bridge<br/>wirePiAwarenessHooks"]
     Core["@octocodeai/octocode-awareness<br/>src/*.ts modules"]
@@ -39,8 +33,6 @@ flowchart LR
   User --> Agent
   Agent --> Awareness
   Awareness --> CLI
-  Communication --> Awareness
-  Reflection --> Awareness
   Hooks --> CLI
   Pi --> Core
   CLI --> Core
@@ -49,16 +41,16 @@ flowchart LR
 
 ## How The Skills Combine
 
-Use `octocode-awareness` as the primary workflow. The compatibility stubs are aliases, not separate checklists.
+Use `octocode-awareness` as the primary workflow. Old skill names route back to Awareness; they do not define separate checklists or CLI aliases.
 
 1. Start with `octocode-awareness`.
-2. If awareness status, `notify-get`, `signal list`, or hook-injected briefing shows a message, handle it with the Awareness signal commands.
+2. If `workspace status`, `signal list`, or hook-injected briefing shows a message, handle it with the Awareness signal commands.
 3. If work is finished or a reusable lesson exists, record it with Awareness memory/reflection commands.
 4. Keep every command scoped to the same DB, workspace, artifact, repo, and ref.
 
 ```mermaid
 flowchart TD
-  Start["Agent receives task"] --> Attend["Awareness: status, memory recall, refinements, unread signals"]
+  Start["Agent receives task"] --> Attend["Awareness: workspace status, memory recall, refinements, unread signals"]
   Attend --> MessageQ{"Unread or relevant<br/>agent message?"}
   MessageQ -->|yes| Comm["Awareness: inspect, act, reply, ack, resolve"]
   MessageQ -->|no| Plan["Plan work"]
@@ -114,12 +106,12 @@ Users get three practical benefits:
 - Better continuity: memories, refinements, and session captures keep useful context out of the model prompt until needed.
 - Agent messaging: signals give agents a local mailbox with threads, broadcast, targeted delivery, ack, and resolution.
 
-Users usually do not call every command manually. They install or preview hooks, then agents call the skill scripts as needed.
+Users usually do not call every command manually. They install or preview hooks, then agents call the package CLI or bundled skill script as needed.
 
 ```bash
-node packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs hooks install --host codex --dry-run
-node packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs workspace status --workspace "$PWD"
-node packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs signal list --agent-id "$USER" --workspace "$PWD"
+npx @octocodeai/octocode-awareness hooks install --host codex --dry-run
+npx @octocodeai/octocode-awareness workspace status --workspace "$PWD"
+npx @octocodeai/octocode-awareness signal list --agent-id "$USER" --workspace "$PWD"
 ```
 
 ## Agent View
@@ -128,90 +120,85 @@ Agents should treat the skills as progressive disclosure:
 
 - Read `SKILL.md` first.
 - Load a reference only when the routed condition matches.
+- Use `octocode-awareness` for installed/package usage.
 - Use `scripts/schema.mjs` before building wrappers or Pi adapters.
-- Use `scripts/awareness.mjs` for deterministic behavior.
+- Use `scripts/awareness.mjs` only as the bundled standalone fallback.
 - Treat memory and signals as leads. Verify current code, files, and command output before relying on them.
 
 ## Tool Surface
 
-The primary skill calls the generated `scripts/awareness.mjs`. Compatibility stubs contain no operational scripts and route old skill names back to Awareness.
+The public package exposes `octocode-awareness`; the primary skill also bundles `scripts/awareness.mjs` for standalone installs. Old skill names route back to Awareness, but no separate stub skill folders are shipped.
 
 ### Memory And Recall
 
 | Schema name | CLI command | Owner skill | Purpose |
 |---|---|---|---|
-| `tell_memory` | `memory record` (`tell-memory`) | Awareness | Store a durable reusable lesson, decision, gotcha, or observation |
-| `get_memory` | `memory recall` (`get-memory`) | Awareness | Recall scoped memories by query, labels, tags, files, references, repo, and ref |
-| `memory_index` | `memory index` (`memory-index`) | Awareness | Export a compact `MEMORY.md` style index from top active memories |
-| `forget_memory` | `memory forget` (`forget`) | Awareness | Delete memories by id, tag, age, or importance ceiling |
+| `tell_memory` | `memory record` | Awareness | Store a durable reusable lesson, decision, gotcha, or observation |
+| `get_memory` | `memory recall` | Awareness | Recall scoped memories by query, labels, tags, files, references, repo, and ref |
+| `forget_memory` | `memory forget` | Awareness | Delete memories by id, tag, age, or importance ceiling |
 
 ### Repo Context Projections
 
 | Schema name | CLI command | Owner skill | Purpose |
 |---|---|---|---|
-| `query` | `query <view>` | Awareness | Read normalized DB views (`memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `repo-profile`, `all`) as JSON/table/CSV/Markdown |
-| `view` | `view [view]` | Awareness | Write a static HTML browser view over the same query engine |
-| `repo_inject` | `repo inject` (`inject`) | Awareness | Generate `.octocode/AGENTS.md`, memory/gotcha/learning docs, CSV projections, references, manifest, and optional HTML without editing `.gitignore` |
+| `query` | `query <view>` | Awareness | Read normalized DB views (`memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `repo-profile`, `all`) as JSON/table/CSV/Markdown/HTML |
+| `repo_inject` | `repo inject` | Awareness | Generate `.octocode/AGENTS.md`, memory/gotcha/learning docs, CSV projections, references, manifest, and optional HTML without editing `.gitignore` |
 
 ### Workspace And Locks
 
 | Schema name | CLI command | Owner skill | Purpose |
 |---|---|---|---|
-| `status` | `status` | Awareness | Show DB health, memory counts, locks, refinements, and pending verification |
-| `workspace_status` | `workspace-status` | Awareness | Pi-style status alias for workspace state |
-| `pre_flight_intent` | `lock acquire` (`pre-flight-intent`) | Awareness | Create an edit task and acquire file locks |
-| `wait_for_lock` | `lock wait` (`wait-for-lock`) | Awareness | Poll until target file locks clear without acquiring them |
-| `prune_stale_locks` | `lock prune` (`prune-stale-locks`) | Awareness | Delete expired or age-stale locks; affected tasks become `PENDING` |
-| `release_file_lock` | `lock release` (`release-file-lock`) | Awareness | Release locks as `SUCCESS`, `FAILED`, or `PENDING` |
-| `verify` | `verify mark` (`verify`) | Awareness | Record that declared verification actually ran |
-| `audit_unverified` | `verify audit` (`audit-unverified`) | Awareness | List pending or stale work that blocks clean conclusion |
+| `workspace_status` | `workspace status` | Awareness | Show DB health, memory counts, locks, refinements, and pending verification |
+| `pre_flight_intent` | `lock acquire` | Awareness | Create an edit task and acquire file locks |
+| `wait_for_lock` | `lock wait` | Awareness | Poll until target file locks clear without acquiring them |
+| `prune_stale_locks` | `lock prune` | Awareness | Delete expired or age-stale locks; affected tasks become `PENDING` |
+| `release_file_lock` | `lock release` | Awareness | Release locks as `SUCCESS`, `FAILED`, or `PENDING` |
+| `verify` | `verify mark` | Awareness | Record that declared verification actually ran |
+| `audit_unverified` | `verify audit` | Awareness | List pending or stale work that blocks clean conclusion |
 
 ### Refinements And Handoffs
 
 | Schema name | CLI command | Owner skill | Purpose |
 |---|---|---|---|
-| `refinement` | `refinement set` (`refine-set`) | Awareness | Save workspace work state for the next agent |
-| `refine_query` | `refinement get` (`refine-get`) | Awareness | Read unfinished or filtered refinements |
-| `refine_delete` | `refinement delete` (`refine-delete`) | Awareness | Hard-delete stale refinements by id |
+| `refinement` | `refinement set` | Awareness | Save workspace work state for the next agent |
+| `refine_query` | `refinement get` | Awareness | Read unfinished or filtered refinements |
+| `refine_delete` | `refinement delete` | Awareness | Hard-delete stale refinements by id |
 
 ### Communication
 
 | Schema name | CLI command | Owner skill | Purpose |
 |---|---|---|---|
-| `agent_registry` | `agent register|list` (`agent-registry`) | Awareness | Register or list agent identities in the shared DB |
-| `agent_signal` | `signal publish|list|reply|ack|resolve` (`agent-signal`) | Awareness | Publish, list, reply, ack, and resolve signals |
-| `notify` | `notify` | Awareness legacy alias | Publish a typed signal |
-| `notify_query` | `notify-get` | Awareness hooks | Read inbox messages; hooks use `--format hook` and do not mark read |
-| `notify_resolve` | `notify-resolve` | Awareness | Resolve a signal or whole thread |
-| `notify_prune` | `signal prune` (`notify-prune`) | Awareness | Delete selected resolved, old, or explicit signals |
+| `agent_registry` | `agent register|list` | Awareness | Register or list agent identities in the shared DB |
+| `agent_signal` | `signal publish|list|reply|ack|resolve` | Awareness | Publish, list, reply, ack, and resolve signals |
+| `signal_prune` | `signal prune` | Awareness | Delete selected resolved, old, or explicit signals |
 
 ### Reflection And Harness
 
 | Schema name | CLI command | Owner skill | Purpose |
 |---|---|---|---|
-| `reflect` | `reflect record` (`reflect`) | Awareness | Record outcome, lesson, failure signature, and staged improvement hints |
-| `export_harness` | `reflect export-harness` (`export-harness`) | Awareness | Preview AGENTS.md or harness guidance candidates from top lessons |
-| `digest` | `maintenance digest` (`digest`) | Awareness | Preview or run memory/signal/refinement cleanup |
-| `mine_weakness` | `reflect mine-weakness` (`mine-weakness`) | Awareness | Cluster repeated failure signatures |
-| `doc_staleness` | `docs staleness` (`doc-staleness`) | Awareness | Find docs likely stale from edit log activity |
-| `session_capture` | `session capture` (`session-capture`) | Awareness hooks | Write a session handoff refinement from lock and git state |
-| n/a | `maintenance init` / `maintenance self-test` (`init` / `self-test`) | Runtime | Initialize or smoke-test the shared DB |
+| `reflect` | `reflect record` | Awareness | Record outcome, lesson, failure signature, and staged improvement hints |
+| `export_harness` | `reflect export-harness` | Awareness | Preview AGENTS.md or harness guidance candidates from top lessons |
+| `digest` | `maintenance digest` | Awareness | Preview or run memory/signal/refinement cleanup |
+| `mine_weakness` | `reflect mine-weakness` | Awareness | Cluster repeated failure signatures |
+| `doc_staleness` | `docs staleness` | Awareness | Find docs likely stale from edit log activity |
+| `session_capture` | `session capture` | Awareness hooks | Write a session handoff refinement from lock and git state |
+| n/a | `maintenance init` / `maintenance self-test` | Runtime | Initialize or smoke-test the shared DB |
 
 ### Pi Tool Mapping
 
 | Pi-facing tool | CLI/runtime equivalent |
 |---|---|
-| `workspace_status` | `workspace status` (`status` / `workspace-status`) |
-| `memory_recall` | `memory recall` (`get-memory`) |
-| `memory_record` | `memory record` (`tell-memory`) |
-| `memory_refine_get` | `refinement get` (`refine-get`) |
-| `agent_signal` | `signal publish|list|reply|ack|resolve` (`agent-signal`, `notify`, `notify-get`) |
-| `file_lock type:lock` | `lock acquire` (`pre-flight-intent`) |
-| `file_lock type:release` | `lock release` (`release-file-lock`) |
-| `memory_verify` | `verify mark` (`verify`) |
-| `memory_audit_unverified` | `verify audit` (`audit-unverified`) |
-| `memory_reflect` | `reflect record` (`reflect`) |
-| `memory_export_harness` | `reflect export-harness` (`export-harness`) |
+| `workspace_status` | `workspace status` |
+| `memory_recall` | `memory recall` |
+| `memory_record` | `memory record` |
+| `memory_refine_get` | `refinement get` |
+| `agent_signal` | `signal publish|list|reply|ack|resolve` |
+| `file_lock type:lock` | `lock acquire` |
+| `file_lock type:release` | `lock release` |
+| `memory_verify` | `verify mark` |
+| `memory_audit_unverified` | `verify audit` |
+| `memory_reflect` | `reflect record` |
+| `memory_export_harness` | `reflect export-harness` |
 
 ## Communication Model
 
@@ -251,7 +238,7 @@ flowchart TD
   Pre --> Claim["pre-edit<br/>claim file locks"]
   Post["PostToolUse write"] --> Pending["post-edit<br/>release locks as PENDING"]
   Stop["Stop/SubagentStop"] --> Audit["stop-verify<br/>block if unverified work remains"]
-  Compact["SessionEnd or PreCompact"] --> Capture["session-end<br/>session-capture refinement"]
+  Compact["SessionEnd or PreCompact"] --> Capture["session-end<br/>session capture refinement"]
 ```
 
 Codex does not run standalone `SKILL.md` hook frontmatter. Install Codex hooks with `.codex/hooks.json`, inline `[hooks]` config, or plugin hooks. Claude-style hosts may execute skill frontmatter. Pi uses `wirePiAwarenessHooks(pi)`.
@@ -314,7 +301,7 @@ The package runtime is TypeScript plus Node's built-in SQLite.
 | `bin/hook-runner.ts` | Shell hook dispatcher for lifecycle events |
 | `scripts/schema.mjs` | Zod schemas, examples, validation, JSON Schema export |
 
-Build output is copied into the primary awareness skill's `scripts/` directory. Compatibility stubs contain no operational scripts; they route older skill names back to the primary skill while sharing the same package-owned source.
+Build output is copied into the primary awareness skill's `scripts/` directory. Retired legacy skill names are pruned from generated mirrors.
 
 ```mermaid
 flowchart LR
@@ -322,7 +309,6 @@ flowchart LR
   Schema["scripts/schema.mjs"] --> Build
   Build --> Dist["dist/"]
   Build --> AwarenessScripts["skills/octocode-awareness/scripts"]
-  Build --> StubSkills["skills/octocode-reflection and skills/octocode-agent-communication<br/>SKILL.md stubs only"]
 ```
 
 ## Choosing The Right Skill
@@ -341,15 +327,15 @@ flowchart LR
 
 ```bash
 # 1. Attend
-node skills/octocode-awareness/scripts/awareness.mjs workspace status --workspace "$PWD"
-node skills/octocode-awareness/scripts/awareness.mjs memory recall --query "current task" --workspace "$PWD" --smart
+octocode-awareness workspace status --workspace "$PWD"
+octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart
 
 # 2. Communicate when needed
-node skills/octocode-awareness/scripts/awareness.mjs agent list --workspace "$PWD"
-node skills/octocode-awareness/scripts/awareness.mjs signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD"
+octocode-awareness agent list --workspace "$PWD"
+octocode-awareness signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD"
 
 # 3. Claim and work
-node skills/octocode-awareness/scripts/awareness.mjs lock acquire \
+octocode-awareness lock acquire \
   --agent-id "$OCTOCODE_AGENT_ID" \
   --workspace "$PWD" \
   --rationale "Make the requested change" \
@@ -357,14 +343,14 @@ node skills/octocode-awareness/scripts/awareness.mjs lock acquire \
   --target-file "$PWD/path/to/file"
 
 # 4. Verify and release
-node skills/octocode-awareness/scripts/awareness.mjs verify mark \
+octocode-awareness verify mark \
   --agent-id "$OCTOCODE_AGENT_ID" \
   --workspace "$PWD" \
   --all-pending \
   --message "Focused tests passed"
 
 # 5. Reflect after the outcome is known
-node skills/octocode-awareness/scripts/awareness.mjs reflect record \
+octocode-awareness reflect record \
   --agent-id "$OCTOCODE_AGENT_ID" \
   --task "Describe the work" \
   --outcome worked \

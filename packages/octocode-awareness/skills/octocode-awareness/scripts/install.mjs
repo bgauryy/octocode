@@ -132,12 +132,12 @@ function runSmokeChecks() {
     });
   }
 
-  const awareness = run(nodeBin, [join(scriptsDir, "awareness.mjs"), "self-test"], {
+  const awareness = run(nodeBin, [join(scriptsDir, "awareness.mjs"), "maintenance", "self-test"], {
     cwd: skillRoot,
     capture: true,
   });
   if (awareness.status !== 0) {
-    fail("awareness.mjs self-test failed.", {
+    fail("awareness.mjs maintenance self-test failed.", {
       stdout: awareness.stdout,
       stderr: awareness.stderr,
     });
@@ -158,7 +158,7 @@ console.log(
       dependencyResult,
       commands: {
         schema: `${nodeBin} scripts/schema.mjs list`,
-        awareness: `${nodeBin} scripts/awareness.mjs status`,
+        awareness: `${nodeBin} scripts/awareness.mjs workspace status`,
       },
     },
     null,

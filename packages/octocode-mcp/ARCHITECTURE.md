@@ -101,3 +101,26 @@ There are two different dependency views:
 Publish order follows the runtime graph: publish
 `@octocodeai/octocode-engine` platform packages, then the engine root, then
 `octocode-mcp`.
+
+## Distribution Artifacts
+
+`package.json#files` ships four generated/static files alongside `dist/`:
+
+- `README.md` — **not** hand-authored here. `yarn readme:sync` (runs before
+  `build`/`build:dev`/`prepack`) copies the root `README.md` in via
+  `scripts/sync-package-readmes.mjs`. Edit the root `README.md`, never this
+  package's copy directly — it is gitignored and overwritten on every sync.
+- `manifest.json` — Claude Desktop / DXT extension manifest. Declares the
+  `mcp_octocode_*`-prefixed tool catalog, `user_config` fields, and platform
+  compatibility for the desktop-extension install path.
+- `server.json` — MCP registry submission (`io.github.bgauryy/octocode-mcp`),
+  validated against the `2025-10-17` server schema. Declares the npm package
+  identifier/version the registry resolves and the `env` vars a client may set.
+- `LICENSE` — MIT, copied as-is.
+
+`manifest.json` and `server.json` are **hand-maintained** — no build step syncs
+their `version` or tool list from `package.json` or core's `ALL_TOOLS`. When
+the tool catalog changes or a release ships, update both files' `version`
+fields and `manifest.json#tools` alongside `package.json#version` and the
+`toolConfig.ts` `MCP_FN_MAP`; drift here does not fail CI and will only
+surface as an outdated registry/DXT listing.

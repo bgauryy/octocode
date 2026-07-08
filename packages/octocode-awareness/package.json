@@ -27,10 +27,11 @@
       "default": "./dist/index.js"
     },
     "./bin/awareness": "./dist/bin/awareness.js",
+    "./bin/octocode-awareness": "./dist/bin/awareness.js",
     "./bin/extract-hook-files": "./dist/bin/extract-hook-files.js"
   },
   "bin": {
-    "awareness": "./dist/bin/awareness.js"
+    "octocode-awareness": "./dist/bin/awareness.js"
   },
   "files": [
     "dist/**",
@@ -50,7 +51,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
-    "self-test": "node dist/bin/awareness.js self-test",
+    "self-test": "node dist/bin/awareness.js maintenance self-test",
     "verify": "yarn lint && yarn test && yarn build"
   },
   "devDependencies": {

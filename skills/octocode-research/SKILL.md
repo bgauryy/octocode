@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when technical or code work needs evidence-first research: investigate, implement, review, refactor, map prior art, run iterative research loops (Act→Observe→Learn), validate findings, inspect artifacts, or plan with citations before acting."
+description: "Use for evidence-first technical research and code work: research or understand code, investigate/deep-dive a bug or root cause, review a PR or local diff before merging, plan/implement/refactor with citations, map prior art or research external GitHub repos and packages, validate whether to build something, inspect artifacts/binaries, or run iterative research loops (Act→Observe→Learn) until evidence converges."
 ---
 
 # Octocode Research
@@ -31,18 +31,26 @@ Evidence-first thinking algorithm for technical research and code work: `SCOPE -
 
 ## Reference Map
 
-- `references/algorithm.md` — read at session start or before nontrivial work for router, evidence grades, and failure signals.
-- `references/research-flow.md` — when mapping, validating, investigating, planning, or composing multi-surface flows.
-- `references/workflows.md` — when choosing local, external, root-cause, or PR/local-review workflow shape.
-- `references/code-research.md` — before code investigation, review, refactor, architecture, dead-code, binary, or blast-radius claims.
-- `references/loop-mode.md` — when one pass is insufficient and Act→Observe→Learn cycles need convergence.
-- `references/octocode.md` — when choosing MCP vs CLI transport, auth, install, or command syntax.
-- `references/long-research.md` — when a durable brief, artifact, claim ledger, or audit trail is needed.
-- `references/github-landscape.md` — when comparing GitHub repos, package ecosystems, or reuse candidates.
+Always read `references/algorithm.md` first — router, evidence grades, and failure signals apply to every trigger below. `references/workflows.md` is the index for the `workflow-*.md` files; go straight to the named file once the trigger is clear.
+
+| Trigger examples | Mode | Load |
+|---|---|---|
+| "research X", "understand this code", "how does X work", "explore this repo" | Investigate | `algorithm.md`, `research-flow.md` |
+| local repo/checkout/installed dependency is the source of truth | Investigate | `algorithm.md`, `workflow-local.md` |
+| remote repo, PR, package, or upstream dependency not present locally | Investigate | `algorithm.md`, `workflow-external.md` |
+| "why does X fail", "root cause", "debug this", "deep dive into Y" | Investigate | `algorithm.md`, `workflow-debug.md`, `code-research.md` |
+| "review PR #N", "review my changes/diff", "safe to merge", "review this file" | Review | `algorithm.md`, `workflow-pr-review.md`, `code-research.md` |
+| "implement", "refactor", "migrate", "add X", "patch this" | Plan / Change | `algorithm.md`, `workflow-change.md`, `code-research.md` |
+| "map prior art", "what exists for X", "landscape", "compare repos" | Map | `algorithm.md`, `research-flow.md`; add `github-landscape.md` for repo-ecosystem ranking |
+| "should we build X", "validate this idea", "is this worth doing" | Validate | `algorithm.md`, `research-flow.md`; add `long-research.md` when long/contested |
+| dead code, unused exports, reachability, drift | Investigate | `algorithm.md`, `code-research.md`, `research-flow.md` (OQL recipe) |
+| "keep researching until sure", multi-pass convergence | Loop | `loop-mode.md` |
+| MCP vs CLI, auth, install, command syntax | any | `octocode.md` |
+| decision brief, claim ledger, audit trail | Validate / Map | `long-research.md` |
 
 ## Scripts
 
-- `scripts/eval-research.mjs` — self-test and evaluate research answers when changing this skill.
+- `scripts/eval-research.mjs` — self-test and evaluate research answers when changing this skill; case definitions and pass criteria live in `evals/cases.json` and `evals/prompts.md`. Each `references/workflow-*.md` file names the eval case(s) that cover it — run the matching case after editing that workflow.
 
 ## Output
 

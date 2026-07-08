@@ -9,17 +9,11 @@ const PACKAGE_ROOT = resolve(TEST_DIR, '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
 
 const PACKAGE_SKILLS = [
-  'octocode-agent-communication',
   'octocode-awareness',
-  'octocode-reflection',
 ] as const;
 
-const REQUIRED_MIRROR_ROOTS = [
-  resolve(REPO_ROOT, 'skills'),
-] as const;
 const LOCAL_AGENT_MIRROR_ROOT = resolve(REPO_ROOT, '.agents/skills');
 const MIRROR_ROOTS = [
-  ...REQUIRED_MIRROR_ROOTS,
   ...(existsSync(LOCAL_AGENT_MIRROR_ROOT) ? [LOCAL_AGENT_MIRROR_ROOT] : []),
 ] as const;
 

@@ -8,7 +8,7 @@ The skill is especially useful when several agents work together in the same rep
 
 Coding agents are usually stateless between runs. One agent may edit a file while another is reading stale context. A later run may rediscover a lesson that was already learned. A handoff can be buried in chat, and a success claim can be made without a recorded check.
 
-`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the memory recall, lock, handoff, signal, verification, reflection, and learning layer around engineering work.
+`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the single CLI-oriented skill for memory recall, file locks, handoffs, signals, verification, reflection, hooks, repo context, and learning around engineering work.
 
 ## Capabilities
 
@@ -47,7 +47,7 @@ From there, the agent should make the awareness layer visible in plain language:
 - what verification is still owed,
 - what it saved for the next run.
 
-If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call the bundled scripts manually. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview.
+If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call `npx @octocodeai/octocode-awareness` or the bundled standalone scripts manually. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
 
 ## Storage And Recall
 

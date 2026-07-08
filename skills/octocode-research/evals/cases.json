@@ -309,6 +309,54 @@
           "pattern": "\\b(?:done|complete|fixed|refactored)\\b(?![\\s\\S]*\\bverif)"
         }
       ]
+    },
+    {
+      "id": "pr-local-review",
+      "mode": "Review",
+      "prompt": "Review my staged changes before I open a PR.",
+      "minScore": 0.8,
+      "minCitationCount": 2,
+      "required": [
+        { "name": "review mode", "pattern": "\\bMode:\\s*Review\\b|\\bReview mode\\b" },
+        { "name": "scope via git", "pattern": "\\bgit status\\b|\\bgit diff\\b|\\bstaged\\b" },
+        { "name": "risk classification", "pattern": "\\bHIGH\\b[\\s\\S]*\\bLOW\\b|\\brisk\\b[\\s\\S]*(HIGH|LOW)" },
+        { "name": "quick vs full sizing", "pattern": "(?=[\\s\\S]*\\bQuick\\b)(?=[\\s\\S]*\\bFull\\b)|\\bsurface scan\\b" },
+        { "name": "blast radius via LSP", "pattern": "\\bLSP\\b|\\bcallers?\\b|\\breferences?\\b|\\bcallees?\\b" },
+        { "name": "domain priority order", "pattern": "\\bSecurity\\b[\\s\\S]*\\bBug\\b|\\bFlow Impact\\b" },
+        { "name": "finding shape", "pattern": "\\bSeverity:\\s*(HIGH|MED|LOW)\\b" },
+        { "name": "confidence", "pattern": "\\bConfidence:\\s*(confirmed|likely|uncertain)\\b" },
+        { "name": "file:line location", "pattern": "[A-Za-z0-9_./-]+:\\d+" }
+      ],
+      "binaryQuestions": [
+        {
+          "id": "classifies-risk-before-depth",
+          "dimension": "method",
+          "question": "Does the answer classify per-file risk (HIGH vs LOW) and size the review (Quick vs Full) instead of always going deep?",
+          "passPattern": "(\\bHIGH\\b[\\s\\S]*\\bLOW\\b|\\brisk\\b[\\s\\S]*(HIGH|LOW))[\\s\\S]*((?=[\\s\\S]*\\bQuick\\b)(?=[\\s\\S]*\\bFull\\b)|\\bsurface scan\\b)",
+          "failureSignature": "mechanism:pr-review|cause:no-risk-sizing",
+          "suggestedLesson": "Classify changed files as HIGH (auth/data/API/logic) or LOW (docs/style/config) risk and size the review pass accordingly before deep-diving."
+        },
+        {
+          "id": "traces-blast-radius-by-shape",
+          "dimension": "evidence",
+          "question": "Does the answer trace blast radius with LSP callers/references/callees matching the change shape, not just a text search?",
+          "passPattern": "\\bLSP\\b[\\s\\S]*(callers?|references?|callees?)",
+          "failureSignature": "mechanism:pr-review|cause:text-search-only-impact",
+          "suggestedLesson": "Match the LSP operation to the change shape: callers for signature changes, callees for new functions, references for type/interface changes."
+        },
+        {
+          "id": "findings-have-full-shape",
+          "dimension": "reporting",
+          "question": "Does every finding include severity, confidence, file:line location, and a fix?",
+          "passPattern": "\\bSeverity:\\s*(HIGH|MED|LOW)\\b[\\s\\S]*\\bConfidence:\\s*(confirmed|likely|uncertain)\\b[\\s\\S]*[A-Za-z0-9_./-]+:\\d+",
+          "failureSignature": "mechanism:pr-review|cause:incomplete-finding-shape",
+          "suggestedLesson": "Every review finding needs severity, confidence, file:line location, evidence, impact, and a fix — not a bare description."
+        }
+      ],
+      "forbidden": [
+        { "name": "hash finding labels", "pattern": "\\[?#\\d+\\]?\\s*(title|finding|issue)" },
+        { "name": "scope creep beyond staged", "pattern": "\\breviewed the (?:entire|whole|full) repo\\b" }
+      ]
     }
   ]
 }

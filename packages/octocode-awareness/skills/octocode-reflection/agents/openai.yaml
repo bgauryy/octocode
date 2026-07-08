@@ -1,4 +1,0 @@
-interface:
-  display_name: "Octocode Reflection"
-  short_description: "Compatibility alias for Awareness reflection."
-  default_prompt: "This is a compatibility alias. Load octocode-awareness for post-task learning, memory hygiene, stale-task cleanup, and human-reviewed repo, skill, or harness improvement proposals."

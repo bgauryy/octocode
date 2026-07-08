@@ -13,7 +13,7 @@ import { insertHarnessLog } from './audit.js';
 import type { ReflectParams, ReflectResult, ReflectionOutcome } from './types.js';
 
 const VALID_OUTCOMES: ReadonlyArray<string> = ['worked', 'partial', 'failed'];
-const NEXT_MSG = 'memory_refine_get → repo fixes for the next agent · octocode-reflection mine-weakness/digest → recurring failures and harness previews. A human merges.';
+const NEXT_MSG = 'memory_refine_get → repo fixes for the next agent · octocode-awareness reflect mine-weakness/maintenance digest → recurring failures and harness previews. A human merges.';
 
 function normalizeScopePaths(paths: string[] = [], prefix: 'file' | 'dir', baseCwd?: string): string[] {
   // RFLX-1: Resolve relative paths against the caller-supplied cwd, not process.cwd().

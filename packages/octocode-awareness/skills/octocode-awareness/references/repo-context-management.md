@@ -22,24 +22,22 @@ Do not hand-edit generated projections when a DB update or regeneration is the r
 Prefer live DB reads when freshness matters:
 
 ```bash
-node scripts/awareness.mjs query all --workspace "$PWD"
-node scripts/awareness.mjs query gotchas --workspace "$PWD" --format table
-node scripts/awareness.mjs query files --workspace "$PWD" --format csv --out .octocode/awareness/csv/files.csv
+octocode-awareness query all --workspace "$PWD" --format json --limit 20 --compact
+octocode-awareness query gotchas --workspace "$PWD" --format table
+octocode-awareness query files --workspace "$PWD" --format csv --out .octocode/awareness/csv/files.csv
 ```
 
-Write a human HTML view:
+Write a human HTML view through the query command:
 
 ```bash
-node scripts/awareness.mjs view all --workspace "$PWD" --out .octocode/awareness/index.html
+octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
 ```
 
 Regenerate repo projections:
 
 ```bash
-node scripts/awareness.mjs repo inject --workspace "$PWD" --out .octocode --mode local
+octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 ```
-
-`awareness inject` is a short alias for `awareness repo inject`.
 
 ## Share Policy
 
@@ -56,4 +54,4 @@ In this monorepo, keep `.octocode/` ignored unless the user explicitly changes t
 - Read workspace `AGENTS.md` first, then `.octocode/AGENTS.md` if it exists.
 - Treat generated memories as leads. Verify current files and command output before relying on them.
 - Record durable new facts with `memory record` or `reflect record`, then regenerate projections if the repo context should reflect them.
-- Prefer `query <view>` for agent automation; prefer `view` for humans; prefer `repo inject` only when the repo projection should be created or refreshed.
+- Prefer `query <view>` for agent automation and ad hoc exports; use `query all --format html --out ...` for humans; prefer `repo inject` only when the repo projection should be created or refreshed.

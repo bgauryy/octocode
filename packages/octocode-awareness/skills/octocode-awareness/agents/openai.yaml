@@ -1,4 +1,4 @@
 interface:
   display_name: "Octocode Awareness"
-  short_description: "Shared workspace state, locks, signals, and verification."
-  default_prompt: "Use octocode-awareness before planning or editing in a shared workspace: recall relevant memories, inspect refinements/signals/status, claim files, coordinate conflicts, run declared verification, clear pending tasks, and leave handoffs visible. Use octocode-reflection separately for post-task learning, cleanup, or skill/harness improvement proposals."
+  short_description: "Single CLI-first skill for workspace memory, locks, signals, verification, reflection, hooks, and repo context."
+  default_prompt: "Use octocode-awareness before planning, editing, messaging, reflecting, finishing, or managing repo awareness in a shared workspace: run schema commands --compact, recall memories, inspect refinements/signals/status, claim files, coordinate conflicts, run declared verification, clear pending tasks, record durable lessons, and leave handoffs visible."

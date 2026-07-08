@@ -5,7 +5,7 @@ Shared awareness, memory, coordination, reflection, and hook runtime for AI codi
 This package owns the awareness system. It produces:
 
 - a zero npm runtime dependency TypeScript library,
-- the `awareness` CLI for every awareness operation,
+- the `octocode-awareness` CLI for every awareness operation,
 - the package-owned Agent Skill sources,
 - generated skill scripts for the primary `octocode-awareness` skill,
 - host hook installers and hook runners,
@@ -50,53 +50,48 @@ The exported API is defined in [`src/index.ts`](src/index.ts). It is used direct
 
 ### CLI
 
-The CLI is the canonical operational surface. Skills and hooks call it for operations; users and host integrations can call it directly. It takes flags, prints JSON, and hard-errors on unknown flags.
+The CLI is the canonical operational surface. Skills and hooks call it for operations; users and host integrations can call it directly. It takes flags, prints JSON, and hard-errors on unknown flags. The npm package stays scoped as `@octocodeai/octocode-awareness`, publishes publicly, and exposes the `octocode-awareness` bin.
 
 ```bash
-node dist/bin/awareness.js workspace status --workspace "$PWD"
-node dist/bin/awareness.js memory recall --query "current task" --smart
-node dist/bin/awareness.js lock acquire --agent-id agent-a --target-file src/foo.ts --rationale "edit foo"
-node dist/bin/awareness.js verify mark --agent-id agent-a --all-pending --message "tests passed"
-node dist/bin/awareness.js query gotchas --workspace "$PWD"
-node dist/bin/awareness.js repo inject --workspace "$PWD" --mode local
+npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact
+npx @octocodeai/octocode-awareness memory recall --query "current task" --smart --compact
+npx @octocodeai/octocode-awareness lock acquire --agent-id agent-a --target-file src/foo.ts --rationale "edit foo" --compact
+npx @octocodeai/octocode-awareness verify mark --agent-id agent-a --all-pending --message "tests passed" --compact
+npx @octocodeai/octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact
+npx @octocodeai/octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 ```
 
-Run `node dist/bin/awareness.js --help` or `node dist/bin/awareness.js <command> --help` for command-specific flags.
+Run `npx @octocodeai/octocode-awareness schema commands --compact` for the agent command map, then `npx @octocodeai/octocode-awareness <command> --help --compact` for token-light usage. Local package development can call `node dist/bin/awareness.js ...` after `yarn workspace @octocodeai/octocode-awareness build`.
 
 Main command groups:
 
-- `memory record|recall|forget|index`
+- `memory record|recall|forget`
 - `lock acquire|release|wait|prune`
 - `verify audit|mark`
 - `signal publish|list|reply|ack|resolve|prune`
 - `agent register|list`
 - `refinement set|get|delete`
 - `reflect record|mine-weakness|export-harness`
-- `query <view>`, `view`, `repo inject`
+- `query <view>`, `repo inject`
 - `hooks install|check|remove`
 - `hook run <event>`
-- `schema list|json-schema|example|validate`
+- `schema commands|list|json-schema|example|validate`
 - `workspace status`, `session capture`, `docs staleness`, `maintenance digest|init|self-test`
-
-Legacy flat names such as `get-memory`, `pre-flight-intent`, and `agent-signal` remain aliases. New docs should use the noun/verb form.
 
 Repo context commands are generated projections over the same SQLite store:
 
-- `query <view>` reads smart JSON/table/CSV/Markdown views for agents and scripts.
-- `view` writes a static HTML browser view, usually `.octocode/awareness/index.html`.
+- `query <view>` reads smart JSON/table/CSV/Markdown/HTML views for agents, scripts, and humans.
 - `repo inject` writes `.octocode/AGENTS.md`, `.octocode/MEMORY.md`, `.octocode/GOTCHAS.md`, `.octocode/LEARN.md`, CSV files under `.octocode/awareness/csv/`, and compact references under `.octocode/references/`.
 
 `repo inject` reports gitignore/share-policy warnings but never edits `.gitignore`; each repo owner decides whether `.octocode` stays local or becomes shared.
 
 ### Skills
 
-The package source of truth is [`skills/`](skills/):
+The package source of truth is [`skills/`](skills/). There is one operational skill:
 
-- `octocode-awareness` is the primary skill and owns operational scripts.
-- `octocode-reflection` is a compatibility stub that routes old reflection requests back to Awareness.
-- `octocode-agent-communication` is a compatibility stub that routes old messaging requests back to Awareness.
+- `octocode-awareness` owns the CLI-first workflow, operational scripts, hooks, memory, signals, reflection, verification, and repo context.
 
-Only `octocode-awareness/scripts/` contains generated runtime scripts. The stubs intentionally have no scripts and no operational reference docs.
+Old prompts that mention `octocode-reflection` or `octocode-agent-communication` should load `octocode-awareness`; those legacy names are no longer shipped as separate skill folders.
 
 Install the primary skill with the Octocode CLI:
 
@@ -106,12 +101,12 @@ npx octocode skill --name octocode-awareness
 
 ## Hooks
 
-Shell-hook hosts use the generated skill CLI:
+Shell-hook hosts can use the package CLI; standalone skill installs can use the generated skill script with the same commands:
 
 ```bash
-node skills/octocode-awareness/scripts/awareness.mjs hooks install --host codex --project-dir . --dry-run
-node skills/octocode-awareness/scripts/awareness.mjs hooks check --host codex --project-dir .
-node skills/octocode-awareness/scripts/awareness.mjs hooks remove --host codex --project-dir .
+npx @octocodeai/octocode-awareness hooks install --host codex --project-dir . --dry-run --compact
+npx @octocodeai/octocode-awareness hooks check --host codex --project-dir . --compact
+npx @octocodeai/octocode-awareness hooks remove --host codex --project-dir . --compact
 ```
 
 Supported hook install targets are Claude-style settings, Codex hooks, and Cursor hooks. `scripts/install-hooks.mjs` remains only as a compatibility wrapper.
@@ -130,19 +125,19 @@ Build does four things:
 
 1. Compiles the library and bins into `dist/`.
 2. Generates `awareness.mjs`, `schema.mjs`, `hook-runner.mjs`, and hook helpers into `packages/octocode-awareness/skills/octocode-awareness/scripts/`.
-3. Removes operational scripts from the compatibility stubs.
-4. Mirrors the package-owned skills into repo-root `skills/` and local `.agents/skills/`.
+3. Prunes retired legacy skill mirrors.
+4. Bundles package-owned skills into `dist/skills/` and mirrors local installs into `.agents/skills/`; repo-root `skills/` is not a mirror target.
 
-The Pi extension owns its own generated copy under `packages/octocode-pi-extension/skills/` through `yarn workspace @octocodeai/pi-extension build:skills`.
+The Pi extension owns its own generated copy of `octocode-awareness` under `packages/octocode-pi-extension/skills/` through `yarn workspace @octocodeai/pi-extension build:skills`.
 
-Edit package-owned skill sources only under `packages/octocode-awareness/skills/`. Root `skills/` and `.agents/skills/` are generated mirrors.
+Edit package-owned skill sources only under `packages/octocode-awareness/skills/`. Generated copies live in `dist/skills/` and `.agents/skills/`.
 
 ## Package Boundaries
 
 This package owns:
 
 - memory, lock, signal, refinement, verification, reflection, session, and hook runtime code,
-- the `awareness` CLI and schemas,
+- the `octocode-awareness` CLI and schemas,
 - awareness skill sources and generated primary skill scripts,
 - host hook install/check/remove logic,
 - the Pi awareness bridge API.

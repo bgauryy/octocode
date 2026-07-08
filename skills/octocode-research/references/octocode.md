@@ -85,7 +85,7 @@ Use `--json` for automation and `--compact` for low-token exploration. Follow re
 |--------|-----------|
 | Auth/token error | Run `npx octocode auth status --json`; ask for login only when protected data is required. |
 | Rate limit | Preserve the query, narrow scope, or retry later; mark provider evidence incomplete. |
-| Local or clone disabled | Use remote proof where possible, or ask to enable local/clone when AST, LSP, binary, or materialized proof is required. |
+| Local or clone disabled | `ENABLE_LOCAL` defaults `true`; if local/LSP tools fail, check `ENABLE_LOCAL` isn't `false` and `local.enabled` isn't `false` in `.octocoderc`. `ghCloneRepo` needs `ENABLE_CLONE=true` (defaults `false` on MCP, `true` on CLI). Use remote proof where possible while blocked. |
 | LSP unavailable/empty | Treat semantic proof as inconclusive; use AST/exact content, materialize project context, or check `npx octocode lsp-server status`. |
 | Partial/truncated output | Follow the advertised continuation before widening scope. |
 | Sanitizer/redaction warning | Do not reconstruct secrets; cite only non-sensitive evidence. |

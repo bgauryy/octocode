@@ -58,14 +58,14 @@ function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-// ─── init ─────────────────────────────────────────────────────────────────────
+// ─── maintenance init ─────────────────────────────────────────────────────────
 
-describe('init', () => {
+describe('maintenance init', () => {
   it('creates DB and returns initialized=true', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
-      const result = ok(db, ['init']);
+      const result = ok(db, ['maintenance', 'init']);
       expect(result['initialized']).toBe(true);
       expect(result['memory_count']).toBe(0);
       expect(existsSync(db)).toBe(true);
@@ -75,14 +75,14 @@ describe('init', () => {
   it('is idempotent — second init succeeds', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
-    try { ok(db, ['init']); ok(db, ['init']); }
+    try { ok(db, ['maintenance', 'init']); ok(db, ['maintenance', 'init']); }
     finally { rmSync(dir, { recursive: true }); }
   });
 });
 
-// ─── tell-memory ──────────────────────────────────────────────────────────────
+// ─── memory record ────────────────────────────────────────────────────────────
 
-describe('tell-memory', () => {
+describe('memory record', () => {
   let dir: string;
   let db: string;
   beforeAll(() => { dir = mktemp(); db = join(dir, 'test.sqlite3'); });
@@ -90,7 +90,7 @@ describe('tell-memory', () => {
 
   it('stores a memory and returns correct shape', () => {
     const result = ok(db, [
-      'tell-memory', '--agent-id', 'agent-a',
+      'memory', 'record', '--agent-id', 'agent-a',
       '--task-context', 'unit test context',
       '--observation', 'node:sqlite works for memory storage',
       '--importance', '7',
@@ -107,7 +107,7 @@ describe('tell-memory', () => {
 
   it('tags are stored and normalized', () => {
     const result = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
       '--importance', '5', '--tag', 'FOO', '--tag', 'bar-baz',
     ]);
     expect((result['memory'] as Record<string, unknown>)['tags']).toEqual(['foo', 'bar-baz']);
@@ -115,7 +115,7 @@ describe('tell-memory', () => {
 
   it('references are stored', () => {
     const result = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
       '--importance', '5',
       '--reference', 'https://example.com',
       '--reference', 'pr:owner/repo#123',
@@ -125,9 +125,9 @@ describe('tell-memory', () => {
     ]);
   });
 
-  it('stores --file as file provenance and recalls it with get-memory --file', () => {
+  it('stores --file as file provenance and recalls it with memory recall --file', () => {
     const result = ok(db, [
-      'tell-memory', '--agent-id', 'a',
+      'memory', 'record', '--agent-id', 'a',
       '--task-context', 'file provenance',
       '--observation', 'file provenance roundtrip marker',
       '--importance', '6',
@@ -140,7 +140,7 @@ describe('tell-memory', () => {
     expect(memory['references']).toContain(expectedRef);
 
     const recalled = ok(db, [
-      'get-memory',
+      'memory', 'recall',
       '--workspace', dir,
       '--file', 'src/roundtrip.ts',
       '--limit', '1',
@@ -151,7 +151,7 @@ describe('tell-memory', () => {
 
   it('unknown label defaults to OTHER', () => {
     const result = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
       '--importance', '5', '--label', 'NOTAREAL',
     ]);
     expect((result['memory'] as Record<string, unknown>)['label']).toBe('OTHER');
@@ -159,12 +159,12 @@ describe('tell-memory', () => {
 
   it('supersedes marks old memory SUPERSEDED', () => {
     const first = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'old',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'old',
       '--importance', '5',
     ]);
     const oldId = (first['memory'] as Record<string, unknown>)['memory_id'];
     const second = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'new',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'new',
       '--importance', '6', '--supersedes', oldId as string,
     ]);
     expect(second['superseded']).toContain(oldId);
@@ -172,22 +172,22 @@ describe('tell-memory', () => {
 
   it('importance out of range exits 1', () => {
     fail(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
       '--importance', '11',
     ]);
   });
 
   it('missing --task-context exits 1', () => {
-    fail(db, ['tell-memory', '--agent-id', 'a', '--observation', 'obs', '--importance', '5']);
+    fail(db, ['memory', 'record', '--agent-id', 'a', '--observation', 'obs', '--importance', '5']);
   });
 
   it('missing --observation exits 1', () => {
-    fail(db, ['tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--importance', '5']);
+    fail(db, ['memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--importance', '5']);
   });
 
   it('--compact produces single-line JSON', () => {
     const r = run(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
       '--importance', '5', '--compact',
     ]);
     expect(r.status).toBe(0);
@@ -199,35 +199,35 @@ describe('tell-memory', () => {
 
   it('duplicate tags are deduplicated', () => {
     const result = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'obs',
       '--importance', '5', '--tag', 'dup', '--tag', 'dup', '--tag', 'dup',
     ]);
     expect((result['memory'] as Record<string, unknown>)['tags']).toEqual(['dup']);
   });
 });
 
-// ─── get-memory ───────────────────────────────────────────────────────────────
+// ─── memory recall ────────────────────────────────────────────────────────────
 
-describe('get-memory', () => {
+describe('memory recall', () => {
   let dir: string;
   let db: string;
   beforeAll(() => {
     dir = mktemp();
     db = join(dir, 'test.sqlite3');
-    ok(db, ['tell-memory', '--agent-id', 'a', '--task-context', 'sqlite fts unit test', '--observation', 'node:sqlite FTS5 recall works', '--importance', '8', '--tag', 'sqlite', '--label', 'GOTCHA']);
-    ok(db, ['tell-memory', '--agent-id', 'a', '--task-context', 'docker networking', '--observation', 'bridge networks isolate traffic', '--importance', '3', '--tag', 'docker', '--label', 'DECISION']);
-    ok(db, ['tell-memory', '--agent-id', 'a', '--task-context', 'python gotcha', '--observation', 'mutable defaults in python cause bugs', '--importance', '9', '--tag', 'python', '--label', 'BUG']);
+    ok(db, ['memory', 'record', '--agent-id', 'a', '--task-context', 'sqlite fts unit test', '--observation', 'node:sqlite FTS5 recall works', '--importance', '8', '--tag', 'sqlite', '--label', 'GOTCHA']);
+    ok(db, ['memory', 'record', '--agent-id', 'a', '--task-context', 'docker networking', '--observation', 'bridge networks isolate traffic', '--importance', '3', '--tag', 'docker', '--label', 'DECISION']);
+    ok(db, ['memory', 'record', '--agent-id', 'a', '--task-context', 'python gotcha', '--observation', 'mutable defaults in python cause bugs', '--importance', '9', '--tag', 'python', '--label', 'BUG']);
   });
   afterAll(() => rmSync(dir, { recursive: true }));
 
   it('returns matching memories for a query', () => {
-    const result = ok(db, ['get-memory', '--query', 'sqlite recall', '--limit', '5']);
+    const result = ok(db, ['memory', 'recall', '--query', 'sqlite recall', '--limit', '5']);
     expect(result['count'] as number).toBeGreaterThanOrEqual(1);
     expect((result['memories'] as Record<string, unknown>[])[0]!['memory_id']).toMatch(/^mem_/);
   });
 
   it('min-importance filters correctly', () => {
-    const result = ok(db, ['get-memory', '--query', 'docker', '--min-importance', '5']);
+    const result = ok(db, ['memory', 'recall', '--query', 'docker', '--min-importance', '5']);
     const dockerMem = (result['memories'] as Record<string, unknown>[]).find(
       m => (m['task_context'] as string).includes('docker')
     );
@@ -235,35 +235,35 @@ describe('get-memory', () => {
   });
 
   it('returns empty list for unmatched query', () => {
-    const result = ok(db, ['get-memory', '--query', 'xyzzy_nonexistent_123abc', '--min-importance', '1']);
+    const result = ok(db, ['memory', 'recall', '--query', 'xyzzy_nonexistent_123abc', '--min-importance', '1']);
     expect(result['count']).toBe(0);
   });
 
   it('label filter works', () => {
-    const result = ok(db, ['get-memory', '--query', 'test', '--label', 'BUG', '--min-importance', '1']);
+    const result = ok(db, ['memory', 'recall', '--query', 'test', '--label', 'BUG', '--min-importance', '1']);
     const mems = result['memories'] as Record<string, unknown>[];
     expect(mems.every(m => m['label'] === 'BUG')).toBe(true);
   });
 
   it('tag filter works and stays advertised in help', () => {
-    const result = ok(db, ['get-memory', '--query', 'traffic', '--tag', 'docker', '--min-importance', '1']);
+    const result = ok(db, ['memory', 'recall', '--query', 'traffic', '--tag', 'docker', '--min-importance', '1']);
     const mems = result['memories'] as Record<string, unknown>[];
     expect(mems.length).toBeGreaterThanOrEqual(1);
     expect(mems.every(m => (m['tags'] as string[]).includes('docker'))).toBe(true);
 
-    const help = spawnSync(NODE, [SCRIPT, 'get-memory', '--help'], { encoding: 'utf8', timeout: 5000 });
+    const help = spawnSync(NODE, [SCRIPT, 'memory', 'recall', '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(help.status).toBe(0);
     expect(help.stdout).toContain('[--tag <t>]...');
     expect(help.stdout).toContain('[--semantic]');
   });
 
   it('rejects unsupported sort values instead of falling back silently', () => {
-    const result = fail(db, ['get-memory', '--query', 'test', '--sort', 'label']);
+    const result = fail(db, ['memory', 'recall', '--query', 'test', '--sort', 'label']);
     expect(result?.['error']).toContain('--sort must be one of: smart, score, importance, recent, accessed');
   });
 
   it('semantic flag returns lexical results with a warning', () => {
-    const result = ok(db, ['get-memory', '--query', 'sqlite', '--semantic']);
+    const result = ok(db, ['memory', 'recall', '--query', 'sqlite', '--semantic']);
     expect(result['mode']).toBeTruthy();
     expect(result['warnings']).toEqual(expect.arrayContaining([
       expect.stringContaining('semantic ranking is unavailable in the CLI'),
@@ -271,7 +271,7 @@ describe('get-memory', () => {
   });
 
   it('all memories have a numeric score', () => {
-    const result = ok(db, ['get-memory', '--query', 'sqlite', '--min-importance', '1', '--limit', '5']);
+    const result = ok(db, ['memory', 'recall', '--query', 'sqlite', '--min-importance', '1', '--limit', '5']);
     const mems = result['memories'] as Record<string, unknown>[];
     for (const m of mems) {
       expect(typeof m['score']).toBe('number');
@@ -280,26 +280,26 @@ describe('get-memory', () => {
   });
 
   it('compact mode returns single-line output', () => {
-    const r = run(db, ['get-memory', '--query', 'sqlite', '--compact']);
+    const r = run(db, ['memory', 'recall', '--query', 'sqlite', '--compact']);
     expect(r.status).toBe(0);
     expect(r.stdout.trim().split('\n')).toHaveLength(1);
   });
 
   it('smart=true returns same or more results', () => {
-    const base = ok(db, ['get-memory', '--query', 'sqlite recall', '--min-importance', '9', '--limit', '5']);
-    const smart = ok(db, ['get-memory', '--query', 'sqlite recall', '--min-importance', '9', '--smart', '--limit', '5']);
+    const base = ok(db, ['memory', 'recall', '--query', 'sqlite recall', '--min-importance', '9', '--limit', '5']);
+    const smart = ok(db, ['memory', 'recall', '--query', 'sqlite recall', '--min-importance', '9', '--smart', '--limit', '5']);
     expect(smart['count'] as number).toBeGreaterThanOrEqual(base['count'] as number);
   });
 
   it('bumps access_count on recall', () => {
     const w = ok(db, [
-      'tell-memory', '--agent-id', 'a', '--task-context', 'access bump test',
+      'memory', 'record', '--agent-id', 'a', '--task-context', 'access bump test',
       '--observation', 'uniqueaccesstoken77', '--importance', '6',
     ]);
     const memId = (w['memory'] as Record<string, unknown>)['memory_id'];
-    ok(db, ['get-memory', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
-    ok(db, ['get-memory', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
-    const result = ok(db, ['get-memory', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
+    ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
+    ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
+    const result = ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
     const found = (result['memories'] as Record<string, unknown>[]).find(m => m['memory_id'] === memId);
     if (found) expect(found['access_count'] as number).toBeGreaterThanOrEqual(2);
   });
@@ -314,7 +314,7 @@ describe('reflect', () => {
   afterAll(() => rmSync(dir, { recursive: true }));
 
   it('emits exactly ONE JSON object (no stdout monkey-patching)', () => {
-    const r = run(db, ['reflect', '--agent-id', 'a', '--task', 'some task', '--outcome', 'worked']);
+    const r = run(db, ['reflect', 'record', '--agent-id', 'a', '--task', 'some task', '--outcome', 'worked']);
     expect(r.status).toBe(0);
     // Must be parseable as a single document
     const parsed = JSON.parse(r.stdout.trim()) as Record<string, unknown>;
@@ -324,43 +324,43 @@ describe('reflect', () => {
 
   it('fix_repo creates a refinement', () => {
     const result = ok(db, [
-      'reflect', '--agent-id', 'a', '--task', 'fix task', '--outcome', 'partial',
+      'reflect', 'record', '--agent-id', 'a', '--task', 'fix task', '--outcome', 'partial',
       '--fix-repo', 'Wire the build step',
     ]);
     expect(result['repo_fix_refinement_id']).toMatch(/^ref_/);
   });
 
   it('without fix_repo, repo_fix_refinement_id is null', () => {
-    const result = ok(db, ['reflect', '--agent-id', 'a', '--task', 'simple', '--outcome', 'worked']);
+    const result = ok(db, ['reflect', 'record', '--agent-id', 'a', '--task', 'simple', '--outcome', 'worked']);
     expect(result['repo_fix_refinement_id']).toBeNull();
   });
 
   it('invalid outcome coerces to partial', () => {
-    const result = ok(db, ['reflect', '--agent-id', 'a', '--task', 'task', '--outcome', 'INVALID']);
+    const result = ok(db, ['reflect', 'record', '--agent-id', 'a', '--task', 'task', '--outcome', 'INVALID']);
     expect(result['outcome']).toBe('partial');
   });
 
   it('fix_harness sets harness_fix=true', () => {
     const result = ok(db, [
-      'reflect', '--agent-id', 'a', '--task', 'harness', '--outcome', 'partial',
+      'reflect', 'record', '--agent-id', 'a', '--task', 'harness', '--outcome', 'partial',
       '--fix-harness', 'improve retry logic',
     ]);
     expect(result['harness_fix']).toBe(true);
   });
 
   it('includes next field as non-empty string', () => {
-    const result = ok(db, ['reflect', '--agent-id', 'a', '--task', 't', '--outcome', 'worked']);
+    const result = ok(db, ['reflect', 'record', '--agent-id', 'a', '--task', 't', '--outcome', 'worked']);
     expect(typeof result['next']).toBe('string');
     expect((result['next'] as string).length).toBeGreaterThan(10);
   });
 
   it('missing --task exits 1', () => {
-    fail(db, ['reflect', '--agent-id', 'a', '--outcome', 'worked']);
+    fail(db, ['reflect', 'record', '--agent-id', 'a', '--outcome', 'worked']);
   });
 
   it('accepts judgment-note, duo, and eval-failure-json flags', () => {
     const result = ok(db, [
-      'reflect', '--agent-id', 'a',
+      'reflect', 'record', '--agent-id', 'a',
       '--task', 'cli reflection contract',
       '--outcome', 'failed',
       '--judgment-note', 'checked CLI output; one branch untested',
@@ -374,7 +374,7 @@ describe('reflect', () => {
 
   it('rejects invalid eval-failure-json', () => {
     const result = fail(db, [
-      'reflect', '--agent-id', 'a',
+      'reflect', 'record', '--agent-id', 'a',
       '--task', 'bad eval json',
       '--outcome', 'failed',
       '--eval-failure-json', '{"not":"an array"}',
@@ -383,9 +383,9 @@ describe('reflect', () => {
   });
 });
 
-// ─── refine-set / refine-get ──────────────────────────────────────────────────
+// ─── refinement set/get ───────────────────────────────────────────────────────
 
-describe('refine-set / refine-get', () => {
+describe('refinement set/get', () => {
   let dir: string;
   let db: string;
   beforeAll(() => { dir = mktemp(); db = join(dir, 'test.sqlite3'); });
@@ -393,7 +393,7 @@ describe('refine-set / refine-get', () => {
 
   it('stores refinement with correct shape', () => {
     const result = ok(db, [
-      'refine-set', '--agent-id', 'a',
+      'refinement', 'set', '--agent-id', 'a',
       '--reasoning', 'Something needs fixing',
       '--remember', 'Run yarn test after',
       '--quality', 'bad', '--state', 'open',
@@ -404,67 +404,67 @@ describe('refine-set / refine-get', () => {
     expect(r['state']).toBe('open');
   });
 
-  it('refine-get returns open refinements by default', () => {
+  it('refinement get returns open refinements by default', () => {
     ok(db, [
-      'refine-set', '--agent-id', 'a',
+      'refinement', 'set', '--agent-id', 'a',
       '--reasoning', 'Fix the DB schema query',
       '--remember', 'Add index before deploy',
       '--quality', 'bad', '--state', 'open',
     ]);
-    const result = ok(db, ['refine-get', '--state', 'open']);
+    const result = ok(db, ['refinement', 'get', '--state', 'open']);
     expect(result['count'] as number).toBeGreaterThanOrEqual(1);
     const refs = result['refinements'] as Record<string, unknown>[];
     expect(refs.every(r => r['state'] === 'open')).toBe(true);
   });
 
-  it('refine-get filters by state=done returns 0', () => {
-    const result = ok(db, ['refine-get', '--state', 'done']);
+  it('refinement get filters by state=done returns 0', () => {
+    const result = ok(db, ['refinement', 'get', '--state', 'done']);
     expect(result['count']).toBe(0);
   });
 
-  it('refine-get filters by quality', () => {
+  it('refinement get filters by quality', () => {
     ok(db, [
-      'refine-set', '--agent-id', 'a',
+      'refinement', 'set', '--agent-id', 'a',
       '--reasoning', 'Good handoff',
       '--remember', 'Good one',
       '--quality', 'good', '--state', 'open',
     ]);
     ok(db, [
-      'refine-set', '--agent-id', 'a',
+      'refinement', 'set', '--agent-id', 'a',
       '--reasoning', 'Bad handoff',
       '--remember', 'Bad one',
       '--quality', 'bad', '--state', 'open',
     ]);
-    const result = ok(db, ['refine-get', '--state', 'open', '--quality', 'bad']);
+    const result = ok(db, ['refinement', 'get', '--state', 'open', '--quality', 'bad']);
     const refs = result['refinements'] as Record<string, unknown>[];
     expect(refs.length).toBeGreaterThanOrEqual(1);
     expect(refs.every(r => r['quality'] === 'bad')).toBe(true);
   });
 
-  it('refine-get hides handoffs by default and includes them on opt-in', () => {
+  it('refinement get hides handoffs by default and includes them on opt-in', () => {
     ok(db, [
-      'refine-set', '--agent-id', 'a',
+      'refinement', 'set', '--agent-id', 'a',
       '--reasoning', 'Session handoff',
       '--remember', 'Review session handoff for agent-a',
       '--quality', 'handoff', '--state', 'open',
     ]);
-    const defaultResult = ok(db, ['refine-get', '--state', 'open']);
+    const defaultResult = ok(db, ['refinement', 'get', '--state', 'open']);
     const defaultRefs = defaultResult['refinements'] as Record<string, unknown>[];
     expect(defaultRefs.every(r => r['quality'] !== 'handoff')).toBe(true);
 
-    const handoffResult = ok(db, ['refine-get', '--state', 'open', '--include-handoffs']);
+    const handoffResult = ok(db, ['refinement', 'get', '--state', 'open', '--include-handoffs']);
     const handoffRefs = handoffResult['refinements'] as Record<string, unknown>[];
     expect(handoffRefs.some(r => r['quality'] === 'handoff')).toBe(true);
   });
 
   it('missing --reasoning exits 1', () => {
-    fail(db, ['refine-set', '--agent-id', 'a', '--remember', 'do X']);
+    fail(db, ['refinement', 'set', '--agent-id', 'a', '--remember', 'do X']);
   });
 });
 
-// ─── pre-flight-intent / release-file-lock ───────────────────────────────────
+// ─── pre-flight-intentrelease-file-lock ───────────────────────────────────
 
-describe('pre-flight-intent', () => {
+describe('lock acquire', () => {
   let dir: string;
   let db: string;
   let targetFile: string;
@@ -478,7 +478,7 @@ describe('pre-flight-intent', () => {
 
   it('acquires lock and returns task shape', () => {
     const result = ok(db, [
-      'pre-flight-intent', '--agent-id', 'agent-a', '--workspace', dir,
+      'lock', 'acquire', '--agent-id', 'agent-a', '--workspace', dir,
       '--rationale', 'test write', '--test-plan', 'verify afterwards',
       '--target-file', targetFile,
     ]);
@@ -491,7 +491,7 @@ describe('pre-flight-intent', () => {
   it('second agent blocked with exit 2', () => {
     // agent-a still holds from above test
     const r = run(db, [
-      'pre-flight-intent', '--agent-id', 'agent-b', '--workspace', dir,
+      'lock', 'acquire', '--agent-id', 'agent-b', '--workspace', dir,
       '--target-file', targetFile,
     ]);
     expect(r.status).toBe(2);
@@ -500,7 +500,7 @@ describe('pre-flight-intent', () => {
 
   it('conflict details include file_path and agent_id', () => {
     const r = run(db, [
-      'pre-flight-intent', '--agent-id', 'agent-c', '--target-file', targetFile,
+      'lock', 'acquire', '--agent-id', 'agent-c', '--target-file', targetFile,
     ]);
     const conflicts = r.parsed?.['conflicts'] as Record<string, unknown>[] | undefined;
     expect(conflicts?.[0]?.['file_path']).toBe(targetFile);
@@ -509,7 +509,7 @@ describe('pre-flight-intent', () => {
 
   it('rejects ttl-minutes below schema minimum', () => {
     const r = run(db, [
-      'pre-flight-intent', '--agent-id', 'agent-z', '--target-file', targetFile, '--ttl-minutes', '0',
+      'lock', 'acquire', '--agent-id', 'agent-z', '--target-file', targetFile, '--ttl-minutes', '0',
     ]);
     expect(r.status).toBe(1);
     expect(r.parsed?.['error']).toContain('--ttl-minutes must be >= 1');
@@ -519,7 +519,7 @@ describe('pre-flight-intent', () => {
     const plannedFile = join(dir, 'planned.txt');
     writeFileSync(plannedFile, 'planned');
     const result = ok(db, [
-      'pre-flight-intent', '--agent-id', 'agent-plan', '--workspace', dir,
+      'lock', 'acquire', '--agent-id', 'agent-plan', '--workspace', dir,
       '--rationale', 'planned edit', '--test-plan', 'planned test',
       '--plan-doc-ref', 'docs/plans/awareness.md',
       '--target-file', plannedFile,
@@ -529,12 +529,12 @@ describe('pre-flight-intent', () => {
     expect(task['plan_doc_ref']).toBe('docs/plans/awareness.md');
 
     ok(db, [
-      'release-file-lock', '--agent-id', 'agent-plan',
+      'lock', 'release', '--agent-id', 'agent-plan',
       '--task-id', task['task_id'] as string,
       '--status', 'PENDING',
     ]);
     const auditResult = run(db, [
-      'audit-unverified', '--agent-id', 'agent-plan', '--workspace', dir,
+      'verify', 'audit', '--agent-id', 'agent-plan', '--workspace', dir,
     ]);
     expect(auditResult.status).toBe(1);
     expect((auditResult.parsed?.['unverified'] as Record<string, unknown>[])[0]?.['plan_doc_ref']).toBe('docs/plans/awareness.md');
@@ -542,14 +542,14 @@ describe('pre-flight-intent', () => {
 
   it('rejects ttl-minutes above the runtime cap', () => {
     const r = run(db, [
-      'pre-flight-intent', '--agent-id', 'agent-long', '--target-file', targetFile, '--ttl-minutes', '11',
+      'lock', 'acquire', '--agent-id', 'agent-long', '--target-file', targetFile, '--ttl-minutes', '11',
     ]);
     expect(r.status).toBe(1);
     expect(r.parsed?.['error']).toContain('--ttl-minutes must be <= 10');
   });
 });
 
-describe('release-file-lock', () => {
+describe('lock release', () => {
   let dir: string;
   let db: string;
   let targetFile: string;
@@ -563,12 +563,12 @@ describe('release-file-lock', () => {
 
   it('releases by task_id, then allows re-claim', () => {
     const claim = ok(db, [
-      'pre-flight-intent', '--agent-id', 'agent-a', '--target-file', targetFile,
+      'lock', 'acquire', '--agent-id', 'agent-a', '--target-file', targetFile,
     ]);
     const taskId = (claim['task'] as Record<string, unknown>)['task_id'] as string;
 
     const releaseAttempt = run(db, [
-      'release-file-lock', '--agent-id', 'agent-a', '--task-id', taskId, '--status', 'SUCCESS',
+      'lock', 'release', '--agent-id', 'agent-a', '--task-id', taskId, '--status', 'SUCCESS',
     ]);
     expect(releaseAttempt.status).toBe(2);
     const rel = releaseAttempt.parsed!;
@@ -579,23 +579,23 @@ describe('release-file-lock', () => {
     expect(rel['unverifiedConclusion']).toContain('SUCCESS requested without --verified');
 
     // Should now be claimable by agent-b
-    const b = ok(db, ['pre-flight-intent', '--agent-id', 'agent-b', '--target-file', targetFile]);
+    const b = ok(db, ['lock', 'acquire', '--agent-id', 'agent-b', '--target-file', targetFile]);
     expect((b['task'] as Record<string, unknown>)['agent_id']).toBe('agent-b');
   });
 
   it('PENDING and FAILED statuses accepted', () => {
     // Release agent-b's lock from the previous test first
-    ok(db, ['release-file-lock', '--agent-id', 'agent-b', '--target-file', targetFile, '--status', 'PENDING']);
-    const claim = ok(db, ['pre-flight-intent', '--agent-id', 'agent-x', '--target-file', targetFile]);
+    ok(db, ['lock', 'release', '--agent-id', 'agent-b', '--target-file', targetFile, '--status', 'PENDING']);
+    const claim = ok(db, ['lock', 'acquire', '--agent-id', 'agent-x', '--target-file', targetFile]);
     const taskId = (claim['task'] as Record<string, unknown>)['task_id'] as string;
     const rel = ok(db, [
-      'release-file-lock', '--agent-id', 'agent-x', '--task-id', taskId, '--status', 'PENDING',
+      'lock', 'release', '--agent-id', 'agent-x', '--task-id', taskId, '--status', 'PENDING',
     ]);
     expect(rel['status']).toBe('PENDING');
   });
 
   it('no --task-id and no --target-file exits 1', () => {
-    fail(db, ['release-file-lock', '--agent-id', 'a']);
+    fail(db, ['lock', 'release', '--agent-id', 'a']);
   });
 });
 
@@ -644,44 +644,44 @@ describe('verify', () => {
   });
 });
 
-// ─── status ───────────────────────────────────────────────────────────────────
+// ─── workspace status ─────────────────────────────────────────────────────────
 
-describe('status', () => {
+describe('workspace status', () => {
   let dir: string;
   let db: string;
   beforeAll(() => { dir = mktemp(); db = join(dir, 'test.sqlite3'); });
   afterAll(() => rmSync(dir, { recursive: true }));
 
   it('returns correct memory_count', () => {
-    ok(db, ['tell-memory', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'o', '--importance', '5']);
-    const result = ok(db, ['status']);
+    ok(db, ['memory', 'record', '--agent-id', 'a', '--task-context', 'ctx', '--observation', 'o', '--importance', '5']);
+    const result = ok(db, ['workspace', 'status']);
     expect(result['memory_count'] as number).toBeGreaterThanOrEqual(1);
   });
 
   it('fts_enabled=true when FTS5 available', () => {
-    const result = ok(db, ['status']);
+    const result = ok(db, ['workspace', 'status']);
     expect(result['fts_enabled']).toBe(true);
   });
 
   it('memory_states contains ACTIVE count', () => {
-    const result = ok(db, ['status']);
+    const result = ok(db, ['workspace', 'status']);
     expect((result['memory_states'] as Record<string, number>)['ACTIVE']).toBeGreaterThan(0);
   });
 
   it('locks array is present', () => {
-    const result = ok(db, ['status']);
+    const result = ok(db, ['workspace', 'status']);
     expect(Array.isArray(result['locks'])).toBe(true);
   });
 
   it('memory_labels is present', () => {
-    const result = ok(db, ['status']);
+    const result = ok(db, ['workspace', 'status']);
     expect(typeof result['memory_labels']).toBe('object');
   });
 });
 
-// ─── agent-registry ───────────────────────────────────────────────────────────
+// ─── agent registry ───────────────────────────────────────────────────────────
 
-describe('agent-registry', () => {
+describe('agent registry', () => {
   let dir: string;
   let db: string;
   beforeAll(() => { dir = mktemp(); db = join(dir, 'test.sqlite3'); });
@@ -689,7 +689,7 @@ describe('agent-registry', () => {
 
   it('registers and lists known agents from the same DB', () => {
     const registered = ok(db, [
-      'agent-registry', '--action', 'register',
+      'agent', 'register',
       '--agent-id', 'codex-a',
       '--agent-name', 'Codex A',
       '--workspace', dir,
@@ -700,7 +700,7 @@ describe('agent-registry', () => {
     expect((registered['agent'] as Record<string, unknown>)['agent_name']).toBe('Codex A');
 
     const listed = ok(db, [
-      'agent-registry', '--action', 'list',
+      'agent', 'list',
       '--workspace', dir,
       '--artifact', 'packages/octocode-awareness',
     ]);
@@ -712,17 +712,17 @@ describe('agent-registry', () => {
   });
 
   it('requires agent id when registering', () => {
-    const result = fail(db, ['agent-registry', '--action', 'register']);
+    const result = fail(db, ['agent', 'register']);
     expect(result?.['error']).toContain('--agent-id is required');
   });
 });
 
-// ─── self-test ────────────────────────────────────────────────────────────────
+// ─── maintenance self-test ────────────────────────────────────────────────────
 
-describe('self-test', () => {
+describe('maintenance self-test', () => {
   it('all checks pass (uses in-memory DB)', () => {
-    // self-test ignores --db flag, always uses :memory:
-    const r = spawnSync(NODE, [SCRIPT, 'self-test'], { encoding: 'utf8', timeout: 10000 });
+    // maintenance self-test ignores --db flag, always uses :memory:
+    const r = spawnSync(NODE, [SCRIPT, 'maintenance', 'self-test'], { encoding: 'utf8', timeout: 10000 });
     expect(r.status).toBe(0);
     const parsed = JSON.parse(r.stdout) as Record<string, unknown>;
     expect(parsed['ok']).toBe(true);
@@ -737,10 +737,36 @@ describe('self-test', () => {
 // ─── CLI ─────────────────────────────────────────────────────────────────────
 
 describe('CLI', () => {
+  it('package metadata exposes the scoped public npx binary', () => {
+    const packageJsonPath = resolve(dirname(fileURLToPath(import.meta.url)), '../package.json');
+    const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
+      name?: string;
+      bin?: Record<string, string>;
+      publishConfig?: Record<string, string>;
+    };
+    expect(pkg.name).toBe('@octocodeai/octocode-awareness');
+    expect(pkg.publishConfig?.access).toBe('public');
+    expect(pkg.bin?.['octocode-awareness']).toBe('./dist/bin/awareness.js');
+    expect(pkg.bin ?? {}).not.toHaveProperty('awareness');
+  });
+
   it('--help exits 0', () => {
     const r = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain('tell-memory');
+    expect(r.stdout).toContain('memory record');
+    expect(r.stdout).toContain('npx @octocodeai/octocode-awareness <command>');
+    expect(r.stdout).toContain('octocode-awareness schema commands --compact');
+    expect(r.stdout).not.toContain('tell-memory');
+    expect(r.stdout).not.toContain('get-memory');
+  });
+
+  it('--help --compact returns a short agent guide', () => {
+    const r = spawnSync(NODE, [SCRIPT, '--help', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('canonical noun/verb CLI');
+    expect(r.stdout).toContain('npx @octocodeai/octocode-awareness <command>');
+    expect(r.stdout).toContain('schema commands --compact');
+    expect(r.stdout.split('\n').filter(Boolean).length).toBeLessThanOrEqual(8);
   });
 
   it('unknown command exits 1 with JSON error', () => {
@@ -757,7 +783,7 @@ describe('CLI', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
-      const r = spawnSync(NODE, [SCRIPT, '--db', db, 'init'], {
+      const r = spawnSync(NODE, [SCRIPT, '--db', db, 'maintenance', 'init'], {
         encoding: 'utf8', timeout: 5000,
         env: { ...process.env, OCTOCODE_AWARENESS_COMPACT: '1' },
       });
@@ -770,14 +796,28 @@ describe('CLI', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
-      const r = spawnSync(NODE, [SCRIPT, 'init', '--db', db], { encoding: 'utf8', timeout: 5000 });
+      const r = spawnSync(NODE, [SCRIPT, 'maintenance', 'init', '--db', db], { encoding: 'utf8', timeout: 5000 });
       expect(r.status).toBe(0);
       const parsed = JSON.parse(r.stdout) as Record<string, unknown>;
       expect(parsed['initialized']).toBe(true);
     } finally { rmSync(dir, { recursive: true }); }
   });
 
-  it('schema list maps to accepted CLI commands or explicit aliases', () => {
+  it('removed flat commands fail with canonical replacements', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const removedMemory = run(db, ['get-memory', '--query', 'sqlite']);
+      expect(removedMemory.status).toBe(1);
+      expect(removedMemory.parsed?.['replacement']).toBe('memory recall');
+
+      const removedView = run(db, ['view', 'all']);
+      expect(removedView.status).toBe(1);
+      expect(String(removedView.parsed?.['replacement'])).toContain('query all --format html');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('schema list maps to canonical CLI commands', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
@@ -785,26 +825,33 @@ describe('CLI', () => {
     const listed = JSON.parse(schema.stdout) as string[];
     const help = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(help.status).toBe(0);
-    const aliases: Record<string, string> = {
-      tell_memory: 'tell-memory',
-      get_memory: 'get-memory',
-      memory_index: 'memory-index',
-      pre_flight_intent: 'pre-flight-intent',
-      wait_for_lock: 'wait-for-lock',
-      prune_stale_locks: 'prune-stale-locks',
-      release_file_lock: 'release-file-lock',
-      forget_memory: 'forget',
-      refinement: 'refine-set',
-      refine_query: 'refine-get',
-      refine_delete: 'refine-delete',
-      notify_query: 'notify-get',
-      notify_resolve: 'notify-resolve',
-      notify_prune: 'notify-prune',
-      workspace_status: 'workspace-status',
-      export_harness: 'export-harness',
+    const commands: Record<string, string> = {
+      tell_memory: 'memory record',
+      get_memory: 'memory recall',
+      pre_flight_intent: 'lock acquire',
+      wait_for_lock: 'lock wait',
+      prune_stale_locks: 'lock prune',
+      release_file_lock: 'lock release',
+      audit_unverified: 'verify audit',
+      verify: 'verify mark',
+      forget_memory: 'memory forget',
+      refinement: 'refinement set',
+      refine_query: 'refinement get',
+      refine_delete: 'refinement delete',
+      agent_registry: 'agent register',
+      agent_signal: 'signal publish',
+      signal_prune: 'signal prune',
+      workspace_status: 'workspace status',
+      export_harness: 'reflect export-harness',
+      session_capture: 'session capture',
+      mine_weakness: 'reflect mine-weakness',
+      doc_staleness: 'docs staleness',
+      digest: 'maintenance digest',
+      reflect: 'reflect record',
+      query: 'query',
       repo_inject: 'repo inject',
     };
-    const unsupported = ['stats', 'embed_index', 'harness_apply', 'memory_export', 'memory_import'];
+    const unsupported = ['stats', 'embed_index', 'harness_apply', 'memory_export', 'memory_import', 'memory_index', 'view', 'notify', 'notify_query', 'notify_resolve', 'notify_prune', 'status'];
     expect(listed).not.toEqual(expect.arrayContaining(unsupported));
     expect(listed).toEqual(expect.arrayContaining([
       'session_capture',
@@ -816,8 +863,47 @@ describe('CLI', () => {
       'audit_unverified',
     ]));
     for (const key of listed) {
-      const command = aliases[key] ?? key.replaceAll('_', '-');
+      const command = commands[key];
+      expect(command, `${key} should have canonical command mapping`).toBeTruthy();
       expect(help.stdout, `${key} should map to CLI command ${command}`).toContain(command);
+    }
+  });
+
+  it('schema commands is the compact command-to-schema map for agents', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim().split('\n')).toHaveLength(1);
+    const parsed = JSON.parse(result.stdout) as {
+      ok: boolean;
+      commands: Array<{ command: string; schema: string | null; use: string; example: string }>;
+    };
+    expect(parsed.ok).toBe(true);
+    expect(parsed.commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ command: 'workspace status', schema: 'workspace_status' }),
+      expect.objectContaining({ command: 'lock acquire', schema: 'pre_flight_intent' }),
+      expect.objectContaining({ command: 'schema commands', schema: null }),
+    ]));
+    for (const row of parsed.commands) {
+      expect(row.command).not.toMatch(/tell-memory|get-memory|notify|agent-registry|pre-flight/);
+      expect(row.use.length).toBeGreaterThan(8);
+      expect(row.example).toContain('octocode-awareness ');
+    }
+  });
+
+  it('every command in schema commands has focused help or is schema/hook utility', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    const result = spawnSync(NODE, [schemaScript, 'commands', '--compact'], { encoding: 'utf8', timeout: 5000 });
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as { commands: Array<{ command: string }> };
+    const utilityPrefixes = ['schema ', 'hook run', 'hooks '];
+    for (const row of parsed.commands) {
+      if (utilityPrefixes.some((prefix) => row.command.startsWith(prefix))) continue;
+      const help = spawnSync(NODE, [SCRIPT, ...row.command.split(' '), '--help'], { encoding: 'utf8', timeout: 5000 });
+      expect(help.status, `${row.command} --help failed`).toBe(0);
+      expect(help.stdout, `${row.command} help should mention its command`).toContain(row.command.split(' ')[0]);
+      expect(help.stdout, `${row.command} help should not fall back to top-level help`).not.toContain('agent map: octocode-awareness schema commands --compact');
+      expect(help.stdout, `${row.command} help should show schema or example`).toMatch(/schema:|example:/);
     }
   });
 
@@ -861,7 +947,7 @@ describe('CLI', () => {
     expect(schema.stdout).toContain('"OVERRIDE"');
   });
 
-  it('schema exposes only implemented get-memory recall options', () => {
+  it('schema exposes only implemented memory recall options', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
     expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'get_memory'], { encoding: 'utf8', timeout: 5000 });
@@ -911,7 +997,7 @@ describe('CLI', () => {
     expect(refinementSchema.properties['quality']?.['enum']).toEqual(['good', 'bad', 'handoff']);
   });
 
-  it('supports canonical noun/verb CLI aliases', () => {
+  it('supports canonical noun/verb CLI commands', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
@@ -919,7 +1005,7 @@ describe('CLI', () => {
       const record = ok(db, [
         'memory', 'record',
         '--agent-id', 'agent-a',
-        '--task-context', 'canonical alias',
+        '--task-context', 'canonical command',
         '--observation', 'noun verb memory works',
         '--importance', '6',
       ]);
@@ -931,35 +1017,36 @@ describe('CLI', () => {
   });
 });
 
-// ─── memory-index ─────────────────────────────────────────────────────────────
+// ─── query markdown ───────────────────────────────────────────────────────────
 
-describe('memory-index', () => {
+describe('query memories markdown', () => {
   it('includes provenance references and failure signatures', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
       ok(db, [
-        'tell-memory', '--agent-id', 'a',
+        'memory', 'record', '--agent-id', 'a',
         '--task-context', 'indexed provenance',
         '--observation', 'memory index should preserve source context',
         '--importance', '8',
         '--label', 'GOTCHA',
+        '--workspace', dir,
         '--tag', 'index',
         '--reference', 'file:packages/octocode-awareness/src/memory.ts',
         '--reference', 'pr:owner/repo#123',
         '--failure-signature', 'mechanism:index|cause:lost-provenance',
       ]);
 
-      const result = run(db, ['memory-index', '--stdout']);
+      const result = run(db, ['query', 'memories', '--workspace', dir, '--format', 'markdown']);
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain('*Tags: index*');
-      expect(result.stdout).toContain('*References: file:packages/octocode-awareness/src/memory.ts, pr:owner/repo#123*');
-      expect(result.stdout).toContain('*Failure: mechanism:index|cause:lost-provenance*');
+      expect(result.stdout).toContain('indexed provenance');
+      expect(result.stdout).toContain('memory index should preserve source context');
+      expect(result.stdout).toContain('mechanism:index|cause:lost-provenance');
     } finally { rmSync(dir, { recursive: true }); }
   });
 });
 
-// ─── repo context query/view/inject ──────────────────────────────────────────
+// ─── repo context query/inject ────────────────────────────────────────────────
 
 describe('repo context projections', () => {
   it('queries awareness views as JSON and CSV', () => {
@@ -1001,11 +1088,11 @@ describe('repo context projections', () => {
         '--agent-id', 'agent-a',
         '--workspace', dir,
         '--task-context', 'html awareness',
-        '--observation', 'view command writes browser-readable awareness',
+        '--observation', 'query html output writes browser-readable awareness',
         '--importance', '6',
       ]);
 
-      const result = ok(db, ['view', 'all', '--workspace', dir, '--out', out]);
+      const result = ok(db, ['query', 'all', '--workspace', dir, '--format', 'html', '--out', out]);
       expect(result['path']).toBe(out);
       expect(readFileSync(out, 'utf8')).toContain('Octocode Awareness: all');
     } finally { rmSync(dir, { recursive: true }); }
@@ -1016,7 +1103,7 @@ describe('repo context projections', () => {
     const db = join(dir, 'test.sqlite3');
     try {
       writeFileSync(join(dir, '.gitignore'), '.octocode\n', 'utf8');
-      spawnSync('git', ['init'], { cwd: dir, encoding: 'utf8', timeout: 5000 });
+      spawnSync('git', ['init', '-q'], { cwd: dir, encoding: 'utf8', timeout: 5000 });
       ok(db, [
         'memory', 'record',
         '--agent-id', 'agent-a',
@@ -1053,40 +1140,40 @@ describe('digest', () => {
     const db = join(dir, 'test.sqlite3');
     try {
       const oldMemory = ok(db, [
-        'tell-memory', '--agent-id', 'a',
+        'memory', 'record', '--agent-id', 'a',
         '--task-context', 'old superseded',
         '--observation', 'old superseded observation',
         '--importance', '3',
       ]);
       const freshMemory = ok(db, [
-        'tell-memory', '--agent-id', 'a',
+        'memory', 'record', '--agent-id', 'a',
         '--task-context', 'fresh superseded',
         '--observation', 'fresh superseded observation',
         '--importance', '3',
       ]);
       const oldHandoff = ok(db, [
-        'refine-set', '--agent-id', 'a',
+        'refinement', 'set', '--agent-id', 'a',
         '--reasoning', 'old handoff',
         '--remember', 'old handoff',
         '--quality', 'handoff',
         '--state', 'open',
       ]);
       const freshHandoff = ok(db, [
-        'refine-set', '--agent-id', 'a',
+        'refinement', 'set', '--agent-id', 'a',
         '--reasoning', 'fresh handoff',
         '--remember', 'fresh handoff',
         '--quality', 'handoff',
         '--state', 'open',
       ]);
       const oldDone = ok(db, [
-        'refine-set', '--agent-id', 'a',
+        'refinement', 'set', '--agent-id', 'a',
         '--reasoning', 'old done',
         '--remember', 'old done',
         '--quality', 'good',
         '--state', 'done',
       ]);
       const freshDone = ok(db, [
-        'refine-set', '--agent-id', 'a',
+        'refinement', 'set', '--agent-id', 'a',
         '--reasoning', 'fresh done',
         '--remember', 'fresh done',
         '--quality', 'bad',
@@ -1111,13 +1198,12 @@ describe('digest', () => {
         conn.close();
       }
 
-      const defaults = ok(db, ['digest', '--dry-run']);
+      const defaults = ok(db, ['maintenance', 'digest', '--dry-run']);
       expect(defaults['would_prune_old']).toBe(0);
       expect(defaults['would_prune_refinements']).toBe(0);
 
       const result = ok(db, [
-        'digest',
-        '--dry-run',
+        'maintenance', 'digest', '--dry-run',
         '--retention-days', '3',
         '--refinement-handoff-retention-days', '1',
         '--refinement-done-retention-days', '2',
@@ -1134,7 +1220,7 @@ describe('digest', () => {
     const report = join(dir, 'MEMORY.md');
     try {
       ok(db, [
-        'tell-memory', '--agent-id', 'a',
+        'memory', 'record', '--agent-id', 'a',
         '--task-context', 'digest provenance export',
         '--observation', 'digest export should keep memory references',
         '--importance', '8',
@@ -1142,7 +1228,7 @@ describe('digest', () => {
         '--workspace', dir,
       ]);
 
-      const result = ok(db, ['digest', '--workspace', dir, '--export-doc', report]);
+      const result = ok(db, ['maintenance', 'digest', '--workspace', dir, '--export-doc', report]);
       expect(result['doc_path']).toBe(report);
       expect(readFileSync(report, 'utf8')).toContain('**References:** file:/tmp/digest-provenance.ts');
     } finally { rmSync(dir, { recursive: true }); }
@@ -1152,32 +1238,32 @@ describe('digest', () => {
 // ─── edge cases ───────────────────────────────────────────────────────────────
 
 describe('edge cases', () => {
-  it('WAL mode allows 3 rapid sequential tell-memory calls', () => {
+  it('WAL mode allows 3 rapid sequential memory record calls', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
       for (let i = 0; i < 3; i++) {
         ok(db, [
-          'tell-memory', '--agent-id', `a${i}`,
+          'memory', 'record', '--agent-id', `a${i}`,
           '--task-context', `ctx${i}`, '--observation', `obs${i}`,
           '--importance', '5',
         ]);
       }
-      const result = ok(db, ['status']);
+      const result = ok(db, ['workspace', 'status']);
       expect(result['memory_count']).toBe(3);
     } finally { rmSync(dir, { recursive: true }); }
   });
 });
 
-// ─── agent-signal ────────────────────────────────────────────────────────────
+// ─── signal ──────────────────────────────────────────────────────────────────
 
-describe('agent-signal', () => {
+describe('signal', () => {
   it('preserves publish kind while still allowing kind filters', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
       ok(db, [
-        'agent-signal', '--action', 'publish',
+        'signal', 'publish',
         '--agent-id', 'agent-a',
         '--to-agent', 'agent-b',
         '--kind', 'question',
@@ -1186,7 +1272,7 @@ describe('agent-signal', () => {
       ]);
 
       const listed = ok(db, [
-        'agent-signal', '--action', 'list',
+        'signal', 'list',
         '--agent-id', 'agent-b',
         '--kind', 'question',
         '--workspace', dir,
@@ -1202,7 +1288,7 @@ describe('agent-signal', () => {
     const db = join(dir, 'test.sqlite3');
     try {
       const published = ok(db, [
-        'agent-signal', '--action', 'publish',
+        'signal', 'publish',
         '--agent-id', 'agent-a',
         '--to-agent', 'agent-b',
         '--kind', 'question',
@@ -1213,7 +1299,7 @@ describe('agent-signal', () => {
       const threadId = published['thread_id'] as string;
 
       const reply = ok(db, [
-        'agent-signal', '--action', 'reply',
+        'signal', 'reply',
         '--agent-id', 'agent-b',
         '--to-agent', 'agent-a',
         '--subject', 'Answer',
@@ -1226,7 +1312,7 @@ describe('agent-signal', () => {
       expect(replyId).not.toBe(parentId);
 
       const acked = ok(db, [
-        'agent-signal', '--action', 'ack',
+        'signal', 'ack',
         '--agent-id', 'agent-a',
         '--signal-id', replyId,
         '--workspace', dir,
@@ -1235,7 +1321,7 @@ describe('agent-signal', () => {
       expect(acked['signal_ids']).toEqual([replyId]);
 
       const resolved = ok(db, [
-        'agent-signal', '--action', 'resolve',
+        'signal', 'resolve',
         '--agent-id', 'agent-a',
         '--thread-id', threadId,
         '--workspace', dir,
@@ -1244,7 +1330,7 @@ describe('agent-signal', () => {
       expect(resolved['signal_ids']).toEqual(expect.arrayContaining([parentId, replyId]));
 
       const listed = ok(db, [
-        'agent-signal', '--action', 'list',
+        'signal', 'list',
         '--agent-id', 'agent-a',
         '--thread-id', threadId,
         '--all',
@@ -1265,31 +1351,31 @@ describe('integration: full round-trip', () => {
     const tf = join(dir, 'shared.txt');
     writeFileSync(tf, 'seed');
     try {
-      const a = ok(db, ['pre-flight-intent', '--agent-id', 'agent-a', '--target-file', tf]);
+      const a = ok(db, ['lock', 'acquire', '--agent-id', 'agent-a', '--target-file', tf]);
       const taskId = (a['task'] as Record<string, unknown>)['task_id'] as string;
 
-      const blocked = run(db, ['pre-flight-intent', '--agent-id', 'agent-b', '--target-file', tf]);
+      const blocked = run(db, ['lock', 'acquire', '--agent-id', 'agent-b', '--target-file', tf]);
       expect(blocked.status).toBe(2);
 
-      ok(db, ['release-file-lock', '--agent-id', 'agent-a', '--task-id', taskId, '--status', 'PENDING']);
-      const reclaim = ok(db, ['pre-flight-intent', '--agent-id', 'agent-b', '--target-file', tf]);
+      ok(db, ['lock', 'release', '--agent-id', 'agent-a', '--task-id', taskId, '--status', 'PENDING']);
+      const reclaim = ok(db, ['lock', 'acquire', '--agent-id', 'agent-b', '--target-file', tf]);
       expect((reclaim['task'] as Record<string, unknown>)['agent_id']).toBe('agent-b');
     } finally { rmSync(dir, { recursive: true }); }
   });
 
-  it('memory recall after tell → reflect round-trip', () => {
+  it('memory recall after record -> reflect round-trip', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
       const unique = `integration_test_${Date.now()}`;
       ok(db, [
-        'tell-memory', '--agent-id', 'a',
+        'memory', 'record', '--agent-id', 'a',
         '--task-context', unique,
         '--observation', `${unique} observation`,
         '--importance', '8',
       ]);
-      ok(db, ['reflect', '--agent-id', 'a', '--task', unique, '--outcome', 'worked']);
-      const found = ok(db, ['get-memory', '--query', unique, '--min-importance', '1', '--limit', '5']);
+      ok(db, ['reflect', 'record', '--agent-id', 'a', '--task', unique, '--outcome', 'worked']);
+      const found = ok(db, ['memory', 'recall', '--query', unique, '--min-importance', '1', '--limit', '5']);
       expect(found['count'] as number).toBeGreaterThanOrEqual(1);
     } finally { rmSync(dir, { recursive: true }); }
   });

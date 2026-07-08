@@ -2,7 +2,7 @@
 
 Read when executing an Octocode research workflow. `SKILL.md` picks the mode; this file gives compact per-mode tool chains.
 The router, evidence grades, anti-patterns, and failure signals live in `references/algorithm.md`. Tool names and CLI forms live in `references/octocode.md`.
-For local vs external routing, root-cause flow, or PR/local review, read `references/workflows.md` before choosing a tool chain here.
+For local/external routing, debug/root-cause flow, change flow, or PR/local review, read `references/workflows.md` (index) or the matching `workflow-*.md` file before choosing a tool chain here.
 
 Start each workflow with a **surface plan** (local, GitHub, packages, PR/history, artifacts, web, plus skipped surfaces with reasons); update it when cross-pollination changes the route.
 

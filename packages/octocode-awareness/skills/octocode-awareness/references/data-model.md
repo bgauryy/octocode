@@ -63,12 +63,12 @@ Lifecycle:
 open --resolve--> resolved
 ```
 
-`signal_reads` stores idempotent read receipts. `notify-get` returns `signals[]`; `agent_signal action:list` returns the same row shape with `to_agents`.
+`signal_reads` stores idempotent read receipts. `signal list` returns `signals[]`; `agent_signal action:list` returns the same row shape with `to_agents`.
 
 ### Refinements, Sessions, Audit
 
 `refinements` is the durable follow-up queue. `quality` is `good`, `bad`, or `handoff`; `state` is `open`, `ongoing`, or `done`.
-`sessions` anchors optional module-level work periods; `session-capture` writes a handoff refinement and does not require a `sessions` row.
+`sessions` anchors optional module-level work periods; `session capture` writes a handoff refinement and does not require a `sessions` row.
 `edit_log` records file edits when callers use the audit API. It includes `session_id`, `task_id`, `agent_id`, `file_path`, operation, diff stats, hash, scope, and timestamp.
 `harness_log` records self-harness events: `mine`, `propose`, `validate`, `apply`, `capture`, `reflect`.
 
@@ -79,7 +79,10 @@ agents
   -> sessions
   -> memories
 sessions
-  -> memories / tasks / edit_log / harness_log
+  -> memories
+  -> tasks
+  -> edit_log
+  -> harness_log
 tasks
   -> locks
   -> task_log

@@ -52,8 +52,7 @@ packages/octocode-agent (octocode-agent)
 
 packages/octocode-awareness (@octocodeai/octocode-awareness)
   Shared workspace coordination + reflection/learning skills (memory, hooks, sqlite locks, zero
-  npm runtime deps). Canonical source of the octocode-awareness / octocode-reflection /
-  octocode-agent-communication skills — see "Working in this repo" below.
+  npm runtime deps). Canonical source of the octocode-awareness skill — see "Working in this repo" below.
 
 packages/octocode-benchmark (@octocodeai/octocode-benchmark)
   Benchmarks/evals. Flow benchmarks, AST grep comparisons, format support matrix.
@@ -61,12 +60,13 @@ packages/octocode-benchmark (@octocodeai/octocode-benchmark)
 @octocodeai/octocode-core is an external dep (sibling repo octocode-mcp-host) — single source of all
 tool descriptions, schemas, and system prompt text. Never hand-write tool guidance in interface packages.
 
-## Tools (13)
+## Tools (14)
 
 GitHub: `ghSearchCode` · `ghGetFileContent` · `ghViewRepoStructure` · `ghSearchRepos` · `ghHistoryResearch` · `ghCloneRepo` (needs ENABLE_CLONE)
 Package: `npmSearch`
 Local (ENABLE_LOCAL=false disables): `localSearchCode` · `localViewStructure` · `localFindFiles` · `localGetFileContent` · `localBinaryInspect`
 LSP: `lspGetSemantics`
+OQL: `oqlSearch` (unified query interface across code, content, structure, files, semantics, repos, packages, PRs, commits, artifacts, diff, research, graph)
 
 ## Build, test, lint
 
@@ -101,12 +101,11 @@ No backward compat by default — refactor freely, delete dead paths, add shims 
 
 Use octocode-awareness (.agents/skills/octocode-awareness) for cross-run memory.
 
-Awareness skills source of truth: `packages/octocode-awareness/skills/` (owns
-`octocode-awareness`, `octocode-reflection`, `octocode-agent-communication`). Edit them there —
-`packages/octocode-awareness/build.mjs` mirrors all three into root `skills/`,
-`packages/octocode-pi-extension/skills/`, and the gitignored local install surface
-`.agents/skills/` on every awareness build. Never hand-edit the mirrors; run
-`yarn workspace @octocodeai/octocode-awareness build` to regenerate them.
+Awareness skill source of truth: `packages/octocode-awareness/skills/octocode-awareness`.
+`packages/octocode-awareness/build.mjs` bundles it into `dist/skills/` and mirrors the
+gitignored local install surface `.agents/skills/`; the Pi extension copies it into
+`packages/octocode-pi-extension/skills/` during its own build. Never hand-edit generated
+mirrors; run `yarn workspace @octocodeai/octocode-awareness build` to regenerate them.
 
 Access: packages/*/src/, tests/, docs/ ✅ · *.json, *.config.*, Cargo.toml, scripts/ ⚠️ ask · .env*, node_modules/, dist/, out/, target/ ❌
 

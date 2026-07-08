@@ -13,9 +13,9 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(`usage: install-hooks [--host claude|codex|cursor] [--project-dir <path>] [--dry-run]
 
 Compatibility wrapper for:
-  awareness hooks install [options]
+  octocode-awareness hooks install [options]
 
-Run awareness hooks install --help for the full contract.`);
+Run octocode-awareness hooks install --help for the full contract.`);
   process.exit(0);
 }
 

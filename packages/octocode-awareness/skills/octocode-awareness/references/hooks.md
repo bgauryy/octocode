@@ -12,12 +12,12 @@ Pi also does **not** execute this frontmatter; Pi uses the native adapter export
 
 | Behavior | Claude-style event | Codex config event | Cursor native event | Pi native event | Script / adapter | Side effect | Verify/audit command |
 |-----------------|--------------------|--------------------|---------------------|-----------------|------------------|-------------|----------------------|
-| pre-edit | `PreToolUse` on `Write\|Edit\|MultiEdit\|NotebookEdit\|apply_patch\|ApplyPatch` | same matcher in `.codex/hooks.json` | `preToolUse` in `.cursor/hooks.json` | `tool_call` / `tool_execution_start` | `scripts/hooks/pre-edit.sh` / `createPiAwarenessBridge().handleToolCall` | Claims the target file via `lock acquire`; blocks if another agent holds it. | `node scripts/awareness.mjs workspace status --workspace "$PWD"` should show the lock or conflict. |
+| pre-edit | `PreToolUse` on `Write\|Edit\|MultiEdit\|NotebookEdit\|apply_patch\|ApplyPatch` | same matcher in `.codex/hooks.json` | `preToolUse` in `.cursor/hooks.json` | `tool_call` / `tool_execution_start` | `scripts/hooks/pre-edit.sh` / `createPiAwarenessBridge().handleToolCall` | Claims the target file via `lock acquire`; blocks if another agent holds it. | `octocode-awareness workspace status --workspace "$PWD" --compact` should show the lock or conflict. |
 | harness self-fix gate | `PreToolUse` on the same matcher | same matcher in `.codex/hooks.json` | `preToolUse` | n/a | `scripts/hooks/harness-guard.sh` | Blocks skill self-edits unless a human opened `OCTOCODE_ALLOW_HARNESS_APPLY=1` AND the skill root's git branch is a dedicated branch (checked live; `main`/`master` are always blocked; detached HEAD or a non-repo additionally needs `OCTOCODE_HARNESS_BRANCH_OK=1`). | Use `octocode-awareness` staged approval guidance; verify with the requested checks after the approved edit. |
-| post-edit | `PostToolUse` on the same matcher | same matcher in `.codex/hooks.json` | `postToolUse` | `tool_result` / `tool_execution_end` | `scripts/hooks/post-edit.sh` / `createPiAwarenessBridge().handleToolResult` | Releases this agent's lock on the written file as `PENDING` verification. | `node scripts/awareness.mjs verify audit --agent-id <id> --workspace "$PWD"` should list pending verification. |
-| verify gate | `Stop` / `SubagentStop` | `Stop` / `SubagentStop` | `stop` / `subagentStop` | `agent_end` | `scripts/hooks/stop-verify.sh` / `wirePiAwarenessHooks(pi)` | Shell hooks hard-block conclusion once (exit 2); Pi cannot hard-block after `agent_end`, so it injects a follow-up reminder turn when PENDING tasks exist. | `node scripts/awareness.mjs verify mark --agent-id <id> --workspace "$PWD" --all-pending --message "<check>"`, then rerun `verify audit`. |
-| session capture | `SessionEnd` | `PreCompact` best-effort | `sessionEnd` plus `preCompact` | `session_shutdown` / `session_before_compact` | `scripts/hooks/session-end.sh` / `wirePiAwarenessHooks(pi)` | Runs `session capture` to write a work-handoff refinement from this session's locks and dirty git tree. Codex has no current `SessionEnd`; Cursor cloud lacks `sessionEnd` but supports `preCompact`. | `node scripts/awareness.mjs refinement get --workspace "$PWD" --limit 5`. |
-| smart briefing | `UserPromptSubmit` | `UserPromptSubmit` | `sessionStart` | `before_agent_start` | `scripts/hooks/notify-deliver.sh` / `wirePiAwarenessHooks(pi)` | Runs `signal list` / `notify-get --format hook`, touches the agent registry, and injects message/memory context where the host accepts it. Cursor native `beforeSubmitPrompt` cannot inject context, so native Cursor gets a session-start briefing. | `node scripts/awareness.mjs signal list --agent-id <id> --workspace "$PWD" --all --limit 5`. |
+| post-edit | `PostToolUse` on the same matcher | same matcher in `.codex/hooks.json` | `postToolUse` | `tool_result` / `tool_execution_end` | `scripts/hooks/post-edit.sh` / `createPiAwarenessBridge().handleToolResult` | Releases this agent's lock on the written file as `PENDING` verification. | `octocode-awareness verify audit --agent-id <id> --workspace "$PWD" --compact` should list pending verification. |
+| verify gate | `Stop` / `SubagentStop` | `Stop` / `SubagentStop` | `stop` / `subagentStop` | `agent_end` | `scripts/hooks/stop-verify.sh` / `wirePiAwarenessHooks(pi)` | Shell hooks hard-block conclusion once (exit 2); Pi cannot hard-block after `agent_end`, so it injects a follow-up reminder turn when PENDING tasks exist. | `octocode-awareness verify mark --agent-id <id> --workspace "$PWD" --all-pending --message "<check>" --compact`, then rerun `verify audit`. |
+| session capture | `SessionEnd` | `PreCompact` best-effort | `sessionEnd` plus `preCompact` | `session_shutdown` / `session_before_compact` | `scripts/hooks/session-end.sh` / `wirePiAwarenessHooks(pi)` | Runs `session capture` to write a work-handoff refinement from this session's locks and dirty git tree. Codex has no current `SessionEnd`; Cursor cloud lacks `sessionEnd` but supports `preCompact`. | `octocode-awareness refinement get --workspace "$PWD" --limit 5 --compact`. |
+| smart briefing | `UserPromptSubmit` | `UserPromptSubmit` | `sessionStart` | `before_agent_start` | `scripts/hooks/notify-deliver.sh` / `wirePiAwarenessHooks(pi)` | Runs `signal list --format hook`, touches the agent registry, and injects message/memory context where the host accepts it. Cursor native `beforeSubmitPrompt` cannot inject context, so native Cursor gets a session-start briefing. | `octocode-awareness signal list --agent-id <id> --workspace "$PWD" --all --limit 5 --compact`. |
 
 Use this table as the hook audit story before installing, debugging, or copying the skill. It names the lifecycle event, wrapper script, side effect, and verification command. The wrapper scripts in `skills/octocode-awareness/scripts/hooks/` only invoke package-owned `hook-runner.mjs`.
 
@@ -37,7 +37,7 @@ File-lock hooks read/write `tasks` and `locks` there, so claims are visible acro
 Pending verification survives lock release.
 Workspace-scoped hooks write to the same file, scoped by `repo`/`ref` and `workspace_path`.
 
-The CLI installer (`scripts/awareness.mjs hooks install|check|remove`) manages all bundled Claude, Codex, or Cursor lifecycle hooks: pre/post edit, harness guard, verify gate, capture, and briefing.
+The CLI installer (`octocode-awareness hooks install|check|remove`, or bundled `scripts/awareness.mjs`) manages all bundled Claude, Codex, or Cursor lifecycle hooks: pre/post edit, harness guard, verify gate, capture, and briefing.
 `scripts/install-hooks.mjs` remains as a compatibility wrapper for older docs and installs.
 The same shell hooks are skill-scoped only in hosts that execute skill-frontmatter hooks.
 Pi gets equivalent behavior from `wirePiAwarenessHooks(pi)`, already wired by `@octocodeai/pi-extension`.
@@ -67,10 +67,10 @@ For Pi, use `@octocodeai/pi-extension` or call `wirePiAwarenessHooks(pi)` from y
 
 | Need | Hosts | Command |
 |---|---|---|
-| Preview | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/awareness.mjs hooks install --host <host> --dry-run` |
-| Install | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/awareness.mjs hooks install --host <host>` |
-| Check | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/awareness.mjs hooks check --host <host>` |
-| Remove | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/awareness.mjs hooks remove --host <host>` |
+| Preview | `claude`, `codex`, `cursor` | `octocode-awareness hooks install --host <host> --dry-run --compact` |
+| Install | `claude`, `codex`, `cursor` | `octocode-awareness hooks install --host <host> --compact` |
+| Check | `claude`, `codex`, `cursor` | `octocode-awareness hooks check --host <host> --compact` |
+| Remove | `claude`, `codex`, `cursor` | `octocode-awareness hooks remove --host <host> --compact` |
 
 - Add `--project-dir <path>` to target a specific project.
 - The installer is idempotent, only adds/removes its own hook commands, and never touches other hooks.
@@ -84,5 +84,5 @@ If this skill is repackaged as a Codex or Cursor plugin, ship native hook config
 - **Narrow scope**: tighten the matcher, or add an `if` condition to the hook entry.
 - **Longer/shorter claim window**: change the TTL in `packages/octocode-awareness/bin/hook-runner.ts`, then rebuild `@octocodeai/octocode-awareness` so `skills/octocode-awareness/scripts/` is regenerated.
 - **Path placeholder**: frontmatter commands use `${CLAUDE_SKILL_DIR}`, Claude Code's substitution for "directory containing this skill's `SKILL.md`" (requires Claude Code v2.1.196+; only Claude honors it — Codex and Cursor have no equivalent frontmatter placeholder).
-  Codex and Cursor hook config do not use this placeholder; install those hooks through `scripts/awareness.mjs hooks install --host codex`, `--host cursor`, or plugin hooks.
+  Codex and Cursor hook config do not use this placeholder; install those hooks through `octocode-awareness hooks install --host codex`, `--host cursor`, or plugin hooks.
   Bundled shell wrappers also self-locate via `BASH_SOURCE`; direct installer calls still resolve correctly.

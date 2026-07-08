@@ -90,8 +90,7 @@ describe('hook-runner', () => {
 
       const listed = spawnSync(NODE, [
         AWARENESS,
-        'agent-registry',
-        '--action',
+        'agent',
         'list',
         '--workspace',
         workspace,
@@ -134,6 +133,7 @@ describe('hook-runner', () => {
 
       const status = spawnSync(NODE, [
         AWARENESS,
+        'workspace',
         'status',
         '--workspace',
         workspace,
@@ -174,6 +174,7 @@ describe('hook-runner', () => {
 
       const status = spawnSync(NODE, [
         AWARENESS,
+        'workspace',
         'status',
         '--workspace',
         workspace,
@@ -211,7 +212,7 @@ describe('hook wrapper scripts', () => {
       const pre = runHookWrapper('pre-edit.sh', payload, env, workspace);
       expect(pre.status, pre.stderr).toBe(0);
 
-      const locked = spawnSync(NODE, [AWARENESS, 'status', '--workspace', workspace], {
+      const locked = spawnSync(NODE, [AWARENESS, 'workspace', 'status', '--workspace', workspace], {
         encoding: 'utf8',
         timeout: 5000,
         env: { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome },
@@ -228,7 +229,7 @@ describe('hook wrapper scripts', () => {
       const post = runHookWrapper('post-edit.sh', payload, env, workspace);
       expect(post.status, post.stderr).toBe(0);
 
-      const released = spawnSync(NODE, [AWARENESS, 'status', '--workspace', workspace], {
+      const released = spawnSync(NODE, [AWARENESS, 'workspace', 'status', '--workspace', workspace], {
         encoding: 'utf8',
         timeout: 5000,
         env: { ...process.env, OCTOCODE_MEMORY_HOME: memoryHome },

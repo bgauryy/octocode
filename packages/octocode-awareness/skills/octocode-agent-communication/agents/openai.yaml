@@ -1,4 +1,0 @@
-interface:
-  display_name: "Octocode Agent Communication"
-  short_description: "Compatibility alias for Awareness signals."
-  default_prompt: "This is a compatibility alias. Load octocode-awareness for agent registry, signal publish/list/reply/ack/resolve, handoffs, blockers, and local workspace messaging."

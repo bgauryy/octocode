@@ -90,7 +90,6 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'rationale', 'test_plan', 'plan_doc_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval'],
   'release-file-lock': ['agent_id', 'task_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace', 'artifact'],
   'status': ['workspace', 'artifact', 'limit'],
-  'workspace-status': ['workspace', 'artifact'],
   'init': [],
   'self-test': [],
   'prune-stale-locks': ['older_than_minutes', 'expired_only', 'agent_id', 'target_file', 'workspace', 'artifact', 'dry_run'],
@@ -99,21 +98,16 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'mine-weakness': ['agent_id', 'workspace', 'artifact', 'min_count', 'limit', 'cwd'],
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
   'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
-  'memory-index': ['limit', 'min_importance', 'out', 'stdout', 'workspace', 'artifact', 'repo', 'ref'],
   'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
-  'view': ['view', 'query', 'limit', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
   'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view', 'include_bodies'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
-  'notify': ['agent_id', 'to', 'kind', 'subject', 'body', 'file', 'ref_id', 'in_reply_to', 'importance', 'workspace', 'artifact', 'repo', 'ref'],
-  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'mark_read', 'limit'],
-  'notify-get': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'all', 'mark_read', 'kind', 'thread_id', 'limit', 'format'],
-  'notify-resolve': ['signal_id', 'thread_id', 'workspace', 'artifact'],
+  'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'mark_read', 'limit', 'format'],
   'notify-prune': ['signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
   'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'lock_type', 'wait_seconds', 'retry_interval'],
   'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
   'hook-run': [],
-  'hooks-install': ['host', 'claude', 'codex', 'cursor', 'project_dir', 'global', 'check', 'dry_run', 'remove'],
+  'hooks-install': ['host', 'project_dir', 'global', 'check', 'dry_run', 'remove'],
   'schema': [],
 };
 
@@ -138,17 +132,16 @@ function extractGlobalDb(argv: string[]): { dbPath: string | null; filtered: str
   return { dbPath, filtered };
 }
 
-interface CommandAlias {
+interface CommandRoute {
   command: string;
   prepend?: string[];
 }
 
-const COMMAND_ALIASES: Record<string, CommandAlias> = {
+const COMMAND_ROUTES: Record<string, CommandRoute> = {
   'memory record': { command: 'tell-memory' },
   'memory recall': { command: 'get-memory' },
   'memory forget': { command: 'forget' },
-  'memory index': { command: 'memory-index' },
-  'workspace status': { command: 'workspace-status' },
+  'workspace status': { command: 'status' },
   'lock acquire': { command: 'pre-flight-intent' },
   'lock release': { command: 'release-file-lock' },
   'lock wait': { command: 'wait-for-lock' },
@@ -177,6 +170,9 @@ const COMMAND_ALIASES: Record<string, CommandAlias> = {
   'repo inject': { command: 'repo-inject' },
 };
 
+const SINGLE_COMMANDS = new Set(['query', 'schema']);
+const UNKNOWN_COMMAND = '__unknown__';
+
 function normalizeToken(value: string | undefined): string | undefined {
   return value?.replace(/_/g, '-');
 }
@@ -198,16 +194,17 @@ function selectCommand(argv: string[]): { command: string | undefined; rest: str
   if (first === 'schema') {
     return { command: 'schema', rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
   }
-  if (first === 'inject') {
-    return { command: 'repo-inject', rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
-  }
 
   if (second) {
-    const alias = COMMAND_ALIASES[`${first} ${second}`];
-    if (alias) return { command: alias.command, rest: [...(alias.prepend ?? []), ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
+    const route = COMMAND_ROUTES[`${first} ${second}`];
+    if (route) return { command: route.command, rest: [...(route.prepend ?? []), ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
   }
 
-  return { command: first, rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
+  if (SINGLE_COMMANDS.has(first)) {
+    return { command: first, rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
+  }
+
+  return { command: UNKNOWN_COMMAND, rest: argv };
 }
 
 function packageSkillScriptPath(...segments: string[]): string {
@@ -660,7 +657,7 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const now = new Date().toISOString().slice(0, 10);
   const lines = [
     `# Memory Index — ${now}`,
-    `<!-- Auto-generated by awareness memory-index. Regenerate after recording or forgetting memories. -->`,
+    `<!-- Auto-generated by octocode-awareness memory-index. Regenerate after recording or forgetting memories. -->`,
     '',
     `**${rows.length} active memories** (importance ≥ ${minImportance}, sorted by salience)`,
     '',
@@ -1104,28 +1101,43 @@ function cmdSelfTest(opts: EmitOptions): number {
 
 // ─── Help text ────────────────────────────────────────────────────────────────
 
-const HELP = `usage: awareness <command> [options]
+const HELP = `usage: octocode-awareness <command> [options]
 common: --db <path> --compact
-schema: awareness schema list|json-schema <name>|example <name>|validate <name> <json-file|->
+npx: npx @octocodeai/octocode-awareness <command>
+agent map: octocode-awareness schema commands --compact
+schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
-memory: memory record|recall|forget|index (aliases: tell-memory, get-memory, forget, memory-index)
-coordination: lock acquire|release|wait|prune, verify mark|audit, status, workspace-status
-messages: signal publish|list|reply|ack|resolve|prune, agent register|list, notify*
-learning: refinement set|get|delete, reflect record|mine-weakness|export-harness, session capture, docs staleness
-repo context: query <view>, view, repo inject (alias: inject)
+start: workspace status, memory recall, refinement get, signal list, query <view>
+edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
+messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
+learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
+repo context: query <view> [--format json|table|csv|markdown|html], repo inject
 hooks: hook run <event>, hooks install|check|remove --host claude|codex|cursor
-utility: maintenance init|self-test|digest, init, self-test
+utility: session capture, maintenance init, maintenance self-test, maintenance digest
 
-legacy aliases: pre-flight-intent, wait-for-lock, release-file-lock, audit-unverified, prune-stale-locks,
-  refine-set, refine-get, refine-delete, agent-registry, agent-signal, notify, notify-get, notify-resolve, notify-prune,
-  session-capture, doc-staleness
+examples:
+  octocode-awareness workspace status --workspace "$PWD" --compact
+  octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
+  octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness schema commands --compact
+  octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact
+  octocode-awareness repo inject --workspace "$PWD" --mode local --compact
 
-Run "awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
+Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
+
+const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
+npx: npx @octocodeai/octocode-awareness <command>
+start: workspace status; memory recall; refinement get; signal list
+edit: lock acquire|wait|release|prune; verify audit|mark
+msg: signal publish|list|reply|ack|resolve|prune; agent register|list
+learn: memory record|forget; reflect record|mine-weakness|export-harness; maintenance digest
+repo: query <view> --format json|table|csv|markdown|html; repo inject
+inspect: schema commands --compact; schema json-schema <name>; <command> --help`;
 
 const COMMAND_TO_SCHEMA: Record<string, string> = {
   'tell-memory': 'tell_memory',
   'get-memory': 'get_memory',
-  'memory-index': 'memory_index',
   'pre-flight-intent': 'pre_flight_intent',
   'wait-for-lock': 'wait_for_lock',
   'prune-stale-locks': 'prune_stale_locks',
@@ -1138,14 +1150,10 @@ const COMMAND_TO_SCHEMA: Record<string, string> = {
   'refine-delete': 'refine_delete',
   'agent-registry': 'agent_registry',
   'agent-signal': 'agent_signal',
-  'notify-get': 'notify_query',
-  'notify-resolve': 'notify_resolve',
-  'notify-prune': 'notify_prune',
-  'notify': 'notify',
-  'workspace-status': 'workspace_status',
+  'notify-prune': 'signal_prune',
+  'status': 'workspace_status',
   'export-harness': 'export_harness',
   'query': 'query',
-  'view': 'view',
   'repo-inject': 'repo_inject',
   'session-capture': 'session_capture',
   'mine-weakness': 'mine_weakness',
@@ -1154,52 +1162,204 @@ const COMMAND_TO_SCHEMA: Record<string, string> = {
   'reflect': 'reflect',
 };
 
+const COMMAND_DISPLAY: Record<string, string> = {
+  'tell-memory': 'memory record',
+  'get-memory': 'memory recall',
+  'forget': 'memory forget',
+  'pre-flight-intent': 'lock acquire',
+  'wait-for-lock': 'lock wait',
+  'prune-stale-locks': 'lock prune',
+  'release-file-lock': 'lock release',
+  'audit-unverified': 'verify audit',
+  'verify': 'verify mark',
+  'refine-set': 'refinement set',
+  'refine-get': 'refinement get',
+  'refine-delete': 'refinement delete',
+  'agent-registry': 'agent register|list',
+  'agent-signal': 'signal publish|list|reply|ack|resolve',
+  'notify-prune': 'signal prune',
+  'status': 'workspace status',
+  'export-harness': 'reflect export-harness',
+  'query': 'query',
+  'repo-inject': 'repo inject',
+  'session-capture': 'session capture',
+  'mine-weakness': 'reflect mine-weakness',
+  'doc-staleness': 'docs staleness',
+  'digest': 'maintenance digest',
+  'init': 'maintenance init',
+  'self-test': 'maintenance self-test',
+  'reflect': 'reflect record',
+  'hook-run': 'hook run',
+  'hooks-install': 'hooks install|check|remove',
+  'schema': 'schema',
+};
+
+const COMMAND_EXAMPLE: Record<string, string> = {
+  'tell-memory': 'octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact',
+  'get-memory': 'octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact',
+  'forget': 'octocode-awareness memory forget --memory-id mem_123 --dry-run --compact',
+  'pre-flight-intent': 'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact',
+  'wait-for-lock': 'octocode-awareness lock wait --agent-id agent --target-file src/file.ts --wait-seconds 60 --compact',
+  'prune-stale-locks': 'octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact',
+  'release-file-lock': 'octocode-awareness lock release --agent-id agent --task-id task_123 --status SUCCESS --verified --compact',
+  'audit-unverified': 'octocode-awareness verify audit --agent-id agent --workspace "$PWD" --compact',
+  'verify': 'octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact',
+  'refine-set': 'octocode-awareness refinement set --agent-id agent --reasoning "handoff" --remember "next step" --workspace "$PWD" --compact',
+  'refine-get': 'octocode-awareness refinement get --workspace "$PWD" --state open --compact',
+  'refine-delete': 'octocode-awareness refinement delete --refinement-id ref_123 --dry-run --compact',
+  'agent-registry': 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
+  'agent-signal': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
+  'notify-prune': 'octocode-awareness signal prune --workspace "$PWD" --resolved --dry-run --compact',
+  'status': 'octocode-awareness workspace status --workspace "$PWD" --compact',
+  'export-harness': 'octocode-awareness reflect export-harness --workspace "$PWD" --compact',
+  'query': 'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact',
+  'repo-inject': 'octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact',
+  'session-capture': 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
+  'mine-weakness': 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
+  'doc-staleness': 'octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact',
+  'digest': 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact',
+  'init': 'octocode-awareness maintenance init --compact',
+  'self-test': 'octocode-awareness maintenance self-test --compact',
+  'reflect': 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep commands canonical" --compact',
+  'hook-run': 'octocode-awareness hook run pre-edit < hook-payload.json',
+  'hooks-install': 'octocode-awareness hooks install --host codex --dry-run --compact',
+  'schema': 'octocode-awareness schema commands --compact',
+};
+
+const ROUTE_EXAMPLE: Record<string, string> = {
+  'signal publish': 'octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --workspace "$PWD" --compact',
+  'signal list': 'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
+  'signal reply': 'octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact',
+  'signal ack': 'octocode-awareness signal ack --agent-id agent --signal-id ntf_123 --compact',
+  'signal resolve': 'octocode-awareness signal resolve --agent-id agent --thread-id ntf_123 --compact',
+  'agent register': 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
+  'agent list': 'octocode-awareness agent list --workspace "$PWD" --compact',
+  'hooks install': 'octocode-awareness hooks install --host codex --dry-run --compact',
+  'hooks check': 'octocode-awareness hooks check --host codex --compact',
+  'hooks remove': 'octocode-awareness hooks remove --host codex --dry-run --compact',
+  'schema commands': 'octocode-awareness schema commands --compact',
+  'schema list': 'octocode-awareness schema list --compact',
+  'schema json-schema': 'octocode-awareness schema json-schema get_memory --compact',
+  'schema example': 'octocode-awareness schema example get_memory --compact',
+  'schema validate': 'octocode-awareness schema validate get_memory payload.json --compact',
+};
+
+const REMOVED_COMMAND_REPLACEMENTS: Record<string, string> = {
+  'tell-memory': 'memory record',
+  'get-memory': 'memory recall',
+  'forget': 'memory forget',
+  'memory-index': 'query memories --format markdown',
+  'pre-flight-intent': 'lock acquire',
+  'wait-for-lock': 'lock wait',
+  'prune-stale-locks': 'lock prune',
+  'release-file-lock': 'lock release',
+  'audit-unverified': 'verify audit',
+  'verify': 'verify mark',
+  'refine-set': 'refinement set',
+  'refine-get': 'refinement get',
+  'refine-delete': 'refinement delete',
+  'agent-registry': 'agent register|list',
+  'agent-signal': 'signal publish|list|reply|ack|resolve',
+  'notify': 'signal publish',
+  'notify-get': 'signal list',
+  'notify-resolve': 'signal resolve',
+  'notify-prune': 'signal prune',
+  'workspace-status': 'workspace status',
+  'status': 'workspace status',
+  'export-harness': 'reflect export-harness',
+  'reflect': 'reflect record',
+  'mine-weakness': 'reflect mine-weakness',
+  'doc-staleness': 'docs staleness',
+  'session-capture': 'session capture',
+  'digest': 'maintenance digest',
+  'view': 'query all --format html --out .octocode/awareness/index.html',
+  'inject': 'repo inject',
+  'init': 'maintenance init',
+  'self-test': 'maintenance self-test',
+};
+
 const COMMAND_HELP: Record<string, string> = {
-  'tell-memory': `usage: awareness tell-memory --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
-schema: node scripts/schema.mjs json-schema tell_memory`,
-  'get-memory': `usage: awareness get-memory [options]
+  'tell-memory': `usage: octocode-awareness memory record --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
+example: octocode-awareness memory record --agent-id agent --task-context "build failure" --observation "Run yarn build before tests" --importance 7 --label GOTCHA --workspace "$PWD" --compact
+schema: octocode-awareness schema json-schema tell_memory --compact`,
+  'get-memory': `usage: octocode-awareness memory recall [options]
 filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
 scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--strict-scope] [--global-only]
 rank: [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain]
-schema: node scripts/schema.mjs json-schema get_memory`,
-  'pre-flight-intent': `usage: awareness pre-flight-intent --agent-id <id> --target-file <p>... [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--lock-type EXCLUSIVE|SHARED] [--ttl-minutes <n>] [--wait-seconds <n>]
-schema: node scripts/schema.mjs json-schema pre_flight_intent`,
-  'agent-signal': `usage: awareness agent-signal --action publish|list|reply|resolve|ack --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
-schema: node scripts/schema.mjs json-schema agent_signal`,
-  'verify': `usage: awareness verify (--task-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
-schema: node scripts/schema.mjs json-schema verify`,
-  'reflect': `usage: awareness reflect --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-file <p>]... [--failure-signature <s>]
-schema: node scripts/schema.mjs json-schema reflect`,
-  'query': `usage: awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity> [--workspace <repo>] [--format json|table|csv|markdown] [--out <path>]
-schema: node scripts/schema.mjs json-schema query`,
-  'view': `usage: awareness view [view] [--workspace <repo>] [--out <path>]
-schema: node scripts/schema.mjs json-schema view`,
-  'repo-inject': `usage: awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
-schema: node scripts/schema.mjs json-schema repo_inject`,
-  'hook-run': `usage: awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
+example: octocode-awareness memory recall --query "current task" --workspace "$PWD" --smart --compact
+schema: octocode-awareness schema json-schema get_memory --compact`,
+  'pre-flight-intent': `usage: octocode-awareness lock acquire --agent-id <id> --target-file <p>... [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--lock-type EXCLUSIVE|SHARED] [--ttl-minutes <n>] [--wait-seconds <n>]
+example: octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit file" --test-plan "yarn test" --compact
+schema: octocode-awareness schema json-schema pre_flight_intent --compact`,
+  'agent-signal': `usage: octocode-awareness signal publish|list|reply|ack|resolve --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
+examples:
+  octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
+  octocode-awareness signal publish --agent-id agent --kind blocker --subject "File locked" --file src/file.ts --workspace "$PWD" --compact
+  octocode-awareness signal reply --agent-id agent --in-reply-to ntf_123 --subject "Re: File locked" --body "done" --compact
+schema: octocode-awareness schema json-schema agent_signal --compact`,
+  'verify': `usage: octocode-awareness verify mark (--task-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
+example: octocode-awareness verify mark --agent-id agent --all-pending --message "yarn test passed" --workspace "$PWD" --compact
+schema: octocode-awareness schema json-schema verify --compact`,
+  'reflect': `usage: octocode-awareness reflect record --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-file <p>]... [--failure-signature <s>]
+example: octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "Keep CLI nouns canonical" --compact
+schema: octocode-awareness schema json-schema reflect --compact`,
+  'query': `usage: octocode-awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity> [--workspace <repo>] [--format json|table|csv|markdown|html] [--out <path>]
+examples:
+  octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact
+  octocode-awareness query all --workspace "$PWD" --format html --out .octocode/awareness/index.html
+schema: octocode-awareness schema json-schema query --compact`,
+  'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
+example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
+schema: octocode-awareness schema json-schema repo_inject --compact`,
+  'hook-run': `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   'hooks-install': hooksInstallUsage(),
-  'schema': `usage: awareness schema list|json-schema <name>|example <name>|validate <name> <json-file|->`,
+  'schema': `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
+examples:
+  octocode-awareness schema commands --compact
+  octocode-awareness schema json-schema query --compact`,
+  'init': `usage: octocode-awareness maintenance init [--db <path>]
+example: octocode-awareness maintenance init --db .octocode/awareness.sqlite3 --compact`,
+  'self-test': `usage: octocode-awareness maintenance self-test
+example: octocode-awareness maintenance self-test --compact`,
 };
 
 function hyphenFlag(flag: string): string {
   return `--${flag.replace(/_/g, '-')}`;
 }
 
-function helpFor(command: string | null): string {
-  if (!command) return HELP;
+function helpFor(command: string | null, options: { compact?: boolean; routeKey?: string } = {}): string {
+  if (!command) return options.compact ? HELP_COMPACT : HELP;
   const normalized = command.replace(/_/g, '-');
-  if (COMMAND_HELP[normalized]) return COMMAND_HELP[normalized]!;
   const flags = KNOWN_FLAGS[normalized];
   if (!flags) return HELP;
   const schema = COMMAND_TO_SCHEMA[normalized] ?? normalized.replace(/-/g, '_');
-  return `usage: awareness ${normalized} [options]
+  const display = options.routeKey ?? COMMAND_DISPLAY[normalized] ?? normalized;
+  const example = (options.routeKey ? ROUTE_EXAMPLE[options.routeKey] : undefined) ?? COMMAND_EXAMPLE[normalized];
+  if (options.compact) {
+    return `usage: octocode-awareness ${display} [options]
+schema: ${schema}
+example: ${example ?? `octocode-awareness ${display}`}`.trimEnd();
+  }
+  if (COMMAND_HELP[normalized]) return COMMAND_HELP[normalized]!;
+  return `usage: octocode-awareness ${display} [options]
 flags: ${flags.map(hyphenFlag).join(' ')}
-schema: node scripts/schema.mjs json-schema ${schema}`;
+schema: octocode-awareness schema json-schema ${schema} --compact
+${example ? `example: ${example}` : ''}`.trimEnd();
 }
 
-function commandFromHelpArgv(argv: string[]): string | null {
-  const withoutHelp = argv.filter((arg) => arg !== '--help' && arg !== '-h');
-  return selectCommand(extractGlobalDb(withoutHelp).filtered).command ?? null;
+function commandFromHelpArgv(argv: string[]): { command: string | null; routeKey?: string } {
+  const withoutHelp = argv.filter((arg) => arg !== '--help' && arg !== '-h' && arg !== '--compact');
+  const filtered = extractGlobalDb(withoutHelp).filtered;
+  const [firstRaw, secondRaw] = filtered;
+  const first = normalizeToken(firstRaw);
+  const second = normalizeToken(secondRaw);
+  let routeKey: string | undefined;
+  if (first === 'hook' && second === 'run') routeKey = 'hook run';
+  else if (first === 'hooks' && second && ['install', 'check', 'remove'].includes(second)) routeKey = `hooks ${second}`;
+  else if (first === 'schema' && second && ['commands', 'list', 'json-schema', 'example', 'validate'].includes(second)) routeKey = `schema ${second}`;
+  else if (first && second && COMMAND_ROUTES[`${first} ${second}`]) routeKey = `${first} ${second}`;
+  else if (first && SINGLE_COMMANDS.has(first)) routeKey = first;
+  return { command: selectCommand(filtered).command ?? null, routeKey };
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
@@ -1207,7 +1367,9 @@ function commandFromHelpArgv(argv: string[]): string | null {
 const rawArgv = process.argv.slice(2);
 
 if (rawArgv.length === 0 || rawArgv.includes('--help') || rawArgv.includes('-h')) {
-  process.stdout.write(helpFor(commandFromHelpArgv(rawArgv)) + '\n');
+  const compactHelp = rawArgv.includes('--compact') || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
+  const helpTarget = commandFromHelpArgv(rawArgv);
+  process.stdout.write(helpFor(helpTarget.command, { compact: compactHelp, routeKey: helpTarget.routeKey }) + '\n');
   process.exit(0);
 }
 
@@ -1220,11 +1382,17 @@ if (globalDb) args['db'] = globalDb;
 if (command && KNOWN_FLAGS[command]) {
   const unknown = validateFlags(command, args);
   if (unknown.length > 0) {
-    process.stdout.write(JSON.stringify({
+    const compactError = args['compact'] === true || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1';
+    const payload = {
       ok: false,
-      error: `unknown flag(s) for ${command}: ${unknown.map((f) => `--${f.replace(/_/g, '-')}`).join(', ')}`,
+      command: COMMAND_DISPLAY[command] ?? command,
+      schema: COMMAND_TO_SCHEMA[command] ?? command.replace(/-/g, '_'),
+      error: `unknown flag(s): ${unknown.map((f) => `--${f.replace(/_/g, '-')}`).join(', ')}`,
       known_flags: KNOWN_FLAGS[command].map((f) => `--${f.replace(/_/g, '-')}`),
-    }, null, 2) + '\n');
+      hint: `Run "octocode-awareness ${COMMAND_DISPLAY[command] ?? command} --help" for this command.`,
+      example: COMMAND_EXAMPLE[command],
+    };
+    process.stdout.write(JSON.stringify(payload, null, compactError ? 0 : 2) + '\n');
     process.exit(1);
   }
 }
@@ -1238,13 +1406,35 @@ if (!command) {
   process.exit(1);
 }
 
+if (command === UNKNOWN_COMMAND) {
+  const requested = filteredArgv.slice(0, 2).join(' ') || filteredArgv[0] || '';
+  const first = filteredArgv[0]?.replace(/_/g, '-');
+  const replacement = first ? REMOVED_COMMAND_REPLACEMENTS[first] : undefined;
+  const payload = {
+    ok: false,
+    error: `unknown command: ${requested}`,
+    hint: replacement
+      ? `Use canonical command: octocode-awareness ${replacement}`
+      : 'Use canonical noun/verb commands only; run "octocode-awareness --help" for the command map.',
+    replacement,
+    examples: [
+      'octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact',
+      'octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact',
+      'octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact',
+      'octocode-awareness query gotchas --workspace "$PWD" --format json --limit 20 --compact',
+    ],
+  };
+  process.stdout.write(JSON.stringify(payload, null, compact ? 0 : 2) + '\n');
+  process.exit(1);
+}
+
 if (command === 'self-test') {
   process.exit(cmdSelfTest(opts));
 }
 
 if (command === 'schema') {
   const script = packageSkillScriptPath('schema.mjs');
-  const result = spawnSync(process.execPath, [script, ...args._], { stdio: 'inherit' });
+  const result = spawnSync(process.execPath, [script, ...rest], { stdio: 'inherit' });
   process.exit(result.status ?? 1);
 }
 
@@ -1263,7 +1453,7 @@ let db: DatabaseSync;
 try {
   db = connectDb(dbPath);
 } catch (err) {
-  process.stderr.write(`awareness: failed to connect DB at ${dbPath}: ${String(err)}\n`);
+  process.stderr.write(`octocode-awareness: failed to connect DB at ${dbPath}: ${String(err)}\n`);
   process.exit(1);
 }
 
@@ -1397,7 +1587,23 @@ try {
     case 'repo-inject':     exitCode = cmdRepoInject(db, args, dbPath, opts); break;
     case 'agent-registry':  exitCode = cmdAgentRegistry(db, args, dbPath, opts); break;
     case 'notify':          exitCode = cmdNotify(db, args, dbPath, opts); break;
-    case 'agent-signal':    exitCode = cmdAgentSignal(db, args, dbPath, opts); break;
+    case 'agent-signal': {
+      const signalFormat = String(args['format'] ?? 'json');
+      if (args['action'] === 'list' && signalFormat === 'hook') {
+        const signalBriefing = notifyGet(db, {
+          workspace: args['workspace'] as string | undefined,
+          artifact: args['artifact'] as string | undefined,
+          format: signalFormat,
+          agent_id: args['agent_id'] as string | undefined,
+        }) as unknown as Record<string, unknown>;
+        exitCode = signalBriefing['additionalContext']
+          ? emit({ additionalContext: signalBriefing['additionalContext'] }, 0, opts)
+          : emit({ db_path: dbPath, ...signalBriefing }, 0, opts);
+      } else {
+        exitCode = cmdAgentSignal(db, args, dbPath, opts);
+      }
+      break;
+    }
     case 'notify-resolve':  exitCode = cmdNotifyResolve(db, args, dbPath, opts); break;
     case 'notify-prune':    exitCode = cmdNotifyPrune(db, args, dbPath, opts); break;
     default:

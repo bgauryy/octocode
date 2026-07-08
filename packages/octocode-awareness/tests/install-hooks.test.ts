@@ -31,6 +31,18 @@ function runInstallHooks(args: string[], script = SCRIPT) {
 }
 
 describe('install-hooks', () => {
+  it('rejects host shortcut aliases', () => {
+    const result = spawnSync(NODE, [SCRIPT, 'hooks', 'install', '--codex', '--dry-run'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stdout) as { error?: string; known_flags?: string[] };
+    expect(parsed.error).toContain('unknown flag');
+    expect(parsed.known_flags).toContain('--host');
+    expect(parsed.known_flags).not.toContain('--codex');
+  });
+
   it('generated skill CLI resolves hook paths from its own scripts directory', () => {
     expect(existsSync(SKILL_SCRIPT), 'generated awareness.mjs must exist after build').toBe(true);
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-skill-hooks-'));

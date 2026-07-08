@@ -43,11 +43,12 @@ vi.mock('../../../src/utils/skills-fetch.js', () => ({
 
 const fsMocks = vi.hoisted(() => ({
   fileExists: vi.fn().mockReturnValue(true),
+  dirExists: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('../../../src/utils/fs.js', () => ({
   copyDirectory: vi.fn().mockReturnValue(true),
-  dirExists: vi.fn().mockReturnValue(true),
+  dirExists: fsMocks.dirExists,
   fileExists: fsMocks.fileExists,
   listSubdirectories: vi.fn().mockReturnValue([]),
   readFileContent: vi.fn().mockReturnValue(null),
@@ -99,6 +100,7 @@ describe('skillCommand', () => {
     fetchMocks.fetchMarketplaceSkills.mockResolvedValue([]);
     skillMocks.installSkillToDestination.mockReturnValue('installed');
     fsMocks.fileExists.mockReturnValue(true);
+    fsMocks.dirExists.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -206,22 +208,12 @@ describe('skillCommand', () => {
       },
     });
 
-    expect(fetchMocks.readSkillFromGitHub).toHaveBeenCalledWith(
-      'bgauryy',
-      'octocode',
-      'skills/octocode-research',
-      'main'
-    );
+    // Bundled path is available (dirExists mocked true), so GitHub is not consulted.
+    expect(fetchMocks.readSkillFromGitHub).not.toHaveBeenCalled();
     expect(fetchMocks.installMarketplaceSkill).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'octocode-research',
-        path: 'skills/octocode-research',
-        source: expect.objectContaining({
-          owner: 'bgauryy',
-          repo: 'octocode',
-          branch: 'main',
-          skillsPath: 'skills',
-        }),
+        source: expect.objectContaining({ type: 'local' }),
       }),
       '/octocode-home/skills'
     );
@@ -250,8 +242,8 @@ describe('skillCommand', () => {
     expect(output.skills).toMatchObject([
       {
         name: 'octocode-research',
-        source:
-          'https://github.com/bgauryy/octocode/tree/main/skills/octocode-research',
+        // Bundled source is a file:// URL, not a GitHub URL.
+        source: expect.stringContaining('file://'),
         sourcePath: '/octocode-home/skills/octocode-research',
         summary: {
           installed: 1,
@@ -724,6 +716,9 @@ describe('skillCommand', () => {
   });
 
   it('reports missing named Octocode skills as not found', async () => {
+    // Simulate skill not present in the bundle (dirExists returns false for the
+    // specific skill sub-directory) so the command falls back to GitHub lookup.
+    fsMocks.dirExists.mockReturnValueOnce(true).mockReturnValueOnce(false);
     fetchMocks.readSkillFromGitHub.mockRejectedValueOnce(
       new Error('SKILL.md not found')
     );

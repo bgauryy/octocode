@@ -267,6 +267,21 @@ Patch: smallest scoped change — only the formatDate function body; the exporte
 Verification: yarn test src/utils/date.test.ts ran and passed; typecheck passed with exit 0.
 Confidence: confirmed
 Next: drop the moment dependency in a follow-up once no other imports remain.`,
+    'pr-local-review': `Mode: Review
+Scope: collected via git status and git diff --staged; 3 staged files, all in the auth area.
+Risk: src/auth/login.ts is HIGH (auth logic changed); README.md is LOW (docs-only).
+Sizing: Full pass, because one file is HIGH risk even though the file count is small; skipped the Quick surface-scan shortcut.
+Blast radius: the changed login() signature was traced with LSP callers (incoming) at src/auth/login.ts:42; two callers found at src/api/session.ts:18 and src/api/session.ts:55.
+Domains checked in order: Security, Bug, Flow Impact, Architecture, Performance, Error Handling, Quality.
+[SEC-1] title: missing input validation on new token parameter
+Severity: HIGH
+Confidence: confirmed
+Location: src/auth/login.ts:47
+Evidence: exact read shows the parameter is passed to a SQL query unescaped; LSP callers confirm both call sites pass user input directly.
+Impact: caller/user data path is exposed to injection.
+Fix: validate/sanitize the token parameter before use, mirroring the existing pattern in src/auth/session.ts:20.
+No existing PR comments to reconcile locally; findings deduped by root cause and capped to the highest-impact issue.
+Next: run the project's auth test suite before opening the PR.`,
   };
   return base[caseId] || '';
 }
