@@ -1,8 +1,8 @@
 # GitHub Landscape
 
-**Rare path — skip by default.** Read this only when the research question asks "what repos exist?", "which implementation should we reuse?", "what open-source options implement X?", or when a prior-art map needs deeper GitHub comparison.
+**Rare path — skip by default.** Read only for repo discovery, reuse decisions, open-source implementation searches, or deeper GitHub prior-art comparison.
 
-This mode is a structured repo ecosystem pass: discover broadly, rank cheaply, deep-dive selectively, then produce an integration blueprint.
+GitHub Landscape is a structured repo ecosystem pass: discover broadly, rank cheaply, deep-dive selectively, then produce an integration blueprint.
 Skip it for a single known repo or a narrow code bug. Router, evidence grades, and tool names come from `references/algorithm.md` and `references/octocode.md`.
 
 ## Output Goal
@@ -10,35 +10,20 @@ Skip it for a single known repo or a narrow code bug. Router, evidence grades, a
 End with:
 
 ```text
-Repo clusters
+Repo clusters        (active, partial, abandoned, research-only, production-ready, not relevant)
 Ranked repo table
 Top repo deep-dive notes
-Integration blueprint
+Integration blueprint (what to reuse, what to avoid)
 Proof still needed
 ```
 
-- repo clusters: active, partial, abandoned, research-only, production-ready, or not relevant
-- a ranked repo database
-- deep-dive notes for the top few repos
-- an integration blueprint: what to reuse, what to avoid, and what proof remains
-
 ## Repo DB
 
-Keep a compact table in chat for small runs, or a `repo_db.jsonl` artifact for long runs.
-
-Recommended fields:
+Keep a compact table in chat for small runs, or a `repo_db.jsonl` artifact for long runs. Score each repo on fit, activity, evidence, reuse, and risk (rubric below).
 
 ```json
 {"repo":"owner/name","url":"https://github.com/owner/name","sourceQuery":"structural TypeScript search","stars":1200,"language":"TypeScript","license":"MIT","lastActivity":"2026-06-01","package":"name-or-null","fit":"high","activity":"active","evidenceIds":["ev1","ev2"],"notes":"Has tree-sitter parser and CLI docs"}
 ```
-
-Useful scoring dimensions:
-
-- `fit`: does the repo actually address the research question?
-- `activity`: recent commits/releases/issues, not stars alone.
-- `implementationEvidence`: source code, examples, tests, docs, or packages.
-- `reusePotential`: API shape, license, dependency drag, maturity.
-- `risk`: abandoned, unclear license, narrow language support, hidden service dependency, or unverifiable claims.
 
 ## Flow
 

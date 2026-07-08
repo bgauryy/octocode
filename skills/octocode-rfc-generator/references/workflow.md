@@ -1,12 +1,9 @@
 # RFC / Plan Workflow
-
-The full flow, from understanding the ask to delivering the document set.
-
 ```text
-UNDERSTAND → RESEARCH (octocode) → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS (octocode) → DERIVE KPIs → VALIDATE → DELIVER
+UNDERSTAND → RESEARCH (octocode-research) → PREREQUISITES? → COMPARE OPTIONS → WRITE RFC → CLOSE OPEN QUESTIONS → DERIVE KPIs → VALIDATE → DELIVER
 ```
 
-Default output when saving is approved: a folder `\.octocode/rfc/{name}/` with `RFC.md`, `IMPLEMENTATION.md`, and `KPI.md`. See "Output shape" below for when a single `RFC.md` is enough.
+Default output when saving is approved: a folder `\.octocode/rfc/{name}/` with `RFC.md`, `IMPLEMENTATION.md`, and `KPI.md`; existing-code RFCs insert `PREREQUISITES.md` before the implementation plan. See "Output shape" below for when a single `RFC.md` is enough.
 
 ## Pick mode
 
@@ -27,8 +24,8 @@ When the input is an existing RFC/plan/design file (or a `\.octocode/rfc/{name}/
 
 1. Read it, then map its sections and claims against the target structure (`rfc-template.md` / `rfc-implementation.md` / `rfc-kpi.md`).
 2. Diagnose gaps: missing Goals/Non-Goals, fewer than 2 alternatives, unclosed open questions, uncited or stale `file:line` claims, no verification/KPIs.
-3. Research with octocode to close questions and re-verify claims that may have moved.
-4. Propose the upgrade (or migrate a flat `RFC-{name}.md` into the 3-file folder), preserving the author's decisions and prior reasoning.
+3. Use `octocode-research` to close questions and re-verify claims that may have moved.
+4. Propose the upgrade (or migrate a flat `RFC-{name}.md` into the folder set), preserving the author's decisions and prior reasoning.
 
 Gate before overwriting a saved file.
 
@@ -42,11 +39,12 @@ Classify the decision first:
 ```text
 \.octocode/rfc/{name}/
   RFC.md              # decide — SSOT for goals/scope/decision; frozen at decision
-  IMPLEMENTATION.md   # build — open questions closed via octocode; steps + test plan
+  PREREQUISITES.md    # ready — existing-code RFCs only; write before implementation planning
+  IMPLEMENTATION.md   # build — open questions closed via octocode-research; steps + test plan
   KPI.md              # verify — acceptance criteria + success metrics + traceability
 ```
 
-**SSOT / anti-drift rule (non-negotiable):** `RFC.md` is the single source of truth for goals and scope. `IMPLEMENTATION.md` and `KPI.md` **reference `RFC.md` section anchors — they never restate goals/scope.** Generate all three in one pass from one claim ledger.
+**SSOT / anti-drift rule (non-negotiable):** `RFC.md` is the single source of truth for goals and scope. `IMPLEMENTATION.md` and `KPI.md` **reference `RFC.md` section anchors — they never restate goals/scope.** Generate the set in one pass from one claim ledger.
 
 ## Understand
 
@@ -59,7 +57,7 @@ Capture this before research gets broad:
 - What "do nothing" costs.
 - What evidence is needed to decide, and the observable signal that would prove success.
 
-Ask if the problem or desired output mode is unclear.
+Ask if the problem, output mode, decision flow, owner, scope, or tradeoff priority is unclear.
 
 ## Brainstorming handoff intake
 
@@ -75,17 +73,17 @@ If input includes an `octocode-brainstorming` RFC handoff, normalize it before r
 | Bounded MVP / first slice | Implementation Plan (`IMPLEMENTATION.md`) |
 | Success signal | User stories + acceptance criteria + metrics (`KPI.md`) |
 
-If no handoff exists, build the same packet from Understand. If problem, decision, constraints, or success signal are missing, ask one focused question or label the output `Draft` with the gap.
+For a new RFC with no handoff, ask to use available `octocode-brainstorming` first. If continuing, build the packet with `octocode-research`; ask or mark Draft when core fields are missing.
 
 ## Claim ledger
 
-Maintain one private ledger while researching — the same ledger feeds all three files:
+Maintain one private ledger while researching — the same ledger feeds the folder files:
 
 ```text
 claim | evidence | confidence | file/section | gap / next proof
 ```
 
-Use confidence `confirmed`, `likely`, or `uncertain`. Recommendations may rely only on confirmed/likely claims. Uncertain claims belong in `RFC.md` Open Questions — and each must be **closed in `IMPLEMENTATION.md` via octocode** or explicitly deferred with a reason.
+Use confidence `confirmed`, `likely`, or `uncertain`. Recommendations may rely only on confirmed/likely claims. Uncertain claims belong in `RFC.md` Open Questions — and each must be **closed in `IMPLEMENTATION.md` via `octocode-research`** or explicitly deferred with a reason.
 
 ## Compare options
 
@@ -97,6 +95,7 @@ Compare on: fit with current architecture; blast radius; compatibility and migra
 Stop and ask, narrow, or clearly mark `Draft` before delivery when:
 
 - Scope contains multiple independent decisions → split into RFCs or phases.
+- Flow uncertainty would change the artifact shape or recommendation → ask before drafting.
 - Current state has no real evidence → research more or mark as unproven.
 - Only one option is considered and the user did not ask for a single-path plan → add do-nothing, minimal patch, or phased rollout.
 - Public API/data/security/compatibility changes lack rollout, rollback trigger, and owner/approver.
@@ -105,10 +104,11 @@ Stop and ask, narrow, or clearly mark `Draft` before delivery when:
 
 ## Write the files
 
-Produce the files in dependency order — `RFC.md` first (the SSOT), then `IMPLEMENTATION.md`, then `KPI.md` — each from its own template:
+Produce the files in dependency order — `RFC.md` first (the SSOT), then `PREREQUISITES.md` for existing-code RFCs, then `IMPLEMENTATION.md`, then `KPI.md` — each from its own template:
 
 - `RFC.md` — see `references/rfc-template.md`.
-- `IMPLEMENTATION.md` — see `references/rfc-implementation.md`. Opens by **closing every `RFC.md` open question with an octocode citation**, then dependency-ordered steps + V&V + rollback. References `RFC.md` anchors; no restated goals.
+- `PREREQUISITES.md` — see `references/rfc-prerequisites.md`; write it before the plan and cite current-state facts, blockers, owners, baseline checks, setup, and contract/migration constraints.
+- `IMPLEMENTATION.md` — see `references/rfc-implementation.md`. Opens by **closing every `RFC.md` open question with an `octocode-research` citation**, then dependency-ordered steps + V&V + rollback. References `RFC.md` anchors; no restated goals.
 - `KPI.md` — see `references/rfc-kpi.md`. User stories, Gherkin criteria, metrics (never a single one), a decision rule, and the traceability matrix.
 
 For a lighter **Plan** in single-file mode, keep only the `rfc-template.md` sections that carry weight — typically Goal, Current State, Proposed Approach, Alternatives, Step-by-Step, Test/Verification, Rollout/Rollback, plus inline Acceptance Criteria and Open Questions.
@@ -145,5 +145,5 @@ Next step: <one action>
 
 Then ask whether to save.
 
-- **Save (full):** create `\.octocode/rfc/{name}/` with all three files. **Save (single):** `\.octocode/rfc/{name}/RFC.md` (or flat `\.octocode/rfc/RFC-{name}.md` on request).
+- **Save (full):** create `\.octocode/rfc/{name}/` with the selected document set. **Save (single):** `\.octocode/rfc/{name}/RFC.md` (or flat `\.octocode/rfc/RFC-{name}.md` on request).
 - **No:** keep it in chat. **Implement:** hand off to the agent's normal engineering workflow using `IMPLEMENTATION.md`; verify against `KPI.md` after shipping.

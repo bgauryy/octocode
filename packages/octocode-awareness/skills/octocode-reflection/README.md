@@ -1,31 +1,31 @@
 # Octocode Reflection
 
-Post-task learning and memory maintenance for Octocode agents.
+Compatibility skill for users and developers with older prompts or installs that still name `octocode-reflection`.
+
+New work should load **`octocode-awareness`**. Reflection operations now live there: durable lessons, `memory_reflect`, stale-memory cleanup previews, pending-task maintenance, and staged harness improvements all use the same awareness CLI and SQLite store.
 
 ## Features
 
-- Records verified durable lessons with `memory_record`.
-- Reflects on completed work with `memory_reflect`.
-- Reviews stale, duplicate, wrong, expired, or superseded memories.
-- Stages skill, harness, AGENTS.md, and repo-instruction changes for human approval.
-- Shares the awareness SQLite store with `octocode-awareness` while keeping live coordination in the awareness skill.
+- Keeps older reflection skill references installable during the move to `octocode-awareness`.
+- Redirects memory, reflection, cleanup, and finish-check workflows to the primary skill.
+- Avoids stale local scripts so users do not call removed compatibility wrappers.
 
 ## How It Works
 
-Use `octocode-awareness` while thinking, planning, editing, locking files, signaling, and verifying claims. Use `octocode-reflection` after an outcome is known or when the user asks to learn, prune, approve, or improve guidance.
+The agent-facing `SKILL.md` redirects to `octocode-awareness`. This folder intentionally has no operational `scripts/` directory; the primary awareness skill owns the CLI, schemas, hooks, memory, signals, and reflection commands.
 
-The skill routes all state changes through `scripts/awareness.mjs` and its schema helper. It does not install edit hooks or own live workspace locks.
+Developers should update this package-owned source and run the awareness build to refresh mirrors.
 
 ## Installation
 
 ```bash
-npx octocode skill --name octocode-reflection
+npx octocode skill --name octocode-awareness
 ```
 
-This skill is package-owned. Run:
+This compatibility folder is package-owned. Run:
 
 ```bash
 yarn workspace @octocodeai/octocode-awareness build
 ```
 
-The package source remains canonical. The build refreshes scripts here and removes any stale root `skills/octocode-reflection` copy.
+The package source remains canonical. The build refreshes this stub and removes stale operational scripts from mirrored copies.

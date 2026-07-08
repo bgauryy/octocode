@@ -105,17 +105,23 @@ Current State: packages/octocode/src/index.ts:12 exports the old API.
 Target State: packages/octocode/src/index.ts:44 exports the new API with a compatibility wrapper.
 Public contract gate: breaking change risk requires owner approval and compatibility notes.
 Phase 1: add wrapper and tests. Phase 2: migrate internal callers. Phase 3: remove old entry after release gate.
+Question Gate: no open clarifying questions; owner, scope, and compatibility priority are assumed from the prompt.
 Verification commands: yarn typecheck && yarn test && yarn lint.
 Rollback trigger: any downstream package fails contract tests.
 Owner / approver: Tools core maintainer.`,
-    'three-file-rfc': `Status: Ready for Review
-Mode: RFC — three-file set in .octocode/rfc/token-cache/
+    'existing-code-folder-rfc': `Status: Ready for Review
+Mode: RFC — folder set in .octocode/rfc/token-cache/
 
 RFC.md
 Decision type: irreversible (one-way door).
 Goals: unify the token cache across packages. Non-Goals: no change to the public API surface.
 Alternatives Considered: do nothing, minimal patch, full redesign. Prior art reviewed.
 Unresolved Questions: which default cache TTL to use.
+
+PREREQUISITES.md
+Required current-state evidence: packages/core/src/cache.ts:42 defines the existing TTL behavior.
+Baseline verification: yarn test packages/core.
+Blockers before implementation: cache owner confirms compatibility for downstream packages.
 
 IMPLEMENTATION.md
 Resolved Questions (were open in RFC.md): TTL default resolved to 300s per packages/core/src/cache.ts:42 and confirmed at https://github.com/owner/repo/pull/128.

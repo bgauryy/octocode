@@ -26,18 +26,19 @@ This skill makes the agent capture current-state evidence, compare viable option
 The workflow is:
 
 ```text
-UNDERSTAND -> RESEARCH (octocode) -> COMPARE OPTIONS -> WRITE RFC -> CLOSE OPEN QUESTIONS (octocode) -> DERIVE KPIs -> VALIDATE -> DELIVER
+UNDERSTAND -> RESEARCH (octocode) -> PREREQUISITES? -> COMPARE OPTIONS -> WRITE RFC -> CLOSE OPEN QUESTIONS (octocode) -> DERIVE KPIs -> VALIDATE -> DELIVER
 ```
 
 The agent first clarifies the decision and the evidence surfaces. It gathers proof with Octocode, compares options, writes the RFC, closes every open question with a citation, derives measurable success criteria, validates, then delivers in chat or as an approved repo artifact.
 
 ## Output
 
-On an approved save the skill writes a folder `\.octocode/rfc/{name}/` with three files, each for a different reader and lifecycle:
+On an approved save the skill writes a folder `\.octocode/rfc/{name}/` with a document set for different readers and lifecycles:
 
 - **`RFC.md`** — the decision. Reviewer-facing, frozen at decision, and the single source of truth for goals and scope.
+- **`PREREQUISITES.md`** — existing-code RFCs only. Written before the implementation plan with current-state evidence, baseline checks, blockers, owners, setup, and migration constraints.
 - **`IMPLEMENTATION.md`** — the build. Closes every RFC open question via Octocode research, then a dependency-ordered plan with a test/verification plan and rollback.
-- **`KPI.md`** ("Success & Verification") — how to check the RFC and its implementation after shipping: user stories, Gherkin acceptance criteria, measurable signals, a decision rule, and a traceability matrix that binds the three files and detects drift.
+- **`KPI.md`** ("Success & Verification") — how to check the RFC and its implementation after shipping: user stories, Gherkin acceptance criteria, measurable signals, a decision rule, and a traceability matrix that binds the document set and detects drift.
 
 For a small, reversible, single-package change, the skill produces only `RFC.md` with an inline plan and acceptance criteria.
 

@@ -1,6 +1,6 @@
 # IMPLEMENTATION.md Template — Build Document
 
-`IMPLEMENTATION.md` is the **build document**: implementer-facing and **live** during the work. Its distinctive job is to **close every open question left in `RFC.md` using Octocode research**, then lay out a dependency-ordered, verifiable plan.
+`IMPLEMENTATION.md` is the **build document**: implementer-facing and **live** during the work. Its distinctive job is to **close every open question left in `RFC.md` using `octocode-research` evidence**, then lay out a dependency-ordered, verifiable plan.
 
 This file **references `RFC.md` section anchors — it does not restate goals or scope.** Steps trace back to RFC design decisions; success metrics live in `KPI.md`.
 
@@ -13,7 +13,7 @@ This file **references `RFC.md` section anchors — it does not restate goals or
 
 Every `RFC.md` open question, closed with evidence or explicitly deferred. Nothing here may stay `uncertain`.
 
-| Open question (RFC §) | Resolution | Evidence (octocode) | Confidence |
+| Open question (RFC §) | Resolution | Evidence (`octocode-research`) | Confidence |
 |---|---|---|---|
 | {question} | {answer} | [`src/x.ts:42`](https://github.com/owner/repo/blob/main/src/x.ts#L42) — {why it settles the question} | confirmed / likely |
 | {question} | Deferred — {reason}; revisit when {trigger} | — | n/a |
@@ -35,7 +35,7 @@ Ordered so each step is shippable and reversible where possible; foundational/ri
 
 ## Files / APIs / Contracts Touched
 
-- `path/to/file:line` — what changes and why; blast radius (callers, dependents — cite `lspGetSemantics`/`--op references` findings).
+- `path/to/file:line` — what changes and why; cite the blast radius returned by `octocode-research`.
 
 ## Risk Mitigations
 
@@ -66,4 +66,4 @@ Every reference states **how it supports the plan**. Local claims need `file:lin
 - [owner/repo#123](https://github.com/owner/repo/pull/123) — prior change showing the rollout pattern used here.
 ```
 
-> **Tip:** When closing an open question, follow the octocode research loop in `research-playbook.md`: local `file:line` via `localSearchCode`/LSP, external via `ghSearchCode`/`ghGetFileContent`, rationale via `ghHistoryResearch`. A resolution without a citation is not resolved.
+> **Tip:** When closing an open question, delegate the research loop to `octocode-research`; a resolution without a citation is not resolved.

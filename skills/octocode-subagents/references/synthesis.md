@@ -14,11 +14,9 @@ Use this before trusting worker output or finishing with spawned agents.
 
 Workers default to all tools except `spawnAgent` and `AgentMessage`. Restrict when possible:
 
-```json
-{ "tools": ["localSearchCode", "localGetFileContent", "ghGetFileContent", "bash"] }
-```
+For code-research workers, instruct the worker to use `octocode-research`; keep tool allowlists narrow enough for that task.
 
-When `resourceMode:"lean"`, workers have no Octocode tools by default. Use `resourceMode:"octocode"` or pass the needed tools explicitly.
+When `resourceMode:"lean"`, workers have no Octocode tools by default. Use `resourceMode:"octocode"` only to supply tools for a worker that has been told to follow `octocode-research`.
 
 ## Cleanup
 

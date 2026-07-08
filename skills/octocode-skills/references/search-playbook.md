@@ -14,11 +14,11 @@ Load when discovering skill candidates. Pairs with `discovery-surfaces.md` (the 
 
 For every PUBLIC skill query, fan out across three surfaces IN PARALLEL, then merge and dedupe by `(owner/repo, skill name)`:
 
-1. Octocode CLI / GitHub — code and path search for `SKILL.md` via `npx octocode search` / `npx octocode search --target repositories` (patterns below).
+1. Octocode/GitHub — delegate code and path search for `SKILL.md` to `octocode-research` when installed.
 2. skills.sh registry API — install-ranked candidates (below).
-3. Runtime web search tool (e.g. `WebSearch`) — topic + "agent skill"/"claude skill"/"SKILL.md", to catch skills outside known registries. Confirm each web lead's real `SKILL.md` via `npx octocode search <path> --content-view exact` before recommending.
+3. Runtime web search tool (e.g. `WebSearch`) — topic + "agent skill"/"claude skill"/"SKILL.md", to catch skills outside known registries. Confirm each web lead's real `SKILL.md` through `octocode-research` before recommending.
 
-Skip the public surfaces only for local-only or org/private scopes (Octocode CLI only there).
+Skip the public surfaces only for local-only or org/private scopes; use `octocode-research` for Octocode-backed checks there.
 
 ## Search angles
 
@@ -54,7 +54,7 @@ Workflow:
 
 1. Sort by `installs` descending — highest install count is the strongest battle-tested signal.
 2. Take the top 5 as priority inspection targets.
-3. In parallel, fetch each top candidate's `SKILL.md` via `npx octocode search <source>/<path> --content-view exact` (using `source` as `owner/repo`; try `skills/<skillId>/SKILL.md`, `<skillId>/SKILL.md`, `.claude/skills/<skillId>/SKILL.md`).
+3. In parallel, ask `octocode-research` to fetch each top candidate's `SKILL.md` using `source` as `owner/repo`; try `skills/<skillId>/SKILL.md`, `<skillId>/SKILL.md`, `.claude/skills/<skillId>/SKILL.md`.
 4. Include install count in every result card.
 5. MUST NOT blindly recommend the highest-install skill — inspect content and task fit first; installs are a tiebreaker only.
 

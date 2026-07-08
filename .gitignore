@@ -31,6 +31,8 @@ coverage
 /skills/octocode-reflection/
 # Build artifact regenerated from root skills/ + packages/octocode-awareness/skills/.
 /packages/octocode-pi-extension/skills/
+# Bundled skills copied into the octocode CLI package during build/prepack.
+/packages/octocode/skills/
 # sqlite DB
 mcp.sqlite
 
@@ -47,6 +49,7 @@ devScripts
 .agents
 # Generated from root README.md during package build/prepack
 /packages/*/README.md
+!/packages/octocode-awareness/README.md
 !/packages/octocode-pi-extension/README.md
 !/packages/octocode-agent/README.md
 output

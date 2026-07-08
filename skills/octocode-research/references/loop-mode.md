@@ -15,6 +15,7 @@ Frame one question -> Act with one cheap call -> Observe status/results -> Learn
 ### Ledger
 
 Carry anchors forward exactly: paths, lines, match ranges, repo/package/PR ids, branch/ref, cursors, returned `next.*`. Never invent offsets or paths. Keep at least two plausible explanations alive while the answer is unsettled.
+Default budget: 3-5 decisive iterations or about 15 minutes for normal tasks. Ask before extending the loop when the next step needs cloning/running code, expensive external research, broad repo scans, or a product/architecture decision.
 
 ### Stop Tests
 

@@ -20,6 +20,12 @@ import { fillScope } from './git.js';
 import { normalizeArtifact, parseJsonList, utcNow } from './helpers.js';
 import { getNotifications } from './notifications.js';
 
+const SESSION_CAPTURE_FILE_LIMIT = 40;
+const SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 20;
+const SESSION_CAPTURE_TASK_DETAIL_LIMIT = 8;
+const SESSION_CAPTURE_TASK_FILE_LIMIT = 8;
+const SESSION_CAPTURE_TEXT_LIMIT = 180;
+
 export interface PruneStaleResult {
   pruned_locks: number;
   updated_tasks: number;
@@ -41,6 +47,10 @@ export interface SessionCaptureResult {
   active_tasks: number;
   files: string[];
   dirty_files: string[];
+  file_count?: number;
+  dirty_file_count?: number;
+  omitted_files?: number;
+  omitted_dirty_files?: number;
   reason: string | null;
   consolidation_opportunities: number; // memories with novelty_score < 0.2 (candidates for supersede)
 }
@@ -50,6 +60,18 @@ export interface WaitForLockResult {
   waited_ms: number;
   lock_free: boolean;
   conflicts?: Array<{ file_path: string; agent_id: string; expires_at: string | null }>;
+}
+
+function compactText(value: string, max = SESSION_CAPTURE_TEXT_LIMIT): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
+function listSummary(label: string, items: string[], visibleLimit = SESSION_CAPTURE_VISIBLE_FILE_LIMIT): string | null {
+  if (items.length === 0) return null;
+  const shown = items.slice(0, visibleLimit);
+  const omitted = items.length - shown.length;
+  return `${label}${omitted > 0 ? ` (showing ${shown.length} of ${items.length})` : ''}: ${shown.join(', ')}${omitted > 0 ? `; ${omitted} omitted` : ''}.`;
 }
 
 /** REAL: Delete expired file locks and set parent tasks to PENDING. */
@@ -66,7 +88,12 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
   const artifact = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : [])
-    .map(String).filter(Boolean);
+    .map(String)
+    .filter(Boolean)
+    .map((file) => {
+      const base = workspacePath ? resolve(workspacePath) : process.cwd();
+      return isAbsolute(file) ? resolve(file) : resolve(base, file);
+    });
   const now = utcNow();
   // Age cutoff: locks older than N minutes are considered stale even if not expired.
   const ageCutoff = olderThanMinutes != null && !expiredOnly
@@ -431,22 +458,31 @@ export function sessionCapture(
 
   const now = utcNow();
   const refinementId = 'ref_' + randomUUID().replace(/-/g, '');
-  const capturedFiles = [...new Set([...files, ...dirtyFiles])];
-  const statusSummary = taskRows.map(row => {
+  const allCapturedFiles = [...new Set([...files, ...dirtyFiles])];
+  const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
+  const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
+  const statusSummary = taskRows.slice(0, SESSION_CAPTURE_TASK_DETAIL_LIMIT).map(row => {
     const rowFiles = parseJsonList(row.files_json);
-    const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(', ')}` : '';
+    const shownFiles = rowFiles.slice(0, SESSION_CAPTURE_TASK_FILE_LIMIT);
+    const omittedFiles = rowFiles.length - shownFiles.length;
+    const fileSuffix = rowFiles.length > 0
+      ? ` files=${shownFiles.join(', ')}${omittedFiles > 0 ? ` (+${omittedFiles} more)` : ''}`
+      : '';
     const planSuffix = row.plan_doc_ref ? ` plan=${row.plan_doc_ref}` : '';
-    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${planSuffix}${fileSuffix}`;
+    return `${row.status} ${row.task_id}: ${compactText(row.rationale)}; verify=${compactText(row.test_plan)}${planSuffix}${fileSuffix}`;
   });
+  const omittedTaskDetails = taskRows.length - statusSummary.length;
   const reasoning = [
     `Session capture for ${agentId}${reason ? ` (${reason})` : ''}.`,
     `Unresolved tasks: ${taskRows.length} (${activeTasks} active, ${pendingTasks} pending).`,
-    dirtyFiles.length > 0 ? `Dirty files: ${dirtyFiles.join(', ')}.` : null,
-    statusSummary.length > 0 ? `Task details: ${statusSummary.join(' | ')}` : null,
+    listSummary('Dirty files', dirtyFiles),
+    statusSummary.length > 0
+      ? `Task details: ${statusSummary.join(' | ')}${omittedTaskDetails > 0 ? ` | ${omittedTaskDetails} more tasks omitted` : ''}`
+      : null,
   ].filter(Boolean).join(' ');
   const remember = [
     `Review session handoff for ${agentId}: ${activeTasks} active and ${pendingTasks} pending tasks remain.`,
-    capturedFiles.length > 0 ? `Touched files: ${capturedFiles.join(', ')}.` : null,
+    listSummary('Touched files', allCapturedFiles),
     dirtyFiles.length > 0 ? 'Check dirty git state before continuing.' : null,
     pendingTasks > 0 ? 'Run the recorded verification before claiming completion.' : null,
   ].filter(Boolean).join(' ');
@@ -477,7 +513,11 @@ export function sessionCapture(
     pending_tasks: pendingTasks,
     active_tasks: activeTasks,
     files: capturedFiles,
-    dirty_files: dirtyFiles,
+    dirty_files: capturedDirtyFiles,
+    file_count: allCapturedFiles.length,
+    dirty_file_count: dirtyFiles.length,
+    omitted_files: Math.max(0, allCapturedFiles.length - capturedFiles.length),
+    omitted_dirty_files: Math.max(0, dirtyFiles.length - capturedDirtyFiles.length),
     reason,
     consolidation_opportunities: consolidationOpportunities,
   };
@@ -795,10 +835,10 @@ export function exportMemoryDoc(
   const artifact = normalizeArtifact(params.artifact);
   const now = new Date().toISOString().slice(0, 10);
 
-  const conds: string[] = ["state = 'ACTIVE'"];
+  const conds: string[] = ["m.state = 'ACTIVE'"];
   const bindParams: (string | number)[] = [];
-  if (wsPath) { conds.push('(workspace_path = ? OR workspace_path IS NULL)'); bindParams.push(wsPath); }
-  if (artifact) { conds.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
+  if (wsPath) { conds.push('(m.workspace_path = ? OR m.workspace_path IS NULL)'); bindParams.push(wsPath); }
+  if (artifact) { conds.push('(m.artifact = ? OR m.artifact IS NULL)'); bindParams.push(artifact); }
 
   type MemRow = {
     memory_id: string; label: string; importance: number;
@@ -810,19 +850,20 @@ export function exportMemoryDoc(
   };
 
   const rows = db.prepare(
-    `SELECT memory_id, label, importance, task_context, observation,
-            tags_json, repo, ref, failure_signature, created_at
-     FROM memories
+    `SELECT m.memory_id, m.label, m.importance, m.task_context, m.observation,
+            m.tags_json, m.repo, m.ref, m.failure_signature, m.created_at
+     FROM memories m
      WHERE ${conds.join(' AND ')}
-     ORDER BY importance DESC, created_at DESC`
+     ORDER BY m.importance DESC, m.created_at DESC`
   ).all(...bindParams) as unknown as MemRow[];
   if (rows.length > 0) {
     const refs = db.prepare(
-      `SELECT memory_id, reference
-       FROM memory_refs
-       WHERE memory_id IN (${rows.map(() => '?').join(',')})
-       ORDER BY memory_id, ordinal`
-    ).all(...rows.map(row => row.memory_id)) as unknown as Array<{ memory_id: string; reference: string }>;
+      `SELECT r.memory_id, r.reference
+       FROM memory_refs r
+       JOIN memories m ON m.memory_id = r.memory_id
+       WHERE ${conds.join(' AND ')}
+       ORDER BY r.memory_id, r.ordinal`
+    ).all(...bindParams) as unknown as Array<{ memory_id: string; reference: string }>;
     const refsByMemory = new Map<string, string[]>();
     for (const ref of refs) {
       const list = refsByMemory.get(ref.memory_id) ?? [];

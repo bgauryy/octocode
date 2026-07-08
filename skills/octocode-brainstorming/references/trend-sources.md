@@ -8,12 +8,13 @@ research/idea surfaces, scoped down for one-off validation — not a monitoring 
 here: fetch the URL directly with the web reader and cite it like any web result (`output.md` rules
 apply; `tools.md`'s Formal web ladder governs citation grading).
 
-Skip when `ghSearchRepos`/`npmSearch` already settles the question, or the idea is purely internal. For
+Skip when `octocode-research` already settles repo/package momentum, or the idea is purely internal. For
 recurring space-watching, hand off to `octocode-news` instead of repeating checks here.
 
 ## Cross-domain momentum & ideas (any idea)
 
-Hacker News (`news.ycombinator.com`, RSS `hnrss.org/frontpage`, keyword feed `hnrss.org/newest?q=<term>`) · Techmeme (RSS `techmeme.com/feed.xml`) · Product Hunt (`producthunt.com`) · Indie Hackers (`indiehackers.com`) · Google Trends (`trends.google.com/trends`) · Exploding Topics (`explodingtopics.com`) · r/SideProject, r/Entrepreneur (Reddit — verify via primary sources)
+Hacker News (`news.ycombinator.com`, RSS `hnrss.org/frontpage`, keyword feed `hnrss.org/newest?q=<term>`) · Techmeme (RSS `techmeme.com/feed.xml`) · Product Hunt (`producthunt.com`) · Indie Hackers (`indiehackers.com`).
+Google Trends (`trends.google.com/trends`) · Exploding Topics (`explodingtopics.com`) · r/SideProject, r/Entrepreneur (Reddit — verify via primary sources).
 
 ## Articles & papers — the generic evidence surface, check first for any method/technical claim
 
@@ -30,7 +31,7 @@ G2 (`g2.com`) · Capterra (`capterra.com`) · AlternativeTo (`alternativeto.net`
 
 GitHub Trending (`github.com/trending?since=daily`; RSS `mshibanami.github.io/GitHubTrendingRSS/daily/{lang}.xml`, also `weekly/`/`monthly/`) · GitHub Topics (`github.com/topics/<topic>`) · Best of JS (`bestofjs.org`) · Socket Trending (`socket.dev/npm/category/trending`) · npm trends (`npmtrends.com`) · Star History (`star-history.com`) · OSS Insight (`ossinsight.io`)
 
-Corroborate with `ghSearchRepos`/`npmSearch` — these surfaces rank/compare, they don't replace tool evidence.
+Corroborate repo/package momentum through `octocode-research` — these surfaces rank/compare, they don't replace source evidence.
 
 ## AI trend surfaces (AI ideas only)
 
@@ -50,7 +51,7 @@ CISA KEV (`cisa.gov/known-exploited-vulnerabilities-catalog`) · GitHub Advisori
 
 ## Deeper landscape maps
 
-`plenaryapp/awesome-rss-feeds` · `vishalshar/awesome_ML_AI_RSS_feed` (list itself dormant since 2021, entries still valid) · `alvinreal/awesome-opensource-ai` · `kilimchoi/engineering-blogs` · `duanyytop/agents-radar` — read via `ghGetFileContent`/`WebFetch`; don't duplicate their contents into this file.
+`plenaryapp/awesome-rss-feeds` · `vishalshar/awesome_ML_AI_RSS_feed` (list itself dormant since 2021, entries still valid) · `alvinreal/awesome-opensource-ai` · `kilimchoi/engineering-blogs` · `duanyytop/agents-radar` — fetch via web tools or `octocode-research`; don't duplicate their contents into this file.
 
 ## Rules
 

@@ -126,7 +126,7 @@ Lessons learned from others. If no prior art, state that explicitly.
 
 ## Unresolved Questions
 
-Questions this RFC does not yet answer. Each is **closed in `IMPLEMENTATION.md` via octocode research**, or explicitly deferred there with a reason.
+Questions this RFC does not yet answer. Each is **closed in `IMPLEMENTATION.md` via `octocode-research`**, or explicitly deferred there with a reason.
 
 **Before acceptance:**
 - [ ] {question}

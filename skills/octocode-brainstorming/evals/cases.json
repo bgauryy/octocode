@@ -8,7 +8,9 @@
     "Uses evidence/citations for material claims.",
     "Summarizes perspective review outcomes without dumping raw subagent transcripts.",
     "Includes verdict, decision label, and one actionable next step.",
-    "Honors hard gates and does not jump to RFC or implementation prematurely."
+    "Honors hard gates and does not jump to RFC or implementation prematurely.",
+    "Avoids one-shot brainstorming by involving the user in direction when the flow is unclear.",
+    "Uses a Web Search Scout for Serper/Tavily and a Source/Code Checker to verify sources/code when web research matters."
   ],
   "cases": [
     {
@@ -21,6 +23,7 @@
         { "name": "tldr", "pattern": "^##\\s*TL;DR\\b" },
         { "name": "mode", "pattern": "\\bMode\\b[^\\n]{0,20}\\bValidate\\b|\\bValidate mode\\b" },
         { "name": "surface plan", "pattern": "\\bSurface Plan\\b" },
+        { "name": "direction check", "pattern": "\\bDirection Check\\b|\\buser chose\\b|\\bask(?:ed)? the user\\b|\\bfocused question\\b" },
         { "name": "framings", "pattern": "\\bFramings? Considered\\b|\\bframing slate\\b" },
         { "name": "perspective review", "pattern": "\\bPerspective Review\\b" },
         { "name": "decision label", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" },
@@ -42,6 +45,14 @@
           "passPattern": "\\bSurface Plan\\b",
           "failureSignature": "mechanism:brainstorm-answer|cause:surface-plan-missing",
           "suggestedLesson": "Brainstorming answers should declare Local, GitHub/packages, and Web surface status before research claims."
+        },
+        {
+          "id": "involves-user-direction",
+          "dimension": "framing",
+          "question": "Does the answer show the user direction, focused question, or assumption before deep research?",
+          "passPattern": "\\bDirection Check\\b|\\buser chose\\b|\\bask(?:ed)? the user\\b|\\bfocused question\\b",
+          "failureSignature": "mechanism:brainstorm-answer|cause:one-shot-direction",
+          "suggestedLesson": "Brainstorming should not one-shot ambiguous ideas; ask or record the chosen direction before deep research."
         },
         {
           "id": "diverges-before-converging",
@@ -157,6 +168,7 @@
         { "name": "resource-first loop", "pattern": "\\b(Resource[- ]first|Top Resources First|articles/resources first|resources?\\s*(?:->|→)\\s*repos?)\\b" },
         { "name": "formal resources", "pattern": "\\bofficial\\b|\\bpaper\\b|\\bdocs\\b|\\barticles?\\b" },
         { "name": "repo follow-up", "pattern": "\\bRepo/Code Follow-up\\b|\\bGitHub/packages\\b|\\brepos?/packages\\b|\\bcode follow-up\\b" },
+        { "name": "two-worker close loop", "pattern": "\\bWeb Search Scout\\b[\\s\\S]*\\bSource/Code Checker\\b|\\bSource/Code Checker\\b[\\s\\S]*\\bWeb Search Scout\\b" },
         { "name": "loop back", "pattern": "\\bloop(?:ed)? back\\b|\\breturned to resources\\b|\\bcross-pollinat(?:e|ed)\\b" },
         { "name": "decision", "pattern": "\\bDecision\\b[^\\n]{0,20}\\b(Build RFC|Prototype First|Narrow|Park|Do Not Build)\\b" }
       ],
@@ -176,6 +188,14 @@
           "passPattern": "\\b(resources?|articles?|docs|papers)\\b[\\s\\S]*(\\bGitHub\\b|\\brepos?\\b|\\bpackages?\\b|\\bcode\\b)",
           "failureSignature": "mechanism:brainstorm-research|cause:code-search-not-seeded",
           "suggestedLesson": "Resource names and terms should seed repository, package, and exact-code reads."
+        },
+        {
+          "id": "uses-web-plus-source-code-checker",
+          "dimension": "cross-surface",
+          "question": "Does the answer pair web search with a separate source/code checker before synthesis?",
+          "passPattern": "\\bWeb Search Scout\\b[\\s\\S]*\\bSource/Code Checker\\b|\\bSource/Code Checker\\b[\\s\\S]*\\bWeb Search Scout\\b",
+          "failureSignature": "mechanism:brainstorm-research|cause:no-source-code-checker",
+          "suggestedLesson": "For web-backed brainstorming, pair Serper/Tavily scouting with a source/code checker that fetches sources and verifies code when needed."
         },
         {
           "id": "loops-back-to-resources",

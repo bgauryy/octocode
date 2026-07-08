@@ -9,9 +9,36 @@ process.on('warning', (w) => {
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { mkdirSync as mkdirSync2, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve5 } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // src/helpers.ts
 import { resolve } from "node:path";
+var MEMORY_LABEL_VALUES = [
+  "BUG",
+  "FEATURE",
+  "SUGGESTION",
+  "GOTCHA",
+  "IMPROVEMENT",
+  "DECISION",
+  "ARCHITECTURE",
+  "SECURITY",
+  "PERFORMANCE",
+  "TEST",
+  "BUILD",
+  "DOCS",
+  "CONFIG",
+  "WORKFLOW",
+  "REFACTOR",
+  "API",
+  "RELEASE",
+  "INCIDENT",
+  "EXPERIENCE",
+  // post-task reflections (worked/partial/failed outcomes)
+  "OVERRIDE",
+  // contradicts model training defaults (e.g. "this repo uses Bun, not npm")
+  "OTHER"
+];
+var MEMORY_LABELS = new Set(MEMORY_LABEL_VALUES);
 function utcNow() {
   return (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -392,34 +419,84 @@ function ftsTermsForRow(row) {
   return [...tags, label, ...row.references ?? []].filter(Boolean).join(" ");
 }
 function rebuildFts(db2) {
-  db2.exec("DELETE FROM memories_fts");
-  const rows = db2.prepare(
-    "SELECT memory_id, task_context, observation, tags_json, label FROM memories"
-  ).all();
-  if (rows.length > 0) {
-    const refs = db2.prepare(
-      `SELECT memory_id, reference
-       FROM memory_refs
-       WHERE memory_id IN (${rows.map(() => "?").join(",")})
-       ORDER BY memory_id, ordinal`
-    ).all(...rows.map((row) => row.memory_id));
-    const refsByMemory = /* @__PURE__ */ new Map();
-    for (const ref of refs) {
-      const list = refsByMemory.get(ref.memory_id) ?? [];
-      list.push(ref.reference);
-      refsByMemory.set(ref.memory_id, list);
+  db2.exec("SAVEPOINT rebuild_fts");
+  try {
+    db2.exec("DELETE FROM memories_fts");
+    const rows = db2.prepare(
+      "SELECT memory_id, task_context, observation, tags_json, label FROM memories"
+    ).all();
+    if (rows.length > 0) {
+      const refs = db2.prepare(
+        `SELECT r.memory_id, r.reference
+         FROM memory_refs r
+         JOIN memories m ON m.memory_id = r.memory_id
+         ORDER BY r.memory_id, r.ordinal`
+      ).all();
+      const refsByMemory = /* @__PURE__ */ new Map();
+      for (const ref of refs) {
+        const list = refsByMemory.get(ref.memory_id) ?? [];
+        list.push(ref.reference);
+        refsByMemory.set(ref.memory_id, list);
+      }
+      for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
     }
-    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
-  }
-  const insert = db2.prepare(
-    "INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
-  );
-  for (const row of rows) {
-    insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
+    const insert = db2.prepare(
+      "INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
+    );
+    for (const row of rows) {
+      insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
+    }
+    db2.exec("RELEASE SAVEPOINT rebuild_fts");
+  } catch (e) {
+    try {
+      db2.exec("ROLLBACK TO SAVEPOINT rebuild_fts");
+    } catch {
+    }
+    try {
+      db2.exec("RELEASE SAVEPOINT rebuild_fts");
+    } catch {
+    }
+    throw e;
   }
 }
 function evictExpiredLocks(db2) {
-  db2.prepare("DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?").run(utcNow());
+  const now = utcNow();
+  const stale = db2.prepare(
+    "SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?"
+  ).get(now);
+  if (stale.c === 0) return { pruned_locks: 0, updated_tasks: 0 };
+  db2.exec("SAVEPOINT evict_expired_locks");
+  try {
+    db2.exec("CREATE TEMP TABLE IF NOT EXISTS temp_expired_lock_tasks(task_id TEXT PRIMARY KEY)");
+    db2.exec("DELETE FROM temp_expired_lock_tasks");
+    db2.prepare(
+      `INSERT OR IGNORE INTO temp_expired_lock_tasks(task_id)
+       SELECT task_id FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?`
+    ).run(now);
+    const deleteRes = db2.prepare(
+      "DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?"
+    ).run(now);
+    const updateRes = db2.prepare(
+      `UPDATE tasks
+       SET status = 'PENDING', updated_at = ?
+       WHERE status = 'ACTIVE'
+         AND task_id IN (SELECT task_id FROM temp_expired_lock_tasks)
+         AND NOT EXISTS (SELECT 1 FROM locks WHERE locks.task_id = tasks.task_id)`
+    ).run(now);
+    db2.exec("DELETE FROM temp_expired_lock_tasks");
+    db2.exec("RELEASE SAVEPOINT evict_expired_locks");
+    return { pruned_locks: deleteRes.changes, updated_tasks: updateRes.changes };
+  } catch (e) {
+    try {
+      db2.exec("ROLLBACK TO SAVEPOINT evict_expired_locks");
+    } catch {
+    }
+    try {
+      db2.exec("RELEASE SAVEPOINT evict_expired_locks");
+    } catch {
+    }
+    throw e;
+  }
 }
 
 // src/intents.ts
@@ -942,6 +1019,21 @@ function getNotifications(db2, params) {
 }
 
 // src/maintenance.ts
+var SESSION_CAPTURE_FILE_LIMIT = 40;
+var SESSION_CAPTURE_VISIBLE_FILE_LIMIT = 20;
+var SESSION_CAPTURE_TASK_DETAIL_LIMIT = 8;
+var SESSION_CAPTURE_TASK_FILE_LIMIT = 8;
+var SESSION_CAPTURE_TEXT_LIMIT = 180;
+function compactText(value, max = SESSION_CAPTURE_TEXT_LIMIT) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+function listSummary(label, items, visibleLimit = SESSION_CAPTURE_VISIBLE_FILE_LIMIT) {
+  if (items.length === 0) return null;
+  const shown = items.slice(0, visibleLimit);
+  const omitted = items.length - shown.length;
+  return `${label}${omitted > 0 ? ` (showing ${shown.length} of ${items.length})` : ""}: ${shown.join(", ")}${omitted > 0 ? `; ${omitted} omitted` : ""}.`;
+}
 function pruneStale(db2, params = {}) {
   const dryRun = Boolean(params.dry_run ?? params.dryRun);
   const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
@@ -950,7 +1042,10 @@ function pruneStale(db2, params = {}) {
   const workspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
-  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean);
+  const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
+    const base = workspacePath ? resolve4(workspacePath) : process.cwd();
+    return isAbsolute2(file) ? resolve4(file) : resolve4(base, file);
+  });
   const now = utcNow();
   const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
   const conditions = [];
@@ -1260,22 +1355,27 @@ function sessionCapture(db2, params = {}) {
   }
   const now = utcNow();
   const refinementId = "ref_" + randomUUID4().replace(/-/g, "");
-  const capturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
-  const statusSummary = taskRows.map((row) => {
+  const allCapturedFiles = [.../* @__PURE__ */ new Set([...files, ...dirtyFiles])];
+  const capturedFiles = allCapturedFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
+  const capturedDirtyFiles = dirtyFiles.slice(0, SESSION_CAPTURE_FILE_LIMIT);
+  const statusSummary = taskRows.slice(0, SESSION_CAPTURE_TASK_DETAIL_LIMIT).map((row) => {
     const rowFiles = parseJsonList(row.files_json);
-    const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(", ")}` : "";
+    const shownFiles = rowFiles.slice(0, SESSION_CAPTURE_TASK_FILE_LIMIT);
+    const omittedFiles = rowFiles.length - shownFiles.length;
+    const fileSuffix = rowFiles.length > 0 ? ` files=${shownFiles.join(", ")}${omittedFiles > 0 ? ` (+${omittedFiles} more)` : ""}` : "";
     const planSuffix = row.plan_doc_ref ? ` plan=${row.plan_doc_ref}` : "";
-    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${planSuffix}${fileSuffix}`;
+    return `${row.status} ${row.task_id}: ${compactText(row.rationale)}; verify=${compactText(row.test_plan)}${planSuffix}${fileSuffix}`;
   });
+  const omittedTaskDetails = taskRows.length - statusSummary.length;
   const reasoning = [
     `Session capture for ${agentId2}${reason ? ` (${reason})` : ""}.`,
     `Unresolved tasks: ${taskRows.length} (${activeTasks} active, ${pendingTasks} pending).`,
-    dirtyFiles.length > 0 ? `Dirty files: ${dirtyFiles.join(", ")}.` : null,
-    statusSummary.length > 0 ? `Task details: ${statusSummary.join(" | ")}` : null
+    listSummary("Dirty files", dirtyFiles),
+    statusSummary.length > 0 ? `Task details: ${statusSummary.join(" | ")}${omittedTaskDetails > 0 ? ` | ${omittedTaskDetails} more tasks omitted` : ""}` : null
   ].filter(Boolean).join(" ");
   const remember = [
     `Review session handoff for ${agentId2}: ${activeTasks} active and ${pendingTasks} pending tasks remain.`,
-    capturedFiles.length > 0 ? `Touched files: ${capturedFiles.join(", ")}.` : null,
+    listSummary("Touched files", allCapturedFiles),
     dirtyFiles.length > 0 ? "Check dirty git state before continuing." : null,
     pendingTasks > 0 ? "Run the recorded verification before claiming completion." : null
   ].filter(Boolean).join(" ");
@@ -1304,7 +1404,11 @@ function sessionCapture(db2, params = {}) {
     pending_tasks: pendingTasks,
     active_tasks: activeTasks,
     files: capturedFiles,
-    dirty_files: dirtyFiles,
+    dirty_files: capturedDirtyFiles,
+    file_count: allCapturedFiles.length,
+    dirty_file_count: dirtyFiles.length,
+    omitted_files: Math.max(0, allCapturedFiles.length - capturedFiles.length),
+    omitted_dirty_files: Math.max(0, dirtyFiles.length - capturedDirtyFiles.length),
     reason,
     consolidation_opportunities: consolidationOpportunities
   };
@@ -1389,9 +1493,9 @@ function addPathValue(paths, value) {
     for (const item of value) addPathValue(paths, item);
   }
 }
-function addApplyPatchPaths(paths, command2) {
-  if (typeof command2 !== "string") return;
-  for (const line of command2.split("\n")) {
+function addApplyPatchPaths(paths, command) {
+  if (typeof command !== "string") return;
+  for (const line of command.split("\n")) {
     const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);
     if (addUpdDel) {
       paths.push(addUpdDel[1].trim());
@@ -1422,12 +1526,9 @@ function addQueryPaths(paths, value) {
     addPathValue(paths, payload.file_paths);
   }
 }
-function hasExplicitFileTargetPayload(payload) {
-  return ["path", "filePath", "file_path", "paths", "filePaths", "file_paths"].some((key) => payload[key] !== void 0) || Array.isArray(payload.queries);
-}
-function extractPiWriteTargetPaths(toolName, input = {}) {
+function extractPiWriteTargetPaths(toolName, input = {}, options = {}) {
   const normalizedToolName = String(toolName ?? "").toLowerCase();
-  const isWriteTool = [
+  const isWriteTool = Boolean(options.assumeWrite) || [
     "write",
     "edit",
     "multi_edit",
@@ -1438,8 +1539,12 @@ function extractPiWriteTargetPaths(toolName, input = {}) {
     "applypatch"
   ].includes(normalizedToolName);
   const payload = objectOrEmpty(input);
-  const command2 = typeof input === "string" ? input : firstString(payload.command, payload.patch, payload.text, payload.content);
-  if (!isWriteTool && typeof command2 !== "string" && !hasExplicitFileTargetPayload(payload)) return [];
+  const command = typeof input === "string" ? input : firstString(payload.command, payload.patch, payload.text, payload.content);
+  if (!isWriteTool) {
+    const patchPaths = [];
+    addApplyPatchPaths(patchPaths, command);
+    return [...new Set(patchPaths)];
+  }
   const paths = [];
   addPathValue(paths, payload.path);
   addPathValue(paths, payload.filePath);
@@ -1448,12 +1553,11 @@ function extractPiWriteTargetPaths(toolName, input = {}) {
   addPathValue(paths, payload.filePaths);
   addPathValue(paths, payload.file_paths);
   addQueryPaths(paths, payload.queries);
-  addApplyPatchPaths(paths, command2);
+  addApplyPatchPaths(paths, command);
   return [...new Set(paths)];
 }
 
 // bin/hook-runner.ts
-var command = process.argv[2] ?? "help";
 function readStdin() {
   return new Promise((resolve6) => {
     let raw = "";
@@ -1512,7 +1616,7 @@ function extractFiles(payload) {
   const input = payloadForFileExtraction(payload);
   const inputObj = objectOrEmpty2(input);
   const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? inputObj.tool_name ?? inputObj.toolName ?? "";
-  return extractPiWriteTargetPaths(toolName, input);
+  return extractPiWriteTargetPaths(toolName, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
   return resolve5(cwd, file);
@@ -1725,12 +1829,12 @@ async function runSessionEnd(payload) {
   }
   return 0;
 }
-async function main() {
+async function runHookCommand(command, rawPayload) {
   if (command === "help" || command === "--help" || command === "-h") {
     process.stdout.write("usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n");
     return 0;
   }
-  const payload = parsePayload(await readStdin());
+  const payload = parsePayload(rawPayload ?? await readStdin());
   switch (command) {
     case "pre-edit":
       return runPreEdit(payload);
@@ -1749,5 +1853,15 @@ async function main() {
       return 1;
   }
 }
-process.exitCode = await main();
+async function main() {
+  return runHookCommand(process.argv[2] ?? "help");
+}
+var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve5(process.argv[1]) : false;
+var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename2(process.argv[1])) : false;
+if (isMain && invokedAsHookRunner) {
+  process.exitCode = await main();
+}
+export {
+  runHookCommand
+};
 //# sourceMappingURL=hook-runner.js.map

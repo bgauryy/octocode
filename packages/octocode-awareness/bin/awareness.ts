@@ -5,9 +5,11 @@
  * Compiled to dist/bin/awareness.js by build.mjs.
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 
 import {
   connectDb, initDb, hasFts, resolveDbPath, evictExpiredLocks,
@@ -22,10 +24,14 @@ import { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspac
 import { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from '../src/notifications.js';
 import { auditUnverified, markVerified } from '../src/verify.js';
 import { registerAgent, listAgents } from '../src/agents.js';
+import { hooksInstallUsage, runHooksInstall } from '../src/hooks-install.js';
+import { formatAwarenessQueryResult, injectRepoContext, queryAwareness, writeAwarenessView } from '../src/repo-context.js';
 import {
   normalizeLabel,
+  normalizeFilePath,
   parseJsonList,
 } from '../src/helpers.js';
+import { runHookCommand } from './hook-runner.js';
 
 // ─── Arg parser ───────────────────────────────────────────────────────────────
 
@@ -37,7 +43,7 @@ const MEMORY_SORTS = new Set(['smart', 'score', 'importance', 'recent', 'accesse
 
 const ARRAY_FLAGS = new Set([
   'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state',
-  'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'regex', 'file_regex',
+  'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'task_id', 'regex', 'file_regex',
   'to_agent', 'kind',
 ]);
 
@@ -94,6 +100,9 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
   'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
   'memory-index': ['limit', 'min_importance', 'out', 'stdout', 'workspace', 'artifact', 'repo', 'ref'],
+  'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
+  'view': ['view', 'query', 'limit', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
+  'repo-inject': ['query', 'limit', 'out', 'out_dir', 'workspace', 'artifact', 'repo', 'ref', 'mode', 'check', 'include_view', 'include_bodies'],
   'agent-registry': ['action', 'agent_id', 'agent_name', 'workspace', 'artifact', 'context', 'limit'],
   'notify': ['agent_id', 'to', 'kind', 'subject', 'body', 'file', 'ref_id', 'in_reply_to', 'importance', 'workspace', 'artifact', 'repo', 'ref'],
   'agent-signal': ['action', 'agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'to_agent', 'file', 'ref_id', 'importance', 'in_reply_to', 'thread_id', 'signal_id', 'all', 'mark_read', 'limit'],
@@ -103,6 +112,9 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
   'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'lock_type', 'wait_seconds', 'retry_interval'],
   'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
+  'hook-run': [],
+  'hooks-install': ['host', 'claude', 'codex', 'cursor', 'project_dir', 'global', 'check', 'dry_run', 'remove'],
+  'schema': [],
 };
 
 function validateFlags(command: string, args: ParsedArgs): string[] {
@@ -124,6 +136,114 @@ function extractGlobalDb(argv: string[]): { dbPath: string | null; filtered: str
     }
   }
   return { dbPath, filtered };
+}
+
+interface CommandAlias {
+  command: string;
+  prepend?: string[];
+}
+
+const COMMAND_ALIASES: Record<string, CommandAlias> = {
+  'memory record': { command: 'tell-memory' },
+  'memory recall': { command: 'get-memory' },
+  'memory forget': { command: 'forget' },
+  'memory index': { command: 'memory-index' },
+  'workspace status': { command: 'workspace-status' },
+  'lock acquire': { command: 'pre-flight-intent' },
+  'lock release': { command: 'release-file-lock' },
+  'lock wait': { command: 'wait-for-lock' },
+  'lock prune': { command: 'prune-stale-locks' },
+  'verify mark': { command: 'verify' },
+  'verify audit': { command: 'audit-unverified' },
+  'refinement set': { command: 'refine-set' },
+  'refinement get': { command: 'refine-get' },
+  'refinement delete': { command: 'refine-delete' },
+  'signal publish': { command: 'agent-signal', prepend: ['--action', 'publish'] },
+  'signal list': { command: 'agent-signal', prepend: ['--action', 'list'] },
+  'signal reply': { command: 'agent-signal', prepend: ['--action', 'reply'] },
+  'signal ack': { command: 'agent-signal', prepend: ['--action', 'ack'] },
+  'signal resolve': { command: 'agent-signal', prepend: ['--action', 'resolve'] },
+  'signal prune': { command: 'notify-prune' },
+  'agent register': { command: 'agent-registry', prepend: ['--action', 'register'] },
+  'agent list': { command: 'agent-registry', prepend: ['--action', 'list'] },
+  'session capture': { command: 'session-capture' },
+  'reflect record': { command: 'reflect' },
+  'reflect mine-weakness': { command: 'mine-weakness' },
+  'reflect export-harness': { command: 'export-harness' },
+  'docs staleness': { command: 'doc-staleness' },
+  'maintenance digest': { command: 'digest' },
+  'maintenance init': { command: 'init' },
+  'maintenance self-test': { command: 'self-test' },
+  'repo inject': { command: 'repo-inject' },
+};
+
+function normalizeToken(value: string | undefined): string | undefined {
+  return value?.replace(/_/g, '-');
+}
+
+function selectCommand(argv: string[]): { command: string | undefined; rest: string[] } {
+  const [firstRaw, secondRaw, thirdRaw, ...tail] = argv;
+  const first = normalizeToken(firstRaw);
+  if (!first) return { command: undefined, rest: [] };
+
+  const second = normalizeToken(secondRaw);
+  if (first === 'hook' && second === 'run') {
+    return { command: 'hook-run', rest: thirdRaw ? [thirdRaw, ...tail] : tail };
+  }
+  if (first === 'hooks' && second) {
+    if (second === 'install') return { command: 'hooks-install', rest: thirdRaw ? [thirdRaw, ...tail] : tail };
+    if (second === 'check') return { command: 'hooks-install', rest: ['--check', ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
+    if (second === 'remove') return { command: 'hooks-install', rest: ['--remove', ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
+  }
+  if (first === 'schema') {
+    return { command: 'schema', rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
+  }
+  if (first === 'inject') {
+    return { command: 'repo-inject', rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
+  }
+
+  if (second) {
+    const alias = COMMAND_ALIASES[`${first} ${second}`];
+    if (alias) return { command: alias.command, rest: [...(alias.prepend ?? []), ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
+  }
+
+  return { command: first, rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
+}
+
+function packageSkillScriptPath(...segments: string[]): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // Prefer dist/skills/ (self-contained bundle) over root skills/ (source tree).
+  // dist/skills/ is populated by build.mjs so dist/ is fully self-contained for
+  // CLI installs and npm consumers that only ship dist/.
+  const candidates = [
+    join(here, '..', 'skills', 'octocode-awareness', 'scripts'),   // dist/skills/ — bundled, preferred
+    join(here, '..', '..', 'skills', 'octocode-awareness', 'scripts'), // <packageRoot>/skills/ — source fallback
+    here, // dist/bin/ — last resort
+  ];
+  const scriptsDir = candidates.find((candidate) =>
+    existsSync(join(candidate, 'schema.mjs')) || existsSync(join(candidate, 'hooks')),
+  ) ?? candidates[0]!;
+  return join(scriptsDir, ...segments);
+}
+
+function valuesFor(args: ParsedArgs, key: string): string[] {
+  const value = args[key];
+  if (value === undefined || value === false) return [];
+  return Array.isArray(value) ? value.map(String) : [String(value)];
+}
+
+function firstValue(args: ParsedArgs, key: string): string | undefined {
+  return valuesFor(args, key)[0];
+}
+
+function flagBool(value: ArgValue | undefined, fallback?: boolean): boolean | undefined {
+  if (value === undefined) return fallback;
+  if (value === false) return false;
+  if (value === true) return true;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes') return true;
+  return Boolean(value);
 }
 
 // ─── Output ───────────────────────────────────────────────────────────────────
@@ -159,6 +279,18 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const tags = Array.isArray(rawTag) ? rawTag : rawTag ? [String(rawTag)] : [];
   const rawRef = args['reference'];
   const references = Array.isArray(rawRef) ? rawRef : rawRef ? [String(rawRef)] : [];
+  const rawFile = args['file'];
+  const files = Array.isArray(rawFile) ? rawFile : rawFile ? [String(rawFile)] : [];
+  const workspaceForFiles = args['workspace'] ? String(args['workspace']) : undefined;
+  const fileReferences = files
+    .map((file) => {
+      const trimmed = file.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith('file:')) return trimmed;
+      const normalized = normalizeFilePath(trimmed, workspaceForFiles);
+      return normalized ? `file:${normalized}` : null;
+    })
+    .filter((file): file is string => Boolean(file));
   const rawSup = args['supersedes'];
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args['label'];
@@ -167,7 +299,7 @@ function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
   const { memory, superseded, noveltyScore, similarMemoryIds } = insertMemory(db, {
     agentId, taskContext, observation, importance: imp,
     label: normalizeLabel(label),
-    tags, references, supersedes,
+    tags, references: [...references, ...fileReferences], supersedes,
     failureSignature: args['failure_signature'] ? String(args['failure_signature']) : null,
     validFrom: args['valid_from'] ? String(args['valid_from']) : null,
     validTo: args['valid_to'] ? String(args['valid_to']) : null,
@@ -355,7 +487,7 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)) die('--ttl-seconds must be >= 1');
   if (ttlMinutes != null && ttlMinutes > 10) die('--ttl-minutes must be <= 10');
   if (ttlSeconds != null && ttlSeconds > MAX_CLI_TTL_SECONDS) die('--ttl-seconds must be <= 600');
-  const ttlMs = ttlMinutes != null ? ttlMinutes * 60000 : ttlSeconds != null ? ttlSeconds * 1000 : null;
+  const ttlMs = ttlSeconds != null ? ttlSeconds * 1000 : ttlMinutes != null ? ttlMinutes * 60000 : null;
 
   const claimParams = {
     agentId: String(args['agent_id'] ?? 'agent'),
@@ -404,15 +536,38 @@ function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
 
 function cmdVerify(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const allPending = Boolean(args['all_pending']);
-  if (!allPending && !args['task_id']) {
+  const taskIds = valuesFor(args, 'task_id');
+  if (!allPending && taskIds.length === 0) {
     return emit({ error: '--task-id is required (or use --all-pending)' }, 1, opts);
   }
   const statusArg = args['status'] ? String(args['status']) : 'SUCCESS';
   if (statusArg !== 'SUCCESS' && statusArg !== 'FAILED') {
     return emit({ error: `--status must be SUCCESS or FAILED, got "${statusArg}"` }, 1, opts);
   }
+  if (!allPending && taskIds.length > 1) {
+    const results = taskIds.map((taskId) => markVerified(db, {
+      taskId,
+      agentId: String(args['agent_id'] ?? 'agent'),
+      workspacePath: args['workspace'] ? String(args['workspace']) : null,
+      artifact: args['artifact'] ? String(args['artifact']) : null,
+      message: args['message'] ? String(args['message']) : undefined,
+      status: statusArg as 'SUCCESS' | 'FAILED',
+    }));
+    const failed = results.find((result) => !result.ok);
+    if (failed && !failed.ok) {
+      return emit({ db_path: dbPath, ok: false, error: failed.error, task_id: null, task_ids: taskIds, results }, 1, opts);
+    }
+    return emit({
+      db_path: dbPath,
+      task_id: null,
+      task_ids: taskIds,
+      count: results.length,
+      status: statusArg,
+      results,
+    }, 0, opts);
+  }
   const result = markVerified(db, {
-    taskId: args['task_id'] ? String(args['task_id']) : undefined,
+    taskId: taskIds[0],
     agentId: String(args['agent_id'] ?? 'agent'),
     allPending,
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
@@ -429,7 +584,8 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     ? (Array.isArray(rawTarget) ? rawTarget : [String(rawTarget)])
     : [];
 
-  if (!args['task_id'] && targetFiles.length === 0) {
+  const taskId = firstValue(args, 'task_id');
+  if (!taskId && targetFiles.length === 0) {
     return emit({ error: 'release-file-lock requires --task-id or --target-file' }, 1, opts);
   }
 
@@ -437,7 +593,7 @@ function cmdReleaseFileLock(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     agentId: String(args['agent_id'] ?? 'agent'),
     workspacePath: args['workspace'] ? String(args['workspace']) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
-    taskId: args['task_id'] ? String(args['task_id']) : null,
+    taskId: taskId ?? null,
     targetFiles,
     status: (String(args['status'] ?? 'SUCCESS')) as 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED',
     verified: Boolean(args['verified']),
@@ -573,6 +729,75 @@ function cmdExportHarness(db: DatabaseSync, args: ParsedArgs, dbPath: string, op
     min_importance: args['min_importance'] ? parseInt(String(args['min_importance']), 10) : undefined,
     workspace_path: args['workspace'] ? String(args['workspace']) : null,
     artifact: args['artifact'] ? String(args['artifact']) : null,
+  });
+  return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
+function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const view = String(args['view'] ?? args._[0] ?? 'all');
+  const format = String(args['format'] ?? 'json').toLowerCase();
+  const result = queryAwareness(db, {
+    view,
+    workspacePath: args['workspace'] ? String(args['workspace']) : process.cwd(),
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
+    query: args['query'] ? String(args['query']) : null,
+    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
+    agentId: args['agent_id'] ? String(args['agent_id']) : null,
+    state: Array.isArray(args['state']) ? args['state'].map(String) : args['state'] ? String(args['state']) : null,
+    label: Array.isArray(args['label']) ? args['label'].map(String) : args['label'] ? String(args['label']) : null,
+    file: args['file'] ? String(Array.isArray(args['file']) ? args['file'][0] : args['file']) : null,
+    since: args['since'] ? String(args['since']) : null,
+    includeBodies: flagBool(args['include_bodies']),
+  });
+
+  const outPath = args['out'] ? String(args['out']) : null;
+  if (outPath) {
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, formatAwarenessQueryResult(result, format), 'utf8');
+    return emit({ db_path: dbPath, path: outPath, view: result.view, count: result.count }, 0, opts);
+  }
+
+  if (format === 'json') return emit({ db_path: dbPath, ...result }, 0, opts);
+  process.stdout.write(formatAwarenessQueryResult(result, format));
+  return 0;
+}
+
+function cmdView(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const view = String(args['view'] ?? args._[0] ?? 'all');
+  const result = writeAwarenessView(db, {
+    view,
+    workspacePath: args['workspace'] ? String(args['workspace']) : process.cwd(),
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
+    query: args['query'] ? String(args['query']) : null,
+    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
+    agentId: args['agent_id'] ? String(args['agent_id']) : null,
+    state: Array.isArray(args['state']) ? args['state'].map(String) : args['state'] ? String(args['state']) : null,
+    label: Array.isArray(args['label']) ? args['label'].map(String) : args['label'] ? String(args['label']) : null,
+    file: args['file'] ? String(Array.isArray(args['file']) ? args['file'][0] : args['file']) : null,
+    since: args['since'] ? String(args['since']) : null,
+    includeBodies: flagBool(args['include_bodies']),
+    out: args['out'] ? String(args['out']) : undefined,
+  });
+  return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
+function cmdRepoInject(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
+  const outDir = args['out_dir'] ?? args['out'];
+  const result = injectRepoContext(db, {
+    workspacePath: args['workspace'] ? String(args['workspace']) : process.cwd(),
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
+    query: args['query'] ? String(args['query']) : null,
+    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
+    outDir: outDir ? String(outDir) : undefined,
+    mode: args['mode'] ? String(args['mode']) : undefined,
+    includeView: flagBool(args['include_view']),
+    check: flagBool(args['check']),
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
@@ -880,163 +1105,114 @@ function cmdSelfTest(opts: EmitOptions): number {
 // ─── Help text ────────────────────────────────────────────────────────────────
 
 const HELP = `usage: awareness <command> [options]
+common: --db <path> --compact
+schema: awareness schema list|json-schema <name>|example <name>|validate <name> <json-file|->
 
-commands: tell-memory  get-memory  forget  reflect  refine-set  refine-get  refine-delete
-          pre-flight-intent  release-file-lock  status  workspace-status  init  self-test
-          prune-stale-locks  audit-unverified  verify  mine-weakness  doc-staleness  export-harness  memory-index
-          agent-registry  notify  agent-signal  notify-get  notify-resolve  notify-prune  session-capture  wait-for-lock  digest
+memory: memory record|recall|forget|index (aliases: tell-memory, get-memory, forget, memory-index)
+coordination: lock acquire|release|wait|prune, verify mark|audit, status, workspace-status
+messages: signal publish|list|reply|ack|resolve|prune, agent register|list, notify*
+learning: refinement set|get|delete, reflect record|mine-weakness|export-harness, session capture, docs staleness
+repo context: query <view>, view, repo inject (alias: inject)
+hooks: hook run <event>, hooks install|check|remove --host claude|codex|cursor
+utility: maintenance init|self-test|digest, init, self-test
 
-common options:
-  --db <path>     Override DB path (default: $OCTOCODE_MEMORY_HOME/awareness.sqlite3)
-  --compact       Compact JSON output (or OCTOCODE_AWARENESS_COMPACT=1)
+legacy aliases: pre-flight-intent, wait-for-lock, release-file-lock, audit-unverified, prune-stale-locks,
+  refine-set, refine-get, refine-delete, agent-registry, agent-signal, notify, notify-get, notify-resolve, notify-prune,
+  session-capture, doc-staleness
 
-tell-memory:
-  --agent-id <id>  --task-context <text>  --observation <text>
-  --importance <1-10>  --label <LABEL>  [--tag <t>]...  [--reference <r>]...
+Run "awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 
-get-memory:
-  --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
-  [--tag <t>]...  [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
-  [--sort smart|score|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
-  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--semantic]  [--explain]
-  --explain: attach per-result score_components (importance/recency/access/relevance)
+const COMMAND_TO_SCHEMA: Record<string, string> = {
+  'tell-memory': 'tell_memory',
+  'get-memory': 'get_memory',
+  'memory-index': 'memory_index',
+  'pre-flight-intent': 'pre_flight_intent',
+  'wait-for-lock': 'wait_for_lock',
+  'prune-stale-locks': 'prune_stale_locks',
+  'release-file-lock': 'release_file_lock',
+  'audit-unverified': 'audit_unverified',
+  'verify': 'verify',
+  'forget': 'forget_memory',
+  'refine-set': 'refinement',
+  'refine-get': 'refine_query',
+  'refine-delete': 'refine_delete',
+  'agent-registry': 'agent_registry',
+  'agent-signal': 'agent_signal',
+  'notify-get': 'notify_query',
+  'notify-resolve': 'notify_resolve',
+  'notify-prune': 'notify_prune',
+  'notify': 'notify',
+  'workspace-status': 'workspace_status',
+  'export-harness': 'export_harness',
+  'query': 'query',
+  'view': 'view',
+  'repo-inject': 'repo_inject',
+  'session-capture': 'session_capture',
+  'mine-weakness': 'mine_weakness',
+  'doc-staleness': 'doc_staleness',
+  'digest': 'digest',
+  'reflect': 'reflect',
+};
 
-forget:
-  [--memory-id <id>]...  [--tag <t>]...  [--before <ISO>]  [--max-importance <n>]  [--dry-run]
+const COMMAND_HELP: Record<string, string> = {
+  'tell-memory': `usage: awareness tell-memory --agent-id <id> --task-context <text> --observation <text> --importance <1-10> [--label <l>] [--tag <t>]... [--reference <r>]... [--file <p>]...
+schema: node scripts/schema.mjs json-schema tell_memory`,
+  'get-memory': `usage: awareness get-memory [options]
+filters: [--query <text>] [--limit <n>] [--min-importance <n>] [--label <l>]... [--tag <t>]... [--reference <r>]... [--file <p>]... [--regex <r>]... [--file-regex <r>]...
+scope: [--workspace <p>] [--artifact <a>] [--repo <r>] [--ref <r>] [--strict-scope] [--global-only]
+rank: [--sort smart|score|importance|recent|accessed] [--state ACTIVE|SUPERSEDED]... [--as-of <iso>] [--semantic] [--explain]
+schema: node scripts/schema.mjs json-schema get_memory`,
+  'pre-flight-intent': `usage: awareness pre-flight-intent --agent-id <id> --target-file <p>... [--workspace <p>] [--artifact <a>] [--rationale <t>] [--test-plan <t>] [--lock-type EXCLUSIVE|SHARED] [--ttl-minutes <n>] [--wait-seconds <n>]
+schema: node scripts/schema.mjs json-schema pre_flight_intent`,
+  'agent-signal': `usage: awareness agent-signal --action publish|list|reply|resolve|ack --agent-id <id> [--to-agent <id>]... [--signal-id <id>]... [--thread-id <id>] [--kind <k>] [--subject <t>] [--body <t>] [--file <p>]...
+schema: node scripts/schema.mjs json-schema agent_signal`,
+  'verify': `usage: awareness verify (--task-id <id>... | --all-pending) --agent-id <id> [--status SUCCESS|FAILED] [--message <t>] [--workspace <p>] [--artifact <a>]
+schema: node scripts/schema.mjs json-schema verify`,
+  'reflect': `usage: awareness reflect --agent-id <id> --task <text> --outcome worked|partial|failed [--lesson <t>] [--fix-repo <t>] [--fix-file <p>]... [--failure-signature <s>]
+schema: node scripts/schema.mjs json-schema reflect`,
+  'query': `usage: awareness query <all|repo-profile|memories|gotchas|lessons|tasks|locks|agents|signals|refinements|files|activity> [--workspace <repo>] [--format json|table|csv|markdown] [--out <path>]
+schema: node scripts/schema.mjs json-schema query`,
+  'view': `usage: awareness view [view] [--workspace <repo>] [--out <path>]
+schema: node scripts/schema.mjs json-schema view`,
+  'repo-inject': `usage: awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
+schema: node scripts/schema.mjs json-schema repo_inject`,
+  'hook-run': `usage: awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
+  'hooks-install': hooksInstallUsage(),
+  'schema': `usage: awareness schema list|json-schema <name>|example <name>|validate <name> <json-file|->`,
+};
 
-refine-delete:
-  --refinement-id <id>...  [--workspace <path>]  [--dry-run]
+function hyphenFlag(flag: string): string {
+  return `--${flag.replace(/_/g, '-')}`;
+}
 
-export-harness:
-  [--limit <n>]  [--min-importance <n>]  [--workspace <path>]
-  preview top lessons as an AGENTS.md block
+function helpFor(command: string | null): string {
+  if (!command) return HELP;
+  const normalized = command.replace(/_/g, '-');
+  if (COMMAND_HELP[normalized]) return COMMAND_HELP[normalized]!;
+  const flags = KNOWN_FLAGS[normalized];
+  if (!flags) return HELP;
+  const schema = COMMAND_TO_SCHEMA[normalized] ?? normalized.replace(/-/g, '_');
+  return `usage: awareness ${normalized} [options]
+flags: ${flags.map(hyphenFlag).join(' ')}
+schema: node scripts/schema.mjs json-schema ${schema}`;
+}
 
-agent-registry:
-  [--action list|register]  [--workspace <path>]  [--artifact <name>]  [--limit <n>]
-  register: --agent-id <id>  [--agent-name <name>]  [--context <host>]
-  list known agents from the same SQLite store, ordered by last_seen_at
-
-notify:
-  --agent-id <id>  --kind claim|handoff|question|reply|blocker|request|decision|fyi
-  --subject <text>  [--to <agent-id>]  [--body <text>]  [--file <path>]...
-  [--ref-id <id>]...  [--in-reply-to <signal-id>]  [--importance <1-10>]
-
-agent-signal:
-  --action publish|list|reply|resolve|ack  --agent-id <id>
-  publish: --kind claim|handoff|question|reply|blocker|request|decision|fyi  --subject <text>
-           [--to-agent <id>]...  [--body <text>]  [--file <path>]...  [--ref-id <id>]...
-           [--in-reply-to <signal-id>]  [--importance <1-10>]
-  reply:   same as publish, plus --in-reply-to <signal-id> (thread_id is inherited from the parent)
-  list:    [--all]  [--kind <k>]...  [--thread-id <id>]  [--mark-read]  [--limit <n>]
-           inbox = unread signals addressed to --agent-id, plus broadcasts where to_agent is unset
-  ack:     --signal-id <id>...  idempotent per-agent read receipt (shares signal_reads with --mark-read)
-  resolve: [--signal-id <id>]...  [--thread-id <id>]
-  [--workspace <path>]  [--artifact <name>]  [--repo <r>]  [--ref <r>]
-  generated signal ids use an "ntf_" prefix
-
-notify-get:
-  [--agent-id <id>]  [--workspace <path>]  [--artifact <name>]  [--all]  [--mark-read]
-  [--kind <k>]  [--thread-id <id>]  [--limit <n>]  [--format json|hook]
-  with --agent-id and --format json (default): this agent's real inbox
-  without --agent-id, or with --format hook: smart-briefing payload used by hooks
-
-notify-resolve:
-  [--signal-id <id>]...  [--thread-id <id>]
-
-notify-prune:
-  [--signal-id <id>]...  [--resolved]  [--older-than-days <n>]  [--dry-run]
-
-session-capture:
-  [--agent-id <id>]  [--workspace <path>]  [--artifact <name>]  [--repo <r>]  [--ref <r>]
-  [--reason <text>]  [--cwd <path>]
-  writes a work-handoff refinement summarizing this agent's active locks and dirty git tree
-
-wait-for-lock:
-  --agent-id <id>  --target-file <path>...  [--workspace <path>]  [--artifact <name>]
-  [--lock-type EXCLUSIVE|SHARED]  [--wait-seconds <n>]  [--retry-interval <n>]
-  polls until the target file(s) are lock-free or --wait-seconds elapses
-  exits 0 when lock_free; exits 2 on timeout with conflicts[]
-
-reflect:
-  --agent-id <id>  --task <text>  --outcome worked|partial|failed
-  [--lesson <text>]  [--worked <text>]  [--didnt-work <text>]
-  [--fix-repo <text>]  [--fix-file <path>]...  [--fix-harness <text>]
-  [--failure-signature <sig>]  [--importance <1-10>]  [--judgment-note <text>]
-  [--duo]  [--eval-failure-json '<[{id,dimension?,failure_signature?,suggested_lesson?}]>']
-  --duo emits an advisory reflection_duo packet (not stored); eval failures
-  become eval-tagged memories clustered by failure_signature
-
-refine-set:
-  new:    --agent-id <id> --reasoning <text> --remember <text>
-          [--quality good|bad|handoff]  [--state open|ongoing|done]  [--file <path>]...
-  update: --refinement-id <id> plus only the flags to change (e.g. --state done)
-
-refine-get:
-  [--state open|ongoing|done]...  [--quality good|bad|handoff]  [--include-handoffs]
-  session handoffs are hidden unless --include-handoffs or --quality handoff is passed
-
-prune-stale-locks:
-  [--older-than-minutes <n>]  [--expired-only]  [--agent-id <id>]
-  [--target-file <path>]...  [--dry-run]
-  expired locks always qualify; --older-than-minutes also catches old live locks
-
-workspace-status:
-  [--workspace <path>] [--artifact <name>]   show active locks, agent tasks, and memory counts
-
-mine-weakness:
-  [--agent-id <id>]  [--workspace <path>]  [--min-count <n>]  [--limit <n>]
-  find recurring failure patterns grouped by failure_signature
-
-doc-staleness:
-  --targets-json '<[{"docFile":"pkg/ARCHITECTURE.md","sourceDirs":["pkg/src"]}]>'
-  [--workspace <path>]  [--min-edits <n>]  [--min-lines <n>]
-  [--propose]  [--agent-id <id>]  [--session-id <id>]
-  compares edit_log activity under sourceDirs against docFile's own last edit_log
-  timestamp; --propose records a harness_log 'propose' event (failure_signature
-  'doc-staleness') for each stale entry
-
-digest:
-  [--retention-days <n>]  [--refinement-handoff-retention-days <n>]  [--refinement-done-retention-days <n>]
-  [--dry-run]  [--export-doc [path]]
-  archive expired memories, prune old superseded rows/refinements, rebuild FTS
-  --dry-run: preview counts without mutating anything
-  --export-doc: write a markdown memory report to .octocode/memory-reports/
-
-pre-flight-intent:
-  --agent-id <id>  --target-file <path>...  [--workspace <path>]  [--artifact <name>]
-  [--rationale <text>]  [--test-plan <text>]  [--plan-doc-ref <ref>]  [--lock-type EXCLUSIVE|SHARED]
-  [--ttl-minutes <n> | --ttl-seconds <n>]  [--wait-seconds <n>]  [--retry-interval <n>]
-  claims target file(s); CLI TTL accepts at most 10 minutes and direct runtime calls are hard-capped at 10 minutes
-  --wait-seconds: on conflict, wait up to <n>s for the current holder to release, then retry once
-
-release-file-lock:
-  --agent-id <id>  (--task-id <id> | --target-file <path>)  [--status SUCCESS|PENDING|FAILED]
-  [--verified]  [--verified-note <text>]
-
-audit-unverified:
-  [--agent-id <id>]  [--workspace <path>]  [--artifact <name>]  [--abandon]
-  exits 1 when unverified (PENDING) tasks exist; exits 0 when clear
-  --abandon: dismiss all PENDING tasks as FAILED (clear orphaned sessions)
-
-verify:
-  (--task-id <id> | --all-pending)  --agent-id <id>
-  [--status SUCCESS|FAILED]  [--message <text>]  [--workspace <path>]  [--artifact <name>]
-  marks a PENDING task as verified; --all-pending clears every PENDING task for this agent
-`;
+function commandFromHelpArgv(argv: string[]): string | null {
+  const withoutHelp = argv.filter((arg) => arg !== '--help' && arg !== '-h');
+  return selectCommand(extractGlobalDb(withoutHelp).filtered).command ?? null;
+}
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 const rawArgv = process.argv.slice(2);
 
 if (rawArgv.length === 0 || rawArgv.includes('--help') || rawArgv.includes('-h')) {
-  process.stdout.write(HELP + '\n');
+  process.stdout.write(helpFor(commandFromHelpArgv(rawArgv)) + '\n');
   process.exit(0);
 }
 
 const { dbPath: globalDb, filtered: filteredArgv } = extractGlobalDb(rawArgv);
-const [rawCommand, ...rest] = filteredArgv;
-// Accept protocol-style underscore aliases (tell_memory → tell-memory).
-const command = rawCommand?.replace(/_/g, '-');
+const { command, rest } = selectCommand(filteredArgv);
 const args = parseArgs(rest ?? []);
 if (globalDb) args['db'] = globalDb;
 
@@ -1064,6 +1240,23 @@ if (!command) {
 
 if (command === 'self-test') {
   process.exit(cmdSelfTest(opts));
+}
+
+if (command === 'schema') {
+  const script = packageSkillScriptPath('schema.mjs');
+  const result = spawnSync(process.execPath, [script, ...args._], { stdio: 'inherit' });
+  process.exit(result.status ?? 1);
+}
+
+if (command === 'hook-run') {
+  process.exit(await runHookCommand(String(args._[0] ?? 'help')));
+}
+
+if (command === 'hooks-install') {
+  const result = runHooksInstall(rest, { hookDir: packageSkillScriptPath('hooks') });
+  if (result.text !== undefined) process.stdout.write(result.text);
+  else if (result.payload) emit(result.payload, result.exitCode, opts);
+  process.exit(result.exitCode);
 }
 
 let db: DatabaseSync;
@@ -1199,6 +1392,9 @@ try {
     case 'forget':          exitCode = cmdForget(db, args, dbPath, opts); break;
     case 'refine-delete':   exitCode = cmdRefineDelete(db, args, dbPath, opts); break;
     case 'export-harness':  exitCode = cmdExportHarness(db, args, dbPath, opts); break;
+    case 'query':           exitCode = cmdQuery(db, args, dbPath, opts); break;
+    case 'view':            exitCode = cmdView(db, args, dbPath, opts); break;
+    case 'repo-inject':     exitCode = cmdRepoInject(db, args, dbPath, opts); break;
     case 'agent-registry':  exitCode = cmdAgentRegistry(db, args, dbPath, opts); break;
     case 'notify':          exitCode = cmdNotify(db, args, dbPath, opts); break;
     case 'agent-signal':    exitCode = cmdAgentSignal(db, args, dbPath, opts); break;

@@ -14,38 +14,26 @@ For external validation, prior-art mapping, method claims, or market/technical l
 Skip this order only when the user explicitly asks for local-only/no-web work, web access is unavailable, or the idea is purely about this workspace.
 For repo-targeted ideas, orient locally first or in parallel so resource queries use the real stack.
 
-## GitHub & packages — Octocode CLI
+## GitHub, packages, and local code
 
-Run `npx octocode <command> ... --no-color`. Prefer quick commands; use raw tools only for schema-exact fields or bulk — and read `tools <name> --scheme` before any raw `--queries` call.
+When a brainstorm needs Octocode-backed GitHub, package, local code, history, artifact, or semantic research, delegate that research to `octocode-research`.
 
-- `search --target packages` / raw `npmSearch` — npm libraries and source repos
-- `search --target repositories` / raw `ghSearchRepos` — repos by topic, language, stars
-- `search owner/repo --tree` / raw `ghViewRepoStructure` — how a similar project is organized
-- `search <kw> owner/repo` / raw `ghSearchCode` — confirm a concept is actually implemented
-- `search owner/repo/path --content-view exact` / raw `ghGetFileContent` — read key files for specific answers
-- `search --target pullRequests` / `search --target commits` / raw `ghHistoryResearch` — how similar features shipped in PRs/commits
+Use `octocode-research` if installed. If it is missing, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install it with:
 
-Code follow-up flow after resource leads: `search --target repositories` (resolve named projects/terms) → `search --target packages` (resolve packages) → `search --tree`/text search (orient) → `search --content-view exact` (exact evidence) → `search --target commits` / `search --target pullRequests` (change history).
+```bash
+npx octocode skill --name octocode-research
+```
 
-## Local workspace — orient here first when the idea touches the user's own repo
-
-The `search` command auto-routes local paths: use `search <path> --tree`, `search <query> <path>`, `search <path> --search path|content|both`, and `search <file> --content-view exact|compact|symbols`; add `search <file> --op definition|references|callers|hover` for semantics. Raw tools: `localSearchCode`, `localFindFiles`, `localGetFileContent`, `localViewStructure`, `lspGetSemantics`.
-
-- `search <path> --tree` / raw `localViewStructure` — how the workspace is laid out; symbol outline of a file
-- `search <kw> <path>` / raw `localSearchCode` — is this concept *already* implemented here? (`--pattern`/`--rule` for AST shape)
-- `search <path> --search path` / raw `localFindFiles` — locate files by name/path/content
-- `search <path> --content-view symbols` / raw `localGetFileContent` — read the exact code — signatures or full
-- `search <file> --op …` / raw `lspGetSemantics` — call sites, callers, references → blast radius of a change
+Ask `octocode-research` for the needed evidence surface, confidence, and citations; then return here for framing, stress-test, and verdict.
 
 **When to use:** the idea is grounded in *this* repo — "should we add X to **our** app", "is Y worth building into **our** codebase", "does **our** system already do Z".
-Then **orient locally before external research**. Two payoffs:
+Then ask `octocode-research` to orient locally before external research. Two payoffs:
 - you avoid recommending something the repo already has;
 - you frame every prior-art query with the workspace's real stack, libraries, and naming.
 
 **Skip entirely** for purely external ideas (market size, landscape, "has anyone built X out there") — local adds nothing there.
 
-Local orient flow: `search <workspace> --tree` (structure) → `search <concept> <workspace>` / `search <workspace> --search path` (does it exist already?) → `search <file> --content-view symbols` (how it works) → `search <file> --op ...` (who depends on it / blast radius).
-Carry the real lib names, framework, and constraints into the GitHub/npm/web queries — local findings sharpen external search the same way cross-pollination does.
+Carry the real lib names, framework, and constraints from `octocode-research` into web queries; local findings sharpen external search the same way cross-pollination does.
 
 ## Web/top resources — search → read → follow
 
@@ -66,13 +54,21 @@ Two interchangeable engines in `scripts/` (same CLI: `--query --max-results --ti
 
 Run solo for one quick check. Dispatch as separate workers only when the brainstorm already spans multiple surfaces/query slices and budget allows — each dispatched worker counts against the Hard Gate 5-worker ceiling.
 
+Default two-worker close-loop for web-backed brainstorming:
+- **Web Search Scout** runs Serper and/or Tavily for one query slice, then returns ranked leads.
+- **Source/Code Checker** fetches the best sources, expands to more sources, and uses `octocode-research` when GitHub/packages/local code evidence matters.
+- Run them in parallel when possible; otherwise run them sequentially with separate notes. The final synthesis must reconcile both receipts.
+
 > **Web Search Scout** — owns one query slice. Run Tavily and/or Serper (whichever checked out) → fetch/open the best formal/validated URLs.
 > Report who's doing it, what's right/wrong, gaps, and the best URLs with author/date notes. Cite everything fetched.
+
+> **Source/Code Checker** — owns verification after the web leads. Fetch/open source material beyond snippets, then delegate GitHub/packages/local code checks to `octocode-research` when needed.
+> Report source quality, code evidence, contradictions, and unresolved gaps. Cite exact URLs, package metadata, repo files, or local `file:line`.
 
 > **Trend & Source Scout** — owns momentum/crowdedness/research-recency for one space. Pull 2-3 entries from `references/trend-sources.md` (cross-domain buzz, articles/papers incl. arXiv, competitive landscape, repo/package momentum, AI trend surfaces, or platform validation — whichever fits).
 > Fetch and report the star/velocity/recency/citation/ranking signal, not just presence. Cite everything fetched; mark `weak` if uncorroborated.
 
-Run both in parallel when an idea needs both breadth (Web Search Scout) and a momentum read (Trend & Source Scout) — they cover different evidence, not the same query twice.
+Run Web Search Scout and Trend & Source Scout in parallel when an idea needs both breadth and momentum. They cover different evidence, not the same query twice.
 
 **Model tier for these two scouts:** fetch-and-summarize is mechanical, not judgment.
 When the host lets you pick a worker model (Cursor `Task` `model`; Pi `spawnAgent` `model`), dispatch both scouts on a small/fast model (e.g. `composer-2.5`, Haiku, or the host's fast tier) instead of the main reasoning model.
@@ -92,7 +88,7 @@ Reserve the heavier model for STRESS-TEST/perspective review and final synthesis
   - GitHub: skip forks/skeletons/<10★ unless sole match; prefer recent commits, engaged issues, multiple contributors.
   - **Packages (npm): downloads alone ≠ healthy** — also weigh **last-publish recency, release cadence, maintainer count, open-issue/PR ratio, and dependency freshness**.
   - A high-download but unmaintained package (last publish >1–2y, single maintainer, stale deps) is a *risk to flag*, not validation — and is often the white-space signal (popular but abandoned = opportunity).
-  - Read `search --target packages` output and the source repo's `search --target commits`/issues; don't trust the download badge alone.
+  - For package health, ask `octocode-research` for package metadata, source repo status, commits, issues, and dependency freshness; don't trust the download badge alone.
 - **Formal web ladder.** For method, technical, scientific, or safety claims, use Tavily/Serper/web search to discover, then fetch/open and cite formal sources only.
   - Cite: official/reference docs, standards bodies, protocol RFCs, arXiv, Google Scholar/Semantic Scholar leads to papers, ScienceDirect, PubMed, IEEE Xplore, CORE/open-access copies, and canonical academic/industry papers.
   - Leads only (not proof): community discussions, marketing pages, blogs, videos, listicles, HN/Reddit/StackOverflow, Product Hunt, SEO/AI-farm pages — unless the research question is explicitly about community/market sentiment.

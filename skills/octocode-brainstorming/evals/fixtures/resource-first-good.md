@@ -11,6 +11,10 @@ Resource-first loop: started from top articles/resources and formal sources befo
 - Official docs article: `strong` https://example.com/official-agent-docs
 - Paper: `moderate` https://example.com/reflection-paper
 
+## Worker Loop
+Web Search Scout ran Serper/Tavily for breadth and returned formal source leads.
+Source/Code Checker fetched those sources, expanded the source list, and checked GitHub/packages/code for implementation evidence.
+
 ## Repo/Code Follow-up
 The resources named Reflexion and Self-Refine, so GitHub/packages follow-up checked repos/packages and exact code reads for implementation evidence.
 

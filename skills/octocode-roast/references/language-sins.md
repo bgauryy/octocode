@@ -42,38 +42,14 @@ Per-language sin tables plus copy-paste detection queries. Pair with the tiered 
 
 ## Search Patterns
 
-Run these against the roast target path. Add `--json` when you need exact anchors for follow-up reads.
+Use these as pattern families for `octocode-research`; do not run or document Octocode research commands here.
 
-```bash
-TARGET=./src
+| Category | Patterns |
+|---|---|
+| Security | `password\s*=`, `api_key\s*=`, `secret\s*=`, `token\s*=`, `eval\(`, `new Function\(`, `innerHTML\s*=`, `dangerouslySetInnerHTML`, `verify\s*=\s*False`, `rejectUnauthorized:\s*false` |
+| Architecture and size | parent-directory import climbs, unusually large files, dense directories, high fan-in/fan-out |
+| Type safety and error handling | `: any`, `as any`, `@ts-ignore`, non-null assertions, empty catches, `except ... pass`, `panic!`, `unwrap()` |
+| Performance and data access | sync file I/O, `SELECT *`, async `forEach`, blocking calls in hot paths |
+| Quality, frontend, and residue | `TODO`, `FIXME`, `HACK`, `XXX`, disables, large `z-index`, `!important`, `console.log`, `debugger`, merge markers |
 
-# CAPITAL: security
-npx octocode search 'password\s*=|api_key\s*=|secret\s*=|token\s*=' "$TARGET" --regex --view discovery
-npx octocode search 'eval\(|new Function\(' "$TARGET" --regex --view discovery
-npx octocode search 'innerHTML\s*=|dangerouslySetInnerHTML' "$TARGET" --regex --view discovery
-npx octocode search 'verify\s*=\s*False|rejectUnauthorized:\s*false' "$TARGET" --regex --view discovery
-
-# Architecture and size
-npx octocode search "$TARGET" --tree --depth 2
-npx octocode search "from\\s+['\\\"]\\.\\./\\.\\." "$TARGET" --regex --ext ts,tsx,js,jsx --files-only
-find "$TARGET" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) -print0 | xargs -0 wc -l | sort -rn | head -20
-
-# Type safety and error handling
-npx octocode search ': any|as any|@ts-ignore' "$TARGET" --regex --ext ts,tsx --view discovery
-npx octocode search '!\.' "$TARGET" --regex --ext ts,tsx --view discovery
-npx octocode search 'catch\s*\([^)]*\)\s*\{\s*\}|except\s+[^:]+:\s*pass' "$TARGET" --regex --view discovery
-npx octocode search 'panic!|unwrap\(\)' "$TARGET" --regex --ext rs --view discovery
-
-# Performance and data access
-npx octocode search 'readFileSync|writeFileSync' "$TARGET" --regex --view discovery
-npx octocode search 'SELECT\s+\*' "$TARGET" --regex --view discovery
-npx octocode search '\.forEach\(async|await\s+.*\.forEach' "$TARGET" --regex --view discovery
-
-# Quality, frontend, and AI residue
-npx octocode search 'TODO|FIXME|HACK|XXX' "$TARGET" --regex --view discovery
-npx octocode search 'eslint-disable|ts-ignore|type:\s*ignore' "$TARGET" --regex --view discovery
-npx octocode search '!important|z-index\s*:\s*[0-9]{4,}' "$TARGET" --regex --view discovery
-npx octocode search 'console\.log|debugger|<<<<<<<|>>>>>>>' "$TARGET" --regex --view discovery
-```
-
-For raw MCP `localSearchCode`, read the host schema first and translate the regex strings into its input fields rather than copying CLI flags.
+Ask `octocode-research` to upgrade any match into exact evidence before the roast cites it.

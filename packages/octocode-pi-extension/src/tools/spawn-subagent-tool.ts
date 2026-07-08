@@ -5,6 +5,7 @@
  *   - Has a closed enum of registered subagent types (type-safe, discoverable)
  *   - Pre-loads the subagent's SYSTEM_PROMPT.md from dist/subagents/<name>/
  *   - Enforces the correct tool allowlist and resource mode per subagent
+ *   - Loads every bundled Octocode skill for Octocode specialist subagents
  *   - Passes subagent-specific params (url, port) as structured context in the task
  *   - Returns agentId for AgentMessage (same agents Map as spawnAgent)
  *
@@ -28,11 +29,14 @@ import {
   SUBAGENT_REGISTRY,
   SUBAGENT_NAMES,
   loadSystemPrompt,
+  type SubagentConfig,
   type SubagentName,
 } from '../subagents.js';
+import { getRandomAgentName } from '../agentNames.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
+const CHROME_DISABLED_ENV = 'OCTOCODE_CHROME_DEBUG';
 
 // ─── Params per subagent type ─────────────────────────────────────────────────
 
@@ -80,15 +84,32 @@ function buildTaskWithContext(params: SpawnSubagentParams): string {
 function buildAgentName(params: SpawnSubagentParams): string {
   if (params.name) return params.name;
   const config = SUBAGENT_REGISTRY[params.agent];
-  let slug = 'session';
+  const codename = getRandomAgentName();
+  let slug = '';
   if (params.url) {
     try {
-      slug = new URL(params.url).hostname.replace(/^www\./, '');
+      slug = ` · ${new URL(params.url).hostname.replace(/^www\./, '')}`;
     } catch {
-      slug = 'session';
+      // ignore
     }
   }
-  return `${config.label} · ${slug}`;
+  return `${config.label} · ${codename}${slug}`;
+}
+
+function isChromeDebugEnabled(): boolean {
+  return process.env[CHROME_DISABLED_ENV] !== '0';
+}
+
+function getAvailableSubagentNames(): SubagentName[] {
+  if (isChromeDebugEnabled()) return [...SUBAGENT_NAMES];
+  return SUBAGENT_NAMES.filter((name) => name !== 'browser-agent');
+}
+
+function unavailableSubagentMessage(agent: string, availableNames: SubagentName[]): string {
+  if (agent === 'browser-agent' && !isChromeDebugEnabled()) {
+    return `browser-agent is unavailable because ${CHROME_DISABLED_ENV}=0 disables chromeDebug. Available: ${availableNames.join(', ')}`;
+  }
+  return `Unknown subagent: "${agent}". Available: ${availableNames.join(', ')}`;
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -102,18 +123,26 @@ export function registerSpawnSubagentTool(
 ): void {
   // Workers cannot spawn workers — never register this tool inside a spawned worker process.
   if (isSubagentProcess()) return;
+  const availableSubagentNames = getAvailableSubagentNames();
+  const availableSubagentSet = new Set<string>(availableSubagentNames);
+  const availableSubagents = availableSubagentNames.map((name) => {
+    const config = SUBAGENT_REGISTRY[name];
+    return `  ${name} — ${config.description} Tools: ${config.tools.join(', ')}.`;
+  }).join('\n');
+  const skillGuideline = isChromeDebugEnabled()
+    ? 'Every typed subagent loads all bundled Octocode skills; browser-agent also loads its browser-agent skill.'
+    : 'Every available typed subagent loads all bundled Octocode skills; browser-agent is unavailable while Chrome debug is disabled.';
+
   registerFn(pi, registeredToolNames, {
     name: 'spawnSubagent',
     label: 'Spawn Subagent',
     description: [
-      'Spawn a typed, pre-configured Pi subagent with the right tools, system prompt, and resource mode.',
+      'Spawn a typed, pre-configured Pi subagent with the right tools, system prompt, resource mode, and all bundled Octocode skills.',
+      'Use spawnAgent instead when you need a clean arbitrary worker with only the tools/skills you explicitly provide.',
       'Returns an agentId — use AgentMessage to coordinate (wait, send, steer, status, kill).',
       '',
       'Available subagents:',
-      '  browser-agent — Chrome DevTools specialist. Tools: chromeDebug, web, localGetFileContent,',
-      '                  localSearchCode, localViewStructure. Emits [FINDING]/[ACTION]/[DONE] protocol.',
-      '                  Use for: security audits, network analysis, DOM inspection, coverage,',
-      '                  workers, service workers, emulation, automation — any multi-turn browser work.',
+      availableSubagents,
       '',
       'After spawning:',
       '  AgentMessage({action:"wait",   agentId, timeoutMs:60000})      — block until done',
@@ -123,20 +152,23 @@ export function registerSpawnSubagentTool(
       '  AgentMessage({action:"kill",   agentId, remove:true})          — terminate when done',
     ].join('\n'),
 
-    promptSnippet: 'Spawn a typed browser/specialist subagent with pre-configured tools and system prompt',
+    promptSnippet: 'Spawn a typed Octocode specialist subagent with pre-configured tools, system prompt, and all Octocode skills',
     promptGuidelines: [
-      'Use spawnSubagent instead of spawnAgent when the task needs a specialised subagent (browser-agent for any Chrome DevTools work).',
-      'browser-agent has chromeDebug + web + local search — perfect for multi-turn browser sessions.',
+      `Use spawnSubagent for typed Octocode specialists: ${availableSubagentNames.join(', ')}.`,
+      skillGuideline,
+      'Use spawnAgent for clean arbitrary workers. spawnAgent defaults to lean/no-skills and only uses tools/skills you pass.',
+      'Use `pi -ne --list-models [search]` as the source of truth for the user-configured model table; do not read hardcoded config paths.',
+      'Pass model for each typed subagent: fastest capable configured model for small tasks, balanced coding/reasoning model for medium tasks, strongest configured model for large/high-risk work.',
       'Always follow with AgentMessage(wait) to collect results; use AgentMessage(send) for follow-up instructions.',
-      'browser-agent emits structured [FINDING]/[ACTION]/[METRIC]/[DONE] lines — parse these for findings.',
+      'Typed subagents emit structured prefixed lines such as [FINDING], [EVIDENCE], [ACTION], [PLAN], [BLOCKED], and [DONE] — parse these for synthesis.',
       'Kill the agent with AgentMessage(kill, remove:true) when done to free resources.',
     ],
 
     parameters: Type.Object({
       agent: Type.Unsafe({
         type: 'string',
-        enum: SUBAGENT_NAMES,
-        description: 'Subagent type to spawn. Currently: "browser-agent".',
+        enum: availableSubagentNames,
+        description: `Subagent type to spawn. Available: ${availableSubagentNames.join(', ')}.`,
       }),
       task: Type.String({
         description:
@@ -153,12 +185,12 @@ export function registerSpawnSubagentTool(
         Type.String({ description: 'Working directory for the subagent process. Defaults to current cwd.' }),
       ),
       model: Type.Optional(
-        Type.String({ description: 'Model override, e.g. "sonnet:high". Defaults to subagent default.' }),
+        Type.String({ description: 'Model override from `pi -ne --list-models [search]`. Defaults to subagent default. Choose from the live user-configured table; `--models` only sets model-cycling scope.' }),
       ),
       thinking: Type.Optional(
         Type.String({ description: 'Thinking level: off|minimal|low|medium|high|xhigh. Defaults to subagent default.' }),
       ),
-      // browser-agent specific params
+      // browser-agent specific params (ignored by other subagents)
       url: Type.Optional(
         Type.String({ description: '(browser-agent) Target URL. Injected into task context.' }),
       ),
@@ -181,12 +213,10 @@ export function registerSpawnSubagentTool(
       ctx?: PiContext,
     ) {
       const params = rawParams as unknown as SpawnSubagentParams;
-      const config = SUBAGENT_REGISTRY[params.agent];
+      const config: SubagentConfig | undefined = SUBAGENT_REGISTRY[params.agent];
 
-      if (!config) {
-        throw new Error(
-          `Unknown subagent: "${params.agent}". Available: ${SUBAGENT_NAMES.join(', ')}`,
-        );
+      if (!config || !availableSubagentSet.has(params.agent)) {
+        throw new Error(unavailableSubagentMessage(String(params.agent ?? ''), availableSubagentNames));
       }
 
       // Load system prompt from dist/subagents/<name>/SYSTEM_PROMPT.md
@@ -202,7 +232,7 @@ export function registerSpawnSubagentTool(
         resourceMode: config.resourceMode,
         systemPrompt,
         thinking: params.thinking ?? config.thinking,
-        model: params.model,  // config has no model default — use param only
+        model: params.model ?? config.model,
         noSession: true,
       };
 
@@ -221,6 +251,7 @@ export function registerSpawnSubagentTool(
         `[SPAWNED] ${config.label} · agentId: ${agentId}`,
         `[SPAWNED] name: ${record.name}`,
         `[SPAWNED] tools: ${config.tools.join(', ')}`,
+        `[SPAWNED] skills: ${(config.skills ?? []).map((skillPath) => skillPath.split(/[\\/]/).at(-1)).join(', ')}`,
         `[SPAWNED] resourceMode: ${config.resourceMode}`,
         `[SPAWNED] task: ${params.task.slice(0, 120)}${params.task.length > 120 ? '…' : ''}`,
         '',

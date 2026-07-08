@@ -1,40 +1,19 @@
-# Octocode MCP and CLI
+# Octocode Research Delegation
 
-Load this when a task needs Octocode setup, transport choice, authentication, or command examples.
+Load when skill discovery or comparison needs Octocode-backed GitHub, package, or code research.
 
-## Choose Transport
+This skill does not define Octocode research rules. Use `octocode-research` for the router, tool choice, evidence grades, citation discipline, and MCP/CLI fallback behavior.
 
-Use Octocode MCP tools directly when the host exposes them, such as `localSearchCode`, `ghSearchCode`, `ghGetFileContent`, `npmSearch`, `lspGetSemantics`, or `localBinaryInspect`. Read the tool description and input schema before calling.
+## How To Route
 
-When MCP tools are not exposed, prefer the CLI with `npx octocode`. Read live help before relying on flags, and read `npx octocode tools <name> --scheme` before raw tool calls.
-
-## MCP Install
-
-Configure the MCP server as:
-
-```json
-"octocode": {
-  "command": "npx",
-  "type": "stdio",
-  "args": [
-    "@octocodeai/mcp@latest"
-  ]
-}
-```
-
-Restart the host/editor after changing MCP configuration.
-
-## CLI Usage
-
-Run commands as `npx octocode <command>`.
-
-Useful probes:
+1. If `octocode-research` is installed, load it and request skill-candidate discovery or exact `SKILL.md` evidence.
+2. If it is not installed, point the user or agent to https://github.com/bgauryy/octocode/tree/main/skills/octocode-research.
+3. To install it with the Octocode CLI, run:
 
 ```bash
-npx octocode --help
-npx octocode auth status --json
-npx octocode tools
-npx octocode tools <name> --scheme
+npx octocode skill --name octocode-research
 ```
 
-Use `npx octocode auth login` when GitHub or private data requires authentication. If neither MCP nor CLI is available, continue only with clearly degraded confidence or ask the user to enable one.
+Add `--platform <target>` when installing for a specific host, such as `codex`, `claude`, `cursor`, or `pi`.
+
+Return the found skill folders here for linting, quality scoring, adaptation, install gating, and user-facing recommendations.

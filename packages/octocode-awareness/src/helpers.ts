@@ -8,14 +8,16 @@ import type { MemoryRecord, MemoryRow } from './types.js';
 
 // ─── Valid labels ─────────────────────────────────────────────────────────────
 
-export const MEMORY_LABELS = new Set([
+export const MEMORY_LABEL_VALUES = [
   'BUG', 'FEATURE', 'SUGGESTION', 'GOTCHA', 'IMPROVEMENT', 'DECISION',
   'ARCHITECTURE', 'SECURITY', 'PERFORMANCE', 'TEST', 'BUILD', 'DOCS',
   'CONFIG', 'WORKFLOW', 'REFACTOR', 'API', 'RELEASE', 'INCIDENT',
   'EXPERIENCE', // post-task reflections (worked/partial/failed outcomes)
   'OVERRIDE',   // contradicts model training defaults (e.g. "this repo uses Bun, not npm")
   'OTHER',
-]);
+] as const;
+
+export const MEMORY_LABELS = new Set<string>(MEMORY_LABEL_VALUES);
 
 export const REFLECTION_IMPORTANCE: Record<string, number> = {
   failed: 8,

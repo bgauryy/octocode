@@ -21,9 +21,9 @@ Auto-detect scope in order:
 4. Entire repo (nuclear option)
 
 **Tactical Scan**:
-- `localViewStructure` → identify "God Files" (large) and "Dumpster Directories" (too many files).
-- `localSearchCode` with `filesOnly=true` → map the blast radius.
-- `lspGetSemantics(type=references)` → how far bad patterns spread; `(type=callers/callees)` → trace the infection path.
+- Use `octocode-research` for local structure, search, semantic reachability, and blast-radius evidence.
+- If `octocode-research` is missing, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install with `npx octocode skill --name octocode-research`.
+- Return here with cited evidence, then write the roast inventory.
 
 **Output**:
 ```

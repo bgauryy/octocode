@@ -1,44 +1,38 @@
 # Research Algorithm
 
-The router, evidence model, and failure playbook behind `octocode-research`. **This is the single source for these rules** — every other reference in this skill points here instead of restating them. Read this once per session before the mode-specific flows.
+The thinking core of `octocode-research`: router, reading dimensions, evidence model, triangulation, and failure playbook.
+Algorithm.md is the single source for these rules. Read it once per session before the mode-specific flows.
 
-Distilled from `docs/AGENT_ALGORITHMS.md` (verified live against the running toolset — all 13 tools, minification, pagination, bridges); read that doc for the full measurements, worked examples, and related-work comparison.
+Distilled from `docs/OCTOCODE_RESEARCH_MANIFEST.md` (verified live against the running toolset — all 13 tools, minification, pagination, bridges); read that doc for the full measurements, worked examples, and related-work comparison.
 
 ## Router — route by what you hold, not a fixed pipeline
 
 Running grep first when you hold a symbol name wastes a hop; running LSP first when you hold only a concept cannot work at all.
 
-```
-WHAT DO I HOLD?
-├─ Nothing + a wiki/doc artifact exists (ARCHITECTURE.md, droid-wiki/, openwiki/,
-│  .devin/wiki.json, GitHub Wiki, DeepWiki/Code Wiki)
-│    → read it for orientation and named entry points — a LEAD, not proof
-│    → re-enter this router to verify any specific claim before relying on it
-│
-├─ Nothing, no doc artifact
-│    → tree (maxDepth 1-2) + count-matches-per-file on the domain term → hotspot map
-│    → re-enter this router with what you learned
-│
-├─ A concept / behavior (words, no identifier)
-│    → synonym-regex search (e.g. "halfLife|half_life|HALF_LIFE")
-│    → minify:"symbols" on the top file → the anchor sheet
-│
-├─ An identifier (function/class/const)
-│    → LSP workspaceSymbol — skip grep for locating
-│    → callers/callees (callables) or references groupByFile (everything else)
-│
-├─ A code shape ("all X calls that do Y")
-│    → structural search with a rule — metavars = typed extraction
-│
-├─ A package name
-│    → node_modules FIRST (see below) → npmSearch only to find the repo
-│
-├─ A "why" / history question
-│    → PR search (keywords + match:["title"]) or commit history on the path
-│
-└─ A binary / archive / huge artifact
-     → inspect (list before extract; strings for leads)
-```
+| What you hold | First move |
+|---|---|
+| Nothing + a wiki/doc artifact | Read it for named entry points; treat the result as a lead, then verify specific claims. |
+| Nothing, no doc artifact | Tree depth 1-2 plus count-matches-per-file on the domain term; re-enter with the hotspot map. |
+| Concept or behavior words | Synonym-regex search, then `minify:"symbols"` on the top file for anchors. |
+| Identifier | LSP workspaceSymbol, then callers/callees for callables or references for other symbols. |
+| Code shape | Structural search with a rule; metavars become typed extraction. |
+| Package name | Inspect `node_modules` first; use npmSearch only to find the source repo. |
+| Why/history question | Search PR titles or commit history on the path. |
+| Binary/archive/huge artifact | Inspect or list before extracting; use strings for leads. |
+
+## Three dimensions — read at least two before concluding
+
+Codebase behavior, impact, or reachability claims can be read through three angles; each alone builds a confidently partial model with no signal that it is partial:
+
+| Dimension | Answers | Tools | Blind to |
+|---|---|---|---|
+| **structure** | where things live, size, naming | tree, find-files | meaning — a plausibly-named file proves nothing about behavior |
+| **stream** | what is actually written | grep, exact reads, symbols outline | identity — cannot tell a call from a comment or same-named symbol |
+| **connections** | what refers to what | LSP, structural AST | capability gaps — dynamic dispatch, scripts, unsupported languages are invisible |
+
+Before any nontrivial code conclusion, pull at least two dimensions.
+A mismatch between dimensions is a signal to look closer, not noise. One extra tree or symbols call costs less than a wrong "unused" or "impact is X" claim.
+For docs, skill, or process claims, use the equivalent trio: location/structure, exact text, and source-of-truth/provenance.
 
 ## Evidence grades — never conclude from one grade
 
@@ -49,13 +43,25 @@ WHAT DO I HOLD?
 | **lexical** | grep, rows pre-classified `declaration/callsite/import/comment` | total coverage | proves nothing about identity |
 | **provider** | GitHub search index | weakest — default-branch only | unindexed/archived repos → false zeros |
 
-**Non-negotiable, before any "impact is X" / "unused" / "only used in Y" claim:** diff one package-wide grep (including tests/scripts/configs) against the LSP result. Every lexical hit LSP didn't report is a finding — re-export, shadow copy, string/SQL/config reference, doc. The disagreement between lanes *is* the finding, not noise to discard.
+**Non-negotiable, before any "impact is X" / "unused" / "only used in Y" claim:** diff one package-wide grep against the LSP result.
+Include tests, scripts, and configs. Every lexical hit LSP missed is a finding: re-export, shadow copy, string/SQL/config reference, or doc.
+
+## Triangulate claims — batch angles, not just files
+
+Every tool takes up to 5 queries per call. Spend the batch by question type:
+
+- **Location lookup** ("where is X?") → 5 independent probes across files/paths/surfaces.
+- **Claim** ("X is unused / never reassigned / always guarded") → batch 2-3 angles on the SAME target.
+  Use lexical coverage, structural shape-proof, and semantic identity when the claim depends on symbol identity. A second angle catches false negatives from a guessed pattern.
 
 ## Reads: matchString first
 
-`matchString` (local + GitHub) hands back merged slices — not N reads — plus `matchRanges[]`: exact line anchors that feed LSP `lineHint` directly. Default read priority: **matchString > line ranges > fullContent** (small files only).
+`matchString` returns merged slices plus `matchRanges[]` anchors that feed LSP `lineHint` directly.
+Default read priority: **matchString > line ranges > fullContent** for small files only.
 
-Quote/diff/edit only from `minify:"none"`. `standard` mode is lossy (rewrites quote style, strips comments — ~0.58x chars). `symbols` mode is orientation-only: signatures + constants with values, ~0.10-0.28x size, line-gutter anchors — never read logic bodies from it.
+Quote/diff/edit only from `minify:"none"`.
+`standard` mode is lossy: it rewrites quote style and strips comments.
+`symbols` mode is orientation-only: signatures, constants with values, and line-gutter anchors.
 
 ## node_modules first
 
@@ -70,11 +76,18 @@ Question about a dependency's behavior?
   5. ONLY IF unshipped (git history, tests): npmSearch → repo → external loop
 ```
 
-`excludeDir: []` is mandatory — default exclusions silently skip `node_modules`, and "no matches" there means "didn't look." Watch for dual hits (`src/` + `dist/` in the same package) — prefer the one your resolver actually loads when semantics matter.
+`excludeDir: []` is mandatory. Default exclusions silently skip `node_modules`, so "no matches" there means "didn't look."
+Watch for dual hits such as `src/` plus `dist/`; prefer the file your resolver actually loads when semantics matter.
 
 ## Bridges: local ↔ external
 
-Materialize the moment you need AST, structural search, LSP, multi-file regex, or you're about to make a 3rd+ read into the same remote area. One bridge call (file/tree/repo depth, gated `ENABLE_CLONE=true`) converts remote code to full local-grade evidence — structural rules, native LSP, and matchString all run unmodified on the result.
+Materialize when you need AST, structural search, LSP, multi-file regex, or a 3rd+ read into one remote area.
+One bridge call converts remote code to local-grade evidence: structural rules, native LSP, and matchString all run on the result.
+
+## Schemas: pay for the contract only when about to use it
+
+Read the tool catalog before any single tool's schema. Read one full schema only right before calling a raw tool.
+Read `search --scheme --compact` before hand-writing OQL JSON. A guessed field costs a round-trip or a silently ignored parameter.
 
 ## Anti-patterns — each one costs real round-trips
 
@@ -90,6 +103,8 @@ Materialize the moment you need AST, structural search, LSP, multi-file regex, o
 | 8 | Ignoring `next.*` hints | They are prefilled, correct continuation queries |
 | 9 | Quoting from `minify:"standard"` output | Rewrites quotes, strips comments — quote only from `minify:"none"` |
 | 10 | Serial single queries | Up to 5 queries per call, per tool — batch independent probes |
+| 11 | Calling a raw tool with guessed field names | Read the schema tier first (see Schemas above) |
+| 12 | Spending one angle on a claim | Claims get 2-3 batched angles; a wrong-shape 0 reads like a proven negative |
 
 ## Failure signals
 
@@ -106,4 +121,8 @@ Materialize the moment you need AST, structural search, LSP, multi-file regex, o
 
 ## What this toolset deliberately doesn't do
 
-No embeddings/vector index and no precomputed knowledge graph. Deterministic lexical/structural/semantic search reaches proof-grade evidence with zero index setup whenever you hold a concrete handle (identifier, filename, error string, shape). The one case an indexed lane would beat this router: purely conceptual queries over a very large, unfamiliar codebase where synonym-regex fans out too wide — there, fall back to the "nothing" router branch (tree + hotspot map + symbols skeletons) and say the search is slower but fresh and evidence-graded. See `docs/AGENT_ALGORITHMS.md` §1b/§1c for the full position (including how to treat an existing wiki/AutoWiki doc as a lead, never as proof).
+No embeddings/vector index and no precomputed knowledge graph.
+With a concrete handle such as identifier, filename, error string, or shape, deterministic search can reach proof-grade evidence with zero index setup.
+An indexed lane helps most on purely conceptual queries over a very large, unfamiliar codebase where synonym-regex fans out too wide.
+Fallback path: use the "nothing" router branch with tree, hotspot map, and symbols skeletons. It is slower, but fresh and evidence-graded.
+Full position, including wiki/AutoWiki docs as leads-never-proof: `docs/OCTOCODE_RESEARCH_MANIFEST.md` §1b/§1c.

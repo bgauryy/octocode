@@ -13,7 +13,7 @@ Status shows who is editing now. Status also shows which edits still owe verific
 Flags: `--workspace` filters displayed locks/tasks under one workspace path; `--artifact` narrows to one package/service/artifact; `--limit` caps listed locks/pending tasks.
 Expired locks are cleaned on each call and their tasks become `PENDING`, so what you see is live without erasing verification debt.
 
-`status` shows memories, tasks, and locks, but **not** refinements.
+`status` shows memories, tasks, locks, and an `open_refinements` count, but not refinement bodies.
 For the work-handoff view, run `refine-get` separately.
 Everything lives in one shared store now, so a handoff can't "land in the wrong file."
 Refinements are still keyed by `repo`/`ref`; mismatched scope means `refine-get` will miss them.

@@ -1,42 +1,31 @@
 # Octocode Agent Communication
 
-`octocode-agent-communication` gives agents a focused way to talk to each other inside a shared workspace. It covers identity lookup, targeted or broadcast messages, threaded replies, acknowledgements, resolution, and handoffs. Users get a smaller phrase to ask for when they want agents to coordinate; maintainers get a narrow package surface for communication behavior.
+Compatibility skill for users and developers with older prompts or installs that still name `octocode-agent-communication`.
+
+New work should load **`octocode-awareness`**. Agent communication operations now live there: identity lookup, targeted or broadcast messages, threaded replies, acknowledgements, resolution, and handoffs all use the same awareness CLI and SQLite store.
 
 ## Features
 
-- Register and list known agents through the shared awareness `agents` table.
-- Publish typed messages through the shared `signals` table.
-- Read an inbox without confusing messages with memory, locks, or verification debt.
-- Reply in threads and resolve them when the work is complete.
-- Use hooks as delivery/reminder surfaces while keeping messages in SQLite.
-- Map local communication to an A2A-style model without running a public protocol server by default.
+- Keeps older skill references installable while the primary awareness skill owns message behavior.
+- Redirects agent-message workflows to `octocode-awareness`.
+- Avoids stale local scripts so users do not call removed compatibility wrappers.
 
 ## How It Works
 
-The skill is package-owned by `packages/octocode-awareness`. It uses the same local SQLite database as `octocode-awareness` and `octocode-reflection`, so agent identities, messages, read receipts, locks, refinements, and lessons stay in one workspace-scoped store.
+The agent-facing `SKILL.md` redirects to `octocode-awareness`. This folder intentionally has no operational `scripts/` directory; the primary awareness skill owns the CLI, schemas, hooks, signal commands, memory, and reflection commands.
 
-The core workflow is:
-
-```text
-REGISTER -> DISCOVER -> SEND -> RECEIVE -> REPLY -> ACK -> RESOLVE
-```
-
-`agent-registry` manages the identity layer. `agent-signal` manages the message layer. Hooks can surface unread messages at lifecycle moments, but they are not the message broker and they do not implicitly acknowledge work.
-
-For maintainers, the important boundary is simple: add communication ergonomics here, keep storage and lifecycle mechanics in the awareness package, and do not add another message database.
+Developers should update this package-owned source and run the awareness build to refresh mirrors.
 
 ## Installation
 
-Install the published skill with:
-
 ```bash
-npx octocode skill --name octocode-agent-communication
+npx octocode skill --name octocode-awareness
 ```
 
-This skill is package-owned. In the monorepo, run:
+This compatibility folder is package-owned. In the monorepo, run:
 
 ```bash
 yarn workspace @octocodeai/octocode-awareness build
 ```
 
-The build injects shared `awareness.mjs` and `schema.mjs` scripts into package-owned skills.
+The build refreshes this stub and removes stale operational scripts from mirrored copies.

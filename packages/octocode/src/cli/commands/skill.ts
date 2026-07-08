@@ -9,10 +9,12 @@ import {
   parseUserSkillPlatformList,
 } from '../../features/skills.js';
 import { c, bold, dim } from '../../utils/colors.js';
-import { fileExists } from '../../utils/fs.js';
+import { dirExists, fileExists } from '../../utils/fs.js';
 import { HOME } from '../../utils/platform.js';
 import {
   formatSkillInstallTargets,
+  getAvailableSkills,
+  getSkillsSourceDir,
   isSafeSkillName,
   installSkillToDestination,
   resolveModeForTarget,
@@ -280,6 +282,78 @@ function buildOctocodeSkillsSource(branchOverride?: string): MarketplaceSource {
     id: `github-${OCTOCODE_SKILLS_GITHUB.owner}-${OCTOCODE_SKILLS_GITHUB.repo}-${branch}-${OCTOCODE_SKILLS_GITHUB.skillsPath}`,
     url: `https://github.com/${OCTOCODE_SKILLS_GITHUB.owner}/${OCTOCODE_SKILLS_GITHUB.repo}/tree/${branch}/${OCTOCODE_SKILLS_GITHUB.skillsPath}`,
   };
+}
+
+function getBundledSkillsSource(): MarketplaceSource | null {
+  try {
+    const skillsPath = getSkillsSourceDir();
+    return {
+      id: 'bundled-octocode-skills',
+      name: 'Bundled',
+      type: 'local',
+      owner: '',
+      repo: '',
+      branch: '',
+      skillsPath,
+      skillPattern: 'skill-folders',
+      description: 'Bundled Octocode skills',
+      url: `file://${skillsPath}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function tryResolveBundledSkillRequest(
+  skillName: string
+): SkillInstallRequest | null {
+  try {
+    const bundledSource = getBundledSkillsSource();
+    if (!bundledSource) return null;
+
+    const skillPath = path.join(bundledSource.skillsPath, skillName);
+    if (
+      !dirExists(skillPath) ||
+      !fileExists(path.join(skillPath, 'SKILL.md'))
+    ) {
+      return null;
+    }
+
+    return {
+      skill: {
+        name: skillName,
+        displayName: formatSkillName(skillName),
+        description: 'Bundled Octocode skill',
+        path: skillName,
+        source: bundledSource,
+      },
+      sourceUrl: `file://${skillPath}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resolveAllBundledSkillRequests(): SkillInstallRequest[] {
+  try {
+    const bundledSource = getBundledSkillsSource();
+    if (!bundledSource) return [];
+
+    return getAvailableSkills()
+      .filter(name => fileExists(path.join(bundledSource.skillsPath, name, 'SKILL.md')))
+      .map(name => ({
+        skill: {
+          name,
+          displayName: formatSkillName(name),
+          description: 'Bundled Octocode skill',
+          path: name,
+          source: bundledSource,
+        },
+        sourceUrl: `file://${path.join(bundledSource.skillsPath, name)}`,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 function buildGitHubLibrarySource(ref: GithubSkillFolder): MarketplaceSource {
@@ -656,20 +730,60 @@ export const skillCommand: CLICommand = {
 
     let requests: SkillInstallRequest[] = [];
     if (installAll) {
-      const spinner = jsonOutput
-        ? null
-        : new Spinner('Fetching Octocode skills list...').start();
-      requests = await resolveOctocodeAllSkillRequests(branchOverride);
-      spinner?.stop();
+      // Prefer bundled skills; fall back to GitHub fetch if bundle is unavailable.
+      const bundledRequests = resolveAllBundledSkillRequests();
+      if (bundledRequests.length > 0) {
+        requests = bundledRequests;
+      } else {
+        const spinner = jsonOutput
+          ? null
+          : new Spinner('Fetching Octocode skills list...').start();
+        requests = await resolveOctocodeAllSkillRequests(branchOverride);
+        spinner?.stop();
+      }
+    } else if (namedSkill) {
+      // For official Octocode skills: prefer bundled path (offline, correct version).
+      const bundledRequest = tryResolveBundledSkillRequest(namedSkill);
+      if (bundledRequest) {
+        requests = [bundledRequest];
+      } else {
+        const ref = buildOctocodeSkillFolder(namedSkill, branchOverride);
+        if (!ref) {
+          printUsageError('Invalid Octocode skill name', jsonOutput);
+          return;
+        }
+
+        const spinner = jsonOutput
+          ? null
+          : new Spinner(`Resolving ${namedSkill}...`).start();
+        const resolved = await resolveGitHubSkillRequests(ref, namedSkill);
+        spinner?.stop();
+        if ('error' in resolved) {
+          if (jsonOutput) {
+            const skill = buildMarketplaceSkill(ref);
+            console.log(
+              JSON.stringify({
+                success: false,
+                skill: skill?.name,
+                source: ref.url,
+                error: resolved.error,
+              })
+            );
+          } else {
+            console.log();
+            console.log(`  ${c('red', '✗')} ${resolved.error}`);
+            console.log();
+          }
+          process.exitCode = resolved.status;
+          return;
+        }
+        requests = resolved.requests;
+      }
     } else {
-      const ref = namedSkill
-        ? buildOctocodeSkillFolder(namedSkill, branchOverride)
-        : parseGitHubSkillFolder(githubFolder, branchOverride);
+      const ref = parseGitHubSkillFolder(githubFolder, branchOverride);
       if (!ref) {
         printUsageError(
-          namedSkill
-            ? 'Invalid Octocode skill name'
-            : 'Expected a GitHub path URL or owner/repo/path shorthand',
+          'Expected a GitHub path URL or owner/repo/path shorthand',
           jsonOutput
         );
         return;
@@ -677,8 +791,8 @@ export const skillCommand: CLICommand = {
 
       const spinner = jsonOutput
         ? null
-        : new Spinner(`Resolving ${namedSkill ?? githubFolder}...`).start();
-      const resolved = await resolveGitHubSkillRequests(ref, namedSkill);
+        : new Spinner(`Resolving ${githubFolder}...`).start();
+      const resolved = await resolveGitHubSkillRequests(ref, undefined);
       spinner?.stop();
       if ('error' in resolved) {
         if (jsonOutput) {

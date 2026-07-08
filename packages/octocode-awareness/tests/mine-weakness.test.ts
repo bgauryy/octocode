@@ -163,6 +163,34 @@ describe('mineWeakness', () => {
     expect(result.clusters[0]!.count).toBe(2);
   });
 
+  it('scopes totals and representatives to the same workspace as clusters', () => {
+    const db = freshDb();
+    insertMemory(db, {
+      taskContext: 'scoped-a', observation: 'workspace-a representative', importance: 5, label: 'GOTCHA',
+      failureSignature: 'mechanism:scoped-total|cause:x', workspacePath: '/repo/a',
+    });
+    insertMemory(db, {
+      taskContext: 'scoped-a', observation: 'workspace-a second', importance: 5, label: 'GOTCHA',
+      failureSignature: 'mechanism:scoped-total|cause:x', workspacePath: '/repo/a',
+    });
+    insertMemory(db, {
+      taskContext: 'scoped-b', observation: 'workspace-b must not leak', importance: 10, label: 'GOTCHA',
+      failureSignature: 'mechanism:scoped-total|cause:x', workspacePath: '/repo/b',
+    });
+    insertMemory(db, {
+      taskContext: 'scoped-b', observation: 'workspace-b second', importance: 10, label: 'GOTCHA',
+      failureSignature: 'mechanism:scoped-total|cause:x', workspacePath: '/repo/b',
+    });
+
+    const result = mineWeakness(db, { minCount: 2, workspacePath: '/repo/a' });
+    expect(result.total_signatures).toBe(1);
+    expect(result.total_memories).toBe(2);
+    expect(result.clusters).toHaveLength(1);
+    expect(result.clusters[0]!.count).toBe(2);
+    expect(result.clusters[0]!.representative).toContain('workspace-a');
+    expect(result.clusters[0]!.representative).not.toContain('workspace-b');
+  });
+
   it('truncates the representative observation to 200 chars', () => {
     const db = freshDb();
     const long = 'x'.repeat(300);

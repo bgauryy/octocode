@@ -4,9 +4,10 @@
  *
  * Each subagent has:
  *   - A typed name (union literal)
- *   - Tool allowlist (no memory/awareness, no bash/edit/write, no nested spawning)
+ *   - Tool allowlist (no nested spawning; write tools stay out unless a role explicitly needs them)
  *   - Resource mode (always 'octocode' so the extension's own tools are available)
  *   - SYSTEM_PROMPT.md path loaded at runtime from dist/subagents/<name>/
+ *   - All bundled Octocode skills, plus any subagent-local skill dirs
  *
  * The spawnSubagent tool reads this registry, loads the system prompt,
  * and calls spawnRpcAgent (same internal fn as spawnAgent, same agents Map →
@@ -28,9 +29,8 @@ export interface SubagentConfig {
   /** One-line description of what this subagent does. */
   description: string;
   /**
-   * Tool allowlist for the subprocess.
-   * spawnAgent/AgentMessage are always excluded by Pi regardless.
-   * Omit memory_* tools intentionally — subagents are stateless.
+   * Tool allowlist for the subprocess. spawnAgent/AgentMessage are always
+   * excluded by Pi regardless.
    */
   tools: string[];
   /**
@@ -53,7 +53,7 @@ export interface SubagentConfig {
 }
 
 /** Union of all registered subagent names (extend when adding new subagents). */
-export type SubagentName = 'browser-agent';
+export type SubagentName = 'browser-agent' | 'researcher' | 'planner' | 'architect';
 
 // ─── Runtime path resolution ──────────────────────────────────────────────────
 
@@ -67,8 +67,40 @@ function resolveSubagentsDir(): string {
 /** dist/subagents/ in published builds; packageRoot/subagents/ in source tests. */
 const SUBAGENTS_DIR = resolveSubagentsDir();
 
+function resolveSkillsDir(): string {
+  const siblingSkillsDir = path.join(path.dirname(SUBAGENTS_DIR), 'skills');
+  if (fs.existsSync(siblingSkillsDir)) return siblingSkillsDir;
+  return path.resolve(path.dirname(SUBAGENTS_DIR), '..', '..', 'skills');
+}
+
+const SKILLS_DIR = resolveSkillsDir();
+
+export const OCTOCODE_SKILL_NAMES = [
+  'octocode-agent-communication',
+  'octocode-awareness',
+  'octocode-brainstorming',
+  'octocode-prompt-optimizer',
+  'octocode-reflection',
+  'octocode-research',
+  'octocode-rfc-generator',
+  'octocode-roast',
+  'octocode-skills',
+  'octocode-subagents',
+] as const;
+
 function subagentSkillPath(name: SubagentName, skillName: string): string {
   return path.join(SUBAGENTS_DIR, name, 'skills', skillName);
+}
+
+function bundledSkillPath(skillName: (typeof OCTOCODE_SKILL_NAMES)[number]): string {
+  return path.join(SKILLS_DIR, skillName);
+}
+
+function allOctocodeSkillPaths(...extraSkillPaths: string[]): string[] {
+  return [
+    ...OCTOCODE_SKILL_NAMES.map((skillName) => bundledSkillPath(skillName)),
+    ...extraSkillPaths,
+  ];
 }
 
 function subagentPromptPath(name: SubagentName): string {
@@ -106,7 +138,89 @@ export const SUBAGENT_REGISTRY = {
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'low',
     systemPromptPath: subagentPromptPath('browser-agent'),
-    skills: [subagentSkillPath('browser-agent', 'browser-agent')],
+    skills: allOctocodeSkillPaths(subagentSkillPath('browser-agent', 'browser-agent')),
+  },
+  researcher: {
+    name: 'researcher' as SubagentName,
+    label: 'Researcher',
+    description:
+      'Fast Octocode research specialist. Has web, GitHub, npm, local, binary, and LSP tools. ' +
+      'Use for evidence gathering, prior art, package/repo lookup, and concise claim ledgers.',
+    tools: [
+      'web',
+      'ghSearchCode',
+      'ghGetFileContent',
+      'ghViewRepoStructure',
+      'ghSearchRepos',
+      'ghHistoryResearch',
+      'ghCloneRepo',
+      'npmSearch',
+      'localSearchCode',
+      'localViewStructure',
+      'localFindFiles',
+      'localGetFileContent',
+      'localBinaryInspect',
+      'lspGetSemantics',
+    ],
+    resourceMode: 'octocode' as ResourceMode,
+    thinking: 'low',
+    systemPromptPath: subagentPromptPath('researcher'),
+    skills: allOctocodeSkillPaths(),
+  },
+  planner: {
+    name: 'planner' as SubagentName,
+    label: 'Planner',
+    description:
+      'Implementation planning specialist. Has all Octocode research surfaces and all bundled skills. ' +
+      'Use for dependency-ordered plans, risks, verification strategy, and RFC handoff packets.',
+    tools: [
+      'web',
+      'ghSearchCode',
+      'ghGetFileContent',
+      'ghViewRepoStructure',
+      'ghSearchRepos',
+      'ghHistoryResearch',
+      'ghCloneRepo',
+      'npmSearch',
+      'localSearchCode',
+      'localViewStructure',
+      'localFindFiles',
+      'localGetFileContent',
+      'localBinaryInspect',
+      'lspGetSemantics',
+    ],
+    resourceMode: 'octocode' as ResourceMode,
+    thinking: 'low',
+    systemPromptPath: subagentPromptPath('planner'),
+    skills: allOctocodeSkillPaths(),
+  },
+  architect: {
+    name: 'architect' as SubagentName,
+    label: 'Architect',
+    description:
+      'Root-cause and local-code architecture specialist. Has all Octocode skills, local/LSP/binary tools, ' +
+      'GitHub history, web, and bash for targeted debug/test loops.',
+    tools: [
+      'bash',
+      'web',
+      'ghSearchCode',
+      'ghGetFileContent',
+      'ghViewRepoStructure',
+      'ghSearchRepos',
+      'ghHistoryResearch',
+      'ghCloneRepo',
+      'npmSearch',
+      'localSearchCode',
+      'localViewStructure',
+      'localFindFiles',
+      'localGetFileContent',
+      'localBinaryInspect',
+      'lspGetSemantics',
+    ],
+    resourceMode: 'octocode' as ResourceMode,
+    thinking: 'medium',
+    systemPromptPath: subagentPromptPath('architect'),
+    skills: allOctocodeSkillPaths(),
   },
 } satisfies Record<SubagentName, SubagentConfig>;
 

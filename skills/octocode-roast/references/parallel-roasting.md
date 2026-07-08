@@ -22,13 +22,13 @@
   - Agent 3: Hunt CRIMES + SLOP (magic numbers, AI hallucinations)
 - **Phase 4-6 (Autopsy + Redemption)**: Keep sequential — needs unified prioritization
 - Use the host's task tracker to track sins found per agent
-- Each agent uses: `localViewStructure` → `localSearchCode` → `lspGetSemantics(type=references)` → `localGetFileContent`
+- Each code-research worker should use `octocode-research` when installed; otherwise point it to https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install with `npx octocode skill --name octocode-research`.
 
 ## Example
 - Goal: "Roast entire repo with 50+ files"
-- Agent 1: Hunt security sins across all files (`localSearchCode` for credentials, secrets)
-- Agent 2: Hunt architectural sins (`localViewStructure` for God files, `lspGetSemantics(type=callers/callees)` for spaghetti)
-- Agent 3: Hunt performance sins (`localSearchCode` for N+1 patterns, blocking calls)
+- Agent 1: Hunt security sins across all files.
+- Agent 2: Hunt architectural sins, including large files and dependency spread.
+- Agent 3: Hunt performance sins, including N+1 patterns and blocking calls.
 - Merge: Combine into unified Hall of Shame, sort by severity
 
 ## Anti-patterns

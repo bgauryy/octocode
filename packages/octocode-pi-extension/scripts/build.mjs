@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +25,9 @@ const SOURCE_PATHS = {
   awarenessSkills: path.join(repoRoot, 'packages', 'octocode-awareness', 'skills'),
   subagents: path.join(packageRoot, 'subagents'),
   skills: path.join(packageRoot, 'skills'),
-  systemPrompt: path.join(packageRoot, 'src', 'SYSTEM_PROMPT.md'),
+  // The system prompt is composed from per-section files (see src/prompts/compose.mjs),
+  // not copied from a single monolithic file.
+  promptSections: path.join(packageRoot, 'src', 'prompts', 'sections'),
   // octocode CLI — bundled at build time so the pi-extension is self-contained.
   // The CLI must be built (yarn workspace octocode build) before building the extension.
   octocodeCLI: path.join(repoRoot, 'packages', 'octocode', 'out'),
@@ -100,11 +102,20 @@ function copyDirectory(sourceDir, targetDir) {
   }
 }
 
+function copyMarkdownFiles(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    copyFile(path.join(sourceDir, entry.name), path.join(targetDir, entry.name));
+  }
+}
+
 function assertRequiredSources() {
   const requiredSources = {
     rootSkills: SOURCE_PATHS.rootSkills,
     awarenessSkills: SOURCE_PATHS.awarenessSkills,
-    systemPrompt: SOURCE_PATHS.systemPrompt,
+    promptSections: SOURCE_PATHS.promptSections,
   };
 
   for (const [label, sourcePath] of Object.entries(requiredSources)) {
@@ -265,7 +276,7 @@ function compileTsc() {
   });
 }
 
-function build() {
+async function build() {
   syncPackageSkills();
   clean();
 
@@ -276,7 +287,15 @@ function build() {
   // the published extension carries the loader itself (no runtime dep, nothing to publish).
   // src/env.ts stays a workspace re-export for repo-time (tests, IDE); dist is self-contained.
   copyFile(SOURCE_PATHS.configLoader, path.join(distDir, 'env.js'));
-  copyFile(SOURCE_PATHS.systemPrompt, OUTPUT_PATHS.systemPrompt);
+  // Compose the system prompt from its per-section source files into dist/system/.
+  // compileTsc() emits dist/prompts/{compose,sections/index}.js; sections/index.js
+  // reads its sibling .md files, so copy them next to it, then import the composed prompt.
+  copyMarkdownFiles(SOURCE_PATHS.promptSections, path.join(distDir, 'prompts', 'sections'));
+  const { SYSTEM_PROMPT } = await import(
+    pathToFileURL(path.join(distDir, 'prompts', 'compose.js')).href
+  );
+  fs.mkdirSync(path.dirname(OUTPUT_PATHS.systemPrompt), { recursive: true });
+  fs.writeFileSync(OUTPUT_PATHS.systemPrompt, SYSTEM_PROMPT, 'utf8');
   copyDirectory(SOURCE_PATHS.skills, OUTPUT_PATHS.skills);
   // Copy subagents/ to dist/subagents/ (SYSTEM_PROMPT.md files loaded at runtime)
   if (fs.existsSync(SOURCE_PATHS.subagents)) {

@@ -8,6 +8,15 @@ const __dirname = dirname(__filename);
 const rootDir = resolve(__dirname, '..');
 const rootReadme = join(rootDir, 'README.md');
 
+// Packages with hand-authored READMEs that must never be overwritten by this
+// script. They are committed to git and explicitly un-ignored in .gitignore
+// via the !/packages/<name>/README.md rules.
+const PROTECTED_PACKAGES = new Set([
+  'packages/octocode-awareness',
+  'packages/octocode-pi-extension',
+  'packages/octocode-agent',
+]);
+
 const TARGETS = [
   'packages/octocode',
   'packages/octocode-engine',
@@ -15,6 +24,13 @@ const TARGETS = [
 ];
 
 for (const target of TARGETS) {
+  if (PROTECTED_PACKAGES.has(target)) {
+    throw new Error(
+      `Cannot sync root README.md to ${target} — it has a hand-authored README.md ` +
+      `committed to git. Remove it from TARGETS.`,
+    );
+  }
+
   const packageDir = join(rootDir, target);
   const packageJsonPath = join(packageDir, 'package.json');
 

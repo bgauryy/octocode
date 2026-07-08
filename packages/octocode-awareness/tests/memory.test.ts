@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { initDb, rebuildFts } from '../src/db.js';
+import { initDb, rebuildFts, replaceMemoryReferences } from '../src/db.js';
 import {
   insertMemory, getMemory, bumpAccess, decayScore,
   forgetMemory, findSimilarMemories,
@@ -183,6 +183,115 @@ describe('getMemory', () => {
     insertMemory(db, { taskContext: 't', observation: 'o', importance: 5, tags: ['vue'] });
     const { memories } = getMemory(db, { tags: ['react'], limit: 10 });
     expect(memories.every(m => m.tags.includes('react'))).toBe(true);
+  });
+
+  it('fallback recall filters by query text when FTS is unavailable', () => {
+    const db = freshDb();
+    insertMemory(db, { taskContext: 'fallback text', observation: 'fallbackneedle appears here', importance: 5 });
+    db.exec('DROP TABLE memories_fts');
+
+    expect(getMemory(db, { query: 'absent-token-qxwz', limit: 5 }).memories).toHaveLength(0);
+    expect(getMemory(db, { query: 'fallbackneedle', limit: 5 }).memories).toHaveLength(1);
+  });
+
+  it('requires every exact reference when multiple references are provided', () => {
+    const db = freshDb();
+    const refA = 'file:/tmp/ref-a.ts';
+    const refB = 'pr:owner/repo#123';
+    insertMemory(db, { taskContext: 'ref-a only', observation: 'a', importance: 7, references: [refA] });
+    const both = insertMemory(db, { taskContext: 'both refs', observation: 'b', importance: 7, references: [refA, refB] });
+    insertMemory(db, { taskContext: 'ref-b only', observation: 'c', importance: 7, references: [refB] });
+
+    const { memories } = getMemory(db, { references: [refA, refB], limit: 10 });
+    expect(memories.map(m => m.memory_id)).toEqual([both.memoryId]);
+  });
+
+  it('applies exact file filters before the scoring prefetch cap', () => {
+    const db = freshDb();
+    for (let i = 0; i < 8; i++) {
+      insertMemory(db, { taskContext: `alpha decoy ${i}`, observation: `alpha high-rank decoy ${i}`, importance: 10 });
+    }
+    const targetFile = '/tmp/awareness-target-file.ts';
+    const target = insertMemory(db, {
+      taskContext: 'alpha target file',
+      observation: 'alpha low-rank file-filter target',
+      importance: 1,
+      references: [`file:${targetFile}`],
+    });
+
+    const { memories } = getMemory(db, { query: 'alpha', files: [targetFile], limit: 1 });
+    expect(memories.map(m => m.memory_id)).toEqual([target.memoryId]);
+  });
+
+  it('applies fileRegex filters before the scoring prefetch cap', () => {
+    const db = freshDb();
+    for (let i = 0; i < 8; i++) {
+      insertMemory(db, { taskContext: `bravo decoy ${i}`, observation: `bravo high-rank decoy ${i}`, importance: 10 });
+    }
+    const target = insertMemory(db, {
+      taskContext: 'bravo target file regex',
+      observation: 'bravo low-rank file-regex target',
+      importance: 1,
+      references: ['file:/tmp/awareness-special-file-regex.ts'],
+    });
+
+    const { memories } = getMemory(db, { query: 'bravo', fileRegex: ['special-file-regex\\.ts$'], limit: 1 });
+    expect(memories.map(m => m.memory_id)).toEqual([target.memoryId]);
+  });
+
+  it('applies generic regex filters before the scoring prefetch cap', () => {
+    const db = freshDb();
+    for (let i = 0; i < 8; i++) {
+      insertMemory(db, { taskContext: `charlie decoy ${i}`, observation: `charlie high-rank decoy ${i}`, importance: 10 });
+    }
+    const target = insertMemory(db, {
+      taskContext: 'charlie target regex',
+      observation: 'charlie low-rank generic-regex-needle',
+      importance: 1,
+    });
+
+    const { memories } = getMemory(db, { query: 'charlie', regex: ['generic-regex-needle'], limit: 1 });
+    expect(memories.map(m => m.memory_id)).toEqual([target.memoryId]);
+  });
+
+  it('applies asOf validity before the scoring prefetch cap', () => {
+    const db = freshDb();
+    for (let i = 0; i < 8; i++) {
+      insertMemory(db, { taskContext: `temporalcap decoy ${i}`, observation: `temporalcap current decoy ${i}`, importance: 10 });
+    }
+    const target = insertMemory(db, {
+      taskContext: 'temporalcap historical target',
+      observation: 'temporalcap low-rank historical target',
+      importance: 1,
+      validFrom: '2019-01-01T00:00:00Z',
+      validTo: '2021-01-01T00:00:00Z',
+    });
+
+    const { memories } = getMemory(db, { query: 'temporalcap', asOf: '2020-06-01T00:00:00Z', limit: 1 });
+    expect(memories.map(m => m.memory_id)).toEqual([target.memoryId]);
+  });
+
+  it('rebuildFts handles large reference sets without placeholder-limit failures', { timeout: 20_000 }, () => {
+    const db = freshDb();
+    const insert = db.prepare(`
+      INSERT INTO memories (
+        memory_id, agent_id, task_context, observation, importance,
+        label, tags_json, created_at, updated_at, last_accessed_at, access_count
+      ) VALUES (?, 'agent-test', ?, ?, 5, 'OTHER', '[]', ?, ?, ?, 0)
+    `);
+    const now = new Date().toISOString();
+    for (let i = 0; i < 1050; i++) {
+      const id = `mem_large_${i}`;
+      insert.run(id, `large fts ${i}`, `large fts observation ${i}`, now, now, now);
+      replaceMemoryReferences(db, id, [`file:/tmp/lateprovenance${i}.ts`]);
+    }
+
+    db.exec('DELETE FROM memories_fts');
+    expect(() => rebuildFts(db)).not.toThrow();
+    const row = db.prepare(
+      'SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?'
+    ).get('lateprovenance1049') as { memory_id: string } | undefined;
+    expect(row?.memory_id).toBe('mem_large_1049');
   });
 
   it('all returned memories have a score field', () => {

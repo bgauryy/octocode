@@ -14,9 +14,13 @@ const PACKAGE_SKILLS = [
   'octocode-reflection',
 ] as const;
 
-const MIRROR_ROOTS = [
+const REQUIRED_MIRROR_ROOTS = [
   resolve(REPO_ROOT, 'skills'),
-  resolve(REPO_ROOT, 'packages/octocode-pi-extension/skills'),
+] as const;
+const LOCAL_AGENT_MIRROR_ROOT = resolve(REPO_ROOT, '.agents/skills');
+const MIRROR_ROOTS = [
+  ...REQUIRED_MIRROR_ROOTS,
+  ...(existsSync(LOCAL_AGENT_MIRROR_ROOT) ? [LOCAL_AGENT_MIRROR_ROOT] : []),
 ] as const;
 
 function listFiles(root: string): string[] {

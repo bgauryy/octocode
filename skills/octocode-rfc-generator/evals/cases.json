@@ -6,7 +6,10 @@
     "Keeps recommendations tied to cited claims.",
     "Compares real alternatives, including do-nothing/minimal/phased options when useful.",
     "Gates public contract and migration risk with rollout and rollback details.",
-    "Produces implementation-ready acceptance criteria and verification commands."
+    "Produces implementation-ready acceptance criteria and verification commands.",
+    "Adds PREREQUISITES.md before the implementation plan for RFCs on existing code.",
+    "For a new RFC without a handoff, asks to use octocode-brainstorming first when available and researches with octocode-research plus local and external tools if continuing.",
+    "Avoids one-shot RFCs by asking focused questions when the decision flow is unclear."
   ],
   "cases": [
     {
@@ -40,6 +43,7 @@
         { "name": "current and target state", "pattern": "\\bCurrent State\\b.*\\bTarget State\\b|\\bTarget State\\b.*\\bCurrent State\\b" },
         { "name": "public contract gate", "pattern": "\\bpublic (API|contract)\\b|\\bcompatibility\\b|\\bbreaking change\\b" },
         { "name": "phased rollout", "pattern": "\\bPhase 1\\b|\\bphased rollout\\b|\\bincremental migration\\b" },
+        { "name": "question gate", "pattern": "\\bQuestion Gate\\b|\\bClarifying Questions?\\b|\\bAssumptions?\\b" },
         { "name": "verification commands", "pattern": "\\bVerification commands?\\b|\\byarn (test|typecheck|lint|verify)\\b|\\bnpm test\\b" },
         { "name": "rollback trigger", "pattern": "\\bRollback trigger\\b|\\brollback\\b" },
         { "name": "owner approver", "pattern": "\\bOwner\\b|\\bapprover\\b" }
@@ -49,13 +53,14 @@
       ]
     },
     {
-      "id": "three-file-rfc",
+      "id": "existing-code-folder-rfc",
       "mode": "RFC",
-      "prompt": "Write a full RFC for an irreversible cross-package change as the three-file set (RFC.md, IMPLEMENTATION.md, KPI.md): goals/non-goals, reversibility, alternatives, open questions closed via research, acceptance criteria, success metrics, and a traceability matrix.",
+      "prompt": "Write a full RFC for an irreversible existing-code cross-package change as the folder set (RFC.md, PREREQUISITES.md, IMPLEMENTATION.md, KPI.md): goals/non-goals, reversibility, alternatives, prerequisites before the plan, open questions closed via research, acceptance criteria, success metrics, and a traceability matrix.",
       "minScore": 0.85,
       "minCitationCount": 2,
       "required": [
         { "name": "RFC.md file", "pattern": "\\bRFC\\.md\\b" },
+        { "name": "PREREQUISITES.md file", "pattern": "\\bPREREQUISITES\\.md\\b" },
         { "name": "IMPLEMENTATION.md file", "pattern": "\\bIMPLEMENTATION\\.md\\b" },
         { "name": "KPI.md file", "pattern": "\\bKPI\\.md\\b" },
         { "name": "goals and non-goals", "pattern": "\\bNon-Goals?\\b" },

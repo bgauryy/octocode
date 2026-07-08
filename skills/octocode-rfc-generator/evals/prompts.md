@@ -14,8 +14,8 @@ Prompt: `Write a migration plan for changing a public API used by multiple packa
 
 Pass criteria: chooses Migration or RFC mode; maps current and target state; gates public contract risk; includes compatibility, rollout, rollback trigger, owner/approver, verification commands, and dependency-ordered phases.
 
-## Eval 3 — Full Three-File RFC
+## Eval 3 — Existing-Code Folder RFC
 
-Prompt: `Write a full RFC for an irreversible cross-package change as the three-file set (RFC.md, IMPLEMENTATION.md, KPI.md): goals/non-goals, reversibility, alternatives, open questions closed via research, acceptance criteria, success metrics, and a traceability matrix.`
+Prompt: `Write a full RFC for an irreversible existing-code cross-package change as the folder set (RFC.md, PREREQUISITES.md, IMPLEMENTATION.md, KPI.md): goals/non-goals, reversibility, alternatives, prerequisites before the plan, open questions closed via research, acceptance criteria, success metrics, and a traceability matrix.`
 
-Pass criteria: names all three files; classifies decision reversibility; states Goals and Non-Goals; compares alternatives; closes RFC open questions in IMPLEMENTATION.md with citations; KPI.md has user stories, Gherkin acceptance criteria, success metrics with baseline/target/guardrail, a decision rule, and a traceability matrix binding the files.
+Pass criteria: names the folder files including PREREQUISITES.md; classifies decision reversibility; states Goals and Non-Goals; compares alternatives; closes RFC open questions in IMPLEMENTATION.md with citations; KPI.md has user stories, Gherkin acceptance criteria, success metrics with baseline/target/guardrail, a decision rule, and a traceability matrix binding the files.

@@ -6,7 +6,7 @@
  */
 
 // DB layer
-export { connectDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, evictExpiredLocks } from './db.js';
+export { connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, evictExpiredLocks } from './db.js';
 
 // Memory operations
 export { insertMemory, getMemory, bumpAccess, lexicalSearch, decayScore, findSimilarMemories, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding } from './memory.js';
@@ -25,6 +25,27 @@ export { reflect } from './reflect.js';
 // Background operations + smart briefing + harness export
 export { pruneStale, notifyGet, sessionCapture, waitForLock, digest, getWorkspaceStatus, exportMemoryDoc, exportHarness } from './maintenance.js';
 export type { DigestResult, BriefItem, NotifyGetResult, NotifyGetBriefResult, WorkspaceStatusResult, WorkspaceLockEntry, WaitForLockResult, PruneStaleResult } from './maintenance.js';
+
+// Repo-readable awareness projections
+export {
+  AWARENESS_QUERY_VIEWS,
+  queryAwareness,
+  formatAwarenessQueryResult,
+  renderAwarenessHtml,
+  writeAwarenessView,
+  injectRepoContext,
+} from './repo-context.js';
+export type {
+  AwarenessQueryFormat,
+  AwarenessQueryParams,
+  AwarenessQueryResult,
+  AwarenessQueryRow,
+  AwarenessQuerySection,
+  AwarenessQueryView,
+  RepoContextInjectParams,
+  RepoContextInjectResult,
+  RepoContextMode,
+} from './repo-context.js';
 
 // Notifications
 export { insertNotification, getNotifications, resolveNotification, pruneNotifications, agentSignal } from './notifications.js';
@@ -60,8 +81,16 @@ export { registerAgent, touchAgent, resolveAgentName, resolveAgentNames, listAge
 export {
   utcNow, parseJsonList, normalizeTags, normalizeReferences,
   normalizeLabel, normalizeFilePath, tagsText, rowToMemory,
-  MEMORY_LABELS, REFLECTION_IMPORTANCE,
+  MEMORY_LABELS, MEMORY_LABEL_VALUES, REFLECTION_IMPORTANCE,
 } from './helpers.js';
+
+// Shared agent-tool operation runner
+export { runAwarenessToolOperation } from './tool-operations.js';
+export type {
+  AwarenessToolOperation,
+  AwarenessToolOperationContext,
+  AwarenessToolOperationResult,
+} from './tool-operations.js';
 
 // Git scope
 export { detectGit, fillScope } from './git.js';

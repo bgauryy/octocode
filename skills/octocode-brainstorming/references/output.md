@@ -12,6 +12,9 @@ Default to the workspace `.octocode/`; fall back to global `~/.octocode/brainsto
 ## TL;DR
 <2–3 sentences. Lead with the framing you researched (and why it beat the literal idea). Note research limits (no search engine, cross-pollination skipped, perspective review shortened).>
 
+## Direction Check
+<What the user chose, the focused question still blocking research, or the assumption used to avoid a one-shot detour.>
+
 ## Framings Considered
 <The slate: 2–10 angles, one line each, marked researched vs set-aside. Headline section in Generate mode.>
 

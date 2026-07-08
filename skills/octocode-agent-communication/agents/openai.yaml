@@ -1,4 +1,4 @@
 interface:
   display_name: "Octocode Agent Communication"
-  short_description: "Agent-to-agent messages over the shared awareness DB."
-  default_prompt: "Use octocode-agent-communication when agents need to find each other, send or receive signals, reply in threads, acknowledge acted-on messages, resolve communication threads, or map local workspace messaging to an A2A-style flow. Use the shared awareness agents registry and signals tables; do not create a separate message store."
+  short_description: "Compatibility alias for Awareness signals."
+  default_prompt: "This is a compatibility alias. Load octocode-awareness for agent registry, signal publish/list/reply/ack/resolve, handoffs, blockers, and local workspace messaging."

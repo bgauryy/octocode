@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild';
 import { builtinModules } from 'module';
 import { chmodSync, readFileSync, writeFileSync } from 'fs';
-import { rm } from 'fs/promises';
+import { cp, rm } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { entryPoints as toolsCoreEntryPoints } from '../octocode-tools-core/buildConfig.mjs';
@@ -134,6 +134,15 @@ await esbuild.build({
 });
 
 console.log('✓ esbuild complete');
+
+// Copy bundled skills into packages/octocode/skills/ so they are available both
+// during local dev (from out/../skills) and when installed from npm (node_modules/octocode/skills/).
+const repoRoot = resolve(__dirname, '..', '..');
+const skillsSource = resolve(repoRoot, 'skills');
+const skillsDest = resolve(__dirname, 'skills');
+await rm(skillsDest, { recursive: true, force: true });
+await cp(skillsSource, skillsDest, { recursive: true });
+console.log('✓ bundled skills copied');
 
 const cliEntry = resolve(__dirname, 'out', 'octocode.js');
 const cliSource = readFileSync(cliEntry, 'utf-8');

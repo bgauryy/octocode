@@ -17,17 +17,17 @@ Load when fixing rated issues, after RATE and before VALIDATE.
 ### Command strength hierarchy
 | Strength | Keywords | Use for |
 |----------|----------|---------|
-| Absolute | NEVER, ALWAYS, MUST, FORBIDDEN, CRITICAL | Non-negotiable rules |
+| Absolute | never, always, must, forbidden, critical | Non-negotiable rules |
 | Stop | STOP, HALT, DO NOT proceed, WAIT | Gates and checkpoints |
-| Required | REQUIRED, MANDATORY | Essential steps |
+| Required | required, mandatory | Essential steps |
 | Soft | should, prefer | Optional guidance only |
 
 Prefer positive framing (tell the agent what to do); reserve prohibitions for destructive, fragile, or order-dependent rules.
 
 ### Triple Lock (for critical rules)
-1. STATE: "You MUST X"
+1. STATE: "The agent must X"
 2. FORBID: "FORBIDDEN: not doing X"
-3. REQUIRE: "REQUIRED: verify X complete"
+3. REQUIRE: "Require verification that X is complete"
 
 ### Conciseness pass (shorten without losing logic)
 Apply when a line is wordy or indirect (RATE `wordy-indirect`). Use `conciseness-toolkit.md` for the specific moves.

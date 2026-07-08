@@ -1,10 +1,11 @@
 # Octocode Tools & Interfaces
 
-Load this when a task needs Octocode setup, transport choice, tool selection, authentication, or CLI command syntax. For the routing/evidence rules that govern *how* to use these tools, see `references/algorithm.md` — this file only covers *which* tool and *which* interface.
+Load when a task needs Octocode setup, transport choice, tool selection, authentication, or CLI command syntax.
+For routing and evidence rules, see `references/algorithm.md`; this file covers tool and interface choice.
 
 ## Interfaces
 
-The same 13 tools are reachable through two interfaces:
+Octocode research tools are reachable through two interfaces; host-exposed subsets can vary:
 
 | Interface | Use when | Notes |
 |---|---|---|
@@ -12,6 +13,7 @@ The same 13 tools are reachable through two interfaces:
 | **CLI** (`npx octocode`) | MCP tools are not exposed, or you need `--scheme`/`--explain`/`--dry-run` introspection | read `npx octocode tools <name> --scheme` before raw calls; read `npx octocode search --scheme --compact` before hand-writing OQL JSON |
 
 If neither interface is available: continue only with clearly degraded confidence, or ask the user to install/authenticate. Ask for `npx octocode auth login` only when the task actually requires GitHub/private data.
+When another skill says "use `octocode-research` if installed", check the current skill/tool list or host discovery first, then fall back to CLI probes, and ask only if neither path works.
 
 Materialize or run locally for predicates remote providers cannot prove exactly: AST, PCRE2-only regex, negative file queries, file metadata, LSP semantics, binary/archive inspection, and many-file repeated reads.
 
@@ -74,7 +76,8 @@ npx octocode lsp-server status <file>
 
 Current CLI surface: research/materialization (`search`, `unzip`, `clone`, `cache fetch`), raw tools/context (`tools`, `context`), management (`skill`, `install`, `auth`, `status`, `lsp-server`).
 
-Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `binary`, and `diff` should be expressed as `search` lanes. Use `--json` for automation, `--compact` for low-token exploration. Follow returned `next.*`, pagination, char offsets, match/file/comment/commit pages, refs, and `localPath` values exactly.
+Removed quick-command aliases such as `grep`, `cat`, `ls`, `find`, `lsp`, `pr`, `pkg`, `repo`, `binary`, and `diff` should be expressed as `search` lanes.
+Use `--json` for automation and `--compact` for low-token exploration. Follow returned continuations, refs, and `localPath` values exactly.
 
 ## Diagnostics
 

@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when the user explicitly asks to roast code or wants brutally honest critique. Triggers: roast my code, find code sins, shame this code, find antipatterns, brutal review, code quality roast, what's wrong with this code. Outputs sharp, evidence-backed findings with file:line citations and fix paths."
+description: "Use when roasting code or finding code sins with file:line evidence and blunt critique."
 ---
 
 # Octocode Roast
@@ -17,7 +17,7 @@ Sharp, evidence-backed code critique with roast tone. Target patterns, never peo
 
 ## Tooling
 
-Prefer Octocode MCP tools when exposed; otherwise use `npx octocode` after checking help/schemas. If local Octocode is unavailable, continue with normal repo tools and mark reduced coverage.
+When Octocode-backed code research is needed, use `octocode-research` if installed. If missing, use https://github.com/bgauryy/octocode/tree/main/skills/octocode-research or install with `npx octocode skill --name octocode-research`; otherwise continue with normal repo tools and mark reduced coverage.
 
 ## Severity
 
@@ -31,7 +31,7 @@ If there are 20+ issues, triage the top 10 by impact and confidence.
 
 ## Reference Map
 
-- `references/octocode.md` — when choosing transport, auth, install, or CLI/MCP fallback behavior, and before inspecting any codebase: its Research Algorithm section (route by what you hold, matchString-first reads, evidence grades, empty≠absence) governs how sins are found and proven.
+- `references/octocode.md` — before code inspection when delegating Octocode research to `octocode-research`.
 - `references/roast-playbook.md` — when running the full inspection, autopsy, output template, and verification checklist.
 - `references/sin-catalog.md` — when ranking generic sin tiers and common critique lines.
 - `references/language-sins.md` — when using language-specific smells, AST patterns, or detection queries.

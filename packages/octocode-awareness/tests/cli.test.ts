@@ -14,6 +14,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
+const SKILL_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/awareness.mjs');
 const NODE = process.execPath;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -122,6 +123,30 @@ describe('tell-memory', () => {
     expect((result['memory'] as Record<string, unknown>)['references']).toEqual([
       'https://example.com', 'pr:owner/repo#123',
     ]);
+  });
+
+  it('stores --file as file provenance and recalls it with get-memory --file', () => {
+    const result = ok(db, [
+      'tell-memory', '--agent-id', 'a',
+      '--task-context', 'file provenance',
+      '--observation', 'file provenance roundtrip marker',
+      '--importance', '6',
+      '--workspace', dir,
+      '--file', 'src/roundtrip.ts',
+    ]);
+    const memory = result['memory'] as Record<string, unknown>;
+    const memoryId = memory['memory_id'];
+    const expectedRef = `file:${join(dir, 'src/roundtrip.ts')}`;
+    expect(memory['references']).toContain(expectedRef);
+
+    const recalled = ok(db, [
+      'get-memory',
+      '--workspace', dir,
+      '--file', 'src/roundtrip.ts',
+      '--limit', '1',
+    ]);
+    const memories = recalled['memories'] as Array<Record<string, unknown>>;
+    expect(memories.map(m => m['memory_id'])).toEqual([memoryId]);
   });
 
   it('unknown label defaults to OTHER', () => {
@@ -574,6 +599,51 @@ describe('release-file-lock', () => {
   });
 });
 
+describe('verify', () => {
+  let dir: string;
+  let db: string;
+  beforeAll(() => { dir = mktemp(); db = join(dir, 'test.sqlite3'); });
+  afterAll(() => rmSync(dir, { recursive: true }));
+
+  it('verifies repeated explicit task ids in one command', () => {
+    const taskIds: string[] = [];
+    for (const name of ['one.txt', 'two.txt']) {
+      const filePath = join(dir, name);
+      writeFileSync(filePath, name);
+      const claim = ok(db, [
+        'lock', 'acquire',
+        '--agent-id', 'agent-v',
+        '--workspace', dir,
+        '--target-file', filePath,
+        '--rationale', `edit ${name}`,
+        '--test-plan', 'run focused verification',
+      ]);
+      const taskId = (claim['task'] as Record<string, unknown>)['task_id'] as string;
+      taskIds.push(taskId);
+      ok(db, ['lock', 'release', '--agent-id', 'agent-v', '--task-id', taskId, '--status', 'PENDING']);
+    }
+
+    const before = run(db, ['verify', 'audit', '--agent-id', 'agent-v', '--workspace', dir]);
+    expect(before.status).toBe(1);
+    expect(before.parsed?.['count']).toBe(2);
+
+    const verified = ok(db, [
+      'verify', 'mark',
+      '--agent-id', 'agent-v',
+      '--workspace', dir,
+      '--task-id', taskIds[0]!,
+      '--task-id', taskIds[1]!,
+      '--message', 'run focused verification passed',
+    ]);
+    expect(verified['task_id']).toBeNull();
+    expect(verified['task_ids']).toEqual(taskIds);
+    expect(verified['count']).toBe(2);
+
+    const after = ok(db, ['verify', 'audit', '--agent-id', 'agent-v', '--workspace', dir]);
+    expect(after['count']).toBe(0);
+  });
+});
+
 // ─── status ───────────────────────────────────────────────────────────────────
 
 describe('status', () => {
@@ -709,7 +779,7 @@ describe('CLI', () => {
 
   it('schema list maps to accepted CLI commands or explicit aliases', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
-    if (!existsSync(schemaScript)) return;
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
     const listed = JSON.parse(schema.stdout) as string[];
@@ -732,18 +802,68 @@ describe('CLI', () => {
       notify_prune: 'notify-prune',
       workspace_status: 'workspace-status',
       export_harness: 'export-harness',
+      repo_inject: 'repo inject',
     };
     const unsupported = ['stats', 'embed_index', 'harness_apply', 'memory_export', 'memory_import'];
     expect(listed).not.toEqual(expect.arrayContaining(unsupported));
+    expect(listed).toEqual(expect.arrayContaining([
+      'session_capture',
+      'mine_weakness',
+      'digest',
+      'doc_staleness',
+      'workspace_status',
+      'export_harness',
+      'audit_unverified',
+    ]));
     for (const key of listed) {
       const command = aliases[key] ?? key.replaceAll('_', '-');
       expect(help.stdout, `${key} should map to CLI command ${command}`).toContain(command);
     }
   });
 
+  it('generated skill CLI delegates schema commands to its sibling schema script', () => {
+    expect(existsSync(SKILL_SCRIPT), 'generated awareness.mjs must exist after build').toBe(true);
+    const schema = spawnSync(NODE, [SKILL_SCRIPT, 'schema', 'list'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status, schema.stderr || schema.stdout).toBe(0);
+    const listed = JSON.parse(schema.stdout) as string[];
+    expect(listed).toContain('get_memory');
+  });
+
+  it('every listed schema resolves and its example validates', { timeout: 30_000 }, () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
+    const schema = spawnSync(NODE, [schemaScript, 'list'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    const listed = JSON.parse(schema.stdout) as string[];
+    for (const key of listed) {
+      const jsonSchema = spawnSync(NODE, [schemaScript, 'json-schema', key], { encoding: 'utf8', timeout: 5000 });
+      expect(jsonSchema.status, `${key} json-schema failed: ${jsonSchema.stderr || jsonSchema.stdout}`).toBe(0);
+
+      const example = spawnSync(NODE, [schemaScript, 'example', key], { encoding: 'utf8', timeout: 5000 });
+      expect(example.status, `${key} example failed: ${example.stderr || example.stdout}`).toBe(0);
+      expect(() => JSON.parse(example.stdout)).not.toThrow();
+
+      const validated = spawnSync(NODE, [schemaScript, 'validate', key, '-'], {
+        encoding: 'utf8',
+        input: example.stdout,
+        timeout: 5000,
+      });
+      expect(validated.status, `${key} example should validate: ${validated.stdout || validated.stderr}`).toBe(0);
+    }
+  });
+
+  it('memory label schema stays aligned with runtime labels', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
+    const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'tell_memory'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    expect(schema.stdout).toContain('"EXPERIENCE"');
+    expect(schema.stdout).toContain('"OVERRIDE"');
+  });
+
   it('schema exposes only implemented get-memory recall options', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
-    if (!existsSync(schemaScript)) return;
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'get_memory'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
     const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
@@ -756,17 +876,58 @@ describe('CLI', () => {
 
   it('schema aligns pre-flight ttl and retry contract with CLI/runtime', () => {
     const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
-    if (!existsSync(schemaScript)) return;
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
     const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'pre_flight_intent'], { encoding: 'utf8', timeout: 5000 });
     expect(schema.status).toBe(0);
     const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
     const ttlSchema = parsed.properties['ttl_minutes'];
+    const ttlSecondsSchema = parsed.properties['ttl_seconds'];
     const retrySchema = parsed.properties['retry_interval'];
     expect(ttlSchema).toBeDefined();
+    expect(ttlSecondsSchema).toBeDefined();
     expect(retrySchema).toBeDefined();
     expect(ttlSchema?.['default']).toBe(10);
     expect(ttlSchema?.['maximum']).toBe(10);
+    expect(ttlSecondsSchema?.['maximum']).toBe(600);
     expect(retrySchema?.['default']).toBe(5);
+  });
+
+  it('schema covers runtime drift cases for verify, audit, and handoff refinements', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
+
+    const verify = spawnSync(NODE, [schemaScript, 'json-schema', 'verify'], { encoding: 'utf8', timeout: 5000 });
+    expect(verify.status).toBe(0);
+    const verifySchema = JSON.parse(verify.stdout) as { properties: Record<string, Record<string, unknown>> };
+    expect(verifySchema.properties['status']?.['enum']).toEqual(['SUCCESS', 'FAILED']);
+
+    const audit = spawnSync(NODE, [schemaScript, 'json-schema', 'audit_unverified'], { encoding: 'utf8', timeout: 5000 });
+    expect(audit.status).toBe(0);
+    expect(audit.stdout).toContain('"abandon"');
+
+    const refinement = spawnSync(NODE, [schemaScript, 'json-schema', 'refinement'], { encoding: 'utf8', timeout: 5000 });
+    expect(refinement.status).toBe(0);
+    const refinementSchema = JSON.parse(refinement.stdout) as { properties: Record<string, Record<string, unknown>> };
+    expect(refinementSchema.properties['quality']?.['enum']).toEqual(['good', 'bad', 'handoff']);
+  });
+
+  it('supports canonical noun/verb CLI aliases', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      ok(db, ['maintenance', 'init']);
+      const record = ok(db, [
+        'memory', 'record',
+        '--agent-id', 'agent-a',
+        '--task-context', 'canonical alias',
+        '--observation', 'noun verb memory works',
+        '--importance', '6',
+      ]);
+      expect((record['memory'] as Record<string, unknown>)['memory_id']).toBeTruthy();
+
+      const recall = ok(db, ['memory', 'recall', '--query', 'noun verb memory', '--limit', '1']);
+      expect((recall['memories'] as unknown[]).length).toBeGreaterThan(0);
+    } finally { rmSync(dir, { recursive: true }); }
   });
 });
 
@@ -794,6 +955,92 @@ describe('memory-index', () => {
       expect(result.stdout).toContain('*Tags: index*');
       expect(result.stdout).toContain('*References: file:packages/octocode-awareness/src/memory.ts, pr:owner/repo#123*');
       expect(result.stdout).toContain('*Failure: mechanism:index|cause:lost-provenance*');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+});
+
+// ─── repo context query/view/inject ──────────────────────────────────────────
+
+describe('repo context projections', () => {
+  it('queries awareness views as JSON and CSV', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--task-context', 'repo context gotcha',
+        '--observation', 'repo context should preserve gotchas for generated files',
+        '--importance', '8',
+        '--label', 'GOTCHA',
+        '--file', 'src/context.ts',
+      ]);
+
+      const json = ok(db, ['query', 'gotchas', '--workspace', dir, '--limit', '10']);
+      expect(json['view']).toBe('gotchas');
+      expect(json['count']).toBe(1);
+      const rows = json['rows'] as Array<Record<string, unknown>>;
+      expect(rows[0]?.['label']).toBe('GOTCHA');
+      expect(rows[0]?.['references']).toContain(`file:${join(dir, 'src/context.ts')}`);
+
+      const csv = run(db, ['query', 'gotchas', '--workspace', dir, '--format', 'csv']);
+      expect(csv.status).toBe(0);
+      expect(csv.stdout).toContain('memory_id,label,importance');
+      expect(csv.stdout).toContain('repo context should preserve gotchas');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('writes a static HTML awareness view', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    const out = join(dir, '.octocode', 'awareness', 'index.html');
+    try {
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--task-context', 'html awareness',
+        '--observation', 'view command writes browser-readable awareness',
+        '--importance', '6',
+      ]);
+
+      const result = ok(db, ['view', 'all', '--workspace', dir, '--out', out]);
+      expect(result['path']).toBe(out);
+      expect(readFileSync(out, 'utf8')).toContain('Octocode Awareness: all');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('injects .octocode repo context without editing gitignore', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      writeFileSync(join(dir, '.gitignore'), '.octocode\n', 'utf8');
+      spawnSync('git', ['init'], { cwd: dir, encoding: 'utf8', timeout: 5000 });
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--task-context', 'inject projection',
+        '--observation', 'inject writes markdown csv html and manifest',
+        '--importance', '7',
+        '--label', 'DECISION',
+      ]);
+
+      const result = ok(db, ['repo', 'inject', '--workspace', dir, '--mode', 'share']);
+      expect(result['out_dir']).toBe(join(dir, '.octocode'));
+      expect(result['files']).toEqual(expect.arrayContaining([
+        join(dir, '.octocode', 'AGENTS.md'),
+        join(dir, '.octocode', 'awareness', 'manifest.json'),
+      ]));
+      const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as Record<string, unknown>;
+      expect(manifest['policy']).toMatchObject({ gitignore_modified: false, share_decision: 'user-owned' });
+      expect(manifest['warnings']).toEqual(expect.arrayContaining([
+        expect.stringContaining('gitignored'),
+      ]));
+      expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('.octocode\n');
+      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Octocode Repo Context');
+      expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'lessons.csv'), 'utf8')).toContain('DECISION');
     } finally { rmSync(dir, { recursive: true }); }
   });
 });

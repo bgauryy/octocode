@@ -1,7 +1,7 @@
 # KPI.md Template — Success & Verification
 
 `KPI.md` is the **verification document**: it outlives the ship date and answers "how do we know the RFC *and* its implementation actually worked?"
-KPI.md is more than dashboards: it holds the **acceptance criteria to check**, the **measurable success signals**, and the **traceability matrix** that binds all three files and detects drift.
+KPI.md is more than dashboards: it holds the **acceptance criteria to check**, the **measurable success signals**, and the **traceability matrix** that binds the document set and detects drift.
 
 This file **references `RFC.md` goals — it does not restate them.** Each goal in `RFC.md` §Goals maps to at least one user story and one measurable signal here.
 

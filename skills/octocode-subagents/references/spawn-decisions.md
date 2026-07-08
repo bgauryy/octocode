@@ -23,7 +23,7 @@ Keep the task in the parent for:
 ## Resource Mode
 
 - `lean` - fastest; no extensions, skills, prompts, or themes. Use for focused search, read, or shell tasks.
-- `octocode` - loads the Octocode extension and tools. Use when the worker needs Octocode-native code research.
+- `octocode` - loads the Octocode extension and tools. Use when the worker is instructed to use `octocode-research` for code research.
 - `default` - full Pi discovery. Use only when the worker needs arbitrary installed resources.
 
 ## Hard Limits

@@ -112,10 +112,15 @@ Access: packages/*/src/, tests/, docs/ ✅ · *.json, *.config.*, Cargo.toml, sc
 
 ## Docs (docs/)
 
+Global (cross-package):
 docs/OCTOCODE_MCP.md · docs/CONFIGURATION.md — MCP overview, env vars, GitHub token/OAuth
 docs/OCTOCODE_TOOLS.md — all 13 tools, behavior, params, clone workflow
-docs/OCTOCODE_CLI.md · docs/OCTOCODE_QUERY_LANGUAGE.md — CLI commands/flags, OQL syntax
-docs/SECURITY.md · docs/LSP_SERVER_LIFECYCLE.md — secret redaction, path validation, LSP lifecycle, 151-ext format matrix
+docs/SECURITY.md — secret redaction, path validation, LSP lifecycle, 151-ext format matrix
+
+Package-specific:
+packages/octocode/docs/OCTOCODE_CLI.md · packages/octocode/docs/OCTOCODE_QUERY_LANGUAGE.md — CLI commands/flags, OQL syntax
+packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md — LSP lifecycle, no-fallback contract
+packages/octocode-benchmark/docs/BENCHMARKS.md — benchmark strategy
 release/RELEASE_GUIDE.md — versioning, publish checklist
 docs/context/ — search guide, OQL graph flow, LSP guide, agent research workflows
 

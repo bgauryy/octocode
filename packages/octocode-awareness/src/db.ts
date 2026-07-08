@@ -23,6 +23,7 @@ const MEMORY_HOME_ENV = 'OCTOCODE_MEMORY_HOME';
 // ─── Module-level singleton ───────────────────────────────────────────────────
 
 let _db: DatabaseSync | undefined;
+const _dbCache = new Map<string, DatabaseSync>();
 
 // ─── Path resolution ──────────────────────────────────────────────────────────
 
@@ -62,6 +63,19 @@ export function connectDb(dbPath: string): DatabaseSync {
   db.exec('PRAGMA journal_mode = WAL');
   initDb(db);
   _db = db;
+  return db;
+}
+
+/**
+ * Return a cached connection for high-frequency in-process harness operations.
+ * Keyed by resolved DB path so tests and multiple workspaces stay isolated.
+ */
+export function connectCachedDb(dbPath: string): DatabaseSync {
+  const resolved = resolve(dbPath);
+  const cached = _dbCache.get(resolved);
+  if (cached) return cached;
+  const db = connectDb(resolved);
+  _dbCache.set(resolved, db);
   return db;
 }
 
@@ -444,32 +458,40 @@ export function rebuildFts(db: DatabaseSync): void {
   // DB-4 reverted: 'delete-all' FTS5 command only works on content= (contentless)
   // tables, not regular FTS5 tables. DELETE FROM is the correct approach for
   // a standard fts5 table (it goes through the shadow tables properly).
-  db.exec('DELETE FROM memories_fts');
-  // Select only the columns needed for FTS indexing — avoids loading the
-  // embedding BLOB (can be 1536 floats = 6KB per row) for all rows.
-  const rows = db.prepare(
-    'SELECT memory_id, task_context, observation, tags_json, label FROM memories'
-  ).all() as unknown as Array<Pick<MemoryRow, 'memory_id' | 'task_context' | 'observation' | 'tags_json' | 'label'> & { references?: string[] }>;
-  if (rows.length > 0) {
-    const refs = db.prepare(
-      `SELECT memory_id, reference
-       FROM memory_refs
-       WHERE memory_id IN (${rows.map(() => '?').join(',')})
-       ORDER BY memory_id, ordinal`
-    ).all(...rows.map(row => row.memory_id)) as unknown as Array<{ memory_id: string; reference: string }>;
-    const refsByMemory = new Map<string, string[]>();
-    for (const ref of refs) {
-      const list = refsByMemory.get(ref.memory_id) ?? [];
-      list.push(ref.reference);
-      refsByMemory.set(ref.memory_id, list);
+  db.exec('SAVEPOINT rebuild_fts');
+  try {
+    db.exec('DELETE FROM memories_fts');
+    // Select only the columns needed for FTS indexing — avoids loading the
+    // embedding BLOB (can be 1536 floats = 6KB per row) for all rows.
+    const rows = db.prepare(
+      'SELECT memory_id, task_context, observation, tags_json, label FROM memories'
+    ).all() as unknown as Array<Pick<MemoryRow, 'memory_id' | 'task_context' | 'observation' | 'tags_json' | 'label'> & { references?: string[] }>;
+    if (rows.length > 0) {
+      const refs = db.prepare(
+        `SELECT r.memory_id, r.reference
+         FROM memory_refs r
+         JOIN memories m ON m.memory_id = r.memory_id
+         ORDER BY r.memory_id, r.ordinal`
+      ).all() as unknown as Array<{ memory_id: string; reference: string }>;
+      const refsByMemory = new Map<string, string[]>();
+      for (const ref of refs) {
+        const list = refsByMemory.get(ref.memory_id) ?? [];
+        list.push(ref.reference);
+        refsByMemory.set(ref.memory_id, list);
+      }
+      for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
     }
-    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
-  }
-  const insert = db.prepare(
-    'INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
-  );
-  for (const row of rows) {
-    insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
+    const insert = db.prepare(
+      'INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
+    );
+    for (const row of rows) {
+      insert.run(row.memory_id, row.task_context, row.observation, ftsTermsForRow(row));
+    }
+    db.exec('RELEASE SAVEPOINT rebuild_fts');
+  } catch (e) {
+    try { db.exec('ROLLBACK TO SAVEPOINT rebuild_fts'); } catch { /* already rolled back */ }
+    try { db.exec('RELEASE SAVEPOINT rebuild_fts'); } catch { /* already released */ }
+    throw e;
   }
 }
 
@@ -496,6 +518,45 @@ export function replaceMemoryReferences(db: DatabaseSync, memoryId: string, refe
  * and maintenance.ts call it explicitly rather than duplicating the DELETE
  * as a side effect of read operations (ARCH-3).
  */
-export function evictExpiredLocks(db: DatabaseSync): void {
-  db.prepare('DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?').run(utcNow());
+export interface EvictExpiredLocksResult {
+  pruned_locks: number;
+  updated_tasks: number;
+}
+
+export function evictExpiredLocks(db: DatabaseSync): EvictExpiredLocksResult {
+  const now = utcNow();
+  const stale = db.prepare(
+    'SELECT COUNT(*) AS c FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?'
+  ).get(now) as { c: number };
+  if (stale.c === 0) return { pruned_locks: 0, updated_tasks: 0 };
+
+  db.exec('SAVEPOINT evict_expired_locks');
+  try {
+    db.exec('CREATE TEMP TABLE IF NOT EXISTS temp_expired_lock_tasks(task_id TEXT PRIMARY KEY)');
+    db.exec('DELETE FROM temp_expired_lock_tasks');
+    db.prepare(
+      `INSERT OR IGNORE INTO temp_expired_lock_tasks(task_id)
+       SELECT task_id FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?`
+    ).run(now);
+
+    const deleteRes = db.prepare(
+      'DELETE FROM locks WHERE expires_at IS NOT NULL AND expires_at <= ?'
+    ).run(now) as { changes: number };
+
+    const updateRes = db.prepare(
+      `UPDATE tasks
+       SET status = 'PENDING', updated_at = ?
+       WHERE status = 'ACTIVE'
+         AND task_id IN (SELECT task_id FROM temp_expired_lock_tasks)
+         AND NOT EXISTS (SELECT 1 FROM locks WHERE locks.task_id = tasks.task_id)`
+    ).run(now) as { changes: number };
+
+    db.exec('DELETE FROM temp_expired_lock_tasks');
+    db.exec('RELEASE SAVEPOINT evict_expired_locks');
+    return { pruned_locks: deleteRes.changes, updated_tasks: updateRes.changes };
+  } catch (e) {
+    try { db.exec('ROLLBACK TO SAVEPOINT evict_expired_locks'); } catch { /* already rolled back */ }
+    try { db.exec('RELEASE SAVEPOINT evict_expired_locks'); } catch { /* already released */ }
+    throw e;
+  }
 }

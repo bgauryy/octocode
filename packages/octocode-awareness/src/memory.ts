@@ -12,7 +12,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   normalizeArtifact, utcNow,
   normalizeTags, normalizeReferences, normalizeLabel, normalizeFilePath,
-  rowToMemory,
+  rowToMemory, parseJsonList,
 } from './helpers.js';
 import { fillScope } from './git.js';
 import { hasFts, ftsTermsForRow, replaceMemoryReferences } from './db.js';
@@ -164,20 +164,60 @@ function buildFtsQuery(query: string): string | null {
   return tokens.join(' OR ');
 }
 
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
+}
+
+function appendFallbackQueryConditions(
+  query: string,
+  conditions: string[],
+  params: (string | number)[],
+): void {
+  const tokens = [...textTokens(query)].slice(0, 16);
+  if (tokens.length === 0) return;
+
+  const tokenClauses: string[] = [];
+  for (const token of tokens) {
+    const pattern = `%${escapeLike(token)}%`;
+    tokenClauses.push(`(
+      lower(m.task_context) LIKE ? ESCAPE '\\'
+      OR lower(m.observation) LIKE ? ESCAPE '\\'
+      OR lower(m.tags_json) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.label, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.workspace_path, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.artifact, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.repo, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.ref, '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(m.failure_signature, '')) LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM memory_refs r
+        WHERE r.memory_id = m.memory_id
+          AND lower(r.reference) LIKE ? ESCAPE '\\'
+      )
+    )`);
+    params.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
+  }
+  conditions.push(`(${tokenClauses.join(' OR ')})`);
+}
+
 function fallbackSearch(
   db: DatabaseSync,
+  query: string,
   conditions: string[],
   params: (string | number)[],
   limit: number,
 ): MemoryRow[] {
+  const fallbackConditions = [...conditions];
+  const fallbackParams = [...params];
+  appendFallbackQueryConditions(query, fallbackConditions, fallbackParams);
   const sql = `
     SELECT m.*, 0 AS _bm25
     FROM memories m
-    WHERE ${conditions.join(' AND ')}
+    WHERE ${fallbackConditions.join(' AND ')}
     ORDER BY m.importance DESC, m.created_at DESC
     LIMIT ?
   `;
-  return db.prepare(sql).all(...params, limit) as unknown as MemoryRow[];
+  return db.prepare(sql).all(...fallbackParams, limit) as unknown as MemoryRow[];
 }
 
 interface LexicalScopeOptions {
@@ -188,6 +228,8 @@ interface LexicalScopeOptions {
   strictScope?: boolean;
   globalOnly?: boolean;
   cwd?: string;
+  asOf?: string | null;
+  candidateMemoryIds?: string[];
 }
 
 function applyScopeConditions(
@@ -258,28 +300,60 @@ export function lexicalSearch(
   }
   applyScopeConditions(conditions, params, scopeOptions);
 
-  let rows: MemoryRow[];
-  if (ftsQuery && hasFts(db)) {
-    try {
-      // BM25 column weights: memory_id=UNINDEXED(0), task_context=10, observation=7, tags=2.
-      // Matches in task_context (what the agent was doing) score higher than
-      // observation (the lesson) which scores higher than tags (supplementary).
-      // bm25() returns negative values; ABS() + DESC gives best-match-first.
-      const sql = `
-        SELECT m.*, ABS(bm25(memories_fts, 0, 10, 7, 2)) AS _bm25
-        FROM memories m
-        JOIN memories_fts ON memories_fts.memory_id = m.memory_id
-        WHERE memories_fts MATCH ?
-          AND ${conditions.join(' AND ')}
-        ORDER BY _bm25 DESC
-        LIMIT ?
-      `;
-      rows = db.prepare(sql).all(ftsQuery, ...params, limit) as unknown as MemoryRow[];
-    } catch {
-      rows = fallbackSearch(db, conditions, params, limit);
+  if (scopeOptions.asOf) {
+    conditions.push('(m.valid_from IS NULL OR m.valid_from <= ?)');
+    conditions.push('(m.valid_to IS NULL OR m.valid_to > ?)');
+    params.push(scopeOptions.asOf, scopeOptions.asOf);
+  }
+
+  const candidateIds = scopeOptions.candidateMemoryIds
+    ? [...new Set(scopeOptions.candidateMemoryIds)].filter(Boolean)
+    : null;
+  if (candidateIds && candidateIds.length === 0) return [];
+
+  let usingCandidateTable = false;
+  if (candidateIds) {
+    if (candidateIds.length <= 400) {
+      conditions.push(`m.memory_id IN (${candidateIds.map(() => '?').join(',')})`);
+      params.push(...candidateIds);
+    } else {
+      db.exec('CREATE TEMP TABLE IF NOT EXISTS temp_memory_candidate_ids(memory_id TEXT PRIMARY KEY)');
+      db.exec('DELETE FROM temp_memory_candidate_ids');
+      const insertCandidate = db.prepare('INSERT OR IGNORE INTO temp_memory_candidate_ids(memory_id) VALUES (?)');
+      for (const id of candidateIds) insertCandidate.run(id);
+      conditions.push('EXISTS (SELECT 1 FROM temp_memory_candidate_ids c WHERE c.memory_id = m.memory_id)');
+      usingCandidateTable = true;
     }
-  } else {
-    rows = fallbackSearch(db, conditions, params, limit);
+  }
+
+  let rows: MemoryRow[];
+  try {
+    if (ftsQuery && hasFts(db)) {
+      try {
+        // BM25 column weights: memory_id=UNINDEXED(0), task_context=10, observation=7, tags=2.
+        // Matches in task_context (what the agent was doing) score higher than
+        // observation (the lesson) which scores higher than tags (supplementary).
+        // bm25() returns negative values; ABS() + DESC gives best-match-first.
+        const sql = `
+          SELECT m.*, ABS(bm25(memories_fts, 0, 10, 7, 2)) AS _bm25
+          FROM memories m
+          JOIN memories_fts ON memories_fts.memory_id = m.memory_id
+          WHERE memories_fts MATCH ?
+            AND ${conditions.join(' AND ')}
+          ORDER BY _bm25 DESC
+          LIMIT ?
+        `;
+        rows = db.prepare(sql).all(ftsQuery, ...params, limit) as unknown as MemoryRow[];
+      } catch {
+        rows = fallbackSearch(db, query, conditions, params, limit);
+      }
+    } else {
+      rows = fallbackSearch(db, query, conditions, params, limit);
+    }
+  } finally {
+    if (usingCandidateTable) {
+      try { db.exec('DELETE FROM temp_memory_candidate_ids'); } catch { /* non-critical cleanup */ }
+    }
   }
 
   const maxBm25 = rows.reduce((m, r) => Math.max(m, r._bm25 ?? 0), 0);
@@ -317,6 +391,116 @@ function attachMemoryReferences(db: DatabaseSync, memories: MemoryRecord[]): voi
   } catch (e) {
     if (!(e instanceof Error && e.message.includes('no such table'))) throw e;
   }
+}
+
+function compileRecallRegex(pattern: string): RegExp {
+  try {
+    return new RegExp(pattern);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`invalid regex ${JSON.stringify(pattern)}: ${message}`);
+  }
+}
+
+function intersectCandidateIds(current: Set<string> | null, next: Set<string>): Set<string> {
+  if (current === null) return new Set(next);
+  const out = new Set<string>();
+  for (const id of current) if (next.has(id)) out.add(id);
+  return out;
+}
+
+function exactReferenceCandidateIds(db: DatabaseSync, references: string[]): Set<string> {
+  const refs = normalizeReferences(references);
+  if (refs.length === 0) return new Set();
+  const rows = db.prepare(
+    `SELECT memory_id
+     FROM memory_refs
+     WHERE reference IN (${refs.map(() => '?').join(',')})
+     GROUP BY memory_id
+     HAVING COUNT(DISTINCT reference) = ?`
+  ).all(...refs, refs.length) as unknown as Array<{ memory_id: string }>;
+  return new Set(rows.map(row => row.memory_id));
+}
+
+function fileReferenceCandidates(files: string[], baseDir?: string | null): string[] {
+  const refs = new Set<string>();
+  for (const raw of files) {
+    const file = String(raw ?? '').trim();
+    if (!file) continue;
+    refs.add(file);
+    if (file.startsWith('file:')) {
+      const unprefixed = file.slice(5);
+      if (unprefixed) refs.add(unprefixed);
+      continue;
+    }
+    refs.add(`file:${file}`);
+    const normalized = normalizeFilePath(file, baseDir ?? undefined);
+    if (normalized) {
+      refs.add(normalized);
+      refs.add(`file:${normalized}`);
+    }
+  }
+  return [...refs];
+}
+
+function anyReferenceCandidateIds(db: DatabaseSync, references: string[]): Set<string> {
+  const refs = [...new Set(references.map(ref => String(ref ?? '').trim().slice(0, 512)).filter(Boolean))];
+  if (refs.length === 0) return new Set();
+  const rows = db.prepare(
+    `SELECT DISTINCT memory_id
+     FROM memory_refs
+     WHERE reference IN (${refs.map(() => '?').join(',')})`
+  ).all(...refs) as unknown as Array<{ memory_id: string }>;
+  return new Set(rows.map(row => row.memory_id));
+}
+
+function fileRegexCandidateIds(db: DatabaseSync, regexes: RegExp[]): Set<string> {
+  if (regexes.length === 0) return new Set();
+  const rows = db.prepare(
+    `SELECT memory_id, reference
+     FROM memory_refs
+     WHERE kind = 'file' OR reference LIKE 'file:%'
+     ORDER BY memory_id, ordinal`
+  ).all() as unknown as Array<{ memory_id: string; reference: string }>;
+  const refsByMemory = new Map<string, string[]>();
+  for (const row of rows) {
+    const refs = refsByMemory.get(row.memory_id) ?? [];
+    refs.push(row.reference);
+    refsByMemory.set(row.memory_id, refs);
+  }
+  const ids = new Set<string>();
+  for (const [memoryId, refs] of refsByMemory.entries()) {
+    if (regexes.every(re => refs.some(ref => re.test(ref)))) ids.add(memoryId);
+  }
+  return ids;
+}
+
+function regexCandidateIds(db: DatabaseSync, regexes: RegExp[]): Set<string> {
+  if (regexes.length === 0) return new Set();
+  type Row = MemoryRow & { references_text: string | null };
+  const rows = db.prepare(
+    `SELECT m.*, group_concat(r.reference, char(31)) AS references_text
+     FROM memories m
+     LEFT JOIN memory_refs r ON r.memory_id = m.memory_id
+     GROUP BY m.memory_id`
+  ).all() as unknown as Row[];
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const haystack = [
+      row.task_context,
+      row.observation,
+      ...parseJsonList(row.tags_json),
+      ...(row.references_text ? row.references_text.split('\u001f') : []),
+      row.label,
+      row.workspace_path,
+      row.artifact,
+      row.repo,
+      row.ref,
+      row.failure_signature,
+    ].filter(Boolean).join(' ');
+    if (regexes.every(re => re.test(haystack))) ids.add(row.memory_id);
+  }
+  return ids;
 }
 
 // ─── bumpAccess ───────────────────────────────────────────────────────────────
@@ -520,6 +704,31 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     ? (Array.isArray(label) ? label.map(normalizeLabel) : [normalizeLabel(label)])
     : [];
 
+  const effectiveCwd = cwdParam ?? workspacePath ?? undefined;
+  const asOfDate = asOf ? new Date(asOf) : null;
+  if (asOfDate && isNaN(asOfDate.getTime())) {
+    throw new Error(`invalid --as-of value "${asOf}" — expected ISO 8601 date string (e.g. 2024-06-01T00:00:00Z)`);
+  }
+
+  let candidateIds: Set<string> | null = null;
+  const refFilters = normalizeReferences(references);
+  const fileRefFilters = fileReferenceCandidates(files, effectiveCwd);
+  const compiledRegex = regex.map(compileRecallRegex);
+  const compiledFileRegex = fileRegex.map(compileRecallRegex);
+
+  if (refFilters.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, exactReferenceCandidateIds(db, refFilters));
+  }
+  if (fileRefFilters.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, anyReferenceCandidateIds(db, fileRefFilters));
+  }
+  if (compiledFileRegex.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, fileRegexCandidateIds(db, compiledFileRegex));
+  }
+  if (compiledRegex.length > 0) {
+    candidateIds = intersectCandidateIds(candidateIds, regexCandidateIds(db, compiledRegex));
+  }
+
   let memories = lexicalSearch(
     db, query, limit * SCORING_PREFETCH_FACTOR, minImportance, tags, labels, states, {
       workspacePath: workspacePath ?? cwdParam ?? null,
@@ -529,104 +738,30 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
       strictScope,
       globalOnly,
       cwd: cwdParam,
+      asOf: asOf ?? null,
+      candidateMemoryIds: candidateIds ? [...candidateIds] : undefined,
     },
   );
   attachMemoryReferences(db, memories);
 
-  // Workspace scope filter
-  const resolvedScope = fillScope(
-    { workspace_path: workspacePath ?? null, artifact: normalizeArtifact(artifact), repo: repoArg ?? null, ref: refArg ?? null },
-    cwdParam ?? workspacePath ?? process.cwd(),
-  );
-
   // Exact file filter — the `file` column was removed from the schema (files are
   // now tracked via memory_refs with prefix "file:"). For forward compatibility we
   // keep the filter logic but match against the references array instead.
-  if (files.length > 0) {
-    const normFiles = new Set<string>();
-    for (const file of files) {
-      normFiles.add(file);
-      const normalized = normalizeFilePath(file, cwdParam ?? workspacePath ?? undefined);
-      if (normalized) normFiles.add(normalized);
-    }
-    const normFileRefs = new Set([...normFiles].map(f => `file:${f}`));
+  if (fileRefFilters.length > 0) {
+    const normFiles = new Set(fileRefFilters);
     memories = memories.filter(m =>
-      m.references.some(r => normFiles.has(r) || normFileRefs.has(r))
+      m.references.some(r => normFiles.has(r))
     );
   }
 
-  // Reference filter — use memory_refs table (always populated via replaceMemoryReferences).
-  // MEM-1: A zero result from the table means "no matches", not "table unavailable".
-  // MEM-2: Apply the reference filter BEFORE the FTS prefetch cap matters: fetch all reference-
-  // matched memory_ids from the table first, then load any that were outside the FTS prefetch
-  // window directly (bypassing the cap). Without this, a low-BM25 memory that matches the
-  // reference but isn't in the top limit×3 FTS rows is silently dropped.
-  if (references.length > 0) {
-    const fromTable = new Set<string>();
-    for (const ref of references) {
-      const rows = db.prepare(
-        'SELECT memory_id FROM memory_refs WHERE reference = ?'
-      ).all(ref) as unknown as Array<{ memory_id: string }>;
-      rows.forEach(r => fromTable.add(r.memory_id));
-    }
-    if (fromTable.size > 0) {
-      // Load any reference-matched memories that didn't make it through the FTS prefetch cap.
-      const existingIds = new Set(memories.map(m => m.memory_id));
-      const missingIds = [...fromTable].filter(id => !existingIds.has(id));
-      if (missingIds.length > 0) {
-        const ph = missingIds.map(() => '?').join(',');
-        type MRow = MemoryRow & { _bm25?: number };
-
-        // FIX #7 (P1): apply the same workspace/scope filters to the "extra" query so
-        // reference-matched rows that missed the FTS cap still respect scope boundaries.
-        const extraConditions: string[] = [
-          `m.memory_id IN (${ph})`,
-          `m.importance >= ?`,
-          `m.state IN (${states.map(() => '?').join(',')})`,
-        ];
-        const extraParams: (string | number)[] = [...missingIds, minImportance, ...states];
-
-        if (globalOnly) {
-          extraConditions.push('m.workspace_path IS NULL', 'm.artifact IS NULL', 'm.repo IS NULL', 'm.ref IS NULL');
-        } else {
-          applyScopeConditions(extraConditions, extraParams, {
-            workspacePath: resolvedScope.workspace_path,
-            artifact: resolvedScope.artifact,
-            repo: resolvedScope.repo,
-            ref: resolvedScope.ref,
-            strictScope,
-            cwd: cwdParam,
-          });
-        }
-
-        const extra = db.prepare(
-          `SELECT m.*, 0 AS _bm25 FROM memories m WHERE ${extraConditions.join(' AND ')}`
-        ).all(...extraParams) as unknown as MRow[];
-        for (const row of extra) {
-          const mem = rowToMemory(row);
-          mem.lexical = 0;
-          mem.score = decayScore(mem, 0);
-          memories.push(mem);
-        }
-        attachMemoryReferences(db, memories);
-      }
-    }
-    // Authoritative result: fromTable may be empty if no memory matches these refs.
-    memories = memories.filter(m => fromTable.has(m.memory_id));
+  // Reference filters are conjunctive: every provided provenance reference must
+  // be present. This is pushed down before the search cap and rechecked here.
+  if (refFilters.length > 0) {
+    memories = memories.filter(m => refFilters.every(ref => m.references.includes(ref)));
   }
 
   // Regex filter
-  if (regex.length > 0 || fileRegex.length > 0) {
-    const compileRegex = (pattern: string): RegExp => {
-      try {
-        return new RegExp(pattern);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`invalid regex ${JSON.stringify(pattern)}: ${message}`);
-      }
-    };
-    const compiledRegex = regex.map(compileRegex);
-    const compiledFileRegex = fileRegex.map(compileRegex);
+  if (compiledRegex.length > 0 || compiledFileRegex.length > 0) {
     memories = memories.filter(m => {
       if (compiledFileRegex.length > 0) {
         // Match fileRegex against file: prefixed references (no standalone file column)
@@ -645,11 +780,7 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
     });
   }
 
-  if (asOf) {
-    const asOfDate = new Date(asOf);
-    if (isNaN(asOfDate.getTime())) {
-      throw new Error(`invalid --as-of value "${asOf}" — expected ISO 8601 date string (e.g. 2024-06-01T00:00:00Z)`);
-    }
+  if (asOfDate) {
     memories = memories.filter(m => {
       const vf = m.valid_from ? new Date(m.valid_from) : null;
       const vt = m.valid_to ? new Date(m.valid_to) : null;
@@ -949,9 +1080,9 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
     const repRows = db.prepare(
       `SELECT failure_signature, observation, max(importance)
        FROM memories
-       WHERE failure_signature IN (${ph}) AND state = 'ACTIVE'
+       WHERE failure_signature IN (${ph}) AND ${conditions.join(' AND ')}
        GROUP BY failure_signature`
-    ).all(...allRawSigs) as unknown as RepRow[];
+    ).all(...allRawSigs, ...bindParams) as unknown as RepRow[];
     for (const r of repRows) repMap.set(stripSurface(r.failure_signature), r.observation);
   }
 
@@ -981,8 +1112,8 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   type TotalRow = { sigs: number; mems: number };
   const totals = db.prepare(
     `SELECT count(DISTINCT failure_signature) AS sigs, count(*) AS mems
-     FROM memories WHERE failure_signature IS NOT NULL AND state = 'ACTIVE'`
-  ).get() as unknown as TotalRow;
+     FROM memories WHERE ${conditions.join(' AND ')}`
+  ).get(...bindParams) as unknown as TotalRow;
 
   return { ok: true, clusters: selected, total_signatures: totals.sigs, total_memories: totals.mems };
 }

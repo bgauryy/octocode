@@ -226,6 +226,7 @@ function buildSpawnConfig(params: {
   task: string;
   url?: string;
   port: number;
+  model?: string;
   cdpDomains: string[];
   skillContext: string;
   initialFindings: string[];
@@ -233,6 +234,7 @@ function buildSpawnConfig(params: {
   systemPrompt: string;
   tools: string[];
   task: string;
+  model?: string;
 } {
   const domainList = params.cdpDomains.join(', ');
 
@@ -288,6 +290,7 @@ function buildSpawnConfig(params: {
     systemPrompt,
     tools: ['chromeDebug'],
     task: params.task,
+    ...(params.model ? { model: params.model } : {}),
   };
 }
 
@@ -315,9 +318,10 @@ export function registerBrowserAgentTool(
       '',
       'Architecture:',
       '  1. Call browserAgent({task, url}) → get findings + spawnConfig',
-      '  2. Use spawnAgent({task: config.task, systemPrompt: config.systemPrompt, tools: config.tools})',
+      '  2. Use spawnAgent({task: config.task, systemPrompt: config.systemPrompt, tools: config.tools, model: config.model})',
       '  3. The subagent uses chromeDebug with scheme:"raw" for any CDP call',
       '  4. The octocode-chrome-devtools skill is embedded in the system prompt',
+      '  5. Choose config.model from `pi -ne --list-models [search]`; use the live user-configured table, not hardcoded config paths.',
       '',
       'Task routing (keyword → schemes):',
       '  security/cookie/auth    → security + network',
@@ -356,6 +360,9 @@ export function registerBrowserAgentTool(
       headless: Type.Optional(
         Type.Boolean({ description: 'Headless Chrome when launching (default true).' }),
       ),
+      model: Type.Optional(
+        Type.String({ description: 'Model override from `pi -ne --list-models [search]` to include in the returned spawnAgent config.' }),
+      ),
       runNow: Type.Optional(
         Type.Boolean({
           description:
@@ -384,6 +391,7 @@ export function registerBrowserAgentTool(
         port?: number;
         launch?: boolean;
         headless?: boolean;
+        model?: string;
         runNow?: boolean;
         durationMs?: number;
         workspaceCwd?: string;
@@ -474,6 +482,7 @@ export function registerBrowserAgentTool(
         task: params.task,
         url: params.url,
         port,
+        model: params.model,
         cdpDomains,
         skillContext,
         initialFindings: allLines,
@@ -493,6 +502,7 @@ export function registerBrowserAgentTool(
         '',
         '=== SPAWN CONFIG ===',
         `tools: ${spawnConfig.tools.join(', ')}`,
+        spawnConfig.model ? `model: ${spawnConfig.model}` : '',
         '',
         '=== SYSTEM PROMPT (pass to spawnAgent) ===',
         spawnConfig.systemPrompt,

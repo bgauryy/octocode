@@ -9,14 +9,13 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 import { registerAgent } from '../src/agents.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
 import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
 import { extractPiWriteTargetPaths } from '../src/pi-hooks.js';
-
-const command = process.argv[2] ?? 'help';
 
 function readStdin(): Promise<string> {
   return new Promise((resolve) => {
@@ -100,7 +99,7 @@ function extractFiles(payload: Record<string, unknown>): string[] {
   const input = payloadForFileExtraction(payload);
   const inputObj = objectOrEmpty(input);
   const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? inputObj.tool_name ?? inputObj.toolName ?? '';
-  return extractPiWriteTargetPaths(toolName, input);
+  return extractPiWriteTargetPaths(toolName, input, { assumeWrite: true });
 }
 
 function resolveHookPath(file: string, cwd = process.cwd()): string {
@@ -359,13 +358,13 @@ async function runSessionEnd(payload: Record<string, unknown>): Promise<number> 
   return 0;
 }
 
-async function main(): Promise<number> {
+export async function runHookCommand(command: string, rawPayload?: string): Promise<number> {
   if (command === 'help' || command === '--help' || command === '-h') {
     process.stdout.write('usage: hook-runner <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json\n');
     return 0;
   }
 
-  const payload = parsePayload(await readStdin());
+  const payload = parsePayload(rawPayload ?? await readStdin());
   switch (command) {
     case 'pre-edit': return runPreEdit(payload);
     case 'post-edit': return runPostEdit(payload);
@@ -379,4 +378,17 @@ async function main(): Promise<number> {
   }
 }
 
-process.exitCode = await main();
+async function main(): Promise<number> {
+  return runHookCommand(process.argv[2] ?? 'help');
+}
+
+const isMain = process.argv[1]
+  ? fileURLToPath(import.meta.url) === resolve(process.argv[1])
+  : false;
+const invokedAsHookRunner = process.argv[1]
+  ? /^hook-runner\.(js|mjs|ts)$/.test(basename(process.argv[1]))
+  : false;
+
+if (isMain && invokedAsHookRunner) {
+  process.exitCode = await main();
+}

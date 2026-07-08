@@ -5,37 +5,40 @@ description: "Use when technical or code work needs evidence-first research: inv
 
 # Octocode Research
 
-Lead evidence-first technical research and code work. Flow: `SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY`.
+Evidence-first thinking algorithm for technical research and code work: `SCOPE -> SEARCH -> READ EXACT -> VALIDATE -> DECIDE/PATCH -> VERIFY`.
 
 ## Modes
 
-Map/Validate for landscape, prior art, or whether to add/build something. Investigate/Review for root cause, behavior, provenance, PR/local diff findings. Plan/Change for implementation, refactor, architecture, migration; edit only when asked. Loop when one pass is insufficient.
+| Mode | Use for |
+|---|---|
+| Map / Validate | landscape, prior art, whether to add/build something |
+| Investigate / Review | root cause, behavior, provenance, PR/local diff findings |
+| Plan / Change | implementation, refactor, architecture, migration — edit only when asked |
+| Loop | one pass is insufficient — repeat Act→Observe→Learn until evidence converges |
 
 ## Operating Rules
 
 1. State corpus, question, mode, and active/skipped surfaces in one line.
-2. Route by what you already hold (`references/algorithm.md`) — never a fixed grep→AST→LSP pipeline.
+2. Route by what you already hold; never a fixed grep→AST→LSP pipeline.
 3. Use MCP tools when exposed; otherwise `npx octocode` after reading schemas/help.
 4. Start cheap: tree/path/package/repo discovery. Deep-read exact slices only after anchors appear.
-5. Cross-pollinate surfaces: local clues feed GitHub/npm/web; external claims feed code reads.
-6. Keep a claim ledger; promote a snippet to proof only after exact source, AST/LSP, history, artifact, or test evidence — never from a single evidence grade.
-7. Recall prior lessons first; record durable findings only when a reusable lesson survives rebuttal.
-8. Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
-9. For code edits, make the smallest scoped patch and report actual verification.
+5. For nontrivial code claims, read at least two of structure/stream/connections; triangulate claims with 2-3 batched angles (`algorithm.md`).
+6. Keep a tiny ledger: `claim -> evidence -> confidence -> next check`; promote snippets only after exact source, AST/LSP, history, artifact, or test proof.
+7. Cross-pollinate surfaces: local clues feed GitHub/npm/web; external claims feed code reads.
+8. Recall prior lessons first; record durable findings only when a reusable lesson survives rebuttal.
+9. Ask before broad public-contract changes, materially conflicting evidence, thin surfaces after retries, or 3+ unrelated problem spaces.
+10. For code edits, make the smallest scoped patch and report the verification that actually ran.
 
 ## Reference Map
 
-- `references/algorithm.md` — **read first, every task.** The router (route by what you hold), evidence grades, matchString-first, node_modules-first, anti-patterns, and failure signals. Every other reference assumes it.
-- `references/octocode.md` — when choosing transport (MCP vs CLI), picking a tool, or needing auth/install/schema/CLI syntax. Full tool matrix.
-- `references/research-flow.md` — when running Map, Validate, Investigate, Plan, prior-art, PR/history, package, or multi-surface research.
-- `references/code-research.md` — when doing implementation, review, refactor, architecture, dead-code, binary, or blast-radius work, or before presenting/dismissing a finding (proof ladder + confidence rules included).
-- `references/loop-mode.md` — when repeating Act→Observe→Learn cycles until evidence converges.
-- `references/long-research.md` — rare path: durable decision brief, saved artifacts, or audit trail.
-- `references/github-landscape.md` — rare path: comparing GitHub repos, packages, reuse options, or ecosystem candidates.
-
-## Route Quick Pick
-
-`algorithm.md` first, always. Map/Validate → `research-flow`; Investigate/Review → `research-flow` + `code-research`; Plan/Change → `code-research`; Loop → `loop-mode`; long/contested → `long-research`; ecosystem comparison → `github-landscape`.
+- `references/algorithm.md` — read at session start or before nontrivial work for router, evidence grades, and failure signals.
+- `references/research-flow.md` — when mapping, validating, investigating, planning, or composing multi-surface flows.
+- `references/workflows.md` — when choosing local, external, root-cause, or PR/local-review workflow shape.
+- `references/code-research.md` — before code investigation, review, refactor, architecture, dead-code, binary, or blast-radius claims.
+- `references/loop-mode.md` — when one pass is insufficient and Act→Observe→Learn cycles need convergence.
+- `references/octocode.md` — when choosing MCP vs CLI transport, auth, install, or command syntax.
+- `references/long-research.md` — when a durable brief, artifact, claim ledger, or audit trail is needed.
+- `references/github-landscape.md` — when comparing GitHub repos, package ecosystems, or reuse candidates.
 
 ## Scripts
 

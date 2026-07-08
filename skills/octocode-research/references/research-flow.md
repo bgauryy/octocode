@@ -1,6 +1,8 @@
 # Research Flow
 
-Read this when executing an Octocode research workflow: `SKILL.md` picks the mode; this file gives compact per-mode tool chains. The router, evidence grades, anti-patterns, and failure signals behind every step live in `references/algorithm.md` — read that first. Tool names and their CLI form live in `references/octocode.md`.
+Read when executing an Octocode research workflow. `SKILL.md` picks the mode; this file gives compact per-mode tool chains.
+The router, evidence grades, anti-patterns, and failure signals live in `references/algorithm.md`. Tool names and CLI forms live in `references/octocode.md`.
+For local vs external routing, root-cause flow, or PR/local review, read `references/workflows.md` before choosing a tool chain here.
 
 Start each workflow with a **surface plan** (local, GitHub, packages, PR/history, artifacts, web, plus skipped surfaces with reasons); update it when cross-pollination changes the route.
 
@@ -63,7 +65,7 @@ Wiki/docs orientation (when present — a lead, not proof; see `algorithm.md` ro
 
 ```
 localViewStructure/ghViewRepoStructure(depth:1)   -> spot ARCHITECTURE.md, droid-wiki/, openwiki/, .devin/wiki.json
-ghGetFileContent(ARCHITECTURE.md, content:exact)  -> extract named entry points, then verify each claim via the router
+ghGetFileContent(ARCHITECTURE.md as exact content)  -> extract named entry points, then verify each claim via the router
 ```
 
 A GitHub Wiki tab or DeepWiki/Code Wiki page (if linked from the README) is the same lead, read externally instead of via tree.
@@ -86,7 +88,7 @@ ghHistoryResearch(type:"commits", owner/repo[/path], since:<iso>)
 Dead code / reachability / drift:
 
 ```
-oqlSearch --scheme --compact  (or `search --scheme --compact`)
+search --scheme --compact  (or raw `oqlSearch` schema when using MCP directly)
 -> oqlSearch(target:"research", from:{kind:"local",path:"."}, goal:"find unused exports, transitive dead code, unused files, and package drift")
 -> follow returned next.graph -> oqlSearch(<returned graph query>)
 -> if no next.graph is returned, read --scheme before writing graph JSON by hand
@@ -119,11 +121,11 @@ localViewStructure/localSearchCode/localGetFileContent on the extracted path
 
 ## Evidence Gates
 
-- Snippets are leads, not proof; exact content, AST, LSP, PR/commit evidence, binary metadata, or tests can prove (grades: `references/algorithm.md`).
+Grades, triangulation, and failure signals: `references/algorithm.md`. Additional gates for these flows:
+
 - LSP needs a real `lineHint`; get it from search/symbols/AST first.
 - Empty LSP references/callers are inconclusive until likely consumers are loaded.
 - `target:"research"` and `target:"graph"` rows are candidates until upgraded.
-- Follow `next.*`, pagination, char offsets, match/file/comment/commit pages.
 - Cite local evidence as `path:line`; cite remote evidence as full URL or PR/commit id.
 
 ## Before Answering
@@ -131,12 +133,9 @@ localViewStructure/localSearchCode/localGetFileContent on the extracted path
 Confirm:
 
 1. The corpus is explicit: local path, package, owner/repo, branch/ref, PR number, artifact path, or materialized `localPath`.
-2. The surface is justified: MCP, `search`, OQL, raw tool, local shell, web, or skipped surface with reason.
-3. Tool calls used the correct schema: read the MCP tool description or `npx octocode tools <name> --scheme` (CLI) before calling; OQL JSON was built after `search --scheme`.
-4. Candidate results were converted into exact evidence when the claim depends on them.
-5. Pagination and continuations were followed or declared unnecessary.
-6. Diagnostics and provider limitations were handled.
-7. Claims distinguish syntax proof, semantic proof, history proof, binary proof, and runtime/test proof.
-8. Fallbacks are named when used.
+2. Every surface is justified — MCP, `search`, OQL, raw tool, local shell, web — and each skipped surface has a stated reason.
+3. Schemas were read before raw or OQL calls: MCP tool description, `npx octocode tools <name> --scheme`, or `search --scheme --compact` before OQL JSON.
+4. Candidates were upgraded to exact evidence wherever a claim depends on them; pagination and continuations were followed or declared unnecessary.
+5. Claims distinguish syntax, semantic, history, binary, and runtime/test proof; diagnostics, provider limits, and fallbacks are named.
 
 For repeated Act→Observe→Learn cycles, convergence goals, local code-check loops, or "keep going until evidence converges", read `references/loop-mode.md`.

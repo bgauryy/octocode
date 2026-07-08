@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   createPiAwarenessBridge,
   getPiAwarenessAgentId,
+  resolveDbPath,
   wirePiAwarenessHooks,
 } from '@octocodeai/octocode-awareness';
 import { propagateOctocodeEnv, getOctocodeHome } from './env.js';
@@ -11,7 +12,7 @@ import {
   DISABLED_BUILTIN_TOOL_NAMES,
   OCTOCODE_SUPPORT_TOOL_NAMES,
 } from './constants.js';
-import { getAssetPaths, getOctocodeMemoryHome, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath } from './assets.js';
+import { getAssetPaths, readTextIfExists, listBundledSkills, getInstallSource, getCLIPath } from './assets.js';
 
 // Expose the bundled CLI path as an env var so agents can use: node $OCTOCODE_CLI <command>
 // Set once at module load — inherited by all bash subprocesses spawned during the session.
@@ -148,8 +149,7 @@ export function formatStatus(baseDir?: string): string {
   const skills = listBundledSkills(baseDir);
   const promptStatus = fs.existsSync(paths.systemPrompt) ? 'found' : 'missing';
 
-  const memoryHome = getOctocodeMemoryHome();
-  const dbPath = path.join(memoryHome, 'awareness.sqlite3');
+  const dbPath = resolveDbPath(null);
   const dbStatus = fs.existsSync(dbPath)
     ? `found (${dbPath})`
     : `not yet created (${dbPath})`;
@@ -526,8 +526,9 @@ async function wireOctocodePiExtension(
     if (process.env['OCTOCODE_CHROME_DEBUG'] !== '0') {
       registerChromeDebugTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
       registerBrowserAgentTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
-      registerSpawnSubagentTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
     }
+
+    registerSpawnSubagentTool(pi, Type, registeredToolNames, registerUniqueTool, notify);
 
     registerContextTools(pi, Type, registeredToolNames, registerUniqueTool, notify);
 

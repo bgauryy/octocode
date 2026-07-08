@@ -1,4 +1,4 @@
 interface:
   display_name: "Octocode Reflection"
-  short_description: "Post-task learning and memory hygiene."
-  default_prompt: "Use octocode-reflection after meaningful work, user corrections, repeated failures, stale-memory cleanup requests, or self-improvement proposals. Record durable lessons, reflect on outcomes, preview pruning, and stage human-reviewed repo, skill, or harness changes."
+  short_description: "Compatibility alias for Awareness reflection."
+  default_prompt: "This is a compatibility alias. Load octocode-awareness for post-task learning, memory hygiene, stale-task cleanup, and human-reviewed repo, skill, or harness improvement proposals."

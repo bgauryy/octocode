@@ -26,8 +26,8 @@ https://github.com/<owner>/<repo>/blob/<branch>/<path>/SKILL.md
 
 1. Confirm intent with the user: install verbatim, or adapt into a new local skill?
 2. Resolve destination(s) using `references/install-reference.md` — provider(s), scope (user vs project vs custom path), project root if project-scoped, and install mode.
-3. Fetch the source folder with `npx octocode`:
-   - Inspect first: `npx octocode search owner/repo/path --tree` to confirm the folder contents, then `npx octocode search owner/repo/path/SKILL.md --content-view exact` to verify it's a real skill.
+3. Fetch the source folder with the Octocode CLI:
+   - Inspect first via `octocode-research` when installed; otherwise use the remote URL in a browser or web fetch to confirm `SKILL.md`.
    - Default fetch: `npx octocode clone owner/repo/path[@branch]` to download the skill folder/subtree.
    - Use `npx octocode clone owner/repo[@branch]` (whole repo) when the skill has many sibling assets or the user wants the whole repo for context.
    - Octocode `clone` writes under its own tmp dir; if the user wants a different scratch path, copy from there. Do not write directly into final destinations yet.

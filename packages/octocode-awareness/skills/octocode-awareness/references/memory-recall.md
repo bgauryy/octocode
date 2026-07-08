@@ -1,6 +1,6 @@
 # Memory Recall
 
-Use this before planning, editing, or trusting a remembered fact. Recording, reflection, forgetting, digest cleanup, and skill learning live in `octocode-reflection`.
+Use this before planning, editing, or trusting a remembered fact. Recording, reflection, forgetting, digest cleanup, and skill learning now live in `octocode-awareness`.
 
 ## Canonical Payload Contract
 
@@ -12,11 +12,11 @@ node <skill_root>/scripts/schema.mjs json-schema get_memory
 node <skill_root>/scripts/schema.mjs example get_memory
 ```
 
-The CLI accepts underscore aliases: `get_memory` -> `get-memory`, `pre_flight_intent` -> `pre-flight-intent`, `notify_get` -> `notify-get`. Unknown flags are hard errors with the known-flag list.
+The CLI prefers noun/verb commands such as `memory recall`, `lock acquire`, and `signal list`. Legacy command names and underscore aliases (`get-memory`, `get_memory`, `pre-flight-intent`, `pre_flight_intent`, `notify-get`, `notify_get`) still work. Unknown flags are hard errors with the known-flag list.
 
 For token-efficient agent reads, pass `--compact` after the command or set `OCTOCODE_AWARENESS_COMPACT=1`; it minifies JSON without changing fields.
 
-## `get-memory`
+## `memory recall` (`get-memory`)
 
 Run before planning or editing when prior lessons may matter.
 
@@ -37,7 +37,9 @@ Important flags:
 - `--explain`: attach `score_components` to each result.
 - `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters.
 - `--as-of <ISO>`: point-in-time recall using memory validity windows.
-- `--semantic`: request embedding-ranked recall. Accepted, but the CLI has no embedder, so it returns a "semantic ranking unavailable in CLI" warning and falls back to the lexical/salience blend; real semantic ranking runs only through the Pi `memory_recall` tool.
+- `--semantic`: request embedding-ranked recall.
+  The CLI has no embedder, so it warns and falls back to lexical/salience recall.
+  Real semantic ranking runs only through the Pi `memory_recall` tool.
 
 ## Judgment Rules
 
@@ -45,7 +47,7 @@ Important flags:
 - Low-confidence recall returns `judgment_required: true` plus `judgment_reason`; verify against current files or broaden the query before relying on it.
 - Current code, tests, docs, and user instructions beat memory.
 - Validate code memories against current files before relying on them.
-- If a remembered fact is stale, finish the live work safely, then use `octocode-reflection` to supersede or forget it.
+- If a remembered fact is stale, finish the live work safely, then use `octocode-awareness` memory/reflection commands to supersede or forget it.
 
 ## Pi Form
 

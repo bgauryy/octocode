@@ -31,6 +31,7 @@
   "files": [
     "dist/**",
     "skills/**",
+    "docs/**",
     ".env.example",
     "README.md",
     "LICENSE"

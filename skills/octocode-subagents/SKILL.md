@@ -24,4 +24,4 @@ Use this in Pi hosts that expose `spawnAgent` and `AgentMessage`. Skip on hosts 
 
 ## Boundary
 
-Use `octocode-awareness` for live workspace locks, signals, and verification. Use `octocode-reflection` after the outcome is known. Use this skill only for Pi subagent orchestration.
+Use `octocode-awareness` for live workspace locks, signals, verification, and post-outcome reflection. Use this skill only for Pi subagent orchestration.

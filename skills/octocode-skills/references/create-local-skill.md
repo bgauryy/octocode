@@ -21,8 +21,12 @@ Load when the user chooses to create a skill from findings or asks to synthesize
 
 Write the skill with a concise purpose, workflow, tool and resource rules, gates, output UX, and recovery paths. Defer to a dedicated skill-creation skill when one is available.
 
-Add `references/`, `scripts/`, or `assets/` only when they reduce repeated work or keep `SKILL.md` lean. If the new skill needs a lifecycle hook (pre/post tool use, stop, session start/end), read `hooks.md` before writing frontmatter or `scripts/hooks/`.
+Add `references/`, `scripts/`, or `assets/` only when they reduce repeated work or keep `SKILL.md` lean.
+Add a minimal-read routing table so agents can finish simple tasks without loading too many refs.
+If the new skill needs a lifecycle hook (pre/post tool use, stop, session start/end), read `hooks.md` before writing frontmatter or `scripts/hooks/`.
 
-MUST also create `references/references.md` inside the new skill folder using the shape in `references-template.md`. Populate it with every source you actually consulted. This file is a research audit trail, not a bibliography template.
+MUST also create `references/references.md` inside the new skill folder using `references-template.md`.
+Populate it with every source you actually consulted.
+This file is a research audit trail, not a bibliography template.
 
 MUST run `scripts/skill-lint.mjs <new-skill-dir>` (see `skill-lint.md`) and clear ERRORs before reporting the skill as done; report residual WARNs as a gated decision with the user.

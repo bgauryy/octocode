@@ -101,6 +101,7 @@ test('browserAgent runNow navigates, runs routed schemes, builds spawn config, a
     task: 'audit security cookies and network auth failures',
     url: 'https://example.com/app',
     port: 19333,
+    model: 'sonnet:high',
     launch: true,
     headless: false,
     durationMs: 25,
@@ -124,8 +125,15 @@ test('browserAgent runNow navigates, runs routed schemes, builds spawn config, a
   assert.match(text, /\[AGENT\] navigated to https:\/\/example\.com\/app/);
   assert.match(text, /findings: 2  actions: 1/);
   assert.match(text, /tools: chromeDebug/);
+  assert.match(text, /model: sonnet:high/);
   assert.match(text, /Your ONLY browser tool is `chromeDebug`/);
   assert.match(text, /Network, Runtime, DOM, DOMDebugger, Fetch/);
+  assert.match(tool.description, /pi -ne --list-models/);
+  assert.match(tool.description, /hardcoded config paths/);
+  assert.match(
+    String((tool.parameters.properties as Record<string, { description?: string }>).model?.description ?? ''),
+    /pi -ne --list-models/,
+  );
 
   assert.match(tool.renderCall!({ task: 'x'.repeat(90), url: 'https://example.com' }).render(80)[0]!, /browserAgent/);
   assert.match(tool.renderResult!(result, { expanded: false }).render(160)[0]!, /5 findings/);

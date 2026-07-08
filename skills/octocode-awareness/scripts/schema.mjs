@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 
-const agentId = z.string().min(1).max(128).describe("Stable human-readable agent identifier.");
+const agentId = z.string().min(1).max(128).describe("Agent id.");
 const nonEmptyText = (description, max = 4000) => z.string().trim().min(1).max(max).describe(description);
 const tag = z
   .string()
@@ -10,19 +10,16 @@ const tag = z
   .min(1)
   .max(64)
   .regex(/^[a-zA-Z0-9_.:-]+$/, "tags may contain letters, numbers, underscore, dot, colon, or dash");
-const tags = z.array(tag).max(32).default([]).describe("Fast filtering keywords.");
-const workspacePath = z.string().trim().min(1).max(1024).describe("Local workspace root.");
-const artifactScope = z.string().trim().min(1).max(256).describe("Optional package/service/artifact slice inside a workspace.");
-const repoScope = z.string().trim().min(1).max(256).describe("Repository name or project slug.");
-const refScope = z.string().trim().min(1).max(256).describe("Branch name, tag, or commit hash.");
+const tags = z.array(tag).max(32).default([]).describe("Filter tags.");
+const workspacePath = z.string().trim().min(1).max(1024).describe("Workspace root.");
+const artifactScope = z.string().trim().min(1).max(256).describe("Artifact/package scope.");
+const repoScope = z.string().trim().min(1).max(256).describe("Repo slug.");
+const refScope = z.string().trim().min(1).max(256).describe("Branch/tag/SHA.");
 const references = z
   .array(z.string().trim().min(1).max(512))
   .max(20)
   .default([])
-  .describe(
-    "Provenance — where this lesson came from. Free-form, conventionally a URL or typed prefix " +
-      "(pr:owner/repo#123, repo:owner/repo, npm:pkg, doc:<title>, file:<abs-path>). Recallable later via query, exact reference filter, or regex."
-  );
+  .describe("Provenance refs, e.g. file:/abs/path, pr:owner/repo#1, URL.");
 const MEMORY_LABELS = [
   "BUG",
   "FEATURE",
@@ -42,6 +39,8 @@ const MEMORY_LABELS = [
   "API",
   "RELEASE",
   "INCIDENT",
+  "EXPERIENCE",
+  "OVERRIDE",
   "OTHER",
 ];
 const normalizeMemoryLabel = (value) => {
@@ -51,22 +50,47 @@ const normalizeMemoryLabel = (value) => {
 };
 const memoryLabel = z
   .preprocess(normalizeMemoryLabel, z.enum(MEMORY_LABELS).default("OTHER"))
-  .describe("Memory category label. Empty or omitted becomes OTHER.");
+  .describe("Memory label.");
 const memorySort = z
   .enum(["smart", "score", "importance", "recent", "accessed"])
   .default("smart")
-  .describe("Result order. smart/score use salience; alternatives sort by explicit fields.");
+  .describe("Sort order.");
 const importanceLevel = z
   .number()
   .int()
   .min(1)
   .max(10)
-  .describe("1 = minor detail, 10 = critical behavior or risk.");
+  .describe("1-10 importance.");
 const targetFiles = z
   .array(z.string().trim().min(1).max(1024))
   .min(1)
   .max(200)
-  .describe("Absolute or workspace-relative files likely to be modified or affected.");
+  .describe("Files to lock.");
+const awarenessQueryView = z
+  .enum([
+    "all",
+    "repo-profile",
+    "memories",
+    "gotchas",
+    "lessons",
+    "tasks",
+    "locks",
+    "agents",
+    "signals",
+    "refinements",
+    "files",
+    "activity",
+  ])
+  .default("all")
+  .describe("Awareness read view.");
+const awarenessOutputFormat = z
+  .enum(["json", "table", "csv", "markdown"])
+  .default("json")
+  .describe("Output format.");
+const repoContextMode = z
+  .enum(["local", "share"])
+  .default("local")
+  .describe("Whether generated .octocode is intended as local-only or shared repo context. The command never edits .gitignore.");
 
 // Signals — repo-scoped agent-to-agent messages. The `kind` enum is the
 // "smart" part: typed messages let recipients filter (e.g. only blockers) and
@@ -86,24 +110,24 @@ const fileList = z
   .array(z.string().trim().min(1).max(1024))
   .max(200)
   .default([])
-  .describe("Files this message concerns (normalized like locks). May be empty.");
+  .describe("Related files.");
 const refIds = z
   .array(z.string().trim().min(1).max(128))
   .max(50)
   .default([])
-  .describe("Ids this message is about: task_id / refinement_id / memory_id / signal_id — makes it actionable.");
+  .describe("Related ids.");
 const evalFailure = z
   .object({
-    id: z.string().trim().min(1).max(128).describe("Failed eval question/check id."),
-    dimension: z.string().trim().min(1).max(128).optional().describe("Rubric or reasoning dimension."),
+    id: z.string().trim().min(1).max(128).describe("Eval id."),
+    dimension: z.string().trim().min(1).max(128).optional().describe("Eval dimension."),
     failure_signature: z
       .string()
       .trim()
       .min(1)
       .max(256)
       .optional()
-      .describe("Clusterable recurring-failure signature for mine-weakness."),
-    suggested_lesson: z.string().trim().min(1).max(1000).optional().describe("Reusable lesson suggested by the eval."),
+      .describe("Failure cluster key."),
+    suggested_lesson: z.string().trim().min(1).max(1000).optional().describe("Eval lesson."),
   })
   .strict()
   .refine((d) => d.failure_signature !== undefined || d.suggested_lesson !== undefined, {
@@ -114,156 +138,246 @@ export const schemas = {
   tell_memory: z
     .object({
       agent_id: agentId,
-      task_context: nonEmptyText("What goal or script produced the lesson.", 1000),
-      observation: nonEmptyText("Exact lesson learned; specific enough to act on later.", 4000),
+      task_context: nonEmptyText("Source task.", 1000),
+      observation: nonEmptyText("Reusable lesson.", 4000),
       importance: importanceLevel,
       label: memoryLabel,
       tags,
       references,
       workspace_path: workspacePath
         .optional()
-        .describe("Optional memory scope. Omit for global developer/harness gotchas; set for repo-specific lessons."),
+        .describe("Memory scope."),
       artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Optional repository scope; auto-fill from workspace git when omitted by the CLI."),
-      ref: refScope.optional().describe("Optional branch/commit scope; auto-fill from workspace git when omitted by the CLI."),
+      repo: repoScope.optional().describe("Repo scope."),
+      ref: refScope.optional().describe("Ref scope."),
       file: z
         .string()
         .trim()
         .min(1)
         .max(1024)
         .optional()
-        .describe("The ONE file this memory correlates to (normalized to absolute). Omit for a general lesson."),
+        .describe("Primary file."),
       file_tree_fingerprint: z
         .string()
         .trim()
         .min(1)
         .max(256)
         .optional()
-        .describe("Optional Git SHA or workspace state hash."),
+        .describe("Workspace hash."),
       supersedes: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Memory ids this new memory replaces; each is marked SUPERSEDED and points here."),
+        .describe("Memory ids replaced."),
       failure_signature: z
         .string()
         .trim()
         .min(1)
         .max(256)
         .optional()
-        .describe("Recurring-failure key for weakness mining, e.g. 'mechanism:retry-loop|cause:test-timeout'."),
-      valid_from: z.string().trim().min(1).max(64).optional().describe("ISO time the fact becomes true (default now)."),
-      valid_to: z.string().trim().min(1).max(64).optional().describe("ISO time the fact stops being true (open-ended if omitted)."),
+        .describe("Failure cluster key."),
+      valid_from: z.string().trim().min(1).max(64).optional().describe("Valid from ISO."),
+      valid_to: z.string().trim().min(1).max(64).optional().describe("Valid until ISO."),
     })
     .strict()
-    .describe("Save a new insight, lesson learned, or architectural choice."),
+    .describe("Record a memory."),
 
   get_memory: z
     .object({
-      query: z.string().trim().max(1000).default("").describe("Natural-language semantic or lexical recall query; may be empty when using filters."),
+      query: z.string().trim().max(1000).default("").describe("Recall query."),
       limit: z.number().int().min(1).max(50).default(3),
       min_importance: z.number().int().min(1).max(10).default(1),
-      labels: z.array(memoryLabel).max(32).default([]).describe("Filter by memory category label."),
+      labels: z.array(memoryLabel).max(32).default([]).describe("Labels."),
       tags,
       files: z
         .array(z.string().trim().min(1).max(1024))
         .max(200)
         .default([])
-        .describe("Exact stored memory file paths to match; CLI normalizes --file to absolute paths."),
+        .describe("Exact file refs."),
       file_regex: z
         .array(z.string().trim().min(1).max(512))
         .max(20)
         .default([])
-        .describe("Regex patterns matched against stored memory file paths."),
+        .describe("File regex filters."),
       regex: z
         .array(z.string().trim().min(1).max(512))
         .max(20)
         .default([])
-        .describe("Regex patterns matched against task, observation, tags, references, label, file, and failure signature."),
-      references: references.describe("Exact stored provenance references to match; all provided references must be present."),
-      workspace_path: workspacePath.optional().describe("Exact stored workspace root to match."),
+        .describe("Text regex filters."),
+      references: references.describe("Exact refs; all must match."),
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
       artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Exact stored repository scope to match."),
-      ref: refScope.optional().describe("Exact stored branch/commit scope to match."),
+      repo: repoScope.optional().describe("Repo filter."),
+      ref: refScope.optional().describe("Ref filter."),
       strict_scope: z
         .boolean()
         .default(false)
-        .describe("Require exact workspace/repo/ref matches instead of including broader global/applicable memories."),
-      global_only: z.boolean().default(false).describe("Return only memories with no workspace/repo/ref scope."),
+        .describe("Exact scope only."),
+      global_only: z.boolean().default(false).describe("Only unscoped rows."),
       sort: memorySort,
       smart: z
         .boolean()
         .default(false)
-        .describe("If strict recall under-fills, broaden safely: lower importance, drop label/tag filters, and try semantic if indexed."),
+        .describe("Broaden recall."),
       states: z
         .array(z.enum(["ACTIVE", "SUPERSEDED"]))
         .default(["ACTIVE"])
-        .describe("Lifecycle states to recall. Default: ACTIVE only."),
+        .describe("Memory states."),
       explain: z
         .boolean()
         .default(false)
-        .describe("Include per-result score_components (importance/recency/access/lexical)."),
+        .describe("Include score parts."),
       semantic: z
         .boolean()
         .default(false)
-        .describe("Use local embedding recall (model2vec); falls back to lexical when unavailable, empty, unindexed for the configured model, or no semantic hit exists."),
+        .describe("Request semantic recall."),
       as_of: z
         .string()
         .trim()
         .min(1)
         .max(64)
         .optional()
-        .describe("Bi-temporal point-in-time recall: only memories valid at this ISO time."),
+        .describe("Point-in-time ISO."),
     })
     .strict()
-    .describe("Query shared memory; default ranking blends importance, recency-of-use, access, and lexical match."),
+    .describe("Recall memories."),
 
   status: z
     .object({
-      workspace_path: workspacePath.optional().describe("Filter displayed locks/unverified tasks under this workspace path."),
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
       artifact: artifactScope.optional(),
       limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
-    .describe("Show shared DB health: FTS, memory labels/states, active locks, open refinements, and unverified tasks."),
+    .describe("Store status."),
+
+  workspace_status: z
+    .object({
+      workspace: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+    })
+    .strict()
+    .describe("Workspace status."),
 
   memory_index: z
     .object({
       limit: z.number().int().min(1).max(500).default(30),
-      min_importance: importanceLevel.optional().describe("Only include active memories at or above this importance."),
-      workspace_path: workspacePath.optional().describe("Workspace scope for the generated index."),
+      min_importance: importanceLevel.optional().describe("Minimum importance."),
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
       artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Repository scope for the generated index."),
-      ref: refScope.optional().describe("Branch/commit scope for the generated index."),
-      strict_scope: z.boolean().default(false).describe("Index exact scope matches only."),
-      global_only: z.boolean().default(false).describe("Index only memories with no workspace/repo/ref scope."),
-      out: z.string().trim().min(1).max(1024).optional().describe("Output path. Default: MEMORY.md next to the shared store."),
-      stdout: z.boolean().default(false).describe("Print the index without writing it."),
+      repo: repoScope.optional().describe("Repo filter."),
+      ref: refScope.optional().describe("Ref filter."),
+      strict_scope: z.boolean().default(false).describe("Exact scope."),
+      global_only: z.boolean().default(false).describe("Only unscoped rows."),
+      out: z.string().trim().min(1).max(1024).optional().describe("Output path."),
+      stdout: z.boolean().default(false).describe("Print only."),
     })
     .strict()
-    .describe("Regenerate the read-first MEMORY.md index from top ACTIVE memories."),
+    .describe("Write MEMORY.md index."),
+
+  query: z
+    .object({
+      view: awarenessQueryView,
+      query: z.string().trim().max(1000).default("").describe("Text filter."),
+      limit: z.number().int().min(1).max(500).default(50),
+      format: awarenessOutputFormat,
+      out: z.string().trim().min(1).max(1024).optional().describe("Optional output path."),
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repo filter."),
+      ref: refScope.optional().describe("Ref filter."),
+      agent_id: agentId.optional().describe("Agent filter."),
+      state: z.array(z.string().trim().min(1).max(64)).max(20).default([]).describe("State/status filters."),
+      label: z.array(memoryLabel).max(32).default([]).describe("Memory label filters."),
+      file: z.string().trim().min(1).max(1024).optional().describe("File filter."),
+      since: z.string().trim().min(1).max(64).optional().describe("Created/updated since ISO."),
+      include_bodies: z.boolean().default(false).describe("Include full signal bodies."),
+    })
+    .strict()
+    .describe("Query awareness views for agents, scripts, and humans."),
+
+  view: z
+    .object({
+      view: awarenessQueryView,
+      query: z.string().trim().max(1000).default("").describe("Text filter."),
+      limit: z.number().int().min(1).max(500).default(50),
+      out: z.string().trim().min(1).max(1024).optional().describe("HTML output path."),
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repo filter."),
+      ref: refScope.optional().describe("Ref filter."),
+      agent_id: agentId.optional().describe("Agent filter."),
+      state: z.array(z.string().trim().min(1).max(64)).max(20).default([]).describe("State/status filters."),
+      label: z.array(memoryLabel).max(32).default([]).describe("Memory label filters."),
+      file: z.string().trim().min(1).max(1024).optional().describe("File filter."),
+      since: z.string().trim().min(1).max(64).optional().describe("Created/updated since ISO."),
+      include_bodies: z.boolean().default(false).describe("Include full signal bodies."),
+    })
+    .strict()
+    .describe("Write a static HTML awareness view."),
+
+  repo_inject: z
+    .object({
+      workspace_path: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repo filter."),
+      ref: refScope.optional().describe("Ref filter."),
+      query: z.string().trim().max(1000).default("").describe("Optional text filter."),
+      limit: z.number().int().min(1).max(500).default(50),
+      out_dir: z.string().trim().min(1).max(1024).optional().describe("Output directory, defaults to <workspace>/.octocode."),
+      mode: repoContextMode,
+      include_view: z.boolean().default(true).describe("Write awareness/index.html."),
+      check: z.boolean().default(true).describe("Report gitignore/share policy warnings."),
+    })
+    .strict()
+    .describe("Generate .octocode repo context projections without editing .gitignore."),
+
+  export_harness: z
+    .object({
+      limit: z.number().int().min(1).max(200).default(10),
+      min_importance: z.number().int().min(1).max(10).default(7),
+      workspace: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+    })
+    .strict()
+    .describe("Export AGENTS block."),
+
+  session_capture: z
+    .object({
+      agent_id: agentId.optional().describe("Agent filter."),
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional(),
+      ref: refScope.optional(),
+      reason: z.string().trim().min(1).max(500).optional().describe("Capture reason."),
+      cwd: z.string().trim().min(1).max(1024).optional().describe("Scope cwd."),
+    })
+    .strict()
+    .describe("Capture session handoff."),
 
   pre_flight_intent: z
     .object({
       agent_id: agentId,
-      workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace root for verification scoping."),
+      workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace scope."),
       artifact: artifactScope.optional(),
       plan_doc_ref: z.string().trim().min(1).max(1024).optional(),
-      rationale: nonEmptyText("Detailed reason why this change is necessary.", 2000),
+      rationale: nonEmptyText("Why edit.", 2000),
       target_files: targetFiles,
-      test_plan: nonEmptyText("How the agent intends to verify the change.", 2000),
+      test_plan: nonEmptyText("Verification plan.", 2000),
       lock_type: z.enum(["SHARED", "EXCLUSIVE"]).default("EXCLUSIVE"),
       wait_seconds: z.number().int().min(0).max(3600).default(0),
       retry_interval: z.number().int().min(1).max(300).default(5),
       ttl_minutes: z.number().int().min(1).max(10).default(10)
-        .describe("Lock TTL in minutes. The runtime hard-caps direct callers at 10 minutes."),
+        .describe("Lock TTL minutes."),
+      ttl_seconds: z.number().int().min(1).max(600).optional()
+        .describe("Lock TTL seconds; overrides ttl_minutes when provided."),
     })
     .strict()
-    .describe("Register an edit task and acquire target file locks."),
+    .describe("Claim file locks."),
 
   wait_for_lock: z
     .object({
-      agent_id: agentId.describe("Waiting agent id; used so an agent does not wait on its own locks."),
+      agent_id: agentId.describe("Waiting agent."),
       workspace: workspacePath.optional(),
       artifact: artifactScope.optional(),
       target_files: targetFiles,
@@ -272,20 +386,65 @@ export const schemas = {
       retry_interval: z.number().int().min(1).max(300).default(5),
     })
     .strict()
-    .describe("Poll until target file locks clear without acquiring a lock. Exit 2 on timeout with conflicts."),
+    .describe("Wait for locks."),
 
   prune_stale_locks: z
     .object({
       older_than_minutes: z.number().int().min(1).max(10080).default(20),
       expired_only: z.boolean().default(false),
-      agent_id: agentId.optional().describe("Optional holder filter."),
+      agent_id: agentId.optional().describe("Holder filter."),
       workspace: workspacePath.optional(),
       artifact: artifactScope.optional(),
       target_files: z.array(z.string().trim().min(1).max(1024)).max(200).default([]),
       dry_run: z.boolean().default(false),
     })
     .strict()
-    .describe("Delete expired or age-stale locks. Affected ACTIVE tasks become PENDING, never SUCCESS."),
+    .describe("Prune stale locks."),
+
+  mine_weakness: z
+    .object({
+      agent_id: agentId.optional().describe("Agent filter."),
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
+      min_count: z.number().int().min(1).max(100).default(2),
+      limit: z.number().int().min(1).max(200).default(20),
+      cwd: z.string().trim().min(1).max(1024).optional().describe("Scope cwd."),
+    })
+    .strict()
+    .describe("Mine failure clusters."),
+
+  doc_staleness: z
+    .object({
+      targets_json: z
+        .string()
+        .trim()
+        .min(1)
+        .max(20000)
+        .describe("Doc/source JSON."),
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
+      min_edits: z.number().int().min(1).max(10000).default(5),
+      min_lines: z.number().int().min(1).max(1000000).default(50),
+      propose: z.boolean().default(false),
+      agent_id: agentId.optional(),
+      session_id: z.string().trim().min(1).max(128).optional(),
+    })
+    .strict()
+    .describe("Check doc staleness."),
+
+  digest: z
+    .object({
+      retention_days: z.number().int().min(1).max(3650).default(90),
+      refinement_handoff_retention_days: z.number().int().min(1).max(3650).default(7),
+      refinement_done_retention_days: z.number().int().min(1).max(3650).default(30),
+      dry_run: z.boolean().default(false),
+      export_doc: z.union([z.boolean(), z.string().trim().min(1).max(1024)]).optional()
+        .describe("Write report."),
+      workspace: workspacePath.optional().describe("Workspace filter."),
+      artifact: artifactScope.optional(),
+    })
+    .strict()
+    .describe("Prune/archive/reindex."),
 
   release_file_lock: z
     .object({
@@ -298,27 +457,38 @@ export const schemas = {
       verified: z
         .boolean()
         .default(false)
-        .describe("Record that the task's test_plan was actually run before releasing."),
-      verified_note: z.string().trim().min(1).max(2000).optional().describe("What was verified."),
+        .describe("Tests ran."),
+      verified_note: z.string().trim().min(1).max(2000).optional().describe("Verification note."),
     })
     .strict()
-    .describe("Release locks. PENDING releases the file but keeps verification owed; unverified SUCCESS is downgraded to PENDING and warns."),
+    .describe("Release locks."),
 
   verify: z
     .object({
       agent_id: agentId,
-      workspace: z.string().trim().min(1).max(1024).optional().describe("Restrict --all-pending to this workspace."),
+      workspace: z.string().trim().min(1).max(1024).optional().describe("Workspace filter."),
       artifact: artifactScope.optional(),
       task_id: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Task ids whose work was checked; empty when all_pending is true."),
-      all_pending: z.boolean().default(false).describe("Verify every unverified pending/live task for this agent."),
-      message: z.string().trim().min(1).max(2000).optional().describe("What was verified (test output, artifact)."),
+        .describe("Task ids."),
+      all_pending: z.boolean().default(false).describe("All pending tasks."),
+      status: z.enum(["SUCCESS", "FAILED"]).default("SUCCESS").describe("Verification status."),
+      message: z.string().trim().min(1).max(2000).optional().describe("Verification note."),
     })
     .strict()
-    .describe("Record that a task's work was actually checked (validate-before-conclude)."),
+    .describe("Mark verified."),
+
+  audit_unverified: z
+    .object({
+      agent_id: agentId,
+      workspace: workspacePath.optional(),
+      artifact: artifactScope.optional(),
+      abandon: z.boolean().default(false).describe("Mark pending tasks FAILED instead of only listing."),
+    })
+    .strict()
+    .describe("List or abandon unverified tasks."),
 
   forget_memory: z
     .object({
@@ -326,7 +496,7 @@ export const schemas = {
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Exact memory ids to delete."),
+        .describe("Memory ids."),
       tags,
       before: z
         .string()
@@ -334,15 +504,15 @@ export const schemas = {
         .min(1)
         .max(64)
         .optional()
-        .describe("Delete memories created before this ISO timestamp."),
+        .describe("Before ISO."),
       max_importance: z
         .number()
         .int()
         .min(1)
         .max(10)
         .optional()
-        .describe("Only delete memories at or below this importance (safety ceiling)."),
-      dry_run: z.boolean().default(false).describe("Report matches without deleting."),
+        .describe("Importance ceiling."),
+      dry_run: z.boolean().default(false).describe("Preview only."),
     })
     .strict()
     .refine(
@@ -353,7 +523,7 @@ export const schemas = {
         data.max_importance !== undefined,
       { message: "forget requires at least one selector: memory_id, tags, before, or max_importance." },
     )
-    .describe("Delete memories by id, tag, age, or importance ceiling. Filters combine with AND."),
+    .describe("Forget memories."),
 
   refinement: z
     .object({
@@ -363,25 +533,25 @@ export const schemas = {
         .trim()
         .min(1)
         .max(1024)
-        .describe("Local workspace root the refinement belongs to."),
+        .describe("Workspace root."),
       artifact: artifactScope.optional(),
-      repo: z.string().trim().min(1).max(256).optional().describe("Repository name."),
-      ref: z.string().trim().min(1).max(256).optional().describe("Branch name or commit hash."),
+      repo: z.string().trim().min(1).max(256).optional().describe("Repo."),
+      ref: z.string().trim().min(1).max(256).optional().describe("Ref."),
       files: z
         .array(z.string().trim().min(1).max(1024))
         .max(200)
         .default([])
-        .describe("Related file paths; may be empty when not file-specific."),
-      reasoning: nonEmptyText("Why this is saved for the next agent.", 2000),
-      remember: nonEmptyText("What to remember — the good or bad lesson.", 2000),
-      quality: z.enum(["good", "bad"]).default("good").describe("Was this a good or bad outcome."),
+        .describe("Related files."),
+      reasoning: nonEmptyText("Why saved.", 2000),
+      remember: nonEmptyText("What to remember.", 2000),
+      quality: z.enum(["good", "bad", "handoff"]).default("good").describe("Outcome quality."),
       state: z
         .enum(["open", "ongoing", "done"])
         .default("open")
-        .describe("Work lifecycle: open (identified), ongoing (in progress), done (finished)."),
+        .describe("Lifecycle state."),
     })
     .strict()
-    .describe("A workspace work-handoff record for the next agent. Stored per workspace."),
+    .describe("Store refinement."),
 
   refine_query: z
     .object({
@@ -390,19 +560,20 @@ export const schemas = {
       artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
-      quality: z.enum(["good", "bad"]).optional(),
+      quality: z.enum(["good", "bad", "handoff"]).optional(),
+      include_handoffs: z.boolean().default(false).describe("Include session handoff refinements."),
       states: z
         .array(z.enum(["open", "ongoing", "done"]))
         .default(["open", "ongoing"])
-        .describe("States to read. Default: open + ongoing (the unfinished-work handoff view)."),
+        .describe("States."),
       limit: z.number().int().min(1).max(200).default(20),
       include_env: z
         .boolean()
         .default(false)
-        .describe("Return full captured env including git.changes[]. Default false returns a concise summary."),
+        .describe("Include env."),
     })
     .strict()
-    .describe("Read workspace refinements, defaulting to the unfinished-work handoff view."),
+    .describe("Read refinements."),
 
   refine_delete: z
     .object({
@@ -412,33 +583,33 @@ export const schemas = {
         .array(z.string().trim().min(1).max(128))
         .min(1)
         .max(200)
-        .describe("Refinement ids to delete."),
-      dry_run: z.boolean().default(false).describe("Report matches without deleting."),
+        .describe("Refinement ids."),
+      dry_run: z.boolean().default(false).describe("Preview only."),
     })
     .strict()
-    .describe("Hard-delete workspace refinements by id (counterpart to refine-set)."),
+    .describe("Delete refinements."),
 
   notify: z
     .object({
-      agent_id: agentId.describe("Sender (the from_agent)."),
+      agent_id: agentId.describe("Sender."),
       workspace_path: z
         .string()
         .trim()
         .min(1)
         .max(1024)
         .optional()
-        .describe("The repo channel this message belongs to (workspace root). Default: cwd."),
+        .describe("Workspace channel."),
       artifact: artifactScope.optional(),
-      repo: z.string().trim().min(1).max(256).optional().describe("Repository name (auto-filled from git if omitted)."),
-      ref: z.string().trim().min(1).max(256).optional().describe("Branch or commit (auto-filled from git if omitted)."),
+      repo: z.string().trim().min(1).max(256).optional().describe("Repo."),
+      ref: z.string().trim().min(1).max(256).optional().describe("Ref."),
       to: agentId
         .optional()
-        .describe("Recipient agent_id. Omit to broadcast to every other agent on this repo."),
+        .describe("Recipient; omit to broadcast."),
       kind: notificationKind.describe(
-        "Typed message — recipients can filter by kind (e.g. only blockers) and act on it.",
+        "Message kind.",
       ),
-      subject: nonEmptyText("One-line summary of the message.", 200),
-      body: nonEmptyText("Optional detail; specific enough for the recipient to act.", 4000).optional(),
+      subject: nonEmptyText("Subject.", 200),
+      body: nonEmptyText("Body.", 4000).optional(),
       files: fileList,
       refs: refIds,
       in_reply_to: z
@@ -447,218 +618,257 @@ export const schemas = {
         .min(1)
         .max(128)
         .optional()
-        .describe("signal_id this replies to; inherits its thread so agents can discuss."),
+        .describe("Reply target."),
       importance: importanceLevel.default(5),
     })
     .strict()
-    .describe("Post a message to other agents working this repo, or reply in a thread."),
+    .describe("Send signal."),
 
   agent_signal: z
     .object({
-      action: z.enum(["publish", "list", "reply", "resolve", "ack"]).describe("Coordination action."),
-      agent_id: agentId.describe("Acting/reading agent id."),
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
+      action: z.enum(["publish", "list", "reply", "resolve", "ack"]).describe("Action."),
+      agent_id: agentId.describe("Actor."),
+      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
       artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
-      kind: notificationKind.optional().describe("Signal kind for publish."),
-      subject: nonEmptyText("One-line subject for publish/reply.", 200).optional(),
-      body: nonEmptyText("Optional detail for publish/reply.", 4000).optional(),
-      to_agents: z.array(agentId).max(50).default([]).describe("Recipients; empty means broadcast."),
+      kind: notificationKind.optional().describe("Signal kind."),
+      subject: nonEmptyText("Subject.", 200).optional(),
+      body: nonEmptyText("Body.", 4000).optional(),
+      to_agents: z.array(agentId).max(50).default([]).describe("Recipients."),
       files: fileList,
       refs: refIds,
       importance: importanceLevel.default(5),
-      in_reply_to: z.string().trim().min(1).max(128).optional().describe("Signal id this replies to."),
-      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id for list/resolve/ack."),
-      signal_id: z.array(z.string().trim().min(1).max(128)).max(200).default([]).describe("Signal ids for resolve/ack."),
+      in_reply_to: z.string().trim().min(1).max(128).optional().describe("Reply target."),
+      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id."),
+      signal_id: z.array(z.string().trim().min(1).max(128)).max(200).default([]).describe("Signal ids."),
       unread_only: z.boolean().default(true),
       mark_read: z.boolean().default(false),
       kinds: z.array(notificationKind).max(8).default([]),
       limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
-    .describe("Common agent coordination inbox: publish/list/reply/resolve signals."),
+    .describe("Signal actions."),
 
   notify_query: z
     .object({
-      agent_id: agentId.describe("Reader — delivery targets this agent."),
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel to read. Default: cwd."),
+      agent_id: agentId.describe("Reader."),
+      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
       artifact: artifactScope.optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
       unread_only: z
         .boolean()
         .default(true)
-        .describe("Only messages addressed to me or broadcast that I have not read yet."),
-      kinds: z.array(notificationKind).max(8).default([]).describe("Filter to these kinds (empty = all)."),
-      thread_id: z.string().trim().min(1).max(128).optional().describe("Read one discussion thread end-to-end."),
+        .describe("Unread only."),
+      kinds: z.array(notificationKind).max(8).default([]).describe("Kind filter."),
+      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread filter."),
       mark_read: z
         .boolean()
         .default(false)
-        .describe("Advance my read cursor over returned messages only when explicitly requested; delivery hooks leave this false."),
+        .describe("Mark read."),
       limit: z.number().int().min(1).max(200).default(20),
     })
     .strict()
-    .describe("Read messages from other agents on this repo (the inbox). Default: my unread + broadcasts."),
+    .describe("Read inbox."),
 
   notify_resolve: z
     .object({
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
+      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
       artifact: artifactScope.optional(),
       signal_id: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Signal ids to resolve."),
-      thread_id: z.string().trim().min(1).max(128).optional().describe("Resolve every message in this thread."),
+        .describe("Signal ids."),
+      thread_id: z.string().trim().min(1).max(128).optional().describe("Thread id."),
     })
     .strict()
     .refine((d) => d.signal_id.length > 0 || d.thread_id !== undefined, {
       message: "notify_resolve requires signal_id or thread_id.",
     })
-    .describe("Mark messages resolved (close a message or a whole thread)."),
+    .describe("Resolve signals."),
 
   notify_prune: z
     .object({
-      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Repo channel. Default: cwd."),
+      workspace_path: z.string().trim().min(1).max(1024).optional().describe("Workspace channel."),
       artifact: artifactScope.optional(),
       signal_id: z
         .array(z.string().trim().min(1).max(128))
         .max(200)
         .default([])
-        .describe("Signal ids to delete."),
-      resolved: z.boolean().default(false).describe("Delete only messages already marked resolved."),
+        .describe("Signal ids."),
+      resolved: z.boolean().default(false).describe("Resolved only."),
       older_than_days: z
         .number()
         .int()
         .min(1)
         .max(3650)
         .optional()
-        .describe("Delete messages created more than N days ago."),
-      dry_run: z.boolean().default(false).describe("Report matches without deleting."),
+        .describe("Age cutoff."),
+      dry_run: z.boolean().default(false).describe("Preview only."),
     })
     .strict()
     .refine((d) => d.signal_id.length > 0 || d.resolved || d.older_than_days !== undefined, {
       message: "notify_prune requires a selector: signal_id, resolved, or older_than_days.",
     })
-    .describe("Delete signals by id, resolved status, or age (retention for the repo channel)."),
+    .describe("Prune signals."),
 
   agent_registry: z
     .object({
-      action: z.enum(["list", "register"]).default("list").describe("Registry action."),
-      agent_id: agentId.optional().describe("Stable id to register. Required for register."),
-      agent_name: z.string().trim().max(256).optional().describe("Human-readable display name."),
-      workspace: workspacePath.optional().describe("Workspace scope for this agent identity."),
+      action: z.enum(["list", "register"]).default("list").describe("Action."),
+      agent_id: agentId.optional().describe("Agent id."),
+      agent_name: z.string().trim().max(256).optional().describe("Display name."),
+      workspace: workspacePath.optional().describe("Workspace scope."),
       artifact: artifactScope.optional(),
-      context: z.string().trim().min(1).max(64).optional().describe("Host/runtime context such as codex, pi, claude-code, or cursor."),
-      limit: z.number().int().min(1).max(200).default(50).describe("Maximum rows for list."),
+      context: z.string().trim().min(1).max(64).optional().describe("Host context."),
+      limit: z.number().int().min(1).max(200).default(50).describe("Row limit."),
     })
     .strict()
     .refine((d) => d.action !== "register" || d.agent_id !== undefined, {
       message: "agent_id is required when action is register.",
     })
-    .describe("Register or list known agents in the shared awareness SQLite store."),
+    .describe("Agent registry."),
 
   reflect: z
     .object({
       agent_id: agentId,
-      task: nonEmptyText("What you did — the task being reflected on.", 2000),
-      outcome: z.enum(["worked", "partial", "failed"]).describe("Did it work?"),
+      task: nonEmptyText("Task summary.", 2000),
+      outcome: z.enum(["worked", "partial", "failed"]).describe("Outcome."),
       worked: nonEmptyText("What worked.", 2000).optional(),
       didnt_work: nonEmptyText("What didn't work.", 2000).optional(),
-      judgment_note: nonEmptyText("Advisory note naming checked evidence, remaining uncertainty, and why eval prompts mattered or did not.", 2000).optional(),
-      lesson: nonEmptyText("Reusable lesson → recorded as a general memory (feeds recall + mine-weakness).", 4000).optional(),
+      judgment_note: nonEmptyText("Evidence/uncertainty note.", 2000).optional(),
+      lesson: nonEmptyText("Reusable lesson.", 4000).optional(),
       failure_signature: z
         .string()
         .trim()
         .min(1)
         .max(256)
         .optional()
-        .describe("Clusterable recurring-failure signature for mine-weakness."),
+        .describe("Failure cluster key."),
       eval_failures: z
         .array(evalFailure)
         .max(20)
         .default([])
-        .describe("Structured failed eval questions/checks preserved in the reflection memory; advisory evidence, not an auto-patch."),
-      fix_repo: nonEmptyText("Indication to fix something in the repo/code → an open 'bad' refinement for the next agent.", 2000).optional(),
+        .describe("Eval failures."),
+      fix_repo: nonEmptyText("Repo fix note.", 2000).optional(),
       fix_file: fileList,
-      fix_harness: nonEmptyText("Improvement to this skill/harness itself → a 'harness'-tagged memory that export-harness surfaces.", 2000).optional(),
+      fix_harness: nonEmptyText("Harness fix note.", 2000).optional(),
       repo: z.string().trim().min(1).max(256).optional(),
       ref: z.string().trim().min(1).max(256).optional(),
       workspace_path: z.string().trim().min(1).max(1024).optional(),
       artifact: artifactScope.optional(),
-      importance: importanceLevel.optional().describe("Override the outcome-derived importance (failed 8 / partial 6 / worked 5)."),
+      importance: importanceLevel.optional().describe("Importance override."),
       duo: z
         .boolean()
         .optional()
-        .describe("Request an advisory two-agent reflection packet. It guides semantic review and does not affect storage."),
+        .describe("Advisory duo packet."),
     })
     .strict()
-    .describe("Post-task self-reflection: record what worked/didn't as learning, plus actionable fix indications for the repo and/or the harness."),
+    .describe("Reflect after work."),
 };
 
 export const examples = {
   tell_memory: {
-    agent_id: "codex-local",
-    task_context:
-      "Refactoring auth router validation; reason: future agents need to preserve lookup order without rediscovering the tenant bug",
-    observation:
-      "The auth router normalizes tenant IDs before policy lookup; keep that order or cross-tenant tests fail.",
+    agent_id: "agent",
+    task_context: "task",
+    observation: "lesson",
     importance: 8,
     label: "GOTCHA",
-    tags: ["auth", "routing"],
-    references: ["pr:acme/auth#482", "https://docs.acme.dev/tenancy", "file:src/auth/router.ts"],
+    tags: ["tag"],
+    references: ["file:src/file.ts"],
     workspace_path: "/repo",
-    artifact: "packages/auth",
-    repo: "octocode-mcp",
-    ref: "support-OQL",
-    file: "src/auth/router.ts",
+    artifact: "pkg",
+    repo: "repo",
+    ref: "main",
+    file: "src/file.ts",
     file_tree_fingerprint: "git:HEAD",
-    failure_signature: "mechanism:retry-loop|cause:test-timeout",
+    failure_signature: "sig",
   },
   get_memory: {
-    query: "What should I know before editing the auth router?",
+    query: "task",
     limit: 3,
     min_importance: 4,
     labels: ["GOTCHA"],
-    tags: ["auth"],
-    references: ["file:src/auth/router.ts"],
+    tags: ["tag"],
+    references: ["file:src/file.ts"],
     workspace_path: "/repo",
-    artifact: "packages/auth",
-    repo: "octocode-mcp",
+    artifact: "pkg",
+    repo: "repo",
     strict_scope: false,
     sort: "smart",
     smart: true,
   },
   status: {
     workspace_path: "/repo",
-    artifact: "packages/auth",
+    artifact: "pkg",
     limit: 20,
+  },
+  workspace_status: {
+    workspace: "/repo",
+    artifact: "pkg",
   },
   memory_index: {
     limit: 30,
     min_importance: 4,
-    artifact: "packages/auth",
-    repo: "octocode-mcp",
+    artifact: "pkg",
+    repo: "repo",
     strict_scope: false,
     stdout: false,
   },
-  pre_flight_intent: {
-    agent_id: "codex-local",
+  query: {
+    view: "gotchas",
+    query: "build",
+    limit: 50,
+    format: "json",
+    workspace_path: "/repo",
+    artifact: "pkg",
+    label: ["GOTCHA"],
+  },
+  view: {
+    view: "all",
+    limit: 50,
+    workspace_path: "/repo",
+    out: "/repo/.octocode/awareness/index.html",
+  },
+  repo_inject: {
+    workspace_path: "/repo",
+    out_dir: "/repo/.octocode",
+    mode: "local",
+    include_view: true,
+    check: true,
+  },
+  export_harness: {
+    limit: 10,
+    min_importance: 7,
     workspace: "/repo",
-    artifact: "packages/auth",
-    plan_doc_ref: "docs/designs/active_plan.md",
-    rationale: "Refactor auth router validation without breaking tenant policy order.",
-    target_files: ["src/auth/router.ts", "src/auth/router.test.ts"],
-    test_plan: "yarn test src/auth/router.test.ts",
+    artifact: "pkg",
+  },
+  session_capture: {
+    agent_id: "agent",
+    workspace: "/repo",
+    artifact: "pkg",
+    repo: "repo",
+    ref: "main",
+    reason: "handoff",
+  },
+  pre_flight_intent: {
+    agent_id: "agent",
+    workspace: "/repo",
+    artifact: "pkg",
+    plan_doc_ref: "docs/plan.md",
+    rationale: "edit",
+    target_files: ["src/file.ts", "src/file.test.ts"],
+    test_plan: "test passed",
     lock_type: "EXCLUSIVE",
     retry_interval: 5,
+    ttl_seconds: 600,
   },
   wait_for_lock: {
-    agent_id: "codex-local",
+    agent_id: "agent",
     workspace: "/repo",
-    artifact: "packages/auth",
-    target_files: ["src/auth/router.ts"],
+    artifact: "pkg",
+    target_files: ["src/file.ts"],
     lock_type: "EXCLUSIVE",
     wait_seconds: 120,
     retry_interval: 5,
@@ -667,48 +877,80 @@ export const examples = {
     older_than_minutes: 20,
     expired_only: false,
     workspace: "/repo",
-    artifact: "packages/auth",
-    target_files: ["src/auth/router.ts"],
+    artifact: "pkg",
+    target_files: ["src/file.ts"],
     dry_run: true,
   },
+  mine_weakness: {
+    agent_id: "agent",
+    workspace: "/repo",
+    artifact: "pkg",
+    min_count: 2,
+    limit: 20,
+  },
+  doc_staleness: {
+    targets_json: JSON.stringify([{ docFile: "docs/a.md", sourceDirs: ["src"] }]),
+    workspace: "/repo",
+    artifact: "pkg",
+    min_edits: 5,
+    min_lines: 50,
+    propose: false,
+  },
+  digest: {
+    retention_days: 90,
+    refinement_handoff_retention_days: 7,
+    refinement_done_retention_days: 30,
+    dry_run: true,
+    workspace: "/repo",
+    artifact: "pkg",
+  },
   release_file_lock: {
-    agent_id: "codex-local",
+    agent_id: "agent",
     task_id: "task_abc123",
     workspace: "/repo",
-    artifact: "packages/auth",
+    artifact: "pkg",
     status: "SUCCESS",
     verified: true,
-    verified_note: "yarn test src/auth/router.test.ts: 273 passed",
+    verified_note: "test passed",
   },
   verify: {
-    agent_id: "codex-local",
+    agent_id: "agent",
     workspace: "/repo",
-    artifact: "packages/auth",
+    artifact: "pkg",
     task_id: ["task_abc123"],
     all_pending: false,
-    message: "yarn test src/auth/router.test.ts: 273 passed",
+    status: "SUCCESS",
+    message: "test passed",
+  },
+  audit_unverified: {
+    agent_id: "agent",
+    workspace: "/repo",
+    artifact: "pkg",
+    abandon: false,
   },
   forget_memory: {
-    tags: ["auth"],
+    tags: ["tag"],
     max_importance: 3,
     dry_run: true,
   },
   refinement: {
-    agent_id: "codex-local",
-    workspace_path: "/Users/me/work/octocode-mcp",
-    artifact: "packages/octocode-core",
-    repo: "octocode-mcp",
-    ref: "support-OQL",
-    files: ["src/oql/planner.ts"],
-    reasoning: "Next agent should finish the OQL pushdown work started here.",
-    remember: "glob/size filters still materialize; only equality predicates push down to GitHub.",
-    quality: "good",
+    agent_id: "agent",
+    workspace_path: "/repo",
+    artifact: "pkg",
+    repo: "repo",
+    ref: "main",
+    files: ["src/file.ts"],
+    reasoning: "handoff",
+    remember: "lesson",
+    quality: "handoff",
     state: "ongoing",
   },
   refine_query: {
-    repo: "octocode-mcp",
-    ref: "support-OQL",
+    repo: "repo",
+    ref: "main",
+    quality: "handoff",
     states: ["open", "ongoing"],
+    include_handoffs: true,
     include_env: false,
   },
   refine_delete: {
@@ -717,32 +959,32 @@ export const examples = {
   },
   agent_signal: {
     action: "publish",
-    agent_id: "claude-1",
-    to_agents: ["codex-2"],
+    agent_id: "agent-a",
+    to_agents: ["agent-b"],
     kind: "question",
-    subject: "Can you review the lock handoff?",
-    body: "Please reply in this thread after checking the file lock state.",
-    files: ["src/intents.ts"],
-    artifact: "packages/octocode-core",
+    subject: "question",
+    body: "body",
+    files: ["src/file.ts"],
+    artifact: "pkg",
     refs: ["task_123"],
     importance: 7,
   },
   notify: {
-    agent_id: "codex-2",
-    artifact: "packages/octocode-core",
-    repo: "octocode-mcp",
-    ref: "support-OQL",
+    agent_id: "agent",
+    artifact: "pkg",
+    repo: "repo",
+    ref: "main",
     kind: "blocker",
-    subject: "Mid-refactor on oql/planner.ts — tests red",
-    body: "Hold off editing src/oql/planner.ts until I push; pushdown rewrite in progress.",
-    files: ["src/oql/planner.ts"],
+    subject: "blocked",
+    body: "body",
+    files: ["src/file.ts"],
     refs: ["task_abc123"],
     importance: 8,
   },
   notify_query: {
-    agent_id: "claude-1",
-    artifact: "packages/octocode-core",
-    repo: "octocode-mcp",
+    agent_id: "agent",
+    artifact: "pkg",
+    repo: "repo",
     unread_only: true,
     mark_read: true,
   },
@@ -756,29 +998,29 @@ export const examples = {
   },
   agent_registry: {
     action: "register",
-    agent_id: "codex-2",
-    agent_name: "Codex repo worker",
+    agent_id: "agent",
+    agent_name: "Agent",
     workspace: "/repo",
-    artifact: "packages/octocode-awareness",
+    artifact: "pkg",
     context: "codex",
     limit: 50,
   },
   reflect: {
-    agent_id: "codex-local",
-    task: "Add equality pushdown to the OQL planner",
+    agent_id: "agent",
+    task: "task",
     outcome: "partial",
-    worked: "Equality predicates now push down to ghSearchCode.",
-    didnt_work: "Glob/size filters still force materialization — slower than hoped.",
-    judgment_note: "Verified equality pushdown with planner tests; glob behavior remains intentionally unresolved.",
-    lesson: "OQL pushdown only covers field equality today; document the residual-filter fallback.",
-    fix_repo: "Teach planner.ts to push basename glob patterns down as path prefixes.",
-    fix_file: ["src/oql/planner.ts"],
+    worked: "worked",
+    didnt_work: "blocked",
+    judgment_note: "evidence",
+    lesson: "lesson",
+    fix_repo: "fix",
+    fix_file: ["src/file.ts"],
     eval_failures: [
       {
-        id: "binary-glob-pushdown",
+        id: "eval-1",
         dimension: "planning",
-        failure_signature: "mechanism:oql-pushdown|cause:glob-materializes",
-        suggested_lesson: "Keep residual-filter fallbacks visible when pushdown is incomplete.",
+        failure_signature: "sig",
+        suggested_lesson: "lesson",
       },
     ],
     duo: true,
@@ -787,10 +1029,12 @@ export const examples = {
 
 const listableSchemas = [
   "tell_memory", "get_memory", "status", "memory_index",
-  "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify",
+  "query", "view", "repo_inject",
+  "workspace_status", "export_harness", "session_capture",
+  "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify", "audit_unverified",
   "forget_memory", "refinement", "refine_query", "refine_delete",
   "agent_registry", "agent_signal", "notify", "notify_query", "notify_resolve", "notify_prune",
-  "workspace_status", "export_harness", "reflect",
+  "mine_weakness", "doc_staleness", "digest", "reflect",
 ];
 
 function usage() {

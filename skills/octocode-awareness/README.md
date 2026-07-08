@@ -8,7 +8,7 @@ The skill is especially useful when several agents work together in the same rep
 
 Coding agents are usually stateless between runs. One agent may edit a file while another is reading stale context. A later run may rediscover a lesson that was already learned. A handoff can be buried in chat, and a success claim can be made without a recorded check.
 
-`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine, test runner, or self-improvement loop. It is the memory recall, lock, handoff, signal, and verification layer around engineering work.
+`octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the memory recall, lock, handoff, signal, verification, reflection, and learning layer around engineering work.
 
 ## Capabilities
 
@@ -18,9 +18,8 @@ Coding agents are usually stateless between runs. One agent may edit a file whil
 - Verification records that connect an edit task to the check that actually ran.
 - Agent-to-agent signals for blockers, questions, claims, replies, and handoffs.
 - Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
+- Reflection records for durable lessons, failure signatures, cleanup decisions, and staged harness improvements.
 - A local view of active memories, locks, tasks, refinements, and signals.
-
-Post-task learning, memory hygiene, skill learning, and harness proposals live in the sibling `octocode-reflection` skill. Both skills use the same package and SQLite store; they differ by when an agent should load their instructions.
 
 ## Operating Model
 
@@ -29,10 +28,10 @@ The skill uses a shared local SQLite store under the user's Octocode state direc
 The mental model is:
 
 ```text
-ATTEND -> FOCUS -> CLAIM -> WORK -> VERIFY -> ENCODE -> SLEEP
+ATTEND -> FOCUS -> CLAIM -> WORK -> VERIFY -> COMMUNICATE -> LEARN -> SLEEP
 ```
 
-An agent attends to the current state, focuses the intended work, claims files when editing, does the work, records verification, leaves repo handoffs visible, then invokes `octocode-reflection` only if the outcome produced a durable lesson or cleanup decision.
+An agent attends to the current state, focuses the intended work, claims files when editing, does the work, records verification, handles signals or handoffs, and records durable lessons when the outcome is reusable.
 
 Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
 

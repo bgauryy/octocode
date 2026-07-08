@@ -256,6 +256,7 @@
   },
   "files": [
     "dist",
+    "docs/**",
     "index.cjs",
     "index.js",
     "index.d.ts",

@@ -8,11 +8,12 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { initDb } from '../src/db.js';
+import { initDb, replaceMemoryReferences } from '../src/db.js';
 import {
   pruneStale,
   notifyGet,
   exportHarness,
+  exportMemoryDoc,
   getWorkspaceStatus,
   sessionCapture,
   digest,
@@ -141,6 +142,21 @@ describe('pruneStale — locks + tasks', () => {
     expect(task?.status).toBe('PENDING');
   });
 
+  it('normalizes relative target_file filters against workspace', () => {
+    const db = freshDb();
+    const taskId = insertTask(db, { workspacePath: '/repo' });
+    const past = new Date(Date.now() - 5 * 60_000).toISOString();
+    insertLock(db, { taskId, filePath: '/repo/src/a.ts', expiresAt: past });
+
+    const dry = pruneStale(db, { workspace: '/repo', target_file: 'src/a.ts', dry_run: true });
+    expect(dry.would_prune).toBe(1);
+
+    const res = pruneStale(db, { workspace: '/repo', target_file: 'src/a.ts' });
+    expect(res.pruned_locks).toBe(1);
+    const task = db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId) as { status: string };
+    expect(task.status).toBe('PENDING');
+  });
+
   it('does not prune non-expired locks', () => {
     const db = freshDb();
     const taskId = insertTask(db);
@@ -195,6 +211,20 @@ describe('getWorkspaceStatus — current schema', () => {
     expect(status.locks.length).toBeGreaterThanOrEqual(1);
     expect(status.locks[0]).toHaveProperty('file_path');
     expect(status.locks[0]).toHaveProperty('agent_id');
+  });
+
+  it('evicts expired locks and marks affected active tasks pending before reporting status', () => {
+    const db = freshDb();
+    const taskId = insertTask(db);
+    const past = new Date(Date.now() - 5 * 60_000).toISOString();
+    insertLock(db, { taskId, expiresAt: past });
+
+    const status = getWorkspaceStatus(db, {});
+    expect(status.locks).toHaveLength(0);
+    expect(status.pending_tasks).toBeGreaterThanOrEqual(1);
+    expect(status.active_tasks).toBe(0);
+    const task = db.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId) as { status: string };
+    expect(task.status).toBe('PENDING');
   });
 });
 
@@ -335,6 +365,49 @@ describe('sessionCapture — tasks table', () => {
       'SELECT reasoning FROM refinements WHERE refinement_id = ?'
     ).get(res.refinement_id!) as { reasoning: string } | undefined;
     expect(ref?.reasoning).toContain('plan=docs/plans/session.md');
+  });
+
+  it('bounds handoff file arrays and visible task text', () => {
+    const db = freshDb();
+    const taskId = insertTask(db, { agentId: 'agent-cap', workspacePath: '/ws' });
+    const files = Array.from({ length: 60 }, (_, i) => `/ws/src/file-${i}.ts`);
+    db.prepare(
+      `UPDATE tasks
+       SET rationale = ?, test_plan = ?, files_json = ?
+       WHERE task_id = ?`
+    ).run('rationale '.repeat(80), 'test plan '.repeat(80), JSON.stringify(files), taskId);
+
+    const res = sessionCapture(db, { agent_id: 'agent-cap', workspace: '/ws' });
+    expect(res.captured).toBe(true);
+    expect(res.files).toHaveLength(40);
+    expect(res.file_count).toBe(60);
+    expect(res.omitted_files).toBe(20);
+
+    const ref = db.prepare(
+      'SELECT reasoning, remember, files_json FROM refinements WHERE refinement_id = ?'
+    ).get(res.refinement_id!) as { reasoning: string; remember: string; files_json: string };
+    expect(JSON.parse(ref.files_json)).toHaveLength(40);
+    expect(ref.reasoning).toContain('(+52 more)');
+    expect(ref.remember).toContain('showing 20 of 60');
+    expect(ref.remember).toContain('40 omitted');
+    expect(ref.reasoning).not.toContain('file-59.ts');
+  });
+});
+
+describe('exportMemoryDoc — reference joins', () => {
+  it('includes references beyond SQLite placeholder limits', { timeout: 20_000 }, () => {
+    const db = freshDb();
+    for (let i = 0; i < 1050; i++) {
+      const id = insertMem(db, {
+        memoryId: `mem_export_${i}`,
+        observation: `export observation ${i}`,
+        importance: 5,
+      });
+      replaceMemoryReferences(db, id, [`file:/tmp/late-export-${i}.ts`]);
+    }
+
+    const doc = exportMemoryDoc(db, {});
+    expect(doc).toContain('file:/tmp/late-export-1049.ts');
   });
 });
 

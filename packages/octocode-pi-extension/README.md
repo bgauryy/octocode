@@ -74,7 +74,7 @@ Pin the operating model to a project or globally:
 
 ## System prompt — operating model
 
-**Source:** `packages/octocode-pi-extension/src/SYSTEM_PROMPT.md` (built to `dist/system/SYSTEM_PROMPT.md`)
+**Source:** `packages/octocode-pi-extension/src/prompts/sections/` (composed to `dist/system/SYSTEM_PROMPT.md`)
 
 The injected system prompt defines eight protocol blocks that govern agent behavior for every session:
 
@@ -82,7 +82,7 @@ The injected system prompt defines eight protocol blocks that govern agent behav
 |---|---|
 | `<authority>` | Conflict resolution order: safety → correctness → minimal scope. |
 | `<operating_model>` | Work loop: orient → scope → hypothesize → search/prove → act → verify. Request mode classification (answer / diagnose / plan / change / monitor). |
-| `<memory>` | Typed Awareness/Reflection dispatch table — when to recall, coordinate, verify, record, reflect, digest, or forget. |
+| `<memory>` | Typed Awareness dispatch table — when to recall, coordinate, verify, record, reflect, digest, or forget. |
 | `<tools>` | Tool routing ladder. AST+LSP combined workflow. GitHub discovery/read/clone/history flow. Minify aggressively. |
 | `<research>` | Proof ladder: candidate search → exact read → AST/shape → LSP → independent corroboration → verdict. Confidence levels: confirmed / likely / uncertain. |
 | `<skills>` | Skill dispatch: when each bundled skill applies; how to load SKILL.md before following. |
@@ -164,13 +164,13 @@ Execute directly via `@octocodeai/octocode-tools-core` — no MCP server, no net
 
 All memory is stored in a local SQLite DB under Octocode memory home (`~/.octocode/memory/` by default).
 
-Detailed live Awareness flow and examples: [`docs/MEMORY_AGENT_FLOW.md`](docs/MEMORY_AGENT_FLOW.md). Post-task learning, memory hygiene, and skill/harness proposals are documented in [`docs/REFLECT.md`](docs/REFLECT.md).
+Detailed live Awareness flow and examples: [`docs/MEMORY_AGENT_FLOW.md`](docs/MEMORY_AGENT_FLOW.md). Post-task reflection, memory hygiene, and skill/harness proposals are documented in [`docs/REFLECT.md`](docs/REFLECT.md).
 
 | Tool | Purpose |
 |---|---|
 | `memory_recall` | Awareness: recall durable lessons before risky/unfamiliar work. Accepts `query`, `smart:true`, `references`, `regex`, `sort`, `strict_scope`. |
-| `memory_record` | Reflection: store a root cause, decision, workaround, or verified gotcha after evidence exists. Attaches `file`/`files`/`folders`/`repo`/`workspace_path` scope. Skips duplicates unless `supersedes` or `allow_similar:true`. |
-| `memory_reflect` | Reflection: capture a reusable lesson after non-trivial work. Prefer over `memory_record` when `fix_repo`, `fix_harness`, or `failure_signature` apply — creates refinements and clusters failure patterns. |
+| `memory_record` | Awareness reflection: store a root cause, decision, workaround, or verified gotcha after evidence exists. Attaches `file`/`files`/`folders`/`repo`/`workspace_path` scope. Skips duplicates unless `supersedes` or `allow_similar:true`. |
+| `memory_reflect` | Awareness reflection: capture a reusable lesson after non-trivial work. Prefer over `memory_record` when `fix_repo`, `fix_harness`, or `failure_signature` apply — creates refinements and clusters failure patterns. |
 | `workspace_status` | Show active file locks, working agents, and memory/coordination stats for current workspace. |
 | `memory_workspace_status` | Compatibility alias for `workspace_status`. |
 | `agent_signal` | Common agent coordination inbox: publish/list/reply/resolve/ack questions, handoffs, blockers, decisions, and FYIs. |
@@ -179,7 +179,7 @@ Detailed live Awareness flow and examples: [`docs/MEMORY_AGENT_FLOW.md`](docs/ME
 | `memory_refine_get` | List open repo-fix refinements. Use after reflections may have left actionable fixes. |
 | `memory_audit_unverified` | List pending edit tasks that still need verification. Use after every edit batch. |
 | `memory_verify` | Mark a pending edit task as verified or failed. Three call forms: `{task_id}` (single), `{task_ids:[...]}` (batch array), `{allPending:true}` (clear all pending for this agent in one call). |
-| `memory_export_harness` | Reflection: export agent improvement proposals (fix_harness reflections + high-importance lessons) as markdown for AGENTS.md/CLAUDE.md. Never writes files — review and paste after human approval. |
+| `memory_export_harness` | Awareness reflection: export agent improvement proposals (fix_harness reflections + high-importance lessons) as markdown for AGENTS.md/CLAUDE.md. Never writes files — review and paste after human approval. |
 | `memory_notify` | Compatibility alias for `agent_signal({action:"publish"})`; prefer `agent_signal` for list/reply/resolve. |
 
 User-owned maintenance commands:
@@ -231,7 +231,7 @@ Awareness after edits   → memory_audit_unverified
                           → memory_verify({ allPending: true })           # clear all at once
                           → memory_verify({ task_ids: [...] })            # clear a subset
                           → memory_verify({ task_id, status })            # single
-Reflection after work   → memory_reflect({ task, outcome, worked, lesson })
+Awareness reflect after work → memory_reflect({ task, outcome, worked, lesson })
 Specific finding        → memory_record({ task_context, observation, label, importance })
 ```
 
@@ -413,7 +413,7 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 | `replaceAll` | File-wide replacement when intentional |
 | Diff/patch detail in results | Shows exactly what changed |
 
-**Edit safety bridge:** Before every Pi write/edit call, the awareness bridge claims a lock on target files. After the edit result, it releases locks and records a `PENDING` task. The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear the task. If the awareness stop hook is installed, it can block conclusion while `PENDING` tasks remain.
+**Edit safety bridge:** Before every Pi write/edit call, the awareness bridge claims a lock on target files. After the edit result, it releases locks and records a `PENDING` task. The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear the task. Pi's in-process `agent_end` gate can send a follow-up instead of letting a session silently conclude while `PENDING` tasks remain.
 
 ---
 
@@ -421,7 +421,7 @@ The extension replaces Pi's built-in edit tool with an enhanced version:
 
 The 10 skills below ship in `dist/skills/` and load via Pi resource discovery. A separate **browser subagent skill** (below) ships under `subagents/browser-agent/skills/` and is loaded only into the spawned browser subagent, not the main session.
 
-Three of the ten — `octocode-awareness`, `octocode-reflection`, `octocode-agent-communication` — are copied at build time from [`@octocodeai/octocode-awareness`](../octocode-awareness) (the same package this extension imports for its memory tools and edit-safety hooks). See [Development notes](#development-notes) for the source-of-truth rule.
+Three of the ten skill folders are copied at build time from [`@octocodeai/octocode-awareness`](../octocode-awareness). `octocode-awareness` is the primary operational skill; `octocode-reflection` and `octocode-agent-communication` are compatibility stubs for older prompts and route back to Awareness. The extension imports the same package directly for memory tools and edit-safety hooks. See [Development notes](#development-notes) for the source-of-truth rule.
 
 ### `browser-agent` (subagent skill)
 
@@ -521,11 +521,11 @@ Always compares ≥2 alternatives including do-nothing. `IMPLEMENTATION.md` and 
 
 ### `octocode-awareness`
 
-> Live workspace coordination: recall, file locks, verification gates, and lifecycle hooks.
+> Live workspace coordination: recall, file locks, verification gates, signals, reflection, and lifecycle hooks.
 
-**Load it when:** starting or planning work, claiming files before an edit, checking for other agents' locks, or finishing a task.
+**Load it when:** starting or planning work, claiming files before an edit, checking for other agents' locks, processing messages, recording lessons, or finishing a task.
 
-**Default loop:** Think/Plan (recall memory) → Before edits (claim files with `pre_flight_intent` / `file_lock`) → After edits (`memory_audit_unverified` → `memory_verify`) → Finish (hand off to `octocode-reflection`). Routes to `octocode-agent-communication` whenever a signal or unread message appears.
+**Default loop:** Think/Plan (`memory_recall`, `workspace_status`, inbox check) → Before edits (`file_lock` or CLI `lock acquire`) → After edits (`memory_audit_unverified` → `memory_verify`) → Communicate when needed (`agent_signal`) → Finish/learn (`memory_reflect`, `memory_record`).
 
 Backed by the `wirePiAwarenessHooks` bridge described in [Awareness bridge — edit safety](#awareness-bridge--edit-safety) and the `memory_*` / `file_lock` / `agent_signal` tools in [Support tools](#support-tools-20).
 
@@ -533,23 +533,21 @@ Backed by the `wirePiAwarenessHooks` bridge described in [Awareness bridge — e
 
 ### `octocode-reflection`
 
-> Post-task learning: durable lessons, stale-memory cleanup, staged harness/skill improvement.
+> Compatibility stub for older prompts.
 
-**Load it when:** work just finished and produced a reusable lesson, or a memory/signal/refinement/pending task looks stale.
+**Load it when:** a prompt explicitly asks for `octocode-reflection`; otherwise load `octocode-awareness` directly.
 
-**Loop:** Select → Record (`memory_record`) → Reflect (`memory_reflect`) → Stage → Clean → Maintain. Shares the same SQLite store as `octocode-awareness` — awareness handles *live* coordination, reflection handles *outcomes*.
-
-`memory_export_harness` previews agent-improvement proposals as markdown; it never writes files — review and paste into `AGENTS.md`/`CLAUDE.md` after human approval.
+Reflection operations now live in Awareness: `memory_record`, `memory_reflect`, `memory_export_harness`, stale-memory cleanup previews, and pending-task maintenance all share the same SQLite store and CLI.
 
 ---
 
 ### `octocode-agent-communication`
 
-> Agent-to-agent messaging: publish, list, reply, acknowledge, and resolve signals; A2A-style mapping onto local Awareness signals.
+> Compatibility stub for older prompts.
 
-**Load it when:** a message, handoff, blocker, or question shows up in `workspace_status`/`memory_workspace_status`, or an agent needs to reach another agent directly.
+**Load it when:** a prompt explicitly asks for `octocode-agent-communication`; otherwise load `octocode-awareness` directly.
 
-**Flow:** REGISTER (`agent_registry`) → RESOLVE (`agent_signal`: publish/list/reply/ack/resolve). `to_agent = null` is a broadcast; `thread_id` groups a conversation or handoff. Delivery is local-first — the SQLite DB is the broker, hooks and the Pi bridge are delivery surfaces, not a transport.
+Communication operations now live in Awareness: `agent_registry` and `agent_signal` publish, list, reply, acknowledge, and resolve local-first signals. `to_agent = null` is a broadcast; `thread_id` groups a conversation or handoff.
 
 ---
 
@@ -668,13 +666,15 @@ The awareness bridge runs automatically on every Pi edit/write tool call:
 1. **Before edit:** Claims a file lock for each target path. Other agents see the lock via `memory_workspace_status`.
 2. **After edit:** Releases locks and records a `PENDING` task in memory.
 3. **Agent duty:** The system prompt instructs the agent to run the stated verification and call `memory_verify` to clear the task. Use `{allPending:true}` to clear all pending tasks in one call, or `{task_ids:[...]}` for a subset.
-4. **Stop hook:** When `install-hooks.mjs` is active, Pi's stop hook can block conclusion while any `PENDING` task remains unverified.
+4. **Verify gate:** Pi's in-process awareness bridge sends a follow-up before conclusion while any `PENDING` task remains unverified.
 
 ```bash
-node packages/octocode-awareness/skills/octocode-awareness/scripts/install-hooks.mjs --project-dir . --dry-run
+node packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs hooks install --host codex --project-dir . --dry-run
 ```
 
-To bypass a stuck hook (misfires only):
+Pi does not need that shell-hook install step; the extension wires `wirePiAwarenessHooks` in-process. The command above is only useful when configuring shell-hook hosts such as Codex, Claude, or Cursor from the same repo.
+
+To bypass a stuck verify gate (misfires only):
 
 ```bash
 OCTOCODE_NO_VERIFY_GATE=1 pi ...
@@ -693,7 +693,7 @@ OCTOCODE_NO_VERIFY_GATE=1 pi ...
 | GitHub calls are unauthenticated | Run `node $OCTOCODE_CLI auth login` or export `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` in shell env. |
 | Agent uses `grep`/`cat`/`curl` instead of native tools | Run `/octocode-harness`; remind the agent to use native Octocode tools. |
 | Verify gate blocks conclusion | Run the stated verification, then call `memory_verify({ allPending: true })` to clear all in one call (or `{ task_ids: [...] }` for a subset). If no stop hook is installed, pending tasks appear in `memory_audit_unverified` but do not block the UI. |
-| Stuck pending tasks from a dead session | Use `octocode-reflection` memory hygiene: preview the stale agent scope with `memory_audit_unverified`, then abandon only after approving that scope. |
+| Stuck pending tasks from a dead session | Use `octocode-awareness` memory hygiene: preview the stale agent scope with `memory_audit_unverified`, then abandon only after approving that scope. |
 | `ghCloneRepo` not available | Set `ENABLE_CLONE=1` in Octocode env. |
 | Local tools not available | Check `ENABLE_LOCAL` — defaults on; set `ENABLE_LOCAL=1` if overridden. |
 
@@ -714,9 +714,9 @@ OCTOCODE_NO_VERIFY_GATE=1 pi ...
 
 Canonical sources (do **not** edit generated copies — build overwrites them):
 
-- **System prompt:** `packages/octocode-pi-extension/src/SYSTEM_PROMPT.md` (built to `dist/system/SYSTEM_PROMPT.md`)
-- **Awareness/Reflection/Communication source of truth:** [`packages/octocode-awareness`](../octocode-awareness) owns the DB schema, task/signal API, hooks bridge, and the `octocode-awareness` / `octocode-reflection` / `octocode-agent-communication` skill files. Pi imports `@octocodeai/octocode-awareness` directly for runtime behavior and copies those three skill folders from `packages/octocode-awareness/skills/`.
-- **Skills source:** repo-root `skills/` plus `packages/octocode-awareness/skills/{octocode-awareness,octocode-reflection,octocode-agent-communication}` for the awareness/reflection/communication skill copies.
+- **System prompt:** `packages/octocode-pi-extension/src/prompts/sections/` (composed to `dist/system/SYSTEM_PROMPT.md`)
+- **Awareness source of truth:** [`packages/octocode-awareness`](../octocode-awareness) owns the DB schema, task/signal API, hooks bridge, the primary `octocode-awareness` skill, and the `octocode-reflection` / `octocode-agent-communication` compatibility stubs. Pi imports `@octocodeai/octocode-awareness` directly for runtime behavior and copies those three skill folders from `packages/octocode-awareness/skills/`.
+- **Skills source:** repo-root `skills/` plus `packages/octocode-awareness/skills/{octocode-awareness,octocode-reflection,octocode-agent-communication}` for the awareness-owned primary/stub copies.
 - **Generated skill copies:** `packages/octocode-pi-extension/skills/` is gitignored and regenerated by `yarn workspace @octocodeai/pi-extension build:skills`.
 - **Build script:** `packages/octocode-pi-extension/scripts/build.mjs` (syncs generated package skills, copies them to `dist/skills/`, injects `octocode-config.mjs` into each skill's `scripts/` dir)
 

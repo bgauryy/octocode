@@ -1,6 +1,9 @@
 # Code Research
 
-Read this when `octocode-research` is handling code investigation, implementation, review, refactor, architecture, dead-code/safe-delete, PR/local diff, binary/archive, or blast-radius work — and before presenting, dismissing, or acting on any finding. Evidence grades, the router, anti-patterns, and failure signals live in `references/algorithm.md`; this file is workflow + proof ladder + reporting.
+Read when `octocode-research` handles code investigation, implementation, review, refactor, architecture, dead-code, PR/local diff, binary/archive, or blast-radius work.
+Before presenting, dismissing, or acting on a finding, use this workflow and proof ladder.
+Evidence grades, the router, anti-patterns, and failure signals live in `references/algorithm.md`.
+For local/external/root-cause/PR-review routing, load `references/workflows.md` first, then return here for the proof ladder.
 
 ## Route
 
@@ -22,7 +25,8 @@ Read this when `octocode-research` is handling code investigation, implementatio
 5. Use AST for code shape and LSP for symbol identity, callers, references, and blast radius.
 6. For code changes, find an existing local pattern before editing; make the smallest scoped change that follows from the evidence.
 7. Verify with the declared check: targeted test/build/typecheck/lint, AST/LSP rerun, CLI/API smoke, exact read, or history proof.
-8. Report confidence as `confirmed`, `likely`, or `uncertain`; never upgrade a snippet to proof without a check.
+8. If verification fails, keep the failure visible, re-read the failing path, patch only the cause, or report blocked with the exact gap.
+9. Report confidence as `confirmed`, `likely`, or `uncertain`; never upgrade a snippet to proof without a check.
 
 ## Review And Change Gates
 
@@ -31,6 +35,7 @@ Ask before continuing when the next step changes a public contract, crosses pack
 For a review, lead with findings ordered by severity. Each finding needs `file:line`, impact, evidence, and a fix path. If there are no findings, say that and name residual test/risk gaps.
 
 For a code change, do not claim success until the verification command actually ran. If verification is impossible, say why and keep confidence below `confirmed`.
+For a failed change, report `attempted patch -> failing check -> next proof step`; do not silently broaden the patch.
 
 ## Proof Ladder
 
@@ -71,4 +76,5 @@ Keep dismissed candidates out of the final findings list; surface one only as a 
 
 ## Reporting
 
-Every finding should include: claim, anchor, proof check, confidence, impact, and next action. If a deterministic check was not run, say so and keep confidence below `confirmed`.
+Every finding should include claim, anchor, proof check, confidence, impact, and next action.
+If a deterministic check was not run, say so and keep confidence below `confirmed`.

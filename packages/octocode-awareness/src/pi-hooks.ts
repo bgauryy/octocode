@@ -1,22 +1,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { connectDb, resolveDbPath } from './db.js';
-
-// HOOK-1: Module-level DB singleton keyed by dbPath.
-// connectDb runs initDb on every call so local stores stay ready for hooks.
-// For a session with many tool calls this is extremely expensive.
-// A cached connection is safe: node:sqlite DatabaseSync is single-threaded and
-// the module lives in one Node.js worker.
-const _dbCache = new Map<string, DatabaseSync>();
-
-function cachedConnectDb(dbPath: string): DatabaseSync {
-  const cached = _dbCache.get(dbPath);
-  if (cached) return cached;
-  const db = connectDb(dbPath);
-  _dbCache.set(dbPath, db);
-  return db;
-}
+import { connectCachedDb, resolveDbPath } from './db.js';
 
 // HOOK-2: A one-time session startup token that survives process.pid reuse across
 // OS restarts. We combine the session file name (if available) with a UUID suffix
@@ -108,15 +93,13 @@ function addQueryPaths(paths: string[], value: unknown): void {
   }
 }
 
-function hasExplicitFileTargetPayload(payload: Record<string, unknown>): boolean {
-  return ['path', 'filePath', 'file_path', 'paths', 'filePaths', 'file_paths']
-    .some((key) => payload[key] !== undefined)
-    || Array.isArray(payload.queries);
-}
-
-export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}): string[] {
+export function extractPiWriteTargetPaths(
+  toolName: unknown,
+  input: unknown = {},
+  options: { assumeWrite?: boolean } = {},
+): string[] {
   const normalizedToolName = String(toolName ?? '').toLowerCase();
-  const isWriteTool = [
+  const isWriteTool = Boolean(options.assumeWrite) || [
     'write',
     'edit',
     'multi_edit',
@@ -131,7 +114,11 @@ export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}
     ? input
     : firstString(payload.command, payload.patch, payload.text, payload.content);
 
-  if (!isWriteTool && typeof command !== 'string' && !hasExplicitFileTargetPayload(payload)) return [];
+  if (!isWriteTool) {
+    const patchPaths: string[] = [];
+    addApplyPatchPaths(patchPaths, command);
+    return [...new Set(patchPaths)];
+  }
 
   const paths: string[] = [];
   addPathValue(paths, payload.path);
@@ -188,7 +175,7 @@ function notify(ctx: PiLikeContext | undefined, message: string, level: string =
 
 function defaultGetDb(options: PiAwarenessBridgeOptions, ctx?: PiLikeContext): DatabaseSync {
   // HOOK-1: Use the cached connection; never call connectDb twice for the same path.
-  return cachedConnectDb(ctx?.dbPath ?? options.dbPath ?? resolveDbPath(null));
+  return connectCachedDb(ctx?.dbPath ?? options.dbPath ?? resolveDbPath(null));
 }
 
 export function createPiAwarenessBridge(options: PiAwarenessBridgeOptions = {}) {

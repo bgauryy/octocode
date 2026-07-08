@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -9,12 +9,16 @@ const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(TEST_DIR, '../../..');
 const SCRIPT = resolve(
   REPO_ROOT,
-  'packages/octocode-awareness/skills/octocode-awareness/scripts/install-hooks.mjs',
+  'packages/octocode-awareness/dist/bin/awareness.js',
+);
+const SKILL_SCRIPT = resolve(
+  REPO_ROOT,
+  'packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs',
 );
 const NODE = process.execPath;
 
-function runInstallHooks(args: string[]) {
-  const result = spawnSync(NODE, [SCRIPT, ...args], {
+function runInstallHooks(args: string[], script = SCRIPT) {
+  const result = spawnSync(NODE, [script, ...args], {
     encoding: 'utf8',
     timeout: 5000,
   });
@@ -27,10 +31,23 @@ function runInstallHooks(args: string[]) {
 }
 
 describe('install-hooks', () => {
+  it('generated skill CLI resolves hook paths from its own scripts directory', () => {
+    expect(existsSync(SKILL_SCRIPT), 'generated awareness.mjs must exist after build').toBe(true);
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-skill-hooks-'));
+    try {
+      const result = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run'], SKILL_SCRIPT);
+      const serialized = JSON.stringify(result.resultingSettings);
+      expect(serialized).toContain('/skills/octocode-awareness/scripts/hooks/pre-edit.sh');
+      expect(serialized).not.toContain('/skills/skills/');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('previews Codex hooks in .codex/hooks.json without unsupported SessionEnd', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-codex-hooks-'));
     try {
-      const result = runInstallHooks(['--host', 'codex', '--project-dir', projectDir, '--dry-run']);
+      const result = runInstallHooks(['hooks', 'install', '--host', 'codex', '--project-dir', projectDir, '--dry-run']);
 
       expect(result.host).toBe('codex');
       expect(result.settingsPath).toBe(resolve(projectDir, '.codex/hooks.json'));
@@ -52,7 +69,7 @@ describe('install-hooks', () => {
   it('keeps Claude hooks in .claude/settings.json with SessionEnd', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-claude-hooks-'));
     try {
-      const result = runInstallHooks(['--host', 'claude', '--project-dir', projectDir, '--dry-run']);
+      const result = runInstallHooks(['hooks', 'install', '--host', 'claude', '--project-dir', projectDir, '--dry-run']);
 
       expect(result.host).toBe('claude');
       expect(result.settingsPath).toBe(resolve(projectDir, '.claude/settings.json'));
@@ -66,7 +83,7 @@ describe('install-hooks', () => {
   it('previews Cursor hooks in native .cursor/hooks.json shape', () => {
     const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-cursor-hooks-'));
     try {
-      const result = runInstallHooks(['--host', 'cursor', '--project-dir', projectDir, '--dry-run']);
+      const result = runInstallHooks(['hooks', 'install', '--host', 'cursor', '--project-dir', projectDir, '--dry-run']);
 
       expect(result.host).toBe('cursor');
       expect(result.settingsPath).toBe(resolve(projectDir, '.cursor/hooks.json'));
@@ -114,7 +131,7 @@ describe('install-hooks', () => {
         }, null, 2),
       );
 
-      const result = runInstallHooks(['--host', 'cursor', '--project-dir', projectDir, '--remove', '--dry-run']);
+      const result = runInstallHooks(['hooks', 'remove', '--host', 'cursor', '--project-dir', projectDir, '--dry-run']);
 
       expect(result.resultingSettings.hooks?.preToolUse).toEqual([
         { command: unrelated, timeout: 20, matcher: 'Write' },

@@ -2,13 +2,13 @@
 
 Guide to the Pi-extension live awareness flow, tool usage, schemas, and output quality.
 
-See also: [REFLECT.md](./REFLECT.md) — full documentation of the `octocode-reflection` learning, memory hygiene, and harness improvement loop.
+See also: [REFLECT.md](./REFLECT.md) — full documentation of the Awareness learning, memory hygiene, and harness improvement loop.
 
 ## Validated surfaces
 
 - The extension wires memory-awareness hooks for session start, write/edit calls, tool results, agent end, and session shutdown.
 - The default agent tool surface includes 8 workflow `memory_*` tools.
-- Memory maintenance is Reflection-owned and user-approved via `/octocode-memory-digest` and `/octocode-memory-forget` commands.
+- Memory maintenance is Awareness-owned and user-approved via `/octocode-memory-digest` and `/octocode-memory-forget` commands.
 - Each memory tool has a typed schema and a dedicated runtime operation.
 - Tests validate required schema fields, lean outputs, duplicate handling, scoping, audit/verify behavior, reflection output, and workspace/refinement summaries.
 
@@ -42,8 +42,8 @@ flowchart TD
 | Tool | Use when | Key inputs | Output shape / caveat |
 |---|---|---|---|
 | `memory_recall` | Before risky, unfamiliar, long, or related work. | `query`; optional `limit`, `min_importance`, `smart`, `label`, `references`, `regex`, scope. | Lean `{count, memories}`; raw observations appear because recall needs them. Carries `judgment_required` + `judgment_reason` when confidence is low (zero results or a weak top match) — treat those results as leads and verify before relying on them. |
-| `memory_record` | Reflection: store a verified durable root cause, decision, workaround, or gotcha after evidence exists. | `task_context`, `observation`; optional `label`, `importance`, `tags`, `references`, scope, `supersedes`, `allow_similar`, `failure_signature`. | Returns id/label/importance/novelty; duplicate skip avoids echoing long prose. |
-| `memory_reflect` | Reflection: after non-trivial work with a reusable lesson, repo fix, harness fix, or failure signature. | `task`; at least one lesson/failure/fix/signature field. | Returns lean learning id; includes next-action hints only when action exists. |
+| `memory_record` | Awareness reflection: store a verified durable root cause, decision, workaround, or gotcha after evidence exists. | `task_context`, `observation`; optional `label`, `importance`, `tags`, `references`, scope, `supersedes`, `allow_similar`, `failure_signature`. | Returns id/label/importance/novelty; duplicate skip avoids echoing long prose. |
+| `memory_reflect` | Awareness reflection: after non-trivial work with a reusable lesson, repo fix, harness fix, or failure signature. | `task`; at least one lesson/failure/fix/signature field. | Returns lean learning id; includes next-action hints only when action exists. |
 | `memory_workspace_status` | Before long edits or when checking locks/pending work. | Optional workspace/repo scope. | Returns counts and optional locks. |
 | `memory_refine_get` | At task start when previous reflections may have left actionable repo fixes. | Optional `state`, `include_handoffs`, `limit`, scope. | Returns lean refinement id/state/fix/files/repo summary. |
 | `memory_audit_unverified` | Mid-turn when unsure; final audit also runs automatically. | No params. | Returns pending tasks with test plans; non-zero exit when pending. |
@@ -74,7 +74,7 @@ flowchart TD
 2. **Act:** rely on hook-created edit tasks and locks; if blocked, inspect the conflict instead of retrying.
 3. **Coordinate:** use `memory_notify` only for real multi-agent blockers, handoffs, questions, decisions, or fyi.
 4. **Verify:** run the stated checks, then clear with `memory_verify({task_ids:[...]})` or `memory_verify({allPending:true})`.
-5. **Reflect:** switch to the `octocode-reflection` loop for post-task lessons/fix queues/failure signatures; use `memory_record` for one specific verified finding.
+5. **Reflect:** use the Awareness reflection loop for post-task lessons/fix queues/failure signatures; use `memory_record` for one specific verified finding.
 6. **Maintain:** agents do not clean or delete memories; users run the maintenance commands above after preview.
 
 ## Copy-paste examples

@@ -1,8 +1,11 @@
 # Attention & Structure Toolkit
 
-Load during FIX to sharpen word choice, isolate a high-value span, or move buried critical rules. Companion to `conciseness-toolkit.md`: that one cuts tokens; this one places the survivors where attention lands. Grounded in Anthropic prompt guidance (XML tags, example separation) and long-context attention research (U-shaped primacy/recency bias).
+Load during FIX to sharpen word choice, isolate a high-value span, or move buried critical rules.
+Pair with `conciseness-toolkit.md`: that file cuts tokens; this file places the survivors where attention lands.
+Grounding: Anthropic prompt guidance on XML/example separation and long-context primacy/recency research.
 
-**Frame — attention is U-shaped.** An agent reads with primacy + recency bias. The start and end of a prompt, and of each section, get the most attention; the middle is where instructions get dropped. Word choice, section tags, and ordering are the three levers over where attention lands.
+**Frame — attention is U-shaped.** Primacy and recency bias make starts and ends stronger than middles.
+Word choice, section tags, and ordering control where attention lands.
 
 ## 1. Word choice — pick the term the agent resolves fastest
 Most model errors trace to semantic misreading, not missing information. Choose words that leave one interpretation.

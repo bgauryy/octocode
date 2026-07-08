@@ -156,10 +156,10 @@ When a new agent installs the skill:
        ├── schema.mjs example tell_memory  → validate output
        └── awareness.mjs self-test         → DB + basic ops
 
-2. node scripts/install-hooks.mjs --host <claude|codex|cursor> [--project-dir <path>] [--global]
+2. node scripts/awareness.mjs hooks install --host <claude|codex|cursor> [--project-dir <path>] [--global]
    ├── --dry-run   → show merged settings, don't write
-   ├── --check     → report hook install status only
-   ├── --remove    → remove only our hooks
+   ├── hooks check  → report hook install status only
+   ├── hooks remove → remove only our hooks
    └── writes host hook config to:
        Claude project/global: .claude/settings.json
        Codex project/global:  .codex/hooks.json

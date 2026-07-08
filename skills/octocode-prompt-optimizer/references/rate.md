@@ -84,10 +84,10 @@ Grade the average: **A** 4.5–5 · **B** 3.5–4.4 · **C** 2.5–3.4 · **D** 
 ## Weak-word reference
 Replace weak words only where the rule is critical; keep them where guidance is genuinely optional.
 
-- `consider-might-could-may` — critical section → **MUST** / **REQUIRED**; optional guidance → remove, or keep with "optionally".
-- `should-prefer` — critical section → **MUST**; soft guidance → keep as-is.
+- `consider-might-could-may` — critical section -> use strong required language; optional guidance -> remove, or keep with "optionally".
+- `should-prefer` — critical section -> use must; soft guidance -> keep as-is.
 - `do-some-handle-process` — any context → name the exact action ("Run X", "Call Y").
 - `as-needed-if-necessary` — any context → rewrite as **IF** [condition] → **THEN** [action].
-- `feel-free-you-can` — required action → remove, use **MUST**; optional action → "Optionally, you may…".
+- `feel-free-you-can` — required action -> remove and use direct command language; optional action -> "Optionally, you may...".
 
 Replace any weak word that sits inside a critical (must/never/forbidden) rule.

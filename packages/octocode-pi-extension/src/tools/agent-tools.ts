@@ -9,6 +9,7 @@ import type { PiContext, PiInstance, ToolCallResult, ToolDefinition, PiTheme } f
 import type { registerUniqueTool } from './octocode-tools.js';
 import { makeRenderer, truncateToWidth } from './render-helpers.js';
 import { stringEnumSchema } from './schema-helpers.js';
+import { getRandomAgentName } from '../agentNames.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
@@ -424,7 +425,7 @@ export function spawnRpcAgent(params: SpawnAgentParams, ctx?: PiContext): AgentR
   if (!task) throw new Error('spawnAgent requires task or prompt.');
 
   const id = randomUUID();
-  const name = params.name ? String(params.name) : `agent-${id.slice(0, 8)}`;
+  const name = params.name ? String(params.name) : getRandomAgentName();
   const cwd = path.resolve(String(params.cwd ?? ctx?.cwd ?? process.cwd()));
   const promptFiles: string[] = [];
   const args = buildPiArgs(params, name, promptFiles);
@@ -649,6 +650,8 @@ export function registerAgentTools(
       'Do not spawn agents for ordinary bug fixes/refactors that need shared context; stay in the parent or batch independent tool calls instead.',
       'For useful parallelism, spawn all independent workers first, then use AgentMessage action:"wait" or action:"status" to collect results.',
       'spawnAgent defaults to resourceMode:"lean". Use resourceMode:"octocode" only when the worker needs Octocode extension tools.',
+      'Use `pi -ne --list-models [search]` as the source of truth for the user-configured model table; do not read hardcoded config paths.',
+      'Pass model for each worker: fastest capable configured model for small tasks, balanced coding/reasoning model for medium tasks, strongest configured model for large/high-risk work.',
       'Spawned-agent registry and output previews live in the current Pi process; collect needed results before session shutdown or reload.',
       'spawnAgent prevents recursive subagents: workers never receive spawnAgent or AgentMessage, even in resourceMode:"octocode" or resourceMode:"default".',
     ],
@@ -658,7 +661,7 @@ export function registerAgentTools(
       context: Type.Optional(Type.String({ description: 'Self-contained context to prepend to the worker task.' })),
       name: Type.Optional(Type.String({ description: 'Human label for the worker/session.' })),
       cwd: Type.Optional(Type.String({ description: 'Working directory for the worker process. Defaults to current cwd.' })),
-      model: Type.Optional(Type.String({ description: 'Pi model pattern or ID, e.g. sonnet:high or openai/gpt-4o.' })),
+      model: Type.Optional(Type.String({ description: 'Pi model pattern or ID from `pi -ne --list-models [search]`. Choose from the live user-configured table; `--models` only sets model-cycling scope.' })),
       provider: Type.Optional(Type.String({ description: 'Optional Pi provider name.' })),
       thinking: Type.Optional(Type.String({ description: 'Pi thinking level: off|minimal|low|medium|high|xhigh.' })),
       tools: Type.Optional(Type.Array(Type.String(), { description: 'Optional allowlist of enabled tool names for the worker. spawnAgent and AgentMessage are always removed.' })),

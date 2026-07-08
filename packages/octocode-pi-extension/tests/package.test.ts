@@ -39,6 +39,18 @@ import { assertPathAllowed } from '../src/tools/path-guard.js';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const distDir = path.join(packageRoot, 'dist');
+const EXPECTED_OCTOCODE_SKILLS = [
+  'octocode-agent-communication',
+  'octocode-awareness',
+  'octocode-brainstorming',
+  'octocode-prompt-optimizer',
+  'octocode-reflection',
+  'octocode-research',
+  'octocode-rfc-generator',
+  'octocode-roast',
+  'octocode-skills',
+  'octocode-subagents',
+];
 
 let distAssetsReady = false;
 
@@ -164,16 +176,36 @@ function invokeExecute(tool: ToolDef, params: Record<string, unknown>, ctx: unkn
   return tool.execute('call-id', params, undefined, undefined, ctx);
 }
 
+function argValues(args: string[], flag: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && args[i + 1]) values.push(args[i + 1]!);
+  }
+  return values;
+}
+
+function assertHasAllOctocodeSkills(skillArgs: string[]): void {
+  for (const skillName of EXPECTED_OCTOCODE_SKILLS) {
+    assert.ok(
+      skillArgs.some((skillPath) => skillPath.endsWith(path.join('skills', skillName))),
+      `missing bundled skill: ${skillName}`,
+    );
+  }
+}
+
 // ─── Build artifact tests ─────────────────────────────────────────────────────
 
-test('build copies the canonical system prompt', () => {
+test('build composes the system prompt from its section files', async () => {
   const paths = getAssetPaths(distDir);
-  const sourcePrompt = path.join(packageRoot, 'src', 'SYSTEM_PROMPT.md');
+  const { SYSTEM_PROMPT } = await import('../src/prompts/compose.js');
   assert.equal(fs.existsSync(paths.systemPrompt), true);
-  assert.equal(
-    fs.readFileSync(paths.systemPrompt, 'utf8'),
-    fs.readFileSync(sourcePrompt, 'utf8'),
-  );
+  assert.ok(SYSTEM_PROMPT.includes('<authority>'), 'sections are composed');
+  assert.match(SYSTEM_PROMPT, /pi -ne --list-models/);
+  assert.match(SYSTEM_PROMPT, /never hardcoded config paths/);
+  assert.match(SYSTEM_PROMPT, /smallest capable configured model/);
+  assert.equal(fs.existsSync(path.join(distDir, 'prompts', 'sections', 'agents.md')), true);
+  assert.equal(fs.existsSync(path.join(distDir, 'prompts', 'sections', 'index.ts')), false);
+  assert.equal(fs.readFileSync(paths.systemPrompt, 'utf8'), SYSTEM_PROMPT);
 });
 
 test('build copies bundled Octocode skills without secret env files', () => {
@@ -1446,6 +1478,7 @@ test('registers split typed memory support tools with strict schemas', async () 
   assert.deepEqual(recordParams.required, ['task_context', 'observation']);
   assert.equal(recordParams.properties['task_context']?.['minLength'], 1);
   assert.ok((recordParams.properties['label']?.['enum'] as string[]).includes('EXPERIENCE'));
+  assert.ok((recordParams.properties['label']?.['enum'] as string[]).includes('OVERRIDE'));
 
   const refineParams = tools.get('memory_refine_get')!.parameters as { properties: Record<string, Record<string, unknown>> };
   assert.deepEqual(refineParams.properties['state']?.['enum'], ['open', 'ongoing', 'done']);
@@ -1460,6 +1493,27 @@ test('registers split typed memory support tools with strict schemas', async () 
   assert.deepEqual(verifyParams.required, undefined);
   assert.equal(verifyParams.properties['task_id']?.['minLength'], 1);
   assert.deepEqual(verifyParams.properties['status']?.['enum'], ['SUCCESS', 'FAILED']);
+});
+
+test('memory adapter delegates operation policy to awareness package', () => {
+  const source = fs.readFileSync(path.join(packageRoot, 'src', 'tools', 'memory.ts'), 'utf8');
+  const importBlock = source.match(/import \{([\s\S]*?)\} from '@octocodeai\/octocode-awareness';/)?.[1] ?? '';
+  assert.match(importBlock, /runAwarenessToolOperation/);
+  assert.match(importBlock, /MEMORY_LABEL_VALUES/);
+  for (const duplicatedOperation of [
+    'connectDb',
+    'getMemory',
+    'insertMemory',
+    'findSimilarMemories',
+    'reflect',
+    'getRefinements',
+    'auditUnverified',
+    'markVerified',
+    'agentSignal',
+    'fileLock',
+  ]) {
+    assert.equal(importBlock.includes(duplicatedOperation), false, `${duplicatedOperation} stays behind awareness runner`);
+  }
 });
 
 test('manage_context type:compact queues a continuation after compaction completes', async () => {
@@ -2095,6 +2149,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.ok(messageTool, 'AgentMessage registered');
     assert.match(spawnTool.promptGuidelines?.join('\n') ?? '', /delegation materially helps/);
     assert.match(spawnTool.promptGuidelines?.join('\n') ?? '', /current Pi process/);
+    assert.match(spawnTool.promptGuidelines?.join('\n') ?? '', /pi -ne --list-models/);
+    assert.match(spawnTool.promptGuidelines?.join('\n') ?? '', /hardcoded config paths/);
+    assert.match(String((spawnTool.parameters.properties as Record<string, { description?: string }>).model?.description ?? ''), /pi -ne --list-models/);
     assert.match(messageTool.promptGuidelines?.join('\n') ?? '', /synthesize findings instead of dumping raw worker JSON/);
     assert.match(messageTool.promptGuidelines?.join('\n') ?? '', /in-memory/);
     assert.equal(tools.has('handoff_context'), false, 'legacy handoff_context removed');
@@ -2119,6 +2176,7 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.ok(spawned[0]!.args.includes('rpc'));
     assert.ok(spawned[0]!.args.includes('--no-extensions'));
     assert.ok(spawned[0]!.args.includes('--no-skills'));
+    assert.equal(spawned[0]!.args.includes('--skill'), false, 'clean spawnAgent has no skills unless provided');
     assert.ok(spawned[0]!.args.includes('--model'));
     assert.ok(spawned[0]!.args.includes('sonnet:high'));
     assert.ok(spawned[0]!.args.includes('--exclude-tools'));
@@ -2232,7 +2290,7 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
   }
 });
 
-test('spawnSubagent starts the browser-agent with the typed prompt, tools, skills, and octocode resource mode', async () => {
+test('spawnSubagent starts the browser-agent with the typed prompt, tools, all Octocode skills, and octocode resource mode', async () => {
   const spawned: Array<{ command: string; args: string[]; options: { cwd?: string }; proc: MockAgentProcess }> = [];
   setAgentProcessFactoryForTests((command, args, options) => {
     const proc = createMockAgentProcess();
@@ -2264,6 +2322,12 @@ test('spawnSubagent starts the browser-agent with the typed prompt, tools, skill
     assert.ok(args.includes('--no-extensions'));
     assert.ok(args.includes('-e'), 'browser subagent should load this extension explicitly');
     assert.ok(args.includes('--skill'), 'browser subagent should load its browser-agent skill');
+    const skillArgs = argValues(args, '--skill');
+    assertHasAllOctocodeSkills(skillArgs);
+    assert.ok(
+      skillArgs.some((skillPath) => skillPath.endsWith(path.join('subagents', 'browser-agent', 'skills', 'browser-agent'))),
+      'browser subagent should load its browser-agent skill',
+    );
     assert.ok(args.includes('--tools'));
     assert.ok(args.includes('chromeDebug,web,localGetFileContent,localSearchCode,localViewStructure'));
     assert.ok(args.includes('--thinking'));
@@ -2279,9 +2343,78 @@ test('spawnSubagent starts the browser-agent with the typed prompt, tools, skill
     assert.match(initialPrompt, /audit cookie flags and service workers/);
 
     assert.match(result.content[0]!.text, /\[SPAWNED\] Browser Agent/);
+    assert.match(result.content[0]!.text, /skills: .*octocode-research/);
     assert.match(result.content[0]!.text, /resourceMode: octocode/);
     const collapsed = spawnSubagent.renderResult!(result, { expanded: false }).render(120)[0]!;
     assert.match(collapsed, /Browser Agent/);
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('spawnSubagent starts researcher, planner, and architect with all Octocode skills', async () => {
+  const spawned: Array<{ args: string[]; options: { cwd?: string }; proc: MockAgentProcess }> = [];
+  setAgentProcessFactoryForTests((_command, args, options) => {
+    const proc = createMockAgentProcess();
+    spawned.push({ args, options, proc });
+    return proc;
+  });
+  try {
+    const { tools } = await captureExtensions();
+    const spawnSubagent = tools.get('spawnSubagent')!;
+    const schema = spawnSubagent.parameters as { properties?: { agent?: { enum?: string[] } } };
+    assert.deepEqual(schema.properties?.agent?.enum, ['browser-agent', 'researcher', 'planner', 'architect']);
+    assert.match(spawnSubagent.promptGuidelines!.join('\n'), /pi -ne --list-models/);
+    assert.match(spawnSubagent.promptGuidelines!.join('\n'), /hardcoded config paths/);
+    assert.match(String((spawnSubagent.parameters.properties as Record<string, { description?: string }>).model?.description ?? ''), /pi -ne --list-models/);
+
+    for (const agent of ['researcher', 'planner', 'architect']) {
+      const result = await invokeExecute(
+        spawnSubagent,
+        {
+          agent,
+          task: `phase one for ${agent}`,
+          ...(agent === 'planner' ? { model: 'sonnet:high' } : {}),
+          cwd: '/repo',
+        },
+        { cwd: '/fallback' },
+      );
+      assert.match(result.content[0]!.text, new RegExp(`\\[SPAWNED\\] .*${agent === 'researcher' ? 'Researcher' : agent === 'planner' ? 'Planner' : 'Architect'}`));
+    }
+
+    assert.equal(spawned.length, 3);
+    const [researcherArgs, plannerArgs, architectArgs] = spawned.map((item) => item.args);
+    for (const args of [researcherArgs!, plannerArgs!, architectArgs!]) {
+      assert.ok(args.includes('--no-extensions'));
+      assert.ok(args.includes('-e'), 'typed subagents should load this extension explicitly');
+      assert.ok(args.includes('--no-skills'), 'typed subagents use explicit skill paths with --no-skills');
+      assertHasAllOctocodeSkills(argValues(args, '--skill'));
+      assert.equal(
+        argValues(args, '--skill').some((skillPath) => skillPath.includes(`${path.sep}subagents${path.sep}browser-agent${path.sep}`)),
+        false,
+        'non-browser specialists should not load the browser-agent skill',
+      );
+      assert.ok(args.includes('--append-system-prompt'), 'typed subagents load their SYSTEM_PROMPT.md');
+      assert.ok(args.includes('--tools'));
+    }
+
+    const researcherTools = researcherArgs![researcherArgs!.indexOf('--tools') + 1]!;
+    assert.match(researcherTools, /ghSearchCode/);
+    assert.match(researcherTools, /npmSearch/);
+    assert.match(researcherTools, /lspGetSemantics/);
+    assert.doesNotMatch(researcherTools, /bash/);
+
+    const plannerTools = plannerArgs![plannerArgs!.indexOf('--tools') + 1]!;
+    assert.match(plannerTools, /ghHistoryResearch/);
+    assert.match(plannerTools, /localGetFileContent/);
+    assert.doesNotMatch(plannerTools, /bash/);
+    assert.ok(plannerArgs!.includes('--model'));
+    assert.ok(plannerArgs!.includes('sonnet:high'));
+
+    const architectTools = architectArgs![architectArgs!.indexOf('--tools') + 1]!;
+    assert.match(architectTools, /bash/);
+    assert.match(architectTools, /localBinaryInspect/);
+    assert.match(architectTools, /lspGetSemantics/);
   } finally {
     setAgentProcessFactoryForTests(null);
   }
@@ -2322,6 +2455,33 @@ test('spawnSubagent covers context injection, invalid URL name fallback, unknown
     );
   } finally {
     setAgentProcessFactoryForTests(null);
+  }
+});
+
+test('spawnSubagent remains available for non-browser specialists when Chrome debug is disabled', async () => {
+  const previous = process.env['OCTOCODE_CHROME_DEBUG'];
+  process.env['OCTOCODE_CHROME_DEBUG'] = '0';
+  try {
+    const { tools } = await captureExtensions();
+    assert.equal(tools.has('chromeDebug'), false);
+    assert.equal(tools.has('browserAgent'), false);
+    assert.equal(tools.has('spawnSubagent'), true, 'non-browser typed subagents should not be Chrome-gated');
+    assert.equal(tools.has('spawnAgent'), true, 'clean arbitrary workers still use spawnAgent');
+    const spawnSubagent = tools.get('spawnSubagent')!;
+    const schema = spawnSubagent.parameters as { properties?: { agent?: { enum?: string[] } } };
+    assert.deepEqual(schema.properties?.agent?.enum, ['researcher', 'planner', 'architect']);
+    assert.match(spawnSubagent.description!, /researcher/);
+    assert.match(spawnSubagent.description!, /architect/);
+    assert.doesNotMatch(spawnSubagent.description!, /browser-agent/);
+    assert.match(spawnSubagent.promptGuidelines!.join('\n'), /clean arbitrary workers/);
+    assert.match(spawnSubagent.promptGuidelines!.join('\n'), /browser-agent is unavailable/);
+    await assert.rejects(
+      () => invokeExecute(spawnSubagent, { agent: 'browser-agent', task: 'try browser work' }),
+      /browser-agent is unavailable because OCTOCODE_CHROME_DEBUG=0 disables chromeDebug/,
+    );
+  } finally {
+    if (previous === undefined) delete process.env['OCTOCODE_CHROME_DEBUG'];
+    else process.env['OCTOCODE_CHROME_DEBUG'] = previous;
   }
 });
 

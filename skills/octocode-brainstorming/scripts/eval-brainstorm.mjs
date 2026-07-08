@@ -264,6 +264,9 @@ Issue-to-plan CLI has thin prior art; worth a bounded prototype. Research limits
 ## Surface Plan
 Local active; GitHub/packages active; Web active.
 
+## Direction Check
+User chose the issue-to-plan workflow; no broader automation path was researched.
+
 ## Framings Considered
 Researched: issue-to-plan CLI.
 

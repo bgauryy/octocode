@@ -17,7 +17,7 @@ Stop when one inspected recommendation fits, two High-quality candidates establi
 
 ## Tooling
 
-Use Octocode for skill research: MCP tools if available, else the CLI. Read `references/octocode.md` when choosing transport or schema-exact calls. For public queries, run web search in parallel, then confirm each lead against the real `SKILL.md`.
+For Octocode-backed skill research, load `references/octocode.md` and delegate search mechanics to `octocode-research` when installed. Keep this skill focused on evaluating, linting, improving, and installing the skill folders found.
 
 ## Reference Map
 
