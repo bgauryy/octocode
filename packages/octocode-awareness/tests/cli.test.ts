@@ -14,6 +14,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/bin/awareness.js');
+const INDEX_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/index.js');
 const SKILL_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/awareness.mjs');
 const NODE = process.execPath;
 
@@ -57,6 +58,31 @@ function fail(dbPath: string, args: string[], expectedStatus = 1): Record<string
 function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
+
+describe('package main direct execution', () => {
+  it('delegates to the CLI when dist/index.js is executed directly', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const result = spawnSync(NODE, [
+        INDEX_SCRIPT,
+        '--db', db,
+        'workspace', 'status',
+        '--workspace', dir,
+        '--compact',
+      ], {
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      expect(result.status, `stderr=${result.stderr} stdout=${result.stdout}`).toBe(0);
+      const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
+      expect(parsed['ok']).toBe(true);
+      expect(parsed['workspace_path']).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 // ─── maintenance init ─────────────────────────────────────────────────────────
 

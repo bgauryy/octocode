@@ -13,7 +13,8 @@ hooks:
 Use this as the single operational awareness skill. It owns memory, file locks, verification, signals, reflection, hooks, and workspace `.octocode/` repo context projections; it does not replace code search, tests, or project instructions.
 Canonical store: global `~/.octocode/memory/awareness.sqlite3`, scoped by workspace, artifact/package/service, repo, and ref.
 Do not confuse it with `<repo>/.octocode/`; `repo inject` generates that workspace projection.
-In-repo first command: `npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact`.
+CLI preference: use the bundled/local CLI when present (`node scripts/awareness.mjs` inside an installed skill, or `node packages/octocode-awareness/dist/bin/awareness.js` in this repo). Use `npx @octocodeai/octocode-awareness` only when no local CLI exists.
+In-repo first command: `<local-awareness-cli> workspace status --workspace "$PWD" --compact`.
 Run `schema commands --compact` once for discovery; use `<command> --help` or `schema json-schema <name> --compact` for contracts. Pi exposes equivalent methods.
 ## CLI Workflow
 - Start: `workspace status`, `memory recall`, `refinement get`, `signal list`.
@@ -41,9 +42,9 @@ If older prompts name `octocode-agent-communication` or `octocode-reflection`, l
 - `references/octocode.md` — when code research is needed; delegates Octocode research rules to `octocode-research`.
 
 ## Installation
-- `npx @octocodeai/octocode-awareness` — public package CLI; run `schema commands --compact` for the agent map, `<command> --help` for flags, `schema` for contracts, `hook run` for hook events, and `hooks install|check|remove` for Claude/Codex/Cursor hook config.
+- `<local-awareness-cli>` — prefer `node scripts/awareness.mjs` from this bundled skill, or `node packages/octocode-awareness/dist/bin/awareness.js` in this repo; fall back to `npx @octocodeai/octocode-awareness` only when no local CLI exists.
 - `npx octocode skill --add --path "{{path_to_skills_location}}/octocode-awareness" --platform common` — install this bundled skill from the agent-known local skill folder. Replace `{{path_to_skills_location}}` before running; if it already points at the `octocode-awareness` folder, pass it directly.
 - `node scripts/awareness.mjs` — bundled standalone fallback with the same command surface.
 - `node scripts/schema.mjs`, `node scripts/install.mjs --check-only`, `node scripts/smoke-multi-agent.mjs` — inspect payload contracts, safely check dependencies, and smoke-test locks/signals/verification. Running `install.mjs` without `--check-only` may install optional local script dependencies.
 - `scripts/install-hooks.mjs`, `scripts/hook-runner.mjs`, `scripts/extract-hook-files.mjs` — hook install wrapper, lifecycle dispatcher, and write-path extractor.
-Preview hook writes with `npx @octocodeai/octocode-awareness hooks install --host cursor --dry-run --project-dir <repo> --compact`, `--host codex`, or `--host claude`.
+Preview hook writes with `<local-awareness-cli> hooks install --host cursor --dry-run --project-dir <repo> --compact`, `--host codex`, or `--host claude`.

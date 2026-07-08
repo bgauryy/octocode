@@ -17,7 +17,7 @@ The canonical store is `~/.octocode/memory/awareness.sqlite3` under the global O
 Surfaces:
 
 - `SKILL.md` gives agents the operating loop and routes them to focused references.
-- `octocode-awareness` is the public package CLI; `node scripts/awareness.mjs` is the standalone skill fallback.
+- Prefer the bundled/local CLI: `node scripts/awareness.mjs` inside an installed skill, or `node packages/octocode-awareness/dist/bin/awareness.js` in this repo. Use `npx @octocodeai/octocode-awareness` only when no local CLI exists.
 - Hooks and the Pi bridge automate the same CLI/runtime operations around lifecycle events.
 - `query <view>` reads live DB views; `repo inject` refreshes generated workspace `.octocode/` projections.
 
@@ -40,8 +40,8 @@ Use one `agent_id` across manual commands and hooks. Set `OCTOCODE_AGENT_ID` whe
 In a repo, start with live state. Use schema discovery once when the command map is unfamiliar:
 
 ```bash
-npx @octocodeai/octocode-awareness workspace status --workspace "$PWD" --compact
-npx @octocodeai/octocode-awareness schema commands --compact
+<local-awareness-cli> workspace status --workspace "$PWD" --compact
+<local-awareness-cli> schema commands --compact
 npx octocode skill --add --path "{{path_to_skills_location}}/octocode-awareness" --platform common
 ```
 

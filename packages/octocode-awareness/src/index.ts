@@ -5,6 +5,10 @@
  *   import { getMemory, insertMemory, reflect } from '@octocodeai/octocode-awareness';
  */
 
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 // DB layer
 export { connectDb, connectCachedDb, initDb, memoryHome, resolveDbPath, hasFts, tableColumns, replaceMemoryReferences, referenceKind, evictExpiredLocks } from './db.js';
 
@@ -133,3 +137,17 @@ export type {
   DocStalenessTarget, DocStalenessParams, DocStalenessEntry, DocStalenessResult,
   ProposeDocRefreshParams,
 } from './types.js';
+
+function runCliWhenExecutedDirectly(): void {
+  const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;
+  const modulePath = fileURLToPath(import.meta.url);
+  if (invokedPath !== modulePath) return;
+
+  const cliPath = resolve(dirname(modulePath), 'bin/awareness.js');
+  const result = spawnSync(process.execPath, [cliPath, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+  });
+  process.exit(result.status ?? 1);
+}
+
+runCliWhenExecutedDirectly();
