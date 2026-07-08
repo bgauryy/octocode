@@ -26,7 +26,7 @@ First command: `<cli> attend --workspace "$PWD" --query "<current task>" --compa
 - Code/GitHub/package search uses `npx octocode search ... --no-color` (or Octocode MCP) — not a vendored binary in this skill.
 - Prefer operational commands over organ metaphors. Read `references/homeostatic-loop.md` only when explaining attend/workboard/digest or memory/wiki bloat.
 - Read `references/self-reflection-dialogue.md` when a hard idea needs role dialogue or multi-agent self-review.
-- Before relying on hooks, read `references/hooks.md` (Claude frontmatter vs Codex/Cursor/Pi host wiring). Hooks: `pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end`.
+- Before relying on hooks, read `references/hooks.md`; Claude may run frontmatter hooks, while Codex/Cursor/Pi need host wiring. Hooks: `pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end`.
 
 ## References
 - `references/agent-cheatsheet.md` — when you need copy-runnable attend → claim → verify → reflect recipes (includes agent/docs commands).
