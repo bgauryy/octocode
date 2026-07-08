@@ -1,6 +1,6 @@
 # Repo Context Management
 
-Use this when a task involves `.octocode/` generated repo context, repo-level AGENTS guidance, memory indexes, CSV exports, or a human-readable awareness view.
+Use this when a task involves `.octocode/` generated repo context, repo-level AGENTS guidance, memory indexes, CSV exports, a human-readable awareness view, or the awareness "auto wiki" workflow.
 
 ## Model
 
@@ -16,6 +16,13 @@ The SQLite awareness DB is canonical. Files under `.octocode/` are generated pro
 - `.octocode/references/` - compact generated reference notes to avoid context bloat.
 
 Do not hand-edit generated projections when a DB update or regeneration is the right fix.
+
+The repo context projection is wiki-like by design:
+
+- `query <view>` is the live read API for agents and scripts.
+- `repo inject` is the publication step that turns selected DB state into repo-local Markdown, CSV, HTML, manifest, and reference files.
+- `reflect record`, `memory record`, signals, locks, verification, and refinements all feed the same DB, so the generated docs can summarize work without storing raw chat logs.
+- Generated files are leads, not proof. Agents must validate them against current files, tests, and command output.
 
 ## Commands
 
@@ -55,3 +62,4 @@ In this monorepo, keep `.octocode/` ignored unless the user explicitly changes t
 - Treat generated memories as leads. Verify current files and command output before relying on them.
 - Record durable new facts with `memory record` or `reflect record`, then regenerate projections if the repo context should reflect them.
 - Prefer `query <view>` for agent automation and ad hoc exports; use `query all --format html --out ...` for humans; prefer `repo inject` only when the repo projection should be created or refreshed.
+- Keep self-improvement separate from publication: `reflect mine-weakness` and `reflect export-harness` can propose harness guidance, but a human-reviewed edit changes skills or repo docs.

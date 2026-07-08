@@ -4,6 +4,22 @@ The harness closes a self-improvement feedback loop: every session produces stru
 
 ---
 
+## System Surfaces
+
+The awareness harness has five coordinated surfaces:
+
+| Surface | Role |
+|---------|------|
+| Agent skill | Tells agents when to attend, claim, verify, reflect, and hand off. |
+| CLI | Canonical command surface for agents, users, hooks, scripts, and host integrations. |
+| Hooks / Pi bridge | Automates file claims, verification gates, smart briefings, and session capture where the host supports lifecycle events. |
+| SQLite store | Canonical source for memories, tasks, locks, verification, signals, refinements, edit audit, and harness events. |
+| `.octocode/` projections | Optional generated repo context: agent briefing, memory/gotcha/learning docs, CSV, HTML, manifest, and compact references. |
+
+The generated `.octocode/` files are the auto wiki layer. They make the store easy to inspect and share, but the DB remains canonical and live code still wins over remembered context.
+
+---
+
 ## Agent Loop (Mental Model)
 
 ```

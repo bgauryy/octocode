@@ -30,6 +30,7 @@ First command: `npx @octocodeai/octocode-awareness schema commands --compact` (o
 If older prompts name `octocode-agent-communication` or `octocode-reflection`, load this skill for the actual workflow. Read `references/hooks.md` before installing hooks because Codex and Cursor require host config or plugin hooks, not `SKILL.md` frontmatter alone.
 
 ## References
+- `references/full-flow.md` — when a task asks for the full CLI/skill/hooks/repo-context/self-reflection flow or technical onboarding.
 - `references/memory-recall.md` — before planning, recall durable lessons and validate them against current files.
 - `references/coordination-protocol.md` — before locking, waiting, releasing, signaling, or managing refinements.
 - `references/files-awareness.md` — before planning/editing in dirty or concurrently edited workspaces.

@@ -29,6 +29,24 @@ Default store: `~/.octocode/memory/awareness.sqlite3`.
 
 Scope is always explicit where it matters: `workspace_path`, optional `artifact`, `repo`, `ref`, file paths, and agent id.
 
+## Full Awareness Flow
+
+Awareness is one feedback loop over one local store. The skill tells agents when to call it, hooks automate critical lifecycle edges, the CLI is the stable control plane, and generated `.octocode/` files make selected DB state readable as repo context.
+
+```text
+ATTEND -> CLAIM -> WORK -> VERIFY -> REFLECT -> PROJECT -> HAND OFF
+```
+
+1. **Attend**: `workspace status`, `memory recall`, `refinement get`, and `signal list` surface active locks, prior lessons, handoffs, and messages before an agent plans.
+2. **Claim**: `lock acquire` creates a task and file locks before writes. `lock wait` and signals handle conflicts instead of racing another agent.
+3. **Work**: agents edit under the claim. Hooks can run `pre-edit` and `post-edit` automatically; manual CLI calls use the same store and semantics.
+4. **Verify**: `verify mark` records the check that actually ran. `verify audit` and stop hooks keep pending verification visible.
+5. **Reflect**: `reflect record` writes reusable lessons, failure signatures, optional repo-fix refinements, and harness log events. `reflect mine-weakness` clusters repeated failure signatures. `reflect export-harness` previews guidance candidates; a human still decides what to merge.
+6. **Project**: `query <view>` reads normalized JSON/table/CSV/Markdown/HTML views. `repo inject` refreshes the optional `.octocode/` "auto wiki" projections: generated AGENTS, memory, gotcha, learning, CSV, HTML, manifest, and reference files.
+7. **Hand off**: `signal publish|reply|ack|resolve`, `refinement set|get`, and `session capture` preserve active work for the next agent or session.
+
+The generated repo context is deliberately a projection, not the source of truth. The SQLite DB remains canonical; `.octocode/` files are regenerated from it and should be treated as inspectable leads that still need live code verification.
+
 ## Primary Surfaces
 
 ### Library
@@ -156,3 +174,4 @@ Keep new awareness behavior here. Keep host-specific packaging in the host packa
 - [`docs/SKILLS.md`](docs/SKILLS.md): skill routing, CLI groups, lifecycle diagrams.
 - [`docs/HARNESS.md`](docs/HARNESS.md): DB entities, hook lifecycle, staleness and harness flow.
 - [`skills/octocode-awareness/SKILL.md`](skills/octocode-awareness/SKILL.md): agent-facing operating loop.
+- [`skills/octocode-awareness/references/full-flow.md`](skills/octocode-awareness/references/full-flow.md): technical reference for CLI, skill, hooks, locks, auto wiki projections, reflection, and handoffs.

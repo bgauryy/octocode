@@ -6,6 +6,8 @@ This package ships one Agent Skill backed by one runtime and one SQLite store:
 
 Awareness keeps work safe while it is happening, moves live messages between agents, and decides what should persist after the work is done. Older prompt text may still name `octocode-agent-communication` or `octocode-reflection`; route those requests to `octocode-awareness`.
 
+For technical onboarding, read [`skills/octocode-awareness/references/full-flow.md`](../skills/octocode-awareness/references/full-flow.md). It connects the CLI, skill instructions, hooks, locks, verification, generated `.octocode/` repo context, reflection, and handoff model in one flow.
+
 ## Skill Map
 
 | Skill | Path | Primary job | Load it when |
@@ -47,6 +49,18 @@ Use `octocode-awareness` as the primary workflow. Old skill names route back to 
 2. If `workspace status`, `signal list`, or hook-injected briefing shows a message, handle it with the Awareness signal commands.
 3. If work is finished or a reusable lesson exists, record it with Awareness memory/reflection commands.
 4. Keep every command scoped to the same DB, workspace, artifact, repo, and ref.
+
+The combined flow is CLI-first:
+
+| Phase | Commands | Durable effect |
+|---|---|---|
+| Attend | `workspace status`, `memory recall`, `refinement get`, `signal list` | Reads current locks, memories, handoffs, and messages from SQLite |
+| Claim | `lock acquire`, `lock wait` | Creates an edit task and per-file locks |
+| Work | hooks or manual edits under the claim | Hooks can release locks as `PENDING` verification |
+| Verify | `verify mark`, `verify audit` | Records the check that ran and clears verification debt |
+| Reflect | `reflect record`, `reflect mine-weakness`, `reflect export-harness` | Stores lessons, clusters failure signatures, and previews human-reviewed harness guidance |
+| Project | `query <view>`, `repo inject` | Reads live DB views or refreshes `.octocode/` auto wiki projections |
+| Hand off | `signal publish|reply|ack|resolve`, `refinement set|get`, `session capture` | Preserves messages, decisions, and unfinished work for the next agent |
 
 ```mermaid
 flowchart TD
@@ -143,6 +157,8 @@ The public package exposes `octocode-awareness`; the primary skill also bundles 
 |---|---|---|---|
 | `query` | `query <view>` | Awareness | Read normalized DB views (`memories`, `gotchas`, `lessons`, `tasks`, `locks`, `agents`, `signals`, `refinements`, `files`, `activity`, `repo-profile`, `all`) as JSON/table/CSV/Markdown/HTML |
 | `repo_inject` | `repo inject` | Awareness | Generate `.octocode/AGENTS.md`, memory/gotcha/learning docs, CSV projections, references, manifest, and optional HTML without editing `.gitignore` |
+
+These projections are the awareness "auto wiki" surface. They are generated from the same SQLite store used by locks, signals, reflection, and verification; they are not a second source of truth and should be regenerated rather than hand-edited.
 
 ### Workspace And Locks
 

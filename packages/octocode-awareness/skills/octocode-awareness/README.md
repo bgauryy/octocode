@@ -20,6 +20,7 @@ Coding agents are usually stateless between runs. One agent may edit a file whil
 - Subagent receipts that preserve scope, sources, and decision impact without storing raw chat logs.
 - Reflection records for durable lessons, failure signatures, cleanup decisions, and staged harness improvements.
 - A local view of active memories, locks, tasks, refinements, and signals.
+- Optional `.octocode/` repo context projections that act like a generated auto wiki over the awareness store.
 
 ## Operating Model
 
@@ -35,6 +36,8 @@ An agent attends to the current state, focuses the intended work, claims files w
 
 Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
 
+The repo context model is similar to an LLM-facing wiki, but the SQLite store stays canonical. `query <view>` reads the live store; `repo inject` regenerates `.octocode/AGENTS.md`, memory/gotcha/learning docs, CSV exports, a compact HTML view, and generated references for humans and agents.
+
 ## How Users Use It
 
 After installation, ask your coding agent to use `octocode-awareness` before it edits a repo.
@@ -47,7 +50,7 @@ From there, the agent should make the awareness layer visible in plain language:
 - what verification is still owed,
 - what it saved for the next run.
 
-If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call `npx @octocodeai/octocode-awareness` or the bundled standalone scripts manually. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
+If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call `npx @octocodeai/octocode-awareness` or the bundled standalone scripts manually. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Start technical onboarding with `references/full-flow.md`. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
 
 ## Storage And Recall
 
