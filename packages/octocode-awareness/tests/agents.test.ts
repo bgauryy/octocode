@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { initDb } from '../src/db.js';
 import { listAgents, registerAgent, resolveAgentName, resolveAgentNames, touchAgent } from '../src/agents.js';
 
@@ -89,5 +92,48 @@ describe('agent identity registry', () => {
     expect(names.get('agent-a')).toBe('Agent A');
     expect(names.get('agent-b')).toBe('Agent B');
     expect(names.has('unknown')).toBe(false);
+  });
+
+  describe('workspace-scope symlink stability (regression)', () => {
+    // registerAgent/touchAgent/listAgents used to store/query workspace_path
+    // verbatim with no normalization, unlike memory/lock/signal which resolve
+    // through fillScope. A symlinked workspace path (e.g. macOS /tmp ->
+    // /private/tmp) could register under one form and list under another.
+    function tempDirWithLink(): { real: string; link: string; base: string } {
+      const base = mkdtempSync(join(tmpdir(), 'oc-agents-scope-'));
+      const real = join(base, 'real');
+      const link = join(base, 'link');
+      mkdirSync(real, { recursive: true });
+      symlinkSync(real, link);
+      return { real, link, base };
+    }
+
+    it('an agent registered via a symlinked workspace path is listed via the real path', () => {
+      const db = freshDb();
+      const { real, link, base } = tempDirWithLink();
+      try {
+        registerAgent(db, { agentId: 'agent-link', agentName: 'Linked', workspacePath: link });
+        const listed = listAgents(db, { workspacePath: real });
+        expect(listed.agents.map((a) => a.agent_id)).toContain('agent-link');
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+
+    it('touchAgent normalizes the same way registerAgent does — no divergent duplicate row', () => {
+      const db = freshDb();
+      const { real, link, base } = tempDirWithLink();
+      try {
+        registerAgent(db, { agentId: 'agent-touch', agentName: 'Touch', workspacePath: real });
+        touchAgent(db, 'agent-touch', link);
+        const listedByRealPath = listAgents(db, { workspacePath: real });
+        expect(listedByRealPath.agents.map((a) => a.agent_id)).toContain('agent-touch');
+        // Still exactly one identity row — registering via `real` and touching
+        // via `link` must key the same scope, not create two divergent rows.
+        expect(listAgents(db).agents.filter((a) => a.agent_id === 'agent-touch')).toHaveLength(1);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
   });
 });

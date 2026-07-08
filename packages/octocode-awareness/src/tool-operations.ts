@@ -484,7 +484,7 @@ export function runAwarenessToolOperation(
     }
 
     case 'forget': {
-      const rawIds = request['memory_ids'];
+      const rawIds = request['memory_id'] ?? request['memory_ids'];
       const memIds = Array.isArray(rawIds) ? rawIds as string[] : rawIds ? [String(rawIds)] : [];
       const rawTags = request['tags'];
       const forgTags = Array.isArray(rawTags) ? rawTags as string[] : rawTags ? [String(rawTags)] : [];
@@ -493,6 +493,10 @@ export function runAwarenessToolOperation(
         tags: forgTags,
         before: request['before'] as string | undefined,
         maxImportance: request['max_importance'] as number | undefined,
+        workspacePath: request['workspace_path'] as string | undefined,
+        artifact: request['artifact'] as string | undefined,
+        repo: request['repo'] as string | undefined,
+        ref: request['ref'] as string | undefined,
         dryRun: Boolean(request['dry_run']),
       });
       return { payload: result, exitCode: 0 };

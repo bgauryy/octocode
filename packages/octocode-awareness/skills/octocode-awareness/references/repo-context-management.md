@@ -31,6 +31,8 @@ The repo context projection is wiki-like by design:
 - `reflect record`, `memory record`, signals, locks, verification, and refinements all feed the same DB, so the generated docs can summarize work without storing raw chat logs.
 - Generated files are leads, not proof. Agents must validate them against current files, tests, and command output.
 
+Use the projection as a smart wiki, not as a write target. Query live data before/during work; regenerate `.octocode/` after recording important gotchas, decisions, handoffs, or lessons that future agents should see without querying SQLite.
+
 ## Commands
 
 Prefer live DB reads when freshness matters:
@@ -57,6 +59,18 @@ octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local -
 
 Here `--out .octocode` means `<workspace>/.octocode/` when the command runs from the repo root.
 
+## Smart Wiki Updates
+
+Refresh the wiki when one of these changes would help the next agent:
+
+- a high-importance memory, gotcha, decision, or architecture note was recorded,
+- a handoff/refinement should be visible from files rather than only the DB,
+- a repeated failure was reflected and should become repo guidance,
+- humans asked for an inspectable snapshot, CSV, or HTML view,
+- stale generated context could mislead an agent.
+
+Do not refresh the projection for routine edits, transient locks, or every signal. `query <view>` is cheaper and fresher for active work; `repo inject` is the publication step.
+
 ## Share Policy
 
 `repo inject` never edits `.gitignore`.
@@ -74,3 +88,4 @@ In this monorepo, keep workspace `.octocode/` ignored unless the user explicitly
 - Record durable new facts with `memory record` or `reflect record`, then regenerate projections if the repo context should reflect them.
 - Prefer `query <view>` for agent automation and ad hoc exports; use `query all --format html --out ...` for humans; prefer `repo inject` only when the repo projection should be created or refreshed.
 - Keep self-improvement separate from publication: `reflect mine-weakness` and `reflect export-harness` can propose harness guidance, but a human-reviewed edit changes skills or repo docs.
+- If the projection reveals a repeated workflow gap, use `octocode-skills` or `npx octocode skill ...` to update/install/create the relevant skill after user approval.

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db.js';
 import { insertMemory, getMemory, forgetMemory } from '../src/memory.js';
+import { runAwarenessToolOperation } from '../src/tool-operations.js';
 
 /**
  * 2026-07-07 upgrade set from the agentic-memory research pass:
@@ -110,5 +111,74 @@ describe('salience floor on broad forget selectors', () => {
     const byId = forgetMemory(db, { memoryIds: [critical] });
     expect(byId.deleted).toBe(1);
     expect(byId.salience_floor).toBeUndefined();
+  });
+
+  it('scopes broad forget selectors to the requested workspace', () => {
+    const db = freshDb();
+    const inScope = insertMemory(db, {
+      taskContext: 'repo a',
+      observation: 'deprecated repo a note',
+      importance: 3,
+      tags: ['deprecated'],
+      workspacePath: '/workspace/a',
+    }).memoryId;
+    const outOfScope = insertMemory(db, {
+      taskContext: 'repo b',
+      observation: 'deprecated repo b note',
+      importance: 3,
+      tags: ['deprecated'],
+      workspacePath: '/workspace/b',
+    }).memoryId;
+    const global = insertMemory(db, {
+      taskContext: 'global',
+      observation: 'deprecated global note',
+      importance: 3,
+      tags: ['deprecated'],
+    }).memoryId;
+
+    const dry = forgetMemory(db, { tags: ['deprecated'], workspacePath: '/workspace/a', dryRun: true });
+    expect(dry.memory_ids).toEqual([inScope]);
+
+    const deleted = forgetMemory(db, { tags: ['deprecated'], workspacePath: '/workspace/a' });
+    expect(deleted.deleted).toBe(1);
+    expect(db.prepare('SELECT 1 FROM memories WHERE memory_id = ?').get(inScope)).toBeUndefined();
+    expect(db.prepare('SELECT 1 FROM memories WHERE memory_id = ?').get(outOfScope)).toBeTruthy();
+    expect(db.prepare('SELECT 1 FROM memories WHERE memory_id = ?').get(global)).toBeTruthy();
+  });
+
+  it('honors forget scope filters through the tool-operation dispatcher', () => {
+    const db = freshDb();
+    const inScope = insertMemory(db, {
+      taskContext: 'tool op a',
+      observation: 'deprecated dispatcher memory a',
+      importance: 3,
+      tags: ['deprecated'],
+      workspacePath: '/workspace/a',
+    }).memoryId;
+    const outOfScope = insertMemory(db, {
+      taskContext: 'tool op b',
+      observation: 'deprecated dispatcher memory b',
+      importance: 3,
+      tags: ['deprecated'],
+      workspacePath: '/workspace/b',
+    }).memoryId;
+
+    const result = runAwarenessToolOperation(db, 'forget', {
+      tags: ['deprecated'],
+      workspace_path: '/workspace/a',
+      dry_run: true,
+    });
+    const payload = result.payload as { would_delete: number; memory_ids: string[] };
+    expect(result.exitCode).toBe(0);
+    expect(payload.would_delete).toBe(1);
+    expect(payload.memory_ids).toEqual([inScope]);
+
+    const bySchemaId = runAwarenessToolOperation(db, 'forget', {
+      memory_id: [inScope],
+      workspace_path: '/workspace/a',
+      dry_run: true,
+    });
+    expect((bySchemaId.payload as { memory_ids: string[] }).memory_ids).toEqual([inScope]);
+    expect(db.prepare('SELECT 1 FROM memories WHERE memory_id = ?').get(outOfScope)).toBeTruthy();
   });
 });

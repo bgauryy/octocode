@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { hasFts, rebuildFts, evictExpiredLocks } from './db.js';
-import { fillScope } from './git.js';
+import { fillScope, normalizeWorkspacePath } from './git.js';
 import { normalizeArtifact, parseJsonList, utcNow } from './helpers.js';
 import { getNotifications } from './notifications.js';
 
@@ -82,16 +82,17 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const agentId = typeof params.agent_id === 'string' ? params.agent_id :
     typeof params.agentId === 'string' ? params.agentId : null;
-  const workspacePath = typeof params.workspace === 'string' ? params.workspace :
+  const rawWorkspacePath = typeof params.workspace === 'string' ? params.workspace :
     typeof params.workspace_path === 'string' ? params.workspace_path :
       typeof params.workspacePath === 'string' ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : [])
     .map(String)
     .filter(Boolean)
     .map((file) => {
-      const base = workspacePath ? resolve(workspacePath) : process.cwd();
+      const base = rawWorkspacePath ? resolve(rawWorkspacePath) : process.cwd();
       return isAbsolute(file) ? resolve(file) : resolve(base, file);
     });
   const now = utcNow();
@@ -116,7 +117,7 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
     binds.push(...targetFiles);
   }
   const scopedByTask = Boolean(workspacePath || artifact);
-  if (workspacePath) { conditions.push('t.workspace_path = ?'); binds.push(resolve(workspacePath)); }
+  if (workspacePath) { conditions.push('t.workspace_path = ?'); binds.push(workspacePath); }
   if (artifact) { conditions.push('(t.artifact = ? OR t.artifact IS NULL)'); binds.push(artifact); }
   const where = conditions.join(' AND ');
 
@@ -536,9 +537,10 @@ export function waitForLock(
   const targetFiles = Array.isArray(params.target_files) ? params.target_files as string[] :
     Array.isArray(params.targetFiles) ? params.targetFiles as string[] : [];
   const agentId = (params.agent_id ?? params.agentId) as string | undefined ?? 'agent';
-  const workspacePath = typeof params.workspace === 'string' ? params.workspace :
+  const rawWorkspacePath = typeof params.workspace === 'string' ? params.workspace :
     typeof params.workspace_path === 'string' ? params.workspace_path :
       typeof params.workspacePath === 'string' ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact = normalizeArtifact(params.artifact);
   const waitMs = Number(params.wait_ms ?? params.waitMs ?? 60000);
   const retryMs = Number(params.retry_interval_ms ?? params.retryIntervalMs ?? 5000);
@@ -551,7 +553,7 @@ export function waitForLock(
   if (targetFiles.length === 0) {
     return { ok: true, waited_ms: 0, lock_free: true };
   }
-  const root = workspacePath ? resolve(workspacePath) : process.cwd();
+  const root = rawWorkspacePath ? resolve(rawWorkspacePath) : process.cwd();
   const absTargetFiles = targetFiles.map((file) => isAbsolute(file) ? resolve(file) : resolve(root, file));
 
   // FIX #11 (P2): Hoist db.prepare() outside the closure so the statement is compiled
@@ -562,7 +564,7 @@ export function waitForLock(
   const lockTypeFilter = requestedLockType === 'EXCLUSIVE' ? '' : "AND fl.lock_type = 'EXCLUSIVE'";
   const scopeClauses: string[] = [];
   const scopeBinds: string[] = [];
-  if (workspacePath) { scopeClauses.push('AND ai.workspace_path = ?'); scopeBinds.push(root); }
+  if (workspacePath) { scopeClauses.push('AND ai.workspace_path = ?'); scopeBinds.push(workspacePath); }
   if (artifact) { scopeClauses.push('AND (ai.artifact = ? OR ai.artifact IS NULL)'); scopeBinds.push(artifact); }
   const lockStmt = db.prepare(
     `SELECT fl.file_path, ai.agent_id, fl.expires_at
@@ -761,7 +763,8 @@ export function getWorkspaceStatus(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
 ): WorkspaceStatusResult {
-  const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const rawWsPath = (params.workspace_path as string | undefined) ?? null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact = normalizeArtifact(params.artifact);
 
   // ARCH-3: Delegate lock eviction to the shared evictExpiredLocks function
@@ -833,7 +836,8 @@ export function exportMemoryDoc(
   db: DatabaseSync,
   params: Record<string, unknown> = {},
 ): string {
-  const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const rawWsPath = (params.workspace_path as string | undefined) ?? null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact = normalizeArtifact(params.artifact);
   const now = new Date().toISOString().slice(0, 10);
 
@@ -929,7 +933,8 @@ export function exportHarness(
 ): { count: number; markdown: string; harness_count: number; memories: Array<{ memory_id: string; label: string; importance: number; observation: string; tier: 'harness' | 'general' }> } {
   const limit = Number(params.limit ?? 10);
   const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
-  const wsPath = (params.workspace_path as string | undefined) ?? null;
+  const rawWsPath = (params.workspace_path as string | undefined) ?? null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact = normalizeArtifact(params.artifact);
   const harnessOnly = Boolean(params.harness_only ?? params.harnessOnly ?? false);
 

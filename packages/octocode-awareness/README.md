@@ -6,12 +6,14 @@ If Cursor, Claude Code, Codex, Pi, and custom agents are all working on the same
 
 In practice, agents use it to:
 
+- understand repo status, other agents, memories, gotchas, handoffs, and wiki context before planning,
 - lock files before editing so concurrent work is visible,
-- recall durable lessons and repo gotchas before planning,
-- send typed messages and handoffs to other agents,
+- communicate blockers, questions, decisions, requests, and handoffs while work is active,
 - keep verification obligations explicit,
 - reflect on outcomes so future sessions improve,
-- generate workspace `.octocode/` repo context that humans and LLMs can inspect.
+- generate workspace `.octocode/` repo context that humans and LLMs can inspect,
+- housekeep stale locks, old messages, redundant memories, and docs drift,
+- improve skills or workflows when repeated patterns deserve automation.
 
 The package is intentionally local-first: no server, no network, no daemon, and zero npm runtime dependencies for the library. SQLite is the broker. The CLI is the control plane. Hooks automate the easy-to-forget edges.
 
@@ -38,7 +40,7 @@ Modern agent workflows are multi-session and increasingly multi-agent. The failu
 - a handoff lives only in chat history,
 - self-improvement advice gets mixed with unreviewed automatic patching.
 
-Awareness makes those concerns explicit data. It does not try to be the agent. It gives agents a small shared operating loop: attend, claim, work, verify, reflect, project, and hand off.
+Awareness makes those concerns explicit data. It does not try to be the agent. It gives agents a small shared operating loop: attend, claim, work, communicate, verify, reflect, project, housekeep, improve, and hand off.
 
 ## Design Thinking
 
@@ -84,6 +86,8 @@ How the pieces fit:
 | Hooks | Optional lifecycle automation for Codex, Claude Code, and Cursor: pre-edit locks, post-edit pending verification, stop-time verify gate, smart briefing, and session capture. |
 | Pi bridge | In-process lifecycle integration through `wirePiAwarenessHooks(pi)`, no shell hooks needed. |
 
+Use `npx octocode` for the broader Octocode skill workflow: installing bundled skills, managing skill sources, and helping agents improve or create skills when repeated awareness lessons show a workflow gap. The user-facing Octocode guide starts at `https://octocode.ai`.
+
 ### Manual Smoke Setup
 
 ```bash
@@ -99,6 +103,10 @@ npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness -
 
 # Preview hooks before writing host config
 npx @octocodeai/octocode-awareness hooks install --host codex --project-dir . --dry-run --compact
+
+# Install after approval, then check for drift
+npx @octocodeai/octocode-awareness hooks install --host codex --project-dir . --compact
+npx @octocodeai/octocode-awareness hooks check --host codex --project-dir . --strict --compact
 ```
 
 For the feature-by-feature docs map, start at [`docs/README.md`](docs/README.md). For the product/user guide, start at [`docs/SKILLS.md`](docs/SKILLS.md).
@@ -138,16 +146,18 @@ Scope is always explicit where it matters: `workspace_path`, optional `artifact`
 Awareness is one feedback loop over one local store in the global Octocode home. The skill tells agents when to call it, hooks automate critical lifecycle edges, the CLI is the stable control plane, and generated workspace `.octocode/` files make selected DB state readable as repo context.
 
 ```text
-ATTEND -> CLAIM -> WORK -> VERIFY -> REFLECT -> PROJECT -> HAND OFF
+ATTEND -> CLAIM -> WORK -> COMMUNICATE -> VERIFY -> REFLECT -> PROJECT -> HOUSEKEEP -> IMPROVE -> HAND OFF
 ```
 
-1. **Attend**: `workspace status` is the operational first command in a repo. Then `memory recall`, `refinement get`, and `signal list` surface prior lessons, handoffs, and messages before an agent plans.
+1. **Attend**: `workspace status` is the operational first command in a repo. Then `memory recall`, `refinement get`, `signal list`, and generated `.octocode/AGENTS.md` context surface prior lessons, gotchas, handoffs, messages, and other-agent state before an agent plans.
 2. **Claim**: `lock acquire` creates a task and file locks before writes. `lock wait` and signals handle conflicts instead of racing another agent.
-3. **Work**: agents edit under the claim. Hooks can run `pre-edit` and `post-edit` automatically; manual CLI calls use the same store and semantics.
+3. **Work and communicate**: agents edit under the claim, use signals for blockers/questions/decisions/handoffs, and record durable facts as memories when they are reusable.
 4. **Verify**: `verify mark` records the check that actually ran. `verify audit` and stop hooks keep pending verification visible.
 5. **Reflect**: `reflect record` writes reusable lessons, failure signatures, optional repo-fix refinements, and harness log events. `reflect mine-weakness` clusters repeated failure signatures. `reflect export-harness` previews guidance candidates; a human still decides what to merge.
-6. **Project**: `query <view>` reads normalized JSON/table/CSV/Markdown/HTML views. `repo inject` refreshes the optional workspace `.octocode/` LLM Wiki projections: generated AGENTS, memory, gotcha, learning, CSV, HTML, manifest, and reference files.
-7. **Hand off**: `signal publish|reply|ack|resolve`, `refinement set|get`, and `session capture` preserve active work for the next agent or session.
+6. **Project**: `query <view>` reads normalized JSON/table/CSV/Markdown/HTML views. `repo inject` refreshes the optional workspace `.octocode/` LLM Wiki projections when the update helps future agents or humans.
+7. **Housekeep**: `maintenance digest`, `lock prune`, `memory forget`, `signal prune`, and `docs staleness` preview or clean stale shared state.
+8. **Improve**: repeated patterns should become better skills or workflows through `octocode-skills` or `npx octocode`, with human-reviewed edits.
+9. **Hand off**: `signal publish|reply|ack|resolve`, `refinement set|get`, and `session capture` preserve active work for the next agent or session.
 
 The generated LLM Wiki is deliberately a projection, not the source of truth. The SQLite DB in the global Octocode home remains canonical; workspace `.octocode/` files are regenerated from it and should be treated as inspectable leads that still need live code verification.
 
@@ -218,7 +228,7 @@ Main command groups:
 - `reflect record|mine-weakness|export-harness`
 - `query <view>`, `repo inject`
 - `hooks install|check|remove`
-- `hook run <event>`
+- `hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>`
 - `schema commands|list|json-schema|example|validate`
 - `workspace status`, `session capture`, `docs staleness`, `maintenance digest|init|self-test`
 
@@ -230,6 +240,8 @@ The LLM Wiki is a generated projection of selected awareness data into the works
 - `repo inject` writes `<repo>/.octocode/AGENTS.md`, `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, CSV files under `awareness/csv/`, compact references under `references/`, `awareness/index.html`, and `awareness/manifest.json`.
 
 SQLite in the global Octocode home is always canonical. Regenerate workspace projections instead of hand-editing them. `repo inject` reports gitignore/share-policy warnings but never edits `.gitignore`; each repo owner decides whether `<repo>/.octocode` stays local or becomes shared.
+
+Use live `query` commands during active work. Treat `repo inject` as the smart wiki publication step after important gotchas, decisions, memories, refinements, or handoffs are recorded.
 
 ### Skills
 

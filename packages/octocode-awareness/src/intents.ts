@@ -7,6 +7,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { evictExpiredLocks } from './db.js';
+import { normalizeWorkspacePath } from './git.js';
 import type {
   PreFlightTaskParams, PreFlightTaskResult,
   ReleaseFileLockParams, ReleaseFileLockResult,
@@ -26,12 +27,17 @@ function expiresAtFromNow(ttlMs: number | null | undefined): string {
   return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-function workspaceRoot(workspacePath?: string | null): string {
+function workspaceScopeRoot(workspacePath?: string | null): string {
+  const candidate = workspacePath ?? process.cwd();
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve(candidate);
+}
+
+function workspaceFileBase(workspacePath?: string | null): string {
   return workspacePath ? resolve(workspacePath) : process.cwd();
 }
 
 function resolveTargetFiles(targetFiles: string[] = [], workspacePath?: string | null): string[] {
-  const root = workspaceRoot(workspacePath);
+  const root = workspaceFileBase(workspacePath);
   return targetFiles.map((file) => isAbsolute(file) ? resolve(file) : resolve(root, file));
 }
 
@@ -49,7 +55,7 @@ function activeLockRows(
   const binds: (string | number)[] = [now];
   if (params.workspacePath) {
     clauses.push('ai.workspace_path = ?');
-    binds.push(workspaceRoot(params.workspacePath));
+    binds.push(workspaceScopeRoot(params.workspacePath));
   }
   const artifact = normalizeArtifact(params.artifact);
   if (artifact) {
@@ -101,9 +107,9 @@ export function preFlightIntent(
   } = params;
   const taskId = 'task_' + randomUUID().replace(/-/g, '');
   const now = utcNow();
-  const wsPath = workspaceRoot(workspacePath);
+  const wsPath = workspaceScopeRoot(workspacePath);
   const artifactScope = normalizeArtifact(artifact);
-  const absFiles = resolveTargetFiles(targetFiles, wsPath);
+  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
 
   // ARCH-3: Drop expired locks before checking conflicts so dangling locks never block new work.
   evictExpiredLocks(db);
@@ -244,7 +250,7 @@ export function releaseFileLock(
   }
   if (workspacePath) {
     whereClauses.push('ai.workspace_path = ?');
-    whereParams.push(workspaceRoot(workspacePath));
+    whereParams.push(workspaceScopeRoot(workspacePath));
   }
   if (artifactScope) {
     whereClauses.push('(ai.artifact = ? OR ai.artifact IS NULL)');

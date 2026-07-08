@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
+import { realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { initDb } from '../src/db.js';
 import { insertMemory, getMemory } from '../src/memory.js';
 import { insertRefinement, updateRefinement, getRefinements } from '../src/refinements.js';
@@ -162,6 +164,6 @@ describe('fillScope — workspace-first git detection', () => {
     const scope = fillScope({ workspace_path: '/tmp/definitely-not-a-git-repo-xyz' }, process.cwd());
     expect(scope.repo).toBeNull();
     expect(scope.ref).toBeNull();
-    expect(scope.workspace_path).toBe('/tmp/definitely-not-a-git-repo-xyz');
+    expect(scope.workspace_path).toBe(join(realpathSync('/tmp'), 'definitely-not-a-git-repo-xyz'));
   });
 });

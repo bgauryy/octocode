@@ -8,7 +8,7 @@ process.on('warning', (w) => {
 // bin/awareness.ts
 import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync5, existsSync as existsSync2 } from "node:fs";
 import { spawnSync as spawnSync6 } from "node:child_process";
-import { dirname as dirname4, join as join5 } from "node:path";
+import { dirname as dirname4, join as join6 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
@@ -560,7 +560,8 @@ import { randomUUID } from "node:crypto";
 
 // src/git.ts
 import { spawnSync } from "node:child_process";
-import { basename } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, dirname as dirname2, join as join2, resolve as resolve3 } from "node:path";
 function runCmd(cmd, args2, cwd) {
   try {
     const r = spawnSync(cmd, args2, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
@@ -577,19 +578,41 @@ function detectGit(cwd) {
   const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
   return { is_repo: true, root, repo: repoName, branch, remote };
 }
+function canonicalizePath(input) {
+  let dir = resolve3(input);
+  const tail = [];
+  for (let guard = 0; guard < 4096; guard += 1) {
+    try {
+      return tail.length ? join2(realpathSync(dir), ...tail) : realpathSync(dir);
+    } catch {
+      const parent = dirname2(dir);
+      if (parent === dir) return resolve3(input);
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+  }
+  return resolve3(input);
+}
 function fillScope(partial, cwd) {
+  const explicitWorkspace = partial.workspace_path ? canonicalizePath(partial.workspace_path) : null;
   const scope = {
-    workspace_path: partial.workspace_path ?? null,
+    workspace_path: explicitWorkspace,
     artifact: partial.artifact ?? null,
     repo: partial.repo ?? null,
     ref: partial.ref ?? null
   };
   const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
   if (!git.is_repo) return scope;
-  if (git.root) scope.workspace_path = git.root;
+  if (git.root) scope.workspace_path = canonicalizePath(git.root);
   if (!scope.repo && git.repo) scope.repo = git.repo;
   if (!scope.ref && git.branch) scope.ref = git.branch;
   return scope;
+}
+function normalizeWorkspacePath(workspacePath, cwd) {
+  const candidate = workspacePath ? resolve3(workspacePath) : cwd ? resolve3(cwd) : null;
+  const scope = fillScope({ workspace_path: candidate }, candidate ?? process.cwd());
+  if (scope.workspace_path) return scope.workspace_path;
+  return candidate;
 }
 
 // src/memory.ts
@@ -1287,6 +1310,15 @@ function getMemory(db3, params = {}) {
 function forgetMemory(db3, params) {
   const { memoryIds = [], tags = [], before, dryRun = false } = params;
   let { maxImportance } = params;
+  const scope = fillScope(
+    {
+      workspace_path: params.workspacePath ?? null,
+      artifact: normalizeArtifact(params.artifact),
+      repo: params.repo ?? null,
+      ref: params.ref ?? null
+    },
+    params.cwd ?? params.workspacePath ?? process.cwd()
+  );
   const selectorGroups = [];
   const bindParams = [];
   let salienceFloorApplied = false;
@@ -1319,10 +1351,29 @@ function forgetMemory(db3, params) {
   if (selectorGroups.length === 0) {
     throw new Error("forgetMemory requires at least one filter: memoryIds, tags, before, or maxImportance");
   }
-  const where = selectorGroups.join(" OR ");
+  const scopeConds = [];
+  const scopeBinds = [];
+  if (params.workspacePath && scope.workspace_path) {
+    scopeConds.push("workspace_path = ?");
+    scopeBinds.push(scope.workspace_path);
+  }
+  if (params.artifact && scope.artifact) {
+    scopeConds.push("artifact = ?");
+    scopeBinds.push(scope.artifact);
+  }
+  if (params.repo && scope.repo) {
+    scopeConds.push("repo = ?");
+    scopeBinds.push(scope.repo);
+  }
+  if (params.ref && scope.ref) {
+    scopeConds.push("ref = ?");
+    scopeBinds.push(scope.ref);
+  }
+  const selectorWhere = selectorGroups.join(" OR ");
+  const where = scopeConds.length > 0 ? `(${selectorWhere}) AND ${scopeConds.join(" AND ")}` : selectorWhere;
   const rows = db3.prepare(
     `SELECT memory_id FROM memories WHERE ${where}`
-  ).all(...bindParams);
+  ).all(...bindParams, ...scopeBinds);
   const ids = rows.map((r) => r.memory_id);
   if (dryRun) {
     return {
@@ -1375,7 +1426,7 @@ function sigTokens(sig) {
 }
 function mineWeakness(db3, params = {}) {
   const { minCount = 2, limit = 20, cwd } = params;
-  const wsPath = params.workspacePath ?? (cwd ? fillScope({ workspace_path: null }, cwd).workspace_path : null);
+  const wsPath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : cwd ? normalizeWorkspacePath(null, cwd) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const conditions = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
   const bindParams = [];
@@ -1391,7 +1442,6 @@ function mineWeakness(db3, params = {}) {
     conditions.push("agent_id = ?");
     bindParams.push(params.agentId);
   }
-  const fetchLimit = limit * 3;
   const rows = db3.prepare(`
     SELECT failure_signature,
            count(*) AS freq,
@@ -1402,10 +1452,8 @@ function mineWeakness(db3, params = {}) {
     FROM memories
     WHERE ${conditions.join(" AND ")}
     GROUP BY failure_signature
-    HAVING freq >= ?
     ORDER BY score DESC
-    LIMIT ?
-  `).all(...bindParams, minCount, fetchLimit);
+  `).all(...bindParams);
   const mergedMap = /* @__PURE__ */ new Map();
   for (const row of rows) {
     const base = stripSurface(row.failure_signature);
@@ -1418,7 +1466,10 @@ function mineWeakness(db3, params = {}) {
       existing.ids.push(...row.ids.split(","));
       for (const l of row.labels.split(",").filter(Boolean)) existing.labels.add(l);
       if (surface) existing.surfaces.add(surface);
-      if (row.score > existing.total_score - row.score) existing.raw_sig = row.failure_signature;
+      if (row.score > existing.raw_score) {
+        existing.raw_sig = row.failure_signature;
+        existing.raw_score = row.score;
+      }
     } else {
       mergedMap.set(base, {
         base_sig: base,
@@ -1428,11 +1479,12 @@ function mineWeakness(db3, params = {}) {
         importance_sum: row.avg_imp * row.freq,
         ids: row.ids.split(","),
         labels: new Set(row.labels.split(",").filter(Boolean)),
-        surfaces: new Set(surface ? [surface] : [])
+        surfaces: new Set(surface ? [surface] : []),
+        raw_score: row.score
       });
     }
   }
-  const merged = [...mergedMap.values()].sort((a, b) => b.total_score - a.total_score);
+  const merged = [...mergedMap.values()].filter((m) => m.total_freq >= minCount).sort((a, b) => b.total_score - a.total_score);
   const repMap = /* @__PURE__ */ new Map();
   const allRawSigs = merged.map((m) => m.raw_sig);
   if (allRawSigs.length > 0) {
@@ -1851,7 +1903,7 @@ function deleteRefinement(db3, params) {
 
 // src/intents.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { isAbsolute, resolve as resolve3 } from "node:path";
+import { isAbsolute, resolve as resolve4 } from "node:path";
 var MAX_LOCK_TTL_MS = 10 * 6e4;
 function effectiveTtlMs(ttlMs) {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
@@ -1859,12 +1911,16 @@ function effectiveTtlMs(ttlMs) {
 function expiresAtFromNow(ttlMs) {
   return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
-function workspaceRoot(workspacePath) {
-  return workspacePath ? resolve3(workspacePath) : process.cwd();
+function workspaceScopeRoot(workspacePath) {
+  const candidate = workspacePath ?? process.cwd();
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve4(candidate);
+}
+function workspaceFileBase(workspacePath) {
+  return workspacePath ? resolve4(workspacePath) : process.cwd();
 }
 function resolveTargetFiles(targetFiles = [], workspacePath) {
-  const root = workspaceRoot(workspacePath);
-  return targetFiles.map((file) => isAbsolute(file) ? resolve3(file) : resolve3(root, file));
+  const root = workspaceFileBase(workspacePath);
+  return targetFiles.map((file) => isAbsolute(file) ? resolve4(file) : resolve4(root, file));
 }
 function preFlightIntent(db3, params) {
   const {
@@ -1881,9 +1937,9 @@ function preFlightIntent(db3, params) {
   } = params;
   const taskId = "task_" + randomUUID4().replace(/-/g, "");
   const now = utcNow();
-  const wsPath = workspaceRoot(workspacePath);
+  const wsPath = workspaceScopeRoot(workspacePath);
   const artifactScope = normalizeArtifact(artifact2);
-  const absFiles = resolveTargetFiles(targetFiles, wsPath);
+  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
   evictExpiredLocks(db3);
   db3.exec("BEGIN IMMEDIATE");
   try {
@@ -1997,7 +2053,7 @@ function releaseFileLock(db3, params) {
   }
   if (workspacePath) {
     whereClauses.push("ai.workspace_path = ?");
-    whereParams.push(workspaceRoot(workspacePath));
+    whereParams.push(workspaceScopeRoot(workspacePath));
   }
   if (artifactScope) {
     whereClauses.push("(ai.artifact = ? OR ai.artifact IS NULL)");
@@ -2083,13 +2139,13 @@ function releaseFileLock(db3, params) {
 }
 
 // src/reflect.ts
-import { resolve as resolve4 } from "node:path";
+import { resolve as resolve5 } from "node:path";
 var VALID_OUTCOMES = ["worked", "partial", "failed"];
 var NEXT_MSG = "memory_refine_get \u2192 repo fixes for the next agent \xB7 octocode-awareness reflect mine-weakness/maintenance digest \u2192 recurring failures and harness previews. A human merges.";
 function normalizeScopePaths(paths = [], prefix, baseCwd) {
   const base = baseCwd ?? process.cwd();
   return [...new Set(paths.filter(Boolean).map((p) => {
-    const abs = p.startsWith("/") ? p : resolve4(base, p);
+    const abs = p.startsWith("/") ? p : resolve5(base, p);
     return `${prefix}:${abs}`;
   }))];
 }
@@ -2255,7 +2311,7 @@ function reflect(db3, params) {
 // src/maintenance.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { randomUUID as randomUUID6 } from "node:crypto";
-import { isAbsolute as isAbsolute2, resolve as resolve5 } from "node:path";
+import { isAbsolute as isAbsolute2, resolve as resolve6 } from "node:path";
 
 // src/notifications.ts
 import { randomUUID as randomUUID5 } from "node:crypto";
@@ -2657,12 +2713,13 @@ function pruneStale(db3, params = {}) {
   const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
   const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const agentId2 = typeof params.agent_id === "string" ? params.agent_id : typeof params.agentId === "string" ? params.agentId : null;
-  const workspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
-    const base = workspacePath ? resolve5(workspacePath) : process.cwd();
-    return isAbsolute2(file) ? resolve5(file) : resolve5(base, file);
+    const base = rawWorkspacePath ? resolve6(rawWorkspacePath) : process.cwd();
+    return isAbsolute2(file) ? resolve6(file) : resolve6(base, file);
   });
   const now = utcNow();
   const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
@@ -2686,7 +2743,7 @@ function pruneStale(db3, params = {}) {
   const scopedByTask = Boolean(workspacePath || artifact2);
   if (workspacePath) {
     conditions.push("t.workspace_path = ?");
-    binds.push(resolve5(workspacePath));
+    binds.push(workspacePath);
   }
   if (artifact2) {
     conditions.push("(t.artifact = ? OR t.artifact IS NULL)");
@@ -2913,7 +2970,7 @@ function sessionCapture(db3, params = {}) {
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
   const reason = params.reason ? String(params.reason) : null;
   const workspaceInput = params.workspace ?? params.workspace_path ?? params.workspacePath;
-  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve5(workspaceInput.trim()) : null;
+  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve6(workspaceInput.trim()) : null;
   const scope = fillScope(
     {
       workspace_path: rawWorkspacePath,
@@ -3034,7 +3091,8 @@ function sessionCapture(db3, params = {}) {
 function waitForLock(db3, params = {}) {
   const targetFiles = Array.isArray(params.target_files) ? params.target_files : Array.isArray(params.targetFiles) ? params.targetFiles : [];
   const agentId2 = params.agent_id ?? params.agentId ?? "agent";
-  const workspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const waitMs = Number(params.wait_ms ?? params.waitMs ?? 6e4);
   const retryMs = Number(params.retry_interval_ms ?? params.retryIntervalMs ?? 5e3);
@@ -3045,15 +3103,15 @@ function waitForLock(db3, params = {}) {
   if (targetFiles.length === 0) {
     return { ok: true, waited_ms: 0, lock_free: true };
   }
-  const root = workspacePath ? resolve5(workspacePath) : process.cwd();
-  const absTargetFiles = targetFiles.map((file) => isAbsolute2(file) ? resolve5(file) : resolve5(root, file));
+  const root = rawWorkspacePath ? resolve6(rawWorkspacePath) : process.cwd();
+  const absTargetFiles = targetFiles.map((file) => isAbsolute2(file) ? resolve6(file) : resolve6(root, file));
   const ph = absTargetFiles.map(() => "?").join(",");
   const lockTypeFilter = requestedLockType === "EXCLUSIVE" ? "" : "AND fl.lock_type = 'EXCLUSIVE'";
   const scopeClauses = [];
   const scopeBinds = [];
   if (workspacePath) {
     scopeClauses.push("AND ai.workspace_path = ?");
-    scopeBinds.push(root);
+    scopeBinds.push(workspacePath);
   }
   if (artifact2) {
     scopeClauses.push("AND (ai.artifact = ? OR ai.artifact IS NULL)");
@@ -3164,7 +3222,8 @@ function digest(db3, params = {}) {
   };
 }
 function getWorkspaceStatus(db3, params = {}) {
-  const wsPath = params.workspace_path ?? null;
+  const rawWsPath = params.workspace_path ?? null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   evictExpiredLocks(db3);
   const memoryScope = ["state = 'ACTIVE'"];
@@ -3233,7 +3292,8 @@ function getWorkspaceStatus(db3, params = {}) {
   };
 }
 function exportMemoryDoc(db3, params = {}) {
-  const wsPath = params.workspace_path ?? null;
+  const rawWsPath = params.workspace_path ?? null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const now = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const conds = ["m.state = 'ACTIVE'"];
@@ -3302,7 +3362,8 @@ function exportMemoryDoc(db3, params = {}) {
 function exportHarness(db3, params = {}) {
   const limit = Number(params.limit ?? 10);
   const minImportance = Number(params.min_importance ?? params.minImportance ?? 7);
-  const wsPath = params.workspace_path ?? null;
+  const rawWsPath = params.workspace_path ?? null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const harnessOnly = Boolean(params.harness_only ?? params.harnessOnly ?? false);
   const scopeConds = [];
@@ -3378,15 +3439,16 @@ function exportHarness(db3, params = {}) {
 import { randomUUID as randomUUID7 } from "node:crypto";
 var VALID_VERIFY_STATUSES = /* @__PURE__ */ new Set(["SUCCESS", "FAILED"]);
 function auditUnverified(db3, params = {}) {
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const where = ["status = 'PENDING'"];
   const binds = [];
   if (params.agentId) {
     where.push("agent_id = ?");
     binds.push(params.agentId);
   }
-  if (params.workspacePath) {
+  if (workspacePath) {
     where.push("workspace_path = ?");
-    binds.push(params.workspacePath);
+    binds.push(workspacePath);
   }
   const artifact2 = normalizeArtifact(params.artifact);
   if (artifact2) {
@@ -3442,9 +3504,9 @@ function auditUnverified(db3, params = {}) {
       staleWhere.push("ai.agent_id = ?");
       staleBinds.push(params.agentId);
     }
-    if (params.workspacePath) {
+    if (workspacePath) {
       staleWhere.push("ai.workspace_path = ?");
-      staleBinds.push(params.workspacePath);
+      staleBinds.push(workspacePath);
     }
     if (artifact2) {
       staleWhere.push("(ai.artifact = ? OR ai.artifact IS NULL)");
@@ -3493,7 +3555,8 @@ function auditUnverified(db3, params = {}) {
   return { ok: true, unverified, stale_active: staleActive, count: total };
 }
 function markVerified(db3, params) {
-  const { agentId: agentId2 = "agent", allPending = false, workspacePath, message } = params;
+  const { agentId: agentId2 = "agent", allPending = false, message } = params;
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const taskId = params.taskId ?? "";
   const status = params.status ?? "SUCCESS";
@@ -3581,7 +3644,7 @@ function markVerified(db3, params) {
 function registerAgent(db3, params) {
   const agentId2 = params.agentId;
   const agentName2 = params.agentName ?? "";
-  const workspacePath = params.workspacePath ?? null;
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const context = params.context ?? null;
   const now = utcNow();
@@ -3595,7 +3658,7 @@ function listAgents(db3, params = {}) {
     const clauses = [];
     if (params.workspacePath) {
       clauses.push(AGENTS_LIST_CLAUSE_WORKSPACE_PATH);
-      binds.push(params.workspacePath);
+      binds.push(normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? params.workspacePath);
     }
     const artifact2 = normalizeArtifact(params.artifact);
     if (artifact2) {
@@ -3614,7 +3677,7 @@ function listAgents(db3, params = {}) {
 // src/hooks-install.ts
 import { existsSync, mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve6, sep } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute3, join as join3, relative, resolve as resolve7, sep } from "node:path";
 var WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch";
 var HOSTS = /* @__PURE__ */ new Set(["claude", "codex", "cursor"]);
 function hooksInstallUsage() {
@@ -3666,7 +3729,7 @@ function loadSettings(settingsPath) {
   return parsed && typeof parsed === "object" ? parsed : {};
 }
 function hookCommand(name, params) {
-  const abs = join2(params.hookDir, name);
+  const abs = join3(params.hookDir, name);
   if (params.host === "codex" || params.host === "cursor" || params.globalMode) return abs;
   const rel = relative(params.projectDir, abs);
   if (rel && !rel.startsWith("..") && !isAbsolute3(rel)) {
@@ -3818,9 +3881,9 @@ function runHooksInstall(argv, options) {
   const cwd = options.cwd ?? process.cwd();
   const home = options.homeDir ?? homedir2();
   const globalMode = flag(argv, "--global");
-  const projectDir = resolve6(opt(argv, "--project-dir", cwd));
+  const projectDir = resolve7(opt(argv, "--project-dir", cwd));
   const config = targetConfig(host);
-  const settingsPath = globalMode ? join2(home, config.dir, config.file) : join2(projectDir, config.dir, config.file);
+  const settingsPath = globalMode ? join3(home, config.dir, config.file) : join3(projectDir, config.dir, config.file);
   let settings;
   try {
     settings = loadSettings(settingsPath);
@@ -3908,7 +3971,7 @@ function runHooksInstall(argv, options) {
     };
   }
   if (changed) {
-    mkdirSync2(dirname2(settingsPath), { recursive: true });
+    mkdirSync2(dirname3(settingsPath), { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   }
   return {
@@ -3926,8 +3989,8 @@ function runHooksInstall(argv, options) {
 
 // src/repo-context.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { mkdirSync as mkdirSync3, realpathSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { isAbsolute as isAbsolute4, join as join3, relative as relative2, resolve as resolve7 } from "node:path";
+import { mkdirSync as mkdirSync3, realpathSync as realpathSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve8 } from "node:path";
 var AWARENESS_QUERY_VIEWS = [
   "all",
   "repo-profile",
@@ -3990,9 +4053,9 @@ function stringList(value) {
   return [String(value)];
 }
 function scopeFromParams(params) {
-  const cwd = params.cwd ? resolve7(params.cwd) : process.cwd();
+  const cwd = params.cwd ? resolve8(params.cwd) : process.cwd();
   const rawWorkspace = params.workspacePath ?? params.workspace_path ?? params.workspace ?? cwd;
-  const workspacePath = rawWorkspace ? resolve7(String(rawWorkspace)) : null;
+  const workspacePath = rawWorkspace ? resolve8(String(rawWorkspace)) : null;
   return {
     workspacePath,
     workspacePaths: workspacePath ? workspaceAliases(workspacePath) : [],
@@ -4004,10 +4067,10 @@ function scopeFromParams(params) {
 function workspaceAliases(workspacePath) {
   const aliases = /* @__PURE__ */ new Set([workspacePath]);
   try {
-    aliases.add(realpathSync.native(workspacePath));
+    aliases.add(realpathSync2.native(workspacePath));
   } catch {
     try {
-      aliases.add(realpathSync(workspacePath));
+      aliases.add(realpathSync2(workspacePath));
     } catch {
     }
   }
@@ -4071,7 +4134,7 @@ function fileRefCandidates(file, workspacePath) {
   const trimmed = file.trim();
   if (!trimmed) return [];
   if (trimmed.startsWith("file:")) return [trimmed];
-  const absolute = isAbsolute4(trimmed) ? resolve7(trimmed) : resolve7(workspacePath ?? process.cwd(), trimmed);
+  const absolute = isAbsolute4(trimmed) ? resolve8(trimmed) : resolve8(workspacePath ?? process.cwd(), trimmed);
   return [`file:${absolute}`, `%${trimmed}%`];
 }
 function addMemoryFileFilter(where, binds, file, scope) {
@@ -4605,15 +4668,15 @@ function renderAwarenessHtml(result) {
 function writeAwarenessView(db3, params = {}) {
   const result = queryAwareness(db3, params);
   const workspacePath = scopeFromParams(params).workspacePath ?? process.cwd();
-  const outPath = resolve7(params.out ?? join3(workspacePath, ".octocode", "awareness", "index.html"));
-  mkdirSync3(join3(outPath, ".."), { recursive: true });
+  const outPath = resolve8(params.out ?? join4(workspacePath, ".octocode", "awareness", "index.html"));
+  mkdirSync3(join4(outPath, ".."), { recursive: true });
   writeFileSync2(outPath, renderAwarenessHtml(result), "utf8");
   return { ok: true, path: outPath, view: result.view, count: result.count };
 }
 function injectRepoContext(db3, params = {}) {
   const scope = scopeFromParams(params);
   const workspacePath = scope.workspacePath ?? process.cwd();
-  const outDir = resolve7(params.outDir ?? params.out_dir ?? join3(workspacePath, ".octocode"));
+  const outDir = resolve8(params.outDir ?? params.out_dir ?? join4(workspacePath, ".octocode"));
   const mode = normalizeMode(params.mode);
   const includeView = params.includeView ?? params.include_view ?? true;
   const check = params.check ?? true;
@@ -4623,8 +4686,8 @@ function injectRepoContext(db3, params = {}) {
   const filesWritten = [];
   const warnings = [];
   function write(relPath, content) {
-    const full = join3(outDir, relPath);
-    mkdirSync3(join3(full, ".."), { recursive: true });
+    const full = join4(outDir, relPath);
+    mkdirSync3(join4(full, ".."), { recursive: true });
     writeFileSync2(full, content, "utf8");
     filesWritten.push(full);
   }
@@ -4635,27 +4698,27 @@ function injectRepoContext(db3, params = {}) {
   write("GOTCHAS.md", renderRowsDoc("Gotchas", sections["gotchas"]?.rows ?? [], "Failures, traps, and sharp edges agents should check before editing."));
   write("LEARN.md", renderRowsDoc("Learning And Opportunities", sections["lessons"]?.rows ?? [], "Decisions, architecture notes, workflows, and improvement ideas."));
   for (const view of CSV_VIEWS) {
-    write(join3("awareness", "csv", `${view}.csv`), toCsv(sections[view]?.rows ?? []));
+    write(join4("awareness", "csv", `${view}.csv`), toCsv(sections[view]?.rows ?? []));
   }
   if (includeView) {
-    write(join3("awareness", "index.html"), renderAwarenessHtml(all));
+    write(join4("awareness", "index.html"), renderAwarenessHtml(all));
   }
-  write(join3("references", "repo-map.md"), renderReferenceDoc("Repo Map", [
+  write(join4("references", "repo-map.md"), renderReferenceDoc("Repo Map", [
     "Generated overview of awareness-tracked files and activity.",
     "Use `.octocode/awareness/csv/files.csv` when filtering or sorting by file path.",
     "Use the live command `octocode-awareness query files --workspace <repo>` when freshness matters."
   ], sections["files"]?.rows ?? []));
-  write(join3("references", "commands.md"), renderReferenceDoc("Awareness Commands", [
+  write(join4("references", "commands.md"), renderReferenceDoc("Awareness Commands", [
     "`octocode-awareness query <view>` reads the SQLite store for agents and scripts.",
-    "`npx @octocodeai/octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view.",
+    "`octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view; use `npx @octocodeai/octocode-awareness` only when no local CLI exists.",
     "`octocode-awareness repo inject --out .octocode` regenerates these Markdown, CSV, and HTML projections."
   ]));
-  write(join3("references", "testing.md"), renderReferenceDoc("Testing And Verification", [
+  write(join4("references", "testing.md"), renderReferenceDoc("Testing And Verification", [
     "Treat generated memories as leads. Verify current files and command output before acting.",
     "Release locks with `verify mark` or `lock release --verified` after declared tests actually run.",
     "Record new durable failures with `reflect record --failure-signature` or `memory record --label GOTCHA`."
   ]));
-  write(join3("references", "architecture.md"), renderReferenceDoc("Architecture Notes", [
+  write(join4("references", "architecture.md"), renderReferenceDoc("Architecture Notes", [
     "The SQLite awareness DB is canonical. Files under `.octocode/` are generated projections.",
     "Keep workspace AGENTS.md concise and point agents here for repo-specific memory indexes.",
     "Do not edit generated CSV/Markdown snapshots by hand; regenerate after important memory changes."
@@ -4690,7 +4753,7 @@ function injectRepoContext(db3, params = {}) {
     files: filesWritten.map((file) => relative2(workspacePath, file)),
     warnings
   };
-  write(join3("awareness", "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  write(join4("awareness", "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   return {
     ok: true,
     generated_at: generatedAt,
@@ -4902,15 +4965,15 @@ function gitCheckIgnored(cwd, path2) {
 // bin/hook-runner.ts
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync2, realpathSync as realpathSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { basename as basename2, dirname as dirname3, isAbsolute as isAbsolute5, join as join4, relative as relative3, resolve as resolve8 } from "node:path";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { basename as basename2, isAbsolute as isAbsolute5, join as join5, relative as relative3, resolve as resolve9 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/pi-hooks.ts
 import path from "node:path";
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { randomUUID as randomUUID8 } from "node:crypto";
-import { realpathSync as realpathSync2 } from "node:fs";
+import { realpathSync as realpathSync3 } from "node:fs";
 var _sessionStartupToken = randomUUID8().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
@@ -4985,14 +5048,14 @@ function extractPiWriteTargetPaths(toolName, input = {}, options = {}) {
 
 // bin/hook-runner.ts
 function readStdin() {
-  return new Promise((resolve9) => {
+  return new Promise((resolve10) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve9(raw));
-    process.stdin.on("error", () => resolve9(raw));
+    process.stdin.on("end", () => resolve10(raw));
+    process.stdin.on("error", () => resolve10(raw));
   });
 }
 function parsePayload(raw) {
@@ -5079,26 +5142,11 @@ function extractFiles(payload) {
   return extractPiWriteTargetPaths(toolName, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return resolve8(cwd, file);
-}
-function canonicalize(input) {
-  let dir = resolve8(input);
-  const tail = [];
-  for (let guard = 0; guard < 4096; guard += 1) {
-    try {
-      return tail.length ? join4(realpathSync3(dir), ...tail) : realpathSync3(dir);
-    } catch {
-      const parent = dirname3(dir);
-      if (parent === dir) return resolve8(input);
-      tail.unshift(basename2(dir));
-      dir = parent;
-    }
-  }
-  return resolve8(input);
+  return resolve9(cwd, file);
 }
 function isInsidePath(candidate, root) {
-  const resolvedRoot = canonicalize(root);
-  const resolvedCandidate = canonicalize(candidate);
+  const resolvedRoot = canonicalizePath(root);
+  const resolvedCandidate = canonicalizePath(candidate);
   if (resolvedCandidate === resolvedRoot) return true;
   const rel = relative3(resolvedRoot, resolvedCandidate);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute5(rel);
@@ -5251,7 +5299,7 @@ function maybeRunDigest(payload) {
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
-  const markerPath = join4(memoryHome2, ".last-digest-epoch-ms");
+  const markerPath = join5(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
     let last = 0;
@@ -5335,7 +5383,7 @@ async function runHookCommand(command2, rawPayload) {
 async function main() {
   return runHookCommand(process.argv[2] ?? "help");
 }
-var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve8(process.argv[1]) : false;
+var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve9(process.argv[1]) : false;
 var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename2(process.argv[1])) : false;
 if (isMain && invokedAsHookRunner) {
   process.exitCode = await main();
@@ -5404,7 +5452,7 @@ var GLOBAL_FLAGS = ["db", "compact", "help"];
 var KNOWN_FLAGS = {
   "tell-memory": ["agent_id", "task_context", "observation", "importance", "label", "tag", "reference", "supersedes", "failure_signature", "valid_from", "valid_to", "workspace", "artifact", "repo", "ref", "file", "file_tree_fingerprint"],
   "get-memory": ["query", "limit", "min_importance", "label", "tag", "smart", "workspace", "artifact", "repo", "ref", "state", "sort", "global_only", "strict_scope", "as_of", "reference", "regex", "file_regex", "file", "explain", "semantic"],
-  "forget": ["memory_id", "tag", "tags", "before", "max_importance", "dry_run"],
+  "forget": ["memory_id", "tag", "tags", "before", "max_importance", "workspace", "artifact", "repo", "ref", "dry_run"],
   "reflect": ["agent_id", "task", "outcome", "lesson", "worked", "didnt_work", "fix_repo", "fix_file", "fix_harness", "failure_signature", "importance", "judgment_note", "duo", "eval_failure_json", "workspace", "artifact", "repo", "ref"],
   "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "artifact", "repo", "ref", "file", "refinement_id"],
   "refine-get": ["workspace", "artifact", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
@@ -5521,17 +5569,17 @@ function selectCommand(argv) {
 function packageSkillScriptPath(...segments) {
   const here = dirname4(fileURLToPath2(import.meta.url));
   const candidates = [
-    join5(here, "..", "skills", "octocode-awareness", "scripts"),
+    join6(here, "..", "skills", "octocode-awareness", "scripts"),
     // dist/skills/ — bundled, preferred
-    join5(here, "..", "..", "skills", "octocode-awareness", "scripts"),
+    join6(here, "..", "..", "skills", "octocode-awareness", "scripts"),
     // <packageRoot>/skills/ — source fallback
     here
     // dist/bin/ — last resort
   ];
   const scriptsDir = candidates.find(
-    (candidate) => existsSync2(join5(candidate, "schema.mjs")) || existsSync2(join5(candidate, "hooks"))
+    (candidate) => existsSync2(join6(candidate, "schema.mjs")) || existsSync2(join6(candidate, "hooks"))
   ) ?? candidates[0];
-  return join5(scriptsDir, ...segments);
+  return join6(scriptsDir, ...segments);
 }
 function valuesFor(args2, key) {
   const value = args2[key];
@@ -5951,6 +5999,10 @@ function cmdForget(db3, args2, dbPath2, opts2) {
     tags,
     before: args2["before"] ? String(args2["before"]) : void 0,
     maxImportance: args2["max_importance"] ? parseInt(String(args2["max_importance"]), 10) : void 0,
+    workspacePath: args2["workspace"] ? String(args2["workspace"]) : null,
+    artifact: args2["artifact"] ? String(args2["artifact"]) : null,
+    repo: args2["repo"] ? String(args2["repo"]) : null,
+    ref: args2["ref"] ? String(args2["ref"]) : null,
     dryRun: Boolean(args2["dry_run"])
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
@@ -6221,7 +6273,8 @@ function cmdAgentRegistry(db3, args2, dbPath2, opts2) {
 }
 function cmdStatus(db3, dbPath2, args2, opts2) {
   evictExpiredLocks(db3);
-  const wsPath = args2["workspace"] ? String(args2["workspace"]) : null;
+  const rawWsPath = args2["workspace"] ? String(args2["workspace"]) : null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact2 = args2["artifact"] ? String(args2["artifact"]) : null;
   const memScope = [];
   const memScopeBinds = [];
@@ -6334,12 +6387,16 @@ function cmdSelfTest(opts2) {
 }
 var HELP = `usage: octocode-awareness <command> [options]
 common: --db <path> --compact
-npx: npx @octocodeai/octocode-awareness <command>
+local-first: use octocode-awareness or a bundled local node path when present
+fallback: npx @octocodeai/octocode-awareness <command>
 agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
 easy install:
-  Tell your agent to run: npx @octocodeai/octocode-awareness
+  If the CLI is bundled locally, tell your agent to run that local CLI:
+    octocode-awareness maintenance init --compact
+  Registry fallback only when no local CLI exists:
+    npx @octocodeai/octocode-awareness maintenance init --compact
   Then install the bundled Agent Skill:
     npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common
   Registry fallback:
@@ -6353,7 +6410,7 @@ edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify aud
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
 learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
 repo context: query <view> [--format json|table|csv|markdown|html], repo inject
-hooks: hook run <event>, hooks install|check|remove --host claude|codex|cursor
+hooks: hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
 utility: session capture, maintenance init, maintenance self-test, maintenance digest
 
 examples:
@@ -6367,7 +6424,7 @@ examples:
 
 Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
-npx: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
+local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
 start: workspace status; memory recall; refinement get; signal list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
@@ -6789,11 +6846,11 @@ try {
           const wsPath = args["workspace"] ?? process.cwd();
           const artifact2 = args["artifact"];
           const { mkdirSync: mkdirSync6, writeFileSync: writeFileSync5 } = await import("node:fs");
-          const { join: join6 } = await import("node:path");
-          const docDir = join6(wsPath, ".octocode", "memory-reports");
+          const { join: join7 } = await import("node:path");
+          const docDir = join7(wsPath, ".octocode", "memory-reports");
           mkdirSync6(docDir, { recursive: true });
           const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", "-").replace(":", "");
-          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join6(docDir, `memory-report-${dateStr}.md`);
+          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join7(docDir, `memory-report-${dateStr}.md`);
           writeFileSync5(docPath, exportMemoryDoc(db2, { workspace_path: wsPath, artifact: artifact2 }), "utf8");
           payload["doc_path"] = docPath;
         } catch (err) {

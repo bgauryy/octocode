@@ -596,6 +596,10 @@ export interface ForgetMemoryParams {
   tags?: string[];
   before?: string;               // ISO — delete memories created before this
   maxImportance?: number;        // safety ceiling — only delete at or below this score
+  workspacePath?: string | null;
+  artifact?: string | null;
+  repo?: string | null;
+  ref?: string | null;
   dryRun?: boolean;
   cwd?: string;
 }

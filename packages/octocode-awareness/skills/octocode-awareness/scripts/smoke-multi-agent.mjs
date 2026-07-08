@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+process.removeAllListeners("warning");
+process.on("warning", (warning) => {
+  if (warning?.name === "ExperimentalWarning" && String(warning?.message).includes("SQLite")) return;
+  console.error(warning?.stack ?? String(warning));
+});
+
 import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";

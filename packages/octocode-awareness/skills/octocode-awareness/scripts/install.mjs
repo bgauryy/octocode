@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+process.removeAllListeners("warning");
+process.on("warning", (warning) => {
+  if (warning?.name === "ExperimentalWarning" && String(warning?.message).includes("SQLite")) return;
+  console.error(warning?.stack ?? String(warning));
+});
+
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -14,7 +20,9 @@ const nodeBin = process.execPath;
 function printHelp() {
   console.log(`Usage: node scripts/install.mjs [--check-only] [--skip-deps] [--help]
 
-Check the octocode-awareness standalone runtime and run smoke tests.
+Check the octocode-awareness standalone runtime and print the host hook init flow.
+This script never writes Codex/Cursor/Claude hook config; preview and install hooks
+with scripts/awareness.mjs after explicit user approval.
 
 Options:
   --check-only  Do not install missing npm dependencies.
@@ -23,7 +31,8 @@ Options:
 
 Examples:
   node scripts/install.mjs --check-only
-  node scripts/install.mjs`);
+  node scripts/install.mjs
+  node scripts/awareness.mjs hooks install --host codex --project-dir . --dry-run --compact`);
 }
 
 if (args.has("--help") || args.has("-h")) {
@@ -68,7 +77,12 @@ function ensureRuntime() {
   if (!ok(nodeBin, ["-e", ""])) {
     fail("Node.js runtime is not executable for scripts/schema.mjs.", { node: nodeBin });
   }
-  if (!ok(nodeBin, ["--input-type=module", "-e", "import 'node:sqlite';"])) {
+  const sqliteProbe = [
+    "process.removeAllListeners('warning');",
+    "process.on('warning', (w) => { if (w?.name === 'ExperimentalWarning' && String(w?.message).includes('SQLite')) return; console.error(w?.stack ?? String(w)); });",
+    "await import('node:sqlite');",
+  ].join("\n");
+  if (!ok(nodeBin, ["--input-type=module", "-e", sqliteProbe])) {
     fail("Node >=22 with node:sqlite is required.");
   }
 }
@@ -159,7 +173,18 @@ console.log(
       commands: {
         schema: `${nodeBin} scripts/schema.mjs list`,
         awareness: `${nodeBin} scripts/awareness.mjs workspace status`,
+        init: `${nodeBin} scripts/awareness.mjs maintenance init --compact`,
+        hooks_preview_codex: `${nodeBin} scripts/awareness.mjs hooks install --host codex --project-dir <repo> --dry-run --compact`,
+        hooks_install_codex: `${nodeBin} scripts/awareness.mjs hooks install --host codex --project-dir <repo> --compact`,
+        hooks_check_codex: `${nodeBin} scripts/awareness.mjs hooks check --host codex --project-dir <repo> --strict --compact`,
+        hooks_preview_cursor: `${nodeBin} scripts/awareness.mjs hooks install --host cursor --project-dir <repo> --dry-run --compact`,
+        hooks_install_cursor: `${nodeBin} scripts/awareness.mjs hooks install --host cursor --project-dir <repo> --compact`,
       },
+      next_steps: [
+        "Install the skill with npx octocode skill --add --path <octocode-awareness> --platform common.",
+        "Run maintenance init, then workspace status in each repo.",
+        "For Codex or Cursor, SKILL.md frontmatter is not enough: preview hooks with --dry-run, install after user approval, then run hooks check --strict.",
+      ],
     },
     null,
     2,

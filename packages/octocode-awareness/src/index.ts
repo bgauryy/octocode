@@ -97,7 +97,7 @@ export type {
 } from './tool-operations.js';
 
 // Git scope
-export { detectGit, fillScope } from './git.js';
+export { detectGit, fillScope, canonicalizePath, normalizeWorkspacePath } from './git.js';
 
 // Audit log (edit_log + harness_log)
 export { sha256Hex, insertEditLog, queryEditLog, insertHarnessLog, queryHarnessLog } from './audit.js';

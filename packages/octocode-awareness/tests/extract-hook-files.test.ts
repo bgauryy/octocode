@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,7 +105,7 @@ describe('hook-runner', () => {
         expect.objectContaining({
           agent_id: 'hook-agent',
           agent_name: 'Hook Agent',
-          workspace_path: workspace,
+          workspace_path: realpathSync(workspace),
           context: 'codex-hook',
         }),
       ]));

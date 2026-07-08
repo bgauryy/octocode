@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow, parseJsonList } from './helpers.js';
+import { normalizeWorkspacePath } from './git.js';
 import type { TaskStatus } from './types.js';
 import {
   TASKS_UPDATE_PENDING_TO_FAILED,
@@ -136,6 +137,11 @@ export function auditUnverified(
   db: DatabaseSync,
   params: AuditUnverifiedParams = {},
 ): AuditUnverifiedResult {
+  // Normalize (git-root + symlink canonicalized) so this matches the same
+  // scope key that preFlightIntent/releaseFileLock wrote, regardless of
+  // symlinks or whether the workspace became a git repo after the lock
+  // was recorded — see canonicalizePath in git.ts.
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const where: string[] = ["status = 'PENDING'"];
   const binds: (string | number)[] = [];
 
@@ -143,9 +149,9 @@ export function auditUnverified(
     where.push('agent_id = ?');
     binds.push(params.agentId);
   }
-  if (params.workspacePath) {
+  if (workspacePath) {
     where.push('workspace_path = ?');
-    binds.push(params.workspacePath);
+    binds.push(workspacePath);
   }
   const artifact = normalizeArtifact(params.artifact);
   if (artifact) {
@@ -199,7 +205,7 @@ export function auditUnverified(
     ];
     const staleBinds: (string | number)[] = [nowIso];
     if (params.agentId) { staleWhere.push('ai.agent_id = ?'); staleBinds.push(params.agentId); }
-    if (params.workspacePath) { staleWhere.push('ai.workspace_path = ?'); staleBinds.push(params.workspacePath); }
+    if (workspacePath) { staleWhere.push('ai.workspace_path = ?'); staleBinds.push(workspacePath); }
     if (artifact) { staleWhere.push('(ai.artifact = ? OR ai.artifact IS NULL)'); staleBinds.push(artifact); }
 
     const staleRows = db.prepare(
@@ -253,7 +259,8 @@ export function markVerified(
   db: DatabaseSync,
   params: MarkVerifiedParams,
 ): MarkVerifiedResult {
-  const { agentId = 'agent', allPending = false, workspacePath, message } = params;
+  const { agentId = 'agent', allPending = false, message } = params;
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const artifact = normalizeArtifact(params.artifact);
   const taskId = params.taskId ?? '';
   const status = params.status ?? 'SUCCESS';

@@ -68,8 +68,10 @@ This combination matters:
 | Piece | What it gives the agent |
 |---|---|
 | CLI package | The executable control plane for memory, locks, signals, verification, reflection, repo context, and hooks. |
-| Agent Skill | The operating loop: when to attend, claim, verify, reflect, and hand off. |
+| Agent Skill | The operating loop: why and when to attend, claim, communicate, verify, reflect, refresh wiki context, housekeep, and hand off. |
 | Hooks | Optional automation so supported hosts enforce the loop at lifecycle boundaries. |
+
+The CLI and skill are meant to work together. The CLI stores facts and performs actions; the skill tells the agent how to use those actions before, during, and after repo work. Hooks are the reliability layer that make important operations happen automatically for agents that support lifecycle hooks.
 
 Registry/marketplace fallback:
 
@@ -178,7 +180,7 @@ Refinements store work state for the next agent or session: unfinished tasks, re
 ## The Workflow
 
 ```text
-ATTEND → CLAIM → WORK → VERIFY → REFLECT → PROJECT → HAND OFF
+ATTEND → CLAIM → WORK → COMMUNICATE → VERIFY → REFLECT → PROJECT → HOUSEKEEP → HAND OFF
 ```
 
 ### 1. Attend — orient before acting
@@ -195,6 +197,9 @@ octocode-awareness refinement get --workspace "$PWD" --limit 5
 
 # Check for messages from other agents
 octocode-awareness signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD"
+
+# Read generated repo wiki context when present
+test -f .octocode/AGENTS.md && sed -n '1,160p' .octocode/AGENTS.md
 ```
 
 ### 2. Claim — declare intent and lock files
@@ -218,9 +223,20 @@ octocode-awareness lock wait \
   --wait-seconds 120 --retry-interval 5 --compact
 ```
 
-### 3. Work
+### 3. Work and communicate
 
 Edit files normally. If hooks are installed, `pre-edit` claims and `post-edit` releases automatically.
+
+Use signals during the work when another agent or a future session needs to know what changed:
+
+```bash
+octocode-awareness signal publish \
+  --agent-id "$OCTOCODE_AGENT_ID" \
+  --workspace "$PWD" \
+  --kind decision \
+  --subject "Migration order chosen" \
+  --body "Schema migration must run before data backfill because backfill reads the new index"
+```
 
 ### 4. Verify — record that the declared checks ran
 
@@ -258,7 +274,37 @@ octocode-awareness memory record \
   --importance 9
 ```
 
-### 6. Hand off — preserve state for the next session
+### 6. Project and housekeep
+
+Use live queries during active work. Refresh the generated LLM Wiki only when the update helps humans or future agents:
+
+```bash
+# Live DB view
+octocode-awareness query gotchas --workspace "$PWD" --format table --limit 20
+
+# Publish refreshed repo context
+octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
+```
+
+Preview cleanup before mutating shared state:
+
+```bash
+octocode-awareness maintenance digest --workspace "$PWD" --dry-run --compact
+octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact
+```
+
+### 7. Improve workflows and skills
+
+If awareness shows repeated friction, turn it into a better workflow rather than only adding another memory. Ask the agent to use `octocode-skills` when installed, or use the Octocode CLI:
+
+```bash
+npx octocode skill --add --path <skill-folder> --platform common
+npx octocode skill --name octocode-awareness
+```
+
+The user-facing Octocode guide starts at `https://octocode.ai`. `reflect export-harness` can preview guidance candidates, but a human-reviewed edit applies skill or workflow changes.
+
+### 8. Hand off — preserve state for the next session
 
 ```bash
 # Send a message to another agent or broadcast
@@ -416,6 +462,8 @@ octocode-awareness maintenance digest --workspace "$PWD" --compact
 # Forget specific memories
 octocode-awareness memory forget --tag deprecated --workspace "$PWD" --dry-run
 ```
+
+Use `--workspace`, `--artifact`, `--repo`, or `--ref` to keep broad forget selectors scoped; omitting scope makes the selector apply to the whole awareness DB.
 
 ---
 
@@ -671,7 +719,7 @@ docs staleness --targets-json <json> --workspace <path> [--min-edits N] [--min-l
 hooks install --host claude|codex|cursor [--project-dir <path>] [--global] [--dry-run] [--compact]
 hooks check   --host claude|codex|cursor [--project-dir <path>] [--strict] [--compact]
 hooks remove  --host claude|codex|cursor [--project-dir <path>] [--dry-run] [--compact]
-hook run <event> < hook-payload.json
+hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json
 ```
 
 ### Schema & Discovery

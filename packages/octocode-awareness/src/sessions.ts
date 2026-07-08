@@ -6,6 +6,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { normalizeArtifact, utcNow } from './helpers.js';
+import { normalizeWorkspacePath } from './git.js';
 import type { InsertSessionParams, EndSessionParams, SessionRow } from './types.js';
 import {
   SESSIONS_INSERT,
@@ -20,6 +21,17 @@ import {
   SESSIONS_LIST_CLAUSE_ACTIVE,
 } from './sql/sessions.js';
 
+// ─── Scope ────────────────────────────────────────────────────────────────────
+
+/**
+ * Normalize to the same git-root + symlink-canonicalized scope key used by
+ * memory/lock/signal, so session rows meet those tables under the same
+ * workspace_path instead of a raw, possibly symlinked/pre-git-init string.
+ */
+function scopedWorkspacePath(workspacePath?: string | null): string | null {
+  return workspacePath ? normalizeWorkspacePath(workspacePath, workspacePath) : null;
+}
+
 // ─── Insert ───────────────────────────────────────────────────────────────────
 
 /** Create a new session. Returns the full SessionRow. */
@@ -27,11 +39,12 @@ export function insertSession(db: DatabaseSync, params: InsertSessionParams): Se
   const sessionId = 'sess_' + randomUUID();
   const now = utcNow();
   const artifact = normalizeArtifact(params.artifact);
+  const workspacePath = scopedWorkspacePath(params.workspacePath);
 
   db.prepare(SESSIONS_INSERT).run(
     sessionId,
     params.agentId,
-    params.workspacePath ?? null,
+    workspacePath,
     artifact,
     params.repo ?? null,
     params.ref ?? null,
@@ -41,7 +54,7 @@ export function insertSession(db: DatabaseSync, params: InsertSessionParams): Se
   return {
     session_id: sessionId,
     agent_id: params.agentId,
-    workspace_path: params.workspacePath ?? null,
+    workspace_path: workspacePath,
     artifact,
     repo: params.repo ?? null,
     ref: params.ref ?? null,
@@ -89,7 +102,7 @@ export function listSessions(
 
   if (params.workspacePath !== undefined) {
     clauses.push(SESSIONS_LIST_CLAUSE_WORKSPACE_PATH);
-    args.push(params.workspacePath);
+    args.push(scopedWorkspacePath(params.workspacePath));
   }
 
   const artifact = normalizeArtifact(params.artifact);
@@ -122,7 +135,7 @@ export function getOrCreateSession(
 ): string {
   const existing = db.prepare(SESSIONS_SELECT_ACTIVE).get(
     params.agentId,
-    params.workspacePath ?? null,
+    scopedWorkspacePath(params.workspacePath),
     normalizeArtifact(params.artifact),
     normalizeArtifact(params.artifact),
   ) as { session_id: string } | undefined;

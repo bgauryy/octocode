@@ -20,14 +20,20 @@ describe('skill routing boundaries', () => {
   it('makes awareness the primary workflow skill', () => {
     const text = skill('octocode-awareness');
     const desc = description(text);
-    expect(desc).toContain('Run the compact Awareness CLI');
-    expect(desc).toContain('memory recall');
-    expect(desc).toContain('file locks');
-    expect(desc).toContain('signals');
-    expect(desc).toContain('repo context');
-    expect(text).toContain('single operational awareness skill');
+    expect(desc).toContain('shared repo work needs awareness');
+    expect(desc).toContain('before planning');
+    expect(desc).toContain('during edits');
+    expect(desc).toContain('after verification');
+    expect(desc).toContain('hooks');
+    expect(desc).toContain('locks/signals');
+    expect(desc).toContain('reflection');
+    expect(text).toContain('Trigger this skill for shared repo work');
     expect(text).toContain('schema commands --compact');
-    expect(text).toContain('signal publish|list|reply|ack|resolve');
+    expect(text).toContain('signal publish|reply|ack|resolve');
+    expect(text).toContain('Installation / Init Flow');
+    expect(text).toContain('maintenance init --compact');
+    expect(text).toContain('hooks install --host codex');
+    expect(text).toContain('Codex/Cursor/Pi need host wiring');
   });
 
   it('does not ship retired routing stub directories', () => {

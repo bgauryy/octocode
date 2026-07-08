@@ -1,0 +1,82 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/pre-edit.sh",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/harness-guard.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/post-edit.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/stop-verify.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/stop-verify.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/session-end.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/guybary/Documents/octocode-mcp/packages/octocode-awareness/dist/skills/octocode-awareness/scripts/hooks/notify-deliver.sh",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

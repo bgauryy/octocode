@@ -72,14 +72,17 @@ describe('mineWeakness', () => {
     expect(result.total_memories).toBe(4);
   });
 
-  it('KNOWN GAP: a base signature is dropped if every |surface:Z variant is individually below minCount, even when their combined count would qualify', () => {
+  it('merges |surface:Z variants before applying minCount', () => {
     const db = freshDb();
-    // 2 surfaces x 1 occurrence each = 2 total, but HAVING freq >= minCount runs
-    // per-raw-signature BEFORE the surface merge, so neither raw row survives to be merged.
     recordFailure(db, 'mechanism:flaky|cause:race|surface:verify-gate', 8);
     recordFailure(db, 'mechanism:flaky|cause:race|surface:lock-conflict', 8);
     const result = mineWeakness(db, { minCount: 2 });
-    expect(result.clusters).toEqual([]);
+    expect(result.clusters).toHaveLength(1);
+    expect(result.clusters[0]).toMatchObject({
+      base_signature: 'mechanism:flaky|cause:race',
+      count: 2,
+      surfaces: ['lock-conflict', 'verify-gate'],
+    });
     expect(result.total_signatures).toBe(2);
     expect(result.total_memories).toBe(2);
   });

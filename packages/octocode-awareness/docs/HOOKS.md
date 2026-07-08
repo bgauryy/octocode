@@ -116,6 +116,8 @@ Hooks should protect work without making the editor unusable:
 
 The shipped shell wrappers warn to stderr if the bundled `hook-runner.mjs` is missing, then exit 0. That keeps broken installs from blocking the editor while still making the failure visible in hook logs.
 
+**Stderr visibility depends on host wiring, not just the hook script.** "Fail open with a warning" only helps if an agent (or a human) actually sees that stderr line. Some hosts surface tool/hook stderr directly in the transcript; others swallow it unless the session is run with verbose/debug logging, or only persist it to a log file the agent never reads. Before trusting a fail-open warning to be noticed in a given host, confirm where that host routes hook stderr (transcript, log file, or nowhere) — otherwise a broken hook install can silently degrade to "no awareness enforcement" with no visible signal.
+
 ## Pi Bridge
 
 Pi does not need shell hooks. `wirePiAwarenessHooks(pi)` wires lifecycle behavior in-process and uses the same database and library functions. When the bridge receives `skillRoot` or `OCTOCODE_SKILL_ROOT`, Pi write tools also use the same harness self-edit approval rules as shell hosts.

@@ -41,6 +41,7 @@ Pending verification survives lock release.
 Workspace-scoped hooks write to the same DB file, scoped by `repo`/`ref` and `workspace_path`. They do not write the workspace `.octocode/` projection; `repo inject` does that.
 
 The CLI installer (`octocode-awareness hooks install|check|remove`, or bundled `node scripts/awareness.mjs`) manages all bundled Claude, Codex, or Cursor lifecycle hooks: pre/post edit, harness guard, verify gate, capture, and briefing.
+For Codex and Cursor, skill frontmatter alone is not an installation. The init flow is: install the skill, run `maintenance init`, preview host hooks with `hooks install --host <host> --dry-run`, install after explicit approval, then run `hooks check --host <host> --strict`.
 `scripts/install-hooks.mjs` remains as a compatibility wrapper for older docs and installs.
 The same shell hooks are skill-scoped only in hosts that execute skill-frontmatter hooks.
 Pi gets equivalent behavior from `wirePiAwarenessHooks(pi)`, already wired by `@octocodeai/pi-extension`.

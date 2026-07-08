@@ -10,6 +10,15 @@ Coding agents are usually stateless between runs. One agent may edit a file whil
 
 `octocode-awareness` turns that invisible state into local, inspectable coordination data. It is not a search engine or test runner. It is the single CLI-oriented skill for memory recall, file locks, handoffs, signals, verification, reflection, hooks, repo context, and learning around engineering work.
 
+## Why Agents Use It
+
+Awareness is the agent's situational layer:
+
+- **Before work**: inspect repo status, other agents, active locks, pending verification, durable memories, gotchas, refinements, signals, and generated wiki context.
+- **During work**: think with current context, lock files before edits, communicate conflicts or decisions, record durable facts, and avoid clobbering another agent.
+- **After work**: run and record verification, reflect on lessons, update memories, refresh wiki projections when useful, and leave handoffs or cleanup state visible.
+- **Ongoing**: use housekeeping to prune stale state, and use skill/workflow updates when repeated patterns deserve automation.
+
 ## Capabilities
 
 - Scoped recall for reusable lessons, failure signatures, decisions, and gotchas.
@@ -21,6 +30,8 @@ Coding agents are usually stateless between runs. One agent may edit a file whil
 - Reflection records for durable lessons, failure signatures, cleanup decisions, and staged harness improvements.
 - A local view of active memories, locks, tasks, refinements, and signals.
 - Optional workspace `.octocode/` repo context projections that act like a generated LLM Wiki over the awareness store.
+- Housekeeping commands for stale locks, redundant memories, old signals, refinements, and docs drift.
+- A path from repeated failures to better skills: mine weaknesses, export guidance candidates, then update skills with `octocode-skills` or the `npx octocode` CLI.
 
 ## Operating Model
 
@@ -29,10 +40,10 @@ The skill uses a shared local SQLite store under the user's global Octocode home
 The mental model is:
 
 ```text
-ATTEND -> CLAIM -> WORK -> VERIFY -> REFLECT -> PROJECT -> HAND OFF
+ATTEND -> CLAIM -> WORK -> COMMUNICATE -> VERIFY -> REFLECT -> PROJECT -> HOUSEKEEP -> HAND OFF
 ```
 
-An agent attends to current state, claims files when editing, works under that claim, records verification, reflects durable lessons, refreshes repo context when useful, and leaves handoffs visible.
+An agent attends to current state, claims files when editing, works under that claim, communicates conflicts or decisions, records verification, reflects durable lessons, refreshes repo context when useful, cleans stale state, and leaves handoffs visible.
 
 Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
 
@@ -50,7 +61,9 @@ From there, the agent should make the awareness layer visible in plain language:
 - what verification is still owed,
 - what it saved for the next run.
 
-If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent can call `npx @octocodeai/octocode-awareness` or `node scripts/awareness.mjs` manually from the bundled skill folder. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Start technical onboarding with `references/full-flow.md`. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
+If automatic hooks are available in your agent host, they can enforce parts of this flow. Otherwise, the agent should call `node scripts/awareness.mjs` from the bundled skill folder, or the repo-local `dist/bin/awareness.js` when working in this package; use `npx @octocodeai/octocode-awareness` only when no local CLI exists. The exact commands live in `SKILL.md`, `references/`, and `scripts/` because those files are for agents and maintainers, not for the user-facing overview. Start technical onboarding with `references/full-flow.md`. Older prompts that name `octocode-reflection` or `octocode-agent-communication` should load this skill.
+
+When the agent sees repeated workflow friction, ask it to improve the workflow rather than only recording another note. It should use `octocode-skills` when installed, or `npx octocode` to install/manage skills; the user-facing Octocode guide starts at `https://octocode.ai`.
 
 ## Storage And Recall
 
@@ -74,6 +87,8 @@ npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness -
 The path form is for agents that already know where bundled skills live. They provide that local folder path, and the Octocode CLI installs from it without the awareness package trying to infer host-specific skill locations. A registry fallback is `npx octocode skill --name octocode-awareness`.
 
 Optional hooks can make awareness more automatic. Users can start with manual coordination and add host-specific automation later.
+
+Hooks are the strongest way to make awareness operations reliable for agents: pre-edit hooks claim files, post-edit hooks mark work as pending verification, stop hooks prevent silent unverified conclusions, and prompt/session hooks deliver context and capture handoffs.
 
 ## Maintainer Notes
 

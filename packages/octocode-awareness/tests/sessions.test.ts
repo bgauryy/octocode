@@ -23,8 +23,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { initDb, tableColumns } from '../src/db.js';
-import { insertSession, endSession, getSession, listSessions } from '../src/sessions.js';
+import { insertSession, endSession, getSession, listSessions, getOrCreateSession } from '../src/sessions.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -442,5 +445,49 @@ describe('listSessions', () => {
 
     expect(listSessions(db, { agentId: 'agent-Z' })).toHaveLength(0);
     expect(listSessions(db, { workspacePath: '/no-such-path' })).toHaveLength(0);
+  });
+});
+
+// ─── workspace-scope symlink stability (regression) ───────────────────────────
+//
+// insertSession/listSessions/getOrCreateSession used to store/query
+// workspace_path verbatim with no normalization, unlike memory/lock/signal
+// which resolve through fillScope. A session started via a symlinked
+// workspace path could silently never be found via the real path (or a
+// getOrCreateSession call for the "same" workspace could open a duplicate
+// session instead of reusing the active one).
+
+describe('workspace-scope symlink stability (regression)', () => {
+  function tempDirWithLink(): { real: string; link: string; base: string } {
+    const base = mkdtempSync(join(tmpdir(), 'oc-sessions-scope-'));
+    const real = join(base, 'real');
+    const link = join(base, 'link');
+    mkdirSync(real, { recursive: true });
+    symlinkSync(real, link);
+    return { real, link, base };
+  }
+
+  it('a session started via a symlinked workspace path is found via the real path', () => {
+    const db = freshDb();
+    const { real, link, base } = tempDirWithLink();
+    try {
+      const { session_id } = insertSession(db, { agentId: 'agent-1', workspacePath: link });
+      const results = listSessions(db, { workspacePath: real });
+      expect(results.map((s) => s.session_id)).toContain(session_id);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('getOrCreateSession reuses the active session regardless of symlink form', () => {
+    const db = freshDb();
+    const { real, link, base } = tempDirWithLink();
+    try {
+      const first = getOrCreateSession(db, { agentId: 'agent-1', workspacePath: real });
+      const second = getOrCreateSession(db, { agentId: 'agent-1', workspacePath: link });
+      expect(second).toBe(first);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

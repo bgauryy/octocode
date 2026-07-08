@@ -468,6 +468,10 @@ export const schemas = {
         .max(10)
         .optional()
         .describe("Importance ceiling."),
+      workspace_path: workspacePath.optional().describe("Workspace scope."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repo scope."),
+      ref: refScope.optional().describe("Ref scope."),
       dry_run: z.boolean().default(false).describe("Preview only."),
     })
     .strict()
@@ -793,6 +797,7 @@ export const examples = {
   },
   forget_memory: {
     tags: ["tag"],
+    workspace_path: "/repo",
     max_importance: 3,
     dry_run: true,
   },

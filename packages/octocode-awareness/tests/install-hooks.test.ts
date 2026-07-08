@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hooksInstallUsage, runHooksInstall } from '../src/hooks-install.js';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(TEST_DIR, '../../..');
@@ -14,6 +15,14 @@ const SCRIPT = resolve(
 const SKILL_SCRIPT = resolve(
   REPO_ROOT,
   'packages/octocode-awareness/skills/octocode-awareness/scripts/awareness.mjs',
+);
+const SKILL_INSTALL_SCRIPT = resolve(
+  REPO_ROOT,
+  'packages/octocode-awareness/skills/octocode-awareness/scripts/install.mjs',
+);
+const SKILL_SMOKE_SCRIPT = resolve(
+  REPO_ROOT,
+  'packages/octocode-awareness/skills/octocode-awareness/scripts/smoke-multi-agent.mjs',
 );
 const NODE = process.execPath;
 
@@ -38,6 +47,99 @@ function runInstallHooksRaw(args: string[], script = SCRIPT) {
 }
 
 describe('install-hooks', () => {
+  it('runs the hook installer directly for help, install, strict check, and remove', () => {
+    expect(hooksInstallUsage()).toContain('hooks install|check|remove');
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-direct-hooks-'));
+    const hookDir = resolve(REPO_ROOT, 'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks');
+    try {
+      const help = runHooksInstall(['--help'], { cwd: projectDir, hookDir });
+      expect(help.exitCode).toBe(0);
+      expect(help.text).toContain('--host codex');
+
+      const dryRun = runHooksInstall(['--host', 'codex', '--project-dir', projectDir, '--dry-run'], { cwd: projectDir, hookDir });
+      expect(dryRun.exitCode).toBe(0);
+      expect(dryRun.payload).toMatchObject({ action: 'dry-run', host: 'codex', changed: true });
+
+      const installed = runHooksInstall(['--host', 'codex', '--project-dir', projectDir], { cwd: projectDir, hookDir });
+      expect(installed.exitCode).toBe(0);
+      expect(installed.payload).toMatchObject({ action: 'install', host: 'codex' });
+
+      const check = runHooksInstall(['--host', 'codex', '--project-dir', projectDir, '--check', '--strict'], { cwd: projectDir, hookDir });
+      expect(check.exitCode).toBe(0);
+      expect(check.payload).toMatchObject({ ok: true, action: 'check', strict: true });
+
+      const remove = runHooksInstall(['--host', 'codex', '--project-dir', projectDir, '--remove', '--dry-run'], { cwd: projectDir, hookDir });
+      expect(remove.exitCode).toBe(0);
+      expect(remove.payload).toMatchObject({ action: 'dry-run', host: 'codex' });
+
+      const cursor = runHooksInstall(['--host', 'cursor', '--project-dir', projectDir, '--dry-run'], { cwd: projectDir, hookDir });
+      expect(cursor.exitCode).toBe(0);
+      expect(cursor.payload).toMatchObject({ action: 'dry-run', host: 'cursor', changed: true });
+
+      const globalClaude = runHooksInstall(['--host', 'claude', '--global', '--dry-run'], {
+        cwd: projectDir,
+        homeDir: projectDir,
+        hookDir,
+      });
+      expect(globalClaude.exitCode).toBe(0);
+      expect(globalClaude.payload).toMatchObject({ action: 'dry-run', host: 'claude' });
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports direct installer validation failures', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-direct-hooks-fail-'));
+    const hookDir = resolve(REPO_ROOT, 'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks');
+    try {
+      expect(runHooksInstall(['--global', '--project-dir', projectDir], { cwd: projectDir, hookDir }).payload).toMatchObject({
+        ok: false,
+        error: 'use either --global or --project-dir, not both',
+      });
+      expect(runHooksInstall(['--check'], { cwd: projectDir, hookDir }).payload).toMatchObject({
+        ok: false,
+        error: 'hooks check requires --host claude, --host codex, or --host cursor',
+      });
+      expect(runHooksInstall(['--host', 'unknown'], { cwd: projectDir, hookDir }).payload).toMatchObject({
+        ok: false,
+        error: 'invalid --host; expected claude, codex, or cursor',
+      });
+      mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
+      writeFileSync(resolve(projectDir, '.codex/hooks.json'), '{not json');
+      expect(runHooksInstall(['--host', 'codex', '--project-dir', projectDir], { cwd: projectDir, hookDir }).payload).toMatchObject({
+        ok: false,
+      });
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('skill install script prints the hook init flow without SQLite warnings', () => {
+    const result = spawnSync(NODE, [SKILL_INSTALL_SCRIPT, '--check-only'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stderr).not.toContain('ExperimentalWarning');
+    const parsed = JSON.parse(result.stdout) as {
+      commands: Record<string, string>;
+      next_steps: string[];
+    };
+    expect(parsed.commands.hooks_preview_codex).toContain('hooks install --host codex');
+    expect(parsed.commands.hooks_install_cursor).toContain('hooks install --host cursor');
+    expect(parsed.next_steps.join('\n')).toContain('SKILL.md frontmatter is not enough');
+  });
+
+  it('skill smoke script help is quiet about node:sqlite ExperimentalWarning', () => {
+    const result = spawnSync(NODE, [SKILL_SMOKE_SCRIPT, '--help'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
+    expect(result.stdout).toContain('smoke-multi-agent');
+    expect(result.stderr).not.toContain('ExperimentalWarning');
+  });
+
   it('rejects host shortcut aliases', () => {
     const result = spawnSync(NODE, [SCRIPT, 'hooks', 'install', '--codex', '--dry-run'], {
       encoding: 'utf8',

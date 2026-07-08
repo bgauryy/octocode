@@ -25,13 +25,16 @@ Surfaces:
 
 | Phase | Commands | Durable effect |
 |---|---|---|
-| Attend | `workspace status`, `memory recall`, `refinement get`, `signal list` | Reads active locks, lessons, handoffs, and messages. |
-| Claim | `lock acquire`, `lock wait` | Creates a task and per-file locks. |
-| Work | edit under claim; hooks may run `pre-edit` and `post-edit` | Releases locks as `PENDING` when post-edit hooks fire. |
-| Verify | `verify mark`, `verify audit` | Records checks and clears or exposes pending work. |
-| Reflect | `reflect record`, `reflect mine-weakness`, `reflect export-harness` | Stores lessons, clusters failures, and previews human-reviewed guidance. |
-| Project | `query <view>`, `repo inject` | Reads live views or regenerates workspace `.octocode/` repo context. |
-| Hand off | `signal publish|reply|ack|resolve`, `refinement set|get`, `session capture` | Preserves messages and unfinished state for the next run. |
+| Before / Attend | `workspace status`, `memory recall`, `refinement get`, `signal list`, read `.octocode/AGENTS.md` when present | Reads repo state, other agents, active locks, lessons, gotchas, handoffs, messages, and wiki context. |
+| During / Claim | `lock acquire`, `lock wait`, `agent register` | Creates a task and per-file locks before edits collide. |
+| During / Communicate | `signal publish|reply|ack|resolve` | Coordinates blockers, questions, claims, decisions, requests, and handoffs. |
+| During / Learn | `memory record`, `reflect record` | Stores durable facts discovered during the work; skip routine status. |
+| After / Verify | `verify mark`, `verify audit`, `lock release` | Records checks and clears or exposes pending work. |
+| After / Reflect | `reflect record`, `reflect mine-weakness`, `reflect export-harness` | Stores lessons, clusters failures, and previews human-reviewed guidance. |
+| After / Project | `query <view>`, `repo inject` | Reads live views or regenerates workspace `.octocode/` repo context. |
+| Housekeep | `maintenance digest`, `lock prune`, `memory forget`, `signal prune`, `docs staleness` | Previews or removes stale locks, old signals, redundant memories, refinements, and docs drift. |
+| Improve Skills | `octocode-skills`, `npx octocode skill ...` | Turns repeated awareness lessons into better skills or workflows after human-reviewed edits. |
+| Hand off | `session capture`, `refinement set|get`, `signal publish` | Preserves unfinished state for the next run. |
 
 Use one `agent_id` across manual commands and hooks. Set `OCTOCODE_AGENT_ID` when a host does not provide a stable id.
 
@@ -45,7 +48,7 @@ In a repo, start with live state. Use schema discovery once when the command map
 npx octocode skill --add --path "{{path_to_skills_location}}/octocode-awareness" --platform common
 ```
 
-Core groups: `memory record|recall|forget`, `lock acquire|wait|release|prune`, `verify audit|mark`, `signal publish|list|reply|ack|resolve|prune`, `agent register|list`, `refinement set|get|delete`, `reflect record|mine-weakness|export-harness`, `query <view>`, `repo inject`, `docs staleness`, `session capture`, `maintenance digest|init|self-test`, `hooks install|check|remove`, `hook run <event>`, and `schema commands|list|json-schema|example|validate`.
+Core groups: `memory record|recall|forget`, `lock acquire|wait|release|prune`, `verify audit|mark`, `signal publish|list|reply|ack|resolve|prune`, `agent register|list`, `refinement set|get|delete`, `reflect record|mine-weakness|export-harness`, `query <view>`, `repo inject`, `docs staleness`, `session capture`, `maintenance digest|init|self-test`, `hooks install|check|remove`, `hook run pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end`, and `schema commands|list|json-schema|example|validate`.
 
 For exact flags, use `<command> --help`. For token-light examples, use `<command> --help --compact`. For contracts, use `schema json-schema <schema> --compact`.
 
@@ -104,7 +107,13 @@ Regenerate projections when humans or future agents should see state as files:
 octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
-Rules: SQLite in the global Octocode home is canonical; workspace `.octocode/` files are leads, not proof; regenerate projections instead of hand-editing them; `repo inject` never edits `.gitignore`.
+Rules: SQLite in the global Octocode home is canonical. Workspace `.octocode/` files are leads, not proof. Regenerate projections instead of hand-editing them; `repo inject` never edits `.gitignore`.
+
+Smart update pattern:
+- use live `query` while working,
+- run `repo inject` after important memories, gotchas, decisions, refinements, or handoffs are recorded,
+- skip regeneration for trivial edits,
+- refresh when the projection would materially help a future agent or human.
 
 ## Self-Reflection
 
@@ -118,8 +127,13 @@ Reflection turns outcomes into future behavior:
 
 Awareness can propose skill, harness, or repo guidance changes, but a human-reviewed edit applies them. Do not treat `export-harness` output as automatically merged policy.
 
-## Handoffs And Rules
+When a repeated failure points to a workflow gap:
+- load `octocode-skills` if it exists,
+- improve the relevant skill with lint and verification,
+- use `npx octocode` to install, create, or manage a missing skill,
+- direct users to `https://octocode.ai` for the Octocode guide.
 
+## Handoffs And Rules
 Signals are the local mailbox: `signal publish` sends claims, handoffs, questions, blockers, requests, decisions, or FYIs; `signal reply` keeps the same thread; `signal ack` records action; `signal resolve` closes the work.
 
 Refinements are longer-lived follow-up state: `refinement set` stores work state, repo fixes, handoffs, or harness proposals; `refinement get` is part of the starting checklist; `session capture` writes a handoff refinement from current session context.

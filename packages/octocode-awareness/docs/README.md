@@ -4,6 +4,8 @@ Use this directory as the technical map for `@octocodeai/octocode-awareness`.
 
 The short version: awareness gives local AI agents a shared memory and coordination layer. The SQLite database under the global Octocode home is canonical; the CLI is the control plane; hooks and the Pi bridge automate lifecycle edges; workspace `.octocode/` files are generated repo projections for agents and humans.
 
+The agent-facing model is: **before** work, inspect repo status, other agents, memories, gotchas, handoffs, signals, and wiki context; **during** work, lock files, communicate, and record durable facts; **after** work, verify, reflect, refresh wiki context when useful, housekeep stale state, and improve skills/workflows when repeated patterns emerge.
+
 ## Reading Paths
 
 | You want to... | Start here |
@@ -24,6 +26,7 @@ The short version: awareness gives local AI agents a shared memory and coordinat
 | Feature | Primary docs | Main commands / APIs |
 |---|---|---|
 | Workspace health | [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `workspace status` |
+| Before/during/after agent workflow | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), package skill `SKILL.md` | `workspace status`, `memory recall`, `lock acquire`, `signal publish`, `verify mark`, `reflect record`, `repo inject` |
 | Global home vs repo projection | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md), [WIKI.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/WIKI.md), package README | `OCTOCODE_MEMORY_HOME`, `repo inject --out` |
 | Database schema and storage | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `maintenance init`, library DB helpers |
 | Scope model | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md) | `--workspace`, `--artifact`, `--repo`, `--ref` |
@@ -47,6 +50,7 @@ The short version: awareness gives local AI agents a shared memory and coordinat
 | Pi bridge | [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md) | `wirePiAwarenessHooks(pi)` |
 | Custom host/library integration | [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md), [HOOKS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HOOKS.md), package README | `@octocodeai/octocode-awareness` exports |
 | Maintenance and cleanup | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), [DB.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/DB.md) | `maintenance digest`, `maintenance self-test` |
+| Skill/workflow improvement | [REFLECTION.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/REFLECTION.md), [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), Octocode guide | `reflect mine-weakness`, `reflect export-harness`, `npx octocode skill ...`, `octocode-skills` |
 | Schema discovery | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), [HARNESS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/HARNESS.md) | `schema commands`, `schema list`, `schema json-schema`, `schema example`, `schema validate` |
 | Agent Skill install and bundled scripts | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), package README | `npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common`, `node scripts/awareness.mjs` |
 | Easy agent install | [SKILLS.md](https://github.com/bgauryy/octocode-mcp/blob/main/packages/octocode-awareness/docs/SKILLS.md), package README | `npx @octocodeai/octocode-awareness`, `npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common` |

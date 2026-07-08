@@ -14,7 +14,7 @@ import {
   normalizeTags, normalizeReferences, normalizeLabel, normalizeFilePath,
   rowToMemory, parseJsonList,
 } from './helpers.js';
-import { fillScope } from './git.js';
+import { fillScope, normalizeWorkspacePath } from './git.js';
 import { hasFts, ftsTermsForRow, replaceMemoryReferences } from './db.js';
 import type {
   InsertMemoryParams, InsertMemoryResult, GetMemoryParams, GetMemoryResult,
@@ -850,12 +850,22 @@ export function getMemory(db: DatabaseSync, params: GetMemoryParams = {}): GetMe
 export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): ForgetMemoryResult {
   const { memoryIds = [], tags = [], before, dryRun = false } = params;
   let { maxImportance } = params;
+  const scope = fillScope(
+    {
+      workspace_path: params.workspacePath ?? null,
+      artifact: normalizeArtifact(params.artifact),
+      repo: params.repo ?? null,
+      ref: params.ref ?? null,
+    },
+    params.cwd ?? params.workspacePath ?? process.cwd(),
+  );
 
   // Two independent OR-combined selector groups so filters don't cross-contaminate:
-  //   Group 1 — explicit IDs: always deleted, no importance or tag filter applied.
+  //   Group 1 — explicit IDs: selected directly, no importance or tag filter applied.
   //             (combining id + maxImportance as AND silently deleted nothing when the
   //             target memory had higher importance than the ceiling — docstring says OR.)
   //   Group 2 — attribute-based: tags/age/importance with salience-floor guard.
+  // Optional scope flags are AND-combined with either selector group.
   const selectorGroups: string[] = [];
   const bindParams: (string | number)[] = [];
   let salienceFloorApplied = false;
@@ -897,10 +907,32 @@ export function forgetMemory(db: DatabaseSync, params: ForgetMemoryParams): Forg
     throw new Error('forgetMemory requires at least one filter: memoryIds, tags, before, or maxImportance');
   }
 
-  const where = selectorGroups.join(' OR ');
+  const scopeConds: string[] = [];
+  const scopeBinds: (string | number)[] = [];
+  if (params.workspacePath && scope.workspace_path) {
+    scopeConds.push('workspace_path = ?');
+    scopeBinds.push(scope.workspace_path);
+  }
+  if (params.artifact && scope.artifact) {
+    scopeConds.push('artifact = ?');
+    scopeBinds.push(scope.artifact);
+  }
+  if (params.repo && scope.repo) {
+    scopeConds.push('repo = ?');
+    scopeBinds.push(scope.repo);
+  }
+  if (params.ref && scope.ref) {
+    scopeConds.push('ref = ?');
+    scopeBinds.push(scope.ref);
+  }
+
+  const selectorWhere = selectorGroups.join(' OR ');
+  const where = scopeConds.length > 0
+    ? `(${selectorWhere}) AND ${scopeConds.join(' AND ')}`
+    : selectorWhere;
   const rows = db.prepare(
     `SELECT memory_id FROM memories WHERE ${where}`
-  ).all(...bindParams) as unknown as Array<{ memory_id: string }>;
+  ).all(...bindParams, ...scopeBinds) as unknown as Array<{ memory_id: string }>;
   const ids = rows.map(r => r.memory_id);
 
   if (dryRun) {
@@ -1001,7 +1033,8 @@ function sigTokens(sig: string): Set<string> {
 export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}): MineWeaknessResult {
   const { minCount = 2, limit = 20, cwd } = params;
   const wsPath = params.workspacePath
-    ?? (cwd ? fillScope({ workspace_path: null }, cwd).workspace_path : null);
+    ? normalizeWorkspacePath(params.workspacePath, params.workspacePath)
+    : (cwd ? normalizeWorkspacePath(null, cwd) : null);
   const artifact = normalizeArtifact(params.artifact);
 
   const conditions: string[] = ["failure_signature IS NOT NULL", "state = 'ACTIVE'"];
@@ -1010,8 +1043,6 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
   if (artifact) { conditions.push('(artifact = ? OR artifact IS NULL)'); bindParams.push(artifact); }
   if (params.agentId) { conditions.push('agent_id = ?'); bindParams.push(params.agentId); }
 
-  // Fetch extra rows so merging surface variants doesn't leave the final list short.
-  const fetchLimit = limit * 3;
   type ClusterRow = { failure_signature: string; freq: number; avg_imp: number; score: number; ids: string; labels: string };
   const rows = db.prepare(`
     SELECT failure_signature,
@@ -1023,10 +1054,8 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
     FROM memories
     WHERE ${conditions.join(' AND ')}
     GROUP BY failure_signature
-    HAVING freq >= ?
     ORDER BY score DESC
-    LIMIT ?
-  `).all(...bindParams, minCount, fetchLimit) as unknown as ClusterRow[];
+  `).all(...bindParams) as unknown as ClusterRow[];
 
   // Phase 1: merge rows that share the same base_signature (differ only in |surface:Z).
   // Key = stripped signature; value = merged cluster accumulators.
@@ -1039,6 +1068,7 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
     ids: string[];
     labels: Set<string>;
     surfaces: Set<string>;
+    raw_score: number;
   }
   const mergedMap = new Map<string, Merged>();
   for (const row of rows) {
@@ -1053,7 +1083,10 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
       for (const l of row.labels.split(',').filter(Boolean)) existing.labels.add(l);
       if (surface) existing.surfaces.add(surface);
       // Keep the raw signature with the highest original score for rep lookup
-      if (row.score > existing.total_score - row.score) existing.raw_sig = row.failure_signature;
+      if (row.score > existing.raw_score) {
+        existing.raw_sig = row.failure_signature;
+        existing.raw_score = row.score;
+      }
     } else {
       mergedMap.set(base, {
         base_sig: base,
@@ -1064,12 +1097,15 @@ export function mineWeakness(db: DatabaseSync, params: MineWeaknessParams = {}):
         ids: row.ids.split(','),
         labels: new Set(row.labels.split(',').filter(Boolean)),
         surfaces: new Set(surface ? [surface] : []),
+        raw_score: row.score,
       });
     }
   }
 
   // Re-sort merged clusters by total_score DESC.
-  const merged = [...mergedMap.values()].sort((a, b) => b.total_score - a.total_score);
+  const merged = [...mergedMap.values()]
+    .filter(m => m.total_freq >= minCount)
+    .sort((a, b) => b.total_score - a.total_score);
 
   // Phase 2: batch-fetch representatives for all distinct base signatures.
   type RepRow = { failure_signature: string; observation: string };

@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,14 @@ const NODE = process.execPath;
 
 function mktemp(): string {
   return mkdtempSync(join(tmpdir(), 'oc-cli-test-'));
+}
+
+function initGitRepo(root: string): string {
+  const result = spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8', timeout: 5000 });
+  expect(result.status, result.stderr || result.stdout).toBe(0);
+  const gitRoot = spawnSync('git', ['-C', root, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 5000 });
+  expect(gitRoot.status, gitRoot.stderr || gitRoot.stdout).toBe(0);
+  return gitRoot.stdout.trim();
 }
 
 interface RunResult {
@@ -77,7 +85,7 @@ describe('package main direct execution', () => {
       expect(result.status, `stderr=${result.stderr} stdout=${result.stdout}`).toBe(0);
       const parsed = JSON.parse(result.stdout) as Record<string, unknown>;
       expect(parsed['ok']).toBe(true);
-      expect(parsed['workspace_path']).toBe(dir);
+      expect(parsed['workspace_path']).toBe(realpathSync(dir));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -328,6 +336,60 @@ describe('memory recall', () => {
     const result = ok(db, ['memory', 'recall', '--query', 'uniqueaccesstoken77', '--min-importance', '1']);
     const found = (result['memories'] as Record<string, unknown>[]).find(m => m['memory_id'] === memId);
     if (found) expect(found['access_count'] as number).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ─── memory forget ────────────────────────────────────────────────────────────
+
+describe('memory forget', () => {
+  it('accepts --workspace and scopes broad selectors to that workspace', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    const wsA = join(dir, 'workspace-a');
+    const wsB = join(dir, 'workspace-b');
+    mkdirSync(wsA, { recursive: true });
+    mkdirSync(wsB, { recursive: true });
+    try {
+      const first = ok(db, [
+        'memory', 'record',
+        '--agent-id', 'a',
+        '--task-context', 'forget workspace a',
+        '--observation', 'deprecated scoped cli memory a',
+        '--importance', '3',
+        '--tag', 'deprecated',
+        '--workspace', wsA,
+      ]);
+      const second = ok(db, [
+        'memory', 'record',
+        '--agent-id', 'a',
+        '--task-context', 'forget workspace b',
+        '--observation', 'deprecated scoped cli memory b',
+        '--importance', '3',
+        '--tag', 'deprecated',
+        '--workspace', wsB,
+      ]);
+      const firstId = (first['memory'] as Record<string, unknown>)['memory_id'];
+      const secondId = (second['memory'] as Record<string, unknown>)['memory_id'];
+
+      const dryRun = ok(db, [
+        'memory', 'forget',
+        '--tag', 'deprecated',
+        '--workspace', wsA,
+        '--dry-run',
+      ]);
+      expect(dryRun['would_delete']).toBe(1);
+      expect(dryRun['memory_ids']).toEqual([firstId]);
+
+      const deleted = ok(db, ['memory', 'forget', '--tag', 'deprecated', '--workspace', wsA]);
+      expect(deleted['deleted']).toBe(1);
+      expect(deleted['memory_ids']).toEqual([firstId]);
+
+      const recalled = ok(db, ['memory', 'recall', '--query', 'deprecated scoped cli memory', '--tag', 'deprecated', '--workspace', wsB]);
+      const memories = recalled['memories'] as Array<Record<string, unknown>>;
+      expect(memories.some((m) => m['memory_id'] === secondId)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -703,6 +765,47 @@ describe('workspace status', () => {
     const result = ok(db, ['workspace', 'status']);
     expect(typeof result['memory_labels']).toBe('object');
   });
+
+  it('normalizes package-subdir workspace across memory record, lock acquire, and status', () => {
+    const root = mktemp();
+    const dbPath = join(root, 'test.sqlite3');
+    const pkg = join(root, 'packages/octocode-awareness');
+    mkdirSync(join(pkg, 'src'), { recursive: true });
+    writeFileSync(join(pkg, 'src/a.ts'), 'export const a = 1;\n');
+    const expectedRoot = initGitRepo(root);
+    try {
+      const recorded = ok(dbPath, [
+        'memory', 'record',
+        '--agent-id', 'agent-scope',
+        '--task-context', 'scope normalization',
+        '--observation', 'package subdir memory should be visible from status',
+        '--importance', '6',
+        '--tag', 'scope-normalization',
+        '--workspace', pkg,
+      ]);
+      const memory = recorded['memory'] as Record<string, unknown>;
+      expect(memory['workspace_path']).toBe(expectedRoot);
+
+      const claimed = ok(dbPath, [
+        'lock', 'acquire',
+        '--agent-id', 'agent-scope',
+        '--workspace', pkg,
+        '--target-file', 'src/a.ts',
+        '--rationale', 'scope normalization',
+        '--test-plan', 'focused cli test',
+      ]);
+      const task = claimed['task'] as Record<string, unknown>;
+      expect(task['workspace_path']).toBe(expectedRoot);
+      expect(task['target_files']).toEqual([join(pkg, 'src/a.ts')]);
+
+      const status = ok(dbPath, ['workspace', 'status', '--workspace', pkg]);
+      expect(status['workspace_path']).toBe(expectedRoot);
+      expect(status['memory_count'] as number).toBeGreaterThanOrEqual(1);
+      expect(status['locks'] as Record<string, unknown>[]).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── agent registry ───────────────────────────────────────────────────────────
@@ -780,7 +883,8 @@ describe('CLI', () => {
     const r = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('memory record');
-    expect(r.stdout).toContain('npx @octocodeai/octocode-awareness <command>');
+    expect(r.stdout).toContain('local-first: use octocode-awareness or a bundled local node path when present');
+    expect(r.stdout).toContain('fallback: npx @octocodeai/octocode-awareness <command>');
     expect(r.stdout).toContain('npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common');
     expect(r.stdout).toContain('octocode-awareness schema commands --compact');
     expect(r.stdout).not.toContain('tell-memory');
@@ -791,7 +895,8 @@ describe('CLI', () => {
     const r = spawnSync(NODE, [SCRIPT], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('easy install:');
-    expect(r.stdout).toContain('npx @octocodeai/octocode-awareness');
+    expect(r.stdout).toContain('If the CLI is bundled locally, tell your agent to run that local CLI');
+    expect(r.stdout).toContain('Registry fallback only when no local CLI exists');
     expect(r.stdout).toContain('npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common');
   });
 
@@ -799,7 +904,8 @@ describe('CLI', () => {
     const r = spawnSync(NODE, [SCRIPT, '--help', '--compact'], { encoding: 'utf8', timeout: 5000 });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('canonical noun/verb CLI');
-    expect(r.stdout).toContain('npx @octocodeai/octocode-awareness <command>');
+    expect(r.stdout).toContain('local-first: octocode-awareness <command>');
+    expect(r.stdout).toContain('fallback: npx @octocodeai/octocode-awareness <command>');
     expect(r.stdout).toContain('schema commands --compact');
     expect(r.stdout.split('\n').filter(Boolean).length).toBeLessThanOrEqual(8);
   });
@@ -1044,6 +1150,18 @@ describe('CLI', () => {
     expect(refinement.status).toBe(0);
     const refinementSchema = JSON.parse(refinement.stdout) as { properties: Record<string, Record<string, unknown>> };
     expect(refinementSchema.properties['quality']?.['enum']).toEqual(['good', 'bad', 'handoff']);
+  });
+
+  it('schema exposes implemented forget scope filters', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    expect(existsSync(schemaScript), 'generated schema.mjs must exist after build').toBe(true);
+    const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'forget_memory'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
+    expect(parsed.properties['workspace_path']).toBeDefined();
+    expect(parsed.properties['artifact']).toBeDefined();
+    expect(parsed.properties['repo']).toBeDefined();
+    expect(parsed.properties['ref']).toBeDefined();
   });
 
   it('supports canonical noun/verb CLI commands', () => {

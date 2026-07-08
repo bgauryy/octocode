@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db.js';
@@ -65,6 +66,36 @@ describe('preFlightIntent', () => {
         expect(result.task.locks[0]!.file_path).toBe(join(dir, 'src/a.ts'));
       }
     } finally { cleanup(); }
+  });
+
+  it('stores git subdir workspace claims at repo root while resolving files from the subdir', () => {
+    const db = freshDb();
+    const repo = mkdtempSync(join(tmpdir(), 'oc-intent-git-'));
+    const pkg = join(repo, 'packages/pkg-a');
+    mkdirSync(join(pkg, 'src'), { recursive: true });
+    const git = spawnSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8' });
+    expect(git.status, git.stderr || git.stdout).toBe(0);
+    const gitRoot = spawnSync('git', ['-C', pkg, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+    expect(gitRoot.status, gitRoot.stderr || gitRoot.stdout).toBe(0);
+    const expectedRoot = gitRoot.stdout.trim();
+    try {
+      const result = preFlightIntent(db, {
+        agentId: 'agent-a',
+        workspacePath: pkg,
+        targetFiles: ['src/a.ts'],
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.task.workspace_path).toBe(expectedRoot);
+        expect(result.task.target_files).toEqual([join(pkg, 'src/a.ts')]);
+        const stored = db.prepare('SELECT workspace_path, files_json FROM tasks WHERE task_id = ?')
+          .get(result.task.task_id) as { workspace_path: string; files_json: string };
+        expect(stored.workspace_path).toBe(expectedRoot);
+        expect(JSON.parse(stored.files_json)).toEqual([join(pkg, 'src/a.ts')]);
+      }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it('same agent can re-claim without conflict', () => {

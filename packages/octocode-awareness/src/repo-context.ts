@@ -895,7 +895,7 @@ export function injectRepoContext(db: DatabaseSync, params: RepoContextInjectPar
   ], sections['files']?.rows ?? []));
   write(join('references', 'commands.md'), renderReferenceDoc('Awareness Commands', [
     '`octocode-awareness query <view>` reads the SQLite store for agents and scripts.',
-    '`npx @octocodeai/octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view.',
+    '`octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view; use `npx @octocodeai/octocode-awareness` only when no local CLI exists.',
     '`octocode-awareness repo inject --out .octocode` regenerates these Markdown, CSV, and HTML projections.',
   ]));
   write(join('references', 'testing.md'), renderReferenceDoc('Testing And Verification', [

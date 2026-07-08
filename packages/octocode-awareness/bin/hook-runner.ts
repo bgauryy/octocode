@@ -7,13 +7,14 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { registerAgent } from '../src/agents.js';
 import { insertEditLog } from '../src/audit.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
+import { canonicalizePath } from '../src/git.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { auditUnverified } from '../src/verify.js';
 import { digest, notifyGet, sessionCapture } from '../src/maintenance.js';
@@ -148,31 +149,12 @@ function resolveHookPath(file: string, cwd = process.cwd()): string {
   return resolve(cwd, file);
 }
 
-// Canonicalize a path for containment comparison: resolve symlinks on the
-// longest existing prefix and keep the (possibly not-yet-created) tail. Without
-// this, a skill root under a symlinked dir (e.g. macOS /tmp -> /private/tmp) and
-// a cwd-derived candidate that Node has already realpath'd can land on different
-// symlink forms and slip past the check.
-function canonicalize(input: string): string {
-  let dir = resolve(input);
-  const tail: string[] = [];
-  // Walk up until an existing ancestor is found, then realpath it and rejoin.
-  for (let guard = 0; guard < 4096; guard += 1) {
-    try {
-      return tail.length ? join(realpathSync(dir), ...tail) : realpathSync(dir);
-    } catch {
-      const parent = dirname(dir);
-      if (parent === dir) return resolve(input); // reached filesystem root
-      tail.unshift(basename(dir));
-      dir = parent;
-    }
-  }
-  return resolve(input);
-}
-
 function isInsidePath(candidate: string, root: string): boolean {
-  const resolvedRoot = canonicalize(root);
-  const resolvedCandidate = canonicalize(candidate);
+  // Shared with the workspace-scope resolver (src/git.ts) so containment
+  // checks and scope keys always agree on symlinked paths (e.g. macOS
+  // /tmp -> /private/tmp) instead of maintaining two divergent copies.
+  const resolvedRoot = canonicalizePath(root);
+  const resolvedCandidate = canonicalizePath(candidate);
   if (resolvedCandidate === resolvedRoot) return true;
   // A real path is inside root iff its relative path neither escapes upward
   // (`..`) nor is absolute (different drive/root) — string prefixes are unsafe

@@ -8,8 +8,8 @@ process.on('warning', (w) => {
 // bin/hook-runner.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync2, readFileSync, realpathSync as realpathSync2, writeFileSync } from "node:fs";
-import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve5 } from "node:path";
+import { mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
+import { basename as basename2, isAbsolute as isAbsolute3, join as join3, relative, resolve as resolve6 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/helpers.ts
@@ -59,6 +59,63 @@ function normalizeArtifact(value) {
   return cleaned.length > 0 ? cleaned : null;
 }
 
+// src/git.ts
+import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { basename, dirname, join, resolve as resolve2 } from "node:path";
+function runCmd(cmd, args, cwd) {
+  try {
+    const r = spawnSync(cmd, args, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
+    return r.status === 0 ? r.stdout.trim() : null;
+  } catch {
+    return null;
+  }
+}
+function detectGit(cwd) {
+  const root = runCmd("git", ["-C", cwd ?? ".", "rev-parse", "--show-toplevel"]);
+  if (!root) return { is_repo: false };
+  const branch = runCmd("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"]);
+  const remote = runCmd("git", ["-C", root, "remote", "get-url", "origin"]);
+  const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
+  return { is_repo: true, root, repo: repoName, branch, remote };
+}
+function canonicalizePath(input) {
+  let dir = resolve2(input);
+  const tail = [];
+  for (let guard = 0; guard < 4096; guard += 1) {
+    try {
+      return tail.length ? join(realpathSync(dir), ...tail) : realpathSync(dir);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return resolve2(input);
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+  }
+  return resolve2(input);
+}
+function fillScope(partial, cwd) {
+  const explicitWorkspace = partial.workspace_path ? canonicalizePath(partial.workspace_path) : null;
+  const scope = {
+    workspace_path: explicitWorkspace,
+    artifact: partial.artifact ?? null,
+    repo: partial.repo ?? null,
+    ref: partial.ref ?? null
+  };
+  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
+  if (!git.is_repo) return scope;
+  if (git.root) scope.workspace_path = canonicalizePath(git.root);
+  if (!scope.repo && git.repo) scope.repo = git.repo;
+  if (!scope.ref && git.branch) scope.ref = git.branch;
+  return scope;
+}
+function normalizeWorkspacePath(workspacePath, cwd) {
+  const candidate = workspacePath ? resolve2(workspacePath) : cwd ? resolve2(cwd) : null;
+  const scope = fillScope({ workspace_path: candidate }, candidate ?? process.cwd());
+  if (scope.workspace_path) return scope.workspace_path;
+  return candidate;
+}
+
 // src/sql/agents.ts
 var AGENTS_UPSERT = `INSERT INTO agents (agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at)
    VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -73,7 +130,7 @@ var AGENTS_UPSERT = `INSERT INTO agents (agent_id, agent_name, workspace_path, a
 function registerAgent(db2, params) {
   const agentId2 = params.agentId;
   const agentName2 = params.agentName ?? "";
-  const workspacePath = params.workspacePath ?? null;
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const context = params.context ?? null;
   const now = utcNow();
@@ -120,30 +177,30 @@ function insertEditLog(db2, params) {
 // src/db.ts
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
-import { join, resolve as resolve2, dirname } from "node:path";
+import { join as join2, resolve as resolve3, dirname as dirname2 } from "node:path";
 import { homedir, platform } from "node:os";
 var DEFAULT_DB_NAME = "awareness.sqlite3";
 var MEMORY_HOME_ENV = "OCTOCODE_MEMORY_HOME";
 var _db;
 function memoryHome() {
   const configured = process.env[MEMORY_HOME_ENV];
-  if (configured?.trim()) return resolve2(configured.trim());
+  if (configured?.trim()) return resolve3(configured.trim());
   const h = homedir();
   const p = platform();
   if (p === "win32") {
-    const appData = process.env["APPDATA"] ?? join(h, "AppData", "Roaming");
-    return join(appData, ".octocode", "memory");
+    const appData = process.env["APPDATA"] ?? join2(h, "AppData", "Roaming");
+    return join2(appData, ".octocode", "memory");
   }
-  if (p === "darwin") return join(h, ".octocode", "memory");
-  const xdg = process.env["XDG_CONFIG_HOME"] ?? join(h, ".config");
-  return join(xdg, ".octocode", "memory");
+  if (p === "darwin") return join2(h, ".octocode", "memory");
+  const xdg = process.env["XDG_CONFIG_HOME"] ?? join2(h, ".config");
+  return join2(xdg, ".octocode", "memory");
 }
 function resolveDbPath(dbArg) {
-  if (dbArg) return resolve2(dbArg);
-  return join(memoryHome(), DEFAULT_DB_NAME);
+  if (dbArg) return resolve3(dbArg);
+  return join2(memoryHome(), DEFAULT_DB_NAME);
 }
 function connectDb(dbPath) {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  mkdirSync(dirname2(dbPath), { recursive: true });
   const db2 = new DatabaseSync(dbPath);
   db2.exec("PRAGMA foreign_keys = ON");
   db2.exec("PRAGMA busy_timeout = 5000");
@@ -538,7 +595,7 @@ function evictExpiredLocks(db2) {
 
 // src/intents.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { isAbsolute, resolve as resolve3 } from "node:path";
+import { isAbsolute, resolve as resolve4 } from "node:path";
 var MAX_LOCK_TTL_MS = 10 * 6e4;
 function effectiveTtlMs(ttlMs) {
   return Math.min(Math.max(1, ttlMs ?? MAX_LOCK_TTL_MS), MAX_LOCK_TTL_MS);
@@ -546,12 +603,16 @@ function effectiveTtlMs(ttlMs) {
 function expiresAtFromNow(ttlMs) {
   return new Date(Date.now() + effectiveTtlMs(ttlMs)).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
-function workspaceRoot(workspacePath) {
-  return workspacePath ? resolve3(workspacePath) : process.cwd();
+function workspaceScopeRoot(workspacePath) {
+  const candidate = workspacePath ?? process.cwd();
+  return normalizeWorkspacePath(candidate, candidate) ?? resolve4(candidate);
+}
+function workspaceFileBase(workspacePath) {
+  return workspacePath ? resolve4(workspacePath) : process.cwd();
 }
 function resolveTargetFiles(targetFiles = [], workspacePath) {
-  const root = workspaceRoot(workspacePath);
-  return targetFiles.map((file) => isAbsolute(file) ? resolve3(file) : resolve3(root, file));
+  const root = workspaceFileBase(workspacePath);
+  return targetFiles.map((file) => isAbsolute(file) ? resolve4(file) : resolve4(root, file));
 }
 function preFlightIntent(db2, params) {
   const {
@@ -568,9 +629,9 @@ function preFlightIntent(db2, params) {
   } = params;
   const taskId = "task_" + randomUUID2().replace(/-/g, "");
   const now = utcNow();
-  const wsPath = workspaceRoot(workspacePath);
+  const wsPath = workspaceScopeRoot(workspacePath);
   const artifactScope = normalizeArtifact(artifact2);
-  const absFiles = resolveTargetFiles(targetFiles, wsPath);
+  const absFiles = resolveTargetFiles(targetFiles, workspacePath);
   evictExpiredLocks(db2);
   db2.exec("BEGIN IMMEDIATE");
   try {
@@ -684,7 +745,7 @@ function releaseFileLock(db2, params) {
   }
   if (workspacePath) {
     whereClauses.push("ai.workspace_path = ?");
-    whereParams.push(workspaceRoot(workspacePath));
+    whereParams.push(workspaceScopeRoot(workspacePath));
   }
   if (artifactScope) {
     whereClauses.push("(ai.artifact = ? OR ai.artifact IS NULL)");
@@ -782,15 +843,16 @@ var TASK_LOG_INSERT_STALE_ABANDONED = `INSERT INTO task_log(event_id, task_id, a
 
 // src/verify.ts
 function auditUnverified(db2, params = {}) {
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const where = ["status = 'PENDING'"];
   const binds = [];
   if (params.agentId) {
     where.push("agent_id = ?");
     binds.push(params.agentId);
   }
-  if (params.workspacePath) {
+  if (workspacePath) {
     where.push("workspace_path = ?");
-    binds.push(params.workspacePath);
+    binds.push(workspacePath);
   }
   const artifact2 = normalizeArtifact(params.artifact);
   if (artifact2) {
@@ -846,9 +908,9 @@ function auditUnverified(db2, params = {}) {
       staleWhere.push("ai.agent_id = ?");
       staleBinds.push(params.agentId);
     }
-    if (params.workspacePath) {
+    if (workspacePath) {
       staleWhere.push("ai.workspace_path = ?");
-      staleBinds.push(params.workspacePath);
+      staleBinds.push(workspacePath);
     }
     if (artifact2) {
       staleWhere.push("(ai.artifact = ? OR ai.artifact IS NULL)");
@@ -900,41 +962,7 @@ function auditUnverified(db2, params = {}) {
 // src/maintenance.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
 import { randomUUID as randomUUID5 } from "node:crypto";
-import { isAbsolute as isAbsolute2, resolve as resolve4 } from "node:path";
-
-// src/git.ts
-import { spawnSync } from "node:child_process";
-import { basename } from "node:path";
-function runCmd(cmd, args, cwd) {
-  try {
-    const r = spawnSync(cmd, args, { cwd: cwd ?? process.cwd(), encoding: "utf8", timeout: 5e3 });
-    return r.status === 0 ? r.stdout.trim() : null;
-  } catch {
-    return null;
-  }
-}
-function detectGit(cwd) {
-  const root = runCmd("git", ["-C", cwd ?? ".", "rev-parse", "--show-toplevel"]);
-  if (!root) return { is_repo: false };
-  const branch = runCmd("git", ["-C", root, "rev-parse", "--abbrev-ref", "HEAD"]);
-  const remote = runCmd("git", ["-C", root, "remote", "get-url", "origin"]);
-  const repoName = remote ? (remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/) ?? [])[1] ?? basename(root) : basename(root);
-  return { is_repo: true, root, repo: repoName, branch, remote };
-}
-function fillScope(partial, cwd) {
-  const scope = {
-    workspace_path: partial.workspace_path ?? null,
-    artifact: partial.artifact ?? null,
-    repo: partial.repo ?? null,
-    ref: partial.ref ?? null
-  };
-  const git = detectGit(scope.workspace_path ?? cwd ?? process.cwd());
-  if (!git.is_repo) return scope;
-  if (git.root) scope.workspace_path = git.root;
-  if (!scope.repo && git.repo) scope.repo = git.repo;
-  if (!scope.ref && git.branch) scope.ref = git.branch;
-  return scope;
-}
+import { isAbsolute as isAbsolute2, resolve as resolve5 } from "node:path";
 
 // src/notifications.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
@@ -1076,12 +1104,13 @@ function pruneStale(db2, params = {}) {
   const expiredOnly = Boolean(params.expired_only ?? params.expiredOnly);
   const olderThanMinutes = params.older_than_minutes != null ? Number(params.older_than_minutes) : params.olderThanMinutes != null ? Number(params.olderThanMinutes) : null;
   const agentId2 = typeof params.agent_id === "string" ? params.agent_id : typeof params.agentId === "string" ? params.agentId : null;
-  const workspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const rawWorkspacePath = typeof params.workspace === "string" ? params.workspace : typeof params.workspace_path === "string" ? params.workspace_path : typeof params.workspacePath === "string" ? params.workspacePath : null;
+  const workspacePath = rawWorkspacePath ? normalizeWorkspacePath(rawWorkspacePath, rawWorkspacePath) : null;
   const artifact2 = normalizeArtifact(params.artifact);
   const rawTarget = params.target_file ?? params.targetFile;
   const targetFiles = (Array.isArray(rawTarget) ? rawTarget : rawTarget != null ? [rawTarget] : []).map(String).filter(Boolean).map((file) => {
-    const base = workspacePath ? resolve4(workspacePath) : process.cwd();
-    return isAbsolute2(file) ? resolve4(file) : resolve4(base, file);
+    const base = rawWorkspacePath ? resolve5(rawWorkspacePath) : process.cwd();
+    return isAbsolute2(file) ? resolve5(file) : resolve5(base, file);
   });
   const now = utcNow();
   const ageCutoff = olderThanMinutes != null && !expiredOnly ? new Date(Date.now() - olderThanMinutes * 6e4).toISOString() : null;
@@ -1105,7 +1134,7 @@ function pruneStale(db2, params = {}) {
   const scopedByTask = Boolean(workspacePath || artifact2);
   if (workspacePath) {
     conditions.push("t.workspace_path = ?");
-    binds.push(resolve4(workspacePath));
+    binds.push(workspacePath);
   }
   if (artifact2) {
     conditions.push("(t.artifact = ? OR t.artifact IS NULL)");
@@ -1332,7 +1361,7 @@ function sessionCapture(db2, params = {}) {
   const agentId2 = String(params.agent_id ?? params.agentId ?? "agent");
   const reason = params.reason ? String(params.reason) : null;
   const workspaceInput = params.workspace ?? params.workspace_path ?? params.workspacePath;
-  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve4(workspaceInput.trim()) : null;
+  const rawWorkspacePath = typeof workspaceInput === "string" && workspaceInput.trim() ? resolve5(workspaceInput.trim()) : null;
   const scope = fillScope(
     {
       workspace_path: rawWorkspacePath,
@@ -1523,7 +1552,7 @@ function digest(db2, params = {}) {
 import path from "node:path";
 import { spawnSync as spawnSync3 } from "node:child_process";
 import { randomUUID as randomUUID6 } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { realpathSync as realpathSync2 } from "node:fs";
 var _sessionStartupToken = randomUUID6().slice(0, 8);
 function addPathValue(paths, value) {
   if (typeof value === "string" && value.trim().length > 0) {
@@ -1598,14 +1627,14 @@ function extractPiWriteTargetPaths(toolName, input = {}, options = {}) {
 
 // bin/hook-runner.ts
 function readStdin() {
-  return new Promise((resolve6) => {
+  return new Promise((resolve7) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve6(raw));
-    process.stdin.on("error", () => resolve6(raw));
+    process.stdin.on("end", () => resolve7(raw));
+    process.stdin.on("error", () => resolve7(raw));
   });
 }
 function parsePayload(raw) {
@@ -1692,26 +1721,11 @@ function extractFiles(payload) {
   return extractPiWriteTargetPaths(toolName, input, { assumeWrite: true });
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return resolve5(cwd, file);
-}
-function canonicalize(input) {
-  let dir = resolve5(input);
-  const tail = [];
-  for (let guard = 0; guard < 4096; guard += 1) {
-    try {
-      return tail.length ? join2(realpathSync2(dir), ...tail) : realpathSync2(dir);
-    } catch {
-      const parent = dirname2(dir);
-      if (parent === dir) return resolve5(input);
-      tail.unshift(basename2(dir));
-      dir = parent;
-    }
-  }
-  return resolve5(input);
+  return resolve6(cwd, file);
 }
 function isInsidePath(candidate, root) {
-  const resolvedRoot = canonicalize(root);
-  const resolvedCandidate = canonicalize(candidate);
+  const resolvedRoot = canonicalizePath(root);
+  const resolvedCandidate = canonicalizePath(candidate);
   if (resolvedCandidate === resolvedRoot) return true;
   const rel = relative(resolvedRoot, resolvedCandidate);
   return rel !== "" && !rel.startsWith("..") && !isAbsolute3(rel);
@@ -1864,7 +1878,7 @@ function maybeRunDigest(payload) {
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
-  const markerPath = join2(memoryHome2, ".last-digest-epoch-ms");
+  const markerPath = join3(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
     let last = 0;
@@ -1948,7 +1962,7 @@ async function runHookCommand(command, rawPayload) {
 async function main() {
   return runHookCommand(process.argv[2] ?? "help");
 }
-var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve5(process.argv[1]) : false;
+var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve6(process.argv[1]) : false;
 var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename2(process.argv[1])) : false;
 if (isMain && invokedAsHookRunner) {
   process.exitCode = await main();

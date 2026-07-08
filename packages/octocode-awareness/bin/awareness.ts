@@ -31,6 +31,7 @@ import {
   normalizeFilePath,
   parseJsonList,
 } from '../src/helpers.js';
+import { normalizeWorkspacePath } from '../src/git.js';
 import { runHookCommand } from './hook-runner.js';
 
 // ─── Arg parser ───────────────────────────────────────────────────────────────
@@ -82,7 +83,7 @@ const GLOBAL_FLAGS = ['db', 'compact', 'help'];
 const KNOWN_FLAGS: Record<string, string[]> = {
   'tell-memory': ['agent_id', 'task_context', 'observation', 'importance', 'label', 'tag', 'reference', 'supersedes', 'failure_signature', 'valid_from', 'valid_to', 'workspace', 'artifact', 'repo', 'ref', 'file', 'file_tree_fingerprint'],
   'get-memory': ['query', 'limit', 'min_importance', 'label', 'tag', 'smart', 'workspace', 'artifact', 'repo', 'ref', 'state', 'sort', 'global_only', 'strict_scope', 'as_of', 'reference', 'regex', 'file_regex', 'file', 'explain', 'semantic'],
-  'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'dry_run'],
+  'forget': ['memory_id', 'tag', 'tags', 'before', 'max_importance', 'workspace', 'artifact', 'repo', 'ref', 'dry_run'],
   'reflect': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref'],
   'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id'],
   'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
@@ -708,6 +709,10 @@ function cmdForget(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emi
     tags,
     before: args['before'] ? String(args['before']) : undefined,
     maxImportance: args['max_importance'] ? parseInt(String(args['max_importance']), 10) : undefined,
+    workspacePath: args['workspace'] ? String(args['workspace']) : null,
+    artifact: args['artifact'] ? String(args['artifact']) : null,
+    repo: args['repo'] ? String(args['repo']) : null,
+    ref: args['ref'] ? String(args['ref']) : null,
     dryRun: Boolean(args['dry_run']),
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
@@ -1000,7 +1005,8 @@ function cmdAgentRegistry(db: DatabaseSync, args: ParsedArgs, dbPath: string, op
 function cmdStatus(db: DatabaseSync, dbPath: string, args: ParsedArgs, opts: EmitOptions): number {
   // Use the canonical evictExpiredLocks (<=) instead of duplicating the DELETE with < (off by one).
   evictExpiredLocks(db);
-  const wsPath = args['workspace'] ? String(args['workspace']) : null;
+  const rawWsPath = args['workspace'] ? String(args['workspace']) : null;
+  const wsPath = rawWsPath ? normalizeWorkspacePath(rawWsPath, rawWsPath) : null;
   const artifact = args['artifact'] ? String(args['artifact']) : null;
 
   const memScope: string[] = [];
@@ -1109,12 +1115,16 @@ function cmdSelfTest(opts: EmitOptions): number {
 
 const HELP = `usage: octocode-awareness <command> [options]
 common: --db <path> --compact
-npx: npx @octocodeai/octocode-awareness <command>
+local-first: use octocode-awareness or a bundled local node path when present
+fallback: npx @octocodeai/octocode-awareness <command>
 agent map: octocode-awareness schema commands --compact
 schema: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
 
 easy install:
-  Tell your agent to run: npx @octocodeai/octocode-awareness
+  If the CLI is bundled locally, tell your agent to run that local CLI:
+    octocode-awareness maintenance init --compact
+  Registry fallback only when no local CLI exists:
+    npx @octocodeai/octocode-awareness maintenance init --compact
   Then install the bundled Agent Skill:
     npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common
   Registry fallback:
@@ -1128,7 +1138,7 @@ edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify aud
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
 learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
 repo context: query <view> [--format json|table|csv|markdown|html], repo inject
-hooks: hook run <event>, hooks install|check|remove --host claude|codex|cursor
+hooks: hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
 utility: session capture, maintenance init, maintenance self-test, maintenance digest
 
 examples:
@@ -1143,7 +1153,7 @@ examples:
 Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
-npx: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
+local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
 start: workspace status; memory recall; refinement get; signal list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list

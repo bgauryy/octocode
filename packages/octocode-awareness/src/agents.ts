@@ -10,6 +10,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
+import { normalizeWorkspacePath } from './git.js';
 import {
   AGENTS_UPSERT,
   AGENTS_UPDATE_LAST_SEEN,
@@ -40,7 +41,9 @@ export function registerAgent(
 ): AgentIdentity {
   const agentId = params.agentId;
   const agentName = params.agentName ?? '';  // null/undefined both become ''
-  const workspacePath = params.workspacePath ?? null;
+  // Normalize to the same git-root + symlink-canonicalized scope key used by
+  // memory/lock/signal so `workspace status`/`agent list` see the same rows.
+  const workspacePath = params.workspacePath ? normalizeWorkspacePath(params.workspacePath, params.workspacePath) : null;
   const artifact = normalizeArtifact(params.artifact);
   const context = params.context ?? null;
   const now = utcNow();
@@ -56,7 +59,8 @@ export function registerAgent(
  */
 export function touchAgent(db: DatabaseSync, agentId: string, workspacePath: string | null = null, artifact: string | null = null): void {
   try {
-    db.prepare(AGENTS_UPDATE_LAST_SEEN).run(utcNow(), workspacePath, normalizeArtifact(artifact), agentId);
+    const normalized = workspacePath ? normalizeWorkspacePath(workspacePath, workspacePath) : null;
+    db.prepare(AGENTS_UPDATE_LAST_SEEN).run(utcNow(), normalized, normalizeArtifact(artifact), agentId);
   } catch { /* non-critical registry touch */ }
 }
 
@@ -116,7 +120,7 @@ export function listAgents(
     const clauses: string[] = [];
     if (params.workspacePath) {
       clauses.push(AGENTS_LIST_CLAUSE_WORKSPACE_PATH);
-      binds.push(params.workspacePath);
+      binds.push(normalizeWorkspacePath(params.workspacePath, params.workspacePath) ?? params.workspacePath);
     }
     const artifact = normalizeArtifact(params.artifact);
     if (artifact) {

@@ -49,10 +49,10 @@
     "clean": "rm -rf dist/",
     "lint": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
-    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
+    "test": "yarn build && node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:quiet": "yarn build && node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "self-test": "node dist/bin/awareness.js maintenance self-test",
-    "verify": "yarn lint && yarn test && yarn build"
+    "verify": "yarn lint && yarn test"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",
