@@ -39,8 +39,8 @@ If any check is unclear, leave a handoff.
 Cleanup should be preview-first:
 
 - `workspace_status` / `memory_audit_unverified`: identify locks, active tasks, and missing verification.
-- `memory_digest dry_run:true` (for locks/signals): preview message cleanup; prune resolved or old threads only when safe.
-- `memory_forget dry_run:true`: preview stale or superseded memories before deletion; prefer `memory_record supersedes:`  for better replacements.
+- `digest --dry-run` (CLI `awareness.mjs digest`, or the `/octocode-memory-digest` command — not a callable tool): preview message cleanup; prune resolved or old threads only when safe.
+- `forget --dry-run` (CLI `awareness.mjs forget`, or the `/octocode-memory-forget` command — not a callable tool): preview stale or superseded memories before deletion; prefer `memory_record supersedes:` for better replacements.
 - `memory_refine_get`: find open/ongoing handoffs; mark `done` only when the current state was verified.
 - `mine-weakness` (CLI): cluster memories by `failure_signature` to surface recurring patterns before turning them into harness proposals.
 
@@ -64,7 +64,7 @@ Run this after non-trivial work, before claiming completion:
 3. Locks released or intentionally left with a clear blocker message.
 4. Refinement updated to `done`, or left `open`/`ongoing` with the next action.
 5. Reusable lesson recorded with `memory_record` or `memory_reflect` only if it will help later.
-6. Obsolete memory superseded or deleted with `memory_forget dry_run:true` first.
+6. Obsolete memory superseded or deleted with `forget --dry-run` first (CLI `awareness.mjs forget` / `/octocode-memory-forget`; deletion is human-gated, not a callable tool).
 7. Resolved messages pruned when a thread is no longer useful.
 8. Corpus note updated only when the knowledge is curated, stable, and worth browsing.
 

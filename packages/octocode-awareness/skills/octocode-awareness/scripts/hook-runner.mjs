@@ -7,8 +7,8 @@ process.on('warning', (w) => {
 
 // bin/hook-runner.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
-import { join as join2 } from "node:path";
+import { mkdirSync as mkdirSync2, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute3, join as join2, relative, resolve as resolve5 } from "node:path";
 
 // src/helpers.ts
 import { resolve } from "node:path";
@@ -134,9 +134,10 @@ var SCHEMA_DDL = `
       task_id        TEXT PRIMARY KEY,
       agent_id       TEXT NOT NULL,
       session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
-      rationale      TEXT NOT NULL,
-      test_plan      TEXT NOT NULL,
-      status         TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
+	      rationale      TEXT NOT NULL,
+	      test_plan      TEXT NOT NULL,
+	      plan_doc_ref   TEXT,
+	      status         TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
       workspace_path TEXT,
       artifact       TEXT,
       files_json     TEXT NOT NULL DEFAULT '[]',
@@ -388,13 +389,28 @@ function hasFts(db2) {
 function ftsTermsForRow(row) {
   const tags = parseJsonList(row.tags_json);
   const label = (row.label ?? "OTHER").toLowerCase();
-  return [...tags, label].filter(Boolean).join(" ");
+  return [...tags, label, ...row.references ?? []].filter(Boolean).join(" ");
 }
 function rebuildFts(db2) {
   db2.exec("DELETE FROM memories_fts");
   const rows = db2.prepare(
     "SELECT memory_id, task_context, observation, tags_json, label FROM memories"
   ).all();
+  if (rows.length > 0) {
+    const refs = db2.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => "?").join(",")})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map((row) => row.memory_id));
+    const refsByMemory = /* @__PURE__ */ new Map();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
   const insert = db2.prepare(
     "INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
   );
@@ -431,6 +447,7 @@ function preFlightIntent(db2, params) {
     artifact: artifact2,
     rationale = "agent write operation",
     testPlan = "post-edit verification",
+    planDocRef = null,
     targetFiles = [],
     lockType = "EXCLUSIVE",
     ttlMs = MAX_LOCK_TTL_MS
@@ -479,9 +496,9 @@ function preFlightIntent(db2, params) {
     }
     db2.prepare(`
       INSERT INTO tasks
-        (task_id, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, files_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-    `).run(taskId, agentId2, sessionId, rationale, testPlan, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
+        (task_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, artifact, files_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+    `).run(taskId, agentId2, sessionId, rationale, testPlan, planDocRef, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
     const expiresAt = expiresAtFromNow(ttlMs);
     const acquiredLocks = [];
     for (const absPath of absFiles) {
@@ -503,6 +520,7 @@ function preFlightIntent(db2, params) {
         lock_type: lockType,
         workspace_path: wsPath,
         artifact: artifactScope,
+        plan_doc_ref: planDocRef,
         target_files: absFiles,
         locks: acquiredLocks.map((l) => ({
           lock_id: l.lock_id,
@@ -666,7 +684,7 @@ function auditUnverified(db2, params = {}) {
     binds.push(artifact2);
   }
   const rows = db2.prepare(
-    `SELECT task_id, agent_id, status, test_plan, rationale, workspace_path, artifact, files_json, created_at
+    `SELECT task_id, agent_id, status, test_plan, plan_doc_ref, rationale, workspace_path, artifact, files_json, created_at
      FROM tasks
      WHERE ${where.join(" AND ")}
      ORDER BY created_at ASC`
@@ -676,6 +694,7 @@ function auditUnverified(db2, params = {}) {
     agent_id: r.agent_id,
     status: r.status,
     test_plan: r.test_plan,
+    plan_doc_ref: r.plan_doc_ref,
     rationale: r.rationale,
     target_files: parseJsonList(r.files_json),
     workspace_path: r.workspace_path,
@@ -722,7 +741,7 @@ function auditUnverified(db2, params = {}) {
       staleBinds.push(artifact2);
     }
     const staleRows = db2.prepare(
-      `SELECT ai.task_id, ai.agent_id, ai.rationale, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
+      `SELECT ai.task_id, ai.agent_id, ai.rationale, ai.plan_doc_ref, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
        FROM tasks ai
        WHERE ${staleWhere.join(" AND ")}
        ORDER BY ai.created_at ASC`
@@ -734,6 +753,7 @@ function auditUnverified(db2, params = {}) {
         agent_id: r.agent_id,
         status: "ACTIVE",
         rationale: r.rationale,
+        plan_doc_ref: r.plan_doc_ref,
         target_files: parseJsonList(r.files_json),
         workspace_path: r.workspace_path,
         artifact: r.artifact,
@@ -1195,7 +1215,7 @@ function sessionCapture(db2, params = {}) {
   const artifact2 = scope.artifact;
   const workspacePlaceholders = taskWorkspaceCandidates.map(() => "?").join(",");
   const taskRows = db2.prepare(
-    `SELECT task_id, rationale, test_plan, status, files_json, created_at, updated_at
+    `SELECT task_id, rationale, test_plan, plan_doc_ref, status, files_json, created_at, updated_at
      FROM tasks
      WHERE agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
@@ -1244,7 +1264,8 @@ function sessionCapture(db2, params = {}) {
   const statusSummary = taskRows.map((row) => {
     const rowFiles = parseJsonList(row.files_json);
     const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(", ")}` : "";
-    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+    const planSuffix = row.plan_doc_ref ? ` plan=${row.plan_doc_ref}` : "";
+    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${planSuffix}${fileSuffix}`;
   });
   const reasoning = [
     `Session capture for ${agentId2}${reason ? ` (${reason})` : ""}.`,
@@ -1401,6 +1422,9 @@ function addQueryPaths(paths, value) {
     addPathValue(paths, payload.file_paths);
   }
 }
+function hasExplicitFileTargetPayload(payload) {
+  return ["path", "filePath", "file_path", "paths", "filePaths", "file_paths"].some((key) => payload[key] !== void 0) || Array.isArray(payload.queries);
+}
 function extractPiWriteTargetPaths(toolName, input = {}) {
   const normalizedToolName = String(toolName ?? "").toLowerCase();
   const isWriteTool = [
@@ -1415,7 +1439,7 @@ function extractPiWriteTargetPaths(toolName, input = {}) {
   ].includes(normalizedToolName);
   const payload = objectOrEmpty(input);
   const command2 = typeof input === "string" ? input : firstString(payload.command, payload.patch, payload.text, payload.content);
-  if (!isWriteTool && typeof command2 !== "string") return [];
+  if (!isWriteTool && typeof command2 !== "string" && !hasExplicitFileTargetPayload(payload)) return [];
   const paths = [];
   addPathValue(paths, payload.path);
   addPathValue(paths, payload.filePath);
@@ -1431,14 +1455,14 @@ function extractPiWriteTargetPaths(toolName, input = {}) {
 // bin/hook-runner.ts
 var command = process.argv[2] ?? "help";
 function readStdin() {
-  return new Promise((resolve5) => {
+  return new Promise((resolve6) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve5(raw));
-    process.stdin.on("error", () => resolve5(raw));
+    process.stdin.on("end", () => resolve6(raw));
+    process.stdin.on("error", () => resolve6(raw));
   });
 }
 function parsePayload(raw) {
@@ -1454,6 +1478,13 @@ function objectOrEmpty2(value) {
 }
 function payloadInput(payload) {
   return payload.tool_input ?? payload.input ?? payload.args ?? payload;
+}
+function payloadForFileExtraction(payload) {
+  const input = payloadInput(payload);
+  const inputObj = objectOrEmpty2(input);
+  if (inputObj === payload) return input;
+  if (Object.keys(inputObj).length === 0) return input;
+  return { ...payload, ...inputObj };
 }
 function agentId(payload) {
   return process.env.OCTOCODE_AGENT_ID || String(payload.session_id ?? payload.sessionId ?? payload.agent_id ?? payload.agentId ?? "claude-agent");
@@ -1478,17 +1509,35 @@ function isStopHookActive(payload) {
   return Boolean(payload.stop_hook_active);
 }
 function extractFiles(payload) {
-  const input = payloadInput(payload);
+  const input = payloadForFileExtraction(payload);
   const inputObj = objectOrEmpty2(input);
   const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? inputObj.tool_name ?? inputObj.toolName ?? "";
   return extractPiWriteTargetPaths(toolName, input);
 }
 function resolveHookPath(file, cwd = process.cwd()) {
-  return file.startsWith("/") ? file : `${cwd}/${file}`;
+  return resolve5(cwd, file);
+}
+function canonicalize(input) {
+  let dir = resolve5(input);
+  const tail = [];
+  for (let guard = 0; guard < 4096; guard += 1) {
+    try {
+      return tail.length ? join2(realpathSync(dir), ...tail) : realpathSync(dir);
+    } catch {
+      const parent = dirname2(dir);
+      if (parent === dir) return resolve5(input);
+      tail.unshift(basename2(dir));
+      dir = parent;
+    }
+  }
+  return resolve5(input);
 }
 function isInsidePath(candidate, root) {
-  const normalizedRoot = root.endsWith("/") ? root : `${root}/`;
-  return candidate === root || candidate.startsWith(normalizedRoot);
+  const resolvedRoot = canonicalize(root);
+  const resolvedCandidate = canonicalize(candidate);
+  if (resolvedCandidate === resolvedRoot) return true;
+  const rel = relative(resolvedRoot, resolvedCandidate);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute3(rel);
 }
 function db() {
   return connectDb(resolveDbPath(null));

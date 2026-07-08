@@ -86,11 +86,11 @@ node <skill_root>/scripts/awareness.mjs status | jq '.open_refinements'
 
 `memory_digest` (CLI: `awareness.mjs digest`) prunes data older than these defaults; override with explicit flags:
 
-| What | Default | Flag |
+| What | Default | CLI flag |
 |------|---------|------|
-| SUPERSEDED memories | 90 days | `retention_days` |
-| Session handoff refinements | 7 days | `refinement_handoff_retention_days` |
-| Completed (`done`) repo-fix refinements | 30 days | `refinement_done_retention_days` |
+| SUPERSEDED memories | 90 days | `--retention-days` |
+| Session handoff refinements | 7 days | `--refinement-handoff-retention-days` |
+| Completed (`done`) repo-fix refinements | 30 days | `--refinement-done-retention-days` |
 
 All use `updated_at` for the age calculation. Run with `--dry-run` first to preview what would be pruned.
 

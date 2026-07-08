@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -87,6 +87,38 @@ describe('install-hooks', () => {
       });
       expect(result.resultingSettings.hooks?.preToolUse?.[0]).not.toHaveProperty('hooks');
       expect(JSON.stringify(result.resultingSettings)).not.toContain('CLAUDE_PROJECT_DIR');
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes Cursor awareness hooks without deleting unrelated flat hooks', () => {
+    const projectDir = mkdtempSync(resolve(tmpdir(), 'octocode-cursor-remove-'));
+    const unrelated = '/tmp/unrelated-cursor-hook.sh';
+    const preEdit = resolve(
+      REPO_ROOT,
+      'packages/octocode-awareness/skills/octocode-awareness/scripts/hooks/pre-edit.sh',
+    );
+    try {
+      mkdirSync(resolve(projectDir, '.cursor'), { recursive: true });
+      writeFileSync(
+        resolve(projectDir, '.cursor/hooks.json'),
+        JSON.stringify({
+          version: 1,
+          hooks: {
+            preToolUse: [
+              { command: unrelated, timeout: 20, matcher: 'Write' },
+              { command: preEdit, timeout: 20, matcher: 'Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch' },
+            ],
+          },
+        }, null, 2),
+      );
+
+      const result = runInstallHooks(['--host', 'cursor', '--project-dir', projectDir, '--remove', '--dry-run']);
+
+      expect(result.resultingSettings.hooks?.preToolUse).toEqual([
+        { command: unrelated, timeout: 20, matcher: 'Write' },
+      ]);
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

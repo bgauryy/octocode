@@ -86,7 +86,7 @@ ATTEND → CLAIM → WORK → VERIFY → ENCODE → SLEEP
                                 │
                                 ▼
               ┌─────────────────────────────────────────┐
-              │  SessionEnd hook: session-end.sh        │
+              │  SessionEnd/PreCompact: session-end.sh │
               │  → hook-runner session-end              │
               │  → sessionCapture() (snapshot)          │
               └─────────────────────────────────────────┘
@@ -117,7 +117,7 @@ ATTEND → CLAIM → WORK → VERIFY → ENCODE → SLEEP
 | `PreToolUse` (Write/Edit) | `harness-guard.sh` | `harness-guard` | Blocks if editing skill files without `OCTOCODE_ALLOW_HARNESS_APPLY=1` + non-main branch |
 | `PostToolUse` (Write/Edit) | `post-edit.sh` | `post-edit` | `releaseFileLock(PENDING)` — releases locks |
 | `Stop` / `SubagentStop` | `stop-verify.sh` | `stop-verify` | `auditUnverified()` — blocks exit on PENDING tasks |
-| `SessionEnd` | `session-end.sh` | `session-end` | `sessionCapture()` — snapshot of session |
+| `SessionEnd` / `PreCompact` / host equivalent | `session-end.sh` | `session-end` | `sessionCapture()` — snapshot of session |
 | `UserPromptSubmit` | `notify-deliver.sh` | `notify-deliver` | `notifyGet()` — injects smart briefing before each prompt |
 
 **Edit audit gap**: `post-edit.sh` calls `releaseFileLock()` but does NOT call `insertEditLog()`. The `edit_log` table must be populated manually until the hook is wired.
@@ -156,13 +156,14 @@ When a new agent installs the skill:
        ├── schema.mjs example tell_memory  → validate output
        └── awareness.mjs self-test         → DB + basic ops
 
-2. node scripts/install-hooks.mjs [--project-dir <path>] [--global]
+2. node scripts/install-hooks.mjs --host <claude|codex|cursor> [--project-dir <path>] [--global]
    ├── --dry-run   → show merged settings, don't write
    ├── --check     → report hook install status only
    ├── --remove    → remove only our hooks
-   └── writes PreToolUse + PostToolUse hooks to:
-       project:  <repo>/.claude/settings.json
-       global:   ~/.claude/settings.json
+   └── writes host hook config to:
+       Claude project/global: .claude/settings.json
+       Codex project/global:  .codex/hooks.json
+       Cursor project/global: .cursor/hooks.json
 ```
 
 **Dependencies**: Node >=22, `zod` (local to `scripts/package.json`), SQLite built-in to Node.

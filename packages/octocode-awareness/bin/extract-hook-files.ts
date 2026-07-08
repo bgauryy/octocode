@@ -48,30 +48,29 @@ process.stdin.on('end', () => {
       }
     }
 
-    add(ti['file_path']);
-    add(ti['path']);
-    add(ti['filePath']);
-    add(ti['paths']);
-    add(ti['file_paths']);
-    add(ti['filePaths']);
+    function addTargets(source: Record<string, unknown>): void {
+      add(source['file_path']);
+      add(source['path']);
+      add(source['filePath']);
+      add(source['paths']);
+      add(source['file_paths']);
+      add(source['filePaths']);
 
-    const queries = ti['queries'];
-    if (Array.isArray(queries)) {
-      for (const query of queries) {
-        if (!query || typeof query !== 'object') continue;
-        const q = query as Record<string, unknown>;
-        add(q['file_path']);
-        add(q['path']);
-        add(q['filePath']);
-        add(q['paths']);
-        add(q['file_paths']);
-        add(q['filePaths']);
+      const queries = source['queries'];
+      if (Array.isArray(queries)) {
+        for (const query of queries) {
+          if (!query || typeof query !== 'object') continue;
+          addTargets(query as Record<string, unknown>);
+        }
       }
     }
 
+    addTargets(root);
+    if (ti !== root) addTargets(ti);
+
     const command = typeof toolInput === 'string'
       ? toolInput
-      : ti['command'] ?? ti['patch'] ?? ti['text'] ?? ti['content'];
+      : ti['command'] ?? root['command'] ?? ti['patch'] ?? root['patch'] ?? ti['text'] ?? root['text'] ?? ti['content'] ?? root['content'];
     if (typeof command === 'string') {
       for (const line of command.split('\n')) {
         const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);

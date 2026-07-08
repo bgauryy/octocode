@@ -178,6 +178,10 @@ function removeCommand(groups, command) {
       removed = true;
       continue;
     }
+    if (!Array.isArray(group.hooks)) {
+      out.push(group);
+      continue;
+    }
     const hooks = (group.hooks || []).filter((h) => {
       if (h.command === command) {
         removed = true;

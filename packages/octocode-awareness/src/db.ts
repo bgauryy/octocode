@@ -130,9 +130,10 @@ const SCHEMA_DDL = `
       task_id        TEXT PRIMARY KEY,
       agent_id       TEXT NOT NULL,
       session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
-      rationale      TEXT NOT NULL,
-      test_plan      TEXT NOT NULL,
-      status         TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
+	      rationale      TEXT NOT NULL,
+	      test_plan      TEXT NOT NULL,
+	      plan_doc_ref   TEXT,
+	      status         TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
       workspace_path TEXT,
       artifact       TEXT,
       files_json     TEXT NOT NULL DEFAULT '[]',
@@ -424,19 +425,19 @@ export function hasFts(db: DatabaseSync): boolean {
   return Boolean(row);
 }
 
+type FtsTermRow = Partial<MemoryRow> & { references?: string[] };
+
 /**
  * Build the FTS5 `tags` column value for a memory row.
  *
- * DB-3: Only index SEMANTIC content (tags + label). Structural metadata
- * (workspace_path, repo, ref, file, failure_signature, references) must NOT
- * appear in FTS — they corrupt BM25 ranking and cause false positives when a
- * repo/path name matches an unrelated query. Structural fields are filtered
- * via WHERE clauses in getMemory().
+ * Index semantic classifiers plus explicit provenance references. Workspace,
+ * repo, git ref, and failure_signature remain structural filters so broad path
+ * or repo names do not dominate natural-language ranking.
  */
-export function ftsTermsForRow(row: Partial<MemoryRow>): string {
+export function ftsTermsForRow(row: FtsTermRow): string {
   const tags = parseJsonList(row.tags_json);
   const label = (row.label ?? 'OTHER').toLowerCase();
-  return [...tags, label].filter(Boolean).join(' ');
+  return [...tags, label, ...(row.references ?? [])].filter(Boolean).join(' ');
 }
 
 export function rebuildFts(db: DatabaseSync): void {
@@ -448,7 +449,22 @@ export function rebuildFts(db: DatabaseSync): void {
   // embedding BLOB (can be 1536 floats = 6KB per row) for all rows.
   const rows = db.prepare(
     'SELECT memory_id, task_context, observation, tags_json, label FROM memories'
-  ).all() as unknown as Pick<MemoryRow, 'memory_id' | 'task_context' | 'observation' | 'tags_json' | 'label'>[];
+  ).all() as unknown as Array<Pick<MemoryRow, 'memory_id' | 'task_context' | 'observation' | 'tags_json' | 'label'> & { references?: string[] }>;
+  if (rows.length > 0) {
+    const refs = db.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => '?').join(',')})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map(row => row.memory_id)) as unknown as Array<{ memory_id: string; reference: string }>;
+    const refsByMemory = new Map<string, string[]>();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
   const insert = db.prepare(
     'INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)'
   );

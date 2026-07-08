@@ -108,6 +108,12 @@ function addQueryPaths(paths: string[], value: unknown): void {
   }
 }
 
+function hasExplicitFileTargetPayload(payload: Record<string, unknown>): boolean {
+  return ['path', 'filePath', 'file_path', 'paths', 'filePaths', 'file_paths']
+    .some((key) => payload[key] !== undefined)
+    || Array.isArray(payload.queries);
+}
+
 export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}): string[] {
   const normalizedToolName = String(toolName ?? '').toLowerCase();
   const isWriteTool = [
@@ -125,7 +131,7 @@ export function extractPiWriteTargetPaths(toolName: unknown, input: unknown = {}
     ? input
     : firstString(payload.command, payload.patch, payload.text, payload.content);
 
-  if (!isWriteTool && typeof command !== 'string') return [];
+  if (!isWriteTool && typeof command !== 'string' && !hasExplicitFileTargetPayload(payload)) return [];
 
   const paths: string[] = [];
   addPathValue(paths, payload.path);

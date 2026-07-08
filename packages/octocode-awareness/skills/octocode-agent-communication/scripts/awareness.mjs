@@ -202,9 +202,10 @@ var SCHEMA_DDL = `
       task_id        TEXT PRIMARY KEY,
       agent_id       TEXT NOT NULL,
       session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
-      rationale      TEXT NOT NULL,
-      test_plan      TEXT NOT NULL,
-      status         TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
+	      rationale      TEXT NOT NULL,
+	      test_plan      TEXT NOT NULL,
+	      plan_doc_ref   TEXT,
+	      status         TEXT NOT NULL CHECK(status IN ('PENDING','ACTIVE','SUCCESS','FAILED')) DEFAULT 'ACTIVE',
       workspace_path TEXT,
       artifact       TEXT,
       files_json     TEXT NOT NULL DEFAULT '[]',
@@ -456,13 +457,28 @@ function hasFts(db2) {
 function ftsTermsForRow(row) {
   const tags = parseJsonList(row.tags_json);
   const label = (row.label ?? "OTHER").toLowerCase();
-  return [...tags, label].filter(Boolean).join(" ");
+  return [...tags, label, ...row.references ?? []].filter(Boolean).join(" ");
 }
 function rebuildFts(db2) {
   db2.exec("DELETE FROM memories_fts");
   const rows = db2.prepare(
     "SELECT memory_id, task_context, observation, tags_json, label FROM memories"
   ).all();
+  if (rows.length > 0) {
+    const refs = db2.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => "?").join(",")})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map((row) => row.memory_id));
+    const refsByMemory = /* @__PURE__ */ new Map();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
   const insert = db2.prepare(
     "INSERT INTO memories_fts(memory_id, task_context, observation, tags) VALUES (?, ?, ?, ?)"
   );
@@ -849,7 +865,8 @@ function insertMemory(db2, params) {
         observation,
         ftsTermsForRow({
           tags_json: JSON.stringify(tagList),
-          label: normalizedLabel
+          label: normalizedLabel,
+          references: refList
         })
       );
     }
@@ -1654,6 +1671,7 @@ function preFlightIntent(db2, params) {
     artifact,
     rationale = "agent write operation",
     testPlan = "post-edit verification",
+    planDocRef = null,
     targetFiles = [],
     lockType = "EXCLUSIVE",
     ttlMs = MAX_LOCK_TTL_MS
@@ -1702,9 +1720,9 @@ function preFlightIntent(db2, params) {
     }
     db2.prepare(`
       INSERT INTO tasks
-        (task_id, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, files_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-    `).run(taskId, agentId, sessionId, rationale, testPlan, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
+        (task_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, artifact, files_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+    `).run(taskId, agentId, sessionId, rationale, testPlan, planDocRef, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
     const expiresAt = expiresAtFromNow(ttlMs);
     const acquiredLocks = [];
     for (const absPath of absFiles) {
@@ -1726,6 +1744,7 @@ function preFlightIntent(db2, params) {
         lock_type: lockType,
         workspace_path: wsPath,
         artifact: artifactScope,
+        plan_doc_ref: planDocRef,
         target_files: absFiles,
         locks: acquiredLocks.map((l) => ({
           lock_id: l.lock_id,
@@ -2688,7 +2707,7 @@ function sessionCapture(db2, params = {}) {
   const artifact = scope.artifact;
   const workspacePlaceholders = taskWorkspaceCandidates.map(() => "?").join(",");
   const taskRows = db2.prepare(
-    `SELECT task_id, rationale, test_plan, status, files_json, created_at, updated_at
+    `SELECT task_id, rationale, test_plan, plan_doc_ref, status, files_json, created_at, updated_at
      FROM tasks
      WHERE agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
@@ -2737,7 +2756,8 @@ function sessionCapture(db2, params = {}) {
   const statusSummary = taskRows.map((row) => {
     const rowFiles = parseJsonList(row.files_json);
     const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(", ")}` : "";
-    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+    const planSuffix = row.plan_doc_ref ? ` plan=${row.plan_doc_ref}` : "";
+    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${planSuffix}${fileSuffix}`;
   });
   const reasoning = [
     `Session capture for ${agentId}${reason ? ` (${reason})` : ""}.`,
@@ -3003,6 +3023,21 @@ function exportMemoryDoc(db2, params = {}) {
      WHERE ${conds.join(" AND ")}
      ORDER BY importance DESC, created_at DESC`
   ).all(...bindParams);
+  if (rows.length > 0) {
+    const refs = db2.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => "?").join(",")})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map((row) => row.memory_id));
+    const refsByMemory = /* @__PURE__ */ new Map();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
   const byLabel = {};
   for (const row of rows) {
     const label = row.label ?? "OTHER";
@@ -3025,6 +3060,7 @@ function exportMemoryDoc(db2, params = {}) {
         `**Observation:** ${m.observation}`
       );
       if (tags.length) lines.push(`**Tags:** ${tags.join(", ")}`);
+      if (m.references.length) lines.push(`**References:** ${m.references.join(", ")}`);
       if (m.failure_signature) lines.push(`**Failure signature:** ${m.failure_signature}`);
       if (m.repo) lines.push(`**Repo:** ${m.repo}${m.ref ? ` @ ${m.ref}` : ""}`);
       lines.push(`**Created:** ${m.created_at.slice(0, 10)}`, "");
@@ -3127,7 +3163,7 @@ function auditUnverified(db2, params = {}) {
     binds.push(artifact);
   }
   const rows = db2.prepare(
-    `SELECT task_id, agent_id, status, test_plan, rationale, workspace_path, artifact, files_json, created_at
+    `SELECT task_id, agent_id, status, test_plan, plan_doc_ref, rationale, workspace_path, artifact, files_json, created_at
      FROM tasks
      WHERE ${where.join(" AND ")}
      ORDER BY created_at ASC`
@@ -3137,6 +3173,7 @@ function auditUnverified(db2, params = {}) {
     agent_id: r.agent_id,
     status: r.status,
     test_plan: r.test_plan,
+    plan_doc_ref: r.plan_doc_ref,
     rationale: r.rationale,
     target_files: parseJsonList(r.files_json),
     workspace_path: r.workspace_path,
@@ -3183,7 +3220,7 @@ function auditUnverified(db2, params = {}) {
       staleBinds.push(artifact);
     }
     const staleRows = db2.prepare(
-      `SELECT ai.task_id, ai.agent_id, ai.rationale, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
+      `SELECT ai.task_id, ai.agent_id, ai.rationale, ai.plan_doc_ref, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
        FROM tasks ai
        WHERE ${staleWhere.join(" AND ")}
        ORDER BY ai.created_at ASC`
@@ -3195,6 +3232,7 @@ function auditUnverified(db2, params = {}) {
         agent_id: r.agent_id,
         status: "ACTIVE",
         rationale: r.rationale,
+        plan_doc_ref: r.plan_doc_ref,
         target_files: parseJsonList(r.files_json),
         workspace_path: r.workspace_path,
         artifact: r.artifact,
@@ -3343,6 +3381,8 @@ function listAgents(db2, params = {}) {
 }
 
 // bin/awareness.ts
+var MAX_CLI_TTL_SECONDS = 10 * 60;
+var MEMORY_SORTS = /* @__PURE__ */ new Set(["smart", "score", "importance", "recent", "accessed"]);
 var ARRAY_FLAGS = /* @__PURE__ */ new Set([
   "tag",
   "tags",
@@ -3407,7 +3447,7 @@ var KNOWN_FLAGS = {
   "refine-set": ["agent_id", "reasoning", "remember", "quality", "state", "workspace", "artifact", "repo", "ref", "file", "refinement_id"],
   "refine-get": ["workspace", "artifact", "repo", "ref", "quality", "include_handoffs", "state", "limit"],
   "refine-delete": ["refinement_id", "workspace", "artifact", "dry_run"],
-  "pre-flight-intent": ["agent_id", "workspace", "artifact", "rationale", "test_plan", "plan_doc_ref", "target_file", "file", "lock_type", "ttl_minutes", "ttl_seconds", "wait_seconds"],
+  "pre-flight-intent": ["agent_id", "workspace", "artifact", "rationale", "test_plan", "plan_doc_ref", "target_file", "file", "lock_type", "ttl_minutes", "ttl_seconds", "wait_seconds", "retry_interval"],
   "release-file-lock": ["agent_id", "task_id", "target_file", "file", "status", "verified", "verified_note", "workspace", "artifact"],
   "status": ["workspace", "artifact", "limit"],
   "workspace-status": ["workspace", "artifact"],
@@ -3428,7 +3468,7 @@ var KNOWN_FLAGS = {
   "notify-prune": ["signal_id", "resolved", "older_than_days", "dry_run", "workspace", "artifact"],
   "session-capture": ["agent_id", "workspace", "artifact", "repo", "ref", "reason", "cwd"],
   "wait-for-lock": ["agent_id", "target_file", "file", "workspace", "artifact", "lock_type", "wait_seconds", "retry_interval"],
-  "digest": ["retention_days", "dry_run", "export_doc", "workspace", "artifact"]
+  "digest": ["retention_days", "refinement_handoff_retention_days", "refinement_done_retention_days", "dry_run", "export_doc", "workspace", "artifact"]
 };
 function validateFlags(command2, args2) {
   const known = KNOWN_FLAGS[command2];
@@ -3521,6 +3561,10 @@ function cmdGetMemory(db2, args2, dbPath2, opts2) {
   const fileRegex = Array.isArray(rawFileRegex) ? rawFileRegex : rawFileRegex ? [String(rawFileRegex)] : [];
   const rawGetFiles = args2["file"];
   const getFiles = Array.isArray(rawGetFiles) ? rawGetFiles : rawGetFiles ? [String(rawGetFiles)] : [];
+  const sort = String(args2["sort"] ?? "smart");
+  if (!MEMORY_SORTS.has(sort)) {
+    die(`--sort must be one of: ${[...MEMORY_SORTS].join(", ")}`);
+  }
   const result = getMemory(db2, {
     query: String(args2["query"] ?? ""),
     limit: parseInt(String(args2["limit"] ?? "3"), 10),
@@ -3533,7 +3577,7 @@ function cmdGetMemory(db2, args2, dbPath2, opts2) {
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null,
     states,
-    sort: String(args2["sort"] ?? "smart"),
+    sort,
     globalOnly: Boolean(args2["global_only"]),
     strictScope: Boolean(args2["strict_scope"]),
     asOf: args2["as_of"] ? String(args2["as_of"]) : null,
@@ -3644,6 +3688,8 @@ function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
   const ttlSeconds = args2["ttl_seconds"] ? parseInt(String(args2["ttl_seconds"]), 10) : null;
   if (ttlMinutes != null && (!Number.isInteger(ttlMinutes) || ttlMinutes < 1)) die("--ttl-minutes must be >= 1");
   if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)) die("--ttl-seconds must be >= 1");
+  if (ttlMinutes != null && ttlMinutes > 10) die("--ttl-minutes must be <= 10");
+  if (ttlSeconds != null && ttlSeconds > MAX_CLI_TTL_SECONDS) die("--ttl-seconds must be <= 600");
   const ttlMs = ttlMinutes != null ? ttlMinutes * 6e4 : ttlSeconds != null ? ttlSeconds * 1e3 : null;
   const claimParams = {
     agentId: String(args2["agent_id"] ?? "agent"),
@@ -3651,6 +3697,7 @@ function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     rationale: String(args2["rationale"] ?? "agent write operation"),
     testPlan: String(args2["test_plan"] ?? "post-edit verification"),
+    planDocRef: args2["plan_doc_ref"] ? String(args2["plan_doc_ref"]) : null,
     targetFiles,
     lockType: String(args2["lock_type"] ?? "EXCLUSIVE"),
     ttlMs
@@ -3658,13 +3705,15 @@ function cmdPreFlightIntent(db2, args2, dbPath2, opts2) {
   let result = preFlightIntent(db2, claimParams);
   const waitSeconds = args2["wait_seconds"] ? parseInt(String(args2["wait_seconds"]), 10) : null;
   if (!result.ok && waitSeconds != null && waitSeconds > 0) {
+    const retrySeconds = args2["retry_interval"] ? parseInt(String(args2["retry_interval"]), 10) : null;
     const wait = waitForLock(db2, {
       agent_id: claimParams.agentId,
       target_files: targetFiles,
       workspace: claimParams.workspacePath ?? void 0,
       artifact: claimParams.artifact ?? void 0,
       lock_type: claimParams.lockType,
-      wait_ms: waitSeconds * 1e3
+      wait_ms: waitSeconds * 1e3,
+      retry_interval_ms: retrySeconds != null ? retrySeconds * 1e3 : void 0
     });
     if (wait.lock_free) result = preFlightIntent(db2, claimParams);
   }
@@ -3728,7 +3777,8 @@ function cmdMemoryIndex(db2, args2, dbPath2, opts2) {
   const wsPath = args2["workspace"] ? String(args2["workspace"]) : null;
   const conds = [];
   const binds = [minImportance];
-  let sql = `SELECT memory_id, label, importance, task_context, observation, tags_json, created_at
+  let sql = `SELECT memory_id, label, importance, task_context, observation, tags_json,
+                    failure_signature, created_at
      FROM memories WHERE state = 'ACTIVE' AND importance >= ?`;
   if (wsPath) {
     sql += " AND (workspace_path = ? OR workspace_path IS NULL)";
@@ -3750,6 +3800,21 @@ function cmdMemoryIndex(db2, args2, dbPath2, opts2) {
   binds.push(limit);
   void conds;
   const rows = db2.prepare(sql).all(...binds);
+  if (rows.length > 0) {
+    const refs = db2.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => "?").join(",")})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map((row) => row.memory_id));
+    const refsByMemory = /* @__PURE__ */ new Map();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
   const now = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const lines = [
     `# Memory Index \u2014 ${now}`,
@@ -3759,16 +3824,12 @@ function cmdMemoryIndex(db2, args2, dbPath2, opts2) {
     ""
   ];
   for (const m of rows) {
-    const tags = (() => {
-      try {
-        return JSON.parse(m.tags_json).join(", ");
-      } catch {
-        return "";
-      }
-    })();
+    const tags = parseJsonList(m.tags_json).join(", ");
     lines.push(`## [${m.label}:${m.importance}] ${m.task_context.slice(0, 80)}`);
     lines.push(`> ${m.observation.slice(0, 200)}`);
     if (tags) lines.push(`*Tags: ${tags}*`);
+    if (m.references.length > 0) lines.push(`*References: ${m.references.join(", ")}*`);
+    if (m.failure_signature) lines.push(`*Failure: ${m.failure_signature}*`);
     lines.push("");
   }
   const content = lines.join("\n");
@@ -4130,9 +4191,9 @@ tell-memory:
 
 get-memory:
   --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
-  [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
-  [--sort smart|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
-  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--explain]
+  [--tag <t>]...  [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
+  [--sort smart|score|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
+  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--semantic]  [--explain]
   --explain: attach per-result score_components (importance/recency/access/relevance)
 
 forget:
@@ -4230,16 +4291,17 @@ doc-staleness:
   'doc-staleness') for each stale entry
 
 digest:
-  [--retention-days <n>]  [--dry-run]  [--export-doc [path]]
+  [--retention-days <n>]  [--refinement-handoff-retention-days <n>]  [--refinement-done-retention-days <n>]
+  [--dry-run]  [--export-doc [path]]
   archive expired memories, prune old superseded rows/refinements, rebuild FTS
   --dry-run: preview counts without mutating anything
   --export-doc: write a markdown memory report to .octocode/memory-reports/
 
 pre-flight-intent:
   --agent-id <id>  --target-file <path>...  [--workspace <path>]  [--artifact <name>]
-  [--rationale <text>]  [--test-plan <text>]  [--lock-type EXCLUSIVE|SHARED]
-  [--ttl-minutes <n> | --ttl-seconds <n>]  [--wait-seconds <n>]
-  claims target file(s); lock TTL is hard-capped at 10 minutes regardless of the requested value
+  [--rationale <text>]  [--test-plan <text>]  [--plan-doc-ref <ref>]  [--lock-type EXCLUSIVE|SHARED]
+  [--ttl-minutes <n> | --ttl-seconds <n>]  [--wait-seconds <n>]  [--retry-interval <n>]
+  claims target file(s); CLI TTL accepts at most 10 minutes and direct runtime calls are hard-capped at 10 minutes
   --wait-seconds: on conflict, wait up to <n>s for the current holder to release, then retry once
 
 release-file-lock:
@@ -4394,9 +4456,13 @@ try {
     }
     case "digest": {
       const retDays = args["retention_days"] ? Number(args["retention_days"]) : void 0;
+      const handoffDays = args["refinement_handoff_retention_days"] ? Number(args["refinement_handoff_retention_days"]) : void 0;
+      const doneDays = args["refinement_done_retention_days"] ? Number(args["refinement_done_retention_days"]) : void 0;
       const isDryRun = Boolean(args["dry_run"] ?? args["dry-run"]);
       const digestResult = digest(db, {
         ...retDays !== void 0 ? { retention_days: retDays } : {},
+        ...handoffDays !== void 0 ? { refinement_handoff_retention_days: handoffDays } : {},
+        ...doneDays !== void 0 ? { refinement_done_retention_days: doneDays } : {},
         ...isDryRun ? { dry_run: true } : {}
       });
       const payload = { db_path: dbPath, ...digestResult };

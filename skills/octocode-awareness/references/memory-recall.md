@@ -37,6 +37,7 @@ Important flags:
 - `--explain`: attach `score_components` to each result.
 - `--smart`: when strict recall under-fills, broaden safely: lower `--min-importance`, then drop label/tag filters.
 - `--as-of <ISO>`: point-in-time recall using memory validity windows.
+- `--semantic`: request embedding-ranked recall. Accepted, but the CLI has no embedder, so it returns a "semantic ranking unavailable in CLI" warning and falls back to the lexical/salience blend; real semantic ranking runs only through the Pi `memory_recall` tool.
 
 ## Judgment Rules
 

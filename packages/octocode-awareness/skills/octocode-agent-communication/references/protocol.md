@@ -46,6 +46,8 @@ node scripts/awareness.mjs agent-registry --action list \
 
 If the receiver is unknown, broadcast by omitting `--to-agent`.
 
+> Naming note: the CLI flag is `--to-agent` (repeat it to address several agents), but the JSON contract in `scripts/schema.mjs` names the same field `to_agents` (an array). Use `to_agents: [...]` when building a wrapper or Pi adapter — do not copy the singular flag spelling into JSON.
+
 ## Send
 
 Use typed signals so recipients can filter and act without parsing a long prose note.

@@ -8,7 +8,7 @@ description: "Use when completed work needs learning, stale-memory cleanup, stag
 Use this as the learning and maintenance loop after work has evidence. It shares the `~/.octocode/memory/awareness.sqlite3` store with `octocode-awareness`; Awareness handles live coordination, Reflection handles what should be learned, cleaned, or proposed for future behavior.
 
 Agent-facing Pi tools: `memory_record`, `memory_reflect`, `memory_export_harness`, and `memory_recall` for checking existing lessons.
-User/CLI maintenance uses `memory_digest` and `memory_forget`. Scripts call `scripts/awareness.mjs <cmd>`.
+Digest and forget are human-gated maintenance, not agent-callable tools — run them via the CLI (`scripts/awareness.mjs digest` / `forget`) or the `/octocode-memory-digest` and `/octocode-memory-forget` commands. Scripts call `scripts/awareness.mjs <cmd>`.
 
 ## Default Loop
 1. **Select** — keep only outcomes that change a future decision: root causes, corrections, decisions, repeated failures, durable workflows, or stale-memory cleanup.
@@ -16,7 +16,7 @@ User/CLI maintenance uses `memory_digest` and `memory_forget`. Scripts call `scr
 3. **Reflect** — use `memory_reflect` after non-trivial work to route `lesson`, `fix_repo`, `fix_harness`, `failure_signature`, `judgment_note`, or eval evidence. Reflections land as `EXPERIENCE`, excluded from briefings. A lesson that must persist also needs its own durable `memory_record`.
 4. **Stage** — propose skill, harness, AGENTS.md, or repo-instruction changes with evidence and rollback; keep standing guidance unchanged until human approval.
 5. **Clean** — after work, use `references/memory-hygiene.md` to clear stale memories and historical pending tasks; preview or scope before mutating.
-6. **Maintain** — preview `memory_digest`/`memory_forget` before pruning expired, stale, duplicate, wrong, or superseded memories.
+6. **Maintain** — preview `digest`/`forget` (CLI or `/octocode-memory-*` commands, human-gated) before pruning expired, stale, duplicate, wrong, or superseded memories.
 
 ## References
 - `references/learning-loop.md` — after completed work, corrections, skill-learning candidates, eval failures, or background review.

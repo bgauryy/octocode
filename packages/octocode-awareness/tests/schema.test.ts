@@ -135,6 +135,7 @@ describe('tasks table column names', () => {
       'artifact',
       'created_at',
       'files_json',
+      'plan_doc_ref',
       'rationale',
       'session_id',
       'status',

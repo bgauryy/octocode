@@ -33,6 +33,7 @@ export interface UnverifiedIntent {
   agent_id: string;
   status: string;
   test_plan: string;
+  plan_doc_ref: string | null;
   rationale: string;
   target_files: string[];
   workspace_path: string | null;
@@ -49,6 +50,7 @@ export interface StaleActiveIntent {
   agent_id: string;
   status: 'ACTIVE';
   rationale: string;
+  plan_doc_ref: string | null;
   target_files: string[];
   workspace_path: string | null;
   artifact: string | null;
@@ -110,6 +112,7 @@ interface IntentDbRow {
   agent_id: string;
   status: string;
   test_plan: string;
+  plan_doc_ref: string | null;
   rationale: string;
   workspace_path: string | null;
   artifact: string | null;
@@ -151,7 +154,7 @@ export function auditUnverified(
   }
 
   const rows = db.prepare(
-    `SELECT task_id, agent_id, status, test_plan, rationale, workspace_path, artifact, files_json, created_at
+    `SELECT task_id, agent_id, status, test_plan, plan_doc_ref, rationale, workspace_path, artifact, files_json, created_at
      FROM tasks
      WHERE ${where.join(' AND ')}
      ORDER BY created_at ASC`,
@@ -162,6 +165,7 @@ export function auditUnverified(
     agent_id: r.agent_id,
     status: r.status,
     test_plan: r.test_plan,
+    plan_doc_ref: r.plan_doc_ref,
     rationale: r.rationale,
     target_files: parseJsonList(r.files_json),
     workspace_path: r.workspace_path,
@@ -199,7 +203,7 @@ export function auditUnverified(
     if (artifact) { staleWhere.push('(ai.artifact = ? OR ai.artifact IS NULL)'); staleBinds.push(artifact); }
 
     const staleRows = db.prepare(
-      `SELECT ai.task_id, ai.agent_id, ai.rationale, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
+      `SELECT ai.task_id, ai.agent_id, ai.rationale, ai.plan_doc_ref, ai.workspace_path, ai.artifact, ai.files_json, ai.created_at
        FROM tasks ai
        WHERE ${staleWhere.join(' AND ')}
        ORDER BY ai.created_at ASC`
@@ -212,6 +216,7 @@ export function auditUnverified(
         agent_id: r.agent_id,
         status: 'ACTIVE',
         rationale: r.rationale,
+        plan_doc_ref: r.plan_doc_ref,
         target_files: parseJsonList(r.files_json),
         workspace_path: r.workspace_path,
         artifact: r.artifact,

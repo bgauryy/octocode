@@ -76,7 +76,7 @@ const claimA = run("agent-a", [
   "--rationale", "smoke: agent-a edits shared file first",
   "--target-file", target,
   "--test-plan", "smoke reads final file",
-  "--ttl-minutes", "20",
+  "--ttl-minutes", "10",
 ]);
 assert(claimA.task?.task_id, "agent-a should get a task_id");
 await appendFile(target, "agent-a wrote while holding the lock\n", "utf8");

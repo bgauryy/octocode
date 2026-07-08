@@ -3,7 +3,7 @@
 Read this when you need flag detail for locks, messaging, refinements, or future wrappers.
 Memory commands live in `memory-recall.md`; status and collisions live in `files-awareness.md`.
 
-> **Pi tool mapping** (agent turns): `notify`/`notify-get` → `agent_signal`; `pre-flight-intent` → `file_lock type:lock`; `release-file-lock` → `file_lock type:release`; `refine-get` → `memory_refine_get`; `status` → `workspace_status`. CLI flag detail below applies to `scripts/awareness.mjs` and hook scripts.
+> **Pi tool mapping** (agent turns): `notify`/`notify-get` → `agent_signal`; `pre-flight-intent` → `file_lock type:lock`; `release-file-lock` → `file_lock type:release`; `refine-get` → `memory_refine_get`; `status` → `workspace_status`. The Pi `agent_signal` action set is `publish|list|reply|ack|resolve`, and `file_lock` also supports `type:status` (inspect holders) and `type:renew` (extend a held lock). CLI flag detail below applies to `scripts/awareness.mjs` and hook scripts.
 
 ## Notifications: `agent_signal` (Pi) / `notify`·`notify-get` (CLI)
 
@@ -39,6 +39,8 @@ Load `octocode-agent-communication` for send/reply/ack/resolve or A2A mapping.
 - `--thread-id`: read one discussion end-to-end.
 - `--format hook`: emit hook `additionalContext`; empty output means no message.
 
+In Pi, `agent_signal action:ack` records that a targeted message was acted on (distinct from `--mark-read`, which only advances the read cursor); ack only after acting, resolve only when the thread is done.
+
 Never put secrets in signals. Promote reusable lessons to memory and durable work state to refinements.
 `notify-resolve` closes messages:
 - Select with `--signal-id` and/or `--thread-id`.
@@ -58,14 +60,14 @@ Important flags:
 - `--rationale`: why the change is needed.
 - `--target-file`: repeat for likely changed files.
 - `--test-plan`: exact verification plan.
-- `--plan-doc-ref`: accepted but currently a no-op — not persisted anywhere (no DB column); do not rely on it yet.
+- `--plan-doc-ref`: optional plan/design document reference persisted on the task.
 - `--workspace`: scope for status, audit, and `verify --all-pending`.
 - `--artifact`: optional package/service slice inside the workspace.
 - `--lock-type`: default `EXCLUSIVE`; use `SHARED` only for visible non-writing reads.
 - `--wait-seconds`: bounded wait; use only after choosing to wait.
-- `--ttl-minutes` / `--ttl-seconds`: lock expiry safety valve. The effective TTL is hard-capped at 10
-  minutes (`MAX_LOCK_TTL_MS` in `src/intents.ts`) even if you request longer — this is also the
-  default when no TTL flag is passed.
+- `--ttl-minutes` / `--ttl-seconds`: lock expiry safety valve. The CLI accepts at most 10 minutes;
+  direct runtime calls are also hard-capped at 10 minutes (`MAX_LOCK_TTL_MS` in `src/intents.ts`).
+  Ten minutes is the default when no TTL flag is passed.
 
 If the result is `ok: false`, do not modify files.
 Choose wait/retry, a different slice, coordination, or conflict reporting.
@@ -121,6 +123,12 @@ Run at the end of work.
 
 `release-file-lock` warns and stores `PENDING` when `SUCCESS` lacks recorded verification.
 After hook-managed edits, use `verify --workspace <root> --all-pending`.
+
+## `verify` / `audit-unverified`
+
+`audit-unverified` lists this agent's tasks still owing verification (`--agent-id`, `--workspace`, `--artifact` scope it).
+`verify --all-pending --message "<check>"` clears them after the declared test plan actually ran.
+`audit-unverified --abandon` bulk-dismisses every PENDING task as `FAILED` — a state-mutating escape hatch; use it only when abandoning the work, never as a shortcut past real verification.
 
 ## `refine-set` / `refine-get`
 

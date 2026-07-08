@@ -144,6 +144,7 @@ export interface TaskRecord {
   lock_type: LockType;
   workspace_path: string;
   artifact: string | null;
+  plan_doc_ref: string | null;
   target_files: string[];
   locks: FileLock[];
   status: TaskStatus;

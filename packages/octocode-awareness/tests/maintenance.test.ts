@@ -63,14 +63,14 @@ function insertMem(
 /** Insert an ACTIVE task and return its task_id. */
 function insertTask(
   db: DatabaseSync,
-  opts: { agentId?: string; workspacePath?: string; sessionId?: string | null } = {},
+  opts: { agentId?: string; workspacePath?: string; sessionId?: string | null; planDocRef?: string | null } = {},
 ): string {
   const taskId = 'task_' + randomUUID().replace(/-/g, '');
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO tasks (task_id, agent_id, rationale, test_plan, status, workspace_path, files_json, created_at, updated_at)
-    VALUES (?, ?, 'test rationale', 'yarn test', 'ACTIVE', ?, '[]', ?, ?)
-  `).run(taskId, opts.agentId ?? 'agent-test', opts.workspacePath ?? '/ws', now, now);
+    INSERT INTO tasks (task_id, agent_id, rationale, test_plan, plan_doc_ref, status, workspace_path, files_json, created_at, updated_at)
+    VALUES (?, ?, 'test rationale', 'yarn test', ?, 'ACTIVE', ?, '[]', ?, ?)
+  `).run(taskId, opts.agentId ?? 'agent-test', opts.planDocRef ?? null, opts.workspacePath ?? '/ws', now, now);
   return taskId;
 }
 
@@ -318,6 +318,23 @@ describe('sessionCapture — tasks table', () => {
     ).get(res.refinement_id!) as { quality: string; state: string } | undefined;
     expect(ref?.quality).toBe('handoff');
     expect(ref?.state).toBe('open');
+  });
+
+  it('includes plan_doc_ref in handoff task details', () => {
+    const db = freshDb();
+    insertTask(db, {
+      agentId: 'agent-cap',
+      workspacePath: '/ws',
+      planDocRef: 'docs/plans/session.md',
+    });
+
+    const res = sessionCapture(db, { agent_id: 'agent-cap', workspace: '/ws' });
+    expect(res.captured).toBe(true);
+
+    const ref = db.prepare(
+      'SELECT reasoning FROM refinements WHERE refinement_id = ?'
+    ).get(res.refinement_id!) as { reasoning: string } | undefined;
+    expect(ref?.reasoning).toContain('plan=docs/plans/session.md');
   });
 });
 

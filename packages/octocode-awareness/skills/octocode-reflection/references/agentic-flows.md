@@ -82,7 +82,7 @@ Use hooks for checkpoints that line up with the host lifecycle:
 - `Stop` / `SubagentStop`: block one unverified conclusion and force the agent to verify or hand off.
 - `SessionEnd` / `sessionEnd` or `PreCompact` / `preCompact`: capture a best-effort refinement from dirty state and active work. Codex currently uses `PreCompact`; Cursor uses `sessionEnd` locally and `preCompact` where cloud agents support it.
 
-The installer (`scripts/install-hooks.mjs`) manages Claude, Codex, or Cursor lifecycle hook config for session-wide enforcement: prompt delivery where supported, pre-edit lock/guard, post-edit release, stop/subagent verification, and best-effort capture.
+The installer (`octocode-awareness`'s `scripts/install-hooks.mjs` — it ships with that skill, not this one) manages Claude, Codex, or Cursor lifecycle hook config for session-wide enforcement: prompt delivery where supported, pre-edit lock/guard, post-edit release, stop/subagent verification, and best-effort capture.
 
 ## Agentic guardrails
 

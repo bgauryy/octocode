@@ -432,6 +432,7 @@ export function insertMemory(db: DatabaseSync, params: InsertMemoryParams): Inse
         ftsTermsForRow({
           tags_json: JSON.stringify(tagList),
           label: normalizedLabel,
+          references: refList,
         })
       );
     }

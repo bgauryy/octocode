@@ -53,7 +53,7 @@ const memoryLabel = z
   .preprocess(normalizeMemoryLabel, z.enum(MEMORY_LABELS).default("OTHER"))
   .describe("Memory category label. Empty or omitted becomes OTHER.");
 const memorySort = z
-  .enum(["smart", "score", "importance", "recent", "updated", "accessed", "access", "label", "file"])
+  .enum(["smart", "score", "importance", "recent", "accessed"])
   .default("smart")
   .describe("Result order. smart/score use salience; alternatives sort by explicit fields.");
 const importanceLevel = z
@@ -199,15 +199,6 @@ export const schemas = {
         .array(z.enum(["ACTIVE", "SUPERSEDED"]))
         .default(["ACTIVE"])
         .describe("Lifecycle states to recall. Default: ACTIVE only."),
-      no_decay: z
-        .boolean()
-        .default(false)
-        .describe("Rank by importance+lexical only, skipping recency/access salience decay."),
-      half_life: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Decay half-life in days (default 30, measured from last use)."),
       explain: z
         .boolean()
         .default(false)
@@ -264,7 +255,8 @@ export const schemas = {
       lock_type: z.enum(["SHARED", "EXCLUSIVE"]).default("EXCLUSIVE"),
       wait_seconds: z.number().int().min(0).max(3600).default(0),
       retry_interval: z.number().int().min(1).max(300).default(5),
-      ttl_minutes: z.number().int().min(1).max(10080).default(240),
+      ttl_minutes: z.number().int().min(1).max(10).default(10)
+        .describe("Lock TTL in minutes. The runtime hard-caps direct callers at 10 minutes."),
     })
     .strict()
     .describe("Register an edit task and acquire target file locks."),
@@ -660,6 +652,7 @@ export const examples = {
     target_files: ["src/auth/router.ts", "src/auth/router.test.ts"],
     test_plan: "yarn test src/auth/router.test.ts",
     lock_type: "EXCLUSIVE",
+    retry_interval: 5,
   },
   wait_for_lock: {
     agent_id: "codex-local",

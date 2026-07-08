@@ -22,8 +22,22 @@ process.stdin.on("end", () => {
       } else if (Array.isArray(value)) {
         for (const item of value) add2(item);
       }
+    }, addTargets2 = function(source) {
+      add2(source["file_path"]);
+      add2(source["path"]);
+      add2(source["filePath"]);
+      add2(source["paths"]);
+      add2(source["file_paths"]);
+      add2(source["filePaths"]);
+      const queries = source["queries"];
+      if (Array.isArray(queries)) {
+        for (const query of queries) {
+          if (!query || typeof query !== "object") continue;
+          addTargets2(query);
+        }
+      }
     };
-    var add = add2;
+    var add = add2, addTargets = addTargets2;
     let data;
     try {
       data = JSON.parse(raw);
@@ -34,26 +48,9 @@ process.stdin.on("end", () => {
     const toolInput = root.tool_input ?? root.input ?? root.args ?? data;
     const ti = toolInput !== null && typeof toolInput === "object" ? toolInput : {};
     const paths = [];
-    add2(ti["file_path"]);
-    add2(ti["path"]);
-    add2(ti["filePath"]);
-    add2(ti["paths"]);
-    add2(ti["file_paths"]);
-    add2(ti["filePaths"]);
-    const queries = ti["queries"];
-    if (Array.isArray(queries)) {
-      for (const query of queries) {
-        if (!query || typeof query !== "object") continue;
-        const q = query;
-        add2(q["file_path"]);
-        add2(q["path"]);
-        add2(q["filePath"]);
-        add2(q["paths"]);
-        add2(q["file_paths"]);
-        add2(q["filePaths"]);
-      }
-    }
-    const command = typeof toolInput === "string" ? toolInput : ti["command"] ?? ti["patch"] ?? ti["text"] ?? ti["content"];
+    addTargets2(root);
+    if (ti !== root) addTargets2(ti);
+    const command = typeof toolInput === "string" ? toolInput : ti["command"] ?? root["command"] ?? ti["patch"] ?? root["patch"] ?? ti["text"] ?? root["text"] ?? ti["content"] ?? root["content"];
     if (typeof command === "string") {
       for (const line of command.split("\n")) {
         const addUpdDel = line.match(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/);

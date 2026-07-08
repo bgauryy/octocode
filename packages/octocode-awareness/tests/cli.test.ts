@@ -7,7 +7,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +51,10 @@ function fail(dbPath: string, args: string[], expectedStatus = 1): Record<string
   const r = run(dbPath, args);
   expect(r.status, `expected exit ${expectedStatus} for ${args[0]}: stdout=${r.stdout}`).toBe(expectedStatus);
   return r.parsed;
+}
+
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 // ─── init ─────────────────────────────────────────────────────────────────────
@@ -215,6 +220,31 @@ describe('get-memory', () => {
     expect(mems.every(m => m['label'] === 'BUG')).toBe(true);
   });
 
+  it('tag filter works and stays advertised in help', () => {
+    const result = ok(db, ['get-memory', '--query', 'traffic', '--tag', 'docker', '--min-importance', '1']);
+    const mems = result['memories'] as Record<string, unknown>[];
+    expect(mems.length).toBeGreaterThanOrEqual(1);
+    expect(mems.every(m => (m['tags'] as string[]).includes('docker'))).toBe(true);
+
+    const help = spawnSync(NODE, [SCRIPT, 'get-memory', '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain('[--tag <t>]...');
+    expect(help.stdout).toContain('[--semantic]');
+  });
+
+  it('rejects unsupported sort values instead of falling back silently', () => {
+    const result = fail(db, ['get-memory', '--query', 'test', '--sort', 'label']);
+    expect(result?.['error']).toContain('--sort must be one of: smart, score, importance, recent, accessed');
+  });
+
+  it('semantic flag returns lexical results with a warning', () => {
+    const result = ok(db, ['get-memory', '--query', 'sqlite', '--semantic']);
+    expect(result['mode']).toBeTruthy();
+    expect(result['warnings']).toEqual(expect.arrayContaining([
+      expect.stringContaining('semantic ranking is unavailable in the CLI'),
+    ]));
+  });
+
   it('all memories have a numeric score', () => {
     const result = ok(db, ['get-memory', '--query', 'sqlite', '--min-importance', '1', '--limit', '5']);
     const mems = result['memories'] as Record<string, unknown>[];
@@ -301,6 +331,30 @@ describe('reflect', () => {
 
   it('missing --task exits 1', () => {
     fail(db, ['reflect', '--agent-id', 'a', '--outcome', 'worked']);
+  });
+
+  it('accepts judgment-note, duo, and eval-failure-json flags', () => {
+    const result = ok(db, [
+      'reflect', '--agent-id', 'a',
+      '--task', 'cli reflection contract',
+      '--outcome', 'failed',
+      '--judgment-note', 'checked CLI output; one branch untested',
+      '--duo',
+      '--eval-failure-json', '[{"id":"q1","dimension":"correctness","failure_signature":"cli:sig","suggested_lesson":"keep CLI flags covered"}]',
+    ]);
+    expect(result['eval_failure_count']).toBe(1);
+    expect(result['eval_failure_ids']).toHaveLength(1);
+    expect((result['reflection_duo'] as Record<string, unknown>)['advisory']).toBe(true);
+  });
+
+  it('rejects invalid eval-failure-json', () => {
+    const result = fail(db, [
+      'reflect', '--agent-id', 'a',
+      '--task', 'bad eval json',
+      '--outcome', 'failed',
+      '--eval-failure-json', '{"not":"an array"}',
+    ]);
+    expect(result?.['error']).toContain('--eval-failure-json must be a JSON array');
   });
 });
 
@@ -434,6 +488,39 @@ describe('pre-flight-intent', () => {
     ]);
     expect(r.status).toBe(1);
     expect(r.parsed?.['error']).toContain('--ttl-minutes must be >= 1');
+  });
+
+  it('accepts retry interval and persists plan_doc_ref', () => {
+    const plannedFile = join(dir, 'planned.txt');
+    writeFileSync(plannedFile, 'planned');
+    const result = ok(db, [
+      'pre-flight-intent', '--agent-id', 'agent-plan', '--workspace', dir,
+      '--rationale', 'planned edit', '--test-plan', 'planned test',
+      '--plan-doc-ref', 'docs/plans/awareness.md',
+      '--target-file', plannedFile,
+      '--retry-interval', '1',
+    ]);
+    const task = result['task'] as Record<string, unknown>;
+    expect(task['plan_doc_ref']).toBe('docs/plans/awareness.md');
+
+    ok(db, [
+      'release-file-lock', '--agent-id', 'agent-plan',
+      '--task-id', task['task_id'] as string,
+      '--status', 'PENDING',
+    ]);
+    const auditResult = run(db, [
+      'audit-unverified', '--agent-id', 'agent-plan', '--workspace', dir,
+    ]);
+    expect(auditResult.status).toBe(1);
+    expect((auditResult.parsed?.['unverified'] as Record<string, unknown>[])[0]?.['plan_doc_ref']).toBe('docs/plans/awareness.md');
+  });
+
+  it('rejects ttl-minutes above the runtime cap', () => {
+    const r = run(db, [
+      'pre-flight-intent', '--agent-id', 'agent-long', '--target-file', targetFile, '--ttl-minutes', '11',
+    ]);
+    expect(r.status).toBe(1);
+    expect(r.parsed?.['error']).toContain('--ttl-minutes must be <= 10');
   });
 });
 
@@ -653,6 +740,166 @@ describe('CLI', () => {
       expect(help.stdout, `${key} should map to CLI command ${command}`).toContain(command);
     }
   });
+
+  it('schema exposes only implemented get-memory recall options', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    if (!existsSync(schemaScript)) return;
+    const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'get_memory'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
+    const sortSchema = parsed.properties['sort'];
+    expect(sortSchema).toBeDefined();
+    expect(sortSchema?.['enum']).toEqual(['smart', 'score', 'importance', 'recent', 'accessed']);
+    expect(parsed.properties).not.toHaveProperty('no_decay');
+    expect(parsed.properties).not.toHaveProperty('half_life');
+  });
+
+  it('schema aligns pre-flight ttl and retry contract with CLI/runtime', () => {
+    const schemaScript = resolve(dirname(fileURLToPath(import.meta.url)), '../skills/octocode-awareness/scripts/schema.mjs');
+    if (!existsSync(schemaScript)) return;
+    const schema = spawnSync(NODE, [schemaScript, 'json-schema', 'pre_flight_intent'], { encoding: 'utf8', timeout: 5000 });
+    expect(schema.status).toBe(0);
+    const parsed = JSON.parse(schema.stdout) as { properties: Record<string, Record<string, unknown>> };
+    const ttlSchema = parsed.properties['ttl_minutes'];
+    const retrySchema = parsed.properties['retry_interval'];
+    expect(ttlSchema).toBeDefined();
+    expect(retrySchema).toBeDefined();
+    expect(ttlSchema?.['default']).toBe(10);
+    expect(ttlSchema?.['maximum']).toBe(10);
+    expect(retrySchema?.['default']).toBe(5);
+  });
+});
+
+// ─── memory-index ─────────────────────────────────────────────────────────────
+
+describe('memory-index', () => {
+  it('includes provenance references and failure signatures', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      ok(db, [
+        'tell-memory', '--agent-id', 'a',
+        '--task-context', 'indexed provenance',
+        '--observation', 'memory index should preserve source context',
+        '--importance', '8',
+        '--label', 'GOTCHA',
+        '--tag', 'index',
+        '--reference', 'file:packages/octocode-awareness/src/memory.ts',
+        '--reference', 'pr:owner/repo#123',
+        '--failure-signature', 'mechanism:index|cause:lost-provenance',
+      ]);
+
+      const result = run(db, ['memory-index', '--stdout']);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('*Tags: index*');
+      expect(result.stdout).toContain('*References: file:packages/octocode-awareness/src/memory.ts, pr:owner/repo#123*');
+      expect(result.stdout).toContain('*Failure: mechanism:index|cause:lost-provenance*');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+});
+
+// ─── digest ──────────────────────────────────────────────────────────────────
+
+describe('digest', () => {
+  it('uses documented retention flags in dry-run mode', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const oldMemory = ok(db, [
+        'tell-memory', '--agent-id', 'a',
+        '--task-context', 'old superseded',
+        '--observation', 'old superseded observation',
+        '--importance', '3',
+      ]);
+      const freshMemory = ok(db, [
+        'tell-memory', '--agent-id', 'a',
+        '--task-context', 'fresh superseded',
+        '--observation', 'fresh superseded observation',
+        '--importance', '3',
+      ]);
+      const oldHandoff = ok(db, [
+        'refine-set', '--agent-id', 'a',
+        '--reasoning', 'old handoff',
+        '--remember', 'old handoff',
+        '--quality', 'handoff',
+        '--state', 'open',
+      ]);
+      const freshHandoff = ok(db, [
+        'refine-set', '--agent-id', 'a',
+        '--reasoning', 'fresh handoff',
+        '--remember', 'fresh handoff',
+        '--quality', 'handoff',
+        '--state', 'open',
+      ]);
+      const oldDone = ok(db, [
+        'refine-set', '--agent-id', 'a',
+        '--reasoning', 'old done',
+        '--remember', 'old done',
+        '--quality', 'good',
+        '--state', 'done',
+      ]);
+      const freshDone = ok(db, [
+        'refine-set', '--agent-id', 'a',
+        '--reasoning', 'fresh done',
+        '--remember', 'fresh done',
+        '--quality', 'bad',
+        '--state', 'done',
+      ]);
+
+      const conn = new DatabaseSync(db);
+      try {
+        conn.prepare("UPDATE memories SET state = 'SUPERSEDED', updated_at = ? WHERE memory_id = ?")
+          .run(daysAgo(5), (oldMemory['memory'] as Record<string, unknown>)['memory_id'] as string);
+        conn.prepare("UPDATE memories SET state = 'SUPERSEDED', updated_at = ? WHERE memory_id = ?")
+          .run(daysAgo(0), (freshMemory['memory'] as Record<string, unknown>)['memory_id'] as string);
+        conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
+          .run(daysAgo(5), (oldHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string);
+        conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
+          .run(daysAgo(0), (freshHandoff['refinement'] as Record<string, unknown>)['refinement_id'] as string);
+        conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
+          .run(daysAgo(5), (oldDone['refinement'] as Record<string, unknown>)['refinement_id'] as string);
+        conn.prepare('UPDATE refinements SET updated_at = ? WHERE refinement_id = ?')
+          .run(daysAgo(0), (freshDone['refinement'] as Record<string, unknown>)['refinement_id'] as string);
+      } finally {
+        conn.close();
+      }
+
+      const defaults = ok(db, ['digest', '--dry-run']);
+      expect(defaults['would_prune_old']).toBe(0);
+      expect(defaults['would_prune_refinements']).toBe(0);
+
+      const result = ok(db, [
+        'digest',
+        '--dry-run',
+        '--retention-days', '3',
+        '--refinement-handoff-retention-days', '1',
+        '--refinement-done-retention-days', '2',
+      ]);
+      expect(result['dry_run']).toBe(true);
+      expect(result['would_prune_old']).toBe(1);
+      expect(result['would_prune_refinements']).toBe(2);
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('exports memory docs with provenance references', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    const report = join(dir, 'MEMORY.md');
+    try {
+      ok(db, [
+        'tell-memory', '--agent-id', 'a',
+        '--task-context', 'digest provenance export',
+        '--observation', 'digest export should keep memory references',
+        '--importance', '8',
+        '--reference', 'file:/tmp/digest-provenance.ts',
+        '--workspace', dir,
+      ]);
+
+      const result = ok(db, ['digest', '--workspace', dir, '--export-doc', report]);
+      expect(result['doc_path']).toBe(report);
+      expect(readFileSync(report, 'utf8')).toContain('**References:** file:/tmp/digest-provenance.ts');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
 });
 
 // ─── edge cases ───────────────────────────────────────────────────────────────
@@ -700,6 +947,64 @@ describe('agent-signal', () => {
       expect(listed['count']).toBe(1);
       const signal = (listed['signals'] as Record<string, unknown>[])[0]!;
       expect(signal['kind']).toBe('question');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('round-trips reply, ack, and resolve through the CLI', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const published = ok(db, [
+        'agent-signal', '--action', 'publish',
+        '--agent-id', 'agent-a',
+        '--to-agent', 'agent-b',
+        '--kind', 'question',
+        '--subject', 'Need answer',
+        '--workspace', dir,
+      ]);
+      const parentId = published['signal_id'] as string;
+      const threadId = published['thread_id'] as string;
+
+      const reply = ok(db, [
+        'agent-signal', '--action', 'reply',
+        '--agent-id', 'agent-b',
+        '--to-agent', 'agent-a',
+        '--subject', 'Answer',
+        '--body', 'Done',
+        '--in-reply-to', parentId,
+        '--workspace', dir,
+      ]);
+      const replyId = reply['signal_id'] as string;
+      expect(reply['thread_id']).toBe(threadId);
+      expect(replyId).not.toBe(parentId);
+
+      const acked = ok(db, [
+        'agent-signal', '--action', 'ack',
+        '--agent-id', 'agent-a',
+        '--signal-id', replyId,
+        '--workspace', dir,
+      ]);
+      expect(acked['acknowledged']).toBe(1);
+      expect(acked['signal_ids']).toEqual([replyId]);
+
+      const resolved = ok(db, [
+        'agent-signal', '--action', 'resolve',
+        '--agent-id', 'agent-a',
+        '--thread-id', threadId,
+        '--workspace', dir,
+      ]);
+      expect(resolved['resolved']).toBe(2);
+      expect(resolved['signal_ids']).toEqual(expect.arrayContaining([parentId, replyId]));
+
+      const listed = ok(db, [
+        'agent-signal', '--action', 'list',
+        '--agent-id', 'agent-a',
+        '--thread-id', threadId,
+        '--all',
+        '--workspace', dir,
+      ]);
+      expect(listed['count']).toBe(2);
+      expect((listed['signals'] as Record<string, unknown>[]).every((s) => s['status'] === 'resolved')).toBe(true);
     } finally { rmSync(dir, { recursive: true }); }
   });
 });

@@ -24,12 +24,16 @@ import { auditUnverified, markVerified } from '../src/verify.js';
 import { registerAgent, listAgents } from '../src/agents.js';
 import {
   normalizeLabel,
+  parseJsonList,
 } from '../src/helpers.js';
 
 // ─── Arg parser ───────────────────────────────────────────────────────────────
 
 type ArgValue = string | boolean | string[];
 type ParsedArgs = Record<string, ArgValue> & { _: string[] };
+
+const MAX_CLI_TTL_SECONDS = 10 * 60;
+const MEMORY_SORTS = new Set(['smart', 'score', 'importance', 'recent', 'accessed']);
 
 const ARRAY_FLAGS = new Set([
   'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state',
@@ -77,7 +81,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'refine-set': ['agent_id', 'reasoning', 'remember', 'quality', 'state', 'workspace', 'artifact', 'repo', 'ref', 'file', 'refinement_id'],
   'refine-get': ['workspace', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit'],
   'refine-delete': ['refinement_id', 'workspace', 'artifact', 'dry_run'],
-  'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'rationale', 'test_plan', 'plan_doc_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds'],
+  'pre-flight-intent': ['agent_id', 'workspace', 'artifact', 'rationale', 'test_plan', 'plan_doc_ref', 'target_file', 'file', 'lock_type', 'ttl_minutes', 'ttl_seconds', 'wait_seconds', 'retry_interval'],
   'release-file-lock': ['agent_id', 'task_id', 'target_file', 'file', 'status', 'verified', 'verified_note', 'workspace', 'artifact'],
   'status': ['workspace', 'artifact', 'limit'],
   'workspace-status': ['workspace', 'artifact'],
@@ -98,7 +102,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'notify-prune': ['signal_id', 'resolved', 'older_than_days', 'dry_run', 'workspace', 'artifact'],
   'session-capture': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'reason', 'cwd'],
   'wait-for-lock': ['agent_id', 'target_file', 'file', 'workspace', 'artifact', 'lock_type', 'wait_seconds', 'retry_interval'],
-  'digest': ['retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
+  'digest': ['retention_days', 'refinement_handoff_retention_days', 'refinement_done_retention_days', 'dry_run', 'export_doc', 'workspace', 'artifact'],
 };
 
 function validateFlags(command: string, args: ParsedArgs): string[] {
@@ -204,6 +208,10 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
   const fileRegex = Array.isArray(rawFileRegex) ? rawFileRegex : rawFileRegex ? [String(rawFileRegex)] : [];
   const rawGetFiles = args['file'];
   const getFiles = Array.isArray(rawGetFiles) ? rawGetFiles : rawGetFiles ? [String(rawGetFiles)] : [];
+  const sort = String(args['sort'] ?? 'smart');
+  if (!MEMORY_SORTS.has(sort)) {
+    die(`--sort must be one of: ${[...MEMORY_SORTS].join(', ')}`);
+  }
 
   const result = getMemory(db, {
     query: String(args['query'] ?? ''),
@@ -217,7 +225,7 @@ function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: 
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
     states,
-    sort: String(args['sort'] ?? 'smart'),
+    sort,
     globalOnly: Boolean(args['global_only']),
     strictScope: Boolean(args['strict_scope']),
     asOf: args['as_of'] ? String(args['as_of']) : null,
@@ -345,6 +353,8 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   const ttlSeconds = args['ttl_seconds'] ? parseInt(String(args['ttl_seconds']), 10) : null;
   if (ttlMinutes != null && (!Number.isInteger(ttlMinutes) || ttlMinutes < 1)) die('--ttl-minutes must be >= 1');
   if (ttlSeconds != null && (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)) die('--ttl-seconds must be >= 1');
+  if (ttlMinutes != null && ttlMinutes > 10) die('--ttl-minutes must be <= 10');
+  if (ttlSeconds != null && ttlSeconds > MAX_CLI_TTL_SECONDS) die('--ttl-seconds must be <= 600');
   const ttlMs = ttlMinutes != null ? ttlMinutes * 60000 : ttlSeconds != null ? ttlSeconds * 1000 : null;
 
   const claimParams = {
@@ -353,6 +363,7 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
     artifact: args['artifact'] ? String(args['artifact']) : null,
     rationale: String(args['rationale'] ?? 'agent write operation'),
     testPlan: String(args['test_plan'] ?? 'post-edit verification'),
+    planDocRef: args['plan_doc_ref'] ? String(args['plan_doc_ref']) : null,
     targetFiles,
     lockType: (String(args['lock_type'] ?? 'EXCLUSIVE')) as 'EXCLUSIVE' | 'SHARED',
     ttlMs,
@@ -364,6 +375,7 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
   // "clear" and the claim is inherent — the re-claim below closes it or conflicts again.
   const waitSeconds = args['wait_seconds'] ? parseInt(String(args['wait_seconds']), 10) : null;
   if (!result.ok && waitSeconds != null && waitSeconds > 0) {
+    const retrySeconds = args['retry_interval'] ? parseInt(String(args['retry_interval']), 10) : null;
     const wait = waitForLock(db, {
       agent_id: claimParams.agentId,
       target_files: targetFiles,
@@ -371,6 +383,7 @@ function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: string, 
       artifact: claimParams.artifact ?? undefined,
       lock_type: claimParams.lockType,
       wait_ms: waitSeconds * 1000,
+      retry_interval_ms: retrySeconds != null ? retrySeconds * 1000 : undefined,
     });
     if (wait.lock_free) result = preFlightIntent(db, claimParams);
   }
@@ -449,7 +462,8 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   const wsPath = args['workspace'] ? String(args['workspace']) : null;
   const conds: (string | number)[] = [];
   const binds: (string | number)[] = [minImportance];
-  let sql = `SELECT memory_id, label, importance, task_context, observation, tags_json, created_at
+  let sql = `SELECT memory_id, label, importance, task_context, observation, tags_json,
+                    failure_signature, created_at
      FROM memories WHERE state = 'ACTIVE' AND importance >= ?`;
   if (wsPath) { sql += ' AND (workspace_path = ? OR workspace_path IS NULL)'; binds.push(wsPath); }
   if (args['artifact']) { sql += ' AND (artifact = ? OR artifact IS NULL)'; binds.push(String(args['artifact'])); }
@@ -459,8 +473,33 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
   binds.push(limit);
   void conds;
 
-  type MemRow = { memory_id: string; label: string; importance: number; task_context: string; observation: string; tags_json: string; created_at: string };
+  type MemRow = {
+    memory_id: string;
+    label: string;
+    importance: number;
+    task_context: string;
+    observation: string;
+    tags_json: string;
+    failure_signature: string | null;
+    created_at: string;
+    references: string[];
+  };
   const rows = db.prepare(sql).all(...binds) as unknown as MemRow[];
+  if (rows.length > 0) {
+    const refs = db.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => '?').join(',')})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map(row => row.memory_id)) as unknown as Array<{ memory_id: string; reference: string }>;
+    const refsByMemory = new Map<string, string[]>();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
 
   const now = new Date().toISOString().slice(0, 10);
   const lines = [
@@ -471,10 +510,12 @@ function cmdMemoryIndex(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     '',
   ];
   for (const m of rows) {
-    const tags = (() => { try { return (JSON.parse(m.tags_json) as string[]).join(', '); } catch { return ''; } })();
+    const tags = parseJsonList(m.tags_json).join(', ');
     lines.push(`## [${m.label}:${m.importance}] ${m.task_context.slice(0, 80)}`);
     lines.push(`> ${m.observation.slice(0, 200)}`);
     if (tags) lines.push(`*Tags: ${tags}*`);
+    if (m.references.length > 0) lines.push(`*References: ${m.references.join(', ')}*`);
+    if (m.failure_signature) lines.push(`*Failure: ${m.failure_signature}*`);
     lines.push('');
   }
 
@@ -855,9 +896,9 @@ tell-memory:
 
 get-memory:
   --query <text>  [--limit <n>]  [--min-importance <n>]  [--label <L>]  [--smart]
-  [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
-  [--sort smart|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
-  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--explain]
+  [--tag <t>]...  [--reference <r>]...  [--regex <pattern>]...  [--file-regex <pat>]...  [--file <path>]...
+  [--sort smart|score|importance|recent|accessed]  [--state ACTIVE|SUPERSEDED]...
+  [--strict-scope]  [--global-only]  [--as-of <ISO>]  [--semantic]  [--explain]
   --explain: attach per-result score_components (importance/recency/access/relevance)
 
 forget:
@@ -955,16 +996,17 @@ doc-staleness:
   'doc-staleness') for each stale entry
 
 digest:
-  [--retention-days <n>]  [--dry-run]  [--export-doc [path]]
+  [--retention-days <n>]  [--refinement-handoff-retention-days <n>]  [--refinement-done-retention-days <n>]
+  [--dry-run]  [--export-doc [path]]
   archive expired memories, prune old superseded rows/refinements, rebuild FTS
   --dry-run: preview counts without mutating anything
   --export-doc: write a markdown memory report to .octocode/memory-reports/
 
 pre-flight-intent:
   --agent-id <id>  --target-file <path>...  [--workspace <path>]  [--artifact <name>]
-  [--rationale <text>]  [--test-plan <text>]  [--lock-type EXCLUSIVE|SHARED]
-  [--ttl-minutes <n> | --ttl-seconds <n>]  [--wait-seconds <n>]
-  claims target file(s); lock TTL is hard-capped at 10 minutes regardless of the requested value
+  [--rationale <text>]  [--test-plan <text>]  [--plan-doc-ref <ref>]  [--lock-type EXCLUSIVE|SHARED]
+  [--ttl-minutes <n> | --ttl-seconds <n>]  [--wait-seconds <n>]  [--retry-interval <n>]
+  claims target file(s); CLI TTL accepts at most 10 minutes and direct runtime calls are hard-capped at 10 minutes
   --wait-seconds: on conflict, wait up to <n>s for the current holder to release, then retry once
 
 release-file-lock:
@@ -1105,9 +1147,13 @@ try {
     }
     case 'digest': {
       const retDays = args['retention_days'] ? Number(args['retention_days']) : undefined;
+      const handoffDays = args['refinement_handoff_retention_days'] ? Number(args['refinement_handoff_retention_days']) : undefined;
+      const doneDays = args['refinement_done_retention_days'] ? Number(args['refinement_done_retention_days']) : undefined;
       const isDryRun = Boolean(args['dry_run'] ?? args['dry-run']);
       const digestResult = digest(db, {
         ...(retDays !== undefined ? { retention_days: retDays } : {}),
+        ...(handoffDays !== undefined ? { refinement_handoff_retention_days: handoffDays } : {}),
+        ...(doneDays !== undefined ? { refinement_done_retention_days: doneDays } : {}),
         ...(isDryRun ? { dry_run: true } : {}),
       });
       const payload: Record<string, unknown> = { db_path: dbPath, ...digestResult };

@@ -2,7 +2,7 @@
 
 Read this when multiple agents may touch the same local repo. It covers status, timestamps, and collision response. Per-command flags live in `coordination-protocol.md`; hook enforcement lives in `hooks.md`.
 
-> **Pi tool mapping:** `status` → `workspace_status`; `pre-flight-intent` → `file_lock type:lock`; `refine-get` → `memory_refine_get`; `notify-get` → `agent_signal action:list`.
+> **Pi tool mapping:** `status` → `workspace_status`; `pre-flight-intent` → `file_lock type:lock`; `refine-get` → `memory_refine_get`; `notify-get` → `agent_signal action:list`. Pi `file_lock` also exposes `type:status` and `type:renew`; `agent_signal` also exposes `action:reply|ack|resolve`.
 
 ## `workspace_status` (Pi) / `status` (CLI)
 

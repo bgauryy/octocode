@@ -378,7 +378,7 @@ export function sessionCapture(
   const workspacePlaceholders = taskWorkspaceCandidates.map(() => '?').join(',');
 
   const taskRows = db.prepare(
-    `SELECT task_id, rationale, test_plan, status, files_json, created_at, updated_at
+    `SELECT task_id, rationale, test_plan, plan_doc_ref, status, files_json, created_at, updated_at
      FROM tasks
      WHERE agent_id = ?
        AND status IN ('ACTIVE', 'PENDING')
@@ -390,6 +390,7 @@ export function sessionCapture(
     task_id: string;
     rationale: string;
     test_plan: string;
+    plan_doc_ref: string | null;
     status: string;
     files_json: string;
     created_at: string;
@@ -434,7 +435,8 @@ export function sessionCapture(
   const statusSummary = taskRows.map(row => {
     const rowFiles = parseJsonList(row.files_json);
     const fileSuffix = rowFiles.length > 0 ? ` files=${rowFiles.join(', ')}` : '';
-    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${fileSuffix}`;
+    const planSuffix = row.plan_doc_ref ? ` plan=${row.plan_doc_ref}` : '';
+    return `${row.status} ${row.task_id}: ${row.rationale}; verify=${row.test_plan}${planSuffix}${fileSuffix}`;
   });
   const reasoning = [
     `Session capture for ${agentId}${reason ? ` (${reason})` : ''}.`,
@@ -802,6 +804,7 @@ export function exportMemoryDoc(
     memory_id: string; label: string; importance: number;
     task_context: string; observation: string;
     tags_json: string;
+    references: string[];
     repo: string | null; ref: string | null;
     failure_signature: string | null; created_at: string;
   };
@@ -813,6 +816,21 @@ export function exportMemoryDoc(
      WHERE ${conds.join(' AND ')}
      ORDER BY importance DESC, created_at DESC`
   ).all(...bindParams) as unknown as MemRow[];
+  if (rows.length > 0) {
+    const refs = db.prepare(
+      `SELECT memory_id, reference
+       FROM memory_refs
+       WHERE memory_id IN (${rows.map(() => '?').join(',')})
+       ORDER BY memory_id, ordinal`
+    ).all(...rows.map(row => row.memory_id)) as unknown as Array<{ memory_id: string; reference: string }>;
+    const refsByMemory = new Map<string, string[]>();
+    for (const ref of refs) {
+      const list = refsByMemory.get(ref.memory_id) ?? [];
+      list.push(ref.reference);
+      refsByMemory.set(ref.memory_id, list);
+    }
+    for (const row of rows) row.references = refsByMemory.get(row.memory_id) ?? [];
+  }
 
   const byLabel: Record<string, MemRow[]> = {};
   for (const row of rows) {
@@ -838,6 +856,7 @@ export function exportMemoryDoc(
         `**Observation:** ${m.observation}`,
       );
       if (tags.length) lines.push(`**Tags:** ${tags.join(', ')}`);
+      if (m.references.length) lines.push(`**References:** ${m.references.join(', ')}`);
       if (m.failure_signature) lines.push(`**Failure signature:** ${m.failure_signature}`);
       if (m.repo) lines.push(`**Repo:** ${m.repo}${m.ref ? ` @ ${m.ref}` : ''}`);
       lines.push(`**Created:** ${m.created_at.slice(0, 10)}`, '');

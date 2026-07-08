@@ -85,6 +85,7 @@ describe('legacy store migration', () => {
     }
     expect(tableColumns(db, 'tasks').has('session_id')).toBe(true);
     expect(tableColumns(db, 'tasks').has('artifact')).toBe(true);
+    expect(tableColumns(db, 'tasks').has('plan_doc_ref')).toBe(true);
     expect(tableColumns(db, 'locks').has('session_id')).toBe(true);
     expect(tableColumns(db, 'sessions').has('artifact')).toBe(true);
     expect(tableColumns(db, 'sessions').has('repo')).toBe(true);

@@ -94,6 +94,7 @@ export function preFlightIntent(
     artifact,
     rationale = 'agent write operation',
     testPlan = 'post-edit verification',
+    planDocRef = null,
     targetFiles = [],
     lockType = 'EXCLUSIVE',
     ttlMs = MAX_LOCK_TTL_MS,
@@ -154,9 +155,9 @@ export function preFlightIntent(
     // Insert task + all file locks atomically within the same transaction.
     db.prepare(`
       INSERT INTO tasks
-        (task_id, agent_id, session_id, rationale, test_plan, status, workspace_path, artifact, files_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
-    `).run(taskId, agentId, sessionId, rationale, testPlan, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
+        (task_id, agent_id, session_id, rationale, test_plan, plan_doc_ref, status, workspace_path, artifact, files_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?)
+    `).run(taskId, agentId, sessionId, rationale, testPlan, planDocRef, wsPath, artifactScope, JSON.stringify(absFiles), now, now);
 
     const expiresAt = expiresAtFromNow(ttlMs);
 
@@ -182,6 +183,7 @@ export function preFlightIntent(
         lock_type: lockType,
         workspace_path: wsPath,
         artifact: artifactScope,
+        plan_doc_ref: planDocRef,
         target_files: absFiles,
         locks: acquiredLocks.map(l => ({
           lock_id: l.lock_id,

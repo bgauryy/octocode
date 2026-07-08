@@ -6,8 +6,8 @@
  * skill hooks and Pi native adapters share the same package-owned behavior.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { registerAgent } from '../src/agents.js';
 import { connectDb, resolveDbPath } from '../src/db.js';
@@ -43,6 +43,14 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
 
 function payloadInput(payload: Record<string, unknown>): unknown {
   return payload.tool_input ?? payload.input ?? payload.args ?? payload;
+}
+
+function payloadForFileExtraction(payload: Record<string, unknown>): unknown {
+  const input = payloadInput(payload);
+  const inputObj = objectOrEmpty(input);
+  if (inputObj === payload) return input;
+  if (Object.keys(inputObj).length === 0) return input;
+  return { ...payload, ...inputObj };
 }
 
 function agentId(payload: Record<string, unknown>): string {
@@ -89,19 +97,51 @@ function isStopHookActive(payload: Record<string, unknown>): boolean {
 }
 
 function extractFiles(payload: Record<string, unknown>): string[] {
-  const input = payloadInput(payload);
+  const input = payloadForFileExtraction(payload);
   const inputObj = objectOrEmpty(input);
   const toolName = payload.tool_name ?? payload.toolName ?? payload.name ?? inputObj.tool_name ?? inputObj.toolName ?? '';
   return extractPiWriteTargetPaths(toolName, input);
 }
 
 function resolveHookPath(file: string, cwd = process.cwd()): string {
-  return file.startsWith('/') ? file : `${cwd}/${file}`;
+  // Absolutize AND normalize: `..`/`.` segments and non-absolute inputs (Codex
+  // apply_patch and Cursor payloads often carry repo-relative paths) must be
+  // collapsed before any containment check, or a traversal path that actually
+  // resolves inside the skill root can slip past a textual prefix comparison.
+  return resolve(cwd, file);
+}
+
+// Canonicalize a path for containment comparison: resolve symlinks on the
+// longest existing prefix and keep the (possibly not-yet-created) tail. Without
+// this, a skill root under a symlinked dir (e.g. macOS /tmp -> /private/tmp) and
+// a cwd-derived candidate that Node has already realpath'd can land on different
+// symlink forms and slip past the check.
+function canonicalize(input: string): string {
+  let dir = resolve(input);
+  const tail: string[] = [];
+  // Walk up until an existing ancestor is found, then realpath it and rejoin.
+  for (let guard = 0; guard < 4096; guard += 1) {
+    try {
+      return tail.length ? join(realpathSync(dir), ...tail) : realpathSync(dir);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return resolve(input); // reached filesystem root
+      tail.unshift(basename(dir));
+      dir = parent;
+    }
+  }
+  return resolve(input);
 }
 
 function isInsidePath(candidate: string, root: string): boolean {
-  const normalizedRoot = root.endsWith('/') ? root : `${root}/`;
-  return candidate === root || candidate.startsWith(normalizedRoot);
+  const resolvedRoot = canonicalize(root);
+  const resolvedCandidate = canonicalize(candidate);
+  if (resolvedCandidate === resolvedRoot) return true;
+  // A real path is inside root iff its relative path neither escapes upward
+  // (`..`) nor is absolute (different drive/root) — string prefixes are unsafe
+  // because `/a/b-sibling` textually starts with `/a/b`.
+  const rel = relative(resolvedRoot, resolvedCandidate);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 function db() {

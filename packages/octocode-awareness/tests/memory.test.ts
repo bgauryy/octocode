@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { initDb } from '../src/db.js';
+import { initDb, rebuildFts } from '../src/db.js';
 import {
   insertMemory, getMemory, bumpAccess, decayScore,
   forgetMemory, findSimilarMemories,
@@ -460,6 +460,25 @@ describe('fix-c: getMemory reference filter respects workspace_path', () => {
     expect(memories).toHaveLength(1);
     expect(memories[0]!.memory_id).toBe(idAlpha);
     expect(memories.every(m => m.workspace_path === '/workspace/alpha')).toBe(true);
+  });
+
+  it('plain text recall can find provenance reference tokens after insert and FTS rebuild', () => {
+    const db = freshDb();
+    const reference = 'file:/tmp/octocode-awareness-provenance-qrx42.ts';
+    const { memoryId } = insertMemory(db, {
+      taskContext: 'reference-only recall target',
+      observation: 'this observation intentionally omits the unique token',
+      importance: 7,
+      references: [reference],
+    });
+
+    const fresh = getMemory(db, { query: 'provenance qrx42', limit: 5 });
+    expect(fresh.memories.map(m => m.memory_id)).toContain(memoryId);
+
+    db.exec('DELETE FROM memories_fts');
+    rebuildFts(db);
+    const rebuilt = getMemory(db, { query: 'provenance qrx42', limit: 5 });
+    expect(rebuilt.memories.map(m => m.memory_id)).toContain(memoryId);
   });
 });
 

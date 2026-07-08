@@ -47,7 +47,7 @@ For shell-hook hosts, `PreToolUse` and `PermissionRequest` block on exit 2; `Pos
 Codex currently supports `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, and `Stop`. Codex does not expose `SessionEnd`; use `PreCompact` for best-effort session capture.
 Cursor native hooks use lower-camel event names: `preToolUse`, `postToolUse`, `subagentStart`, `subagentStop`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `afterFileEdit`, `beforeSubmitPrompt`, `afterAgentResponse`, `afterAgentThought`, `stop`, `sessionStart`, `sessionEnd`, `preCompact`, and `workspaceOpen`.
 Cursor cloud agents run command-based project/team/enterprise hooks only. Current cloud support includes shell/read/file-edit/tool/subagent/preCompact events, but not user-level hooks, prompt hooks, `sessionStart`, `sessionEnd`, `stop`, Tab hooks, workspace hooks, MCP hooks, or agent-response/thought hooks.
-For Pi, use extension events (`tool_call`, `tool_result`, `before_agent_start`, `agent_end`, `session_shutdown`, `session_before_compact`/`session_compact`) rather than skill frontmatter.
+For Pi, use extension events (`tool_call`, `tool_result`, `before_agent_start`, `agent_end`, `session_shutdown`, `session_before_compact`) rather than skill frontmatter.
 
 Shell-hook wiring usually matches `Write|Edit|MultiEdit|NotebookEdit` and provides a file path in the tool payload.
 Codex-style wiring should include `apply_patch`; bundled scripts parse patch text under `tool_input.command`.
@@ -67,9 +67,9 @@ For Pi, use `@octocodeai/pi-extension` or call `wirePiAwarenessHooks(pi)` from y
 | Need | Hosts | Command |
 |---|---|---|
 | Preview | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host> --dry-run` |
-| Install | `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host>` |
-| Check | `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host> --check` |
-| Remove | `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host> --remove` |
+| Install | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host>` |
+| Check | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host> --check` |
+| Remove | `claude`, `codex`, `cursor` | `node <skill_root>/scripts/install-hooks.mjs --host <host> --remove` |
 
 - Add `--project-dir <path>` to target a specific project.
 - The installer is idempotent, only adds/removes its own hook commands, and never touches other hooks.

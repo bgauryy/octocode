@@ -277,6 +277,18 @@ describe('exportMemoryDoc', () => {
     expect(doc).toContain('DECISION(1)');
   });
 
+  it('includes provenance references', () => {
+    const db = freshDb();
+    insertMemory(db, {
+      taskContext: 'reference export',
+      observation: 'doc export should keep provenance visible',
+      importance: 8,
+      references: ['file:/tmp/provenance.ts', 'pr:owner/repo#456'],
+    });
+    const doc = exportMemoryDoc(db, {});
+    expect(doc).toContain('**References:** file:/tmp/provenance.ts, pr:owner/repo#456');
+  });
+
   it('returns empty report when no memories exist', () => {
     const db = freshDb();
     const doc = exportMemoryDoc(db, {});
