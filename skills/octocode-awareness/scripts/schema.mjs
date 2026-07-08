@@ -754,7 +754,7 @@ export const examples = {
     mark_read: true,
   },
   notify_resolve: {
-    thread_id: "sig_966efa90808a48648dea6cb858e8e0c6",
+    thread_id: "ntf_966efa90808a48648dea6cb858e8e0c6",
   },
   notify_prune: {
     resolved: true,

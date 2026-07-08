@@ -58,12 +58,14 @@ Important flags:
 - `--rationale`: why the change is needed.
 - `--target-file`: repeat for likely changed files.
 - `--test-plan`: exact verification plan.
-- `--plan-doc-ref`: optional plan or design doc.
+- `--plan-doc-ref`: accepted but currently a no-op — not persisted anywhere (no DB column); do not rely on it yet.
 - `--workspace`: scope for status, audit, and `verify --all-pending`.
 - `--artifact`: optional package/service slice inside the workspace.
 - `--lock-type`: default `EXCLUSIVE`; use `SHARED` only for visible non-writing reads.
 - `--wait-seconds`: bounded wait; use only after choosing to wait.
-- `--ttl-minutes`: lock expiry safety valve; default 240.
+- `--ttl-minutes` / `--ttl-seconds`: lock expiry safety valve. The effective TTL is hard-capped at 10
+  minutes (`MAX_LOCK_TTL_MS` in `src/intents.ts`) even if you request longer — this is also the
+  default when no TTL flag is passed.
 
 If the result is `ok: false`, do not modify files.
 Choose wait/retry, a different slice, coordination, or conflict reporting.

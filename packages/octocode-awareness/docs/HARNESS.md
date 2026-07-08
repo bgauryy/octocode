@@ -334,7 +334,7 @@ Agent-to-agent messages: claims, questions, handoffs, blockers, decisions.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `signal_id` | TEXT PK | prefix `sig_` |
+| `signal_id` | TEXT PK | prefix `ntf_` |
 | `workspace_path` | TEXT NOT NULL | Scope |
 | `repo` / `ref` | TEXT | Scope |
 | `from_agent` | TEXT NOT NULL | Sender |

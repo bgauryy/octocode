@@ -99,7 +99,7 @@ node scripts/awareness.mjs agent-signal --action reply \
   --to-agent codex-2 \
   --subject "Reviewed" \
   --body "The lock is clear; proceed with the docs-only slice." \
-  --in-reply-to sig_abc123 \
+  --in-reply-to ntf_abc123 \
   --workspace /repo
 ```
 
@@ -110,7 +110,7 @@ Ack only after you acted on a message:
 ```bash
 node scripts/awareness.mjs agent-signal --action ack \
   --agent-id claude-1 \
-  --signal-id sig_abc123 \
+  --signal-id ntf_abc123 \
   --workspace /repo
 ```
 
@@ -119,7 +119,7 @@ Resolve a signal or thread only when no further action is needed:
 ```bash
 node scripts/awareness.mjs agent-signal --action resolve \
   --agent-id codex-2 \
-  --thread-id sig_abc123 \
+  --thread-id ntf_abc123 \
   --workspace /repo
 ```
 

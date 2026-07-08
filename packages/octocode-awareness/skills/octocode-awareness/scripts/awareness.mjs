@@ -4155,11 +4155,41 @@ notify:
   --subject <text>  [--to <agent-id>]  [--body <text>]  [--file <path>]...
   [--ref-id <id>]...  [--in-reply-to <signal-id>]  [--importance <1-10>]
 
+agent-signal:
+  --action publish|list|reply|resolve|ack  --agent-id <id>
+  publish: --kind claim|handoff|question|reply|blocker|request|decision|fyi  --subject <text>
+           [--to-agent <id>]...  [--body <text>]  [--file <path>]...  [--ref-id <id>]...
+           [--in-reply-to <signal-id>]  [--importance <1-10>]
+  reply:   same as publish, plus --in-reply-to <signal-id> (thread_id is inherited from the parent)
+  list:    [--all]  [--kind <k>]...  [--thread-id <id>]  [--mark-read]  [--limit <n>]
+           inbox = unread signals addressed to --agent-id, plus broadcasts where to_agent is unset
+  ack:     --signal-id <id>...  idempotent per-agent read receipt (shares signal_reads with --mark-read)
+  resolve: [--signal-id <id>]...  [--thread-id <id>]
+  [--workspace <path>]  [--artifact <name>]  [--repo <r>]  [--ref <r>]
+  generated signal ids use an "ntf_" prefix
+
+notify-get:
+  [--agent-id <id>]  [--workspace <path>]  [--artifact <name>]  [--all]  [--mark-read]
+  [--kind <k>]  [--thread-id <id>]  [--limit <n>]  [--format json|hook]
+  with --agent-id and --format json (default): this agent's real inbox
+  without --agent-id, or with --format hook: smart-briefing payload used by hooks
+
 notify-resolve:
   [--signal-id <id>]...  [--thread-id <id>]
 
 notify-prune:
   [--signal-id <id>]...  [--resolved]  [--older-than-days <n>]  [--dry-run]
+
+session-capture:
+  [--agent-id <id>]  [--workspace <path>]  [--artifact <name>]  [--repo <r>]  [--ref <r>]
+  [--reason <text>]  [--cwd <path>]
+  writes a work-handoff refinement summarizing this agent's active locks and dirty git tree
+
+wait-for-lock:
+  --agent-id <id>  --target-file <path>...  [--workspace <path>]  [--artifact <name>]
+  [--lock-type EXCLUSIVE|SHARED]  [--wait-seconds <n>]  [--retry-interval <n>]
+  polls until the target file(s) are lock-free or --wait-seconds elapses
+  exits 0 when lock_free; exits 2 on timeout with conflicts[]
 
 reflect:
   --agent-id <id>  --task <text>  --outcome worked|partial|failed
@@ -4206,7 +4236,11 @@ digest:
   --export-doc: write a markdown memory report to .octocode/memory-reports/
 
 pre-flight-intent:
-  --agent-id <id>  [--workspace <path>]  [--target-file <path>]...  [--ttl-minutes <n>]
+  --agent-id <id>  --target-file <path>...  [--workspace <path>]  [--artifact <name>]
+  [--rationale <text>]  [--test-plan <text>]  [--lock-type EXCLUSIVE|SHARED]
+  [--ttl-minutes <n> | --ttl-seconds <n>]  [--wait-seconds <n>]
+  claims target file(s); lock TTL is hard-capped at 10 minutes regardless of the requested value
+  --wait-seconds: on conflict, wait up to <n>s for the current holder to release, then retry once
 
 release-file-lock:
   --agent-id <id>  (--task-id <id> | --target-file <path>)  [--status SUCCESS|PENDING|FAILED]
