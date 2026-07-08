@@ -111,6 +111,10 @@ export { sha256Hex, insertEditLog, queryEditLog, insertHarnessLog, queryHarnessL
 // Doc staleness detection (edit_log-derived — no new tables)
 export { mineDocStaleness, proposeDocRefresh } from './docs.js';
 
+// Skill reference catalog (docs list|show)
+export { listSkillDocs, showSkillDoc } from './docs-catalog.js';
+export type { DocCatalogEntry, DocCatalogListResult, DocCatalogShowResult } from './docs-catalog.js';
+
 // Sessions
 export { insertSession, endSession, getSession, listSessions, getOrCreateSession } from './sessions.js';
 

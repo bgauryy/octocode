@@ -125,9 +125,9 @@ Durable knowledge store for lessons, decisions, gotchas, architecture notes, and
 | `decay_half_life_days` | Salience decay hint. |
 | `failure_signature` | Structured clustering key for `reflect mine-weakness`. |
 | `valid_from`, `valid_to`, `expired_at` | Temporal validity window. |
-| `embedding`, `embedding_model` | Optional semantic vector payload supplied by library callers through embedding helpers. The CLI and Pi recall paths do not currently generate embeddings themselves. |
+| `embedding`, `embedding_model` | Optional semantic vector payload. Library callers use `storeEmbedding` / `searchByEmbedding`. The CLI stores/ranks embeddings only when `OCTOCODE_EMBED_CMD` is set (host embedder reads stdin text, prints `{"embedding":[...],"model":"..."}`). Pi recall does not generate embeddings by default. |
 
-`memories_fts` mirrors `task_context`, `observation`, and tags for lexical recall. `memory_refs` stores file, URL, repo, and other references as normalized rows. Library callers can persist and cosine-rank embedding payloads, but shipped command-line recall remains lexical FTS plus salience unless a host explicitly wires embeddings into recall.
+`memories_fts` mirrors `task_context`, `observation`, and tags for lexical recall. `memory_refs` stores file, URL, repo, and other references as normalized rows. Default CLI recall is lexical FTS plus salience. With `OCTOCODE_EMBED_CMD`, `memory record` can persist vectors and `memory recall --semantic` can rank by cosine similarity (`mode: "semantic"`); otherwise `--semantic` warns and stays lexical.
 
 ### `tasks`
 

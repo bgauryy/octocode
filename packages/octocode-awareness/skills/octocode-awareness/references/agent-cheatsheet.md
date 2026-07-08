@@ -7,6 +7,7 @@ Canonical CLI: `node scripts/awareness.mjs` in an installed skill, or `node pack
 ```bash
 <cli> attend --workspace "$PWD" --query "<current task>" --compact
 <cli> schema commands --compact
+<cli> docs list --compact
 ```
 
 Follow `next` from `attend` when present — it is meant to be copy-runnable.
@@ -37,10 +38,12 @@ Exit code `2` on lock conflict → wait, coordinate via signal, switch files, or
 
 ```bash
 <cli> reflect record --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --task "<task>" --outcome success|partial|fail --lesson "<reusable>" --compact
+  --task "<task>" --outcome worked|partial|failed --lesson "<reusable>" --compact
 <cli> session capture --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
 <cli> maintenance digest --workspace "$PWD" --dry-run --compact
 <cli> repo inject --workspace "$PWD" --compact   # only when projections should refresh
+# then: if root AGENTS.md has no pointer to .octocode/AGENTS.md, append the short
+# block from references/repo-context-management.md (do not rewrite the whole file)
 ```
 
 ## Hard ideas
@@ -51,8 +54,39 @@ Exit code `2` on lock conflict → wait, coordinate via signal, switch files, or
 <cli> reflect record ... --duo --compact   # advisory supporter/skeptic prompts only
 ```
 
+## Agents + docs
+
+```bash
+<cli> agent register --agent-id "$OCTOCODE_AGENT_ID" --agent-name "<host>" --workspace "$PWD" --compact
+<cli> agent list --workspace "$PWD" --compact
+<cli> docs list --compact
+<cli> docs show full-flow
+<cli> docs staleness --targets-json '[{"docFile":"README.md","sourceDirs":["src"]}]' --compact
+```
+
+`docs list|show` indexes skill `references/*.md` only (not package `docs/**`).
+
+
+## Skills (install / update / lint)
+
+Sibling skill `octocode-skills` ships next to this skill (npm/dist bundle). Use it to install, update, rate, improve, or lint Agent Skills — gate every write.
+
+```bash
+# Install / refresh both skills into a host
+npx octocode skill --add --path "{{path_to_skills_location}}/octocode-awareness" --platform common --force
+npx octocode skill --add --path "{{path_to_skills_location}}/octocode-skills" --platform common --force
+
+# Lint this skill (from an installed awareness skill folder)
+node ../octocode-skills/scripts/skill-lint.mjs .
+# Or from the package tree after build:
+node packages/octocode-awareness/skills/octocode-skills/scripts/skill-lint.mjs \
+  packages/octocode-awareness/skills/octocode-awareness
+```
+
+Load `octocode-skills` when the job is skill discovery/install/lint; keep using this skill for workspace awareness.
 
 ## Code search (not bundled here)
+
 
 ```bash
 npx octocode search <dir> --tree --max-depth 2 --no-color

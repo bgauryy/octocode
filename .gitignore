@@ -29,6 +29,9 @@ coverage
 /skills/octocode-agent-communication/
 /skills/octocode-awareness/
 /skills/octocode-reflection/
+# Vendored at packages/octocode-awareness build from repo-root skills/octocode-skills.
+# Ships on npm via package files skills/**; keep out of git.
+/packages/octocode-awareness/skills/octocode-skills/
 # Build artifact regenerated from root skills/ + packages/octocode-awareness/skills/.
 /packages/octocode-pi-extension/skills/
 # Bundled skills copied into the octocode CLI package during build/prepack.

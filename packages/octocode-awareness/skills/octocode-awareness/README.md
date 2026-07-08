@@ -37,17 +37,44 @@ Awareness is the agent's situational layer:
 
 The skill uses a shared local SQLite store under the user's global Octocode home, normally `~/.octocode/memory/awareness.sqlite3`. Workspace path is the primary scope key, with optional artifact/package/service, repo, branch/ref, file path, state, and agent id filters layered under it, so the same memory layer can support multiple projects without needing a separate database per repo.
 
-The mental model is:
+### State machine (skill + CLI + hooks)
 
 ```text
-ATTEND -> CLAIM -> WORK -> COMMUNICATE -> VERIFY -> REFLECT -> PROJECT -> HOUSEKEEP -> HAND OFF
+                    ┌─ notify-deliver / sessionStart (hook) ─┐
+                    ▼                                         │
+ IDLE ──attend──▶ ATTEND ──lock acquire / pre-edit──▶ CLAIMED
+   ▲                 │                                  │
+   │                 │ memory/signal/refine             │ edit (agent)
+   │                 ▼                                  ▼
+   │              LEARN ◀──────────────────── PENDING_VERIFY
+   │                 ▲                         ▲     │
+   │                 │                         │     │ verify mark
+   │                 │                    post-edit  │
+   │                 │                         │     ▼
+   │            REFLECT ◀── reflect record ── VERIFIED
+   │                 │
+   │                 ├── session capture / signal handoff ──▶ HAND_OFF
+   │                 └── repo inject ──▶ PROJECTED (.octocode wiki)
+   │                                        │
+   └──────── digest / prune ◀───────────────┘
 ```
 
-An agent attends to current state, claims files when editing, works under that claim, communicates conflicts or decisions, records verification, reflects durable lessons, refreshes repo context when useful, cleans stale state, and leaves handoffs visible.
+| State | Skill phase | CLI | Hook reflex |
+|---|---|---|---|
+| ATTEND | Before | `attend`, `query workboard`, `signal list` | `notify-deliver` / sessionStart briefing |
+| CLAIMED | During | `lock acquire` | `pre-edit.sh` |
+| PENDING_VERIFY | After edit | (task pending) | `post-edit.sh` |
+| VERIFIED | After | `verify mark` / `verify audit` | `stop-verify.sh` blocks silent conclude |
+| REFLECT / LEARN | After | `reflect record`, `memory record` | — |
+| PROJECTED | After | `repo inject` → `.octocode/AGENTS.md` + wiki | — |
+| HAND_OFF | After / end | `session capture`, `refinement *`, `signal *` | `session-end.sh` |
+| IDLE / clean | Ongoing | `maintenance digest --dry-run`, prune | optional digest on notify |
 
-Hooks can automate parts of this lifecycle in hosts that support them. Manual use still works everywhere, which is what makes the skill portable across agents and vendors.
+Manual CLI works without hooks. Hooks only automate the same transitions. Details: `references/full-flow.md`, `references/hooks.md`.
 
-The repo context model is similar to an LLM-facing wiki, but the SQLite store stays canonical. `query <view>` reads the live store; `repo inject` regenerates the workspace `<repo>/.octocode/` folder with `AGENTS.md`, memory/gotcha/learning docs, CSV exports, a compact HTML view, and generated references for humans and agents.
+### Wiki / memory projections
+
+`query <view>` reads the live store. `repo inject` regenerates `<repo>/.octocode/` with `.octocode/AGENTS.md` (digested map), `MEMORY.md`, `GOTCHAS.md`, `LEARN.md`, `BOOKMARKS.md`, CSV, HTML, and references. Agents should keep a short pointer in root `AGENTS.md` → `.octocode/AGENTS.md` so default loaders find the map (see `references/repo-context-management.md`).
 
 ## How Users Use It
 

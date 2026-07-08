@@ -27,7 +27,7 @@ describe('skill routing boundaries', () => {
     expect(desc).toContain('hooks');
     expect(desc).toContain('locks/signals');
     expect(desc).toContain('reflection');
-    expect(text).toContain('Trigger this skill for shared repo work');
+    expect(text).toMatch(/Use for shared-repo awareness|Trigger this skill for shared repo work/);
     expect(text).toContain('schema commands --compact');
     expect(text).toContain('signal publish|reply|ack|resolve');
     expect(text).toContain('Installation / Init Flow');
@@ -35,7 +35,10 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('hooks install --host codex');
     expect(text).toContain('Codex/Cursor/Pi need host wiring');
     expect(text).toContain('agent-cheatsheet.md');
-    expect(text).toContain('Agent smoke');
+    expect(text).toMatch(/Agent smoke|Smoke:/);
+    expect(text).toContain('octocode-skills');
+    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-skills/SKILL.md'))).toBe(true);
+    expect(existsSync(resolve(PACKAGE_ROOT, 'skills/octocode-skills/scripts/skill-lint.mjs'))).toBe(true);
   });
 
   it('does not ship retired routing stub directories', () => {

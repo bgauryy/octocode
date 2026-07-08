@@ -404,6 +404,14 @@ export const schemas = {
     .strict()
     .describe("Check doc staleness."),
 
+  docs_catalog: z
+    .object({
+      action: z.enum(["list", "show"]).default("list"),
+      name: z.string().trim().min(1).max(256).optional().describe("Skill-ref name for docs show."),
+    })
+    .strict()
+    .describe("List or show skill reference docs."),
+
   digest: z
     .object({
       retention_days: z.number().int().min(1).max(3650).default(90),
@@ -788,6 +796,9 @@ export const examples = {
     min_lines: 50,
     propose: false,
   },
+  docs_catalog: {
+    action: "list",
+  },
   digest: {
     retention_days: 90,
     refinement_handoff_retention_days: 7,
@@ -905,7 +916,7 @@ const listableSchemas = [
   "pre_flight_intent", "wait_for_lock", "prune_stale_locks", "release_file_lock", "verify", "audit_unverified",
   "forget_memory", "refinement", "refine_query", "refine_delete",
   "agent_registry", "agent_signal", "signal_prune",
-  "mine_weakness", "doc_staleness", "digest", "reflect",
+  "mine_weakness", "doc_staleness", "docs_catalog", "digest", "reflect",
 ];
 
 const commandIndex = [
@@ -937,6 +948,8 @@ const commandIndex = [
   { command: "reflect record", schema: "reflect", use: "Record outcome and lessons after work.", example: 'octocode-awareness reflect record --agent-id agent --task "fix CLI" --outcome worked --lesson "lesson" --compact' },
   { command: "reflect mine-weakness", schema: "mine_weakness", use: "Find recurring failure clusters.", example: 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact' },
   { command: "reflect export-harness", schema: "export_harness", use: "Preview harness guidance candidates from memories.", example: 'octocode-awareness reflect export-harness --workspace "$PWD" --compact' },
+  { command: "docs list", schema: "docs_catalog", use: "List skill reference docs (references/*.md).", example: "octocode-awareness docs list --compact" },
+  { command: "docs show", schema: "docs_catalog", use: "Show one skill reference by name.", example: "octocode-awareness docs show full-flow" },
   { command: "docs staleness", schema: "doc_staleness", use: "Find docs likely stale from edit activity.", example: 'octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact' },
   { command: "maintenance digest", schema: "digest", use: "Preview or run memory/signal/refinement cleanup.", example: 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
   { command: "maintenance init", schema: null, use: "Initialize the awareness DB.", example: "octocode-awareness maintenance init --compact" },

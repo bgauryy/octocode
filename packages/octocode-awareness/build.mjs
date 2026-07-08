@@ -114,10 +114,20 @@ const skillsSrcRoot  = join(__dirname, 'skills');
 const distBin     = join(__dirname, 'dist', 'bin');
 const mirroredPackageSkills = new Set([
   'octocode-awareness',
+  'octocode-skills',
 ]);
 const retiredPackageSkills = [
   'octocode-agent-communication',
   'octocode-reflection',
+];
+// Skills owned at repo-root skills/ and vendored into this package at build time.
+// Gitignored under packages/octocode-awareness/skills/ so GitHub stays clean while
+// npm `files: ["skills/**"]` still ships the built copy.
+const bundledFromRepoRoot = [
+  {
+    name: 'octocode-skills',
+    src: join(repoRoot, 'skills', 'octocode-skills'),
+  },
 ];
 const generatedSkillMirrorRoots = [agentSkillsRoot];
 
@@ -127,6 +137,24 @@ for (const skillName of retiredPackageSkills) {
   for (const mirrorRoot of generatedSkillMirrorRoots) {
     rmSync(join(mirrorRoot, skillName), { recursive: true, force: true });
   }
+}
+
+for (const bundled of bundledFromRepoRoot) {
+  const dest = join(skillsSrcRoot, bundled.name);
+  if (!existsSync(join(bundled.src, 'SKILL.md'))) {
+    if (existsSync(join(dest, 'SKILL.md'))) {
+      console.warn(`⚠ bundled ${bundled.name} source missing at ${bundled.src}; keeping existing package copy`);
+      continue;
+    }
+    throw new Error(`bundled skill missing SKILL.md: ${bundled.src}`);
+  }
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(skillsSrcRoot, { recursive: true });
+  cpSync(bundled.src, dest, {
+    recursive: true,
+    filter: (src) => !src.includes('node_modules'),
+  });
+  console.log(`✓ bundled ${bundled.name} ← ${bundled.src}`);
 }
 
 const packageSkills = [];
@@ -142,7 +170,7 @@ for (const skillName of packageSkills) {
   const packageScriptDest = join(skillSrc, 'scripts');
 
   // 1. Compiled scripts. The octocode-awareness skill owns all operational
-  // entrypoints.
+  // entrypoints. Vendored skills (e.g. octocode-skills) keep their own scripts/.
   const scriptCopies = skillName === 'octocode-awareness' ? [
     [join(distBin, 'awareness.js'), 'awareness.mjs'],
     [join(__dirname, 'scripts', 'schema.mjs'), 'schema.mjs'],
@@ -159,13 +187,15 @@ for (const skillName of packageSkills) {
     for (const [src, fileName] of scriptCopies) {
       copyFileSync(src, join(packageScriptDest, fileName));
     }
-  } else {
-    rmSync(packageScriptDest, { recursive: true, force: true });
   }
 
-  // Prune any stray copy in repo-root skills/ — no package-owned skill (mirrored
-  // or not) is ever generated there.
-  rmSync(join(skillsDestRoot, skillName), { recursive: true, force: true });
+  // Prune stale package-owned mirrors from repo-root skills/. Never delete
+  // skills that are sourced FROM repo-root (bundledFromRepoRoot) — those are
+  // the canonical upstream copies this package vendors at build time.
+  const isVendoredFromRepoRoot = bundledFromRepoRoot.some((b) => b.name === skillName);
+  if (!isVendoredFromRepoRoot) {
+    rmSync(join(skillsDestRoot, skillName), { recursive: true, force: true });
+  }
 
   if (!mirroredPackageSkills.has(skillName)) {
     // The package source is canonical. Keep generated mirror roots free of

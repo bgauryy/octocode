@@ -369,6 +369,22 @@ describe('waitForLock', () => {
     expect(result.lock_free).toBe(false);
     expect(result.conflicts?.[0]?.agent_id).toBe('holder');
   });
+
+  it('polls until the bounded wait expires when conflicts remain', () => {
+    const db = freshDb();
+    preFlightIntent(db, { agentId: 'holder', targetFiles: ['/tmp/polling-locked.ts'] });
+
+    const result = waitForLock(db, {
+      agent_id: 'waiter',
+      target_files: ['/tmp/polling-locked.ts'],
+      wait_ms: 5,
+      retry_interval_ms: 2,
+    });
+
+    expect(result.lock_free).toBe(false);
+    expect(result.waited_ms).toBeGreaterThanOrEqual(1);
+    expect(result.conflicts?.[0]?.file_path).toBe('/tmp/polling-locked.ts');
+  });
 });
 
 describe('exportHarness', () => {

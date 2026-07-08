@@ -1049,6 +1049,7 @@ describe('CLI', () => {
       session_capture: 'session capture',
       mine_weakness: 'reflect mine-weakness',
       doc_staleness: 'docs staleness',
+      docs_catalog: 'docs list',
       digest: 'maintenance digest',
       reflect: 'reflect record',
       attend: 'attend',
@@ -1062,6 +1063,7 @@ describe('CLI', () => {
       'mine_weakness',
       'digest',
       'doc_staleness',
+      'docs_catalog',
       'workspace_status',
       'export_harness',
       'audit_unverified',
@@ -1388,6 +1390,34 @@ describe('repo context projections', () => {
     } finally { rmSync(dir, { recursive: true }); }
   });
 
+  it('resolves relative query output paths against the requested workspace', () => {
+    const dir = mktemp();
+    const cwdDir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    const relOut = join('.octocode', 'awareness', 'csv', 'memories.csv');
+    const workspaceOut = join(dir, relOut);
+    try {
+      ok(db, [
+        'memory', 'record',
+        '--agent-id', 'agent-a',
+        '--workspace', dir,
+        '--task-context', 'csv awareness',
+        '--observation', 'query csv output stays with the requested workspace',
+        '--importance', '6',
+      ]);
+
+      // Relative --out must resolve against --workspace, not process cwd.
+      // Use memories (row CSV) rather than all (section-count index).
+      const result = ok(db, ['query', 'memories', '--workspace', dir, '--format', 'csv', '--out', relOut], { cwd: cwdDir });
+      expect(result['path']).toBe(workspaceOut);
+      expect(readFileSync(workspaceOut, 'utf8')).toContain('query csv output');
+      expect(existsSync(join(cwdDir, relOut))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true });
+      rmSync(cwdDir, { recursive: true });
+    }
+  });
+
   it('injects .octocode repo context without editing gitignore', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
@@ -1424,7 +1454,8 @@ describe('repo context projections', () => {
         expect.stringContaining('gitignored'),
       ]));
       expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe('.octocode\n');
-      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Octocode Repo Context');
+      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Octocode Awareness Map');
+      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Wiki And Memory Map');
       expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Projection Health');
       expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/inject-guide');
       expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'lessons.csv'), 'utf8')).toContain('DECISION');
@@ -1677,6 +1708,39 @@ describe('integration: full round-trip', () => {
       ok(db, ['reflect', 'record', '--agent-id', 'a', '--task', unique, '--outcome', 'worked']);
       const found = ok(db, ['memory', 'recall', '--query', unique, '--min-importance', '1', '--limit', '5']);
       expect(found['count'] as number).toBeGreaterThanOrEqual(1);
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('docs list returns skill-ref catalog JSON', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const listed = ok(db, ['docs', 'list', '--compact']);
+      expect(listed['count'] as number).toBeGreaterThan(0);
+      const docs = listed['docs'] as Array<Record<string, unknown>>;
+      expect(docs.some((doc) => doc['name'] === 'full-flow')).toBe(true);
+      expect(docs.every((doc) => doc['kind'] === 'skill-ref')).toBe(true);
+      expect(String(listed['next'])).toContain('docs show');
+    } finally { rmSync(dir, { recursive: true }); }
+  });
+
+  it('docs show prints markdown by default and JSON with --compact', () => {
+    const dir = mktemp();
+    const db = join(dir, 'test.sqlite3');
+    try {
+      const raw = run(db, ['docs', 'show', 'hooks']);
+      expect(raw.status).toBe(0);
+      expect(raw.stdout).toMatch(/^#/m);
+      expect(raw.parsed).toBeNull();
+
+      const compact = ok(db, ['docs', 'show', 'hooks', '--compact']);
+      expect(compact['name']).toBe('hooks');
+      expect(String(compact['content'])).toContain('#');
+      expect(compact['kind']).toBe('skill-ref');
+
+      const missing = fail(db, ['docs', 'show', 'no-such-doc-xyz', '--compact']);
+      expect(missing?.['ok']).toBe(false);
+      expect(String(missing?.['error'])).toContain('docs list');
     } finally { rmSync(dir, { recursive: true }); }
   });
 });

@@ -7,7 +7,7 @@
 
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,7 @@ import {
 import { insertMemory, getMemory, mineWeakness, forgetMemory, storeEmbedding, searchByEmbedding, loadMemoriesByIds, bumpAccess } from '../src/memory.js';
 import { resolveEmbedCommand, runHostEmbedder } from '../src/embed-host.js';
 import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
+import { listSkillDocs, showSkillDoc } from '../src/docs-catalog.js';
 import { insertRefinement, getRefinements, updateRefinement, deleteRefinement } from '../src/refinements.js';
 import { preFlightIntent, releaseFileLock } from '../src/intents.js';
 import { reflect } from '../src/reflect.js';
@@ -100,6 +101,7 @@ const KNOWN_FLAGS: Record<string, string[]> = {
   'verify': ['task_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace', 'artifact'],
   'mine-weakness': ['agent_id', 'workspace', 'artifact', 'min_count', 'limit', 'cwd'],
   'doc-staleness': ['agent_id', 'workspace', 'artifact', 'targets_json', 'min_edits', 'min_lines', 'propose', 'session_id'],
+  'docs-catalog': ['action', 'name'],
   'export-harness': ['limit', 'min_importance', 'workspace', 'artifact'],
   'query': ['view', 'query', 'limit', 'format', 'out', 'workspace', 'artifact', 'repo', 'ref', 'agent_id', 'state', 'label', 'file', 'since', 'include_bodies'],
   'attend': ['query', 'limit', 'workspace', 'artifact', 'repo', 'ref', 'file', 'include_bodies', 'explain_organ'],
@@ -167,6 +169,8 @@ const COMMAND_ROUTES: Record<string, CommandRoute> = {
   'reflect record': { command: 'reflect' },
   'reflect mine-weakness': { command: 'mine-weakness' },
   'reflect export-harness': { command: 'export-harness' },
+  'docs list': { command: 'docs-catalog', prepend: ['--action', 'list'] },
+  'docs show': { command: 'docs-catalog', prepend: ['--action', 'show'] },
   'docs staleness': { command: 'doc-staleness' },
   'maintenance digest': { command: 'digest' },
   'maintenance init': { command: 'init' },
@@ -795,9 +799,10 @@ function cmdExportHarness(db: DatabaseSync, args: ParsedArgs, dbPath: string, op
 function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const view = String(args['view'] ?? args._[0] ?? 'all');
   const format = String(args['format'] ?? 'json').toLowerCase();
+  const workspacePath = args['workspace'] ? String(args['workspace']) : process.cwd();
   const result = queryAwareness(db, {
     view,
-    workspacePath: args['workspace'] ? String(args['workspace']) : process.cwd(),
+    workspacePath,
     artifact: args['artifact'] ? String(args['artifact']) : null,
     repo: args['repo'] ? String(args['repo']) : null,
     ref: args['ref'] ? String(args['ref']) : null,
@@ -813,9 +818,10 @@ function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: Emit
 
   const outPath = args['out'] ? String(args['out']) : null;
   if (outPath) {
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, formatAwarenessQueryResult(result, format), 'utf8');
-    return emit({ db_path: dbPath, path: outPath, view: result.view, count: result.count }, 0, opts);
+    const resolvedOutPath = isAbsolute(outPath) ? resolve(outPath) : resolve(workspacePath, outPath);
+    mkdirSync(dirname(resolvedOutPath), { recursive: true });
+    writeFileSync(resolvedOutPath, formatAwarenessQueryResult(result, format), 'utf8');
+    return emit({ db_path: dbPath, path: resolvedOutPath, view: result.view, count: result.count }, 0, opts);
   }
 
   if (format === 'json') return emit({ db_path: dbPath, ...result }, 0, opts);
@@ -877,6 +883,48 @@ function cmdRepoInject(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts:
     check: flagBool(args['check']),
   });
   return emit({ db_path: dbPath, ...result }, 0, opts);
+}
+
+function cmdDocsCatalog(_db: DatabaseSync, args: ParsedArgs, _dbPath: string, opts: EmitOptions): number {
+  const action = String(args['action'] ?? args._[0] ?? 'list').trim().toLowerCase();
+  if (action === 'list') {
+    const result = listSkillDocs();
+    return emit({
+      ok: true,
+      count: result.count,
+      root: result.root,
+      docs: result.docs.map((doc) => ({
+        name: doc.name,
+        title: doc.title,
+        description: doc.description,
+        kind: doc.kind,
+        path: doc.path,
+      })),
+      next: 'octocode-awareness docs show <name> --compact',
+    }, 0, opts);
+  }
+  if (action === 'show') {
+    const name = String(args['name'] ?? args._[0] ?? '').trim();
+    if (!name) return emit({ ok: false, error: 'docs show requires a name. Run docs list --compact.' }, 1, opts);
+    const result = showSkillDoc(name);
+    if (!result.ok) {
+      return emit({ ok: false, error: result.error, suggestions: result.suggestions }, 1, opts);
+    }
+    if (opts.compact || process.env['OCTOCODE_AWARENESS_COMPACT'] === '1') {
+      return emit({
+        ok: true,
+        name: result.name,
+        title: result.title,
+        description: result.description,
+        kind: result.kind,
+        path: result.path,
+        content: result.content,
+      }, 0, opts);
+    }
+    process.stdout.write(`${result.content}${result.content.endsWith('\n') ? '' : '\n'}`);
+    return 0;
+  }
+  return emit({ ok: false, error: `unknown docs action "${action}". Use docs list|show|staleness.` }, 1, opts);
 }
 
 function cmdDocStaleness(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
@@ -1206,7 +1254,7 @@ surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = l
 start: attend, workspace status, memory recall, refinement get, signal list, query <view>
 edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
-learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
+learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs list, docs show, docs staleness
 repo context: query <view> [--format json|table|csv|markdown|html], repo inject
 hooks: hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
 utility: session capture, maintenance init, maintenance self-test, maintenance digest
@@ -1215,6 +1263,8 @@ examples:
   octocode-awareness workspace status --workspace "$PWD" --compact
   octocode-awareness attend --workspace "$PWD" --query "current task" --compact
   octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
+  octocode-awareness docs list --compact
+  octocode-awareness docs show full-flow
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
   octocode-awareness schema commands --compact
@@ -1225,12 +1275,12 @@ Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock confl
 
 const HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
-start: attend; workspace status; memory recall; refinement get; signal list
+start: attend; workspace status; memory recall; refinement get; signal list; docs list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|forget; reflect record|mine-weakness|export-harness; maintenance digest
 repo: query <view> --format json|table|csv|markdown|html; repo inject
-inspect: schema commands --compact; schema json-schema <name>; <command> --help`;
+inspect: schema commands --compact; docs list|show; schema json-schema <name>; <command> --help`;
 
 const COMMAND_TO_SCHEMA: Record<string, string> = {
   'tell-memory': 'tell_memory',
@@ -1256,6 +1306,7 @@ const COMMAND_TO_SCHEMA: Record<string, string> = {
   'session-capture': 'session_capture',
   'mine-weakness': 'mine_weakness',
   'doc-staleness': 'doc_staleness',
+  'docs-catalog': 'docs_catalog',
   'digest': 'digest',
   'reflect': 'reflect',
 };
@@ -1284,6 +1335,7 @@ const COMMAND_DISPLAY: Record<string, string> = {
   'session-capture': 'session capture',
   'mine-weakness': 'reflect mine-weakness',
   'doc-staleness': 'docs staleness',
+  'docs-catalog': 'docs list|show',
   'digest': 'maintenance digest',
   'init': 'maintenance init',
   'self-test': 'maintenance self-test',
@@ -1317,6 +1369,7 @@ const COMMAND_EXAMPLE: Record<string, string> = {
   'session-capture': 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
   'mine-weakness': 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
   'doc-staleness': 'octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact',
+  'docs-catalog': 'octocode-awareness docs list --compact',
   'digest': 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact',
   'init': 'octocode-awareness maintenance init --compact',
   'self-test': 'octocode-awareness maintenance self-test --compact',
@@ -1334,6 +1387,8 @@ const ROUTE_EXAMPLE: Record<string, string> = {
   'signal resolve': 'octocode-awareness signal resolve --agent-id agent --thread-id ntf_123 --compact',
   'agent register': 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
   'agent list': 'octocode-awareness agent list --workspace "$PWD" --compact',
+  'docs list': 'octocode-awareness docs list --compact',
+  'docs show': 'octocode-awareness docs show full-flow',
   'hooks install': 'octocode-awareness hooks install --host codex --dry-run --compact',
   'hooks check': 'octocode-awareness hooks check --host codex --strict --compact',
   'hooks remove': 'octocode-awareness hooks remove --host codex --dry-run --compact',
@@ -1370,6 +1425,7 @@ const REMOVED_COMMAND_REPLACEMENTS: Record<string, string> = {
   'reflect': 'reflect record',
   'mine-weakness': 'reflect mine-weakness',
   'doc-staleness': 'docs staleness',
+  'docs-catalog': 'docs list|show',
   'session-capture': 'session capture',
   'digest': 'maintenance digest',
   'view': 'query all --format html --out .octocode/awareness/index.html',
@@ -1414,6 +1470,12 @@ schema: octocode-awareness schema json-schema attend --compact`,
   'repo-inject': `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 schema: octocode-awareness schema json-schema repo_inject --compact`,
+  'docs-catalog': `usage: octocode-awareness docs list|show [name]
+examples:
+  octocode-awareness docs list --compact
+  octocode-awareness docs show full-flow
+  octocode-awareness docs show full-flow --compact
+schema: octocode-awareness schema json-schema docs_catalog --compact`,
   'hook-run': `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   'hooks-install': hooksInstallUsage(),
   'schema': `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
@@ -1627,6 +1689,7 @@ try {
       break;
     }
     case 'doc-staleness': exitCode = cmdDocStaleness(db, args, dbPath, opts); break;
+    case 'docs-catalog': exitCode = cmdDocsCatalog(db, args, dbPath, opts); break;
     case 'workspace-status': {
       const wsStatusResult = getWorkspaceStatus(db, {
         workspace_path: args['workspace'] as string | undefined,

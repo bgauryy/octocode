@@ -6,11 +6,11 @@ process.on('warning', (w) => {
 });
 
 // bin/awareness.ts
-import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync5, existsSync as existsSync3 } from "node:fs";
+import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync5, existsSync as existsSync4 } from "node:fs";
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { dirname as dirname5, join as join7 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, join as join8, resolve as resolve11 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/db.ts
 import { DatabaseSync } from "node:sqlite";
@@ -1789,6 +1789,106 @@ function proposeDocRefresh(db3, entry2, params) {
       }
     }
   });
+}
+
+// src/docs-catalog.ts
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename as basename2, dirname as dirname3, join as join3 } from "node:path";
+import { fileURLToPath } from "node:url";
+function packageSkillReferencesDir(cwd = process.cwd()) {
+  const here = dirname3(fileURLToPath(import.meta.url));
+  const candidates = [
+    join3(here, "..", "skills", "octocode-awareness", "references"),
+    // dist/skills
+    join3(here, "..", "..", "skills", "octocode-awareness", "references"),
+    // package root
+    join3(cwd, "packages", "octocode-awareness", "skills", "octocode-awareness", "references"),
+    join3(cwd, "skills", "octocode-awareness", "references")
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+function firstParagraph(lines, start = 0) {
+  const chunks = [];
+  let i = start;
+  while (i < lines.length && !lines[i].trim()) i++;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) break;
+    if (line.startsWith("#") || line.startsWith("```") || line.startsWith("|") || line.startsWith("- ")) break;
+    chunks.push(line);
+    i++;
+  }
+  return chunks.join(" ").replace(/\s+/g, " ").trim();
+}
+function parseDocFile(filePath) {
+  const name = basename2(filePath, ".md");
+  const raw = readFileSync(filePath, "utf8");
+  const lines = raw.split(/\r?\n/);
+  let title = name;
+  let bodyStart = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith("# ")) {
+      title = line.slice(2).trim();
+      bodyStart = i + 1;
+      break;
+    }
+  }
+  let description = firstParagraph(lines, bodyStart);
+  if (!description) {
+    const whenLine = lines.find((line) => /^(use|read|load)\s+this\b/i.test(line.trim()));
+    description = whenLine?.trim() ?? `${title} skill reference.`;
+  }
+  if (description.length > 180) description = `${description.slice(0, 177).trimEnd()}...`;
+  return {
+    name,
+    title,
+    description,
+    kind: "skill-ref",
+    path: filePath
+  };
+}
+function listSkillDocs(options = {}) {
+  const root = options.root ?? packageSkillReferencesDir(options.cwd);
+  if (!existsSync(root)) {
+    return { ok: true, count: 0, docs: [], root };
+  }
+  const docs = readdirSync(root).filter((name) => name.endsWith(".md")).sort((a, b) => a.localeCompare(b)).map((name) => parseDocFile(join3(root, name)));
+  return {
+    ok: true,
+    count: docs.length,
+    docs: docs.map((doc) => ({
+      name: doc.name,
+      title: doc.title,
+      description: doc.description,
+      kind: doc.kind,
+      path: doc.path
+    })),
+    root
+  };
+}
+function showSkillDoc(nameOrPath, options = {}) {
+  const list = listSkillDocs(options);
+  const needle = nameOrPath.replace(/\.md$/i, "").trim().toLowerCase();
+  const match = list.docs.find((doc) => doc.name.toLowerCase() === needle) ?? list.docs.find((doc) => doc.title.toLowerCase() === needle);
+  if (!match) {
+    const suggestions = list.docs.filter((doc) => doc.name.includes(needle) || doc.title.toLowerCase().includes(needle)).map((doc) => doc.name).slice(0, 5);
+    return {
+      ok: false,
+      error: `unknown doc "${nameOrPath}". Run docs list --compact.`,
+      suggestions: suggestions.length > 0 ? suggestions : list.docs.slice(0, 5).map((doc) => doc.name)
+    };
+  }
+  const content = readFileSync(match.path, "utf8");
+  return {
+    ok: true,
+    name: match.name,
+    title: match.title,
+    description: match.description,
+    kind: match.kind,
+    path: match.path,
+    content
+  };
 }
 
 // src/refinements.ts
@@ -3831,9 +3931,9 @@ function listAgents(db3, params = {}) {
 }
 
 // src/hooks-install.ts
-import { existsSync, mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname3, isAbsolute as isAbsolute3, join as join3, relative, resolve as resolve7, sep } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute3, join as join4, relative, resolve as resolve7, sep } from "node:path";
 var WRITE_MATCHER = "Write|Edit|MultiEdit|NotebookEdit|apply_patch|ApplyPatch";
 var HOSTS = /* @__PURE__ */ new Set(["claude", "codex", "cursor"]);
 function hooksInstallUsage() {
@@ -3879,13 +3979,13 @@ function targetConfig(host) {
   }
 }
 function loadSettings(settingsPath) {
-  if (!existsSync(settingsPath)) return {};
-  const raw = readFileSync(settingsPath, "utf8");
+  if (!existsSync2(settingsPath)) return {};
+  const raw = readFileSync2(settingsPath, "utf8");
   const parsed = JSON.parse(raw);
   return parsed && typeof parsed === "object" ? parsed : {};
 }
 function hookCommand(name, params) {
-  const abs = join3(params.hookDir, name);
+  const abs = join4(params.hookDir, name);
   if (params.host === "codex" || params.host === "cursor" || params.globalMode) return abs;
   const rel = relative(params.projectDir, abs);
   if (rel && !rel.startsWith("..") && !isAbsolute3(rel)) {
@@ -4039,7 +4139,7 @@ function runHooksInstall(argv, options) {
   const globalMode = flag(argv, "--global");
   const projectDir = resolve7(opt(argv, "--project-dir", cwd));
   const config = targetConfig(host);
-  const settingsPath = globalMode ? join3(home, config.dir, config.file) : join3(projectDir, config.dir, config.file);
+  const settingsPath = globalMode ? join4(home, config.dir, config.file) : join4(projectDir, config.dir, config.file);
   let settings;
   try {
     settings = loadSettings(settingsPath);
@@ -4127,7 +4227,7 @@ function runHooksInstall(argv, options) {
     };
   }
   if (changed) {
-    mkdirSync2(dirname3(settingsPath), { recursive: true });
+    mkdirSync2(dirname4(settingsPath), { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   }
   return {
@@ -4144,13 +4244,13 @@ function runHooksInstall(argv, options) {
 }
 
 // src/attend.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2, statSync } from "node:fs";
-import { join as join5, resolve as resolve9 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync3, statSync } from "node:fs";
+import { join as join6, resolve as resolve9 } from "node:path";
 
 // src/repo-context.ts
 import { spawnSync as spawnSync4 } from "node:child_process";
 import { mkdirSync as mkdirSync3, realpathSync as realpathSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { isAbsolute as isAbsolute4, join as join4, relative as relative2, resolve as resolve8 } from "node:path";
+import { isAbsolute as isAbsolute4, join as join5, relative as relative2, resolve as resolve8 } from "node:path";
 var AWARENESS_QUERY_VIEWS = [
   "all",
   "repo-profile",
@@ -5034,15 +5134,20 @@ function renderAwarenessHtml(result) {
 function writeAwarenessView(db3, params = {}) {
   const result = queryAwareness(db3, params);
   const workspacePath = scopeFromParams(params).workspacePath ?? process.cwd();
-  const outPath = resolve8(params.out ?? join4(workspacePath, ".octocode", "awareness", "index.html"));
-  mkdirSync3(join4(outPath, ".."), { recursive: true });
+  const outPath = resolveWorkspaceOutputPath(params.out, workspacePath, join5(workspacePath, ".octocode", "awareness", "index.html"));
+  mkdirSync3(join5(outPath, ".."), { recursive: true });
   writeFileSync2(outPath, renderAwarenessHtml(result), "utf8");
   return { ok: true, path: outPath, view: result.view, count: result.count };
+}
+function resolveWorkspaceOutputPath(output, workspacePath, defaultPath) {
+  const target = output?.trim() || defaultPath;
+  return isAbsolute4(target) ? resolve8(target) : resolve8(workspacePath, target);
 }
 function injectRepoContext(db3, params = {}) {
   const scope = scopeFromParams(params);
   const workspacePath = scope.workspacePath ?? process.cwd();
-  const outDir = resolve8(params.outDir ?? params.out_dir ?? join4(workspacePath, ".octocode"));
+  const rawOutDir = params.outDir ?? params.out_dir;
+  const outDir = resolveWorkspaceOutputPath(rawOutDir, workspacePath, join5(workspacePath, ".octocode"));
   const mode = normalizeMode(params.mode);
   const includeView = params.includeView ?? params.include_view ?? true;
   const check = params.check ?? true;
@@ -5053,8 +5158,8 @@ function injectRepoContext(db3, params = {}) {
   const writtenContent = {};
   const warnings = [];
   function write(relPath, content) {
-    const full = join4(outDir, relPath);
-    mkdirSync3(join4(full, ".."), { recursive: true });
+    const full = join5(outDir, relPath);
+    mkdirSync3(join5(full, ".."), { recursive: true });
     writeFileSync2(full, content, "utf8");
     writtenContent[relPath] = content;
     filesWritten.push(full);
@@ -5067,27 +5172,27 @@ function injectRepoContext(db3, params = {}) {
   write("LEARN.md", renderRowsDoc("Learning And Opportunities", sections["lessons"]?.rows ?? [], "Decisions, architecture notes, workflows, and improvement ideas.", PROJECTION_MARKDOWN_BUDGETS["LEARN.md"].max_lines));
   write("BOOKMARKS.md", renderBookmarksDoc(sections["memories"]?.rows ?? []));
   for (const view of CSV_VIEWS) {
-    write(join4("awareness", "csv", `${view}.csv`), toCsv(sections[view]?.rows ?? []));
+    write(join5("awareness", "csv", `${view}.csv`), toCsv(sections[view]?.rows ?? []));
   }
   if (includeView) {
-    write(join4("awareness", "index.html"), renderAwarenessHtml(all));
+    write(join5("awareness", "index.html"), renderAwarenessHtml(all));
   }
-  write(join4("references", "repo-map.md"), renderReferenceDoc("Repo Map", [
+  write(join5("references", "repo-map.md"), renderReferenceDoc("Repo Map", [
     "Generated overview of awareness-tracked files and activity.",
     "Use `.octocode/awareness/csv/files.csv` when filtering or sorting by file path.",
     "Use the live command `octocode-awareness query files --workspace <repo>` when freshness matters."
   ], sections["files"]?.rows ?? []));
-  write(join4("references", "commands.md"), renderReferenceDoc("Awareness Commands", [
+  write(join5("references", "commands.md"), renderReferenceDoc("Awareness Commands", [
     "`octocode-awareness query <view>` reads the SQLite store for agents and scripts.",
     "`octocode-awareness query all --format html --out .octocode/awareness/index.html` writes a static human browser view; use `npx @octocodeai/octocode-awareness` only when no local CLI exists.",
     "`octocode-awareness repo inject --out .octocode` regenerates these Markdown, CSV, and HTML projections."
   ]));
-  write(join4("references", "testing.md"), renderReferenceDoc("Testing And Verification", [
+  write(join5("references", "testing.md"), renderReferenceDoc("Testing And Verification", [
     "Treat generated memories as leads. Verify current files and command output before acting.",
     "Release locks with `verify mark` or `lock release --verified` after declared tests actually run.",
     "Record new durable failures with `reflect record --failure-signature` or `memory record --label GOTCHA`."
   ]));
-  write(join4("references", "architecture.md"), renderReferenceDoc("Architecture Notes", [
+  write(join5("references", "architecture.md"), renderReferenceDoc("Architecture Notes", [
     "The SQLite awareness DB is canonical. Files under `.octocode/` are generated projections.",
     "Keep workspace AGENTS.md concise and point agents here for repo-specific memory indexes.",
     "Do not edit generated CSV/Markdown snapshots by hand; regenerate after important memory changes."
@@ -5138,7 +5243,7 @@ function injectRepoContext(db3, params = {}) {
     files: filesWritten.map((file) => relative2(workspacePath, file)),
     warnings
   };
-  write(join4("awareness", "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+  write(join5("awareness", "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   return {
     ok: true,
     generated_at: generatedAt,
@@ -5155,67 +5260,68 @@ function renderRepoAgentsMd(all) {
   const sections = all.sections ?? {};
   const profile = sections["repo-profile"]?.rows ?? [];
   const counts = Object.fromEntries(profile.map((row) => [String(row["metric"]), row["count"] ?? 0]));
-  const gotchas = (sections["gotchas"]?.rows ?? []).slice(0, 8);
-  const lessons = (sections["lessons"]?.rows ?? []).slice(0, 8);
-  const locks = (sections["locks"]?.rows ?? []).slice(0, 8);
+  const gotchas = (sections["gotchas"]?.rows ?? []).slice(0, 5);
+  const lessons = (sections["lessons"]?.rows ?? []).slice(0, 5);
+  const locks = (sections["locks"]?.rows ?? []).slice(0, 3);
+  const lockTotal = (sections["locks"]?.rows ?? []).length;
   const projectionWarnings2 = [
-    Number(counts["active_memories"] ?? 0) > 200 ? `Active memories are high (${counts["active_memories"]}); prefer targeted recall or CSV filtering over reading full Markdown.` : null,
-    Number(counts["tasks"] ?? 0) > 500 ? `Task history is high (${counts["tasks"]}); use \`query workboard\` for grouped verification debt.` : null,
-    Number(counts["open_refinements"] ?? 0) > 40 ? `Open refinements are high (${counts["open_refinements"]}); sort/filter the CSV before promoting more follow-up work.` : null
+    Number(counts["active_memories"] ?? 0) > 200 ? `Active memories high (${counts["active_memories"]}) \u2014 prefer recall/CSV over full Markdown.` : null,
+    Number(counts["tasks"] ?? 0) > 500 ? `Task history high (${counts["tasks"]}) \u2014 use \`query workboard\`.` : null,
+    Number(counts["open_refinements"] ?? 0) > 40 ? `Open refinements high (${counts["open_refinements"]}) \u2014 filter CSV before promoting.` : null
   ].filter((item) => Boolean(item));
   const lines = [
-    "# Octocode Repo Context",
+    "# Octocode Awareness Map",
     "",
     "<!-- Generated by `octocode-awareness repo inject`. Regenerate instead of hand-editing. -->",
     "",
-    "Use the workspace `AGENTS.md` first. This file is a compact generated index over local Octocode Awareness data.",
+    "Digested awareness entrypoint. Root `AGENTS.md` should point here. SQLite is canonical; this folder is a capped wiki.",
+    "",
+    "## How To Use",
+    "",
+    "- Live: `octocode-awareness attend|query|memory recall|workspace status --workspace <repo>`.",
+    "- Wiki leads below are projections, not proof. After inject, append a root `AGENTS.md` \u2192 `.octocode/AGENTS.md` pointer if missing.",
     "",
     "## Snapshot",
     "",
-    `- Active memories: ${counts["active_memories"] ?? 0}`,
-    `- Gotchas: ${counts["gotchas"] ?? 0}`,
-    `- Lessons: ${counts["lessons"] ?? 0}`,
-    `- Active locks: ${counts["active_locks"] ?? 0}`,
-    `- Open refinements: ${counts["open_refinements"] ?? 0}`,
-    `- Open signals: ${counts["open_signals"] ?? 0}`,
+    `- Memories ${counts["active_memories"] ?? 0} \xB7 Gotchas ${counts["gotchas"] ?? 0} \xB7 Lessons ${counts["lessons"] ?? 0} \xB7 Locks ${counts["active_locks"] ?? 0} \xB7 Refinements ${counts["open_refinements"] ?? 0} \xB7 Signals ${counts["open_signals"] ?? 0}`,
+    "",
+    "## Wiki And Memory Map",
+    "",
+    "- Gotchas \u2192 `.octocode/GOTCHAS.md` \xB7 live `query gotchas` / `memory recall`",
+    "- Lessons \u2192 `.octocode/LEARN.md` \xB7 live `query lessons`",
+    "- Memory index \u2192 `.octocode/MEMORY.md` \xB7 live `memory recall --smart`",
+    "- Bookmarks \u2192 `.octocode/BOOKMARKS.md` \xB7 Files \u2192 `awareness/csv/files.csv` \xB7 Workboard \u2192 live `query workboard`",
     "",
     "## Read Before Editing",
     "",
-    "- Check `.octocode/GOTCHAS.md` for repo-specific traps.",
-    "- Check `.octocode/LEARN.md` for decisions, workflows, and improvement ideas.",
-    "- Check `.octocode/awareness/csv/files.csv` when choosing or filtering affected files.",
-    "- Query live data with `octocode-awareness query <view> --workspace <repo>` when freshness matters.",
+    "- Read GOTCHAS + LEARN; filter `awareness/csv/files.csv` for affected paths.",
+    "- Prefer live `attend` / `query` when freshness matters; `repo inject` after important memories.",
     "",
     "## Projection Health",
     "",
-    "- SQLite is canonical; Markdown, CSV, and HTML are generated projections.",
-    "- Use `.octocode/awareness/manifest.json` for row counts, caps, generation time, and budget status.",
-    "- Use `octocode-awareness query workboard --workspace <repo>` for grouped active work.",
+    "- Canonical DB: `~/.octocode/memory/awareness.sqlite3`. Manifest: `.octocode/awareness/manifest.json`.",
     ...projectionWarnings2.map((warning) => `- ${warning}`),
     ""
   ];
   if (locks.length > 0) {
     lines.push("## Active Locks", "");
     for (const lock of locks) lines.push(`- ${lock["file_path"]} - ${lock["agent_id"]} (${lock["lock_type"]})`);
+    if (lockTotal > locks.length) lines.push(`- \u2026and ${lockTotal - locks.length} more (live: \`query locks\`)`);
     lines.push("");
   }
   if (gotchas.length > 0) {
     lines.push("## Top Gotchas", "");
-    for (const row of gotchas) lines.push(`- [${row["importance"]}] ${summarize(String(row["observation"]), 180)}`);
+    for (const row of gotchas) lines.push(`- [${row["importance"]}] ${summarize(String(row["observation"]), 140)}`);
     lines.push("");
   }
   if (lessons.length > 0) {
     lines.push("## Top Lessons", "");
-    for (const row of lessons) lines.push(`- [${row["label"]}:${row["importance"]}] ${summarize(String(row["observation"]), 180)}`);
+    for (const row of lessons) lines.push(`- [${row["label"]}:${row["importance"]}] ${summarize(String(row["observation"]), 140)}`);
     lines.push("");
   }
   lines.push("## References", "");
-  lines.push("- `.octocode/MEMORY.md` - active memory index");
-  lines.push("- `.octocode/GOTCHAS.md` - gotchas and failure signatures");
-  lines.push("- `.octocode/LEARN.md` - lessons and opportunities");
-  lines.push("- `.octocode/BOOKMARKS.md` - learnable resource links and URI leads");
-  lines.push("- `.octocode/awareness/manifest.json` - generation metadata and policy warnings");
-  lines.push("- `.octocode/references/` - compact generated context references");
+  lines.push("- `.octocode/MEMORY.md` \xB7 `.octocode/GOTCHAS.md` \xB7 `.octocode/LEARN.md` \xB7 `.octocode/BOOKMARKS.md`");
+  lines.push("- `.octocode/awareness/manifest.json` \xB7 `.octocode/references/`");
   lines.push("");
   return lines.join("\n");
 }
@@ -5553,29 +5659,29 @@ function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean))];
 }
 function lineCount2(path2) {
-  if (!existsSync2(path2)) return null;
+  if (!existsSync3(path2)) return null;
   try {
-    return readFileSync2(path2, "utf8").split(/\r?\n/).length;
+    return readFileSync3(path2, "utf8").split(/\r?\n/).length;
   } catch {
     return null;
   }
 }
 function projectionStats(workspacePath) {
-  return ["AGENTS.md", "MEMORY.md", "GOTCHAS.md", "LEARN.md", "BOOKMARKS.md", join5("awareness", "manifest.json")].map((file) => {
-    const path2 = join5(workspacePath, ".octocode", file);
+  return ["AGENTS.md", "MEMORY.md", "GOTCHAS.md", "LEARN.md", "BOOKMARKS.md", join6("awareness", "manifest.json")].map((file) => {
+    const path2 = join6(workspacePath, ".octocode", file);
     let mtimeMs = null;
     try {
-      mtimeMs = existsSync2(path2) ? statSync(path2).mtimeMs : null;
+      mtimeMs = existsSync3(path2) ? statSync(path2).mtimeMs : null;
     } catch {
     }
     return { file: `.octocode/${file.replace(/\\/g, "/")}`, lines: lineCount2(path2), mtime_ms: mtimeMs };
   });
 }
 function manifestWarnings(workspacePath, stats) {
-  const manifestPath = join5(workspacePath, ".octocode", "awareness", "manifest.json");
-  if (!existsSync2(manifestPath)) return [".octocode/awareness/manifest.json missing; run repo inject when projection context is needed"];
+  const manifestPath = join6(workspacePath, ".octocode", "awareness", "manifest.json");
+  if (!existsSync3(manifestPath)) return [".octocode/awareness/manifest.json missing; run repo inject when projection context is needed"];
   try {
-    const manifest = JSON.parse(readFileSync2(manifestPath, "utf8"));
+    const manifest = JSON.parse(readFileSync3(manifestPath, "utf8"));
     const warnings = [];
     const files = manifest.files ?? [];
     if (!files.some((file) => file.endsWith("/BOOKMARKS.md") || file.endsWith("\\BOOKMARKS.md") || file === "BOOKMARKS.md")) {
@@ -5625,27 +5731,27 @@ function resourceLeads(query, workspacePath) {
   };
   if (/(awareness|homeostatic|attend|workboard|memory|wiki|task|reflection|drive|motivation|resource|creative|personality)/.test(haystack)) {
     add(
-      join5(workspacePath, ".octocode", "rfc", "homeostatic-awareness-loop", "RFC.md"),
+      join6(workspacePath, ".octocode", "rfc", "homeostatic-awareness-loop", "RFC.md"),
       "RFC goals and decision for the awareness loop"
     );
     add(
-      join5(workspacePath, ".octocode", "rfc", "homeostatic-awareness-loop", "IMPLEMENTATION.md"),
+      join6(workspacePath, ".octocode", "rfc", "homeostatic-awareness-loop", "IMPLEMENTATION.md"),
       "dependency-ordered build plan for workboard, attend, drive_state, and digest"
     );
     add(
-      join5(workspacePath, "packages", "octocode-awareness", "skills", "octocode-awareness", "references", "homeostatic-loop.md"),
+      join6(workspacePath, "packages", "octocode-awareness", "skills", "octocode-awareness", "references", "homeostatic-loop.md"),
       "compact agent-facing organ and drive map"
     );
   }
   if (/(role.?dialogue|self.?reflection|tutor|student|builder|tester|alter.?ego|debate|duo)/.test(haystack)) {
     add(
-      join5(workspacePath, "packages", "octocode-awareness", "skills", "octocode-awareness", "references", "self-reflection-dialogue.md"),
+      join6(workspacePath, "packages", "octocode-awareness", "skills", "octocode-awareness", "references", "self-reflection-dialogue.md"),
       "role-dialogue pattern for hard ideas without persona bloat"
     );
   }
   if (leads.length === 0) {
-    add(join5(workspacePath, ".octocode", "AGENTS.md"), "generated repo context entrypoint, if present");
-    add(join5(workspacePath, "AGENTS.md"), "workspace-level agent instructions");
+    add(join6(workspacePath, ".octocode", "AGENTS.md"), "generated repo context entrypoint, if present");
+    add(join6(workspacePath, "AGENTS.md"), "workspace-level agent instructions");
   }
   return leads.slice(0, 4);
 }
@@ -5830,9 +5936,9 @@ function attendAwareness(db3, params = {}) {
 // bin/hook-runner.ts
 import { spawnSync as spawnSync6 } from "node:child_process";
 import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { basename as basename2, dirname as dirname4, isAbsolute as isAbsolute5, join as join6, relative as relative3, resolve as resolve10 } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
+import { basename as basename3, dirname as dirname5, isAbsolute as isAbsolute5, join as join7, relative as relative3, resolve as resolve10 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/pi-hooks.ts
 import path from "node:path";
@@ -5913,14 +6019,14 @@ function extractPiWriteTargetPaths(toolName, input = {}, options = {}) {
 
 // bin/hook-runner.ts
 function readStdin() {
-  return new Promise((resolve11) => {
+  return new Promise((resolve12) => {
     let raw = "";
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", (chunk) => {
       raw += chunk;
     });
-    process.stdin.on("end", () => resolve11(raw));
-    process.stdin.on("error", () => resolve11(raw));
+    process.stdin.on("end", () => resolve12(raw));
+    process.stdin.on("error", () => resolve12(raw));
   });
 }
 function parsePayload(raw) {
@@ -6020,13 +6126,13 @@ function db() {
   return connectDb(resolveDbPath(null));
 }
 function hookTaskStateFile() {
-  const stateDir = join6(dirname4(resolveDbPath(null)), "hook-state");
+  const stateDir = join7(dirname5(resolveDbPath(null)), "hook-state");
   mkdirSync4(stateDir, { recursive: true });
-  return join6(stateDir, "shell-hook-tasks.json");
+  return join7(stateDir, "shell-hook-tasks.json");
 }
 function readHookTaskState() {
   try {
-    return JSON.parse(readFileSync3(hookTaskStateFile(), "utf8"));
+    return JSON.parse(readFileSync4(hookTaskStateFile(), "utf8"));
   } catch {
     return {};
   }
@@ -6269,12 +6375,12 @@ function maybeRunDigest(payload) {
   const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 36e5 : 4 * 36e5;
   const memoryHome2 = process.env.OCTOCODE_MEMORY_HOME || `${process.env.HOME ?? ""}/.octocode/memory`;
-  const markerPath = join6(memoryHome2, ".last-digest-epoch-ms");
+  const markerPath = join7(memoryHome2, ".last-digest-epoch-ms");
   try {
     const database = db();
     let last = 0;
     try {
-      last = Number(readFileSync3(markerPath, "utf8").trim() || 0);
+      last = Number(readFileSync4(markerPath, "utf8").trim() || 0);
     } catch {
       last = 0;
     }
@@ -6353,8 +6459,8 @@ async function runHookCommand(command2, rawPayload) {
 async function main() {
   return runHookCommand(process.argv[2] ?? "help");
 }
-var isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve10(process.argv[1]) : false;
-var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename2(process.argv[1])) : false;
+var isMain = process.argv[1] ? fileURLToPath2(import.meta.url) === resolve10(process.argv[1]) : false;
+var invokedAsHookRunner = process.argv[1] ? /^hook-runner\.(js|mjs|ts)$/.test(basename3(process.argv[1])) : false;
 if (isMain && invokedAsHookRunner) {
   process.exitCode = await main();
 }
@@ -6437,6 +6543,7 @@ var KNOWN_FLAGS = {
   "verify": ["task_id", "all_pending", "agent_id", "status", "message", "workspace", "artifact"],
   "mine-weakness": ["agent_id", "workspace", "artifact", "min_count", "limit", "cwd"],
   "doc-staleness": ["agent_id", "workspace", "artifact", "targets_json", "min_edits", "min_lines", "propose", "session_id"],
+  "docs-catalog": ["action", "name"],
   "export-harness": ["limit", "min_importance", "workspace", "artifact"],
   "query": ["view", "query", "limit", "format", "out", "workspace", "artifact", "repo", "ref", "agent_id", "state", "label", "file", "since", "include_bodies"],
   "attend": ["query", "limit", "workspace", "artifact", "repo", "ref", "file", "include_bodies", "explain_organ"],
@@ -6498,6 +6605,8 @@ var COMMAND_ROUTES = {
   "reflect record": { command: "reflect" },
   "reflect mine-weakness": { command: "mine-weakness" },
   "reflect export-harness": { command: "export-harness" },
+  "docs list": { command: "docs-catalog", prepend: ["--action", "list"] },
+  "docs show": { command: "docs-catalog", prepend: ["--action", "show"] },
   "docs staleness": { command: "doc-staleness" },
   "maintenance digest": { command: "digest" },
   "maintenance init": { command: "init" },
@@ -6538,19 +6647,19 @@ function selectCommand(argv) {
   return { command: UNKNOWN_COMMAND, rest: argv };
 }
 function packageSkillScriptPath(...segments) {
-  const here = dirname5(fileURLToPath2(import.meta.url));
+  const here = dirname6(fileURLToPath3(import.meta.url));
   const candidates = [
-    join7(here, "..", "skills", "octocode-awareness", "scripts"),
+    join8(here, "..", "skills", "octocode-awareness", "scripts"),
     // dist/skills/ — bundled, preferred
-    join7(here, "..", "..", "skills", "octocode-awareness", "scripts"),
+    join8(here, "..", "..", "skills", "octocode-awareness", "scripts"),
     // <packageRoot>/skills/ — source fallback
     here
     // dist/bin/ — last resort
   ];
   const scriptsDir = candidates.find(
-    (candidate) => existsSync3(join7(candidate, "schema.mjs")) || existsSync3(join7(candidate, "hooks"))
+    (candidate) => existsSync4(join8(candidate, "schema.mjs")) || existsSync4(join8(candidate, "hooks"))
   ) ?? candidates[0];
-  return join7(scriptsDir, ...segments);
+  return join8(scriptsDir, ...segments);
 }
 function valuesFor(args2, key) {
   const value = args2[key];
@@ -7004,7 +7113,7 @@ function cmdMemoryIndex(db3, args2, dbPath2, opts2) {
   const outPath = args2["out"] ? String(args2["out"]) : null;
   const targetPath = outPath ?? resolveDbPath(null).replace("awareness.sqlite3", "MEMORY.md");
   try {
-    mkdirSync5(dirname5(targetPath), { recursive: true });
+    mkdirSync5(dirname6(targetPath), { recursive: true });
     writeFileSync4(targetPath, content, "utf8");
   } catch (err) {
     return emit({ db_path: dbPath2, error: `Could not write MEMORY.md: ${err.message}` }, 1, opts2);
@@ -7053,9 +7162,10 @@ function cmdExportHarness(db3, args2, dbPath2, opts2) {
 function cmdQuery(db3, args2, dbPath2, opts2) {
   const view = String(args2["view"] ?? args2._[0] ?? "all");
   const format = String(args2["format"] ?? "json").toLowerCase();
+  const workspacePath = args2["workspace"] ? String(args2["workspace"]) : process.cwd();
   const result = queryAwareness(db3, {
     view,
-    workspacePath: args2["workspace"] ? String(args2["workspace"]) : process.cwd(),
+    workspacePath,
     artifact: args2["artifact"] ? String(args2["artifact"]) : null,
     repo: args2["repo"] ? String(args2["repo"]) : null,
     ref: args2["ref"] ? String(args2["ref"]) : null,
@@ -7070,9 +7180,10 @@ function cmdQuery(db3, args2, dbPath2, opts2) {
   });
   const outPath = args2["out"] ? String(args2["out"]) : null;
   if (outPath) {
-    mkdirSync5(dirname5(outPath), { recursive: true });
-    writeFileSync4(outPath, formatAwarenessQueryResult(result, format), "utf8");
-    return emit({ db_path: dbPath2, path: outPath, view: result.view, count: result.count }, 0, opts2);
+    const resolvedOutPath = isAbsolute6(outPath) ? resolve11(outPath) : resolve11(workspacePath, outPath);
+    mkdirSync5(dirname6(resolvedOutPath), { recursive: true });
+    writeFileSync4(resolvedOutPath, formatAwarenessQueryResult(result, format), "utf8");
+    return emit({ db_path: dbPath2, path: resolvedOutPath, view: result.view, count: result.count }, 0, opts2);
   }
   if (format === "json") return emit({ db_path: dbPath2, ...result }, 0, opts2);
   process.stdout.write(formatAwarenessQueryResult(result, format));
@@ -7130,6 +7241,47 @@ function cmdRepoInject(db3, args2, dbPath2, opts2) {
     check: flagBool(args2["check"])
   });
   return emit({ db_path: dbPath2, ...result }, 0, opts2);
+}
+function cmdDocsCatalog(_db2, args2, _dbPath, opts2) {
+  const action = String(args2["action"] ?? args2._[0] ?? "list").trim().toLowerCase();
+  if (action === "list") {
+    const result = listSkillDocs();
+    return emit({
+      ok: true,
+      count: result.count,
+      root: result.root,
+      docs: result.docs.map((doc) => ({
+        name: doc.name,
+        title: doc.title,
+        description: doc.description,
+        kind: doc.kind,
+        path: doc.path
+      })),
+      next: "octocode-awareness docs show <name> --compact"
+    }, 0, opts2);
+  }
+  if (action === "show") {
+    const name = String(args2["name"] ?? args2._[0] ?? "").trim();
+    if (!name) return emit({ ok: false, error: "docs show requires a name. Run docs list --compact." }, 1, opts2);
+    const result = showSkillDoc(name);
+    if (!result.ok) {
+      return emit({ ok: false, error: result.error, suggestions: result.suggestions }, 1, opts2);
+    }
+    if (opts2.compact || process.env["OCTOCODE_AWARENESS_COMPACT"] === "1") {
+      return emit({
+        ok: true,
+        name: result.name,
+        title: result.title,
+        description: result.description,
+        kind: result.kind,
+        path: result.path,
+        content: result.content
+      }, 0, opts2);
+    }
+    process.stdout.write(`${result.content}${result.content.endsWith("\n") ? "" : "\n"}`);
+    return 0;
+  }
+  return emit({ ok: false, error: `unknown docs action "${action}". Use docs list|show|staleness.` }, 1, opts2);
 }
 function cmdDocStaleness(db3, args2, dbPath2, opts2) {
   const rawTargets = args2["targets_json"];
@@ -7448,7 +7600,7 @@ surfaces: CLI = control plane; Agent Skill = operating loop; hooks/Pi bridge = l
 start: attend, workspace status, memory recall, refinement get, signal list, query <view>
 edit: lock acquire, lock wait, lock release, lock prune, verify mark, verify audit
 messages: signal publish, signal list, signal reply, signal ack, signal resolve, signal prune, agent register, agent list
-learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs staleness
+learning: memory record, memory forget, refinement set, refinement get, refinement delete, reflect record, reflect mine-weakness, reflect export-harness, docs list, docs show, docs staleness
 repo context: query <view> [--format json|table|csv|markdown|html], repo inject
 hooks: hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end>, hooks install|check|remove --host claude|codex|cursor
 utility: session capture, maintenance init, maintenance self-test, maintenance digest
@@ -7457,6 +7609,8 @@ examples:
   octocode-awareness workspace status --workspace "$PWD" --compact
   octocode-awareness attend --workspace "$PWD" --query "current task" --compact
   octocode-awareness memory recall --query "current task" --workspace "$PWD" --compact
+  octocode-awareness docs list --compact
+  octocode-awareness docs show full-flow
   octocode-awareness lock acquire --agent-id agent --target-file src/file.ts --rationale "edit" --compact
   octocode-awareness signal list --agent-id agent --workspace "$PWD" --compact
   octocode-awareness schema commands --compact
@@ -7466,12 +7620,12 @@ examples:
 Run "octocode-awareness <command> --help" for command flags. Exit 2 = lock conflict or wait timeout.`;
 var HELP_COMPACT = `octocode-awareness: canonical noun/verb CLI. Use --compact for JSON.
 local-first: octocode-awareness <command>; fallback: npx @octocodeai/octocode-awareness <command>; skill: npx octocode skill --add --path {{path_to_skills_location}}/octocode-awareness --platform common; agents: Codex, Claude, Cursor, Pi
-start: attend; workspace status; memory recall; refinement get; signal list
+start: attend; workspace status; memory recall; refinement get; signal list; docs list
 edit: lock acquire|wait|release|prune; verify audit|mark
 msg: signal publish|list|reply|ack|resolve|prune; agent register|list
 learn: memory record|forget; reflect record|mine-weakness|export-harness; maintenance digest
 repo: query <view> --format json|table|csv|markdown|html; repo inject
-inspect: schema commands --compact; schema json-schema <name>; <command> --help`;
+inspect: schema commands --compact; docs list|show; schema json-schema <name>; <command> --help`;
 var COMMAND_TO_SCHEMA = {
   "tell-memory": "tell_memory",
   "get-memory": "get_memory",
@@ -7496,6 +7650,7 @@ var COMMAND_TO_SCHEMA = {
   "session-capture": "session_capture",
   "mine-weakness": "mine_weakness",
   "doc-staleness": "doc_staleness",
+  "docs-catalog": "docs_catalog",
   "digest": "digest",
   "reflect": "reflect"
 };
@@ -7523,6 +7678,7 @@ var COMMAND_DISPLAY = {
   "session-capture": "session capture",
   "mine-weakness": "reflect mine-weakness",
   "doc-staleness": "docs staleness",
+  "docs-catalog": "docs list|show",
   "digest": "maintenance digest",
   "init": "maintenance init",
   "self-test": "maintenance self-test",
@@ -7555,6 +7711,7 @@ var COMMAND_EXAMPLE = {
   "session-capture": 'octocode-awareness session capture --agent-id agent --workspace "$PWD" --reason handoff --compact',
   "mine-weakness": 'octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
   "doc-staleness": `octocode-awareness docs staleness --targets-json '[{"docFile":"README.md","sourceDirs":["src"]}]' --compact`,
+  "docs-catalog": "octocode-awareness docs list --compact",
   "digest": 'octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact',
   "init": "octocode-awareness maintenance init --compact",
   "self-test": "octocode-awareness maintenance self-test --compact",
@@ -7571,6 +7728,8 @@ var ROUTE_EXAMPLE = {
   "signal resolve": "octocode-awareness signal resolve --agent-id agent --thread-id ntf_123 --compact",
   "agent register": 'octocode-awareness agent register --agent-id agent --agent-name "Codex" --workspace "$PWD" --compact',
   "agent list": 'octocode-awareness agent list --workspace "$PWD" --compact',
+  "docs list": "octocode-awareness docs list --compact",
+  "docs show": "octocode-awareness docs show full-flow",
   "hooks install": "octocode-awareness hooks install --host codex --dry-run --compact",
   "hooks check": "octocode-awareness hooks check --host codex --strict --compact",
   "hooks remove": "octocode-awareness hooks remove --host codex --dry-run --compact",
@@ -7606,6 +7765,7 @@ var REMOVED_COMMAND_REPLACEMENTS = {
   "reflect": "reflect record",
   "mine-weakness": "reflect mine-weakness",
   "doc-staleness": "docs staleness",
+  "docs-catalog": "docs list|show",
   "session-capture": "session capture",
   "digest": "maintenance digest",
   "view": "query all --format html --out .octocode/awareness/index.html",
@@ -7649,6 +7809,12 @@ schema: octocode-awareness schema json-schema attend --compact`,
   "repo-inject": `usage: octocode-awareness repo inject [--workspace <repo>] [--out .octocode] [--mode local|share] [--no-check] [--no-include-view]
 example: octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 schema: octocode-awareness schema json-schema repo_inject --compact`,
+  "docs-catalog": `usage: octocode-awareness docs list|show [name]
+examples:
+  octocode-awareness docs list --compact
+  octocode-awareness docs show full-flow
+  octocode-awareness docs show full-flow --compact
+schema: octocode-awareness schema json-schema docs_catalog --compact`,
   "hook-run": `usage: octocode-awareness hook run <pre-edit|post-edit|harness-guard|stop-verify|notify-deliver|session-end> < hook-payload.json`,
   "hooks-install": hooksInstallUsage(),
   "schema": `usage: octocode-awareness schema commands|list|json-schema <name>|example <name>|validate <name> <json-file|->
@@ -7868,6 +8034,9 @@ try {
     case "doc-staleness":
       exitCode = cmdDocStaleness(db2, args, dbPath, opts);
       break;
+    case "docs-catalog":
+      exitCode = cmdDocsCatalog(db2, args, dbPath, opts);
+      break;
     case "workspace-status": {
       const wsStatusResult = getWorkspaceStatus(db2, {
         workspace_path: args["workspace"],
@@ -7895,11 +8064,11 @@ try {
           const wsPath = args["workspace"] ?? process.cwd();
           const artifact2 = args["artifact"];
           const { mkdirSync: mkdirSync6, writeFileSync: writeFileSync5 } = await import("node:fs");
-          const { join: join8 } = await import("node:path");
-          const docDir = join8(wsPath, ".octocode", "memory-reports");
+          const { join: join9 } = await import("node:path");
+          const docDir = join9(wsPath, ".octocode", "memory-reports");
           mkdirSync6(docDir, { recursive: true });
           const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", "-").replace(":", "");
-          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join8(docDir, `memory-report-${dateStr}.md`);
+          const docPath = typeof (args["export_doc"] ?? args["export-doc"]) === "string" ? args["export_doc"] ?? args["export-doc"] : join9(docDir, `memory-report-${dateStr}.md`);
           writeFileSync5(docPath, exportMemoryDoc(db2, { workspace_path: wsPath, artifact: artifact2 }), "utf8");
           payload["doc_path"] = docPath;
         } catch (err) {

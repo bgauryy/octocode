@@ -10,6 +10,7 @@ const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
 
 const PACKAGE_SKILLS = [
   'octocode-awareness',
+  'octocode-skills',
 ] as const;
 
 const LOCAL_AGENT_MIRROR_ROOT = resolve(REPO_ROOT, '.agents/skills');

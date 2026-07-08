@@ -258,7 +258,11 @@ describe('repo context query and projections', () => {
       expect(readFileSync(join(dir, '.octocode', 'GOTCHAS.md'), 'utf8')).toContain('Token migration order matters');
       expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('https://example.com/auth-guide');
       expect(readFileSync(join(dir, '.octocode', 'BOOKMARKS.md'), 'utf8')).toContain('repo:bgauryy/octocode-mcp');
-      expect(readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8')).toContain('Projection Health');
+      const agentsMd = readFileSync(join(dir, '.octocode', 'AGENTS.md'), 'utf8');
+      expect(agentsMd).toContain('Octocode Awareness Map');
+      expect(agentsMd).toContain('Wiki And Memory Map');
+      expect(agentsMd).toContain('Projection Health');
+      expect(agentsMd).toContain('Root `AGENTS.md` should point here');
       const manifest = JSON.parse(readFileSync(join(dir, '.octocode', 'awareness', 'manifest.json'), 'utf8')) as {
         schema_version: number;
         budgets: { markdown: Record<string, { max_lines: number; actual_lines: number; within_budget: boolean }> };
@@ -274,6 +278,39 @@ describe('repo context query and projections', () => {
       expect(readFileSync(join(dir, '.octocode', 'awareness', 'csv', 'files.csv'), 'utf8')).toContain('auth.ts');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves relative projection output paths against the requested workspace', () => {
+    const workspaceDir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-workspace-'));
+    const cwdDir = mkdtempSync(join(tmpdir(), 'oc-repo-inject-cwd-'));
+    const previousCwd = process.cwd();
+    try {
+      const { db } = seededDb(workspaceDir);
+      process.chdir(cwdDir);
+
+      const view = writeAwarenessView(db, {
+        workspacePath: workspaceDir,
+        view: 'all',
+        out: '.octocode/awareness/index.html',
+      });
+      expect(view.path).toBe(join(workspaceDir, '.octocode', 'awareness', 'index.html'));
+      expect(existsSync(view.path)).toBe(true);
+
+      const injected = injectRepoContext(db, {
+        workspacePath: workspaceDir,
+        outDir: '.octocode',
+        mode: 'local',
+        includeView: false,
+        check: false,
+      });
+      expect(injected.out_dir).toBe(join(workspaceDir, '.octocode'));
+      expect(existsSync(join(workspaceDir, '.octocode', 'AGENTS.md'))).toBe(true);
+      expect(existsSync(join(cwdDir, '.octocode', 'AGENTS.md'))).toBe(false);
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(workspaceDir, { recursive: true, force: true });
+      rmSync(cwdDir, { recursive: true, force: true });
     }
   });
 

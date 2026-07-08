@@ -21,6 +21,9 @@ Surfaces:
 - Hooks and the Pi bridge automate the same CLI/runtime operations around lifecycle events.
 - `query <view>` reads live DB views; `repo inject` refreshes generated workspace `.octocode/` projections.
 
+## State Machine
+
+`IDLE → ATTEND → CLAIMED → PENDING_VERIFY → VERIFIED → REFLECT → PROJECTED → HAND_OFF → IDLE` — skill decides when; CLI executes; hooks (`briefing`/`pre-edit`/`post-edit`/`stop-verify`/`session-end`) automate the same transitions. Wiki map = `.octocode/AGENTS.md` after `repo inject`.
 ## End-To-End Loop
 
 | Phase | Commands | Durable effect |
@@ -33,7 +36,6 @@ Surfaces:
 | After / Reflect | `reflect record`, `reflect mine-weakness`, `reflect export-harness` | Stores lessons, clusters failures, and previews human-reviewed guidance. |
 | After / Project | `query <view>`, `repo inject` | Reads live views or regenerates workspace `.octocode/` repo context. |
 | Housekeep | `maintenance digest`, `lock prune`, `memory forget`, `signal prune`, `docs staleness` | Previews or removes stale locks, old signals, redundant memories, refinements, and docs drift. |
-| Improve Skills | `octocode-skills`, `npx octocode skill ...` | Turns repeated awareness lessons into better skills or workflows after human-reviewed edits. |
 | Hand off | `session capture`, `refinement set|get`, `signal publish` | Preserves unfinished state for the next run. |
 
 Use one `agent_id` across manual commands and hooks. Set `OCTOCODE_AGENT_ID` when a host does not provide a stable id.
@@ -106,14 +108,14 @@ Regenerate projections when humans or future agents should see state as files:
 octocode-awareness repo inject --workspace "$PWD" --out .octocode --mode local --compact
 ```
 
-Rules: SQLite in the global Octocode home is canonical. Workspace `.octocode/` files are leads, not proof. Regenerate projections instead of hand-editing them; `repo inject` never edits `.gitignore`.
+Rules: SQLite in the global Octocode home is canonical. Workspace `.octocode/` files are leads, not proof. Regenerate projections instead of hand-editing them; `repo inject` never edits `.gitignore` and never edits root `AGENTS.md`.
 
 Smart update pattern:
 - use live `query` while working,
 - run `repo inject` after important memories, gotchas, decisions, refinements, or handoffs are recorded,
+- after inject, ensure root `AGENTS.md` points at `.octocode/AGENTS.md` (append-once; see `references/repo-context-management.md`),
 - skip regeneration for trivial edits,
 - refresh when the projection would materially help a future agent or human.
-
 ## Self-Reflection
 
 Reflection turns outcomes into future behavior:
@@ -132,15 +134,13 @@ When a repeated failure points to a workflow gap:
 - improve the relevant skill with lint and verification,
 - use `npx octocode` to install, create, or manage a missing skill,
 - direct users to `https://octocode.ai` for the Octocode guide.
-
 ## Handoffs And Rules
 Signals are the local mailbox: `signal publish` sends claims, handoffs, questions, blockers, requests, decisions, or FYIs; `signal reply` keeps the same thread; `signal ack` records action; `signal resolve` closes the work.
 
 Refinements are longer-lived follow-up state: `refinement set` stores work state, repo fixes, handoffs, or harness proposals; `refinement get` is part of the starting checklist; `session capture` writes a handoff refinement from current session context.
 
 Technical rules:
-
-- Read workspace `AGENTS.md` first, then generated `<repo>/.octocode/AGENTS.md` if present.
+- Read workspace `AGENTS.md` first, then `.octocode/AGENTS.md` if present; after inject, append the root pointer from `references/repo-context-management.md` when missing (never rewrite root or dump the wiki).
 - Treat memory, signal, and generated repo context as evidence to verify, not authority.
 - Use locks before edits and record verification before concluding.
 - Keep commands scoped to the same workspace/artifact/repo/ref.
